@@ -26,6 +26,36 @@ use super::{
     user_secrets::UserSecret,
 };
 
+/// The most characters a username has.
+pub const MAX_USERNAME_CHARS: usize = 64;
+
+/// Checks a new username, for every user (the owner included) and every way one is made
+/// or changed, and returns it trimmed: 1 to [`MAX_USERNAME_CHARS`] characters, no control
+/// characters and no `:`. Signing in sends `username:password` (HTTP Basic), split at the
+/// first `:`, so a username with one could never sign in. The error is for people.
+pub fn valid_username(username: &str) -> Result<String, &'static str> {
+    let username = username.trim();
+    let chars = username.chars().count();
+    if chars == 0 || chars > MAX_USERNAME_CHARS {
+        return Err("A username must have 1 to 64 characters");
+    }
+    if username.chars().any(char::is_control) {
+        return Err("A username can't have control characters");
+    }
+    if username.contains(':') {
+        return Err("A username can't have a colon (:)");
+    }
+    Ok(username.to_string())
+}
+
+/// A 400 with `message`, which is for people.
+fn bad_request(message: &str) -> Error {
+    Error {
+        kind: ErrorKind::BadRequest,
+        source: eyre!(message.to_string()),
+    }
+}
+
 #[derive(Deserialize, Serialize)]
 pub struct Claim {
     pub uid: UserId,
@@ -42,6 +72,9 @@ pub enum AuthSource {
         id: String,
         name: String,
         expires_at: Option<i64>,
+        /// Whether the key is a full one ([`api_key::ApiKeyScope::Full`]): it may do
+        /// everything its user can, including changing the account's own details.
+        full: bool,
     },
 }
 
@@ -101,6 +134,29 @@ impl User {
         }
     }
 
+    /// The owner Lodestone Host makes on its first run: no password, so nobody can sign
+    /// in with one. The Host signs in through the local claim until the owner sets a
+    /// password to share the core (`PUT /user/owner_account`).
+    pub fn owner_without_password(username: String) -> Self {
+        User {
+            uid: UserId::default(),
+            username,
+            hashed_psw: HashedPassword::none(),
+            is_owner: true,
+            is_admin: false,
+            permissions: UserPermission::default(),
+            secret: UserSecret::default(),
+            auth_source: AuthSource::Session,
+            key_all_instances: false,
+            key_console: None,
+        }
+    }
+
+    /// Whether the user has a password to sign in with.
+    pub fn has_password(&self) -> bool {
+        self.hashed_psw.is_set()
+    }
+
     /// Who to name in events and logs for what this request does: the username, plus the
     /// key's name for a request made with an API key.
     pub fn caused_by(&self) -> CausedBy {
@@ -127,6 +183,26 @@ impl User {
             });
         }
         Ok(())
+    }
+
+    /// Fails with 403 for a request made with a custom or launcher API key. Sessions and
+    /// full keys pass: for account details a full key may change (the username) but a
+    /// scoped key, which only has the permissions it lists, must not.
+    pub fn require_session_or_full_key(&self) -> Result<(), Error> {
+        if !self.acts_as_whole_account() {
+            return Err(Error {
+                kind: ErrorKind::PermissionDenied,
+                source: eyre!(api_key::FULL_KEY_REQUIRED_MESSAGE),
+            });
+        }
+        Ok(())
+    }
+
+    /// Whether the request may act as the whole account: a session or a full key. A
+    /// custom or launcher key has only the permissions it lists, so what its user did
+    /// elsewhere (their own events, say) is none of its business.
+    fn acts_as_whole_account(&self) -> bool {
+        !matches!(self.auth_source, AuthSource::ApiKey { full: false, .. })
     }
 
     /// Whether this request's API key has expired since it authenticated. Always `false`
@@ -266,16 +342,12 @@ impl User {
                         .can_write_instance_file
                         .contains(instance_id)
             }
-            // Macros and extensions run code, so they are owner only whatever the user was
-            // granted; the owner returned above.
-            UserAction::AccessMacro(_) => false,
             UserAction::CreateInstance => self.is_admin || self.permissions.can_create_instance,
             UserAction::DeleteInstance => self.is_admin || self.permissions.can_delete_instance,
             UserAction::ReadGlobalFile => self.permissions.can_read_global_file,
             UserAction::WriteGlobalFile => self.permissions.can_write_global_file,
             UserAction::ManageUser => self.is_owner,
             UserAction::ManagePermission => self.permissions.can_manage_permission,
-            UserAction::InstallExtension => false,
         }
     }
 
@@ -298,11 +370,6 @@ impl User {
     pub fn try_action(&self, action: &UserAction, safe_mode: bool) -> Result<(), Error> {
         if self.is_owner {
             return Ok(());
-        }
-        match action {
-            UserAction::AccessMacro(_) => return self.owner_only("use macros"),
-            UserAction::InstallExtension => return self.owner_only("install extensions"),
-            _ => {}
         }
         if safe_mode && !action.is_safe() {
             return Err(Error {
@@ -342,7 +409,6 @@ impl User {
                     UserAction::WriteResource(_) => {
                         eyre!("You don't have permission to write this server's resource")
                     }
-                    UserAction::AccessMacro(_) => eyre!("Only the owner can use macros"),
                     UserAction::ReadInstanceFile(_) => {
                         eyre!("You don't have permission to read this server's file")
                     }
@@ -365,9 +431,6 @@ impl User {
                     UserAction::ManagePermission => {
                         eyre!("You don't have permission to manage permission")
                     }
-                    UserAction::InstallExtension => {
-                        eyre!("Only the owner can install extensions")
-                    }
                 },
             })
         }
@@ -389,11 +452,13 @@ impl User {
             EventInner::InstanceEvent(event) => {
                 self.can_perform_action(&UserAction::ViewInstance(event.instance_uuid.clone()))
             }
-            EventInner::UserEvent(_event) => self.can_perform_action(&UserAction::ManageUser),
-            EventInner::FSEvent(_) => self.can_perform_action(&UserAction::ManageUser),
-            EventInner::MacroEvent(macro_event) => {
-                self.can_perform_action(&UserAction::AccessMacro(macro_event.instance_uuid.clone()))
+            // the user's own account changing (permissions, username, keys), so their
+            // dashboard and Host can follow it; everything else about users is for managers
+            EventInner::UserEvent(event) => {
+                (event.user_id == self.uid && self.acts_as_whole_account())
+                    || self.can_perform_action(&UserAction::ManageUser)
             }
+            EventInner::FSEvent(_) => self.can_perform_action(&UserAction::ManageUser),
             EventInner::ProgressionEvent(progression_event) => {
                 self.can_view_progression_event(progression_event, caused_by)
             }
@@ -403,48 +468,57 @@ impl User {
 
     /// Progression events can name files and carry full instance info, so only show them to
     /// the user who started the operation, to users who can view the instance it is about,
-    /// and to owners and admins.
+    /// and to owners and admins. A backup's or restore's progress is about the server's
+    /// files, so it needs `ReadInstanceFile` rather than `ViewInstance`. A custom or
+    /// launcher key isn't the user who started it: it sees only what its own permissions
+    /// allow, whoever started the operation.
     fn can_view_progression_event(
         &self,
         progression_event: &ProgressionEvent,
         caused_by: &CausedBy,
     ) -> bool {
-        // macros are owner only, and so is what they report
-        if matches!(caused_by, CausedBy::Macro { .. }) {
-            return self.is_owner;
-        }
         if self.is_owner || self.is_admin {
             return true;
         }
         if let CausedBy::User { user_id, .. } = caused_by {
-            if *user_id == self.uid {
+            if *user_id == self.uid && self.acts_as_whole_account() {
                 return true;
             }
         }
-        let instance_uuid = match progression_event.progression_event_inner() {
+        let view = |uuid: &InstanceUuid| UserAction::ViewInstance(uuid.clone());
+        let read_files = |uuid: &InstanceUuid| UserAction::ReadInstanceFile(uuid.clone());
+        let action = match progression_event.progression_event_inner() {
+            // every start value with an instance must be listed here: nothing else checks it
             ProgressionEventInner::ProgressionStart {
-                inner:
-                    Some(
-                        ProgressionStartValue::InstanceCreation { instance_uuid }
-                        | ProgressionStartValue::InstanceDelete { instance_uuid },
-                    ),
+                inner: Some(start_value),
                 ..
-            } => Some(instance_uuid),
+            } => match start_value {
+                ProgressionStartValue::InstanceCreation { instance_uuid }
+                | ProgressionStartValue::InstanceDelete { instance_uuid } => {
+                    Some(view(instance_uuid))
+                }
+                ProgressionStartValue::Backup { instance_uuid }
+                | ProgressionStartValue::Restore { instance_uuid } => {
+                    Some(read_files(instance_uuid))
+                }
+            },
             ProgressionEventInner::ProgressionEnd {
                 inner: Some(end_value),
                 ..
             } => match end_value {
-                ProgressionEndValue::InstanceCreation(info) => Some(&info.uuid),
+                ProgressionEndValue::InstanceCreation(created) => Some(view(&created.info.uuid)),
                 ProgressionEndValue::InstanceDelete { instance_uuid }
                 | ProgressionEndValue::FSOperationCompleted { instance_uuid, .. } => {
-                    Some(instance_uuid)
+                    Some(view(instance_uuid))
+                }
+                ProgressionEndValue::BackupCompleted { instance_uuid, .. }
+                | ProgressionEndValue::RestoreCompleted { instance_uuid, .. } => {
+                    Some(read_files(instance_uuid))
                 }
             },
             _ => None,
         };
-        instance_uuid.is_some_and(|instance_uuid| {
-            self.can_perform_action(&UserAction::ViewInstance(instance_uuid.clone()))
-        })
+        action.is_some_and(|action| self.can_perform_action(&action))
     }
 
     pub fn create_jwt(&self) -> Result<JwtToken, Error> {
@@ -487,7 +561,6 @@ pub enum UserAction {
     AccessSetting(InstanceUuid),
     ReadResource(InstanceUuid),
     WriteResource(InstanceUuid),
-    AccessMacro(Option<InstanceUuid>),
     ReadInstanceFile(InstanceUuid),
     WriteInstanceFile(InstanceUuid),
 
@@ -498,7 +571,6 @@ pub enum UserAction {
     WriteGlobalFile,
     ManageUser,
     ManagePermission,
-    InstallExtension,
 }
 
 impl UserAction {
@@ -515,7 +587,6 @@ impl UserAction {
             UserAction::AccessSetting(_) => true,
             UserAction::ReadResource(_) => true,
             UserAction::WriteResource(_) => false,
-            UserAction::AccessMacro(_) => false,
             UserAction::ReadInstanceFile(_) => true,
             UserAction::WriteInstanceFile(_) => false,
             UserAction::CreateInstance => true,
@@ -524,7 +595,6 @@ impl UserAction {
             UserAction::WriteGlobalFile => false,
             UserAction::ManageUser => false,
             UserAction::ManagePermission => false,
-            UserAction::InstallExtension => false,
         }
     }
 }
@@ -554,6 +624,11 @@ pub struct PublicUser {
     pub is_owner: bool,
     pub is_admin: bool,
     pub permissions: UserPermission,
+    /// Whether the user can sign in with a password. Only Lodestone Host's owner has
+    /// none, until they set one to share the core. Older cores don't send it: all their
+    /// users have one.
+    #[serde(default = "crate::global_settings::default_true")]
+    pub has_password: bool,
 }
 
 impl From<&User> for PublicUser {
@@ -564,18 +639,21 @@ impl From<&User> for PublicUser {
             is_owner: user.is_owner,
             is_admin: user.is_admin,
             permissions: user.permissions.clone(),
+            has_password: user.has_password(),
         }
     }
 }
 
 impl From<User> for PublicUser {
     fn from(user: User) -> Self {
+        let has_password = user.has_password();
         PublicUser {
             uid: user.uid,
             username: user.username,
             is_owner: user.is_owner,
             is_admin: user.is_admin,
             permissions: user.permissions,
+            has_password,
         }
     }
 }
@@ -670,7 +748,12 @@ impl UsersManager {
     pub fn get_user(&self, uid: impl AsRef<UserId>) -> Option<User> {
         self.users.get(uid.as_ref()).cloned()
     }
+    /// Adds `user`, whose username must be valid ([`valid_username`]: callers trim it
+    /// first) and not taken.
     pub async fn add_user(&mut self, user: User, caused_by: CausedBy) -> Result<(), Error> {
+        if valid_username(&user.username).map_err(bad_request)? != user.username {
+            return Err(bad_request("A username can't start or end with a space"));
+        }
         if self.get_user_by_username(&user.username).is_some() {
             return Err(Error {
                 kind: ErrorKind::BadRequest,
@@ -780,6 +863,7 @@ impl UsersManager {
         new_username: String,
         caused_by: CausedBy,
     ) -> Result<(), Error> {
+        let new_username = valid_username(&new_username).map_err(bad_request)?;
         let old_username = self
             .users
             .get_mut(uid.as_ref())
@@ -842,6 +926,11 @@ impl UsersManager {
             kind: ErrorKind::NotFound,
             source: eyre!("User id not found"),
         })?;
+        // the owner's password guards the whole core, from other devices too: the same
+        // rule as when the owner account is set up
+        if user.is_owner {
+            crate::remote_access::owner_password(&password).map_err(bad_request)?;
+        }
         let old_hash = user.hashed_psw.clone();
         let old_secret = user.secret.clone();
         if let Some(old_password) = old_password {
@@ -881,6 +970,72 @@ impl UsersManager {
                 Err(e)
             }
         }
+    }
+
+    /// Gives the owner `uid`, who has no password yet (Lodestone Host's first run), a
+    /// username and a password, `hashed` already. Fails with 409 when they have a
+    /// password: that is changed with the old one. Their sessions stay signed in.
+    pub async fn set_up_owner_account(
+        &mut self,
+        uid: &UserId,
+        username: String,
+        hashed: HashedPassword,
+        caused_by: CausedBy,
+    ) -> Result<User, Error> {
+        let username = valid_username(&username).map_err(bad_request)?;
+        let user = self.users.get(uid).ok_or_else(|| Error {
+            kind: ErrorKind::NotFound,
+            source: eyre!("User id not found"),
+        })?;
+        if !user.is_owner {
+            return Err(Error {
+                kind: ErrorKind::PermissionDenied,
+                source: eyre!("Only the owner sets up the owner account"),
+            });
+        }
+        if user.has_password() {
+            return Err(Error {
+                kind: ErrorKind::Conflict,
+                source: eyre!("The owner already has a password. Change it in your profile"),
+            });
+        }
+        if self
+            .users
+            .values()
+            .any(|other| other.username == username && other.uid != *uid)
+        {
+            return Err(Error {
+                kind: ErrorKind::BadRequest,
+                source: eyre!("Username already exist"),
+            });
+        }
+        let old = user.clone();
+        let renamed = old.username != username;
+        if let Some(user) = self.users.get_mut(uid) {
+            user.username = username.clone();
+            user.hashed_psw = hashed;
+        }
+        if let Err(e) = self.write_to_file().await {
+            self.users.insert(uid.clone(), old);
+            return Err(e);
+        }
+        if renamed {
+            self.event_broadcaster.send(Event {
+                event_inner: EventInner::UserEvent(UserEvent {
+                    user_id: uid.clone(),
+                    user_event_inner: UserEventInner::UsernameChanged {
+                        new_username: username,
+                    },
+                }),
+                details: "".to_string(),
+                snowflake: Snowflake::default(),
+                caused_by,
+            });
+        }
+        self.get_user(uid).ok_or_else(|| Error {
+            kind: ErrorKind::NotFound,
+            source: eyre!("User id not found"),
+        })
     }
 
     pub fn get_user_by_username(&self, username: impl AsRef<str>) -> Option<User> {
@@ -1213,6 +1368,11 @@ fn credential_mismatch() -> Error {
 }
 
 fn verify_password(hash: &HashedPassword, password: &str) -> Result<(), Error> {
+    if !hash.is_set() {
+        // no password matches: as slow as a wrong one, so it doesn't show
+        let _ = verify_password(&DUMMY_PASSWORD_HASH, password);
+        return Err(credential_mismatch());
+    }
     let hash = argon2::PasswordHash::new(hash.as_ref()).map_err(|e| Error {
         kind: ErrorKind::Internal,
         source: eyre!("Stored password hash is invalid: {e}"),
@@ -1370,7 +1530,8 @@ mod tests {
 
         users_manager.login("test_user1", "12345").unwrap();
 
-        users_manager
+        // the owner's new password has the owner's rule (12 to 256 characters)
+        let err = users_manager
             .change_password(
                 &test_user1.uid,
                 Some("12345"),
@@ -1378,9 +1539,58 @@ mod tests {
                 CausedBy::System,
             )
             .await
+            .unwrap_err();
+        assert!(matches!(err.kind, ErrorKind::BadRequest));
+        assert!(
+            err.source.to_string().contains("12 to 256"),
+            "{}",
+            err.source
+        );
+        users_manager.login("test_user1", "12345").unwrap();
+
+        users_manager
+            .change_password(
+                &test_user1.uid,
+                Some("12345"),
+                "a much longer password".to_string(),
+                CausedBy::System,
+            )
+            .await
             .unwrap();
 
-        users_manager.login("test_user1", "54321").unwrap();
+        users_manager
+            .login("test_user1", "a much longer password")
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn other_users_passwords_have_no_owner_minimum() {
+        use super::*;
+        let temp_dir = tempfile::TempDir::with_prefix("test_member_pw").unwrap();
+        let (tx, _rx) = EventBroadcaster::new(10);
+        let mut users_manager =
+            UsersManager::new(tx, HashMap::new(), temp_dir.path().join("users.json"));
+        let member = User::new(
+            "member".to_string(),
+            "old",
+            false,
+            false,
+            UserPermission::default(),
+        );
+        users_manager
+            .add_user(member.clone(), CausedBy::System)
+            .await
+            .unwrap();
+        users_manager
+            .change_password(
+                &member.uid,
+                Some("old"),
+                "new".to_string(),
+                CausedBy::System,
+            )
+            .await
+            .unwrap();
+        users_manager.login("member", "new").unwrap();
     }
 
     #[tokio::test]
@@ -1459,13 +1669,10 @@ mod permission_tests {
         let i = uuid("a");
         // the "unsafe permission" fields in auth/permission.rs
         assert!(!UserAction::WriteResource(i.clone()).is_safe());
-        assert!(!UserAction::AccessMacro(Some(i.clone())).is_safe());
-        assert!(!UserAction::AccessMacro(None).is_safe());
         assert!(!UserAction::WriteInstanceFile(i.clone()).is_safe());
         assert!(!UserAction::WriteGlobalFile.is_safe());
         assert!(!UserAction::ManagePermission.is_safe());
         assert!(!UserAction::ManageUser.is_safe());
-        assert!(!UserAction::InstallExtension.is_safe());
         assert!(!UserAction::ReadGlobalFile.is_safe());
 
         assert!(UserAction::ViewInstance(i.clone()).is_safe());
@@ -1689,6 +1896,161 @@ mod permission_tests {
         assert!(!viewer.can_view_event(&no_instance));
     }
 
+    /// `user` acting through an API key, full or scoped (custom or launcher).
+    fn through_key(mut user: User, full: bool) -> User {
+        user.auth_source = AuthSource::ApiKey {
+            id: "id".to_string(),
+            name: "key".to_string(),
+            expires_at: None,
+            full,
+        };
+        user
+    }
+
+    #[test]
+    fn a_scoped_key_sees_only_the_progress_its_permissions_allow() {
+        let a = uuid("a");
+        let b = uuid("b");
+        let member = user(
+            false,
+            false,
+            UserPermission {
+                can_view_instance: [a.clone()].into(),
+                can_read_instance_file: [a.clone()].into(),
+                ..Default::default()
+            },
+        );
+        let by_member = CausedBy::User {
+            user_id: member.uid.clone(),
+            user_name: member.username.clone(),
+        };
+        // the member backed up B, which their key scoped to A can't see
+        let scoped = through_key(member.clone(), false);
+        let full = through_key(member.clone(), true);
+        let (backup_b, _) = Event::new_progression_event_start(
+            "backup",
+            None,
+            Some(ProgressionStartValue::Backup {
+                instance_uuid: b.clone(),
+            }),
+            by_member.clone(),
+        );
+        assert!(member.can_view_event(&backup_b));
+        assert!(full.can_view_event(&backup_b));
+        assert!(!scoped.can_view_event(&backup_b));
+        // the key still sees A's progress through its permissions
+        let (backup_a, _) = Event::new_progression_event_start(
+            "backup",
+            None,
+            Some(ProgressionStartValue::Backup {
+                instance_uuid: a.clone(),
+            }),
+            by_member.clone(),
+        );
+        assert!(scoped.can_view_event(&backup_a));
+        // and nothing about other instances' creation, even with the full InstanceInfo
+        let (no_instance, _) = Event::new_progression_event_start("x", None, None, by_member);
+        assert!(member.can_view_event(&no_instance));
+        assert!(!scoped.can_view_event(&no_instance));
+    }
+
+    #[test]
+    fn users_see_their_own_account_change() {
+        let member = user(false, false, UserPermission::default());
+        let other = user(false, false, UserPermission::default());
+        let owner = user(true, false, UserPermission::default());
+        let changed = |user: &User| {
+            EventInner::UserEvent(UserEvent {
+                user_id: user.uid.clone(),
+                user_event_inner: UserEventInner::PermissionChanged {
+                    new_permissions: Box::default(),
+                },
+            })
+        };
+        let by_owner = CausedBy::User {
+            user_id: owner.uid.clone(),
+            user_name: owner.username.clone(),
+        };
+        assert!(member.can_view_event_parts(&changed(&member), &by_owner));
+        assert!(
+            through_key(member.clone(), true).can_view_event_parts(&changed(&member), &by_owner)
+        );
+        assert!(
+            !through_key(member.clone(), false).can_view_event_parts(&changed(&member), &by_owner)
+        );
+        // other users' changes stay for those who manage users
+        assert!(!member.can_view_event_parts(&changed(&other), &by_owner));
+        assert!(owner.can_view_event_parts(&changed(&other), &by_owner));
+    }
+
+    #[test]
+    fn usernames_are_checked() {
+        assert_eq!(valid_username("  peter  ").unwrap(), "peter");
+        assert_eq!(valid_username("Peter's Mac 2").unwrap(), "Peter's Mac 2");
+        assert_eq!(valid_username(&"é".repeat(64)).unwrap(), "é".repeat(64));
+        for bad in [
+            "",
+            "   ",
+            "home:peter",
+            ":",
+            "a\nb",
+            "tab\there",
+            &"x".repeat(65),
+        ] {
+            assert!(valid_username(bad).is_err(), "{bad:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn users_with_unusable_names_are_never_made_or_renamed() {
+        let temp_dir = tempfile::TempDir::with_prefix("test_usernames").unwrap();
+        let (tx, _rx) = EventBroadcaster::new(10);
+        let mut users_manager =
+            UsersManager::new(tx, HashMap::new(), temp_dir.path().join("users.json"));
+        for bad in ["home:peter", "", " padded ", "bell\u{7}"] {
+            let user = User::new(bad.to_string(), "pw", false, false, Default::default());
+            let err = users_manager
+                .add_user(user, CausedBy::System)
+                .await
+                .unwrap_err();
+            assert!(matches!(err.kind, ErrorKind::BadRequest), "{bad:?}");
+        }
+        assert!(users_manager.as_ref().is_empty());
+
+        let owner = User::owner_without_password("owner".to_string());
+        users_manager
+            .add_user(owner.clone(), CausedBy::System)
+            .await
+            .unwrap();
+        let err = users_manager
+            .rename_user(&owner.uid, "home:peter".to_string(), CausedBy::System)
+            .await
+            .unwrap_err();
+        assert!(matches!(err.kind, ErrorKind::BadRequest));
+        let err = users_manager
+            .set_up_owner_account(
+                &owner.uid,
+                "home:peter".to_string(),
+                hash_password("a long enough password"),
+                CausedBy::System,
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(err.kind, ErrorKind::BadRequest));
+        let owner = users_manager.get_user(&owner.uid).unwrap();
+        assert_eq!(owner.username, "owner");
+        assert!(!owner.has_password());
+        // a name is trimmed on the way in
+        users_manager
+            .rename_user(&owner.uid, "  peter ".to_string(), CausedBy::System)
+            .await
+            .unwrap();
+        assert_eq!(
+            users_manager.get_user(&owner.uid).unwrap().username,
+            "peter"
+        );
+    }
+
     #[tokio::test]
     async fn rename_rejects_taken_usernames() {
         let temp_dir = tempfile::TempDir::with_prefix("test_rename").unwrap();
@@ -1742,7 +2104,7 @@ mod permission_tests {
         let a = User::new(
             "a".to_string(),
             "old",
-            true,
+            false,
             false,
             UserPermission::default(),
         );
@@ -1843,48 +2205,13 @@ mod permission_tests {
     }
 
     #[test]
-    fn macros_and_extensions_are_owner_only() {
-        let i = uuid("a");
-        let owner = user(true, false, UserPermission::default());
-        let granted_admin = user(false, true, all_permissions(std::slice::from_ref(&i)));
-        let granted_user = user(false, false, all_permissions(std::slice::from_ref(&i)));
-        let actions = [
-            UserAction::AccessMacro(Some(i.clone())),
-            UserAction::AccessMacro(None),
-            UserAction::InstallExtension,
-        ];
-        for action in &actions {
-            for safe_mode in [true, false] {
-                assert!(owner.try_action(action, safe_mode).is_ok());
-                for non_owner in [&granted_admin, &granted_user] {
-                    assert!(!non_owner.can_perform_action(action));
-                    let err = non_owner.try_action(action, safe_mode).unwrap_err();
-                    assert!(matches!(err.kind, ErrorKind::PermissionDenied));
-                    assert!(
-                        err.source.to_string().starts_with("Only the owner can"),
-                        "{}",
-                        err.source
-                    );
-                }
-            }
-        }
-        // other granted permissions still work with safe mode off
-        assert!(granted_user
-            .try_action(&UserAction::WriteGlobalFile, false)
-            .is_ok());
-    }
-
-    #[test]
     fn owner_only_helper() {
         let owner = user(true, false, UserPermission::default());
         let admin = user(false, true, all_permissions(&[uuid("a")]));
         assert!(owner.owner_only("do it").is_ok());
-        let err = admin.owner_only("manage atom servers").unwrap_err();
+        let err = admin.owner_only("manage users").unwrap_err();
         assert!(matches!(err.kind, ErrorKind::PermissionDenied));
-        assert_eq!(
-            err.source.to_string(),
-            "Only the owner can manage atom servers"
-        );
+        assert_eq!(err.source.to_string(), "Only the owner can manage users");
     }
 
     #[test]
@@ -1939,45 +2266,73 @@ mod permission_tests {
             .remove("can_install_extension");
         let loaded: User = serde_json::from_value(json).unwrap();
         assert!(loaded.permissions.can_access_instance_macro.contains(&i));
-        assert!(!loaded.can_perform_action(&UserAction::AccessMacro(Some(i))));
-        assert!(!loaded.can_perform_action(&UserAction::InstallExtension));
     }
 
     #[test]
-    fn macro_events_are_owner_only() {
-        use crate::events::{MacroEvent, MacroEventInner};
-        use crate::macro_executor::MacroPID;
+    fn progression_and_settings_events_visibility() {
         let i = uuid("a");
-        let owner = user(true, false, UserPermission::default());
         let admin = user(false, true, all_permissions(std::slice::from_ref(&i)));
-        let macro_event = EventInner::MacroEvent(MacroEvent {
-            instance_uuid: Some(i.clone()),
-            macro_pid: MacroPID(1),
-            macro_event_inner: MacroEventInner::Started,
-        });
-        let by_macro = CausedBy::Macro {
-            macro_pid: MacroPID(1),
-        };
-        assert!(owner.can_view_event_parts(&macro_event, &by_macro));
-        assert!(!admin.can_view_event_parts(&macro_event, &by_macro));
-
         let (progression, _) = Event::new_progression_event_start(
-            "macro progress",
+            "progress",
             None,
             Some(ProgressionStartValue::InstanceCreation {
                 instance_uuid: i.clone(),
             }),
-            by_macro.clone(),
+            CausedBy::System,
         );
-        assert!(owner.can_view_event(&progression));
-        assert!(!admin.can_view_event(&progression));
-        // the same event from the system is visible to admins
-        let mut from_system = progression.clone();
-        from_system.caused_by = CausedBy::System;
-        assert!(admin.can_view_event(&from_system));
+        assert!(admin.can_view_event(&progression));
 
         // everyone is told to fetch the settings again
         let viewer = user(false, false, UserPermission::default());
         assert!(viewer.can_view_event_parts(&EventInner::GlobalSettingsChanged, &CausedBy::System));
+    }
+
+    #[test]
+    fn backup_progress_is_shown_to_users_who_may_read_the_files() {
+        let i = uuid("a");
+        let view_only = user(
+            false,
+            false,
+            UserPermission {
+                can_view_instance: std::collections::HashSet::from([i.clone()]),
+                ..Default::default()
+            },
+        );
+        let reader = user(
+            false,
+            false,
+            UserPermission {
+                can_view_instance: std::collections::HashSet::from([i.clone()]),
+                can_read_instance_file: std::collections::HashSet::from([i.clone()]),
+                ..Default::default()
+            },
+        );
+        let starts = [
+            ProgressionStartValue::Backup {
+                instance_uuid: i.clone(),
+            },
+            ProgressionStartValue::Restore {
+                instance_uuid: i.clone(),
+            },
+        ];
+        for start in starts {
+            let (event, id) =
+                Event::new_progression_event_start("p", None, Some(start), CausedBy::System);
+            assert!(reader.can_view_event(&event));
+            assert!(!view_only.can_view_event(&event));
+            let end = Event::new_progression_event_end(
+                id,
+                true,
+                Some("done"),
+                Some(ProgressionEndValue::BackupCompleted {
+                    instance_uuid: i.clone(),
+                    backup_id: None,
+                    success: true,
+                    message: "done".to_string(),
+                }),
+            );
+            assert!(reader.can_view_event(&end));
+            assert!(!view_only.can_view_event(&end));
+        }
     }
 }

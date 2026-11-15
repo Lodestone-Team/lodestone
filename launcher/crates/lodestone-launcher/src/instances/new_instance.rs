@@ -2,6 +2,11 @@
 //! search and releases / snapshots / old versions filters), the mod loaders as cards
 //! that say what each is for, and the chosen loader's version. The Modpack tab
 //! installs a Modrinth modpack instead.
+//!
+//! The same form makes "Copy with another version or loader" ([`copy`]): a new
+//! instance from an existing one, with what to take along under the pickers.
+
+mod copy;
 
 use crate::theme::px;
 use gpui::{
@@ -15,18 +20,18 @@ use launcher_core::content::{
     ContentKind,
     share::{ShareCode, ShareError},
 };
-use launcher_core::game::loaders::LoaderKind;
+use launcher_core::{game::loaders::LoaderKind, instances::Instance};
 
 use super::{Instances, Versions, loader_picker::LoaderPicker, modpack_browser::ModpackBrowser};
 use crate::components::{
-    KeyboardFocus,
+    Dropdown, KeyboardFocus,
     a11y::{Accessible, Role, Toggled},
 };
 use crate::{
     components::{
         Button, ButtonVariant, Dialog, Icon, LoadingDots, TextInput,
         motion::Animated,
-        settings::{popover, popover_panel, select_button},
+        settings::{popover_panel, select_button},
     },
     file_dialog,
     i18n::{
@@ -111,6 +116,9 @@ pub struct NewInstanceDialog {
     versions_open: bool,
     /// The dialog's own focus, which the name field is inside.
     focus: FocusHandle,
+    /// The instance a copy is made from, and what it takes, for "Copy with another
+    /// version or loader".
+    copy: Option<copy::CopyForm>,
     _observe: Vec<Subscription>,
 }
 
@@ -184,10 +192,33 @@ impl NewInstanceDialog {
             scroll: UniformListScrollHandle::new(),
             versions_open: false,
             focus: cx.focus_handle(),
+            copy: None,
             _observe: observe,
         };
         this.pick_default(cx);
         this
+    }
+
+    /// "Copy with another version or loader" for `source`: its version and loader
+    /// chosen to start with, and what to take along.
+    pub fn copy_of(instances: Entity<Instances>, source: Instance, cx: &mut Context<Self>) -> Self {
+        let mut this = Self::new(instances.clone(), cx);
+        this.selected = Some(source.game_version.clone());
+        this.loader = {
+            let game = source.game_version.clone();
+            let choice = source.loader_choice();
+            cx.new(|cx| LoaderPicker::new(instances, Some(game), choice, cx))
+        };
+        this._observe
+            .push(cx.observe(&this.loader, |_, _, cx| cx.notify()));
+        this.copy = Some(copy::CopyForm::new(source));
+        this.read_copy_contents(cx);
+        this
+    }
+
+    /// Whether the dialog makes a copy of an instance.
+    pub fn is_copy(&self) -> bool {
+        self.copy.is_some()
     }
 
     /// Fills in the fields, for the offscreen screenshots.
@@ -227,6 +258,19 @@ impl NewInstanceDialog {
     ) {
         self.loader
             .update(cx, |picker, cx| picker.set_kind(Some(kind), cx));
+    }
+
+    /// Chooses the Minecraft version `version`, for the offscreen screenshots.
+    pub fn preview_version(&mut self, version: &str, cx: &mut Context<Self>) {
+        self.selected = Some(version.to_string());
+        self.sync_loader(cx);
+        cx.notify();
+    }
+
+    /// Chooses a loader, or vanilla, as clicking its card would.
+    pub fn choose_loader_kind(&mut self, kind: Option<LoaderKind>, cx: &mut Context<Self>) {
+        self.loader
+            .update(cx, |picker, cx| picker.set_kind(kind, cx));
     }
 
     /// Opens the Minecraft version dropdown, for the offscreen screenshots.
@@ -638,12 +682,16 @@ fn code_preview(code: &ShareCode) -> impl IntoElement {
         .child(
             div()
                 .text_size(theme::text_size(text::SMALL))
-                .text_color(colors::GRAY_500)
+                .text_color(crate::theme::ink::muted())
                 .child(counts),
         )
 }
 
-fn form_row(name: impl Into<SharedString>, control: impl IntoElement) -> impl IntoElement {
+/// A dialog field: its name in a fixed-width column on the left, the control filling the rest.
+pub(super) fn form_row(
+    name: impl Into<SharedString>,
+    control: impl IntoElement,
+) -> impl IntoElement {
     div()
         .flex()
         .flex_row()
@@ -807,6 +855,9 @@ impl Render for NewInstanceDialog {
         let default_name = self.default_name(cx);
         self.name
             .update(cx, |input, cx| input.set_placeholder(default_name, cx));
+        if self.copy.is_some() {
+            return self.render_copy(cx).into_any_element();
+        }
         let switch = crate::instances::content::view::pills(
             "new-instance-mode",
             vec![
@@ -898,12 +949,83 @@ impl Render for NewInstanceDialog {
                     .variant(ButtonVariant::Ghost)
                     .on_click(cx.listener(|_, _, _, cx| cx.emit(NewInstanceDismissed))),
             )
+            .into_any_element()
+    }
+}
+
+impl NewInstanceDialog {
+    /// "Copy with another version or loader": the version form, and what to copy.
+    fn render_copy(&mut self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let entity = cx.entity();
+        let intro = self.copy_intro();
+        let form = self.version_form(cx).into_any_element();
+        let hint = self.copy_hint(cx);
+        let options = self.copy_options(cx);
+        let ready = self.copy_ready(cx);
+        let scroll = self
+            .copy
+            .as_ref()
+            .map(|form| form.scroll.clone())
+            .unwrap_or_default();
+        // The form and its choices are taller than a small window: the body scrolls,
+        // and "Make the copy" stays in view.
+        Dialog::new("copy-instance", t(M::CopyAsTitle), self.focus.clone())
+            .width(px(820.))
+            .scroll_body(scroll)
+            .on_close({
+                let entity = entity.clone();
+                move |_, cx| entity.update(cx, |_, cx| cx.emit(NewInstanceDismissed))
+            })
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_4()
+                    .text_size(theme::text_size(text::MEDIUM))
+                    .children(intro)
+                    .child(form)
+                    .children(hint)
+                    .children(options)
+                    .when_some(self.error.clone(), |this, error| {
+                        this.child(
+                            div()
+                                .text_size(theme::text_size(text::SMALL))
+                                .text_color(colors::RED_200)
+                                .child(error),
+                        )
+                    }),
+            )
+            .footer(
+                Button::new("copy-instance-start", t(M::CopyAsStart))
+                    .variant(ButtonVariant::Primary)
+                    .disabled(self.selected.is_none() || !ready)
+                    .on_click(cx.listener(|this, _, _, cx| match this.start_copy(cx) {
+                        Ok(()) => cx.emit(NewInstanceDismissed),
+                        Err(err) => {
+                            this.error = Some(err.into());
+                            cx.notify();
+                        }
+                    })),
+            )
+            .footer(
+                Button::new("cancel-copy-instance", t(CommonMsg::Cancel))
+                    .variant(ButtonVariant::Ghost)
+                    .on_click(cx.listener(|_, _, _, cx| cx.emit(NewInstanceDismissed))),
+            )
     }
 }
 
 impl NewInstanceDialog {
     /// The name an instance gets when the field is left empty, as `create` names it.
     fn default_name(&self, cx: &App) -> String {
+        if let (Some(form), Some(version)) = (&self.copy, &self.selected) {
+            let loader = launcher_core::instances::Loader::from_kind(self.loader.read(cx).kind());
+            return launcher_core::content::copy_as::default_name(
+                &form.source.name,
+                version,
+                loader,
+            );
+        }
         match self.mode {
             Mode::Modpack => self
                 .modpacks
@@ -1045,39 +1167,33 @@ impl NewInstanceDialog {
                 .child(t(M::LoadingVersionList))
                 .into_any_element(),
         };
-        div()
-            .flex()
-            .flex_col()
-            .items_start()
-            .child(
-                select_button("game-version-select", label)
-                    .aria_label(t(M::MinecraftVersion))
-                    .aria_value(chosen_text)
-                    .expandable(self.versions_open, toggle)
-                    .w(px(300.))
-                    .justify_between()
-                    .on_press(cx.listener(|this, _, window, cx| {
-                        this.versions_open = !this.versions_open;
-                        if this.versions_open {
-                            // Type to search straight away.
-                            this.search.focus_handle(cx).focus(window, cx);
-                        }
-                        cx.notify();
-                    })),
-            )
-            .when(self.versions_open, |this| {
-                let close = cx.listener(|this, _: &(), _, cx| {
-                    this.versions_open = false;
+        Dropdown::new(
+            select_button("game-version-select", label)
+                .aria_label(t(M::MinecraftVersion))
+                .aria_value(chosen_text)
+                .expandable(self.versions_open, toggle)
+                .w(px(300.))
+                .justify_between()
+                .on_press(cx.listener(|this, _, window, cx| {
+                    this.versions_open = !this.versions_open;
+                    if this.versions_open {
+                        // Type to search straight away.
+                        this.search.focus_handle(cx).focus(window, cx);
+                    }
                     cx.notify();
-                });
-                // In a box of its own under the button: the popover starts where
-                // its parent does.
-                this.child(div().child(popover(
-                    "game-version-popover",
-                    self.version_panel(cx),
-                    move |window, cx| close(&(), window, cx),
-                )))
-            })
+                })),
+        )
+        .when(self.versions_open, |this| {
+            let close = cx.listener(|this, _: &(), _, cx| {
+                this.versions_open = false;
+                cx.notify();
+            });
+            this.popover(
+                "game-version-popover",
+                self.version_panel(cx),
+                move |window, cx| close(&(), window, cx),
+            )
+        })
     }
 
     fn version_panel(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -1110,10 +1226,6 @@ impl NewInstanceDialog {
         popover_panel("game-version-list")
             .w(px(420.))
             .gap_2()
-            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
-                this.versions_open = false;
-                cx.notify();
-            }))
             .child(self.search.clone())
             .child(
                 div()

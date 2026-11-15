@@ -1,8 +1,10 @@
-//! A server's client pack in a launcher instance, through the modpack import and update
-//! ([`crate::modpack`]): "Create matching instance" imports the pack as a new instance
-//! (mods, overrides and configs, `modpack.json` and `content.json`, staged and renamed into
-//! place), and "keep mods in step" plans an update from the pack the instance has to the
-//! server's current one.
+//! The fallback for a core older than milestone 3, which serves no images (it answers 404
+//! on `…/image`): its `.mrpack` client pack in a launcher instance, through the modpack
+//! import and update ([`crate::modpack`]). "Create matching instance" imports the pack as
+//! a new instance (mods, overrides and configs, `modpack.json` and `content.json`, staged
+//! and renamed into place), and "keep mods in step" plans an update from the pack the
+//! instance has to the server's current one. Every core that serves images goes through
+//! [`super::image_sync`] instead; nothing new should call this.
 //!
 //! The server is the authority on mods: a mod of the pack the user changed is replaced
 //! (see [`update::plan_with`]), so the instance can join. Their own mods, a disabled mod
@@ -13,11 +15,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use super::{
-    matching_loader,
-    models::ServerInstance,
-    trust::{FileRole, PulledFile, file_role},
-};
+use super::{matching_loader, models::ServerInstance, trust::PulledFile};
 use crate::{
     content::{InstanceDirs, disabled_name, is_disabled_name},
     game::loaders::LoaderChoice,
@@ -67,10 +65,14 @@ pub fn loader_for(
     }
 }
 
-/// The plan to bring the instance at `dirs` in step with the server's `pack`.
+/// The plan to bring the instance at `dirs` in step with the server's `pack`. A mod a
+/// pack the user added has, which the server's pack now has too, is removed, so the
+/// game doesn't load two versions of it (see [`modpack::addon`]).
 pub fn plan(dirs: &InstanceDirs, pack: &PackInfo, loader: Option<LoaderChoice>) -> UpdatePlan {
     let current = ModpackRecord::load(&dirs.instance).unwrap_or_default();
-    update::plan_with(dirs, &current, pack, record(pack), loader, &AUTHORITATIVE)
+    let mut plan = update::plan_with(dirs, &current, pack, record(pack), loader, &AUTHORITATIVE);
+    plan.remove_also(modpack::addon::superseded(dirs, pack));
+    plan
 }
 
 fn sha1_at(path: &Path) -> Option<String> {
@@ -112,14 +114,16 @@ pub fn pack_pulls(pack: &PackInfo) -> Vec<PulledFile> {
         .iter()
         .map(|d| PulledFile {
             path: modpack::slash_path(&d.path),
-            sha1: d.sha1.clone(),
+            sha1: Some(d.sha1.clone()),
             sha512: Some(d.sha512.clone()),
+            modrinth: None,
         })
         .collect();
     files.extend(pack.overrides.iter().map(|o| PulledFile {
         path: o.path.clone(),
-        sha1: o.sha1.clone(),
+        sha1: Some(o.sha1.clone()),
         sha512: None,
+        modrinth: None,
     }));
     files
 }
@@ -130,103 +134,16 @@ pub fn plan_pulls(plan: &UpdatePlan) -> Vec<PulledFile> {
         .downloads()
         .map(|(d, path)| PulledFile {
             path: path.to_string(),
-            sha1: d.sha1.clone(),
+            sha1: Some(d.sha1.clone()),
             sha512: Some(d.sha512.clone()),
+            modrinth: None,
         })
         .collect();
     files.extend(plan.override_writes().map(|(o, path)| PulledFile {
         path: path.to_string(),
-        sha1: o.sha1.clone(),
+        sha1: Some(o.sha1.clone()),
         sha512: None,
+        modrinth: None,
     }));
     files
-}
-
-/// What bringing an instance in step changes, by path in the game folder.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct PackChanges {
-    pub added: Vec<String>,
-    pub updated: Vec<String>,
-    pub removed: Vec<String>,
-    /// Configs and other files of the pack written.
-    pub other: Vec<String>,
-}
-
-impl PackChanges {
-    pub fn from_plan(plan: &UpdatePlan) -> Self {
-        let is_mod = |p: &String| file_role(p) == FileRole::Code;
-        let mut changes = PackChanges {
-            added: plan.added.clone(),
-            updated: plan
-                .updated
-                .iter()
-                .map(|(_, new)| new.clone())
-                .chain(plan.replaced_own.iter().cloned())
-                .collect(),
-            removed: plan.removed.clone(),
-            other: Vec::new(),
-        };
-        for path in &plan.overrides_written {
-            if is_mod(path) {
-                changes.updated.push(path.clone());
-            } else {
-                changes.other.push(path.clone());
-            }
-        }
-        changes.updated.sort();
-        changes.updated.dedup();
-        changes
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.added.is_empty()
-            && self.updated.is_empty()
-            && self.removed.is_empty()
-            && self.other.is_empty()
-    }
-
-    /// "2 added, 1 updated, 1 removed, 3 other files".
-    pub fn summary(&self) -> String {
-        let mut parts = Vec::new();
-        for (count, word) in [
-            (self.added.len(), "added"),
-            (self.updated.len(), "updated"),
-            (self.removed.len(), "removed"),
-        ] {
-            if count > 0 {
-                parts.push(format!("{count} {word}"));
-            }
-        }
-        match self.other.len() {
-            0 => {}
-            1 => parts.push("1 other file".into()),
-            n => parts.push(format!("{n} other files")),
-        }
-        if parts.is_empty() {
-            "no changes".into()
-        } else {
-            parts.join(", ")
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn summaries() {
-        let changes = PackChanges {
-            added: vec!["mods/b.jar".into()],
-            updated: vec!["mods/a.jar".into()],
-            removed: vec!["mods/old.jar".into()],
-            other: vec!["config/a.toml".into(), "config/b.toml".into()],
-        };
-        assert_eq!(
-            changes.summary(),
-            "1 added, 1 updated, 1 removed, 2 other files"
-        );
-        assert_eq!(PackChanges::default().summary(), "no changes");
-        assert!(PackChanges::default().is_empty());
-    }
 }

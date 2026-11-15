@@ -18,7 +18,6 @@ use launcher_control::{ErrorObject, codes};
 use launcher_core::{
     Secret,
     cores::{ServerInstance, client::display_address, live::LauncherScope, store::SavedCore},
-    game::download::{CancelToken, Progress as Downloads},
     instances::Instance,
 };
 use serde::Deserialize;
@@ -27,7 +26,7 @@ use serde_json::{Value, json};
 use super::{
     ApiResult, Call, Control, Reply, api_error, core_error,
     instances::{failed, params, start_launch_job, tri},
-    jobs::{Cancel, JobSpec, Progress},
+    jobs::JobSpec,
     poll_until, ready,
 };
 use crate::servers::{
@@ -437,16 +436,20 @@ pub fn cores_sign_out(call: Call, cx: &mut App) -> Reply {
     })))
 }
 
-/// The page's notice, to tell a new one from the old.
-fn notice_of(servers: &Servers) -> Option<(SharedString, SharedString)> {
+/// The page's notice, to tell a new one from the old, with its error code.
+fn notice_of(servers: &Servers) -> Option<(SharedString, SharedString, &'static str)> {
     servers.notice.as_ref().map(|notice| {
         let (title, message) = notice.text();
-        (title.into(), message.into())
+        (
+            title.into(),
+            message.into(),
+            notice.code.unwrap_or(codes::FAILED),
+        )
     })
 }
 
-fn notice_error(notice: &(SharedString, SharedString)) -> ErrorObject {
-    api_error(codes::FAILED, format!("{}: {}", notice.0, notice.1))
+fn notice_error(notice: &(SharedString, SharedString, &'static str)) -> ErrorObject {
+    api_error(notice.2, format!("{}: {}", notice.0, notice.1))
 }
 
 /// Starts or stops a server and waits for the core's answer.
@@ -509,20 +512,69 @@ struct JoinParams {
     accept_advisory: bool,
 }
 
-fn advisory_json(prompt: &crate::servers::AdvisoryPrompt) -> Value {
-    let advisory = &prompt.advisory;
+/// What a server's image installs, for the control API.
+fn summary_json(summary: &launcher_core::cores::image_sync::plan::Summary) -> Value {
     json!({
+        "base": summary.base.as_ref().map(|(pack, version)| json!({ "name": pack, "version": version })),
+        "minecraft": summary.minecraft,
+        "loader": summary.loader,
+        "added_mods": summary.added_mods,
+        "server_only": summary.server_only,
+        "missing": missing_json(&summary.missing),
+        "curseforge": summary.curseforge_listed,
+        "download_bytes": summary.download_bytes,
+    })
+}
+
+/// Files a server's view can't give, with why (in English, as a word the API keeps).
+fn missing_json(missing: &[(String, launcher_core::cores::image_sync::WithheldReason)]) -> Value {
+    Value::Array(
+        missing
+            .iter()
+            .map(|(path, reason)| json!({ "path": path, "reason": reason.as_str() }))
+            .collect(),
+    )
+}
+
+/// The advisory (and what a server's image installs), for the control API.
+pub(crate) fn advisory_json(prompt: &crate::servers::AdvisoryPrompt) -> Value {
+    let mut data = json!({
         "core_name": prompt.core_name,
         "server_name": prompt.server_name,
         "update": prompt.update,
-        "on_modrinth": advisory.on_modrinth.iter().map(|m| json!({ "path": m.path, "project": m.project, "version": m.version })).collect::<Vec<_>>(),
-        "uploaded": advisory.uploaded,
-        "scripts": advisory.scripts,
-        "configs": advisory.configs,
-        "other": advisory.other,
-        "unchecked": advisory.unchecked,
         "explanation": trust_explanation(),
-    })
+    });
+    if let Some(advisory) = &prompt.advisory {
+        data["on_modrinth"] = json!(
+            advisory
+                .on_modrinth
+                .iter()
+                .map(|m| json!({ "path": m.path, "project": m.project, "version": m.version }))
+                .collect::<Vec<_>>()
+        );
+        data["uploaded"] = json!(advisory.uploaded);
+        data["scripts"] = json!(advisory.scripts);
+        data["configs"] = json!(advisory.configs);
+        data["other"] = json!(advisory.other);
+        data["unchecked"] = json!(advisory.unchecked);
+    }
+    if let Some(summary) = &prompt.summary {
+        data["summary"] = summary_json(summary);
+    }
+    data
+}
+
+/// The update prompt came back because the snapshot before the update couldn't be taken:
+/// nothing changed, and the API fails with the reason instead of going on without one (as
+/// `modpacks update` does); the window offers that.
+pub(super) fn snapshot_failed(prompt: &crate::servers::UpdatePrompt) -> Option<ErrorObject> {
+    let error = prompt.snapshot_failed.as_deref()?;
+    Some(api_error(
+        codes::FAILED,
+        format!(
+            "No snapshot could be taken before the update, so nothing has changed: {error}. Fix the problem and try again, or update without a snapshot in the window."
+        ),
+    ))
 }
 
 fn changes_json(prompt: &crate::servers::UpdatePrompt) -> Value {
@@ -533,24 +585,34 @@ fn changes_json(prompt: &crate::servers::UpdatePrompt) -> Value {
         "updated": prompt.changes.updated,
         "removed": prompt.changes.removed,
         "other": prompt.changes.other,
+        "missing": missing_json(&prompt.missing),
+        "curseforge": prompt.curseforge,
+        "loader": prompt.loader,
+        "only_lacking": prompt.only_lacking,
+        "download_bytes": prompt.download_bytes,
+        "snapshot_failed": prompt.snapshot_failed,
     })
 }
 
-/// Answers the advisory for `server_name` as `accept` says; the error when it isn't
-/// accepted.
+/// Answers the advisory for `server_name` as `accept` says: what a server's image
+/// installs (its summary, files it lacks included) when it was installed, the error when
+/// it isn't accepted.
 fn handle_advisory(
     servers: &mut Servers,
     server_name: &str,
     accept: bool,
     cx: &mut gpui::Context<Servers>,
-) -> Option<Result<(), ErrorObject>> {
+) -> Option<Result<Option<Value>, ErrorObject>> {
     let prompt = servers.advisory.current()?;
     if prompt.server_name != server_name {
         return None;
     }
-    if accept {
+    // from a trusted core, only what a new instance gets is shown: install it, and say
+    // what it gets (and lacks) in the answer
+    if accept || prompt.advisory.is_none() {
+        let summary = prompt.summary.as_ref().map(summary_json);
         servers.answer_advisory(AdvisoryAnswer::InstallOnce, cx);
-        return Some(Ok(()));
+        return Some(Ok(summary));
     }
     let data = advisory_json(prompt);
     servers.answer_advisory(AdvisoryAnswer::Cancel, cx);
@@ -602,6 +664,10 @@ pub fn join_instance(call: Call, instance: Instance, options: JoinOptions, cx: &
                 if let Some(prompt) = servers.prompt.current()
                     && prompt.instance_id == id
                 {
+                    if let Some(err) = snapshot_failed(prompt) {
+                        servers.cancel_prompt(cx);
+                        return Some(Err(err));
+                    }
                     return Some(match options.update_mods {
                         Some(update) => {
                             servers.answer_prompt(update, cx);
@@ -609,16 +675,19 @@ pub fn join_instance(call: Call, instance: Instance, options: JoinOptions, cx: &
                         }
                         None => {
                             let changes = changes_json(prompt);
+                            let message = if prompt.only_lacking {
+                                "The server has files it can't share that the player would need (see missing and curseforge); nothing on the instance changes. Tell the user; pass --update-mods or --skip-update to play without them."
+                            } else {
+                                "The server's mods changed since this instance was made. Ask the user: pass --update-mods to bring the instance in step, or --skip-update to play as it is."
+                            };
                             servers.cancel_prompt(cx);
-                            Err(api_error(
-                                codes::MODS_CHANGED,
-                                "The server's mods changed since this instance was made. Ask the user: pass --update-mods to bring the instance in step, or --skip-update to play as it is.",
-                            )
-                            .with_data(json!({ "changes": changes })))
+                            Err(api_error(codes::MODS_CHANGED, message)
+                                .with_data(json!({ "changes": changes })))
                         }
                     });
                 }
                 handle_advisory(servers, &server_name, options.accept_advisory, cx)
+                    .map(|answer| answer.map(|_| ()))
             });
             match answered {
                 Some(Err(err)) => return Some(Err(err)),
@@ -707,6 +776,8 @@ pub fn create_instance(call: Call, cx: &mut App) -> Reply {
         .update(cx, |servers, cx| servers.create_instance(&core, server, cx));
     let watch = control.clone();
     let work = cx.spawn(async move |cx| -> ApiResult {
+        // what the instance got, once the prompt showing it is answered
+        let mut summary: Option<Value> = None;
         let outcome = poll_until(
             cx,
             None,
@@ -716,8 +787,9 @@ pub fn create_instance(call: Call, cx: &mut App) -> Reply {
                 if let Some(answer) = watch.servers.update(cx, |servers, cx| {
                     handle_advisory(servers, &name, params.accept_advisory, cx)
                 }) {
-                    if let Err(err) = answer {
-                        return Some(Err(err));
+                    match answer {
+                        Err(err) => return Some(Err(err)),
+                        Ok(shown) => summary = shown.or(summary.take()),
                     }
                     return None;
                 }
@@ -743,6 +815,7 @@ pub fn create_instance(call: Call, cx: &mut App) -> Reply {
             let servers = watch.servers.read(cx);
             json!({
                 "instance": outcome,
+                "summary": summary,
                 "notice": servers.notice.as_ref().map(|notice| {
                     let (title, message) = notice.text();
                     json!({ "title": title, "message": message })
@@ -800,14 +873,41 @@ pub fn unlink(call: Call, cx: &mut App) -> Reply {
 
 #[derive(Deserialize)]
 struct HostParams {
-    username: String,
-    password: String,
+    /// Not needed on a core this computer is the owner of (`cores claim`).
+    #[serde(default)]
+    username: Option<String>,
+    /// Read from stdin by the CLI; dropped once signed in.
+    #[serde(default)]
+    password: Option<String>,
     #[serde(default)]
     name: Option<String>,
     /// MB: 2048, 4096, 6144 or 8192.
     #[serde(default)]
     max_ram: Option<u32>,
-    /// Starting the server accepts Minecraft's EULA; the dialog has a box for it.
+    /// The worlds sent, by folder in `saves/` spelt exactly (a folder the instance lacks is
+    /// refused before anything is sent); when left out, `world` alone, none with
+    /// `no_world`, or else the last played; none for `[]`.
+    #[serde(default)]
+    worlds: Option<Vec<String>>,
+    /// The server's world: one of the worlds sent (or, without `worlds`, the one sent), by
+    /// folder; the host's choice (the last played) when left out.
+    #[serde(default)]
+    world: Option<String>,
+    /// A new world for the server instead of one sent.
+    #[serde(default)]
+    no_world: bool,
+    /// The game port; the first free one from 25565 when left out.
+    #[serde(default)]
+    port: Option<u16>,
+    /// The server software when the game allows a choice: `Paper` or `Vanilla` for a
+    /// vanilla instance.
+    #[serde(default)]
+    server_software: Option<String>,
+    /// Only say what the server would get (the host's summary): nothing is made. It costs
+    /// a whole transfer (the instance and its worlds are written, sent and discarded).
+    #[serde(default)]
+    preview: bool,
+    /// Making the server accepts Minecraft's EULA; the dialog has a box for it.
     #[serde(default)]
     accept_eula: bool,
 }
@@ -817,7 +917,7 @@ pub fn host(call: Call, cx: &mut App) -> Reply {
     let control = call.control.clone();
     let instance = tri!(control.instance_param(&call, cx));
     let index = tri!(core_param(&call, control.servers.read(cx)));
-    if !params.accept_eula {
+    if !params.accept_eula && !params.preview {
         return ready(Err(api_error(
             codes::EULA_REQUIRED,
             format!("Hosting a Minecraft server accepts Minecraft's EULA ({EULA_URL}). Only the user can agree to it: ask them, then pass --accept-eula."),
@@ -833,22 +933,48 @@ pub fn host(call: Call, cx: &mut App) -> Reply {
             format!("The server's memory is one of {MEMORY_CHOICES:?} MB."),
         )));
     }
+    if params.no_world && params.world.is_some() {
+        return ready(Err(api_error(
+            codes::INVALID_PARAMS,
+            "Pass a world or no_world, not both.",
+        )));
+    }
+    // the dialog's default: the instance's name as a name the core takes
     let name = params
         .name
         .clone()
         .map(|n| n.trim().to_string())
         .filter(|n| !n.is_empty())
-        .unwrap_or_else(|| instance.name.clone());
+        .unwrap_or_else(|| lodestone_ui::sharing::server_name(&instance.name));
+    // the core's checks, before a world-sized file is written and sent for it to refuse
+    if let Some(why) = server_name_problem(&name) {
+        return ready(Err(api_error(codes::INVALID_PARAMS, why)));
+    }
     let core_uuid = control.servers.read(cx).cores[index].saved.uuid.clone();
     let stage = Arc::new(Mutex::new(String::new()));
+    let progress = Arc::new(launcher_core::cores::hosting::HostProgress::default());
+    let cancel = launcher_core::game::download::CancelToken::new();
     let request = HostCore {
         core_uuid,
-        username: params.username.clone(),
-        password: Secret::new(params.password),
+        sign_in: params
+            .username
+            .filter(|u| !u.trim().is_empty())
+            .zip(params.password.map(Secret::new)),
         name: name.clone(),
         max_ram,
-        // checked above: the user agreed
+        worlds: params.worlds,
+        world: if params.no_world {
+            Some(None)
+        } else {
+            params.world.map(Some)
+        },
+        port: params.port,
+        server_software: params.server_software,
+        preview: params.preview,
+        // checked above: the user agreed, or nothing is made
         accept_eula: params.accept_eula,
+        progress: progress.clone(),
+        cancel: cancel.clone(),
     };
     let job_stage = stage.clone();
     let id = instance.id.clone();
@@ -858,90 +984,228 @@ pub fn host(call: Call, cx: &mut App) -> Reply {
     let job = control.start_job(
         JobSpec::new("host", format!("Hosting {} as {name}", instance.name))
             .instance(&instance)
-            .stage(job_stage),
+            .stage(job_stage)
+            .progress(super::jobs::Progress::Files(progress.bytes.clone()))
+            .cancel(super::jobs::Cancel::Token(cancel)),
         work,
         cx,
     );
     control.reply_job(&call, job, cx)
 }
 
-pub fn resource_pack(call: Call, cx: &mut App) -> Reply {
-    let control = call.control.clone();
-    let instance = tri!(control.instance_param(&call, cx));
-    tri!(control.idle(&instance, cx));
-    let (core, server) = tri!(find_server(&call, control.servers.read(cx)));
-    let index = tri!(control.servers.read(cx).control_core(&core));
-    let id = instance.id.clone();
-    let task = control.servers.update(cx, |servers, cx| {
-        servers.control_download_pack(index, server, &id, cx)
-    });
-    cx.spawn(async move |_| {
-        let file = task.await?;
-        Ok(json!({ "instance": id, "file": file, "note": "Saved in the instance's resource packs; turn it on with `content enable`." }))
+/// Why the core would refuse `name` for a new server (the shared
+/// [`name_problem`](launcher_core::cores::admin::instances::name_problem)), in English,
+/// or `None`.
+fn server_name_problem(name: &str) -> Option<String> {
+    use launcher_core::cores::admin::instances::{
+        NAME_FORBIDDEN, NAME_MAX_CHARS, NameProblem, name_problem,
+    };
+    Some(match name_problem(name)? {
+        NameProblem::Empty => "The server needs a name.".into(),
+        NameProblem::TooLong => {
+            format!("The server's name can be at most {NAME_MAX_CHARS} characters long.")
+        }
+        NameProblem::ControlCharacters => "The server's name can't have control characters.".into(),
+        NameProblem::Forbidden => format!(
+            "The server's name can't have any of {}.",
+            NAME_FORBIDDEN
+                .iter()
+                .map(char::to_string)
+                .collect::<Vec<_>>()
+                .join(" ")
+        ),
     })
 }
 
 #[derive(Deserialize)]
-struct WorldParams {
-    username: String,
-    password: String,
+struct DownloadWorldParams {
+    /// Not needed on a core this computer is the owner of (`cores claim`).
+    #[serde(default)]
+    username: Option<String>,
+    /// Read from stdin by the CLI; dropped once signed in.
+    #[serde(default)]
+    password: Option<String>,
+    /// A backup's id, `"newest"` (the default) or `"new"` (backed up now).
+    #[serde(default)]
+    backup: Option<String>,
+    /// The new instance's name (default: the server's).
+    #[serde(default)]
+    name: Option<String>,
+    /// Only say what the instance would get: nothing is made. It costs a whole transfer
+    /// (the backup is downloaded to be read, then deleted).
+    #[serde(default)]
+    preview: bool,
 }
 
+/// `servers.download_world`: a server's backup as a new instance ("Download this world",
+/// `launcher_core::cores::world_download`), its world with the mods its players get. Like
+/// `snapshots.import`, an instance with mods needs confirm.
 pub fn download_world(call: Call, cx: &mut App) -> Reply {
-    let params: WorldParams = params!(call);
+    use launcher_core::cores::world_download::{self, DownloadProgress, WhichBackup};
+    use launcher_core::images::export;
+    let params: DownloadWorldParams = params!(call);
     let control = call.control.clone();
-    let instance = tri!(control.instance_param(&call, cx));
-    tri!(control.idle(&instance, cx));
-    let (core, server) = tri!(find_server(&call, control.servers.read(cx)));
-    let index = tri!(control.servers.read(cx).control_core(&core));
-    let progress = Arc::new(Downloads::default());
-    let stage = Arc::new(Mutex::new(String::new()));
-    let cancel = CancelToken::new();
-    let id = instance.id.clone();
+    let servers = control.servers.read(cx);
+    let (core_uuid, server) = tri!(find_server(&call, servers));
+    // A preview changes nothing on the core, so it never backs the server up: preview the
+    // newest backup, then download the one it names.
+    if params.preview && params.backup.as_deref() == Some("new") {
+        return ready(Err(api_error(
+            codes::INVALID_PARAMS,
+            "A preview doesn't back the server up: preview the newest backup (or one by id), then download the backup it names.",
+        )));
+    }
+    if !params.preview {
+        tri!(call.confirm(
+            "makes an instance with the server's world and the mods its players get: programs that run when the game starts. Only use servers the user trusts"
+        ));
+    }
+    let sign_in = params
+        .username
+        .filter(|u| !u.trim().is_empty())
+        .zip(params.password.map(Secret::new));
+    let to = match servers.host_to(&core_uuid, sign_in) {
+        Ok(to) => to,
+        Err(false) => return ready(Err(api_error(codes::NOT_FOUND, "That core is gone."))),
+        Err(true) => {
+            return ready(Err(api_error(
+                codes::INVALID_PARAMS,
+                "Downloading a server's world needs a username and a password (the password from stdin), or this computer connected to the core as its owner (`cores claim`).",
+            )));
+        }
+    };
+    let which = match params.backup.as_deref() {
+        None | Some("newest") => WhichBackup::Newest,
+        Some("new") => WhichBackup::New,
+        Some(id) => WhichBackup::Id(id.to_string()),
+    };
+    let instances = control.instances.read(cx);
+    let images = instances.images();
+    let downloader = instances.content_downloader();
+    let modrinth = instances.modrinth();
+    let curseforge = instances.curseforge();
+    let room = export::room_on(instances.store().root().to_path_buf());
+    let dir = instances.world_downloads_dir();
+    let preview = params.preview;
+    let name = params.name;
     let server_name = server.name.clone();
-    let task = control.servers.update(cx, |servers, cx| {
-        servers.control_download_world(
-            index,
-            server,
-            &id,
-            params.username.clone(),
-            Secret::new(params.password),
-            progress.clone(),
-            stage.clone(),
-            cancel.clone(),
-            cx,
-        )
-    });
-    let refresh = control.clone();
-    let instance_name = instance.name.clone();
-    let work = cx.spawn(async move |cx| {
-        let folder = task.await?;
-        cx.update(|cx| {
-            if let Some(view) = refresh.worlds.clone()
-                && refresh.instances.read(cx).selected().is_some_and(|s| s.id == id)
-            {
-                view.update(cx, |view, cx| view.reload(cx));
-            }
-        });
-        Ok(json!({
-            "instance": id,
-            "world": folder,
-            "message": format!("Imported as the world \"{folder}\" in {instance_name}. It's a copy: changes don't go back to the server."),
-        }))
-    });
-    let job = control.start_job(
-        JobSpec::new(
-            "world_download",
-            format!("Downloading {server_name}'s world"),
-        )
-        .instance(&instance)
-        .progress(Progress::Files(progress))
-        .stage(stage)
-        .cancel(Cancel::Token(cancel)),
-        work,
+    let server_uuid = server.uuid.clone();
+    let core_name = to.core_name.clone();
+    // the job shows the download's bytes, then the import's
+    let bytes = Arc::new(launcher_core::game::download::Progress::default());
+    let progress = DownloadProgress::with_bytes(bytes.clone());
+    super::snapshots::job_with(
+        &call,
+        format!("Downloading the world of {server_name}"),
+        None,
+        bytes,
+        move |_, cancel| {
+            futures::executor::block_on(launcher_core::http::in_http_runtime(async move {
+                let failed = |err: world_download::WorldDownloadError| {
+                    let code = match &err {
+                        world_download::WorldDownloadError::NeedsUpdate
+                        | world_download::WorldDownloadError::NoBackups => codes::UNAVAILABLE,
+                        world_download::WorldDownloadError::Forbidden
+                        | world_download::WorldDownloadError::BackupForbidden => {
+                            codes::PERMISSION_DENIED
+                        }
+                        world_download::WorldDownloadError::NoRoom { .. } => codes::FAILED,
+                        world_download::WorldDownloadError::Cancelled => codes::CANCELLED,
+                        world_download::WorldDownloadError::Core(err) => {
+                            return core_error(err.clone());
+                        }
+                        world_download::WorldDownloadError::BackupFailed(_) => codes::FAILED,
+                    };
+                    let message = match err {
+                        world_download::WorldDownloadError::NeedsUpdate => format!(
+                            "{core_name}'s Lodestone is too old to send a world. Update it on that computer, then try again."
+                        ),
+                        other => other.to_string(),
+                    };
+                    api_error(code, message)
+                };
+                let no_modrinth = || {
+                    api_error(
+                        codes::UNAVAILABLE,
+                        "Modrinth can't be reached, so the world's mods can't be downloaded.",
+                    )
+                };
+                // checked before a world-sized download, which would be thrown away
+                if !preview && modrinth.is_none() {
+                    return Err(no_modrinth());
+                }
+                let admin = to.auth.admin(to.client).await.map_err(core_error)?;
+                let downloaded = world_download::download(
+                    &admin,
+                    &server_uuid,
+                    which,
+                    &dir,
+                    &progress,
+                    cancel,
+                    &launcher_core::cores::player_image::tokio_sleep(),
+                )
+                .await
+                .map_err(failed)?;
+                if preview {
+                    let preview = export::inspect_from_host(downloaded.path(), &server_name)
+                        .map_err(super::snapshots::image_error)?;
+                    let mut value = serde_json::to_value(&preview).unwrap_or(Value::Null);
+                    value["backup"] = json!(downloaded.backup);
+                    value["exported"] = exported_json(&downloaded.exported);
+                    return Ok(value);
+                }
+                let modrinth = modrinth.ok_or_else(no_modrinth)?;
+                let imported = export::import_file(
+                    &images,
+                    export::Sources {
+                        downloader: &downloader,
+                        modrinth: &modrinth,
+                        curseforge: curseforge.as_deref(),
+                    },
+                    export::ImportRequest {
+                        name: name.as_deref(),
+                        server: Some(&server_name),
+                        ..export::ImportRequest::new(downloaded.path())
+                    },
+                    &room,
+                    &progress.bytes,
+                    cancel,
+                )
+                .await
+                .map_err(super::snapshots::image_error)?;
+                Ok(json!({
+                    "instance": imported.instance.id,
+                    "name": imported.instance.name,
+                    "backup": downloaded.backup,
+                    "left_out": imported.left_out,
+                    "from_server": imported.from_server,
+                    "server_pack": imported.server_pack,
+                    "exported": exported_json(&downloaded.exported),
+                }))
+            }))
+        },
+        |control, _, cx| {
+            control
+                .instances
+                .update(cx, |instances, cx| instances.reload(cx))
+        },
         cx,
-    );
-    control.reply_job(&call, job, cx)
+    )
+}
+
+/// What the core left out of a world's file (`left_out`, the secrets it `blanked`, the
+/// files it withheld as they hold a password or token, `secrets_withheld`, also in
+/// `left_out`, and the CurseForge files that are `not_downloadable`), each with the first
+/// names and a count. Never the file's key.
+fn exported_json(exported: &launcher_core::cores::admin::images::ExportedBackup) -> Value {
+    let list = |list: &launcher_core::cores::admin::images::NameList| json!({ "names": list.names, "count": list.count });
+    json!({
+        "left_out": list(&exported.left_out),
+        "left_out_for_players": list(&exported.left_out_for_players),
+        "blanked": list(&exported.blanked),
+        "secrets_withheld": list(&exported.secrets_withheld),
+        "not_downloadable": list(&exported.not_downloadable),
+    })
 }
 
 pub fn prompts_list(call: Call, cx: &mut App) -> Reply {
@@ -1073,4 +1337,18 @@ pub fn prompts_answer(call: Call, cx: &mut App) -> Reply {
     ready(Ok(
         json!({ "prompt": params.prompt, "answer": params.answer }),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::server_name_problem;
+
+    #[test]
+    fn a_server_name_the_core_would_refuse_is_caught_before_sending() {
+        assert_eq!(server_name_problem("Survival SMP (1.21)"), None);
+        assert_eq!(server_name_problem(&"é".repeat(100)), None);
+        for bad in ["My: world/1", "a\\b", "x\u{7}y", &"a".repeat(101)] {
+            assert!(server_name_problem(bad).is_some(), "{bad:?}");
+        }
+    }
 }

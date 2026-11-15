@@ -8,6 +8,10 @@ pub fn text(message: M) -> &'static str {
         M::Browse => "瀏覽…",
         M::Cancel => "取消",
         M::Change => "變更…",
+        M::Clear => "清除",
+        M::SearchSettings => "搜尋設定",
+        M::NoSettingsMatch => "沒有符合「{query}」的設定",
+        M::ClearSearch => "清除搜尋",
         M::Close => "關閉",
         M::Continue => "繼續",
         M::Copy => "複製",
@@ -40,6 +44,8 @@ pub fn text(message: M) -> &'static str {
         M::SignOut => "登出",
         M::Start => "啟動",
         M::Stop => "停止",
+        M::Restart => "重新啟動",
+        M::Kill => "強制停止",
         M::TryAgain => "再試一次",
         M::Update => "更新",
         M::Menu => "選單",
@@ -121,5 +127,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
     match message {
         P::Instances => ["{count} 個實例"; 2],
         P::Files => ["{count} 個檔案"; 2],
+        P::SettingsFound => ["找到 {count} 項設定"; 2],
     }
 }

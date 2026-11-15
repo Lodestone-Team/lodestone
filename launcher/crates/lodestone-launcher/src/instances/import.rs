@@ -21,6 +21,7 @@ use gpui::{
 };
 use launcher_core::{
     game::download::CancelToken,
+    images::labels,
     import::{
         self, CopyOptions, Found, IconSource, ImportProgress, ImportRequest, Launcher, Locations,
         Stage, WantedVersion, detect,
@@ -419,12 +420,13 @@ impl ImportDialog {
         let options = item.options;
         let progress = item.progress.clone();
         let cancel = item.cancel.clone();
-        let (installer, store, api) = {
+        let (installer, store, api, images) = {
             let instances = self.instances.read(cx);
             (
                 instances.installer(),
                 instances.store(),
                 instances.modrinth(),
+                instances.images(),
             )
         };
         let work = cx.background_spawn({
@@ -434,12 +436,17 @@ impl ImportDialog {
                 if cancel.is_cancelled() {
                     return Err(import::ImportError::Cancelled);
                 }
+                let label = labels::imported(request_found.source.label());
                 let request = ImportRequest {
                     found: request_found,
                     resolved,
                     options,
                 };
-                import::import(&store, &request, api.as_deref(), &this_progress, &cancel).await
+                let imported =
+                    import::import(&store, &request, api.as_deref(), &this_progress, &cancel)
+                        .await?;
+                crate::instances::record_created_later(&images, &imported.instance.id, &label);
+                Ok(imported)
             }
         });
         self.runner = Some(cx.spawn(async move |this, cx| {
@@ -629,7 +636,7 @@ impl ImportDialog {
                             .min_w_0()
                             .whitespace_normal()
                             .text_size(theme::text_size(text::CAPTION))
-                            .text_color(colors::GRAY_FADED.opacity(40))
+                            .text_color(crate::theme::ink::faint())
                             .child(launcher.root.display().to_string()),
                     )
                     .into_any_element(),
@@ -728,7 +735,7 @@ impl ImportDialog {
             .children(self.queue.iter().map(|item| {
                 let key = item.key.clone();
                 let (status, color, fraction): (String, _, Option<f32>) = match &item.state {
-                    QueueState::Waiting => (t(M::Waiting).into(), colors::GRAY_500, None),
+                    QueueState::Waiting => (t(M::Waiting).into(), crate::theme::ink::muted(), None),
                     QueueState::Importing => {
                         (t(M::FindingVersion).into(), colors::GRAY_400, Some(0.))
                     }
@@ -741,7 +748,9 @@ impl ImportDialog {
                         None,
                     ),
                     QueueState::Failed(error) => (error.to_string(), colors::RED_200, None),
-                    QueueState::Cancelled => (t(M::Cancelled).into(), colors::GRAY_500, None),
+                    QueueState::Cancelled => {
+                        (t(M::Cancelled).into(), crate::theme::ink::muted(), None)
+                    }
                 };
                 let (status, fraction) = match (&item.state, item.progress.stage()) {
                     (QueueState::Importing, Stage::Copying) => {
@@ -861,7 +870,9 @@ fn checkbox(checked: bool) -> impl IntoElement {
         })
 }
 
-fn progress_bar(fraction: f32) -> impl IntoElement {
+/// A thin bar `fraction` full (0 to 1), as the import dialogs (and the servers' dialogs)
+/// show progress.
+pub(crate) fn progress_bar(fraction: f32) -> impl IntoElement {
     div()
         .h(px(4.))
         .w_full()

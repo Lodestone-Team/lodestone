@@ -1,6 +1,6 @@
 ---
 name: lodestone-launcher
-description: Control a running Lodestone Launcher (the Minecraft launcher) with the `lodestone-launcher-cli` command line tool. Use it to list, create and configure Minecraft instances, install and update mods, resource packs, shaders and modpacks from Modrinth, launch and stop the game and read its log, back up and restore worlds, take and restore instance snapshots and share them as .lodesnap files, manage accounts and game settings, import instances from other launchers, and join, start, stop or host servers on Lodestone cores.
+description: Control a running Lodestone Launcher (the Minecraft launcher) with the `lodestone-launcher-cli` command line tool. Use it to list, create and configure Minecraft instances, install and update mods, resource packs, shaders and modpacks from Modrinth, launch and stop the game and read its log, back up and restore worlds, take, restore and pin instance snapshots and share them as .lodeimg image files, manage accounts and game settings, import instances from other launchers, and join, start, stop or host servers on Lodestone cores.
 ---
 
 # Lodestone Launcher CLI
@@ -48,7 +48,7 @@ refuses them. `ping` and `status` report them as
 - **Access: Read only**: commands that only look (list, show, status, logs, search,
   check, `jobs wait`, `events`, `trace`) work; anything that changes the launcher, its
   instances, settings, accounts, cores or servers, or writes a file (`instances export`,
-  `snapshots export`, `worlds download`) fails with exit 9, `permission_denied`, and
+  `snapshots export`) fails with exit 9, `permission_denied`, and
   `"data": {"access": "read_only", "method": "..."}`. `meta.methods` marks each method's
   `read_only`. Tell the user what you wanted to do and that read-only access is on;
   don't retry.
@@ -81,7 +81,7 @@ The user also sees each connected program (this CLI says
 | Exit | Codes | Meaning |
 |---|---|---|
 | 0 | | Success |
-| 1 | `failed`, `internal` | The operation ran and failed; read `message` |
+| 1 | `failed`, `internal`, `update_required` | The operation ran and failed; read `message`. `update_required`: the server runs a newer Lodestone; don't retry |
 | 2 | `usage`, `invalid_params`, `method_not_found` | Wrong command line |
 | 3 | `not_running`, `unsupported_platform` | Launcher not running / not reachable |
 | 4 | `not_found`, `ambiguous` | No such thing, or the name matches several |
@@ -96,10 +96,13 @@ The user also sees each connected program (this CLI says
 
 - **Destructive commands need `--yes`, and you need the user's OK first.** Without it they
   fail with exit 5 and change nothing; the message says what would happen. These are:
-  `instances delete`, `worlds delete`, `worlds delete-backup`, `worlds restore --replace`,
-  `content remove`, `accounts remove`, `cores remove`, `cores trust`, `friends remove`, `shared clear`,
-  `play clear-logs`, `storage clean`, `snapshots revert`, `snapshots delete`, applying `modpacks update`, a `content switch-loader` that leaves mods
-  behind, and turning on `settings developer set --sign-in-as-minecraft-launcher true`.
+  `instances delete`, `worlds delete`, `worlds restore --replace`,
+  `content remove`, `accounts remove`, `cores remove`, `cores trust`, `friends remove`,
+  `friend-list answer`, `friend-list accept`, `friend-list verify`, `friend-list remove`,
+  `friend-list retire-core`, `friend-list retire`, `shared clear`,
+  `play clear-logs`, `storage clean`, `snapshots restore` in place (any `--scope` but `new`), `snapshots delete`, `snapshots import` of a file with mods, `servers download-world` (without `--preview`), `snapshots export` over an existing file, applying `modpacks update` or `modpacks add`, `modpacks remove`, an `instances copy-as` that
+  leaves mods behind or upgrades worlds (the refusal's `data.plan` says what goes and what
+  stays: show it to the user), and turning on `settings developer set --sign-in-as-minecraft-launcher true`.
   Deleting moves to the Trash. Never add `--yes` on your own.
 - **Trust in a core is the user's decision.** Mods from a Lodestone core run as programs
   with the user's access. When a core isn't trusted for mods, installing its server's
@@ -107,10 +110,40 @@ The user also sees each connected program (this CLI says
   Show the advisory to the user. Only if they agree, rerun with `--accept-advisory`
   (this once) or run `cores trust <core> --yes` (from now on). A friend's server
   (`friends join`) is never trusted unless the user trusts it in the window.
-- **Snapshot files from other people.** `snapshots import` of a `.lodesnap` with mods
-  fails with `confirmation_required` and lists the mods: programs that run when the game
-  starts. Run `snapshots import <file> --preview` and show the user what it holds; only if
+- **Snapshot files from other people.** `snapshots import` of a `.lodeimg` with mods
+  fails with `confirmation_required` and names them: mods run as programs when the game
+  starts. Run `snapshots import <file> --preview` and show the user what it holds (game,
+  worlds, mods, downloads, size; `carried_mods` are the mods whose bytes the file
+  itself carries rather than downloading from Modrinth or CurseForge: say so); only if
   they trust who sent it, rerun with `--yes`.
+  An import always makes a new instance with the launcher's own launch settings (image
+  files carry none), and downloads the Modrinth and CurseForge files it lists. A
+  server's backup exported by Lodestone Host imports as the instance a player of that
+  server would have, with its world: the preview's `from_server` names the server, its
+  server-only mods left out and how many server files aren't taken (`not_taken`); the
+  server's settings, operators and plugins never come.
+- **Hosting and downloading worlds.** `servers host` sends an instance (its mods,
+  configs and the worlds sent, never accounts or private files) and makes a stopped
+  server: run it with `--preview` first and show the user the `summary` (what the server
+  gets, client-only mods left out, files not taken, downloads, disk space). A preview
+  costs a whole transfer (the instance with its worlds is written and sent, then
+  discarded), so for a big world preview once, not again before each try. Worlds are
+  named by their folder in `saves/`, spelt exactly (`worlds list` shows them); a
+  folder the instance lacks is refused before anything is sent. `--world X` alone sends
+  only X. `--server-software` must be one of the preview's `server_choices` (any case);
+  another is refused (`invalid_params`, naming the choices). Its reply's `outcome` lists
+  what the server didn't get. `servers download-world` makes a new
+  instance from a server's backup: run it with `--preview` first (it downloads the whole
+  newest backup, or `--backup`'s, to read it, and makes nothing; the real run downloads it
+  again), then download the backup the
+  preview's `backup` names with `--backup <id> --yes` once the user trusts the server's
+  mods. `--new-backup` backs the server up first, so it never goes with `--preview`. The
+  reply's `exported` says what the core left out of the file (`left_out`, of which
+  `left_out_for_players` is what a player would miss, `blanked`
+  secrets, `secrets_withheld`, `not_downloadable`), and `server_pack` whether the files
+  only the players of a server built on a Modrinth modpack use came with it (`placed`)
+  or not (`skipped`, with the `reason`). A core older than milestone 6 answers
+  `unavailable` ("too old"): tell the user to update Lodestone on that computer.
 - **Certificates:** a core whose HTTPS certificate isn't trusted fails with
   `untrusted_certificate` and `data.fingerprint`. Ask the user to compare it with the
   fingerprint the core shows (dashboard: Settings, Core Settings; or the core's log).
@@ -118,11 +151,22 @@ The user also sees each connected program (this CLI says
   `--fingerprint`.
 - **EULA:** launching Minecraft and hosting a server accept Mojang's EULA
   (https://aka.ms/MinecraftEULA). Ask before the first `play launch`, and `servers host`
-  needs `--accept-eula`, which only the user can give.
+  needs `--accept-eula`, which only the user can give (`--preview` only shows what the
+  server would get, and makes nothing).
 - **Invite links are secrets.** Anyone with a friend's invite link can join their server.
   Pass it on stdin (`friends join -`), never echo or log it; `friends list` never prints
   one. A `wrong_host` error means the computer that answered isn't the one in the link:
   stop, and tell the user to ask their friend for a new link.
+- **Adding a friend is the user's decision.** `friend-list answer` and `friend-list accept`
+  need `--yes`: first show the user the name and safety code (`friend-list preview`,
+  `friend-list replies`), and pass the code they saw with `--safety-code`. A reply with
+  `"someone_else_may_have_the_link": true` means more than one person answered: tell the
+  user. **Never run `friend-list verify` on your own**: it needs `--yes`, and only the
+  user, after comparing safety codes with their friend by voice or in person, can say
+  they match. Show them both codes and ask; pass `--yes` only if they say the codes
+  match. Pass friend links on stdin (`-`); `make-link` prints one so it can be sent, and
+  it works once. `friend-list list` and `links` only look: without a friend list they
+  say so and make nothing.
 - **No secrets.** The CLI never prints Microsoft tokens, core keys or passwords, and
   never takes a password as an argument: core passwords come on stdin
   (`--password-stdin`) or in `LODESTONE_CORE_PASSWORD`. Don't echo, log or store them.
@@ -132,6 +176,15 @@ The user also sees each connected program (this CLI says
   (`permission_denied`) and sends nothing to it. Don't work around this with `--socket`.
 - **Don't fight `busy`.** While a game runs, its instance's content, worlds and loader
   can't change. Ask the user before `play stop`: it ends their game.
+- **An instance's Minecraft version and mod loader never change.** Mods for one loader or
+  version don't load on another, worlds lose modded blocks, and an older version can't
+  open a newer world. To move to another version or loader, `instances copy-as` makes a
+  new instance (the original stays as it is). Only the loader's own version can change
+  (`instances set-loader-version`). The user never moves them in place; only a modpack update,
+  a linked server's sync, or `snapshots restore` with the mods (`--scope worlds_and_mods`
+  or `everything`, which puts back the loader version those mods were for) does. A
+  snapshot of another Minecraft version or loader only restores as a new instance
+  (`--scope new`).
 
 ## Commands
 
@@ -151,6 +204,9 @@ lodestone-launcher-cli instances background Survival --image ./castle.jpg
 lodestone-launcher-cli instances background Survival --slideshow all       # instance | all | custom | off
 lodestone-launcher-cli instances background Survival --slideshow custom --add ./a.png --add ./b.jpg
 lodestone-launcher-cli instances duplicate Survival
+lodestone-launcher-cli instances copy-as Survival --version 1.21.1          # long; a new instance, see below
+lodestone-launcher-cli instances copy-as Vanilla121 --loader fabric --worlds
+lodestone-launcher-cli instances set-loader-version Survival 0.16.14        # the loader's version only
 lodestone-launcher-cli instances select Survival          # shows it in the window
 lodestone-launcher-cli instances export Survival ./survival.mrpack          # long
 lodestone-launcher-cli instances verify Survival                            # long; downloads missing game files
@@ -158,6 +214,26 @@ lodestone-launcher-cli instances share-code Survival --json | jq -r .code   # an
 lodestone-launcher-cli instances import-code "$CODE" --name "Friend's pack" # long; a new instance
 lodestone-launcher-cli instances delete Survival --yes
 ```
+
+`copy-as` makes a new instance for another Minecraft version or loader (`--version`,
+`--loader`, `--loader-version`, `--name`; each defaults to the instance's own, but the
+Minecraft version or the loader must differ: for the same ones use `instances duplicate`,
+or `instances set-loader-version` for another loader build). It takes the server list
+(servers.dat), the resource packs, shaders and options.txt (`--no-packs` leaves those
+out), and each mod
+Modrinth knows as that project's build for the new version and loader, with any required
+mods (`--no-mods` leaves them out; a vanilla copy takes none, and takes no
+`--loader-version`). Mods with no such build, and mods not on Modrinth,
+stay behind. `config/` doesn't go (the new builds' settings can differ). The shared game
+settings choice goes with options.txt. Worlds go only
+with `--worlds` (the window's dialog starts with them checked for the same Minecraft
+version, but the API never copies them unasked), and only to the same or a newer version:
+the game upgrades them when it opens them and they can't go back (the originals stay).
+When mods stay behind or worlds are upgraded it needs `--yes`, and the refusal's
+`data.plan` lists what goes (`mods`, `worlds`, `resource_packs`) and what stays
+(`no_build`, `not_on_modrinth`, and `unchecked`: mods whose Modrinth lookup failed, so
+it isn't known whether they are on Modrinth; try again later). The job's result has the
+new `instance`.
 
 A share code holds the Minecraft version, the loader and its version, and exact Modrinth
 versions. There are two kinds:
@@ -181,7 +257,7 @@ are gone from Modrinth. An `LDS2` code is imported like the modpack (the pack is
 downloaded first) and then its changes are applied; it waits like `modpacks install`.
 
 `instances list` gives `instances` (each with `effective_group`: its own group, or with
-automatic groups on, "Fabric (modded)", "Vanilla", "Imported" …), `groups` in sidebar
+automatic groups on, "Servers" (linked to a server), "Fabric (modded)", "Vanilla", "Imported" …), `groups` in sidebar
 order, `auto_groups` and `last_played`.
 
 Play:
@@ -215,13 +291,18 @@ lodestone-launcher-cli content enable Survival sodium
 lodestone-launcher-cli content updates Survival
 lodestone-launcher-cli content update Survival --all                # long
 lodestone-launcher-cli content remove Survival sodium --yes
-lodestone-launcher-cli content switch-loader Vanilla121             # vanilla → Fabric (or Forge before 1.14)
-lodestone-launcher-cli content switch-loader Survival quilt --disable-mismatched
+lodestone-launcher-cli content history Survival                    # content images, newest first
 ```
 
 Items are named by file name, slug, title or mod id. `install` picks the newest version
 that fits the instance's Minecraft version and loader; `--version` picks one, `--force`
 installs one that doesn't fit.
+
+`content history` lists the instance's content images, newest first: the launcher records
+one after each change it makes to mods, packs, configs or the loader version (changes a
+few seconds apart are one image), and before a launch when the files changed by hand
+("Changed by hand"). Each has its label, time, game, pack (`base`) and file count; the
+newest 30 are kept. Labels are as recorded: `--human` writes control characters visibly.
 
 Modpacks:
 
@@ -231,36 +312,80 @@ lodestone-launcher-cli modpacks install fabulously-optimized --name FO     # lon
 lodestone-launcher-cli modpacks install --file ./pack.mrpack
 lodestone-launcher-cli modpacks check FO
 lodestone-launcher-cli modpacks update FO           # exit 5 with data.plan: show it to the user
-lodestone-launcher-cli modpacks update FO --yes     # long; backs up worlds first (--no-backup-worlds)
+lodestone-launcher-cli modpacks update FO --yes     # long; takes a snapshot first, and changes nothing if it fails
+# Add a pack's mods and configs to an instance that has its own (one made for a server):
+# the instance's pack (the server's) wins, nothing the instance has is replaced, and the
+# pack must be for the instance's Minecraft version and loader.
+lodestone-launcher-cli modpacks add SMP fabulously-optimized        # exit 5 with data.plan
+lodestone-launcher-cli modpacks add SMP fabulously-optimized --yes  # long
+lodestone-launcher-cli modpacks add SMP --file ./pack.mrpack --yes  # or a CurseForge .zip
+lodestone-launcher-cli modpacks added SMP                           # ids and files
+lodestone-launcher-cli modpacks remove SMP fabulously-optimized     # exit 5: what it removes
+lodestone-launcher-cli modpacks remove SMP fabulously-optimized --yes
 ```
 
-Worlds:
+Worlds (a world's backups are the snapshots that hold it):
 
 ```sh
 lodestone-launcher-cli worlds list Survival
-lodestone-launcher-cli worlds backup Survival "New World"                   # long
-lodestone-launcher-cli worlds backups Survival "New World"
-lodestone-launcher-cli worlds restore Survival "New World"                  # a copy beside it
-lodestone-launcher-cli worlds restore Survival "New World" --backup 2026-11-08_14-30-00.zip --replace --yes
+lodestone-launcher-cli worlds backup Survival "New World"                   # long; a snapshot named after it
+lodestone-launcher-cli worlds backups Survival "New World"                  # the snapshots that hold it
+lodestone-launcher-cli worlds restore Survival "New World"                  # a copy beside it, from the newest
+lodestone-launcher-cli worlds restore Survival "New World" --snapshot "Before 1.21" --replace --yes
 lodestone-launcher-cli worlds delete Survival "Old World" --yes
-printf '%s\n' "$PASSWORD" | lodestone-launcher-cli worlds download Survival --server Smp --username alice --password-stdin
 ```
 
-Snapshots (a whole instance, or the parts you choose; files shared between snapshots are
-stored once). Parts: mods, resource_packs, shader_packs, configs, worlds, screenshots,
-settings, other. Logs and caches are never included.
+Snapshots are images in the launcher's image store: the instance's worlds and other
+files (options, servers, screenshots), linked to the mods and configs they ran with,
+which are stored once however many snapshots use them. `--everything` takes the mods and
+configs as files too. The launcher also takes them on its own before mod, modpack,
+server and loader version updates, before a restore (a safety snapshot), and after
+playing when the user turns that on. A failed snapshot stops a modpack update (the
+error says why; the window offers to update without one); a mod update goes on and its
+reply's `snapshot_failed` says why. Automatic ones are kept by the instance's policy;
+manual, imported and pinned ones are never deleted on their own. Logs, caches and the
+JVM's crash logs and dumps are never included. Nothing runs while the instance's game does (`busy`),
+including a game this launcher didn't start whose worlds are open (Minecraft 1.16 and
+later), except `restore --scope new`; a restore in place also waits (`busy`) while another
+job (a mod install, a modpack update) changes the instance's files.
+
+What the replies say beyond the obvious:
+
+- `snapshots export`: `not_downloadable` lists CurseForge files whose authors forbid
+  downloads elsewhere: whoever imports the file won't get them, so tell the user;
+  `left_out` lists the files kept private (typed commands, the official launcher's and
+  account switchers' account files).
+- `snapshots import --preview`: `carried_mods` (see above), `needed_bytes` (what the
+  import writes, with 1 GiB to spare; the import refuses with less free) and
+  `not_downloadable`. After the import, `left_out` lists the files no download confirmed
+  whose bytes neither the file nor the store had: a download that fails (a deleted
+  version, a network error) leaves its file out rather than stopping the import, so tell
+  the user. A mod the file names as a Modrinth or CurseForge download is always downloaded
+  from there and checked; one that can't be is placed only if the file carries it (it is
+  then in `carried_mods`) or the store has it, as a plain file.
+- `snapshots restore` in place: `kept_aside` is a folder in the instance where files
+  written meanwhile by another job were moved rather than lost; tell the user.
+- Snapshot records carry `world_details` (each world's folder, own name and size) and
+  `full` (it holds the mods and configs too).
 
 ```sh
-lodestone-launcher-cli snapshots list Survival
-lodestone-launcher-cli snapshots create Survival --name "Before 1.21"          # long; all but screenshots/other
-lodestone-launcher-cli snapshots create Survival --include worlds --world "New World"
-lodestone-launcher-cli snapshots revert Survival "Before 1.21" --yes            # long; snapshots what it replaces first
-lodestone-launcher-cli snapshots revert Survival latest --include mods --include configs --yes
-lodestone-launcher-cli snapshots export Survival latest ~/Desktop               # writes a .lodesnap to share
-lodestone-launcher-cli snapshots import ~/Downloads/Survival.lodesnap --preview # what it holds, its mods
-lodestone-launcher-cli snapshots import ~/Downloads/Survival.lodesnap --yes     # a new instance (needs --yes with mods)
+lodestone-launcher-cli snapshots list Survival                                   # newest first, with the policy
+lodestone-launcher-cli snapshots list --deleted                                  # kept from deleted instances
+lodestone-launcher-cli snapshots create Survival --name "Before 1.21"           # long
+lodestone-launcher-cli snapshots create Survival --everything                   # mods and configs too
+lodestone-launcher-cli snapshots restore Survival "Before 1.21" --preview       # what it replaces, how the mods differ
+lodestone-launcher-cli snapshots restore Survival latest --world "New World" --yes        # only that world
+lodestone-launcher-cli snapshots restore Survival latest --scope worlds_and_mods --yes    # the worlds and their mods
+lodestone-launcher-cli snapshots restore Survival latest --scope everything --yes
+lodestone-launcher-cli snapshots restore Survival "Before 1.21" --scope new --name "Survival again"
+lodestone-launcher-cli snapshots export Survival latest ~/Desktop               # a .lodeimg; Modrinth/CurseForge mods are listed, not copied
+lodestone-launcher-cli snapshots import ~/Downloads/Survival.lodeimg --preview  # game, worlds, mods, downloads, size
+lodestone-launcher-cli snapshots import ~/Downloads/Survival.lodeimg --yes      # a new instance (--yes for mods)
+lodestone-launcher-cli snapshots pin Survival "Before 1.21"                     # never deleted on its own
+lodestone-launcher-cli snapshots unpin Survival "Before 1.21"
+lodestone-launcher-cli snapshots policy Survival --after-play on --keep-last 10 # or default
 lodestone-launcher-cli snapshots delete Survival "Before 1.21" --yes
-lodestone-launcher-cli storage clean snapshots --yes   # automatic ones, deleted instances' ones, share files
+lodestone-launcher-cli storage clean snapshots --yes   # automatic ones (not pinned), deleted instances' ones
 ```
 
 Settings:
@@ -273,6 +398,7 @@ lodestone-launcher-cli settings defaults get
 lodestone-launcher-cli settings defaults set --max-memory 4G --jvm-args "-XX:+UseG1GC"
 lodestone-launcher-cli settings general set --auto-groups false
 lodestone-launcher-cli settings developer get
+lodestone-launcher-cli settings developer set --connect-service https://connect-dev.lodestone.cc  # or "default"
 lodestone-launcher-cli shared get                                 # shared game settings
 lodestone-launcher-cli shared set guiScale 3
 lodestone-launcher-cli shared category video --off
@@ -290,7 +416,7 @@ Accounts:
 lodestone-launcher-cli accounts list            # never tokens
 lodestone-launcher-cli accounts switch Steve
 lodestone-launcher-cli accounts sign-in         # long; prints a code and URL for the USER
-lodestone-launcher-cli accounts add-offline Tester   # development builds or LODESTONE_LAUNCHER_OFFLINE=1
+lodestone-launcher-cli accounts add-offline Tester   # once the user turns on Settings › Developer › Offline accounts
 lodestone-launcher-cli accounts remove Steve --yes
 ```
 
@@ -323,8 +449,13 @@ lodestone-launcher-cli servers create-instance Smp           # long; matching ve
 lodestone-launcher-cli servers join Smp                      # long; starts it first if stopped
 lodestone-launcher-cli servers link Survival Smp
 lodestone-launcher-cli servers unlink Survival
-lodestone-launcher-cli servers resource-pack Smp --instance Survival
-printf '%s\n' "$PASSWORD" | lodestone-launcher-cli servers host Survival --core "Home core" --username alice --password-stdin --accept-eula
+lodestone-launcher-cli servers host Survival --core "Lodestone Host" --preview       # what the server would get (summary)
+lodestone-launcher-cli servers host Survival --core "Lodestone Host" --accept-eula   # a core claimed with claim-local; sends the last played world
+lodestone-launcher-cli servers host Survival --core "Lodestone Host" --send-world Island --world Island --port 25570 --accept-eula
+printf '%s\n' "$PASSWORD" | lodestone-launcher-cli servers host Survival --core "Home core" --username alice --password-stdin --no-worlds --accept-eula
+lodestone-launcher-cli servers download-world Smp --core "Lodestone Host" --preview  # what the newest backup would give (its id in `backup`)
+lodestone-launcher-cli servers download-world Smp --core "Lodestone Host" --backup b1 --yes   # a new instance from that backup
+lodestone-launcher-cli servers download-world Smp --core "Lodestone Host" --new-backup --yes  # back up now, then make the instance
 lodestone-launcher-cli prompts list                          # questions the window is asking
 lodestone-launcher-cli prompts answer update play
 ```
@@ -347,6 +478,37 @@ directly), `wrong_host` (refuse; see the safety rules), `offline` or
 `untrusted_core` and `--accept-advisory`, and `mods_changed` with `--update-mods` or
 `--skip-update`.
 
+The friend list (people added once with a friend link, `https://connect.lodestone.cc/f/…`,
+whose servers show up without invite links; launcher/docs/friends.md):
+
+```sh
+lodestone-launcher-cli friend-list me                        # name and safety code
+lodestone-launcher-cli friend-list set-name Peter            # needed before links
+lodestone-launcher-cli friend-list make-link                 # a link to send; works once, 24 hours
+lodestone-launcher-cli friend-list replies                   # answers to your links
+lodestone-launcher-cli friend-list accept 7KQ2M9XD4T <key> --yes   # after the user checked name and code
+printf '%s\n' "$LINK" | lodestone-launcher-cli friend-list preview -   # who sent a link
+printf '%s\n' "$LINK" | lodestone-launcher-cli friend-list answer - --safety-code K7Q2-M9XD-4TRW-H3BE --yes
+lodestone-launcher-cli friend-list refresh                   # confirms pending friends, presence
+lodestone-launcher-cli friend-list list                      # status, verified, cores, online
+lodestone-launcher-cli friend-list servers Alex              # what their cores share with you
+lodestone-launcher-cli friend-list nickname Samantha Sam
+lodestone-launcher-cli friend-list hide Kim                  # --undo shows them your cores again
+lodestone-launcher-cli friend-list remove Kim --yes
+lodestone-launcher-cli friend-list verify Alex --yes         # only after the user says the codes match
+lodestone-launcher-cli friend-list retire-core "Peter's PC" --yes   # a lost or stolen computer
+lodestone-launcher-cli friend-list retire --yes              # ends the identity; can't be undone
+```
+
+A friend is `pending` after you answer their link, until they accept (`refresh` then shows
+`active`); nothing is shared meanwhile. `verified` stays false until the user ticks
+"Codes match" (`friend-list verify --yes`, only on the user's word). A friend with
+`same_name_as` set has a name like another friend's: tell the user. Friends are named by
+name, nickname, or key (or its first 8+ hex digits). Play on a friend's server from the
+window's Friends section; servers joined that way then show in `friends list` with ids
+`friend:<core fingerprint>/<instance>` and join again with `friends join <name>`. Their
+mods are trusted only for the client pack the user trusted: a changed pack asks again.
+
 The window shows cores on its **Lodestone Host** page. `cores list` says what each one
 is (`"product": "Lodestone Host"` for the desktop app, `"Lodestone Core"` for a bare
 core) and, when the core says, what started it (`"launched_by": "host"`,
@@ -360,8 +522,9 @@ owner-level API key. The core must have an HTTPS certificate: the launcher saves
 fails with `failed`). A core without an owner gets an account the launcher makes up
 (`owner_` and five characters, with a strong password). The key and that account are
 kept in plain text in the launcher's `cores/local_credentials.json` (readable only by
-the user; the reply gives the path) and shown on the core's card; they never appear in
-the reply. Errors: `not_found` (no core here, or its data folder wasn't found: pass
+the user; the reply gives the path); the core's card offers the key to copy and never
+shows the password, and neither appears in the reply. With the owner key, `servers
+host` needs no password on that core. Errors: `not_found` (no core here, or its data folder wasn't found: pass
 `--folder`; a core in Docker needs its data folder mounted from this computer),
 `permission_denied` (the core's owner turned local claims off). Run it only when the
 user asks to connect as owner.
@@ -533,6 +696,22 @@ lodestone-launcher-cli servers join Smp                     # may fail with mods
 lodestone-launcher-cli servers join Smp --update-mods
 ```
 
+`create-instance` answers with `summary` (what the instance got: `base`, `minecraft`,
+`loader`, `added_mods`, `server_only`, `missing` with each path and reason,
+`curseforge`, files to download from CurseForge by hand, and `download_bytes`). Tell the user about any
+`missing` or `curseforge` files: they may not be able to join without them. A
+`mods_changed` whose `data.changes.only_lacking` is true changes nothing on the
+instance: the server now has files it can't share (`missing`, `curseforge`); tell the
+user, then either flag plays.
+
+`failed` from `join --update-mods` saying no snapshot could be taken before the update:
+nothing changed on the instance. Tell the user the reason; they can fix it (free space,
+say) and try again, or update without a snapshot in the window.
+
+`update_required` (exit 1) from `create-instance` or `join`: the server runs a newer
+Lodestone than this Launcher, and nothing was installed. Tell the user to update
+Lodestone Launcher; don't retry.
+
 A plain address works too: `play launch Survival --join mc.example.com:25565`.
 
 Back up a world (quit the game first; ask the user before stopping it):
@@ -541,7 +720,7 @@ Back up a world (quit the game first; ask the user before stopping it):
 lodestone-launcher-cli play status Survival                 # must be idle
 lodestone-launcher-cli worlds list Survival
 lodestone-launcher-cli worlds backup Survival "New World"
-lodestone-launcher-cli worlds backups Survival "New World"  # the zip's path is in "path"
+lodestone-launcher-cli worlds backups Survival "New World"  # the snapshots that hold it, newest first
 ```
 
 Update everything:

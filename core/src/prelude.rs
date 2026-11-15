@@ -43,6 +43,15 @@ pub fn path_to_tmp() -> &'static PathBuf {
     PATH_TO_TMP.get().unwrap()
 }
 
+/// The backup store (`<lodestone>/backups`), see [`crate::backups`]. Only the file API's
+/// list of Lodestone's own data and `run_with` use it; tests give each core its own store.
+pub fn path_to_backups() -> PathBuf {
+    lodestone_path().join(BACKUPS_DIR)
+}
+
+/// The backup store's folder name in the data folder.
+pub const BACKUPS_DIR: &str = "backups";
+
 static APP_STATE: OnceLock<AppState> = OnceLock::new();
 
 pub fn init_app_state(app_state: AppState) {
@@ -125,14 +134,11 @@ pub static SNOWFLAKE_GENERATOR: LazyLock<std::sync::Mutex<snowflake::SnowflakeId
         ))
     });
 
-#[cfg(feature = "deno")]
-use crate::generic::GenericInstance;
 use crate::minecraft::MinecraftInstance;
 use crate::AppState;
 #[enum_dispatch::enum_dispatch(
     TInstance,
     TConfigurable,
-    TMacro,
     TPlayerManagement,
     TResourceManagement,
     TServer,
@@ -141,7 +147,4 @@ use crate::AppState;
 #[derive(Clone)]
 pub enum GameInstance {
     MinecraftInstance,
-    /// An atom; only with the `deno` feature, see [`crate::capabilities`].
-    #[cfg(feature = "deno")]
-    GenericInstance,
 }

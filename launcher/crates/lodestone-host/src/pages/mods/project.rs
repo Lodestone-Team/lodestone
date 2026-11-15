@@ -260,6 +260,9 @@ impl ModsPage {
         cx.notify();
         let admin = self.state.read(cx).admin.clone();
         let uuid = self.uuid.clone();
+        // this tab says how the install went; the core's event needn't
+        self.state
+            .update(cx, |state, _| state.expect_own_file_toast(&uuid));
         let task = cx.spawn(async move |this, cx| {
             let result = cx
                 .background_spawn(async move { admin.install_mod(&uuid, &request).await })
@@ -306,7 +309,7 @@ impl ModsPage {
             ModrinthVersionType::Release => (t(M::ModsRelease), colors::GREEN),
             ModrinthVersionType::Beta => (t(M::ModsBeta), colors::YELLOW),
             ModrinthVersionType::Alpha => (t(M::ModsAlpha), colors::RED_200),
-            ModrinthVersionType::Unknown => ("?", colors::GRAY_500),
+            ModrinthVersionType::Unknown => ("?", lodestone_ui::theme::ink::muted()),
         };
         let shown: Vec<&str> = version
             .game_versions

@@ -5,7 +5,6 @@ pub fn text(message: M) -> &'static str {
         M::CopyAddress => "Copier l’adresse",
         M::CopiedText => "{text} copié",
         M::SettingUpPercent => "Configuration… {percent}",
-        M::OwnerOnlyAtom => "Seul le propriétaire peut contrôler les serveurs atom",
         M::StepSelectGame => "Choisir un jeu",
         M::StepBasicSettings => "Paramètres de base",
         M::StepServerSettings => "Paramètres du serveur",
@@ -50,6 +49,9 @@ pub fn text(message: M) -> &'static str {
         M::ValidationInteger => "Le champ {name} doit être un entier",
         M::ValidationPositive => "Le champ {name} doit être positif",
         M::ValidationMin => "Le champ {name} doit être supérieur ou égal à {min}",
+        M::ValidationNameCharacters => {
+            "Le nom ne peut contenir aucun de ces caractères : / \\ : * ? \" < > |"
+        }
         M::ValidationMax => "Le champ {name} doit être inférieur ou égal à {max}",
         M::ValidationOneOf => "Le champ {name} doit correspondre à l’une des options proposées",
         M::MaxRamBelowMin => "La mémoire maximale doit être au moins égale à la mémoire minimale",
@@ -62,10 +64,80 @@ pub fn text(message: M) -> &'static str {
         M::GameTypeSubtitle => "À quoi servira votre serveur ?",
         M::GameTypeNew => "Nouveau",
         M::GameTypeModpack => "Modpack Modrinth",
-        M::GameTypeModpackDescription => "Créer un serveur Fabric à partir d’un modpack Modrinth",
+        M::GameTypeModpackDescription => {
+            "Créer un serveur Fabric, Forge ou NeoForge à partir d’un modpack Modrinth"
+        }
+        M::GameTypeImport => "Serveur existant",
+        M::GameTypeImportDescription => {
+            "Importer un serveur Minecraft que vous avez déjà, avec son monde, ses paramètres, ses mods et ses plugins"
+        }
+        M::StepChooseFolder => "Choisir le dossier",
+        M::ImportFolderTitle => "Choisissez le dossier du serveur",
+        M::ImportFolderSubtitle => {
+            "Le dossier qui contient server.properties et le monde. Lodestone le copie et laisse l’original tel quel."
+        }
+        M::ImportFolderPlaceholder => "Chemin du dossier",
+        M::ImportBrowse => "Parcourir…",
+        M::ImportChooseFolder => "Choisissez d’abord le dossier du serveur",
+        M::ImportStopFirst => {
+            "Si le serveur est en marche, arrêtez-le d’abord pour que son monde soit copié en entier."
+        }
+        M::ImportReading => "Lecture du dossier",
+        M::ImportReadFailed => "Impossible de lire le dossier : {error}",
+        M::ImportSettingsSubtitle => "Vérifiez ce que Lodestone a trouvé, puis importez.",
+        M::ImportOtherSoftware => {
+            "Ce serveur utilisait {other}. Lodestone le fait tourner avec {software}, qui utilise les mêmes plugins."
+        }
+        M::ImportNotOffered => {
+            "Ce serveur utilisait {other}, que Lodestone ne propose pas. Choisissez le logiciel avec lequel le faire tourner."
+        }
+        M::ImportSoftwareUnknown => {
+            "Lodestone n’a pas pu déterminer le logiciel de ce serveur. Choisissez-le ci-dessous."
+        }
+        M::FieldSoftware => "Logiciel serveur",
+        M::FieldSoftwareDescription => {
+            "Ce qui fait tourner le serveur. Lodestone l’installe à nouveau."
+        }
+        M::FieldVersion => "Version de Minecraft",
+        M::FieldVersionDescription => "La dernière version utilisée par le serveur",
+        M::ImportLoadingVersions => "Chargement des versions",
+        M::ImportVersionsFailed => "Impossible de charger les versions : {error}",
+        M::ImportNoVersions => "le core n’a envoyé aucune version",
+        M::ImportVersionUnavailable => {
+            "Lodestone n’a pas de serveur {software} pour Minecraft {version}. Choisissez une autre version."
+        }
+        M::ImportChooseSoftware => "Choisissez le logiciel serveur",
+        M::ImportServer => "Importer le serveur",
+        M::ImportFailed => "Impossible d’importer le serveur : {error}",
+        M::GameTypeImage => "Depuis un fichier",
+        M::GameTypeImageDescription => {
+            "Créer un serveur à partir d’un fichier .lodeimg exporté par un autre Host ou un Launcher"
+        }
+        M::StepChooseFile => "Choisir un fichier",
+        M::StepImageSummary => "Son contenu",
+        M::ImageFileTitle => "Choisir un fichier .lodeimg",
+        M::ImageFileSubtitle => {
+            "Une sauvegarde exportée depuis Lodestone Host, ou un instantané exporté depuis Lodestone Launcher. Rien n’est créé avant que vous ne créiez le serveur."
+        }
+        M::ImageBrowse => "Choisir un fichier…",
+        M::ImageUploading => "Lecture du fichier…",
+        M::ImageUploadFailed => "Impossible d’ouvrir le fichier : {error}",
+        M::ImageSummaryTitle => "Contenu du fichier",
+        M::ImageSummarySubtitle => "Vérifiez le contenu du fichier, puis créez le serveur.",
+        M::ImageKeepOperators => "Garder les opérateurs du fichier : {names}",
+        M::ImageKeepOperatorsHint => {
+            "Les opérateurs peuvent exécuter n’importe quelle commande sur le serveur."
+        }
+        M::ImageCreate => "Créer le serveur",
+        M::ImageCreateFailed => "Impossible de créer le serveur : {error}",
+        M::CreateFailedLater => "Le serveur n’a pas pu être créé",
+        M::ImageNotLodeimg => "{name} n’est pas un fichier .lodeimg",
         M::GameVanillaDescription => "Serveur Minecraft vanilla standard de Mojang.",
         M::GameForgeDescription => {
             "Framework de modding pour installer des mods et personnaliser votre expérience Minecraft."
+        }
+        M::GameNeoForgeDescription => {
+            "Fork communautaire de Forge, avec ses propres mods, pour Minecraft 1.20.2 et versions ultérieures."
         }
         M::GameFabricDescription => "Chaîne d’outils de modding légère pour Minecraft.",
         M::GamePaperDescription => {
@@ -79,10 +151,9 @@ pub fn text(message: M) -> &'static str {
         M::GameGenericDescription => "Jeu inconnu : {name}",
         M::ModpackSourceTitle => "Choisissez un modpack",
         M::ModpackSourceDescription => {
-            "Recherchez sur Modrinth, collez un lien Modrinth ou importez un fichier .mrpack. Seuls les modpacks Fabric sont pris en charge."
+            "Recherchez sur Modrinth, collez un lien Modrinth ou importez un fichier .mrpack. Les modpacks Fabric, Forge et NeoForge sont pris en charge."
         }
         M::ModpackSearchPlaceholder => "Rechercher des modpacks ou coller un lien Modrinth",
-        M::ModpackOnlyFabric => "Afficher uniquement les modpacks Fabric",
         M::ModpackUpload => "Importer un .mrpack",
         M::ModpackVersionTitle => "Choisissez une version",
         M::ModpackVersionUploaded => "Le modpack importé.",
@@ -171,12 +242,22 @@ pub fn text(message: M) -> &'static str {
         M::PlayersSortByName => "NOM",
         M::PlayersLinkedUser => "L’utilisateur Lodestone qui a associé ce compte Minecraft",
         M::PlayersNone => "Aucun joueur en ligne",
-        M::ShareTitle => "Partager avec des amis",
-        M::ShareLead => "Vos amis rejoignent depuis Lodestone Launcher avec un lien",
-        M::ShareOff => {
-            "Envoyez un lien à vos amis. Ils l'ouvrent dans Lodestone Launcher, et leur jeu se connecte directement à cet ordinateur. Aucune redirection de port nécessaire."
+        M::ShareTitle => "Partager",
+        M::ShareLead => {
+            "Choisissez des amis dans votre liste d’amis, ou envoyez un lien à n’importe qui"
         }
-        M::ShareStart => "Partager avec des amis",
+        M::ShareFriendsHeading => "Vos amis",
+        M::ShareFriendsNote => {
+            "Pas besoin de lien. Ils voient ce serveur dans Lodestone Launcher, sous votre nom, tant qu’il tourne."
+        }
+        M::ShareFriendsNone => {
+            "Ajoutez des amis dans Lodestone Launcher (page Lodestone Host, Amis) pour partager avec eux sans lien."
+        }
+        M::ShareLinkHeading => "Ou envoyez un lien d’invitation",
+        M::ShareOff => {
+            "Envoyez un lien à qui vous voulez. Ces personnes l'ouvrent dans Lodestone Launcher, et leur jeu se connecte directement à cet ordinateur. Aucune redirection de port nécessaire."
+        }
+        M::ShareStart => "Partager avec un lien",
         M::ShareStarting => "Démarrage…",
         M::ShareSharing => "Partagé",
         M::ShareReconnecting => "Reconnexion…",
@@ -185,13 +266,13 @@ pub fn text(message: M) -> &'static str {
         M::ShareCopy => "Copier le lien",
         M::ShareCopied => "Lien d'invitation copié",
         M::SharePreparing => "Création du lien…",
-        M::ShareHowFriendsJoin => {
-            "Toute personne ayant le lien peut rejoindre ce serveur pendant qu'il tourne. Les amis sans Lodestone Launcher reçoivent un lien de téléchargement."
+        M::ShareHowToJoin => {
+            "Toute personne ayant le lien peut rejoindre ce serveur pendant qu'il tourne. Les personnes sans Lodestone Launcher reçoivent un lien de téléchargement."
         }
         M::ShareHardNetwork => {
-            "Le routeur de ce réseau rend les connexions directes difficiles. Certains amis ne pourront peut-être pas rejoindre."
+            "Le routeur de ce réseau rend les connexions directes difficiles. Certaines personnes ne pourront peut-être pas rejoindre."
         }
-        M::ShareFriendLine => "via {connection}, {ms} ms",
+        M::SharePeerLine => "via {connection}, {ms} ms",
         M::ShareSameComputer => "cet ordinateur",
         M::ShareLocalNetwork => "le réseau local",
         M::ShareIpv6 => "IPv6",
@@ -199,10 +280,29 @@ pub fn text(message: M) -> &'static str {
         M::ShareStop => "Arrêter le partage",
         M::ShareStopTitle => "Arrêter le partage ?",
         M::ShareStopBody => {
-            "Les amis en train de jouer sont déconnectés et le lien ne fonctionne plus. Partager à nouveau crée un nouveau lien."
+            "Les personnes qui jouent via le lien sont déconnectées et le lien ne fonctionne plus. Partager à nouveau crée un nouveau lien."
         }
+        M::ShareNewLink => "Nouveau lien",
+        M::ShareNewLinkTitle => "Créer un nouveau lien ?",
+        M::ShareNewLinkBody => {
+            "Le lien actuel ne fonctionne plus et les personnes qui jouent via ce lien sont déconnectées. Envoyez le nouveau lien aux personnes qui doivent encore pouvoir rejoindre. Les amis avec qui vous partagez depuis votre liste d'amis ne sont pas concernés."
+        }
+        M::ShareNewLinkConfirm => "Créer un nouveau lien",
+        M::ShareNewLinkMade => "Nouveau lien d'invitation créé",
+        M::ShareRemovedFriendsNote => {
+            "Vous avez retiré {names} de vos amis. S'ils ont ce lien d'invitation, ils peuvent encore rejoindre tant que vous n'en créez pas un nouveau."
+        }
+        M::ShareRemovedFriendsDismiss => "Ignorer",
+        M::ShareRemovedFriendsToast => {
+            "{names} peuvent encore rejoindre {servers} s'ils ont le lien d'invitation. Créez de nouveaux liens pour les en empêcher."
+        }
+        M::ShareNewLinks => "Créer de nouveaux liens",
+        M::ShareNewLinksMade => {
+            "Nouveaux liens d'invitation créés. Envoyez-les aux personnes qui doivent encore pouvoir rejoindre."
+        }
+        M::ShareNewLinkFailed => "Impossible de créer un nouveau lien pour {name} : {error}",
         M::ShareShort => "Partager",
-        M::ShareShortHint => "Partager ce serveur avec des amis",
+        M::ShareShortHint => "Partager ce serveur",
     }
 }
 
@@ -212,7 +312,8 @@ pub fn plural(message: P) -> [&'static str; 2] {
             "Afficher plus ({count} restante)",
             "Afficher plus ({count} restantes)",
         ],
-        P::ShareConnected => ["{count} ami connecté", "{count} amis connectés"],
+        P::ImportFiles => ["{count} fichier", "{count} fichiers"],
+        P::ShareConnected => ["{count} personne connectée", "{count} personnes connectées"],
         P::ShareJoins => [
             "({count} connexion jusqu’ici)",
             "({count} connexions jusqu’ici)",

@@ -93,11 +93,6 @@ fn route(request: &Recorded) -> (u16, Value) {
                                       "instance_event_inner": { "type": "InstanceOutput", "message": "x" } },
                      "snowflake": "2" }]),
         ),
-        ("GET", "/api/v1/instance/inst-1/players") => (
-            200,
-            json!([{ "type": "MinecraftPlayer", "name": "steve", "uuid": null },
-                   { "type": "MinecraftPlayer", "name": "Alex", "uuid": "853c80ef3c3749fdaa49938b674adae6" }]),
-        ),
         ("POST", "/api/v1/instance/inst-1/console") => (200, Value::Null),
         ("POST", "/api/v1/instance/inst-2/console") => (
             403,
@@ -204,7 +199,7 @@ fn signing_in_asks_for_the_chosen_console_access() {
 }
 
 #[test]
-fn access_console_and_players_over_rest() {
+fn access_and_console_over_rest() {
     let core = MockRest::start();
     let client = core.client();
     let key = Secret::new(KEY);
@@ -232,11 +227,6 @@ fn access_console_and_players_over_rest() {
                 message: "third".into()
             },
         ]
-    );
-    let players = block_on(client.players(&key, "inst-1")).unwrap();
-    assert_eq!(
-        players.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(),
-        vec!["Alex", "steve"]
     );
 
     let command = chat_command("hello").unwrap();

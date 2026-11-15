@@ -6,26 +6,38 @@ use crate::components::RichText;
 use crate::skin::Skinned;
 use crate::theme::px;
 use gpui::{
-    AnyElement, App, Context, Entity, IntoElement, Render, SharedString, Subscription, Window, div,
-    prelude::*,
+    AnimationExt as _, AnyElement, App, Context, Entity, IntoElement, Render, SharedString,
+    Subscription, Window, div, prelude::*,
 };
+use launcher_core::cores::image_sync::WithheldReason;
 use launcher_core::cores::{
     CoreError, CoreProduct, LaunchedBy, ServerInstance, ServerLoader, ServerState,
-    client::display_address, local_claim::ClaimError, sync::PackChanges, trust::Advisory,
+    client::display_address,
+    image_sync::{
+        display_text,
+        plan::{PackChanges, Summary},
+    },
+    local_claim::ClaimError,
+    trust::Advisory,
 };
 use launcher_core::ui_skin::SurfaceId;
 use launcher_core::wording;
 
 use super::{
     AdvisoryAnswer, AdvisoryPrompt, CertPrompt, CoreEntry, CoreStatus, NoticeKind, Servers,
-    TrustPrompt, UpdatePrompt, core_error, loader_label, status_label, trust_explanation,
+    TrustPrompt, UpdatePrompt, core_error, loader_label, local::FoundCore, power_state,
+    status_label, trust_explanation, withheld_reason,
 };
 use crate::{
     components::{
-        Button, ButtonSize, ButtonVariant, Dialog, DialogSlot, Icon, LoadingDots, Toggle,
+        Button, ButtonSize, ButtonVariant, Dialog, DialogSlot, Dropdown, Icon, IconButton,
+        KeyboardFocus, ListRow, LoadingDots, Toggle,
         a11y::{Accessible, Role},
+        power_name, power_toggle,
+        settings::popover_panel,
+        text_tooltip,
     },
-    i18n::{CommonMsg, ServersMsg as M, ServersPlural as P, format, t, tr, trn},
+    i18n::{CommonMsg, ServersMsg as M, ServersPlural as P, ShellMsg, format, t, tr, trn},
     theme::{self, colors, fonts, leading, radius, text, weights},
 };
 
@@ -87,18 +99,6 @@ fn other_files(advisory: &Advisory) -> Option<String> {
     .map(|(count, message)| trn!(message, count))
     .collect();
     (!parts.is_empty()).then(|| format::list(&parts))
-}
-
-fn badge(label: &'static str, color: theme::Color) -> gpui::Div {
-    div()
-        .flex_none()
-        .px_1p5()
-        .rounded(radius::DEFAULT)
-        .bg(color.opacity(15))
-        .text_color(color)
-        .text_size(theme::text_size(text::CAPTION))
-        .font_weight(weights::BOLD.into())
-        .child(label)
 }
 
 /// A fingerprint in two lines of 16 bytes, in the mono font.
@@ -191,6 +191,72 @@ fn certificate_warning(
 }
 
 impl Servers {
+    /// Whether the row of server `server` on core `core` is the one the instance
+    /// page's link pointed at.
+    pub(super) fn highlighted(&self, core: &str, server: &str) -> bool {
+        self.highlight
+            .as_ref()
+            .is_some_and(|h| h.core == core && h.server == server)
+    }
+
+    /// Drawn first inside a highlighted row (which must be `relative`): a tint that
+    /// fades out, and, the first time it is laid out, a scroll that brings the row to
+    /// the middle of the page.
+    pub(super) fn highlight_overlay(&self) -> Option<AnyElement> {
+        let highlight = self.highlight.as_ref()?;
+        let (pending, scroll) = (highlight.scroll.clone(), self.page_scroll.clone());
+        let tint = theme::accent::light();
+        let fade = gpui::Animation::new(std::time::Duration::from_millis(2400))
+            .with_easing(gpui::ease_in_out);
+        let still = crate::components::prefers_reduced_motion();
+        Some(
+            div()
+                .absolute()
+                .inset_0()
+                .bg(tint.opacity(18))
+                .border_1()
+                .border_color(tint.opacity(60))
+                .child(
+                    gpui::canvas(
+                        move |row, window, _| {
+                            if !pending.get() {
+                                return;
+                            }
+                            let view = scroll.bounds();
+                            if view.size.height <= gpui::px(0.) {
+                                // the page isn't laid out yet: try on the next frame
+                                window.refresh();
+                                return;
+                            }
+                            pending.set(false);
+                            let offset = scroll.offset();
+                            let max = scroll.max_offset();
+                            let shift = row.center().y - view.center().y;
+                            let y = (offset.y - shift).clamp(-max.y, gpui::px(0.));
+                            scroll.set_offset(gpui::point(offset.x, y));
+                            window.refresh();
+                        },
+                        |_, _, _, _| {},
+                    )
+                    .size_full(),
+                )
+                .with_animation(
+                    ("server-highlight", highlight.generation as usize),
+                    fade,
+                    move |this, delta| {
+                        // full for the first half, then fading out
+                        let left = if still {
+                            1.0
+                        } else {
+                            (2.0 - 2.0 * delta).min(1.0)
+                        };
+                        this.opacity(left)
+                    },
+                )
+                .into_any_element(),
+        )
+    }
+
     fn server_row(
         &self,
         core: &CoreEntry,
@@ -200,25 +266,40 @@ impl Servers {
         let core_uuid = core.saved.uuid.clone();
         let row_id = format!("{}-{}", core_uuid, server.uuid);
         let linked = self.linked_instance(&core_uuid, &server.uuid).is_some();
+        // the same server, saved from its invite link, shows here and not again
+        let shared = self.friend_on_core_row(&core_uuid, &server.uuid);
+        // an instance made (or last played) for it from its invite link plays it here
+        let friend_play = shared
+            .filter(|friend| {
+                !linked
+                    && (self
+                        .linked_instance(&friend.saved.id, &server.uuid)
+                        .is_some()
+                        || friend.saved.instance_id.is_some())
+            })
+            .map(|friend| friend.saved.id.clone());
+        let shared = shared.is_some();
         let busy = self.busy.get(&(core_uuid.clone(), server.uuid.clone()));
         let running = server.state == ServerState::Running;
         let stopped = matches!(server.state, ServerState::Stopped | ServerState::Error);
         let signed_in = core.signed_in();
 
         let mut actions: Vec<AnyElement> = Vec::new();
-        if signed_in {
-            let (c, s) = (core_uuid.clone(), server.clone());
-            actions.push(
-                Button::new(
-                    SharedString::from(format!("details-{row_id}")),
-                    t(M::Details),
+        // the dashboard's power icon, before the name; the core refuses what this
+        // device's key may not do
+        let power = power_toggle(power_state(server.state))
+            .filter(|_| signed_in)
+            .map(|power| {
+                let (c, s) = (core_uuid.clone(), server.clone());
+                IconButton::new(
+                    SharedString::from(format!("power-{row_id}-{power:?}")),
+                    Icon::PowerOff,
                 )
-                .size(ButtonSize::Slim)
-                .variant(ButtonVariant::Ghost)
-                .on_click(cx.listener(move |this, _, _, cx| this.open_detail(&c, s.clone(), cx)))
-                .into_any_element(),
-            );
-        }
+                .label(power_name(power))
+                .color(state_color(server.state))
+                .disabled(busy.is_some())
+                .on_click(cx.listener(move |this, _, _, cx| this.power(&c, s.clone(), power, cx)))
+            });
         if let Some(busy) = busy {
             actions.push(
                 div()
@@ -231,35 +312,34 @@ impl Servers {
                     .child(small(busy.label()))
                     .into_any_element(),
             );
-        } else {
-            if signed_in && stopped {
-                let (c, s) = (core_uuid.clone(), server.clone());
+            // asking the server may wait minutes while it prepares its files, and its
+            // files come as fast as it sends them
+            if busy.cancel().is_some() {
+                let (c, s) = (core_uuid.clone(), server.uuid.clone());
                 actions.push(
                     Button::new(
-                        SharedString::from(format!("start-{row_id}")),
-                        t(CommonMsg::Start),
+                        SharedString::from(format!("cancel-asking-{row_id}")),
+                        t(CommonMsg::Cancel),
                     )
                     .size(ButtonSize::Slim)
-                    .on_click(
-                        cx.listener(move |this, _, _, cx| this.start(&c, s.clone(), false, cx)),
-                    )
+                    .on_click(cx.listener(move |this, _, _, cx| this.cancel_row(&c, &s, cx)))
                     .into_any_element(),
                 );
             }
-            if signed_in && !stopped {
-                let (c, s) = (core_uuid.clone(), server.clone());
+        }
+        if busy.is_none() {
+            if let Some(friend) = friend_play.clone() {
+                let joinable =
+                    server.address_shown() && (running || server.state == ServerState::Hidden);
                 actions.push(
-                    Button::new(
-                        SharedString::from(format!("stop-{row_id}")),
-                        t(CommonMsg::Stop),
-                    )
-                    .size(ButtonSize::Slim)
-                    .variant(ButtonVariant::Danger)
-                    .on_click(cx.listener(move |this, _, _, cx| this.stop(&c, s.clone(), cx)))
-                    .into_any_element(),
+                    Button::new(SharedString::from(format!("play-{row_id}")), t(M::Play))
+                        .size(ButtonSize::Slim)
+                        .variant(ButtonVariant::Primary)
+                        .disabled(!joinable)
+                        .on_click(cx.listener(move |this, _, _, cx| this.play_friend(&friend, cx)))
+                        .into_any_element(),
                 );
-            }
-            if !linked {
+            } else if !linked {
                 let (c, s) = (core_uuid.clone(), server.clone());
                 actions.push(
                     Button::new(
@@ -310,33 +390,52 @@ impl Servers {
             }
         }
 
-        if busy.is_none() {
-            let (c, s) = (core_uuid.clone(), server.clone());
-            actions.push(
-                Button::new(SharedString::from(format!("more-{row_id}")), t(M::More))
-                    .size(ButtonSize::Slim)
-                    .variant(ButtonVariant::Ghost)
-                    .on_click(cx.listener(move |this, _, _, cx| this.open_tools(&c, s.clone(), cx)))
-                    .into_any_element(),
-            );
-        }
-
         let status = status_label(server);
         let element_id = SharedString::from(format!("server-{row_id}"));
-        let description: SharedString = if linked {
-            format!(
-                "{status} · {} · {}",
-                server_detail(server),
-                t(M::InstanceReady)
-            )
-            .into()
+        // the row shows the state with its power icon (or dot); screen readers hear it
+        let mut description = format!("{status} · {}", server_detail(server));
+        if shared {
+            description = format!("{description} · {}", t(M::SharedTag));
+        }
+        let description: SharedString = description.into();
+        let share_link = self.share_link(&core_uuid, &server.uuid).is_some();
+        let name = RichText::minecraft(server.name.clone());
+        // the name opens the server's page, which needs a signed-in core
+        let title = if signed_in {
+            let (c, s) = (core_uuid.clone(), server.clone());
+            let id = SharedString::from(format!("open-{row_id}"));
+            div()
+                .id(id.clone())
+                .accessible(Role::Link, id, server.name.clone())
+                .keyboard_focus()
+                .min_w_0()
+                .truncate()
+                .rounded(radius::DEFAULT)
+                .font_weight(weights::BOLD.into())
+                .text_color(crate::theme::ink::text())
+                .cursor_pointer()
+                .hover(|style| style.underline().text_color(crate::theme::accent::light()))
+                .on_press(cx.listener(move |this, _, _, cx| this.open_detail(&c, s.clone(), cx)))
+                .child(name)
+                .into_any_element()
         } else {
-            format!("{status} · {}", server_detail(server)).into()
+            div()
+                .min_w_0()
+                .truncate()
+                .font_weight(weights::BOLD.into())
+                .text_color(crate::theme::ink::text())
+                .child(name)
+                .into_any_element()
         };
+        let overlay = self
+            .highlighted(&core_uuid, &server.uuid)
+            .then(|| self.highlight_overlay())
+            .flatten();
         div()
             .id(element_id.clone())
             .accessible(Role::ListItem, element_id, server.name.clone())
             .aria_description(description)
+            .relative()
             .flex()
             .flex_row()
             .items_center()
@@ -345,14 +444,17 @@ impl Servers {
             .py_2p5()
             .border_t_1()
             .border_color(crate::theme::ink::border())
-            .when(server.state != ServerState::Hidden, |this| {
-                this.child(
+            .children(overlay)
+            .map(|this| match power {
+                Some(power) => this.child(power),
+                None if server.state != ServerState::Hidden => this.child(
                     div()
                         .flex_none()
                         .size(px(8.))
                         .rounded_full()
                         .bg(state_color(server.state)),
-                )
+                ),
+                None => this,
             })
             .child(
                 div()
@@ -366,48 +468,117 @@ impl Servers {
                             .flex_row()
                             .items_center()
                             .gap_2()
-                            .child(
-                                div()
-                                    .truncate()
-                                    .font_weight(weights::BOLD.into())
-                                    .text_color(crate::theme::ink::text())
-                                    .child(RichText::minecraft(server.name.clone())),
-                            )
-                            .when(linked, |this| {
-                                this.child(
-                                    div()
-                                        .flex_none()
-                                        .px_1p5()
-                                        .rounded(radius::DEFAULT)
-                                        .bg(crate::theme::accent::faded().opacity(15))
-                                        .text_color(crate::theme::accent::light())
-                                        .text_size(theme::text_size(text::CAPTION))
-                                        .font_weight(weights::BOLD.into())
-                                        .child(t(M::InstanceReady)),
-                                )
+                            .child(title)
+                            .when(shared, |this| {
+                                this.child(self.shared_tag(
+                                    &row_id,
+                                    share_link.then(|| (core_uuid.clone(), server.clone())),
+                                    cx,
+                                ))
                             }),
                     )
                     .child(small(server_detail(server)).text_color(crate::theme::ink::muted())),
-            )
-            .child(
-                small(status)
-                    .flex_none()
-                    .text_color(crate::theme::ink::secondary()),
             )
             .child(
                 div()
                     .flex()
                     .flex_row()
                     .flex_none()
+                    .items_center()
                     .gap_2()
                     .children(actions),
             )
             .into_any_element()
     }
 
-    fn core_card(&self, index: usize, core: &CoreEntry, cx: &mut Context<Self>) -> AnyElement {
+    /// "Shared" next to a server's name: it is shared with friends through an invite
+    /// link. With the link (`copy`: its core and server, when the core told the link),
+    /// a small button in the tag copies it.
+    fn shared_tag(
+        &self,
+        row_id: &str,
+        copy: Option<(String, ServerInstance)>,
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<gpui::Div> {
+        div()
+            .id(SharedString::from(format!("shared-{row_id}")))
+            .flex()
+            .flex_row()
+            .flex_none()
+            .items_center()
+            .gap_1()
+            .pl_1p5()
+            .when(copy.is_none(), |this| this.pr_1p5())
+            .rounded(radius::DEFAULT)
+            .bg(colors::GREEN_300.opacity(12))
+            .text_color(colors::GREEN_300)
+            .text_size(theme::text_size(text::CAPTION))
+            .font_weight(weights::BOLD.into())
+            .child(t(M::SharedTag))
+            .when_some(copy, |this, (core_uuid, server)| {
+                let id = SharedString::from(format!("copy-link-{row_id}"));
+                this.child(
+                    div()
+                        .id(id.clone())
+                        .accessible(Role::Button, id, t(M::CopyInviteLink))
+                        .keyboard_focus()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .px_1()
+                        .py(px(3.))
+                        .rounded(radius::DEFAULT)
+                        .cursor_pointer()
+                        .hover(|style| style.bg(colors::GREEN_300.opacity(20)))
+                        .tooltip(text_tooltip(t(M::CopyInviteLink)))
+                        .on_press(cx.listener(move |this, _, _, cx| {
+                            this.copy_share_link(&core_uuid, &server, cx)
+                        }))
+                        .child(Icon::Copy.render(px(10.), colors::GREEN_300)),
+                )
+            })
+    }
+
+    /// Core `index`'s card, with its servers. In "On this computer" (`place`) it wears
+    /// Lodestone Host's green, and takes the place of the scan's row for its core:
+    /// "Connect as owner", why claiming failed, and the servers shared from it.
+    fn core_card(
+        &self,
+        index: usize,
+        core: &CoreEntry,
+        place: Place<'_>,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let signed_in = core.signed_in();
         let trusted = core.saved.is_trusted();
+        let local = matches!(place, Place::Local { .. });
+        let found = match place {
+            Place::Local { found } => found,
+            Place::Other => None,
+        };
+        // not the owner here yet (signed out, or signed in some other way)
+        let connect = found.map(|(found_index, found)| {
+            let uuid = found.info.uuid.clone();
+            (
+                found_index,
+                uuid.clone(),
+                !self.is_connected(&uuid, &found.url),
+            )
+        });
+        let claim_error = connect
+            .as_ref()
+            .and_then(|(found_index, uuid, _)| self.claim_error_row(*found_index, uuid, cx));
+        let shared = found.and_then(|(found_index, found)| {
+            let rows: Vec<AnyElement> = self
+                .friends_shared_from(&found.info.uuid)
+                .into_iter()
+                .map(|entry| self.friend_row(entry, true, cx))
+                .collect();
+            (!rows.is_empty()).then(|| shared_from_here(found_index, px(0.), rows))
+        });
+        let connect_button = connect
+            .filter(|(_, _, needed)| *needed)
+            .map(|(found_index, uuid, _)| self.connect_button(found_index, uuid, cx));
         let account = match (&core.saved.username, signed_in) {
             (Some(username), true) => tr!(M::SignedInAs, username = username),
             (None, true) => t(M::SignedIn).to_string(),
@@ -469,34 +640,34 @@ impl Servers {
                 .into_any_element(),
         };
         let card_id = SharedString::from(format!("core-{}", core.saved.uuid));
-        let card_description: SharedString =
-            format!("{} · {account}", display_address(&core.url)).into();
-        div()
-            .id(card_id.clone())
+        let card_description: SharedString = format!(
+            "{} · {} · {account}",
+            core.saved.product.label(),
+            display_address(&core.url)
+        )
+        .into();
+        let sign_in_button = (!signed_in && connect_button.is_none()).then(|| {
+            Button::new(
+                SharedString::from(format!("sign-in-{index}")),
+                t(CommonMsg::SignIn),
+            )
+            .size(ButtonSize::Slim)
+            .icon(Icon::User)
+            .on_click(cx.listener(move |this, _, _, cx| this.open_add(Some(index), cx)))
+        });
+        card_frame(card_id.clone(), local)
             .accessible(Role::Group, card_id, core.saved.name.clone())
             .aria_description(card_description)
-            .flex()
-            .flex_col()
-            .w_full()
-            .rounded(radius::XL)
-            .border_1()
-            .border_color(crate::theme::ink::border())
-            .bg(colors::GRAY_850)
-            .surface(SurfaceId::Card)
             .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_3()
-                    .px_4()
-                    .py_3()
+                card_header(local)
+                    .child(core_icon(local, core.saved.product, cx))
                     .child(
                         div()
                             .flex()
                             .flex_col()
                             .flex_1()
                             .min_w_0()
+                            .when(local, |this| this.child(this_computer_label()))
                             .child(
                                 div()
                                     .flex()
@@ -512,17 +683,7 @@ impl Servers {
                                             .font_weight(weights::BOLD.into())
                                             .text_color(crate::theme::ink::text())
                                             .child(RichText::new(core.saved.name.clone())),
-                                    )
-                                    .child(product_badge(core.saved.product))
-                                    .when(trusted, |this| {
-                                        this.child(badge(t(M::BadgeTrusted), colors::GREEN_300))
-                                    })
-                                    .when(core.saved.certificate.is_some(), |this| {
-                                        this.child(badge(
-                                            t(M::BadgePinned),
-                                            crate::theme::accent::light(),
-                                        ))
-                                    }),
+                                    ),
                             )
                             .child(
                                 div()
@@ -558,220 +719,227 @@ impl Servers {
                                     })),
                             ),
                     )
-                    .child(if signed_in {
-                        Button::new(
-                            SharedString::from(format!("sign-out-{index}")),
-                            t(CommonMsg::SignOut),
-                        )
-                        .size(ButtonSize::Slim)
-                        .variant(ButtonVariant::Ghost)
-                        .on_click(cx.listener(move |this, _, _, cx| this.sign_out(index, cx)))
-                    } else {
-                        Button::new(
-                            SharedString::from(format!("sign-in-{index}")),
-                            t(CommonMsg::SignIn),
-                        )
-                        .size(ButtonSize::Slim)
-                        .icon(Icon::User)
-                        .on_click(cx.listener(move |this, _, _, cx| this.open_add(Some(index), cx)))
-                    })
-                    .child(
-                        Button::new(
-                            SharedString::from(format!("remove-core-{index}")),
-                            t(CommonMsg::Remove),
-                        )
-                        .size(ButtonSize::Slim)
-                        .variant(ButtonVariant::Ghost)
-                        .on_click(cx.listener(move |this, _, _, cx| this.remove(index, cx))),
-                    ),
+                    .children(connect_button)
+                    .children(sign_in_button)
+                    .child(self.core_menu(index, core, cx)),
             )
-            .children(self.owner_row(index, core, cx))
+            .children(claim_error.map(|row| {
+                row.px_4()
+                    .py_3()
+                    .border_t_1()
+                    .border_color(crate::theme::ink::border())
+            }))
             .when(core.saved.launched_by == LaunchedBy::Direct, |this| {
                 this.child(direct_note(index))
             })
             .child(body)
+            .children(shared)
             .into_any_element()
     }
 
-    /// What claiming the core here gave: the owner account the launcher made (its
-    /// password hidden until Show) and the owner key, to copy.
-    fn owner_row(
-        &self,
-        index: usize,
-        core: &CoreEntry,
-        cx: &mut Context<Self>,
-    ) -> Option<AnyElement> {
-        let credentials = self.local_credentials(&core.saved.uuid)?;
-        let account = credentials
-            .owner_username
-            .clone()
-            .zip(credentials.owner_password.clone());
-        let key = credentials.api_key.clone();
-        if account.is_none() && key.is_none() {
-            return None;
-        }
+    /// "…" on a core's card, and its menu: Copy owner API key (when claiming the core
+    /// here gave one), Sign out, Remove, and whether its certificate is pinned.
+    fn core_menu(&self, index: usize, core: &CoreEntry, cx: &mut Context<Self>) -> gpui::Div {
         let uuid = core.saved.uuid.clone();
-        let shown = self.local.shown.contains(&uuid);
-        let copy = |id: String, label: &'static str, value: String| {
-            Button::new(SharedString::from(id), label)
-                .size(ButtonSize::Slim)
-                .icon(Icon::Copy)
-                .on_click(move |_, _, cx| {
-                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(value.clone()))
-                })
-        };
-        let row = div()
-            .id(SharedString::from(format!("owner-sign-in-{index}")))
-            .flex()
-            .flex_row()
-            .flex_wrap()
-            .items_center()
-            .gap_2()
-            .px_4()
-            .py_3()
-            .border_t_1()
-            .border_color(crate::theme::ink::border())
-            .child(
-                small(t(if account.is_some() {
-                    M::OwnerSignIn
-                } else {
-                    M::OwnerKey
-                }))
-                .font_weight(weights::BOLD.into())
-                .text_color(crate::theme::ink::text()),
-            )
-            .children(account.map(|(username, password)| {
-                div()
-                    .flex()
-                    .flex_row()
-                    .flex_1()
-                    .min_w_0()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        small(username.clone())
-                            .font_family(fonts::mono())
-                            .text_color(crate::theme::ink::secondary()),
-                    )
-                    .child(
-                        small(if shown {
-                            password.clone()
-                        } else {
-                            "••••••••••••".to_string()
-                        })
-                        .font_family(fonts::mono())
-                        .text_color(crate::theme::ink::secondary()),
-                    )
-                    .child(
-                        Button::new(
-                            SharedString::from(format!("owner-show-{index}")),
-                            t(if shown {
-                                M::HidePassword
-                            } else {
-                                M::ShowPassword
-                            }),
+        let open = self.core_menu_open(&uuid);
+        let has_key = self
+            .local_credentials(&uuid)
+            .is_some_and(|credentials| credentials.api_key.is_some());
+        let signed_in = core.signed_in();
+        let pinned = core.saved.certificate.is_some();
+        let button = IconButton::new(
+            SharedString::from(format!("core-menu-{index}")),
+            Icon::Ellipsis,
+        )
+        .label(tr!(M::CoreMoreActions, name = core.saved.name.clone()))
+        .on_click(cx.listener(move |this, _, _, cx| this.toggle_core_menu(&uuid, cx)));
+        div()
+            .flex_none()
+            .child(Dropdown::new(button).align_end().when(open, |this| {
+                let mut panel =
+                    popover_panel(SharedString::from(format!("core-menu-list-{index}")))
+                        .w(px(220.));
+                if has_key {
+                    panel = panel.child(
+                        ListRow::new(
+                            SharedString::from(format!("owner-copy-key-{index}")),
+                            t(M::CopyOwnerApiKey),
                         )
-                        .size(ButtonSize::Slim)
-                        .variant(ButtonVariant::Ghost)
-                        .on_click(cx.listener({
-                            let uuid = uuid.clone();
-                            move |this, _, _, cx| this.toggle_owner_password(&uuid, cx)
+                        .icon(Icon::Copy)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.close_core_menu(cx);
+                            this.copy_owner_key(index, cx);
                         })),
+                    );
+                }
+                if signed_in {
+                    panel = panel.child(
+                        ListRow::new(
+                            SharedString::from(format!("sign-out-{index}")),
+                            t(CommonMsg::SignOut),
+                        )
+                        .icon(Icon::RightFromBracket)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.close_core_menu(cx);
+                            this.sign_out(index, cx);
+                        })),
+                    );
+                }
+                panel = panel.child(
+                    ListRow::new(
+                        SharedString::from(format!("remove-core-{index}")),
+                        t(CommonMsg::Remove),
                     )
-                    .child(copy(
-                        format!("owner-copy-user-{index}"),
-                        t(M::CopyUsername),
-                        username,
-                    ))
-                    .child(copy(
-                        format!("owner-copy-password-{index}"),
-                        t(M::CopyPassword),
-                        password,
-                    ))
+                    .icon(Icon::TrashCan)
+                    .danger(true)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.close_core_menu(cx);
+                        this.remove(index, cx);
+                    })),
+                );
+                // Not a button: says the launcher only accepts this core's own
+                // certificate, the one the user trusted.
+                if pinned {
+                    panel = panel.child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(px(6.))
+                            .mt_1()
+                            .px_2()
+                            .pt_1p5()
+                            .pb_1()
+                            .border_t_1()
+                            .border_color(crate::theme::ink::border())
+                            .child(Icon::CircleCheck.render(px(12.), colors::GREEN_300))
+                            .child(
+                                small(t(M::CertificatePinned))
+                                    .text_color(crate::theme::ink::muted()),
+                            ),
+                    );
+                }
+                let close = cx.listener(|this, _: &(), _, cx| this.close_core_menu(cx));
+                this.popover(
+                    SharedString::from(format!("core-menu-popover-{index}")),
+                    panel,
+                    move |window, cx| close(&(), window, cx),
+                )
             }))
-            .when(
-                key.is_some() && credentials.owner_password.is_none(),
-                |this| this.child(div().flex_1()),
-            )
-            .children(
-                key.map(|key| copy(format!("owner-copy-key-{index}"), t(M::CopyApiKey), key)),
-            );
-        Some(row.into_any_element())
     }
 
-    /// "On this computer": the cores found here, with "Connect as owner".
-    fn render_local(&self, cx: &mut Context<Self>) -> AnyElement {
-        let local = &self.local;
-        let busy = local.claiming.is_some();
-        let rows: Vec<AnyElement> = local
-            .found
-            .iter()
-            .enumerate()
-            .map(|(index, found)| {
-                let uuid = found.info.uuid.clone();
-                let connected = self.is_connected(&uuid, &found.url);
-                let claiming = local.claiming.as_deref() == Some(uuid.as_str());
-                let error = local
-                    .error
-                    .as_ref()
-                    .filter(|(failed, _)| *failed == uuid || failed.is_empty())
-                    .map(|(_, err)| err.clone());
-                let action: AnyElement = if connected {
-                    badge(t(M::Connected), colors::GREEN_300).into_any_element()
-                } else {
-                    Button::new(
-                        SharedString::from(format!("connect-local-{index}")),
-                        t(M::ConnectAsOwner),
+    /// "Connect as owner" for the core the scan found as row `found_index`.
+    fn connect_button(&self, found_index: usize, uuid: String, cx: &mut Context<Self>) -> Button {
+        let claiming = self.local.claiming.as_deref() == Some(uuid.as_str());
+        Button::new(
+            SharedString::from(format!("connect-local-{found_index}")),
+            t(M::ConnectAsOwner),
+        )
+        .size(ButtonSize::Slim)
+        .variant(ButtonVariant::Primary)
+        .loading(claiming)
+        .disabled(self.local.claiming.is_some())
+        .on_click(cx.listener(move |this, _, _, cx| this.connect_local(&uuid, None, cx)))
+    }
+
+    /// Why claiming core `uuid` (the scan's row `found_index`) failed, with "Choose
+    /// folder…" when its data folder wasn't found.
+    fn claim_error_row(
+        &self,
+        found_index: usize,
+        uuid: &str,
+        cx: &mut Context<Self>,
+    ) -> Option<gpui::Div> {
+        let err = self
+            .local
+            .error
+            .as_ref()
+            .filter(|(failed, _)| failed == uuid || failed.is_empty())
+            .map(|(_, err)| err.clone())?;
+        let busy = self.local.claiming.is_some();
+        let folder = matches!(err, ClaimError::FolderNotFound);
+        let uuid = uuid.to_string();
+        Some(
+            div()
+                .flex()
+                .flex_row()
+                .items_start()
+                .gap_2()
+                .child(Icon::TriangleExclamation.render(px(14.), colors::YELLOW))
+                .child(
+                    small(super::local::claim_error(&err))
+                        .flex_1()
+                        .min_w_0()
+                        .whitespace_normal()
+                        .text_color(colors::RED_200),
+                )
+                .when(folder, |this| {
+                    this.child(
+                        div().flex_none().child(
+                            Button::new(
+                                SharedString::from(format!("choose-folder-{found_index}")),
+                                t(M::ChooseDataFolder),
+                            )
+                            .size(ButtonSize::Slim)
+                            .icon(Icon::HardDrive)
+                            .disabled(busy)
+                            .on_click(cx.listener(
+                                move |this, _, _, cx| this.choose_local_folder(uuid.clone(), cx),
+                            )),
+                        ),
                     )
-                    .size(ButtonSize::Slim)
-                    .variant(ButtonVariant::Primary)
-                    .loading(claiming)
-                    .disabled(busy)
-                    .on_click(cx.listener({
-                        let uuid = uuid.clone();
-                        move |this, _, _, cx| this.connect_local(&uuid, None, cx)
-                    }))
-                    .into_any_element()
-                };
-                div()
-                    .id(SharedString::from(format!("local-core-{index}")))
-                    .flex()
+                }),
+        )
+    }
+
+    /// A core the scan found here that has no card yet: what it is, and "Connect as
+    /// owner".
+    fn found_card(
+        &self,
+        found_index: usize,
+        found: &FoundCore,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let uuid = found.info.uuid.clone();
+        let shared: Vec<AnyElement> = self
+            .friends_shared_from(&uuid)
+            .into_iter()
+            .map(|entry| self.friend_row(entry, true, cx))
+            .collect();
+        let error = self.claim_error_row(found_index, &uuid, cx);
+        let connect = self.connect_button(found_index, uuid, cx);
+        let id = SharedString::from(format!("local-core-{found_index}"));
+        card_frame(id.clone(), true)
+            .accessible(Role::Group, id, found.info.core_name.clone())
+            .child(
+                card_header(true)
                     .flex_col()
+                    .items_stretch()
                     .gap_2()
-                    .px_4()
-                    .py_3()
-                    .when(index > 0, |this| {
-                        this.border_t_1().border_color(crate::theme::ink::border())
-                    })
                     .child(
                         div()
                             .flex()
                             .flex_row()
                             .items_center()
                             .gap_3()
-                            .child(Icon::Cube.render(px(18.), crate::theme::ink::muted()))
+                            .child(core_icon(true, found.info.product, cx))
                             .child(
                                 div()
                                     .flex()
                                     .flex_col()
                                     .flex_1()
                                     .min_w_0()
+                                    .child(this_computer_label())
                                     .child(
-                                        div()
-                                            .flex()
-                                            .flex_row()
-                                            .items_center()
-                                            .gap_2()
-                                            .child(
-                                                div()
-                                                    .truncate()
-                                                    .font_weight(weights::BOLD.into())
-                                                    .text_color(crate::theme::ink::text())
-                                                    .child(RichText::new(
-                                                        found.info.core_name.clone(),
-                                                    )),
-                                            )
-                                            .child(product_badge(found.info.product)),
+                                        div().flex().flex_row().items_center().gap_2().child(
+                                            div()
+                                                .truncate()
+                                                .font_family(fonts::heading())
+                                                .text_size(theme::text_size(text::H3))
+                                                .font_weight(weights::BOLD.into())
+                                                .text_color(crate::theme::ink::text())
+                                                .child(RichText::new(found.info.core_name.clone())),
+                                        ),
                                     )
                                     .child(
                                         small(format!(
@@ -788,54 +956,31 @@ impl Servers {
                                         .text_color(crate::theme::ink::muted()),
                                     ),
                             )
-                            .child(action),
+                            .child(connect),
                     )
-                    .children(error.map(|err| {
-                        let folder = matches!(err, ClaimError::FolderNotFound);
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_start()
-                            .gap_2()
-                            .child(Icon::TriangleExclamation.render(px(14.), colors::YELLOW))
-                            .child(
-                                small(super::local::claim_error(&err))
-                                    .flex_1()
-                                    .min_w_0()
-                                    .whitespace_normal()
-                                    .text_color(colors::RED_200),
-                            )
-                            .when(folder, |this| {
-                                this.child(
-                                    div().flex_none().child(
-                                        Button::new(
-                                            SharedString::from(format!("choose-folder-{index}")),
-                                            t(M::ChooseDataFolder),
-                                        )
-                                        .size(ButtonSize::Slim)
-                                        .icon(Icon::HardDrive)
-                                        .disabled(busy)
-                                        .on_click(
-                                            cx.listener({
-                                                let uuid = uuid.clone();
-                                                move |this, _, _, cx| {
-                                                    this.choose_local_folder(uuid.clone(), cx)
-                                                }
-                                            }),
-                                        ),
-                                    ),
-                                )
-                            })
-                    }))
-                    .into_any_element()
-            })
-            .collect();
-        let empty_text = if local.scanning || !local.scanned {
-            Some(t(M::ScanningLocal))
-        } else if local.found.is_empty() {
-            Some(t(M::NoLocalCores))
-        } else {
+                    .children(error),
+            )
+            .children(
+                (!shared.is_empty())
+                    .then(|| shared_from_here(found_index, px(SHARED_INDENT), shared)),
+            )
+            .into_any_element()
+    }
+
+    /// "On this computer": the cores here, each as a card in Lodestone Host's green.
+    /// Those connected show in full (their servers, and the servers shared from them;
+    /// the owner key is in the card's "…" menu), the others with "Connect as owner". While nothing runs here,
+    /// it says so, and offers Lodestone Host.
+    fn render_local(&self, cards: Vec<AnyElement>, cx: &mut Context<Self>) -> AnyElement {
+        let local = &self.local;
+        let empty = cards.is_empty();
+        let offer = (empty && self.offers_host(cx)).then(|| self.render_host_offer(cx));
+        let empty_text = if !empty {
             None
+        } else if local.scanning || !local.scanned {
+            Some(t(M::ScanningLocal))
+        } else {
+            Some(t(M::NoLocalCores))
         };
         div()
             .id("local-cores")
@@ -843,64 +988,257 @@ impl Servers {
             .flex_col()
             .gap_2()
             .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_3()
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .flex_1()
-                            .min_w_0()
-                            .child(
-                                div()
-                                    .id("local-cores-title")
-                                    .role(Role::Heading)
-                                    .aria_level(2)
-                                    .aria_label(t(M::OnThisComputer))
-                                    .font_family(fonts::heading())
-                                    .text_size(theme::text_size(text::H3))
-                                    .font_weight(weights::BOLD.into())
-                                    .text_color(crate::theme::ink::text())
-                                    .child(t(M::OnThisComputer)),
-                            )
-                            .child(
-                                small(t(M::OnThisComputerHint))
-                                    .text_color(crate::theme::ink::muted()),
-                            ),
-                    )
-                    .child(
-                        Button::new("rescan-local", t(M::Rescan))
-                            .size(ButtonSize::Slim)
-                            .variant(ButtonVariant::Ghost)
-                            .loading(local.scanning)
-                            .disabled(local.scanning)
-                            .on_click(cx.listener(|this, _, _, cx| this.scan_local(true, cx))),
-                    ),
+                section_header("local-cores-title", t(M::OnThisComputer), None).child(
+                    Button::new("rescan-local", t(M::Rescan))
+                        .size(ButtonSize::Slim)
+                        .variant(ButtonVariant::Ghost)
+                        .loading(local.scanning)
+                        .disabled(local.scanning)
+                        .on_click(cx.listener(|this, _, _, cx| this.scan_local(true, cx))),
+                ),
             )
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .w_full()
-                    .rounded(radius::XL)
-                    .border_1()
-                    .border_color(crate::theme::ink::border())
-                    .bg(colors::GRAY_850)
-                    .surface(SurfaceId::Card)
-                    .children(rows)
-                    .children(empty_text.map(|text| {
-                        div()
-                            .px_4()
-                            .py_3()
-                            .text_color(crate::theme::ink::muted())
-                            .child(small(text))
-                    })),
-            )
+            .children(cards)
+            .when(empty, |this| {
+                this.child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .w_full()
+                        .rounded(radius::XL)
+                        .border_1()
+                        .border_color(crate::theme::ink::border())
+                        .bg(colors::GRAY_850)
+                        .surface(SurfaceId::Card)
+                        .children(empty_text.map(|text| {
+                            div()
+                                .px_4()
+                                .py_3()
+                                .text_color(crate::theme::ink::muted())
+                                .child(small(text))
+                        }))
+                        .children(offer),
+                )
+            })
             .into_any_element()
     }
+
+    /// "Other cores": those added by address, on other computers, with a neutral look.
+    fn render_other(&self, cards: Vec<AnyElement>, cx: &mut Context<Self>) -> AnyElement {
+        let invites = self.render_invite_servers(cx);
+        let empty = cards.is_empty() && invites.is_none();
+        div()
+            .id("other-cores")
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(
+                section_header(
+                    "other-cores-title",
+                    t(M::OtherCoresTitle),
+                    Some(t(M::OtherCoresHint)),
+                )
+                // a server from someone's invite link, and a host by its address
+                .child(
+                    Button::new("join-friend", t(M::JoinAFriend))
+                        .size(ButtonSize::Slim)
+                        .icon(Icon::Plus)
+                        .on_click(cx.listener(|this, _, _, cx| this.open_join(None, cx))),
+                )
+                .child(
+                    Button::new("add-server", t(M::AddServer))
+                        .size(ButtonSize::Slim)
+                        .icon(Icon::Plus)
+                        .on_click(cx.listener(|this, _, _, cx| this.open_add(None, cx))),
+                ),
+            )
+            .when(empty, |this| {
+                this.child(
+                    div()
+                        .id("other-cores-empty")
+                        .flex()
+                        .flex_col()
+                        .items_center()
+                        .gap_1()
+                        .py_6()
+                        .px_6()
+                        .rounded(radius::XL)
+                        .border_2()
+                        .border_dashed()
+                        .border_color(colors::GRAY_FADED.opacity(10))
+                        .child(
+                            div()
+                                .font_weight(weights::BOLD.into())
+                                .text_color(crate::theme::ink::faint())
+                                .child(t(M::NoOtherCores)),
+                        )
+                        .child(small(t(M::NoServersHint)).text_color(crate::theme::ink::muted())),
+                )
+            })
+            .children(cards)
+            .children(invites)
+            .into_any_element()
+    }
+}
+
+/// How far the servers shared from a core with no card yet are set in: their dots line
+/// up with the core's name (16 + 32 + 12 px in, less the rows' own 16).
+const SHARED_INDENT: f32 = 44.;
+
+/// Where a core's card is on the page.
+#[derive(Clone, Copy)]
+enum Place<'a> {
+    /// "On this computer". `found`: what the scan found here for it (its row and the
+    /// core), unless it didn't answer.
+    Local {
+        found: Option<(usize, &'a FoundCore)>,
+    },
+    /// "Other cores".
+    Other,
+}
+
+/// A section's title, its hint under it, and room on the right for buttons.
+fn section_header(id: &'static str, title: &'static str, hint: Option<&'static str>) -> gpui::Div {
+    div().flex().flex_row().items_center().gap_3().child(
+        div()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_w_0()
+            .child(
+                div()
+                    .id(id)
+                    .role(Role::Heading)
+                    .aria_level(2)
+                    .aria_label(title)
+                    .font_family(fonts::heading())
+                    .text_size(theme::text_size(text::H3))
+                    .font_weight(weights::BOLD.into())
+                    .text_color(crate::theme::ink::text())
+                    .child(title),
+            )
+            .children(hint.map(|hint| small(hint).text_color(crate::theme::ink::muted()))),
+    )
+}
+
+/// A core's card. On this computer (`local`) its edge is Lodestone Host's green.
+fn card_frame(id: SharedString, local: bool) -> gpui::Stateful<gpui::Div> {
+    let light = theme::palette::is_light();
+    div()
+        .id(id)
+        .flex()
+        .flex_col()
+        .w_full()
+        .rounded(radius::XL)
+        .border_1()
+        .border_color(if local {
+            crate::components::host_green(35, light)
+        } else {
+            crate::theme::ink::border()
+        })
+        .bg(colors::GRAY_850)
+        .surface(SurfaceId::Card)
+}
+
+/// The top of a core's card: its icon, name and buttons in a row. On this computer
+/// (`local`) it has a faint wash of Lodestone Host's gradient.
+fn card_header(local: bool) -> gpui::Div {
+    let light = theme::palette::is_light();
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_3()
+        .px_4()
+        .py_3()
+        .when(local, |this| {
+            this.rounded_t(radius::XL)
+                .bg(crate::components::host_gradient(
+                    if light { 8 } else { 5 },
+                    light,
+                ))
+        })
+}
+
+/// The icon at the left of a core's card: Lodestone Host's mark for a Host on this
+/// computer, a green cube for a Core here, and a plain server for the others.
+fn core_icon(local: bool, product: CoreProduct, cx: &App) -> AnyElement {
+    let light = theme::palette::is_light();
+    let tile = div()
+        .flex_none()
+        .size(px(32.))
+        .flex()
+        .items_center()
+        .justify_center();
+    match (local, product) {
+        (true, CoreProduct::Host) => gpui::img(crate::images::mark(true, cx))
+            .size(px(32.))
+            .flex_none()
+            .into_any_element(),
+        (true, CoreProduct::Core) => tile
+            .child(Icon::Cube.render(px(22.), crate::components::host_green(100, light)))
+            .into_any_element(),
+        (false, _) => tile
+            .rounded(radius::LG)
+            .bg(colors::GRAY_FADED.opacity(8))
+            .child(Icon::Server.render(px(16.), colors::GRAY_400))
+            .into_any_element(),
+    }
+}
+
+/// "This Mac" (or PC, or computer), in green above the name of a core on this computer.
+fn this_computer_label() -> gpui::Div {
+    div()
+        .text_size(theme::text_size(text::CAPTION))
+        .line_height(theme::line_height(text::CAPTION, leading::NORMAL))
+        .font_weight(weights::BOLD.into())
+        .text_color(crate::components::host_green(
+            100,
+            theme::palette::is_light(),
+        ))
+        .child(t(CommonMsg::ThisComputerStart))
+}
+
+/// Under a core in "On this computer": the servers it shares that the user joined here
+/// with their invite links (`rows`), set in by `indent`.
+fn shared_from_here(
+    index: usize,
+    indent: gpui::Pixels,
+    rows: Vec<AnyElement>,
+) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id(SharedString::from(format!("local-shared-{index}")))
+        .accessible(
+            Role::Group,
+            SharedString::from(format!("local-shared-{index}")),
+            t(M::SharedWithFriends),
+        )
+        .flex()
+        .flex_col()
+        .ml(indent)
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_baseline()
+                .gap_2()
+                .px_4()
+                .py_2()
+                .border_t_1()
+                .border_color(crate::theme::ink::border())
+                .child(
+                    small(t(M::SharedWithFriends))
+                        .flex_none()
+                        .font_weight(weights::BOLD.into())
+                        .text_color(crate::theme::ink::secondary()),
+                )
+                .child(
+                    small(t(M::SharedWithFriendsHint))
+                        .min_w_0()
+                        .truncate()
+                        .text_color(crate::theme::ink::muted()),
+                ),
+        )
+        .children(rows)
 }
 
 /// Where lodestone_cli, which runs Lodestone Core and keeps it updated, is downloaded.
@@ -948,71 +1286,75 @@ fn direct_note(index: usize) -> gpui::Div {
         )
 }
 
-/// "Lodestone Host" or "Lodestone Core", beside a core's name.
-fn product_badge(product: CoreProduct) -> gpui::Div {
-    badge(
-        product.label(),
-        match product {
-            CoreProduct::Host => crate::theme::accent::light(),
-            CoreProduct::Core => colors::GRAY_400,
-        },
-    )
-}
-
 impl Render for Servers {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if let Some(detail) = self.detail().cloned() {
             return div().size_full().child(detail).into_any_element();
         }
-        let cards: Vec<AnyElement> = (0..self.cores.len())
-            .map(|index| {
-                // the cards borrow `self` while their buttons need `cx`
-                let core = &self.cores[index];
-                self.core_card(index, core, cx)
-            })
-            .collect();
-        let empty = self.cores.is_empty();
+        // the cards borrow `self` while their buttons need `cx`
+        let mut local_cards: Vec<AnyElement> = Vec::new();
+        // each core found here, as its card when it has one
+        for (found_index, found) in self.local.found.iter().enumerate() {
+            local_cards.push(match self.core_index(&found.info.uuid) {
+                Some(index) => self.core_card(
+                    index,
+                    &self.cores[index],
+                    Place::Local {
+                        found: Some((found_index, found)),
+                    },
+                    cx,
+                ),
+                None => self.found_card(found_index, found, cx),
+            });
+        }
+        // then those claimed here that didn't answer (stopped, say), or at this
+        // computer's address on another port
+        let mut other_cards: Vec<AnyElement> = Vec::new();
+        for (index, core) in self.cores.iter().enumerate() {
+            let found = self
+                .local
+                .found
+                .iter()
+                .any(|found| found.info.uuid == core.saved.uuid);
+            if found {
+                continue;
+            }
+            if self.is_local_card(index) {
+                local_cards.push(self.core_card(index, core, Place::Local { found: None }, cx));
+            } else {
+                other_cards.push(self.core_card(index, core, Place::Other, cx));
+            }
+        }
+        let title = if self.friends_page {
+            t(M::FriendsPageTitle)
+        } else {
+            t(M::ServersTitle)
+        };
         div()
             .id("servers-page")
             .flex()
             .flex_col()
             .size_full()
             .overflow_y_scroll()
+            .track_scroll(&self.page_scroll)
             .px_8()
             .py_6()
             .gap_4()
             .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_4()
-                    .child(
+                div().flex().flex_row().items_center().gap_4().child(
+                    div().flex().flex_col().flex_1().min_w_0().child(
                         div()
-                            .flex()
-                            .flex_col()
-                            .flex_1()
-                            .min_w_0()
-                            .child(
-                                div()
-                                    .id("servers-title")
-                                    .role(Role::Heading)
-                                    .aria_level(1)
-                                    .aria_label(t(M::ServersTitle))
-                                    .font_family(fonts::heading())
-                                    .text_size(theme::text_size(text::H1))
-                                    .font_weight(weights::BOLD.into())
-                                    .text_color(crate::theme::ink::text())
-                                    .child(t(M::ServersTitle)),
-                            )
-                            .child(small(t(M::PageHint)).text_color(crate::theme::ink::muted())),
-                    )
-                    .child(
-                        Button::new("add-server", t(M::AddServer))
-                            .variant(ButtonVariant::Primary)
-                            .icon(Icon::Plus)
-                            .on_click(cx.listener(|this, _, _, cx| this.open_add(None, cx))),
+                            .id("servers-title")
+                            .role(Role::Heading)
+                            .aria_level(1)
+                            .aria_label(title)
+                            .font_family(fonts::heading())
+                            .text_size(theme::text_size(text::H1))
+                            .font_weight(weights::BOLD.into())
+                            .text_color(crate::theme::ink::text())
+                            .child(title),
                     ),
+                ),
             )
             .children(self.notice.as_ref().map(|notice| {
                 let (title, message) = notice.text();
@@ -1057,33 +1399,15 @@ impl Render for Servers {
                             .on_click(cx.listener(|this, _, _, cx| this.dismiss_notice(cx))),
                     )
             }))
-            .child(self.render_local(cx))
-            .child(self.render_friends(cx))
-            .when(empty, |this| {
-                this.child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .items_center()
-                        .gap_3()
-                        .py_10()
-                        .px_6()
-                        .rounded(radius::XL)
-                        .border_2()
-                        .border_dashed()
-                        .border_color(colors::GRAY_FADED.opacity(10))
-                        .child(Icon::Cube.render(px(28.), colors::GRAY_FADED.opacity(30)))
-                        .child(
-                            div()
-                                .font_weight(weights::BOLD.into())
-                                .text_color(colors::GRAY_FADED.opacity(50))
-                                .child(t(M::NoServersYet)),
-                        )
-                        .child(small(t(M::NoServersHint)).text_color(crate::theme::ink::muted())),
-                )
+            .map(|page| {
+                if self.friends_page {
+                    page.child(self.render_friend_list(cx))
+                } else {
+                    page.child(self.render_local(local_cards, cx))
+                        .child(self.render_other(other_cards, cx))
+                        .child(self.render_lan(cx))
+                }
             })
-            .children(cards)
-            .child(self.render_lan(cx))
             .into_any_element()
     }
 }
@@ -1110,7 +1434,7 @@ impl Render for ServersOverlay {
         let entity = &self.servers;
         let servers = entity.read(app);
         let extras = &servers.extras;
-        // One open dialog shows at a time, the first of: a server's tools, hosting, the
+        // One open dialog shows at a time, the first of: hosting, downloading a world, the
         // LAN picker, the certificate, trust, the advisory, "Add server", the update
         // prompt. Those closing fade out under it.
         let mut shown = false;
@@ -1119,8 +1443,8 @@ impl Render for ServersOverlay {
             shown |= show;
             show
         };
-        let tools = pick(extras.tools.is_open());
         let host = pick(extras.host.is_open());
+        let download_world = pick(extras.download_world.is_open());
         let lan = pick(extras.lan_picker.is_open());
         let cert = pick(servers.cert_prompt.is_open());
         let trust = pick(servers.trust_prompt.is_open());
@@ -1129,8 +1453,19 @@ impl Render for ServersOverlay {
         let update = pick(servers.prompt.is_open());
         // the join dialog waits under the questions its Play asks
         let join = pick(servers.friends.join.is_open());
+        let friend_list = pick(servers.friend_list.dialog.is_open());
         let window = &*window;
         let mut children = Vec::new();
+        children.extend(slot_layers(
+            &servers.friend_list.dialog,
+            friend_list,
+            window,
+            |prompt| {
+                Some(super::friend_list_view::friend_list_dialog(
+                    entity, prompt, app,
+                ))
+            },
+        ));
         children.extend(slot_layers(&servers.friends.join, join, window, |prompt| {
             Some(super::friends_view::join_dialog(entity, prompt, app))
         }));
@@ -1141,7 +1476,7 @@ impl Render for ServersOverlay {
             Some(dialog.clone().into_any_element())
         }));
         children.extend(slot_layers(&servers.advisory, advisory, window, |prompt| {
-            Some(advisory_dialog(entity, prompt).into_any_element())
+            advisory_dialog(entity, prompt).map(IntoElement::into_any_element)
         }));
         children.extend(slot_layers(
             &servers.trust_prompt,
@@ -1158,9 +1493,12 @@ impl Render for ServersOverlay {
         children.extend(slot_layers(&extras.host, host, window, |(dialog, _)| {
             Some(dialog.clone().into_any_element())
         }));
-        children.extend(slot_layers(&extras.tools, tools, window, |(dialog, _)| {
-            Some(dialog.clone().into_any_element())
-        }));
+        children.extend(slot_layers(
+            &extras.download_world,
+            download_world,
+            window,
+            |(dialog, _)| Some(dialog.clone().into_any_element()),
+        ));
         div().absolute().inset_0().children(children)
     }
 }
@@ -1180,8 +1518,13 @@ fn slot_layers<T>(
     }
 }
 
-/// "<server> has different mods": update before joining, or play as it is.
+/// "<server> has different mods": update before joining, or play as it is. A view that
+/// changes nothing on disk but lacks files: "<server> has files you won't get", with
+/// Play (which records the view) and Cancel.
 fn update_dialog(servers: &Entity<Servers>, prompt: &UpdatePrompt) -> AnyElement {
+    if prompt.only_lacking {
+        return lacking_dialog(servers, prompt);
+    }
     let entity = servers.clone();
     let changes = &prompt.changes;
     let mut lines: Vec<String> = Vec::new();
@@ -1192,8 +1535,17 @@ fn update_dialog(servers: &Entity<Servers>, prompt: &UpdatePrompt) -> AnyElement
         (&changes.other, M::ChangeConfig),
     ] {
         for name in names.iter().take(6) {
-            lines.push(tr!(message, name = name));
+            lines.push(tr!(message, name = display_text(name)));
         }
+    }
+    if let Some(loader) = &prompt.loader {
+        lines.push(tr!(M::ChangeLoader, loader = loader));
+    }
+    if prompt.download_bytes > 0 {
+        lines.push(tr!(
+            M::SummaryDownload,
+            size = format::bytes_binary(prompt.download_bytes)
+        ));
     }
     let update = servers.clone();
     let play = servers.clone();
@@ -1218,12 +1570,25 @@ fn update_dialog(servers: &Entity<Servers>, prompt: &UpdatePrompt) -> AnyElement
                 small(line)
                     .font_family(fonts::mono())
                     .text_color(crate::theme::ink::text())
+            }))
+            .children(missing_block(&prompt.missing, &prompt.curseforge))
+            .children(prompt.snapshot_failed.as_ref().map(|error| {
+                small(tr!(ShellMsg::ModpackUpdateNoSnapshot, error = error))
+                    .whitespace_normal()
+                    .text_color(colors::YELLOW)
             })),
     )
     .footer(
-        Button::new("update-and-play", t(M::UpdateAndPlay))
-            .variant(ButtonVariant::Primary)
-            .on_click(move |_, _, cx| update.update(cx, |this, cx| this.answer_prompt(true, cx))),
+        Button::new(
+            "update-and-play",
+            if prompt.snapshot_failed.is_some() {
+                t(ShellMsg::UpdateWithoutSnapshot)
+            } else {
+                t(M::UpdateAndPlay)
+            },
+        )
+        .variant(ButtonVariant::Primary)
+        .on_click(move |_, _, cx| update.update(cx, |this, cx| this.answer_prompt(true, cx))),
     )
     .footer(
         Button::new("play-anyway", t(M::PlayAnyway))
@@ -1235,6 +1600,179 @@ fn update_dialog(servers: &Entity<Servers>, prompt: &UpdatePrompt) -> AnyElement
             .on_click(move |_, _, cx| cancel.update(cx, |this, cx| this.cancel_prompt(cx))),
     )
     .into_any_element()
+}
+
+/// Before playing on a server whose view only lacks files the player didn't lack before.
+fn lacking_dialog(servers: &Entity<Servers>, prompt: &UpdatePrompt) -> AnyElement {
+    let entity = servers.clone();
+    let play = servers.clone();
+    let cancel = servers.clone();
+    Dialog::new(
+        "server-lacks-files",
+        tr!(M::LacksFiles, name = prompt.server.name),
+        prompt.focus.clone(),
+    )
+    .on_close(move |_, cx| entity.update(cx, |this, cx| this.cancel_prompt(cx)))
+    .child(
+        div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .text_color(crate::theme::ink::secondary())
+            .child(t(M::LacksFilesBody))
+            .children(missing_block(&prompt.missing, &prompt.curseforge)),
+    )
+    .footer(
+        Button::new("play-lacking", t(M::Play))
+            .variant(ButtonVariant::Primary)
+            .on_click(move |_, _, cx| play.update(cx, |this, cx| this.answer_prompt(true, cx))),
+    )
+    .footer(
+        Button::new("cancel-lacking", t(CommonMsg::Cancel))
+            .variant(ButtonVariant::Ghost)
+            .on_click(move |_, _, cx| cancel.update(cx, |this, cx| this.cancel_prompt(cx))),
+    )
+    .into_any_element()
+}
+
+/// Files a server's view can't give the player, with why, and CurseForge files the player
+/// downloads by hand: shown before anything is installed.
+fn missing_block(missing: &[(String, WithheldReason)], curseforge: &[String]) -> Option<gpui::Div> {
+    const SHOWN: usize = 8;
+    if missing.is_empty() && curseforge.is_empty() {
+        return None;
+    }
+    let more = |count: usize| {
+        (count > SHOWN)
+            .then(|| small(trn!(P::AndMore, count - SHOWN)).text_color(crate::theme::ink::muted()))
+    };
+    let mono = |text: String| {
+        small(text)
+            .font_family(fonts::mono())
+            .text_color(crate::theme::ink::text())
+    };
+    Some(
+        div()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .px_3()
+            .py_2()
+            .rounded(radius::LG)
+            .border_1()
+            .border_color(colors::YELLOW.opacity(40))
+            .bg(colors::YELLOW.opacity(8))
+            .when(!missing.is_empty(), |this| {
+                this.child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_2()
+                        .child(Icon::TriangleExclamation.render(px(14.), colors::YELLOW))
+                        .child(
+                            small(tr!(
+                                M::MissingTitle,
+                                count = format::number(missing.len() as u64)
+                            ))
+                            .font_weight(weights::BOLD.into())
+                            .text_color(colors::YELLOW),
+                        ),
+                )
+                .children(missing.iter().take(SHOWN).map(|(path, reason)| {
+                    mono(tr!(
+                        M::MissingLine,
+                        name = path,
+                        reason = withheld_reason(reason)
+                    ))
+                }))
+                .children(more(missing.len()))
+                .child(small(t(M::MissingNote)).text_color(crate::theme::ink::secondary()))
+            })
+            .when(!curseforge.is_empty(), |this| {
+                this.child(
+                    small(tr!(
+                        M::CurseForgeTitle,
+                        count = format::number(curseforge.len() as u64)
+                    ))
+                    .font_weight(weights::BOLD.into())
+                    .text_color(colors::YELLOW),
+                )
+                .children(
+                    curseforge
+                        .iter()
+                        .take(SHOWN)
+                        .map(|path| mono(display_text(path).into_owned())),
+                )
+                .children(more(curseforge.len()))
+                .child(small(t(M::CurseForgeNote)).text_color(crate::theme::ink::secondary()))
+            }),
+    )
+}
+
+/// What a server's image installs: its modpack, the mods it added, the files only it
+/// has, and what the player won't get.
+fn summary_block(summary: &Summary) -> gpui::Div {
+    const SHOWN: usize = 8;
+    let more = |count: usize| {
+        (count > SHOWN)
+            .then(|| small(trn!(P::AndMore, count - SHOWN)).text_color(crate::theme::ink::muted()))
+    };
+    let section = |title: String, items: &[String]| {
+        (!items.is_empty()).then(|| {
+            div()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(
+                    small(title)
+                        .font_weight(weights::BOLD.into())
+                        .text_color(crate::theme::ink::secondary()),
+                )
+                .children(items.iter().take(SHOWN).map(|item| {
+                    small(file_label(item))
+                        .font_family(fonts::mono())
+                        .truncate()
+                        .text_color(crate::theme::ink::text())
+                }))
+                .children(more(items.len()))
+        })
+    };
+    div()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .px_3()
+        .py_2()
+        .rounded(radius::LG)
+        .border_1()
+        .border_color(crate::theme::ink::border())
+        .bg(colors::GRAY_900)
+        .children(summary.base.as_ref().map(|(pack, version)| {
+            small(tr!(M::SummaryBase, pack = pack, version = version))
+                .text_color(crate::theme::ink::text())
+        }))
+        .children((summary.download_bytes > 0).then(|| {
+            small(tr!(
+                M::SummaryDownload,
+                size = format::bytes_binary(summary.download_bytes)
+            ))
+            .text_color(crate::theme::ink::text())
+        }))
+        .children(section(
+            tr!(
+                M::SummaryAddedMods,
+                count = format::number(summary.added_mods.len() as u64)
+            ),
+            &summary.added_mods,
+        ))
+        .children(section(
+            tr!(
+                M::SummaryServerOnly,
+                count = format::number(summary.server_only.len() as u64)
+            ),
+            &summary.server_only,
+        ))
 }
 
 fn paragraph(value: impl Into<SharedString>) -> gpui::Div {
@@ -1378,13 +1916,72 @@ fn trust_dialog(servers: &Entity<Servers>, prompt: &TrustPrompt) -> Dialog {
 
 /// A file's name, for the lists: `mods/sodium.jar` is `sodium.jar`.
 fn file_label(path: &str) -> String {
-    path.strip_prefix("mods/").unwrap_or(path).to_string()
+    let path = display_text(path);
+    path.strip_prefix("mods/").unwrap_or(&path).to_string()
 }
 
-/// "This server's mods will run on your Mac".
-fn advisory_dialog(servers: &Entity<Servers>, prompt: &AdvisoryPrompt) -> Dialog {
+/// What a new instance gets from a server's image, when its core is trusted for mods:
+/// Install or Cancel.
+fn install_dialog(servers: &Entity<Servers>, prompt: &AdvisoryPrompt, summary: &Summary) -> Dialog {
+    let close = servers.clone();
+    let cancel = servers.clone();
+    let install = servers.clone();
+    Dialog::new(
+        "server-install",
+        tr!(M::InstallTitle, name = prompt.server_name),
+        prompt.focus.clone(),
+    )
+    .width(px(600.))
+    .on_close(move |_, cx| {
+        close.update(cx, |this, cx| {
+            this.answer_advisory(AdvisoryAnswer::Cancel, cx)
+        })
+    })
+    .child(
+        div()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .child(paragraph(tr!(
+                M::InstallIntro,
+                server = prompt.server_name,
+                core = prompt.core_name,
+                version = summary.minecraft,
+                loader = summary.loader
+            )))
+            .child(summary_block(summary))
+            .children(missing_block(&summary.missing, &summary.curseforge_listed)),
+    )
+    .footer(
+        Button::new("server-install-yes", t(M::Install))
+            .variant(ButtonVariant::Primary)
+            .on_click(move |_, _, cx| {
+                install.update(cx, |this, cx| {
+                    this.answer_advisory(AdvisoryAnswer::InstallOnce, cx)
+                })
+            }),
+    )
+    .footer(
+        Button::new("server-install-cancel", t(CommonMsg::Cancel))
+            .variant(ButtonVariant::Ghost)
+            .on_click(move |_, _, cx| {
+                cancel.update(cx, |this, cx| {
+                    this.answer_advisory(AdvisoryAnswer::Cancel, cx)
+                })
+            }),
+    )
+}
+
+/// "This server's mods will run on your Mac", with what a server's image installs when
+/// it is one; or, from a trusted core, only what a new instance gets.
+fn advisory_dialog(servers: &Entity<Servers>, prompt: &AdvisoryPrompt) -> Option<Dialog> {
     const SHOWN: usize = 8;
-    let advisory = &prompt.advisory;
+    let Some(advisory) = &prompt.advisory else {
+        return prompt
+            .summary
+            .as_ref()
+            .map(|summary| install_dialog(servers, prompt, summary));
+    };
     let close = servers.clone();
     let cancel = servers.clone();
     let once = servers.clone();
@@ -1474,87 +2071,93 @@ fn advisory_dialog(servers: &Entity<Servers>, prompt: &AdvisoryPrompt) -> Dialog
         core = prompt.core_name
     );
     let trust_label = tr!(M::TrustAndInstall, core = prompt.core_name);
-    Dialog::new(
-        "mod-advisory",
-        tr!(M::AdvisoryTitle, computer = t(CommonMsg::ThisComputer)),
-        prompt.focus.clone(),
-    )
-    .width(px(600.))
-    .on_close(move |_, cx| {
-        close.update(cx, |this, cx| {
-            this.answer_advisory(AdvisoryAnswer::Cancel, cx)
-        })
-    })
-    .child(
-        div()
-            .flex()
-            .flex_col()
-            .gap_3()
-            .child(paragraph(intro))
-            .when(advisory.unchecked, |this| {
-                this.child(small(t(M::ModrinthUnreachable)).text_color(colors::YELLOW))
+    let dialog =
+        Dialog::new(
+            "mod-advisory",
+            tr!(M::AdvisoryTitle, computer = t(CommonMsg::ThisComputer)),
+            prompt.focus.clone(),
+        )
+        .width(px(600.))
+        .on_close(move |_, cx| {
+            close.update(cx, |this, cx| {
+                this.answer_advisory(AdvisoryAnswer::Cancel, cx)
             })
-            .children(uploaded)
-            .children(on_modrinth)
-            .children(other_files(advisory).map(|files| {
-                small(tr!(
-                    if advisory.scripts > 0 {
-                        M::AlsoFilesScripts
-                    } else {
-                        M::AlsoFiles
-                    },
-                    files = files
-                ))
-                .text_color(crate::theme::ink::secondary())
-            }))
-            .child(
-                paragraph(tr!(M::OnlyIfYouTrust, core = prompt.core_name))
-                    .font_weight(weights::BOLD.into())
-                    .text_color(crate::theme::ink::text()),
-            )
-            .child(
-                small(tr!(
-                    M::AdvisoryTrustNote,
-                    button = trust_label,
-                    explanation = trust_explanation()
-                ))
-                .text_color(crate::theme::ink::muted()),
-            ),
-    )
-    // one footer item that wraps: the trust button holds the core's name
-    .footer(
-        div()
-            .flex()
-            .flex_row()
-            .flex_wrap()
-            .gap_2()
-            .child(
-                Button::new("advisory-once", t(M::InstallThisTime))
-                    .variant(ButtonVariant::Secondary)
-                    .on_click(move |_, _, cx| {
-                        once.update(cx, |this, cx| {
-                            this.answer_advisory(AdvisoryAnswer::InstallOnce, cx)
-                        })
-                    }),
-            )
-            .child(
-                Button::new("advisory-trust", trust_label)
-                    .variant(ButtonVariant::Ghost)
-                    .on_click(move |_, _, cx| {
-                        trust.update(cx, |this, cx| {
-                            this.answer_advisory(AdvisoryAnswer::TrustAndInstall, cx)
-                        })
-                    }),
-            )
-            // the safe answer, so the one that stands out, though last like any Cancel
-            .child(
-                Button::new("advisory-cancel", t(CommonMsg::Cancel))
-                    .variant(ButtonVariant::Primary)
-                    .on_click(move |_, _, cx| {
-                        cancel.update(cx, |this, cx| {
-                            this.answer_advisory(AdvisoryAnswer::Cancel, cx)
-                        })
-                    }),
-            ),
-    )
+        })
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_3()
+                .child(paragraph(intro))
+                .children(prompt.summary.as_ref().map(summary_block))
+                .children(prompt.summary.as_ref().and_then(|summary| {
+                    missing_block(&summary.missing, &summary.curseforge_listed)
+                }))
+                .when(advisory.unchecked, |this| {
+                    this.child(small(t(M::ModrinthUnreachable)).text_color(colors::YELLOW))
+                })
+                .children(uploaded)
+                .children(on_modrinth)
+                .children(other_files(advisory).map(|files| {
+                    small(tr!(
+                        if advisory.scripts > 0 {
+                            M::AlsoFilesScripts
+                        } else {
+                            M::AlsoFiles
+                        },
+                        files = files
+                    ))
+                    .text_color(crate::theme::ink::secondary())
+                }))
+                .child(
+                    paragraph(tr!(M::OnlyIfYouTrust, core = prompt.core_name))
+                        .font_weight(weights::BOLD.into())
+                        .text_color(crate::theme::ink::text()),
+                )
+                .child(
+                    small(tr!(
+                        M::AdvisoryTrustNote,
+                        button = trust_label,
+                        explanation = trust_explanation()
+                    ))
+                    .text_color(crate::theme::ink::muted()),
+                ),
+        )
+        // one footer item that wraps: the trust button holds the core's name
+        .footer(
+            div()
+                .flex()
+                .flex_row()
+                .flex_wrap()
+                .gap_2()
+                .child(
+                    Button::new("advisory-once", t(M::InstallThisTime))
+                        .variant(ButtonVariant::Secondary)
+                        .on_click(move |_, _, cx| {
+                            once.update(cx, |this, cx| {
+                                this.answer_advisory(AdvisoryAnswer::InstallOnce, cx)
+                            })
+                        }),
+                )
+                .child(
+                    Button::new("advisory-trust", trust_label)
+                        .variant(ButtonVariant::Ghost)
+                        .on_click(move |_, _, cx| {
+                            trust.update(cx, |this, cx| {
+                                this.answer_advisory(AdvisoryAnswer::TrustAndInstall, cx)
+                            })
+                        }),
+                )
+                // the safe answer, so the one that stands out, though last like any Cancel
+                .child(
+                    Button::new("advisory-cancel", t(CommonMsg::Cancel))
+                        .variant(ButtonVariant::Primary)
+                        .on_click(move |_, _, cx| {
+                            cancel.update(cx, |this, cx| {
+                                this.answer_advisory(AdvisoryAnswer::Cancel, cx)
+                            })
+                        }),
+                ),
+        );
+    Some(dialog)
 }

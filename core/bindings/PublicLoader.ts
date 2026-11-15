@@ -3,4 +3,4 @@
 /**
  * The mod loader of a listed instance.
  */
-export type PublicLoader = "vanilla" | "fabric" | "forge" | "paper" | "spigot" | "other";
+export type PublicLoader = "vanilla" | "fabric" | "forge" | "neoforge" | "paper" | "spigot" | "other";

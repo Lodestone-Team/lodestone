@@ -61,11 +61,6 @@ impl Instances {
         let skip = log.rows.len().saturating_sub(count);
         (log.rows.iter().skip(skip).cloned().collect(), log.pushed)
     }
-
-    /// Whether "Switch to Fabric" or another loader switch is running.
-    pub(crate) fn loader_switch_running(&self) -> bool {
-        self.loader_switch.is_some()
-    }
 }
 
 #[cfg(test)]

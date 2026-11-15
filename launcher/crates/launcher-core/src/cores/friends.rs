@@ -12,19 +12,39 @@
 //! id. A new link for the same server (the same instance of the same core, as the host
 //! says) replaces the old link and keeps the id, so the server stays one entry and its
 //! instances stay linked ([`FriendsFile::upsert`]).
+//!
+//! A server joined from the friend list (`crate::friend_list`), without a link, is
+//! known by [`friend_list_id`]: `friend:<core fingerprint>/<instance uuid>`. It keeps
+//! the friend's key ([`FriendServer::friend_key`]) and the core's fingerprint, which
+//! its mod trust is tied to; nothing about it goes to the Keychain.
+//!
+//! Each server keeps its own game port ([`FriendServer::game_port`]), picked on the
+//! first join from its id, so Minecraft finds it at the same `127.0.0.1:<port>` every
+//! session ([`FriendsFile::game_port`]).
 
-use std::path::{Path, PathBuf};
+use std::{
+    ops::RangeInclusive,
+    path::{Path, PathBuf},
+};
 
 use serde::{Deserialize, Serialize};
+use url::Url;
+
+/// The friend list's service and links, for the apps (they don't depend on
+/// `lodestone_connect` themselves).
+pub use lodestone_connect::{Service, friend::pair::FriendLink};
 
 use super::{
-    connect::{Invite, SharedServer, loader},
+    connect::{GamePort, Invite, SharedServer, loader},
+    join::join_target,
     link::ServerLink,
     matching_loader,
-    models::ServerLoader,
+    models::{ServerInstance, ServerLoader},
+    server_list::{self, Listed},
 };
 use crate::{
     Secret, SecretStore,
+    game::launch::JoinServer,
     instances::{Instance, Loader},
     storage::{self, Document, Migration, StorageError},
 };
@@ -37,9 +57,34 @@ pub fn friend_id(invite: &Invite) -> String {
     format!("{ID_PREFIX}{}/{}", invite.service.link(), invite.code)
 }
 
-/// Whether `id` (a core id in a server link, say) is a friend's server.
+/// The start of the id of a server joined from the friend list.
+pub const FRIEND_LIST_PREFIX: &str = "friend:";
+
+/// The id of the server `instance` on a friend's core whose friend certificate has
+/// `fingerprint` (hex): `friend:<fingerprint>/<instance>`.
+pub fn friend_list_id(fingerprint: &str, instance: &str) -> String {
+    format!(
+        "{FRIEND_LIST_PREFIX}{}/{instance}",
+        fingerprint.to_ascii_lowercase()
+    )
+}
+
+/// The core fingerprint (hex) and instance of a [`friend_list_id`].
+pub fn parse_friend_list_id(id: &str) -> Option<(&str, &str)> {
+    let rest = id.strip_prefix(FRIEND_LIST_PREFIX)?;
+    let (fingerprint, instance) = rest.split_once('/')?;
+    (fingerprint.len() == 64 && !instance.is_empty()).then_some((fingerprint, instance))
+}
+
+/// Whether `id` is a server joined from the friend list.
+pub fn is_friend_list_id(id: &str) -> bool {
+    id.starts_with(FRIEND_LIST_PREFIX)
+}
+
+/// Whether `id` (a core id in a server link, say) is a friend's server: one joined
+/// with an invite link, or from the friend list.
 pub fn is_friend_id(id: &str) -> bool {
-    id.starts_with(ID_PREFIX)
+    id.starts_with(ID_PREFIX) || is_friend_list_id(id)
 }
 
 /// The invite link without its secret part, to show where a server is shared from.
@@ -84,6 +129,24 @@ pub struct FriendServer {
     /// ends when the host's certificate changes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trusted_as: Option<String>,
+    /// For a server joined from the friend list: the friend's key (64 hex digits).
+    /// Empty for one joined with an invite link.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub friend_key: String,
+    /// For a server joined from the friend list: what the user trusted its mods with,
+    /// the server's client view (its id, `cores::image_sync`), or for a core older than
+    /// milestone 3 its client pack's ETag. Trust holds for that one only: changed files
+    /// are asked about again (launcher/docs/friends.md, "Mods").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trusted_pack: Option<String>,
+    /// The local game port Minecraft joins this server on (`127.0.0.1:<port>`), the
+    /// same every session. Picked on the first join ([`port_choices`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub game_port: Option<u16>,
+    /// The entries the launcher added to instances' Minecraft server lists for it
+    /// ([`super::server_list`]), one per instance.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub listed: Vec<Listed>,
 }
 
 impl FriendServer {
@@ -97,6 +160,84 @@ impl FriendServer {
         };
         entry.update(invite, server, now);
         entry
+    }
+
+    /// A new entry for `invite` added without joining: only the link is known until
+    /// its host first answers ([`FriendServer::learn`]). Its name is empty until then.
+    pub fn added(invite: &Invite, now: i64) -> Self {
+        Self {
+            id: friend_id(invite),
+            link: public_link(invite),
+            fingerprint: hex(&invite.fingerprint),
+            added_at: now,
+            ..Self::default()
+        }
+    }
+
+    /// Takes what the host said about its server (a check, or its first answer after
+    /// the server was added without joining), without counting it as a join.
+    pub fn learn(&mut self, server: &SharedServer) {
+        if !server.core_uuid.is_empty() && !server.instance_uuid.is_empty() {
+            self.core_uuid = server.core_uuid.clone();
+            self.instance_uuid = server.instance_uuid.clone();
+        }
+        self.name = server.name.clone();
+        self.core_name = server.core_name.clone();
+        self.game_version = server.game_version.clone();
+        self.loader = server.loader.clone();
+        self.loader_version = server.loader_version.clone().filter(|v| !v.is_empty());
+        self.modpack = server.modpack;
+    }
+
+    /// Whether its host has never answered: added from a link without joining.
+    pub fn never_answered(&self) -> bool {
+        self.name.is_empty() && self.game_version.is_empty()
+    }
+
+    /// A new entry for a server joined from the friend list: `server` on the core of
+    /// `friend_key` whose friend certificate has `fingerprint` (hex). Its mods start
+    /// untrusted.
+    pub fn from_friend_list(
+        friend_key: &str,
+        fingerprint: &str,
+        server: &SharedServer,
+        now: i64,
+    ) -> Self {
+        let fingerprint = fingerprint.to_ascii_lowercase();
+        let mut entry = Self {
+            id: friend_list_id(&fingerprint, &server.instance_uuid),
+            fingerprint,
+            added_at: now,
+            ..Self::default()
+        };
+        entry.update_from_friend_list(friend_key, server, now);
+        entry
+    }
+
+    /// Takes what a friend's core says now, for a server joined from the friend list.
+    /// Its id holds the core's fingerprint, so the certificate can't change under it.
+    pub fn update_from_friend_list(&mut self, friend_key: &str, server: &SharedServer, now: i64) {
+        if !self.friend_key.is_empty() && self.friend_key != friend_key {
+            // another friend lists this core now: the trust was given to the first
+            self.set_trusted(false);
+        }
+        self.friend_key = friend_key.to_string();
+        // shown where the server came from, as an invite's public link is
+        self.link = server.core_name.clone();
+        self.core_uuid = server.core_uuid.clone();
+        self.instance_uuid = server.instance_uuid.clone();
+        self.name = server.name.clone();
+        self.core_name = server.core_name.clone();
+        self.game_version = server.game_version.clone();
+        self.loader = server.loader.clone();
+        self.loader_version = server.loader_version.clone().filter(|v| !v.is_empty());
+        self.modpack = server.modpack;
+        self.last_joined = Some(now);
+    }
+
+    /// Whether this server was joined from the friend list.
+    pub fn is_friend_list(&self) -> bool {
+        is_friend_list_id(&self.id)
     }
 
     /// Takes what the host says now. A new certificate ends the trust.
@@ -140,6 +281,106 @@ impl FriendServer {
 
     pub fn set_trusted(&mut self, trusted: bool) {
         self.trusted_as = trusted.then(|| self.fingerprint.clone());
+        if !trusted {
+            self.trusted_pack = None;
+        }
+    }
+
+    /// Whether the user trusts this server's mods for the view (or client pack) `etag`
+    /// names: as [`FriendServer::is_trusted`], and for a server from the friend list,
+    /// only for the very view trusted (none named is never trusted).
+    pub fn trusts_pack(&self, etag: Option<&str>) -> bool {
+        if !self.is_trusted() {
+            return false;
+        }
+        if !self.is_friend_list() {
+            return true;
+        }
+        matches!((etag, self.trusted_pack.as_deref()), (Some(etag), Some(trusted)) if !etag.is_empty() && etag == trusted)
+    }
+
+    /// Trusts this server's mods, with the view (or client pack) `etag` names for one
+    /// from the friend list.
+    pub fn trust_pack(&mut self, etag: Option<&str>) {
+        self.set_trusted(true);
+        self.trusted_pack = etag.filter(|e| !e.is_empty()).map(str::to_string);
+    }
+
+    /// The entry the launcher added to `instance_id`'s server list.
+    pub fn listed_in(&self, instance_id: &str) -> Option<&Listed> {
+        self.listed.iter().find(|l| l.instance_id == instance_id)
+    }
+
+    /// Adds this server to the Minecraft server list of the instance `instance_id`
+    /// (its game folder `game_dir`) under its name at its usual address, or brings the
+    /// entry up to date. Never with a port used for one session only: without a saved
+    /// port, nothing is listed. Nothing is written while the instance's game `runs`,
+    /// since the game rewrites the list; the next join does it.
+    pub fn list_in_game(
+        &mut self,
+        instance_id: &str,
+        game_dir: &Path,
+        runs: bool,
+    ) -> std::io::Result<()> {
+        let Some(port) = self.game_port.filter(|_| !runs) else {
+            return Ok(());
+        };
+        self.list_in_game_at(instance_id, game_dir, &game_address(port))
+    }
+
+    /// Adds this server to the instance's server list at `address`, or moves the entry
+    /// added before there: [`Self::list_in_game`] with another address that stays the
+    /// same from session to session (the server's own port, when its core runs on this
+    /// computer). Never call it while the instance's game runs.
+    pub fn list_in_game_at(
+        &mut self,
+        instance_id: &str,
+        game_dir: &Path,
+        address: &str,
+    ) -> std::io::Result<()> {
+        let previous = self.listed_in(instance_id);
+        let listed =
+            server_list::list_server(game_dir, previous, instance_id, &self.name, address)?;
+        if let Some(listed) = listed {
+            self.listed.retain(|l| l.instance_id != instance_id);
+            self.listed.push(listed);
+        }
+        Ok(())
+    }
+
+    /// Takes this server out of the server lists it was added to, except those of
+    /// instances whose game runs (`runs`); `game_dir` finds an instance's game folder.
+    /// Returns the instances whose list couldn't be read or written.
+    pub fn unlist_in_games(
+        &self,
+        game_dir: impl Fn(&str) -> PathBuf,
+        runs: impl Fn(&str) -> bool,
+    ) -> Vec<(String, std::io::Error)> {
+        self.listed
+            .iter()
+            .filter(|listed| !runs(&listed.instance_id))
+            .filter_map(|listed| {
+                server_list::unlist_server(&game_dir(&listed.instance_id), listed)
+                    .err()
+                    .map(|err| (listed.instance_id.clone(), err))
+            })
+            .collect()
+    }
+
+    /// Notes the game port a join used, which asked for `wanted`: a first join keeps
+    /// the port it picked. Returns the saved port when it was taken, so this join used
+    /// another one (the saved port stays for next time).
+    pub fn joined_on_port(&mut self, wanted: &GamePort, used: u16) -> Option<u16> {
+        match (self.game_port, wanted) {
+            (Some(saved), GamePort::Saved(asked)) if *asked == saved && used != saved => {
+                Some(saved)
+            }
+            (None, GamePort::Choose(ports)) if ports.contains(&used) => {
+                self.game_port = Some(used);
+                None
+            }
+            _ => None,
+        }
     }
 
     /// What the host said last, as a [`SharedServer`] (without the live parts).
@@ -156,8 +397,142 @@ impl FriendServer {
             state: None,
             player_count: None,
             max_player_count: None,
+            online_mode: None,
         }
     }
+}
+
+/// Where Minecraft joins a friend's server whose game port is `port`.
+pub fn game_address(port: u16) -> String {
+    format!("127.0.0.1:{port}")
+}
+
+/// A Lodestone core found running on this computer, as friends' servers see it. A
+/// server the user saved from an invite link may be shared by one of these: their own
+/// Lodestone Host, say, when they joined their own link.
+#[derive(Clone, Copy, Debug)]
+pub struct LocalCore<'a> {
+    /// The core's id, as its `/info` says.
+    pub uuid: &'a str,
+    /// Where it answered on this computer (a loopback address).
+    pub url: &'a Url,
+    /// The servers its card on the Servers page lists: empty when it has no card, or
+    /// its list hasn't loaded.
+    pub servers: &'a [ServerInstance],
+    /// The launcher is signed in to it as owner, at the address it answered on.
+    pub owner: bool,
+}
+
+/// Where a friend's server shows on the Servers page.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Placement {
+    /// Under "Friends' servers": its host isn't on this computer, or isn't known (an
+    /// entry saved before the launcher kept the host's id).
+    Friends,
+    /// In "On this computer", under the core with this id, which shares it.
+    Local(String),
+    /// In the row of the same server on the card of the core with this id, which says
+    /// it is shared with friends. It isn't shown a second time.
+    CoreRow(String),
+}
+
+/// How Play joins a friend's server whose core runs on this computer, without a
+/// tunnel to itself.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DirectJoin {
+    /// The core's id.
+    pub core_uuid: String,
+    /// The server as the core lists it to its owner.
+    pub server: ServerInstance,
+    /// The core's address here, and the server's port.
+    pub target: JoinServer,
+}
+
+impl DirectJoin {
+    /// Where Minecraft joins: `127.0.0.1:25565` (an IPv6 address in brackets).
+    pub fn address(&self) -> String {
+        let JoinServer { host, port } = &self.target;
+        if host.contains(':') {
+            format!("[{host}]:{port}")
+        } else {
+            format!("{host}:{port}")
+        }
+    }
+}
+
+/// The core in `local` that shares `entry`.
+fn sharing_core<'a, 'b>(
+    entry: &FriendServer,
+    local: &'a [LocalCore<'b>],
+) -> Option<&'a LocalCore<'b>> {
+    if entry.core_uuid.is_empty() {
+        return None;
+    }
+    local.iter().find(|core| core.uuid == entry.core_uuid)
+}
+
+/// The server `entry` is on `core`'s card, when the card lists it.
+fn listed_on<'a>(entry: &FriendServer, core: &LocalCore<'a>) -> Option<&'a ServerInstance> {
+    if entry.instance_uuid.is_empty() {
+        return None;
+    }
+    core.servers.iter().find(|s| s.uuid == entry.instance_uuid)
+}
+
+impl FriendServer {
+    /// Where this server shows, given the cores found on this computer (`local`).
+    /// When its core stops (or isn't found), it goes back under "Friends' servers":
+    /// its link still works from other computers.
+    pub fn placement(&self, local: &[LocalCore]) -> Placement {
+        match sharing_core(self, local) {
+            None => Placement::Friends,
+            Some(core) if listed_on(self, core).is_some() => {
+                Placement::CoreRow(core.uuid.to_string())
+            }
+            Some(core) => Placement::Local(core.uuid.to_string()),
+        }
+    }
+
+    /// How Play joins this server straight at its core on this computer: when the core
+    /// runs here, the launcher is its owner, and the core lists the server with its
+    /// port. `None`: Play opens a tunnel, as for any friend's server.
+    pub fn direct_join(&self, local: &[LocalCore]) -> Option<DirectJoin> {
+        let core = sharing_core(self, local).filter(|core| core.owner)?;
+        let server = listed_on(self, core)?;
+        Some(DirectJoin {
+            core_uuid: core.uuid.to_string(),
+            target: join_target(core.url, server)?,
+            server: server.clone(),
+        })
+    }
+}
+
+/// Where game ports are picked: unprivileged, and away from Minecraft's 25565 and the
+/// core's 16662.
+pub const GAME_PORTS: RangeInclusive<u16> = 30000..=39999;
+
+/// How many ports a first join tries before it takes any free port.
+const PORT_TRIES: usize = 8;
+
+/// The game ports a first join of the server `id` tries, in order: one picked from the
+/// id (always the same for it), then the ports after it, skipping `taken` (other saved
+/// servers' ports).
+pub fn port_choices(id: &str, taken: &[u16]) -> Vec<u16> {
+    let (start, end) = (*GAME_PORTS.start(), *GAME_PORTS.end());
+    let size = u32::from(end - start) + 1;
+    let first = fnv1a(id.as_bytes()) % size;
+    (0..size)
+        .map(|step| start + ((first + step) % size) as u16)
+        .filter(|port| !taken.contains(port))
+        .take(PORT_TRIES)
+        .collect()
+}
+
+/// FNV-1a: a small hash that stays the same in every build and on every computer.
+fn fnv1a(bytes: &[u8]) -> u32 {
+    bytes.iter().fold(0x811c_9dc5, |hash, &byte| {
+        (hash ^ u32::from(byte)).wrapping_mul(0x0100_0193)
+    })
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -199,12 +574,96 @@ impl FriendsFile {
         }
     }
 
+    /// Adds a server from `invite` without joining it, unless it is saved already.
+    /// Returns its index, and whether it is new.
+    pub fn add(&mut self, invite: &Invite, now: i64) -> (usize, bool) {
+        match position_of(&self.friends, invite) {
+            Some(index) => (index, false),
+            None => {
+                self.friends.push(FriendServer::added(invite, now));
+                (self.friends.len() - 1, true)
+            }
+        }
+    }
+
+    /// Adds a server joined from the friend list, or updates its entry. Returns its
+    /// index.
+    pub fn upsert_friend_list(
+        &mut self,
+        friend_key: &str,
+        fingerprint: &str,
+        server: &SharedServer,
+        now: i64,
+    ) -> usize {
+        let id = friend_list_id(fingerprint, &server.instance_uuid);
+        match self.friends.iter().position(|f| f.id == id) {
+            Some(index) => {
+                self.friends[index].update_from_friend_list(friend_key, server, now);
+                index
+            }
+            None => {
+                self.friends.push(FriendServer::from_friend_list(
+                    friend_key,
+                    fingerprint,
+                    server,
+                    now,
+                ));
+                self.friends.len() - 1
+            }
+        }
+    }
+
+    /// Stops trusting the mods of every server joined from the friend list on the core
+    /// with `fingerprint` (hex): its owner retired it, or the friend was removed.
+    /// Returns whether any trust ended.
+    pub fn clear_core_trust(&mut self, fingerprint: &str) -> bool {
+        let fingerprint = fingerprint.to_ascii_lowercase();
+        let mut changed = false;
+        for entry in &mut self.friends {
+            let on_core = parse_friend_list_id(&entry.id).is_some_and(|(fp, _)| fp == fingerprint);
+            if on_core && entry.trusted_as.is_some() {
+                entry.set_trusted(false);
+                changed = true;
+            }
+        }
+        changed
+    }
+
+    /// Stops trusting the mods of every server joined from the friend list of the
+    /// friend with `key`: they retired their key, or were removed. Returns whether any
+    /// trust ended.
+    pub fn clear_friend_trust(&mut self, key: &str) -> bool {
+        let mut changed = false;
+        for entry in &mut self.friends {
+            if entry.is_friend_list() && entry.friend_key == key && entry.trusted_as.is_some() {
+                entry.set_trusted(false);
+                changed = true;
+            }
+        }
+        changed
+    }
+
     pub fn get(&self, id: &str) -> Option<&FriendServer> {
         self.friends.iter().find(|f| f.id == id)
     }
 
     pub fn get_mut(&mut self, id: &str) -> Option<&mut FriendServer> {
         self.friends.iter_mut().find(|f| f.id == id)
+    }
+
+    /// Which game port joining the server `id` asks for: its saved port, or, on its
+    /// first join, ports picked from its id that no other saved server has.
+    pub fn game_port(&self, id: &str) -> GamePort {
+        if let Some(port) = self.get(id).and_then(|f| f.game_port) {
+            return GamePort::Saved(port);
+        }
+        let taken: Vec<u16> = self
+            .friends
+            .iter()
+            .filter(|f| f.id != id)
+            .filter_map(|f| f.game_port)
+            .collect();
+        GamePort::Choose(port_choices(id, &taken))
     }
 
     /// Takes the entry out; returns it.
@@ -397,6 +856,7 @@ mod tests {
             state: Some("Running".into()),
             player_count: Some(1),
             max_player_count: Some(10),
+            online_mode: None,
         }
     }
 
@@ -419,6 +879,7 @@ mod tests {
             server_uuid: "server".into(),
             server_name: "SMP".into(),
             pack_etag: None,
+            view: None,
         }
     }
 
@@ -558,6 +1019,243 @@ mod tests {
     }
 
     #[test]
+    fn servers_from_the_friend_list_have_their_own_ids_and_trust() {
+        let fingerprint = "AB".repeat(32);
+        let id = friend_list_id(&fingerprint, "server");
+        assert_eq!(id, format!("friend:{}/server", "ab".repeat(32)));
+        assert!(is_friend_id(&id));
+        assert!(is_friend_list_id(&id));
+        assert!(!is_friend_list_id(
+            "connect:connect.lodestone.cc/ABCDEFGH23"
+        ));
+        let lower = "ab".repeat(32);
+        assert_eq!(parse_friend_list_id(&id), Some((lower.as_str(), "server")));
+        assert_eq!(parse_friend_list_id("friend:short/server"), None);
+        assert_eq!(parse_friend_list_id(&format!("friend:{lower}/")), None);
+
+        let mut file = FriendsFile::default();
+        // an invite's entry for the same server stays apart
+        file.upsert(&invite(0xab), &shared("vanilla", None, false), 1);
+        let server = shared("fabric", Some("0.16.14"), true);
+        assert_eq!(file.upsert_friend_list("k1", &fingerprint, &server, 2), 1);
+        let entry = &file.friends[1];
+        assert_eq!(entry.id, id);
+        assert!(entry.is_friend_list());
+        assert!(!file.friends[0].is_friend_list());
+        assert_eq!(entry.friend_key, "k1");
+        assert_eq!(entry.fingerprint, lower);
+        assert_eq!(entry.link, "Alex's core");
+        assert!(!entry.is_trusted(), "a friend's server starts untrusted");
+        file.friends[1].set_trusted(true);
+        file.friends[0].set_trusted(true);
+        // joining again updates it and keeps the trust
+        let mut renamed = server.clone();
+        renamed.name = "SMP 2".into();
+        assert_eq!(file.upsert_friend_list("k1", &fingerprint, &renamed, 3), 1);
+        assert_eq!(file.friends.len(), 2);
+        assert_eq!(file.friends[1].name, "SMP 2");
+        assert_eq!(file.friends[1].added_at, 2);
+        assert!(file.friends[1].is_trusted());
+        // the core retired: trust in its servers ends, not in others
+        assert!(!file.clear_core_trust(&"cd".repeat(32)));
+        assert!(file.clear_core_trust(&fingerprint));
+        assert!(!file.friends[1].is_trusted());
+        assert!(file.friends[0].is_trusted());
+        assert!(!file.clear_core_trust(&fingerprint));
+        // another friend listing the core starts untrusted
+        file.friends[1].set_trusted(true);
+        file.upsert_friend_list("k2", &fingerprint, &server, 4);
+        assert!(!file.friends[1].is_trusted());
+        // trust holds for the trusted pack only
+        file.friends[1].trust_pack(Some("pack-1"));
+        assert!(file.friends[1].trusts_pack(Some("pack-1")));
+        assert!(!file.friends[1].trusts_pack(Some("pack-2")));
+        assert!(!file.friends[1].trusts_pack(None));
+        file.friends[1].trust_pack(None);
+        assert!(
+            !file.friends[1].trusts_pack(None),
+            "a pack without an ETag isn't trusted"
+        );
+        // an invite's server keeps trusting any pack under its certificate
+        assert!(file.friends[0].trusts_pack(Some("anything")));
+        assert!(file.friends[0].trusts_pack(None));
+        // the friend retired their key: their servers' trust ends
+        file.friends[1].trust_pack(Some("pack-1"));
+        assert!(!file.clear_friend_trust("k1"));
+        assert!(file.clear_friend_trust("k2"));
+        assert!(!file.friends[1].is_trusted());
+        assert_eq!(file.friends[1].trusted_pack, None);
+        assert!(file.friends[0].is_trusted());
+        // invite entries don't write the key, so older launchers read them as before
+        let text = serde_json::to_string(&file.friends[0]).unwrap();
+        assert!(!text.contains("friend_key"), "{text}");
+    }
+
+    #[test]
+    fn game_ports_are_picked_from_the_id_in_range() {
+        let id = "connect:connect.lodestone.cc/ABCDEFGH23";
+        let ports = port_choices(id, &[]);
+        assert_eq!(ports.len(), PORT_TRIES);
+        // the same id picks the same ports, on any computer and in any build
+        assert_eq!(ports, port_choices(id, &[]));
+        assert_eq!(ports[0], 30000 + (fnv1a(id.as_bytes()) % 10000) as u16);
+        for port in &ports {
+            assert!(GAME_PORTS.contains(port), "{port}");
+        }
+        assert!(!GAME_PORTS.contains(&25565) && !GAME_PORTS.contains(&16662));
+        // the next ones follow, and wrap around at the end of the range
+        for pair in ports.windows(2) {
+            assert!(pair[1] == pair[0] + 1 || (pair[0] == 39999 && pair[1] == 30000));
+        }
+        // another id picks another port
+        assert_ne!(
+            port_choices("connect:connect.lodestone.cc/OTHER1", &[])[0],
+            ports[0]
+        );
+        // other servers' ports are skipped
+        let skipped = port_choices(id, &[ports[0], ports[2]]);
+        assert_eq!(skipped[..2], [ports[1], ports[3]]);
+        assert!(!skipped.contains(&ports[0]) && !skipped.contains(&ports[2]));
+        // ids from all over the range stay in it
+        for n in 0..500 {
+            let port = port_choices(&format!("connect:x/{n}"), &[])[0];
+            assert!(GAME_PORTS.contains(&port), "{port}");
+        }
+    }
+
+    #[test]
+    fn a_server_keeps_its_game_port() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = friends_file(dir.path());
+        let mut file = FriendsFile::default();
+        let first = invite_for("FIRST1", 0xab);
+        let id = friend_id(&first);
+        // a first join picks a port from the id
+        let wanted = file.game_port(&id);
+        let GamePort::Choose(ports) = &wanted else {
+            panic!("{wanted:?}");
+        };
+        assert_eq!(ports, &port_choices(&id, &[]));
+        let index = file.upsert(&first, &shared("vanilla", None, false), 1);
+        // the first choice was busy, so it took the second
+        assert_eq!(file.friends[index].joined_on_port(&wanted, ports[1]), None);
+        let saved = ports[1];
+        assert_eq!(file.friends[index].game_port, Some(saved));
+
+        // it survives saving and loading
+        save(&path, &file).unwrap();
+        let mut file = load(&path).unwrap();
+        assert_eq!(file.friends[0].game_port, Some(saved));
+        assert_eq!(file.game_port(&id), GamePort::Saved(saved));
+
+        // later joins ask for it; when it is busy, that join uses another and it stays
+        let entry = &mut file.friends[0];
+        assert_eq!(entry.joined_on_port(&GamePort::Saved(saved), saved), None);
+        assert_eq!(
+            entry.joined_on_port(&GamePort::Saved(saved), 54321),
+            Some(saved)
+        );
+        assert_eq!(entry.game_port, Some(saved));
+        // a Check (any port) changes nothing
+        assert_eq!(entry.joined_on_port(&GamePort::Any, 40000), None);
+        assert_eq!(entry.game_port, Some(saved));
+
+        // a first join that found none of its ports free saves nothing; the next one
+        // tries them again
+        let second = invite_for("SECOND2", 0xcd);
+        let mut other = shared("vanilla", None, false);
+        other.instance_uuid = "other".into();
+        let index = file.upsert(&second, &other, 2);
+        let wanted = file.game_port(&friend_id(&second));
+        assert_eq!(file.friends[index].joined_on_port(&wanted, 61000), None);
+        assert_eq!(file.friends[index].game_port, None);
+        assert_eq!(file.game_port(&friend_id(&second)), wanted);
+
+        // two saved servers never get the same port, even when one's first choice is
+        // the other's port
+        let clash = FriendServer {
+            id: "connect:x/clash".into(),
+            ..FriendServer::default()
+        };
+        let clash_first = port_choices(&clash.id, &[])[0];
+        file.friends[0].game_port = Some(clash_first);
+        file.friends.push(clash);
+        let GamePort::Choose(ports) = file.game_port("connect:x/clash") else {
+            panic!("a first join chooses");
+        };
+        assert!(!ports.contains(&clash_first));
+        assert_eq!(ports[0], port_choices("connect:x/clash", &[])[1]);
+    }
+
+    #[test]
+    fn the_server_goes_in_the_instances_server_list() {
+        use super::server_list::SERVERS_DAT;
+        let dir = tempfile::tempdir().unwrap();
+        let game_dir = |instance: &str| dir.path().join(instance).join("minecraft");
+        let list = |instance: &str| std::fs::read(game_dir(instance).join(SERVERS_DAT));
+        let mut entry = FriendServer::new(&invite(0xab), &shared("vanilla", None, false), 1);
+
+        // no saved port (this session's port was a fallback): nothing is listed
+        entry.list_in_game("a", &game_dir("a"), false).unwrap();
+        assert!(list("a").is_err());
+
+        entry.game_port = Some(31234);
+        // never while the game runs
+        entry.list_in_game("a", &game_dir("a"), true).unwrap();
+        assert!(list("a").is_err());
+        assert!(entry.listed.is_empty());
+
+        entry.list_in_game("a", &game_dir("a"), false).unwrap();
+        entry.list_in_game("b", &game_dir("b"), false).unwrap();
+        let a = entry.listed_in("a").unwrap().clone();
+        assert_eq!((a.name.as_str(), a.ip.as_str()), ("SMP", "127.0.0.1:31234"));
+        assert_eq!(entry.listed.len(), 2);
+        let written = list("a").unwrap();
+        // again: the same entry, nothing written twice
+        entry.list_in_game("a", &game_dir("a"), false).unwrap();
+        assert_eq!(list("a").unwrap(), written);
+        assert_eq!(entry.listed.len(), 2);
+
+        // what was listed survives saving and loading
+        let path = friends_file(dir.path());
+        let file = FriendsFile {
+            friends: vec![entry.clone()],
+        };
+        save(&path, &file).unwrap();
+        assert_eq!(load(&path).unwrap(), file);
+
+        // removing the friend's server takes it out, except where the game runs
+        let failed = entry.unlist_in_games(game_dir, |instance| instance == "b");
+        assert!(failed.is_empty(), "{failed:?}");
+        assert_ne!(list("a").unwrap(), written);
+        assert!(!String::from_utf8_lossy(&list("a").unwrap()).contains("31234"));
+        assert!(String::from_utf8_lossy(&list("b").unwrap()).contains("31234"));
+    }
+
+    #[test]
+    fn an_older_file_without_game_ports_loads() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = friends_file(dir.path());
+        let mut file = FriendsFile::default();
+        file.upsert(&invite(0xab), &shared("vanilla", None, false), 1);
+        save(&path, &file).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        // as an older launcher wrote it: no game port
+        assert!(!text.contains("game_port"), "{text}");
+        let loaded = load(&path).unwrap();
+        assert_eq!(loaded.friends[0].game_port, None);
+        assert!(matches!(
+            loaded.game_port(&loaded.friends[0].id),
+            GamePort::Choose(_)
+        ));
+        // once saved, the port is one more field, which older launchers ignore
+        let mut entry = loaded.friends[0].clone();
+        entry.game_port = Some(31234);
+        let text = serde_json::to_string(&entry).unwrap();
+        assert!(text.contains(r#""game_port":31234"#), "{text}");
+    }
+
+    #[test]
     fn trust_ends_with_a_new_certificate() {
         let server = shared("fabric", Some("0.16.14"), true);
         let mut entry = FriendServer::new(&invite(0xab), &server, 1);
@@ -688,5 +1386,159 @@ mod tests {
             match_instance(id, &shared("other", None, false), None, &instances, &links),
             InstanceMatch::Create
         );
+    }
+
+    fn core_server(uuid: &str, port: Option<u32>) -> ServerInstance {
+        ServerInstance {
+            uuid: uuid.into(),
+            name: "SMP".into(),
+            game_version: "1.21.4".into(),
+            loader: ServerLoader::Vanilla,
+            loader_version: None,
+            port,
+            state: super::super::ServerState::Running,
+            player_count: None,
+            max_player_count: None,
+            has_client_pack: Some(false),
+            listed: false,
+            public_only: false,
+        }
+    }
+
+    #[test]
+    fn a_server_shared_from_this_computer_has_its_own_place() {
+        // shared by core "core", instance "server"
+        let entry = FriendServer::new(&invite(0xab), &shared("vanilla", None, false), 1);
+        let url = Url::parse("http://127.0.0.1:16662").unwrap();
+        let other = [core_server("another", Some(25570))];
+        let listed = [core_server("server", Some(25565))];
+        let here = |uuid, servers, owner| LocalCore {
+            uuid,
+            url: &url,
+            servers,
+            owner,
+        };
+
+        // its core runs here: under it in "On this computer"
+        assert_eq!(
+            entry.placement(&[here("core", &[], false)]),
+            Placement::Local("core".into())
+        );
+        assert_eq!(
+            entry.placement(&[here("elsewhere", &[], true), here("core", &other, true)]),
+            Placement::Local("core".into())
+        );
+        // the core's card lists the same server: shown once, in that row
+        assert_eq!(
+            entry.placement(&[here("core", &listed, true)]),
+            Placement::CoreRow("core".into())
+        );
+        assert_eq!(
+            entry.placement(&[here("core", &listed, false)]),
+            Placement::CoreRow("core".into())
+        );
+        // its core isn't found here: back under "Friends' servers"
+        assert_eq!(entry.placement(&[]), Placement::Friends);
+        assert_eq!(
+            entry.placement(&[here("elsewhere", &listed, true)]),
+            Placement::Friends
+        );
+        // an entry saved before the host's id was kept stays under "Friends' servers"
+        let mut old = entry.clone();
+        old.core_uuid.clear();
+        old.instance_uuid.clear();
+        assert_eq!(
+            old.placement(&[here("", &listed, true)]),
+            Placement::Friends
+        );
+        assert_eq!(old.direct_join(&[here("", &listed, true)]), None);
+    }
+
+    #[test]
+    fn play_joins_a_server_on_this_computer_directly() {
+        let entry = FriendServer::new(&invite(0xab), &shared("vanilla", None, false), 1);
+        let url = Url::parse("http://127.0.0.1:16662").unwrap();
+        let listed = [core_server("server", Some(25565))];
+        let here = |servers, owner| LocalCore {
+            uuid: "core",
+            url: &url,
+            servers,
+            owner,
+        };
+
+        // the owner sees the server and its port: straight there, no tunnel
+        assert_eq!(
+            entry.direct_join(&[here(&listed, true)]),
+            Some(DirectJoin {
+                core_uuid: "core".into(),
+                server: listed[0].clone(),
+                target: JoinServer {
+                    host: "127.0.0.1".into(),
+                    port: 25565,
+                },
+            })
+        );
+        let direct = entry.direct_join(&[here(&listed, true)]).unwrap();
+        assert_eq!(direct.address(), "127.0.0.1:25565");
+        let v6 = Url::parse("http://[::1]:16662").unwrap();
+        let on_v6 = LocalCore {
+            uuid: "core",
+            url: &v6,
+            servers: &listed,
+            owner: true,
+        };
+        assert_eq!(
+            entry.direct_join(&[on_v6]).unwrap().address(),
+            "[::1]:25565"
+        );
+        // not the owner here (the pack and port need it): through the tunnel
+        assert_eq!(entry.direct_join(&[here(&listed, false)]), None);
+        // the list hasn't loaded, or doesn't have the server
+        assert_eq!(entry.direct_join(&[here(&[], true)]), None);
+        let other = [core_server("another", Some(25570))];
+        assert_eq!(entry.direct_join(&[here(&other, true)]), None);
+        // the core hides the port
+        let hidden = [core_server("server", None)];
+        assert_eq!(entry.direct_join(&[here(&hidden, true)]), None);
+        // the core isn't running here
+        assert_eq!(entry.direct_join(&[]), None);
+    }
+
+    #[test]
+    fn a_direct_join_lists_the_servers_own_address() {
+        use super::server_list::SERVERS_DAT;
+        let dir = tempfile::tempdir().unwrap();
+        let game_dir = dir.path().join("a").join("minecraft");
+        let mut entry = FriendServer::new(&invite(0xab), &shared("vanilla", None, false), 1);
+        entry.game_port = Some(31234);
+        entry.list_in_game("a", &game_dir, false).unwrap();
+        // joined directly: the same entry moves to the core's address
+        entry
+            .list_in_game_at("a", &game_dir, "127.0.0.1:25565")
+            .unwrap();
+        assert_eq!(entry.listed.len(), 1);
+        assert_eq!(entry.listed_in("a").unwrap().ip, "127.0.0.1:25565");
+        let text = String::from_utf8_lossy(&std::fs::read(game_dir.join(SERVERS_DAT)).unwrap())
+            .into_owned();
+        assert!(text.contains("127.0.0.1:25565") && !text.contains("31234"));
+        // the saved game port stays for the tunnel
+        assert_eq!(entry.game_port, Some(31234));
+    }
+    #[test]
+    fn a_server_added_without_joining_learns_its_name_later() {
+        let invite = invite(0xab);
+        let mut file = FriendsFile::default();
+        let (index, new) = file.add(&invite, 10);
+        assert!(new);
+        assert!(file.friends[index].never_answered());
+        assert_eq!(file.friends[index].last_joined, None);
+        // adding the same link again keeps the one entry
+        assert_eq!(file.add(&invite, 20), (index, false));
+        assert_eq!(file.friends.len(), 1);
+        file.friends[index].learn(&shared("fabric", Some("0.16.14"), false));
+        assert!(!file.friends[index].never_answered());
+        assert_eq!(file.friends[index].name, "SMP");
+        assert_eq!(file.friends[index].instance_uuid, "server");
+        assert_eq!(file.friends[index].last_joined, None);
     }
 }

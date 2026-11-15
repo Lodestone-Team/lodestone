@@ -33,15 +33,17 @@ pub fn text(message: M) -> &'static str {
         M::NewInstance => "新增實例…",
         M::ImportInstances => "匯入實例…",
         M::Servers => "Lodestone Host",
+        M::Friends => "好友",
         M::AppVersion => "Lodestone Launcher v{version}",
         M::PlayedInTotal => "{when} · 共 {time}",
         M::ImportProgress => "{percent} · {label}",
         M::GroupModded => "{loader}（模組）",
         M::Vanilla => "原版",
         M::GroupImported => "已匯入",
+        M::GroupServers => "伺服器",
 
         M::NoInstanceSelected => "未選取實例",
-        M::NoInstanceSelectedHint => "建立實例，即可選擇 Minecraft 版本和載入器。",
+        M::NoInstanceSelectedHint => "在側邊欄中選擇一個實例即可開始。",
         M::MinecraftVersion => "Minecraft {version}",
         M::MinecraftWith => "Minecraft {version}，{loader}",
         M::HeroPlayed => "{game}。已遊玩 {time}。",
@@ -54,33 +56,36 @@ pub fn text(message: M) -> &'static str {
         M::LogsPlaceholder => "有了實例後，日誌會顯示在這裡。",
         M::LinkedTo => "已連結到 {core} 上的 {server}",
         M::LinkedToRemoved => {
-            "已連結到 {core} 上的 {server}（該核心已從「Lodestone Host」頁面移除）"
+            "已連結到 {core} 上的 {server}（該主機已從「Lodestone Host」頁面移除）"
+        }
+        M::RunsUnderRosetta => {
+            "透過 Rosetta 2 執行：Mojang 沒有為這個版本需要的部分程式庫製作 Apple 晶片版本。啟動較慢，之後可以正常遊玩。"
+        }
+        M::RunsUnderRosettaOverride => {
+            "透過 Rosetta 2 執行：在「設定」中選擇的 Java 是 Intel 版。啟動較慢，之後可以正常遊玩。"
         }
         M::NoInstances => "沒有實例",
         M::AndJoin => "並加入 {server}",
         M::PlayWithoutJoining => "開始遊戲但不加入",
+        M::ServerStoppedCaption => "{server} 已停止",
+        M::ServerStartingCaption => "{server} 正在啟動",
+        M::ServerOnline => "線上",
+        M::ServerStarting => "正在啟動",
+        M::ServerStopped => "已停止",
+        M::ServerUnreachable => "無法連線",
+        M::ServerChecking => "正在檢查…",
+        M::PlayNamed => "啟動「{name}」",
 
         M::DeleteNamed => "刪除「{name}」？",
         M::DeleteWorldBody => "這個世界的資料夾會移到{trash}，你可以從那裡還原。它的備份會保留。",
         M::DeleteInstanceBody => {
-            "這個實例的資料夾（包括其中的世界、模組和設定）會移到{trash}。你可以從那裡還原。"
+            "這個實例的資料夾（包括其中的世界、模組和設定）會移到{trash}。你可以從那裡還原。它的快照會一直保留，直到你在「設定 › 儲存空間」中移除；還原實例時快照也會一起回來。"
         }
         M::ReplaceWorldTitle => "用這個備份取代「{name}」？",
         M::ReplaceWorldBody => {
-            "「{name}」會回到{when} 時的狀態。之後的所有變更都會從世界中遺失，但會先備份，目前的資料夾會移到{trash}。"
+            "「{name}」會回到{when} 時的狀態。會先為現在的世界拍攝快照，並保留 30 天。"
         }
         M::BackUpAndReplace => "備份並取代",
-        M::SwitchToLoader => "切換到 {loader}？",
-        M::SwitchToVanilla => "切換到原版？",
-        M::ModsWontLoadOn => "以下已啟用的模組是為其他載入器製作的，在 {loader} 上無法載入：",
-        M::ModsWontLoadVanilla => "原版 Minecraft 不會載入任何模組，因此以下已啟用的模組無法載入：",
-        M::ModMadeFor => "{loader} 模組",
-        M::TurningOffRenames => {
-            "停用後，它們會被重新命名為 .disabled，之後你可以在「內容」中重新啟用。"
-        }
-        M::WorldsAtRisk => "使用過這些模組中的方塊或物品的世界可能會失去它們。請先備份你的世界。",
-        M::TurnOffAndSave => "停用並儲存",
-        M::SaveAndKeep => "儲存並保留",
         M::RemoveAccountTitle => "移除「{name}」？",
         M::RemoveAccountBody => {
             "Lodestone Launcher 會忘記這個帳號，並從你的{keychain}中刪除它儲存的登入資訊。之後你可以再次新增。"
@@ -97,7 +102,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::CauseOutOfMemory => "記憶體不足。請在「設定」中提高記憶體上限，或關閉其他應用程式。",
         M::CauseNatives => {
-            "原生程式庫遺失，或與處理器架構不符。在 Apple 晶片上，1.19 之前的版本會透過 Rosetta 2 在 Intel 版 Java 中執行；請確認已安裝 Rosetta，且自訂 Java 不是 arm64 版。"
+            "原生程式庫遺失，或與處理器架構不符。在 Apple 晶片上，1.14 之前的版本會透過 Rosetta 2 在 Intel 版 Java 中執行，之後的版本則在 Apple 晶片版 Java 中執行；請確認已安裝 Rosetta，且自訂 Java 適用的處理器與之相符。"
         }
         M::CauseJvmOptions => "Java 拒絕了其中一項設定。請檢查「設定」中的 JVM 參數和記憶體。",
         M::CauseGraphics => {
@@ -134,9 +139,8 @@ pub fn text(message: M) -> &'static str {
         M::KeptFiles => "保留你的變更（{count}）",
         M::WrittenFiles => "寫入的設定檔和其他檔案（{count}）",
         M::ModpackUpdateSafety => {
-            "你自己的模組、世界和變更過的設定檔不會受到影響。每個被取代或移除的檔案都會先儲存到實例的備份資料夾。"
+            "你自己的模組、世界和修改過的設定不會被更動。會先為實例拍攝快照，被取代或刪除的每個檔案都會保存在實例的備份資料夾中。"
         }
-        M::BackUpEveryWorld => "先備份所有世界",
 
         M::SaveChangesTitle => "要儲存變更嗎？",
         M::UnsavedDefaultsBody => "你變更了實例預設設定。要儲存還是捨棄？",
@@ -155,17 +159,14 @@ pub fn text(message: M) -> &'static str {
         M::NoAccount => "沒有帳號",
         M::ManageAccounts => "管理帳號",
         M::GroupAutomatically => "自動將實例分組",
-        M::GroupAutomaticallyHint => "依載入器為未分組的實例分組。",
+        M::GroupAutomaticallyHint => "依伺服器或載入器為未分組的實例分組。",
         M::AutoConfigure => "自動設定新實例",
-        M::AutoConfigureHint => {
-            "新實例首次遊戲前，依這台電腦和它的模組選擇記憶體、Java 參數和視訊設定；共用設定未涵蓋時，也會沿用你的滑鼠靈敏度和按鍵綁定。你自己變更的設定會保留。"
-        }
+        M::AutoConfigureHint => "讓 Lodestone 自動設定記憶體、滑鼠靈敏度和其他遊戲內設定。",
         M::WhenAGameStarts => "遊戲啟動後",
         M::AfterLaunchStay => "保持開啟",
         M::AfterLaunchMinimize => "最小化",
         M::AfterLaunchQuit => "結束",
         M::AfterLaunchStayHint => "啟動器在遊戲旁保持開啟。",
-        M::AfterLaunchMinimizeHint => "遊戲視窗開啟後啟動器最小化，遊戲關閉時恢復。",
         M::AfterLaunchQuitHint => {
             "遊戲視窗開啟後啟動器結束。遊戲會繼續執行，但不會記錄其記錄檔、當機報告和遊玩時間。"
         }
@@ -194,7 +195,7 @@ pub fn text(message: M) -> &'static str {
         M::EditHereOnly => "只在這裡編輯",
         M::Value => "值",
         M::SyncFrom => "主實例",
-        M::SyncFromHint => "你在主實例遊戲中變更的設定，會在其他實例啟動時複製過去。",
+        M::SyncFromHint => "你在主實例中變更的設定會自動複製到其他實例。",
         M::SyncFromNoneHint => "沒有主實例時，共用設定只在這裡變更。",
         M::MainOfferTitle => "將「{name}」設為主實例？",
         M::MainOfferBody => {
@@ -209,7 +210,7 @@ pub fn text(message: M) -> &'static str {
         M::FirstTimeSetupSection => "首次設定",
         M::ResetFirstTimeSetup => "重設首次設定",
         M::ResetFirstTimeSetupHint => {
-            "下一個新建的實例會再次被提議設為主實例，下次啟動時也會再次提議關閉朗讀功能。這會清除目前的主實例；共用值保留。"
+            "下一個新建的實例會再次被提議設為主實例，下次啟動時也會再次提議關閉朗讀功能，Lodestone Host 頁面也會再次推薦 Lodestone Host。這會清除目前的主實例；共用值保留。"
         }
         M::FirstTimeSetupReset => "首次設定已重設。新建一個實例即可看到。",
         M::StartFromInstance => "從某個實例開始",
@@ -225,7 +226,7 @@ pub fn text(message: M) -> &'static str {
         M::ServerListHint => "即將推出。",
         M::Source => "來源",
         M::WhatsShared => "共用內容",
-        M::WhatsSharedLead => "關閉的類別仍由各實例個別設定。",
+        M::WhatsSharedLead => "關閉你不想共用的類別。",
         M::CategoryControls => "控制",
         M::CategoryVideo => "顯示",
         M::CategorySound => "音效",
@@ -257,6 +258,34 @@ pub fn text(message: M) -> &'static str {
         M::AddOfflineAccount => "新增離線帳號",
         M::RemoveNamed => "移除「{name}」",
         M::OfflineNote => "離線 – 僅限單人遊戲和離線模式伺服器",
+        M::ChangePlayerSkin => "更換外觀…",
+        M::PlayerSkinDialogTitle => "{name} 的外觀",
+        M::PlayerSkinLoading => "正在向 Minecraft 查詢你的外觀",
+        M::PlayerSkinLoadFailed => "無法載入你的外觀：{error}",
+        M::PlayerSkinSection => "外觀",
+        M::PlayerSkinChooseFile => "選擇檔案…",
+        M::PlayerSkinUseDefault => "使用預設外觀",
+        M::PlayerSkinFileHint => "外觀是一張 64×64 的 PNG 圖片。",
+        M::PlayerSkinFileChosen => "儲存後，{name} 會成為你的外觀。",
+        M::PlayerSkinDefaultChosen => "儲存後，你會使用預設外觀。",
+        M::PlayerSkinDefault => "預設外觀",
+        M::PlayerSkinPreview => "你的角色，穿著該外觀",
+        M::PlayerSkinDragHint => "拖曳以旋轉",
+        M::PlayerSkinModel => "手臂",
+        M::PlayerSkinModelClassic => "粗",
+        M::PlayerSkinModelSlim => "細",
+        M::PlayerSkinCape => "披風",
+        M::PlayerSkinNoCape => "無",
+        M::PlayerSkinNoCapes => "此帳號沒有披風。",
+        M::PlayerSkinFileRefused => "無法使用 {name}：{error}",
+        M::PlayerSkinFileTooLarge => "檔案超過 1 MB",
+        M::PlayerSkinFileNotPng => "它不是 PNG 圖片",
+        M::PlayerSkinFileWrongSize => "它的尺寸是 {width}×{height}，而外觀是 64×64",
+        M::PlayerSkinNetworkError => "無法連線到 Minecraft 服務：{error}",
+        M::PlayerSkinRateLimited => "Minecraft 服務忙碌中，請一分鐘後再試。",
+        M::PlayerSkinSignedOut => "登入已過期。請重新登入，然後再更換外觀。",
+        M::PlayerSkinRefusedBecause => "Minecraft 沒有接受這項變更：{reason}",
+        M::PlayerSkinRefused => "Minecraft 沒有接受這項變更（錯誤 {status}）。",
 
         M::OfflineDialogBody => {
             "用於開發和測試。這個帳號沒有 Microsoft 登入，它的 UUID 與離線模式伺服器為這個名稱指派的相同。"
@@ -303,6 +332,24 @@ pub fn text(message: M) -> &'static str {
         M::TurnOffAndSignOut => "關閉並登出",
         M::TurnOffOnly => "只關閉",
         M::SignInSection => "Microsoft 登入",
+        M::OfflineAccountsSetting => "離線帳號",
+        M::OfflineAccountsSettingHint => "在帳號選單中顯示「{add}」。僅供測試。",
+        M::ConnectSection => "Lodestone Connect",
+        M::ConnectService => "Connect 服務（中繼）",
+        M::ConnectServiceHint => "僅供測試。好友清單使用此服務。邀請連結一律使用連結中指定的服務。",
+        M::ConnectServiceInUse => "開發中繼：{service}",
+        M::ConnectServiceEnv => {
+            "已設定 {var}，因此啟動器使用 {service}。取消設定後，此設定才會生效。"
+        }
+        M::ConnectServiceScheme => "位址需以 https:// 開頭。",
+        M::ConnectServiceInsecure => {
+            "請使用 https://。只有本機上的服務（127.0.0.1 或 localhost）可以使用 http://。"
+        }
+        M::ConnectServiceExtra => "只輸入位址，不要包含路徑、查詢參數或使用者名稱。",
+        M::ConnectServiceAddress => "這不是有效的位址。",
+        M::OfflineAccountsAlwaysOn => {
+            "在偵錯版本中以及設定 LODESTONE_LAUNCHER_OFFLINE=1 時一律開啟。"
+        }
         M::CodingAgentsSection => "程式設計助手",
         M::CodingAgentsLead => {
             "Claude Code、Codex 等程式設計助手可以透過 lodestone-launcher-cli 操作啟動器。啟動器在資料夾中為它們保存了指南。"
@@ -315,7 +362,7 @@ pub fn text(message: M) -> &'static str {
         M::CopyPrompt => "複製提示",
         M::CommandLineSection => "命令列",
         M::CommandLineLead => {
-            "lodestone-launcher-cli 和你執行的其他程式透過啟動器資料夾中的通訊端與它溝通。只有你的使用者帳號可以連線。這些設定只能在這裡變更，無法透過命令列變更。"
+            "lodestone-launcher-cli 和你執行的其他程式透過啟動器資料夾中的通訊端與它溝通。只有你的使用者帳號可以連線。"
         }
         M::AllowCli => "允許命令列連線",
         M::AllowCliHint => "關閉後，通訊端會關閉，已連線的程式會被中斷。",
@@ -383,7 +430,6 @@ pub fn text(message: M) -> &'static str {
         M::LauncherIdentityNote => {
             "開發者選項：以 Minecraft Launcher 身分登入，而不是以 Lodestone Launcher 身分。Microsoft 的頁面可能會顯示 Minecraft 的名稱，而不是 Lodestone 的。"
         }
-        M::UseLinkInstead => "改用登入連結",
         M::UseCodeInstead => "改用代碼",
         M::SignInCodeBody => {
             "使用你玩 Minecraft: Java Edition 的 Microsoft 帳號登入。你會取得一組代碼，需要在 Microsoft 網站上輸入。"
@@ -406,10 +452,6 @@ pub fn text(message: M) -> &'static str {
         M::StopSigningInBody => "Microsoft 仍在等待你複製的代碼。如果現在停止，輸入它將無法登入。",
         M::StopSigningIn => "停止登入",
         M::KeepWaiting => "繼續等待",
-        M::LinkInstructions => {
-            "請在開啟的瀏覽器視窗中登入。接著 Microsoft 會顯示一個頁面，說明這個頁面通常不會顯示。從瀏覽器的網址列複製完整網址，並且只貼到這個啟動器中。"
-        }
-        M::LinkStartsWith => "網址以 {url} 開頭",
         M::SigningInToMinecraft => "正在登入 Minecraft…",
         M::ExpectedUntilApproved => {
             "在 Mojang 核准這個應用程式之前，這是正常的。你的帳號沒有任何問題。"
@@ -506,13 +548,9 @@ pub fn text(message: M) -> &'static str {
         M::UpdateAutomatically => "自動更新",
         M::UpdateAutomaticallyHint => "在背景從 GitHub 下載新組建。",
         M::BetaBuilds => "測試版組建",
-        M::BetaBuildsHint => {
-            "搶先體驗新功能。測試版組建可能有錯誤。關閉後會保留目前的組建，直到有更新的穩定版組建。"
-        }
+        M::BetaBuildsHint => "測試版組建可能有錯誤。",
         M::DeveloperBuilds => "開發者組建",
-        M::DeveloperBuildsHint => {
-            "供 Lodestone 開發者使用：更新到開發中的組建，可能無法正常運作。關閉後會保留目前的組建，直到有更新的正式發行。"
-        }
+        M::DeveloperBuildsHint => "供 Lodestone 開發者使用：更新到開發版組建，可能有錯誤。",
         M::BuildNumber => "組建 {build}",
         M::BuildNumberCommit => "組建 {build} · {commit}",
         M::DevelopmentBuild => "開發組建",
@@ -564,6 +602,9 @@ pub fn text(message: M) -> &'static str {
         M::RestartToUpdate => "重新啟動",
         M::UpdateReadyBadge => "更新已就緒",
         M::UpdateAvailableBadge => "有可用的更新",
+        M::DevBadge => "DEV",
+        M::GoBack => "上一頁",
+        M::GoForward => "下一頁",
 
         M::RestOnModrinth => "其餘說明請在 Modrinth 上查看。",
         M::Storage => "儲存空間",
@@ -666,9 +707,6 @@ pub fn text(message: M) -> &'static str {
         M::SkinBannerMissing => "此橫幅所屬的外觀主題已不存在，正在顯示預設橫幅。",
         M::SkinEditorTitle => "外觀主題編輯器",
         M::SkinPopOut => "開啟編輯器視窗",
-        M::SkinEditorLead => {
-            "在編輯器中修改每個介面區域、字型和橫幅。修改會立即顯示在視窗中，可以用復原還原。"
-        }
         M::SkinSummary => "已設定 {surfaces} 個區域 · {fonts} 種字型 · {banners} 個橫幅",
         M::SkinSurfaces => "介面區域",
         M::SkinTokens => "文字顏色",
@@ -725,11 +763,7 @@ pub fn text(message: M) -> &'static str {
         M::StorageRuntimes => "Java 執行環境",
         M::StorageCache => "快取",
         M::StorageSnapshots => "快照",
-        M::StorageSnapshotsHint => "{count} 個快照 · 可釋放 {size}",
-        M::StorageCleanSnapshotsTitle => "移除自動快照？",
-        M::StorageCleanSnapshotsBody => {
-            "這會釋放 {size}。將移除回復前自動拍攝的快照、已刪除實例的快照以及為分享而產生的檔案。"
-        }
+        M::StorageCleanSnapshotsTitle => "刪除啟動器自動拍攝的快照？",
         M::StorageLeftovers => "未完成的下載和匯入",
         M::StorageCleanLeftoversTitle => "移除未完成的下載？",
         M::StorageCleanLeftoversBody => {
@@ -737,6 +771,35 @@ pub fn text(message: M) -> &'static str {
         }
         M::StorageOther => "設定和其他檔案",
         M::StorageCacheAndLogs => "快取和日誌",
+        M::StorageDataFolder => "資料夾",
+        M::StorageDataFolderHint => "Lodestone 存放你的實例和世界、帳號、設定和遊戲檔案的位置。",
+        M::StorageMoveEllipsis => "移動…",
+        M::StorageMoveBackEllipsis => "移回…",
+        M::StorageMoveHere => "移到這裡",
+        M::StorageMoveCantUse => "無法把資料移到那裡：{error}",
+        M::StorageMoveStopGame => "請先停止遊戲，再移動資料夾。",
+        M::StorageMoveTitle => "移動你的資料？",
+        M::StorageMoveBody => {
+            "資料夾中的所有內容都會移到 {to}：你的實例和世界、帳號、設定和遊戲檔案。完成後啟動器會重新啟動。"
+        }
+        M::StorageMoveBackTitle => "把資料移回去？",
+        M::StorageMoveBackBody => "所有內容都會移回預設資料夾 {to}。完成後啟動器會重新啟動。",
+        M::StorageMoveSize => "共 {size}。",
+        M::StorageMoveConfirm => "移動並重新啟動",
+        M::StorageMoving => "正在移動你的資料…",
+        M::StorageMovingTo => "移到 {to}",
+        M::StorageMovingPreparing => "正在準備…",
+        M::StorageMovingProgress => "{done} / {total}",
+        M::StorageMovingNote => "取消後資料會留在原處。",
+        M::StorageMoveFailedTitle => "無法移動你的資料",
+        M::StorageMoveFailedBody => "你的資料仍在 {from}。{error}",
+        M::StorageMoveRestartFailed => "資料已移動。請結束啟動器並重新開啟，以使用新資料夾。",
+        M::DataFolderMissingTitle => "找不到你的資料夾",
+        M::DataFolderMissingBody => {
+            "你的實例和世界在 {path}，但它不存在。如果它在未連接的磁碟上，請連接後重試。預設資料夾是空的，你的資料會留在原處。"
+        }
+        M::DataFolderUseDefault => "使用預設資料夾",
+        M::DataFolderQuit => "結束",
         M::StorageLogs => "日誌和當機報告",
         M::StorageOldLogs => "{size} 超過 30 天",
         M::StorageVersions => "版本",
@@ -779,6 +842,15 @@ pub fn text(message: M) -> &'static str {
         M::StorageDeleteAllLogsBody => {
             "這將釋放 {size}。所有日誌和當機報告都會被永久刪除，正在執行的遊戲的除外。"
         }
+        M::ZoomKeywords => "比例 大小 放大 縮小 文字",
+        M::WhenAGameStartsKeywords => "啟動後 最小化 隱藏 關閉 結束",
+        M::ModpackUpdateNoSnapshot => {
+            "無法先拍攝快照，因此沒有做任何變更。你可以不拍攝快照直接更新，或解決問題後重試。\n{error}"
+        }
+        M::UpdateWithoutSnapshot => "不拍攝快照直接更新",
+        M::ReplaceWorldModsNote => {
+            "只有世界會還原；實例的模組保持不變。要同時還原它當時使用的模組，請在「設定 › 快照」中還原該快照。"
+        }
     }
 }
 
@@ -794,5 +866,12 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::DiscordMobsKilled => ["擊殺 {count} 個生物"; 2],
         P::DiscordBlocksMined => ["挖掘 {count} 個方塊"; 2],
         P::DiscordMods => ["{count} 個模組"; 2],
+        P::StorageSnapshotsHint => {
+            ["{count} 個快照和每個實例的內容歷史 · 可刪除 {removable} 個"; 2]
+        }
+        P::StorageCleanSnapshotsBody => {
+            ["將刪除 {count} 個快照：啟動器自動拍攝的快照，以及已刪除實例的所有快照（包括已釘選的）。你的實例中你自己拍攝的和已釘選的快照會保留。最近一小時內的檔案會在下次清理時釋放。";
+                2]
+        }
     }
 }

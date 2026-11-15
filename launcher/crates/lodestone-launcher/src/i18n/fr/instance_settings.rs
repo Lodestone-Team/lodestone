@@ -20,6 +20,12 @@ pub fn text(message: M) -> &'static str {
         M::WindowSizeInvalid => {
             "La taille de la fenêtre demande une largeur et une hauteur en pixels."
         }
+        M::WindowSize => "Taille de la fenêtre",
+        M::WindowSizeGameDefault => "Par défaut du jeu",
+        M::WindowSizeThisScreen => "Cet écran",
+        M::WindowSizeCustom => "Personnalisée",
+        M::WindowWidth => "Largeur de la fenêtre",
+        M::WindowHeight => "Hauteur de la fenêtre",
         M::EnvInvalid => "Variables d’environnement\u{a0}: {error}",
         M::EnvPlaceholder => "NOM=valeur",
 
@@ -66,6 +72,7 @@ pub fn text(message: M) -> &'static str {
         M::Emoji => "Emoji",
         M::UploadImage => "Importer une image…",
 
+        M::AutoGroupServers => "Serveurs",
         M::AutoGroupFabric => "Fabric (moddé)",
         M::AutoGroupForge => "Forge (moddé)",
         M::AutoGroupNeoForge => "NeoForge (moddé)",
@@ -73,13 +80,14 @@ pub fn text(message: M) -> &'static str {
         M::AutoGroupVanilla => "Vanilla",
         M::AutoGroupImported => "Importées",
 
-        M::GameVersionHint => "Choisie à la création de l’instance.",
+        M::GameVersionHint => "Ne change plus une fois l’instance créée.",
+        M::GameVersionFollowsModpack => "Suit les mises à jour de son modpack.",
+        M::GameVersionFollowsServer => "Suit le pack du serveur lié.",
         M::LoaderInstallsNextStart => "{loader} s’installera au prochain démarrage du jeu.",
         M::LoaderInstallsNextPlay => {
             "{loader} s’installera la prochaine fois que vous cliquerez sur Jouer."
         }
         M::SavedNextStart => "Enregistré. Le changement s’applique au prochain démarrage du jeu.",
-        M::CouldntTurnModsOff => "Impossible de désactiver les mods\u{a0}: {error}",
 
         M::Vanilla => "Vanilla",
         M::ModLoader => "Chargeur de mods",
@@ -118,9 +126,9 @@ pub fn text(message: M) -> &'static str {
 
         M::LinkedServerHint => "Sur {core}. Jouer le rejoint et synchronise ses mods.",
         M::LinkedServerCoreRemoved => {
-            "Sur {core}, qui a été retiré de la page Lodestone Host. Ajoutez de nouveau ce core sur cette page pour rejoindre le serveur."
+            "Sur {core}, qui a été retiré de la page Lodestone Host. Ajoutez de nouveau cet hôte sur cette page pour rejoindre le serveur."
         }
-        M::CoreRemoved => "Core retiré",
+        M::CoreRemoved => "Hôte retiré",
         M::Unlink => "Délier",
         M::Unlinked => "Lien supprimé",
         M::UnlinkNote => "Jouer ne rejoindra plus le serveur. Les mods restent.",
@@ -135,6 +143,9 @@ pub fn text(message: M) -> &'static str {
         }
         M::MojangJavaVersion => "Java {major} de Mojang",
         M::MojangJava => "Java de Mojang",
+        M::AzulZulu8 => "Azul Zulu\u{a0}8, fait pour Apple Silicon",
+        M::MojangIntelJavaVersion => "Java {major} Intel de Mojang, grâce à Rosetta\u{a0}2",
+        M::JavaTheVersionNeeds => "Le Java dont cette version a besoin",
         M::UseThisJava => "Utiliser ce Java",
         M::Check => "Vérifier",
         M::JvmArguments => "Arguments JVM",
@@ -150,63 +161,171 @@ pub fn text(message: M) -> &'static str {
         M::TakeSnapshotTitle => "Prendre un instantané",
         M::TakeSnapshot => "Prendre l’instantané",
         M::SnapshotName => "Nom",
-        M::WhatToInclude => "Contenu à inclure",
-        M::WhatToRestore => "Contenu à restaurer",
-        M::PartMods => "Mods",
-        M::PartResourcePacks => "Packs de ressources",
-        M::PartShaderPacks => "Packs de shaders",
-        M::PartConfigs => "Configurations et options",
-        M::PartWorlds => "Mondes",
-        M::PartScreenshots => "Captures d’écran",
-        M::PartSettings => "Paramètres de l’instance",
-        M::PartOther => "Autres fichiers",
         M::NoSnapshots => "Aucun instantané pour l’instant.",
         M::SnapshotSizes => "{total}, dont {new} nouveaux",
-        M::BeforeGoingBack => "Avant le retour à «\u{a0}{name}\u{a0}»",
-        M::RevertEllipsis => "Restaurer…",
-        M::RevertTitle => "Revenir à {name}\u{a0}?",
-        M::RevertBody => {
-            "Les parties choisies sont remplacées par celles de l’instantané. Un instantané en est pris avant, pour pouvoir revenir en arrière."
-        }
-        M::Revert => "Restaurer",
-        M::ShareEllipsis => "Partager…",
-        M::ShareSnapshotTitle => "Partager {name}",
+        M::SnapshotNothingNew => "{total}, rien de nouveau",
+        M::SnapshotWithMods => "Avec les mods",
         M::PreparingFile => "Préparation du fichier…",
         M::DragToShare => "Faites glisser le fichier dans une autre app, ou\u{a0}:",
         M::SaveAsEllipsis => "Enregistrer sous…",
         M::ShowInFolder => "Afficher dans le dossier",
         M::DeleteSnapshotTitle => "Supprimer {name}\u{a0}?",
         M::DeleteSnapshotBody => {
-            "Les fichiers qu’aucun autre instantané n’utilise sont supprimés. Cette action est définitive."
+            "L’instantané est supprimé. Ses fichiers partent au prochain nettoyage, sauf si un autre instantané les utilise. Cette action est irréversible."
         }
         M::TakingSnapshot => "Prise de l’instantané…",
-        M::RevertingSnapshot => "Restauration de l’instantané…",
         M::ImportingSnapshot => "Création de l’instance…",
         M::ReadingSnapshot => "Lecture de l’instantané…",
         M::ImportSnapshotTitle => "Nouvelle instance depuis un instantané",
-        M::SnapshotFrom => "{name} · Minecraft {version}",
-        M::SnapshotModsWarning => {
-            "Il contient {count} mods\u{a0}: des programmes qui s’exécutent au lancement du jeu. N’utilisez que des instantanés de personnes de confiance."
-        }
+        M::ImportServerTitle => "Nouvelle instance depuis le monde d’un serveur",
         M::CreateInstanceButton => "Créer l’instance",
         M::SnapshotGameRunning => "Arrêtez d’abord le jeu.",
-        M::ChooseSomething => "Choisissez au moins une partie.",
-        M::SnapshotTaken => "Instantané pris.",
-        M::SnapshotReverted => "Instantané restauré.",
-        M::SnapshotsHint => "Des copies de cette instance, pour revenir en arrière ou partager.",
+        M::SnapshotsHint => {
+            "Des copies des mondes et fichiers de cette instance, pour revenir en arrière ou partager."
+        }
+        M::SnapshotIncludeEverything => "Inclure les mods et les configurations",
+        M::SnapshotIncludeEverythingHint => {
+            "Sans cela, l’instantané garde les mondes et les autres fichiers, et retient les mods avec lesquels ils tournaient."
+        }
+        M::SnapshotAfterPlay => "Prendre un instantané après chaque partie",
+        M::SnapshotAfterPlayHint => {
+            "Copie les mondes après chaque partie. Suit Paramètres › Paramètres par défaut des instances, où c’est désactivé sauf si vous l’activez."
+        }
+        M::SnapshotAfterPlayDefaultHint => {
+            "Copie les mondes après chaque partie, pour les instances qui ne le règlent pas elles-mêmes. Désactivé sauf si vous l’activez."
+        }
+        M::SnapshotKeepHint => {
+            "Les instantanés pris par le Launcher sont gardés un temps\u{a0}: les {last} derniers, un par jour pendant {days} jours et un par semaine pendant {weeks} semaines. Les vôtres restent jusqu’à ce que vous les supprimiez."
+        }
+        M::BadgeAutomatic => "Automatique",
+        M::BadgeAfterPlaying => "Après une partie",
+        M::BadgeImported => "Importé",
+        M::BadgePinned => "Épinglé",
+        M::RestoreEllipsis => "Restaurer…",
+        M::ExportEllipsis => "Exporter…",
+        M::PinSnapshot => "Épingler",
+        M::UnpinSnapshot => "Désépingler",
+        M::UnreadableImagesHint => {
+            "L’ancien historique du contenu n’est pas nettoyé tant qu’une image est illisible."
+        }
+        M::DeleteUnreadable => "Les supprimer",
+        M::RestoreTitle => "Restaurer {name}",
+        M::RestoreWorldsOnly => "Les mondes seulement",
+        M::RestoreWorldsAndMods => "Les mondes et leurs mods",
+        M::RestoreEverything => "Tout",
+        M::RestoreAsNew => "Comme nouvelle instance",
+        M::RestoreAsNewName => "Nom de la nouvelle instance",
+        M::RestoreEverythingHint => {
+            "Tout le dossier du jeu revient à l’instantané\u{a0}: mondes, mods, configurations et options. Les mondes créés depuis sont supprimés."
+        }
+        M::WorldGoneNow => "{size} · plus dans l’instance",
+        M::ModsDiffer => "Ces mondes ont tourné pour la dernière fois avec d’autres mods.",
+        M::FilesDiffer => "Ces mondes ont tourné pour la dernière fois avec d’autres fichiers.",
+        M::RestoreModsToo => "Remettre aussi leurs mods",
+        M::RestoreModsTooChanges => "En remettant aussi leurs mods\u{a0}:",
+        M::RestoreLoaderChange => "Le chargeur revient à la version {version}.",
+        M::RestoreSafety => {
+            "Un instantané de ce qui est remplacé est pris d’abord et gardé 30 jours."
+        }
+        M::RestoreOtherGame => {
+            "Cet instantané est d’une autre version de Minecraft ou d’un autre chargeur\u{a0}: il ne peut devenir qu’une nouvelle instance."
+        }
+        M::RestoreButton => "Restaurer",
+        M::RestoringSnapshot => "Restauration de l’instantané…",
+        M::DeletingSnapshot => "Suppression de l’instantané…",
+        M::ChooseWorld => "Choisissez au moins un monde.",
+        M::ExportTitle => "Exporter {name}",
+        M::ExportNote => {
+            "Les mods et packs de Modrinth et CurseForge sont listés, pas copiés\u{a0}: ils sont téléchargés de nouveau à l’import du fichier, quand leurs auteurs le permettent."
+        }
+        M::ExportLeftOut => {
+            "Laissés de côté, car ils peuvent contenir des mots de passe et des connexions\u{a0}: {files}."
+        }
+        M::ImportFrom => "{name} · Minecraft {version} · {loader}",
+        M::ImportWorlds => "Mondes\u{a0}: {worlds}",
+        M::ImportDownloads => "{size} à télécharger depuis Modrinth et CurseForge.",
+        M::ImportNotDownloadable => {
+            "Leurs auteurs n’autorisent pas le téléchargement, ils sont donc laissés de côté\u{a0}: {files}."
+        }
+        M::ImportServerOnlyMods => {
+            "Mods que seul le serveur utilise, laissés de côté\u{a0}: {names}"
+        }
+        M::ImportServerPack => {
+            "Les fichiers que seuls les joueurs du serveur utilisent viennent de son modpack sur Modrinth et peuvent contenir des mods\u{a0}: des programmes qui s’exécutent au démarrage du jeu. Ne téléchargez que des mondes de serveurs de confiance."
+        }
+        M::ImportServerPackCurseforge => {
+            "Le modpack du serveur vient de CurseForge, qui ne peut pas encore être téléchargé depuis un serveur\u{a0}: les fichiers que seuls ses joueurs utilisent ne viendront pas."
+        }
+        M::ImportHostLeftOut => "L’hôte a laissé ceux-ci hors du fichier\u{a0}: {files}",
+        M::ImportHostBlanked => "L’hôte a vidé ces secrets\u{a0}: {names}",
+        M::ImportSpace => "Nécessite {size} d’espace disque, dont 1\u{a0}Go de marge.",
+        M::ImportNeedsModrinth => {
+            "Modrinth est injoignable\u{a0}: les mods du fichier ne peuvent pas être téléchargés."
+        }
         M::VerifyGameFiles => "Vérifier les fichiers du jeu",
         M::VerifyHint => "Retélécharge les fichiers manquants ou endommagés.",
         M::Verify => "Vérifier",
         M::VerifyStarted => {
             "Vérification de chaque fichier. La progression s’affiche sur le bouton Jouer."
         }
+        M::FindCrashingMod => "Trouver un mod qui fait planter le jeu",
+        M::FindCrashingModHint => {
+            "Lance le jeu plusieurs fois avec la moitié des mods désactivés, jusqu’à ce qu’il n’en reste qu’un."
+        }
+        M::FindCrashingModButton => "Trouver…",
+        M::FindCrashingModKeywords => "plantage crash conflit cassé incompatible dépannage",
         M::Export => "Exporter",
         M::ExportHint => "En fichier .mrpack.",
         M::ExportButton => "Exporter…",
         M::Exporting => "Exportation…",
         M::Duplicate => "Dupliquer",
         M::Duplicating => "Duplication…",
-        M::HostOnCore => "Héberger sur un Lodestone Core",
+        M::ChangeVersionOrLoader => "Une autre version ou un autre chargeur",
+        M::ChangeVersionOrLoaderHint => {
+            "Une instance garde la version et le chargeur choisis à sa création. Une copie peut en avoir d’autres."
+        }
+        M::CopyAs => "Copier avec une autre version ou un autre chargeur",
+        M::CopyAsButton => "Copier…",
+        M::CopyAsKeywords => {
+            "changer passer mettre à jour monter descendre version chargeur Fabric Forge NeoForge Quilt"
+        }
+        M::CopyAsTitle => "Copier avec une autre version ou un autre chargeur",
+        M::CopyFrom => {
+            "Une nouvelle instance à partir de {name} ({version}), qui reste telle quelle."
+        }
+        M::CopyWhat => "Ce qui est copié",
+        M::CopyWorlds => "Mondes",
+        M::CopyNoWorlds => "Cette instance n’a aucun monde.",
+        M::CopyWorldsOlder => {
+            "Les mondes ne peuvent pas passer à une version plus ancienne de Minecraft\u{a0}: elle ne peut pas les ouvrir."
+        }
+        M::CopyWorldsUnknown => {
+            "Les mondes restent\u{a0}: Lodestone Launcher ne peut pas savoir si {version} est plus récente."
+        }
+        M::CopyWorldsUpgraded => {
+            "Minecraft {version} met les mondes à niveau en les ouvrant, sans retour possible. Les originaux restent dans {name}."
+        }
+        M::CopyWorldsModsGone => {
+            "Les blocs et objets des mods qui ne suivent pas sont retirés quand la copie ouvre les mondes. Les originaux restent dans {name}."
+        }
+        M::CopyPacks => "Packs de ressources, shaders et options",
+        M::CopyMods => "Mods",
+        M::CopyReading => "Lecture des mods de l’instance…",
+        M::CopyNoMods => "Cette instance n’a aucun mod.",
+        M::CopyModsVanilla => "Minecraft vanilla ne charge aucun mod.",
+        M::CopyModsOffline => "Modrinth est injoignable, donc aucun mod ne peut être copié.",
+        M::CopyModsFailed => "Impossible de vérifier les mods\u{a0}: {error}",
+        M::CopyModsNoBuild => "Pas de build pour {target}, donc ceux-ci restent\u{a0}: {names}.",
+        M::CopyModsNotOnModrinth => "Absents de Modrinth, donc ceux-ci restent\u{a0}: {names}.",
+        M::CopyModsUnchecked => {
+            "Impossible de vérifier ceux-ci sur Modrinth, donc ils restent\u{a0}: {names}."
+        }
+        M::CopyOrUncheckMods => "ou décochez Mods pour copier sans eux.",
+        M::CopySameTarget => {
+            "Choisissez une autre version de Minecraft ou un autre chargeur. Dupliquer, dans Maintenance, copie l’instance telle quelle."
+        }
+        M::CopyAsStart => "Faire la copie",
+        M::HostOnCore => "Héberger sur Lodestone",
         M::HostHint => "Crée un serveur avec les mods de cette instance.",
         M::HostButton => "Héberger…",
         M::ShareCodeRow => "Code de partage",
@@ -317,6 +436,77 @@ pub fn text(message: M) -> &'static str {
         M::InstallModpack => "Installer le modpack",
         M::ImportMrpack => "Importer un .mrpack…",
         M::Import => "Importer",
+        M::MemoryKeywords => "RAM mémoire vive Xmx Xms",
+        M::JavaKeywords => "JDK JRE environnement d’exécution chemin",
+        M::JvmArgumentsKeywords => "Java options paramètres",
+        M::WindowKeywords => "résolution largeur hauteur plein écran taille",
+        M::EnvironmentKeywords => "env PATH",
+        M::PlayBackgroundKeywords => "fond d’écran image photo diaporama",
+        M::DeleteKeywords => "supprimer retirer désinstaller",
+        M::LoaderKeywords => "chargeur de mods Fabric Forge NeoForge Quilt",
+
+        M::AddModpackTitle => "Ajouter un modpack à {name}",
+        M::AddModpackFilter => "Modpacks pour Minecraft {version} avec {loader}. {note}",
+        M::AddModpackServerNote => {
+            "Les mods du pack s’ajoutent à ceux de {server}, qui restent tels que le serveur les a\u{a0}: vous pouvez toujours le rejoindre."
+        }
+        M::AddModpackNote => {
+            "Les fichiers du pack s’ajoutent à ceux de l’instance. Rien de ce qu’elle a n’est remplacé."
+        }
+        M::AddModpackButton => "Ajouter le modpack",
+        M::CheckingModpack => "Vérification du modpack",
+        M::AddModpackSummary => "{pack} {version}\u{a0}: {size} à télécharger.",
+        M::AddModpackNothing => "L’instance a déjà tous les fichiers de ce pack.",
+        M::AddGroupFiles => "À ajouter ({count})",
+        M::AddGroupConfigs => "Configurations à ajouter ({count})",
+        M::AddGroupServer => "Gardés tels que {server} les a ({count})",
+        M::AddGroupPack => "Gardés tels que le modpack de l’instance les a ({count})",
+        M::AddGroupThere => "Déjà dans l’instance ({count})",
+        M::AddedModpacks => "Modpacks ajoutés",
+        M::AddModpackRow => "Ajouter un modpack",
+        M::AddModpackHint => {
+            "Ajoutez les mods et configurations d’un modpack à cette instance, à côté des siens."
+        }
+        M::AddModpackServerHint => {
+            "Ajoutez les mods d’un modpack, comme des optimisations côté client, à côté de ceux de {server}. Les mods du serveur restent tels quels."
+        }
+        M::AddModpackEllipsis => "Ajouter un modpack…",
+        M::RemoveAddedModpackNote => {
+            "Supprime les fichiers ajoutés par le pack. Les fichiers que vous avez modifiés restent."
+        }
+        M::SnapshotsNotChanged => "Les instantanés n’ont pas pu être modifiés",
+        M::RestoreKeptAsideTitle => "Des fichiers gênaient la restauration",
+        M::SnapshotRestored => "« {name} » a été restauré.",
+        M::ImportLeftOutTitle => "Certains fichiers n’ont pas été importés",
+        M::ImportLeftOut => {
+            "Ils n’ont pas pu être téléchargés, donc la nouvelle instance ne les a pas\u{a0}: {files}."
+        }
+        M::ImportPackSkippedTitle => "Il manque les fichiers du modpack",
+        M::ImportPackSkipped => {
+            "Le modpack du serveur n’a pas pu être téléchargé ou installé (pas de connexion, pas assez d’espace libre, ou un fichier qui n’a pas passé sa vérification), donc les fichiers que seuls ses joueurs utilisent ne sont pas dans la nouvelle instance."
+        }
+        M::ImportPackSkippedGone => {
+            "Le modpack du serveur n’est plus sur Modrinth, donc les fichiers que seuls ses joueurs utilisent ne sont pas dans la nouvelle instance. Demandez au propriétaire du serveur de mettre à jour le modpack."
+        }
+        M::ImportPackSkippedCurseforge => {
+            "Le serveur repose sur un modpack CurseForge, qui ne peut pas encore être installé depuis un serveur, donc les fichiers que seuls ses joueurs utilisent ne sont pas dans la nouvelle instance."
+        }
+        M::RestoreKeptAside => {
+            "Les fichiers écrits pendant la restauration sont conservés dans {folder}."
+        }
+        M::ImportNoRoom => {
+            "Le disque n’a pas assez de place\u{a0}: il faut {size}, dont 1\u{a0}Go de marge, et {free} sont libres."
+        }
+        M::ImportSpaceFree => {
+            "Nécessite {size} d’espace disque, dont 1\u{a0}Go de marge\u{a0}; {free} sont libres."
+        }
+        M::ExportNotDownloadable => {
+            "Ceux-ci ne peuvent pas être téléchargés, donc la personne qui importe le fichier ne les aura pas\u{a0}: {files}."
+        }
+        M::SnapshotAfterPlayOwnHint => {
+            "Copie les mondes après chaque partie. Réglé pour cette instance."
+        }
+        M::DeleteUnreadableNote => "Elles sont supprimées définitivement.",
     }
 }
 
@@ -329,19 +519,23 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::ShareAddedCount => ["{count} ajouté", "{count} ajoutés"],
         P::ShareRemovedCount => ["{count} retiré", "{count} retirés"],
         P::ShareChangedCount => ["{count} modifié", "{count} modifiés"],
+        P::UnreadableImages => [
+            "{count}\u{a0}image illisible",
+            "{count}\u{a0}images illisibles",
+        ],
+        P::RestoreMissing => [
+            "Le stockage des images a perdu {count} de ses fichiers\u{a0}: il ne peut pas être remis en entier.",
+            "Le stockage des images a perdu {count} de ses fichiers\u{a0}: il ne peut pas être remis en entier.",
+        ],
+        P::ImportModsWarning => [
+            "Il contient {count}\u{a0}mod\u{a0}: un programme qui s’exécute au démarrage du jeu. N’importez que des fichiers de personnes de confiance.",
+            "Il contient {count}\u{a0}mods\u{a0}: des programmes qui s’exécutent au démarrage du jeu. N’importez que des fichiers de personnes de confiance.",
+        ],
         P::ShareToggledCount => [
             "{count} activé ou désactivé",
             "{count} activés ou désactivés",
         ],
         P::CodePackChanges => ["+ {count} modification", "+ {count} modifications"],
-        P::LoaderNextStartModsOff => [
-            "{loader} s’installera au prochain démarrage du jeu. {count}\u{a0}mod a été désactivé.",
-            "{loader} s’installera au prochain démarrage du jeu. {count}\u{a0}mods ont été désactivés.",
-        ],
-        P::LoaderNextPlayModsOff => [
-            "{loader} s’installera la prochaine fois que vous cliquerez sur Jouer. {count}\u{a0}mod a été désactivé.",
-            "{loader} s’installera la prochaine fois que vous cliquerez sur Jouer. {count}\u{a0}mods ont été désactivés.",
-        ],
         P::SharedCount => ["{count}\u{a0}partagé", "{count}\u{a0}partagés"],
         P::OverriddenCount => ["{count}\u{a0}remplacé", "{count}\u{a0}remplacés"],
         P::AndMore => [
@@ -367,6 +561,38 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::SharedChangedNote => [
             "Paramètres de jeu partagés\u{a0}: {count}\u{a0}paramètre changé en jeu sera remplacé par la valeur partagée au prochain lancement (voir Paramètres)",
             "Paramètres de jeu partagés\u{a0}: {count}\u{a0}paramètres changés en jeu seront remplacés par les valeurs partagées au prochain lancement (voir Paramètres)",
+        ],
+
+        P::AndMoreFiles => ["et {count} autre", "et {count} autres"],
+        P::AddedModpackFiles => ["{count} fichier ajouté", "{count} fichiers ajoutés"],
+        P::CopyWorldsCount => ["{count}\u{a0}monde", "{count}\u{a0}mondes"],
+        P::CopyCheckingMods => [
+            "Vérification de {count}\u{a0}mod sur Modrinth…",
+            "Vérification de {count}\u{a0}mods sur Modrinth…",
+        ],
+        P::CopyModsFound => [
+            "{found} sur {count}\u{a0}mod a un build pour {target}.",
+            "{found} sur {count}\u{a0}mods ont un build pour {target}.",
+        ],
+        P::RestorePutsBack => [
+            "Remet {count}\u{a0}fichier\u{a0}: {names}",
+            "Remet {count}\u{a0}fichiers\u{a0}: {names}",
+        ],
+        P::RestoreRemoves => [
+            "Supprime {count}\u{a0}fichier\u{a0}: {names}",
+            "Supprime {count}\u{a0}fichiers\u{a0}: {names}",
+        ],
+        P::RestoreChanges => [
+            "Modifie {count}\u{a0}fichier\u{a0}: {names}",
+            "Modifie {count}\u{a0}fichiers\u{a0}: {names}",
+        ],
+        P::ImportCarriedMods => [
+            "{count} d’entre eux est dans le fichier lui-même, et non téléchargé depuis Modrinth ou CurseForge\u{a0}: {names}",
+            "{count} d’entre eux sont dans le fichier lui-même, et non téléchargés depuis Modrinth ou CurseForge\u{a0}: {names}",
+        ],
+        P::ImportFromServer => [
+            "Une sauvegarde du serveur {server}\u{a0}: son monde, avec les mods que reçoivent ses joueurs. {count} fichier du serveur n’est pas repris (paramètres, opérateurs et plugins du serveur).",
+            "Une sauvegarde du serveur {server}\u{a0}: son monde, avec les mods que reçoivent ses joueurs. {count} fichiers du serveur ne sont pas repris (paramètres, opérateurs et plugins du serveur).",
         ],
     }
 }

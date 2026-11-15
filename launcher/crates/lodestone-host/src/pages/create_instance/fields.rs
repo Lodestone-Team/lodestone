@@ -13,8 +13,8 @@ use launcher_core::cores::admin::{
 };
 use lodestone_ui::{
     components::{
-        Accessible as _, KeyboardFocus as _, TextInput, Toggle,
-        settings::{popover, popover_panel, select_button},
+        Accessible as _, Dropdown, KeyboardFocus as _, TextInput, Toggle,
+        settings::{popover_panel, select_button},
     },
     theme::{colors, ink, px, radius, text, weights},
 };
@@ -394,66 +394,68 @@ pub fn control<V: HasFields>(
                 .flex()
                 .flex_col()
                 .child(
-                    select_button(
-                        SharedString::from(format!("{id_prefix}-{key}")),
-                        div().truncate().child(label.clone()),
+                    Dropdown::new(
+                        select_button(
+                            SharedString::from(format!("{id_prefix}-{key}")),
+                            div().truncate().child(label.clone()),
+                        )
+                        .aria_label(field.setting.name.clone())
+                        .w_full()
+                        .justify_between()
+                        .when(!disabled, |this| {
+                            let filter = filter.clone();
+                            this.on_press(cx.listener(move |view, _, window, cx| {
+                                if let Some(Field {
+                                    input: Input::Choice { open, .. },
+                                    ..
+                                }) = view.field_mut(key)
+                                {
+                                    *open = !*open;
+                                    if *open {
+                                        filter.focus_handle(cx).focus(window, cx);
+                                    }
+                                }
+                                cx.notify();
+                            }))
+                        }),
                     )
-                    .aria_label(field.setting.name.clone())
-                    .w_full()
-                    .justify_between()
-                    .when(!disabled, |this| {
-                        let filter = filter.clone();
-                        this.on_press(cx.listener(move |view, _, window, cx| {
+                    .when(open, |this| {
+                        let close = cx.listener(move |view, _: &(), _, cx| {
                             if let Some(Field {
                                 input: Input::Choice { open, .. },
                                 ..
                             }) = view.field_mut(key)
                             {
-                                *open = !*open;
-                                if *open {
-                                    filter.focus_handle(cx).focus(window, cx);
-                                }
+                                *open = false;
                             }
                             cx.notify();
-                        }))
-                    }),
-                )
-                .when(open, |this| {
-                    let close = cx.listener(move |view, _: &(), _, cx| {
-                        if let Some(Field {
-                            input: Input::Choice { open, .. },
-                            ..
-                        }) = view.field_mut(key)
-                        {
-                            *open = false;
-                        }
-                        cx.notify();
-                    });
-                    let query = filter.read(cx).text().to_string();
-                    let shown: Vec<String> = filter_options(&options, &query)
-                        .into_iter()
-                        .cloned()
-                        .collect();
-                    let count = shown.len();
-                    let selected = value.clone();
-                    let list = if count == 0 {
-                        div()
-                            .p(px(8.))
-                            .text_size(text::MEDIUM)
-                            .text_color(ink::muted())
-                            .child(t(M::NothingFound))
-                            .into_any_element()
-                    } else {
-                        uniform_list(
-                            SharedString::from(format!("{id_prefix}-{key}-options")),
-                            count,
-                            cx.processor(move |_, range: std::ops::Range<usize>, _, cx| {
-                                range
-                                    .filter_map(|i| shown.get(i).map(|o| (i, o.clone())))
-                                    .map(|(i, option)| {
-                                        let chosen = selected.as_deref() == Some(option.as_str());
-                                        let pick = option.clone();
-                                        div()
+                        });
+                        let query = filter.read(cx).text().to_string();
+                        let shown: Vec<String> = filter_options(&options, &query)
+                            .into_iter()
+                            .cloned()
+                            .collect();
+                        let count = shown.len();
+                        let selected = value.clone();
+                        let list = if count == 0 {
+                            div()
+                                .p(px(8.))
+                                .text_size(text::MEDIUM)
+                                .text_color(ink::muted())
+                                .child(t(M::NothingFound))
+                                .into_any_element()
+                        } else {
+                            uniform_list(
+                                SharedString::from(format!("{id_prefix}-{key}-options")),
+                                count,
+                                cx.processor(move |_, range: std::ops::Range<usize>, _, cx| {
+                                    range
+                                        .filter_map(|i| shown.get(i).map(|o| (i, o.clone())))
+                                        .map(|(i, option)| {
+                                            let chosen =
+                                                selected.as_deref() == Some(option.as_str());
+                                            let pick = option.clone();
+                                            div()
                                             .id(i)
                                             .accessible(
                                                 gpui::Role::ListItem,
@@ -483,35 +485,26 @@ pub fn control<V: HasFields>(
                                                 }
                                                 cx.notify();
                                             }))
-                                    })
-                                    .collect()
-                            }),
+                                        })
+                                        .collect()
+                                }),
+                            )
+                            .h(px((count.min(8) * 30) as f32))
+                            .into_any_element()
+                        };
+                        let panel =
+                            popover_panel(SharedString::from(format!("{id_prefix}-{key}-panel")))
+                                .w(px(240.))
+                                .gap(px(4.))
+                                .child(filter.clone())
+                                .child(list);
+                        this.popover(
+                            SharedString::from(format!("{id_prefix}-{key}-popover")),
+                            panel,
+                            move |window, cx| close(&(), window, cx),
                         )
-                        .h(px((count.min(8) * 30) as f32))
-                        .into_any_element()
-                    };
-                    let panel =
-                        popover_panel(SharedString::from(format!("{id_prefix}-{key}-panel")))
-                            .w(px(240.))
-                            .gap(px(4.))
-                            .on_mouse_down_out(cx.listener(move |view, _, _, cx| {
-                                if let Some(Field {
-                                    input: Input::Choice { open, .. },
-                                    ..
-                                }) = view.field_mut(key)
-                                {
-                                    *open = false;
-                                }
-                                cx.notify();
-                            }))
-                            .child(filter.clone())
-                            .child(list);
-                    this.child(div().child(popover(
-                        SharedString::from(format!("{id_prefix}-{key}-popover")),
-                        panel,
-                        move |window, cx| close(&(), window, cx),
-                    )))
-                })
+                    }),
+                )
                 .into_any_element()
         }
         Input::Unknown => div()
@@ -648,6 +641,7 @@ mod tests {
             is_owner: true,
             is_admin: false,
             permissions: Default::default(),
+            has_password: true,
         };
         let settings = GlobalSettingsData {
             code_execution_enabled: true,

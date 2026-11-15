@@ -19,6 +19,7 @@ pub mod microsoft;
 pub mod minecraft;
 pub mod pkce;
 mod session;
+pub mod wardrobe;
 
 use serde::{Deserialize, Serialize};
 use url::Url;
@@ -94,6 +95,9 @@ pub struct Endpoints {
     pub minecraft: Url,
     /// Skin textures. A profile's skin URL is only fetched if it is on this host.
     pub textures: Url,
+    /// Mojang's public session server, for another player's profile (a friend's
+    /// skin), by UUID and without signing in.
+    pub sessions: Url,
 }
 
 impl Endpoints {
@@ -108,11 +112,12 @@ impl Endpoints {
             xsts: url("https://xsts.auth.xboxlive.com"),
             minecraft: url("https://api.minecraftservices.com"),
             textures: url("https://textures.minecraft.net"),
+            sessions: url("https://sessionserver.mojang.com"),
         }
     }
 
-    /// Every service under one base URL, at `/login`, `/live`, `/xbl`, `/xsts`, `/mc`
-    /// and `/textures`. For tests against a mock server.
+    /// Every service under one base URL, at `/login`, `/live`, `/xbl`, `/xsts`, `/mc`,
+    /// `/textures` and `/sessions`. For tests against a mock server.
     pub fn all_at(base: &Url) -> Self {
         let at = |path: &str| base.join(path).expect("a valid path");
         Self {
@@ -122,6 +127,7 @@ impl Endpoints {
             xsts: at("xsts"),
             minecraft: at("mc"),
             textures: at("textures"),
+            sessions: at("sessions"),
         }
     }
 }

@@ -2352,7 +2352,7 @@ impl Element for EditorElement {
                     let color: Hsla = if line_ix == editor.head.line && focused {
                         colors::GRAY_300.into()
                     } else {
-                        colors::GRAY_500.into()
+                        crate::theme::ink::faint().into()
                     };
                     let numeral = text_system.shape_line(
                         number.clone(),

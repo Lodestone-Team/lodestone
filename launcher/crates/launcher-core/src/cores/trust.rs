@@ -50,20 +50,18 @@ pub fn needs_advisory(core: &SavedCore, kind: PullKind) -> bool {
     kind.is_executable() && !core.is_trusted()
 }
 
-/// The same for a friend's server (Lodestone Connect): for code, unless the user
-/// trusts it under its current certificate.
-pub fn friend_needs_advisory(friend: &super::friends::FriendServer, kind: PullKind) -> bool {
-    kind.is_executable() && !friend.is_trusted()
-}
-
 /// A file the launcher is about to install, by its path in the game folder.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PulledFile {
     pub path: String,
-    /// Lowercase hex.
-    pub sha1: String,
+    /// Lowercase hex. A server's own file in its image has none (only its SHA-256), so
+    /// Modrinth can't be asked about it: it counts as uploaded.
+    pub sha1: Option<String>,
     /// Known for files of the pack's index; overrides only have their SHA-1.
     pub sha512: Option<String>,
+    /// The Modrinth project and version a file is downloaded from (its CDN URL), for a
+    /// file without a SHA-1: Modrinth's CDN and the file's SHA-512 prove it is Modrinth's.
+    pub modrinth: Option<(String, String)>,
 }
 
 /// What a file is, for the advisory.
@@ -170,7 +168,7 @@ pub async fn advisory(api: Option<&Modrinth>, files: &[PulledFile]) -> Advisory 
     }
     let hashes: Vec<String> = code
         .iter()
-        .map(|f| f.sha1.to_ascii_lowercase())
+        .filter_map(|f| f.sha1.as_deref().map(str::to_ascii_lowercase))
         .collect::<std::collections::BTreeSet<_>>()
         .into_iter()
         .collect();
@@ -179,9 +177,21 @@ pub async fn advisory(api: Option<&Modrinth>, files: &[PulledFile]) -> Advisory 
         Some(_) => Some(Default::default()),
         None => None,
     };
-    advisory.unchecked = found.is_none() && !code.is_empty();
+    advisory.unchecked = found.is_none() && !hashes.is_empty();
     for file in code {
-        let sha1 = file.sha1.to_ascii_lowercase();
+        let Some(sha1) = file.sha1.as_deref().map(str::to_ascii_lowercase) else {
+            match &file.modrinth {
+                Some((project, version)) if file.sha512.is_some() => {
+                    advisory.on_modrinth.push(ModrinthMatch {
+                        path: file.path.clone(),
+                        project: project.clone(),
+                        version: version.clone(),
+                    })
+                }
+                _ => advisory.uploaded.push(file.path.clone()),
+            }
+            continue;
+        };
         let matched = found
             .as_ref()
             .and_then(|found| found.get(&sha1))
@@ -268,13 +278,15 @@ mod tests {
         let files = [
             PulledFile {
                 path: "mods/a.jar".into(),
-                sha1: "00".into(),
+                sha1: Some("00".into()),
                 sha512: None,
+                modrinth: None,
             },
             PulledFile {
                 path: "config/a.toml".into(),
-                sha1: "01".into(),
+                sha1: Some("01".into()),
                 sha512: None,
+                modrinth: None,
             },
         ];
         let advisory = futures::executor::block_on(advisory(None, &files));
@@ -286,5 +298,30 @@ mod tests {
             Some("1 config file")
         );
         assert!(!advisory.is_empty());
+    }
+
+    #[test]
+    fn a_servers_own_files_count_as_uploaded() {
+        let files = [
+            // a jar only the server has: no SHA-1 to ask Modrinth about
+            PulledFile {
+                path: "mods/own.jar".into(),
+                sha1: None,
+                sha512: None,
+                modrinth: None,
+            },
+            // a Modrinth file without a published SHA-1, from the CDN by its SHA-512
+            PulledFile {
+                path: "mods/jei.jar".into(),
+                sha1: None,
+                sha512: Some("ab".repeat(64)),
+                modrinth: Some(("u6dRKJwZ".into(), "v1".into())),
+            },
+        ];
+        let advisory = futures::executor::block_on(advisory(None, &files));
+        assert_eq!(advisory.uploaded, ["mods/own.jar"]);
+        assert_eq!(advisory.on_modrinth[0].project, "u6dRKJwZ");
+        // nothing needed Modrinth, so nothing is unchecked
+        assert!(!advisory.unchecked);
     }
 }

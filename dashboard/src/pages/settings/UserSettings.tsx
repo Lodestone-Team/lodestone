@@ -30,7 +30,6 @@ import {
 import UserApiKeys from 'components/Settings/ApiKeys/UserApiKeys';
 import { UserMinecraftLinks } from 'components/Settings/MinecraftLinks';
 import { useDocumentTitle } from 'usehooks-ts';
-import { noScriptingMessage, useCoreCapabilities } from 'data/SystemInfo';
 import { useT } from 'i18n';
 import {
   SettingsCard,
@@ -83,7 +82,6 @@ export const UserSettings = () => {
   const canManageUsers = userInfo?.is_owner || false;
   const uid = useUid();
   const { data: globalSettings } = useGlobalSettings();
-  const { macros: macrosAvailable } = useCoreCapabilities();
 
   const updateCachedPermissions = (
     permissions: UserPermission,
@@ -345,15 +343,6 @@ export const UserSettings = () => {
                   UnsafePermissions,
                   globalSettings?.safe_mode || false
                 )}
-                <SettingsRow
-                  label={t('settings.users.ownerOnly')}
-                  disabled
-                  hint={
-                    macrosAvailable
-                      ? t('settings.users.ownerOnlyHint')
-                      : noScriptingMessage()
-                  }
-                />
               </SettingsCard>
             </SettingsSection>
             <UserApiKeys user={selectedUser} />

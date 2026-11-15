@@ -21,6 +21,8 @@ export const getModSupport = (game: Game): ModSupport | null => {
       return { kind: 'mod', loader: 'fabric' };
     case 'Forge':
       return { kind: 'mod', loader: 'forge' };
+    case 'NeoForge':
+      return { kind: 'mod', loader: 'neoforge' };
     case 'Paper':
       return { kind: 'plugin', loader: 'paper' };
     case 'Spigot':

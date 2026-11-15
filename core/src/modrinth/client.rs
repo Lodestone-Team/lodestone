@@ -19,7 +19,7 @@ use super::search::SearchParams;
 use super::types::{
     ModrinthProject, ModrinthSearchResponse, ModrinthVersion, RawProject, RawVersion,
 };
-use super::{FileHashes, ModrinthApi, API_BASE, USER_AGENT};
+use super::{FileHashes, ModrinthApi, API_BASE};
 use crate::error::{Error, ErrorKind};
 
 /// Modrinth API requests time out after this long.
@@ -47,8 +47,9 @@ fn unreachable(message: impl std::fmt::Display) -> Error {
 /// The Modrinth API client. One is shared by all users, so the cache and the rate limit
 /// apply to the whole core.
 pub struct ModrinthClient {
-    api: reqwest::Client,
-    downloads: reqwest::Client,
+    /// `None` uses the core's shared client ([`crate::util::http_client`]), which is only
+    /// built once a request is made; tests use a client of their own.
+    http: Option<reqwest::Client>,
     base_url: url::Url,
     responses: Mutex<TtlCache>,
     hashes: Mutex<TtlCache>,
@@ -64,52 +65,39 @@ impl Default for ModrinthClient {
 
 impl ModrinthClient {
     pub fn new() -> Self {
-        Self::with_clients(
-            Self::api_client(),
-            Self::download_client(),
+        Self::with_client(
+            None,
             url::Url::parse(API_BASE).expect("API_BASE is a valid URL"),
         )
-    }
-
-    fn api_client() -> reqwest::ClientBuilder {
-        reqwest::Client::builder()
-            .user_agent(USER_AGENT)
-            .connect_timeout(Duration::from_secs(10))
-            .timeout(REQUEST_TIMEOUT)
-    }
-
-    /// No overall timeout for downloads, which can be large, but a stalled one ends.
-    fn download_client() -> reqwest::ClientBuilder {
-        reqwest::Client::builder()
-            .user_agent(USER_AGENT)
-            .connect_timeout(Duration::from_secs(10))
-            .read_timeout(Duration::from_secs(60))
     }
 
     /// A client for a test server on loopback at `base_url`. It ignores proxy settings,
     /// since it never leaves this machine.
     #[cfg(test)]
     pub(crate) fn for_test_server(base_url: url::Url) -> Self {
-        Self::with_clients(
-            Self::api_client().no_proxy(),
-            Self::download_client().no_proxy(),
-            base_url,
-        )
+        let http = crate::util::http_client_builder()
+            .no_proxy()
+            .build()
+            .expect("the test client builds");
+        Self::with_client(Some(http), base_url)
     }
 
-    fn with_clients(
-        api: reqwest::ClientBuilder,
-        downloads: reqwest::ClientBuilder,
-        base_url: url::Url,
-    ) -> Self {
+    fn with_client(http: Option<reqwest::Client>, base_url: url::Url) -> Self {
         Self {
-            api: api.build().unwrap_or_else(|_| reqwest::Client::new()),
-            downloads: downloads.build().unwrap_or_else(|_| reqwest::Client::new()),
+            http,
             base_url,
             responses: Mutex::new(TtlCache::new(500, 64 * 1024 * 1024)),
             hashes: Mutex::new(TtlCache::new(5000, 16 * 1024 * 1024)),
             blocked_until: Mutex::new(None),
         }
+    }
+
+    /// The client requests are made with. It has no overall timeout: [`Self::send`] gives
+    /// API requests [`REQUEST_TIMEOUT`], and downloads, which can be large, have none.
+    fn http(&self) -> &reqwest::Client {
+        self.http
+            .as_ref()
+            .unwrap_or_else(|| crate::util::http_client())
     }
 
     fn url(&self, segments: &[&str], query: &[(&str, String)]) -> url::Url {
@@ -184,7 +172,7 @@ impl ModrinthClient {
     /// Sends a request and reads the body, mapping Modrinth's errors.
     async fn send(&self, request: RequestBuilder) -> Result<Bytes, Error> {
         self.wait_for_rate_limit().await?;
-        let mut response = request.send().await.map_err(|e| {
+        let mut response = request.timeout(REQUEST_TIMEOUT).send().await.map_err(|e| {
             if e.is_timeout() {
                 unreachable("the request timed out")
             } else {
@@ -243,14 +231,14 @@ impl ModrinthClient {
         if let Some(bytes) = Self::cache_get(&self.responses, &key) {
             return Ok(bytes);
         }
-        let bytes = self.send(self.api.get(url)).await?;
+        let bytes = self.send(self.http().get(url)).await?;
         Self::cache_put(&self.responses, key, bytes.clone(), ttl);
         Ok(bytes)
     }
 
     async fn post(&self, segments: &[&str], body: &serde_json::Value) -> Result<Bytes, Error> {
         let url = self.url(segments, &[]);
-        self.send(self.api.post(url).json(body)).await
+        self.send(self.http().post(url).json(body)).await
     }
 
     /// The cache key for a project fetched by id. `projects` fills the same entries.
@@ -357,7 +345,7 @@ impl ModrinthApi for ModrinthClient {
         for chunk in missing.chunks(BATCH_SIZE) {
             let ids = serde_json::to_string(chunk).unwrap_or_default();
             let url = self.url(&["projects"], &[("ids", ids)]);
-            let bytes = self.send(self.api.get(url)).await?;
+            let bytes = self.send(self.http().get(url)).await?;
             for value in parse::<Vec<serde_json::Value>>(&bytes)? {
                 let Ok(raw) = serde_json::from_value::<RawProject>(value.clone()) else {
                     continue;
@@ -473,7 +461,7 @@ impl ModrinthApi for ModrinthClient {
             source: eyre!("Download from {host} failed: {message}"),
         };
         let mut response = self
-            .downloads
+            .http()
             .get(url.clone())
             .send()
             .await

@@ -33,7 +33,18 @@ use gpui::{
     WindowOptions, actions, px, size,
 };
 
-actions!(launcher, [Quit, ZoomIn, ZoomOut, ResetZoom, PasteInvite]);
+actions!(
+    launcher,
+    [
+        Quit,
+        ZoomIn,
+        ZoomOut,
+        ResetZoom,
+        PasteInvite,
+        GoBack,
+        GoForward
+    ]
+);
 pub use lodestone_ui::{Redo, Undo};
 
 /// The window title, also used for the app menu.
@@ -42,6 +53,7 @@ pub const APP_NAME: &str = "Lodestone Launcher";
 /// Sets up fonts, key bindings and the app menu. Call once, before opening windows.
 pub fn init(cx: &mut App) {
     lodestone_ui::init(cx);
+    lodestone_ui::components::settings::set_english_lookup(i18n::english_of);
     trace_hooks::install(cx);
 
     cx.on_action(|_: &Quit, cx| cx.quit());
@@ -76,12 +88,8 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("ctrl-shift-z", Redo, None),
         KeyBinding::new("ctrl-y", Redo, None),
     ]);
-    // Pasting a friend's invite link anywhere outside a text field opens it. A focused
-    // text field takes the shortcut first, for its text.
-    #[cfg(target_os = "macos")]
-    cx.bind_keys([KeyBinding::new("cmd-v", PasteInvite, None)]);
-    #[cfg(not(target_os = "macos"))]
-    cx.bind_keys([KeyBinding::new("ctrl-v", PasteInvite, None)]);
+    bind_paste_invite(cx);
+    bind_history(cx);
     set_menus(cx);
     // The launcher has one window; closing it quits, as in the dashboard app.
     cx.on_window_closed(|cx, _| {
@@ -90,6 +98,46 @@ pub fn init(cx: &mut App) {
         }
     })
     .detach();
+}
+
+/// The key context of the launcher window's root, which handles its own shortcuts.
+pub const SHELL_CONTEXT: &str = "Launcher";
+
+/// Pasting a friend's invite link anywhere outside a text field opens it. Inside a
+/// text field the shortcut is the field's own Paste: a binding without a context
+/// would outrank the field's (GPUI ranks it as deep as the focused element), so this
+/// one leaves text fields out.
+fn bind_paste_invite(cx: &mut App) {
+    const OUTSIDE_TEXT_FIELDS: &str = "Launcher && !TextInput && !TextEditor";
+    #[cfg(target_os = "macos")]
+    cx.bind_keys([KeyBinding::new(
+        "cmd-v",
+        PasteInvite,
+        Some(OUTSIDE_TEXT_FIELDS),
+    )]);
+    #[cfg(not(target_os = "macos"))]
+    cx.bind_keys([KeyBinding::new(
+        "ctrl-v",
+        PasteInvite,
+        Some(OUTSIDE_TEXT_FIELDS),
+    )]);
+}
+
+/// The top bar's back and forward arrows: ⌘[ and ⌘] on macOS, as in Safari and
+/// Finder; Alt+Left and Alt+Right elsewhere, as in browsers. Text fields keep their
+/// own (Alt+Left moves by word on macOS).
+fn bind_history(cx: &mut App) {
+    const OUTSIDE_TEXT_FIELDS: &str = "Launcher && !TextInput && !TextEditor";
+    #[cfg(target_os = "macos")]
+    cx.bind_keys([
+        KeyBinding::new("cmd-[", GoBack, Some(OUTSIDE_TEXT_FIELDS)),
+        KeyBinding::new("cmd-]", GoForward, Some(OUTSIDE_TEXT_FIELDS)),
+    ]);
+    #[cfg(not(target_os = "macos"))]
+    cx.bind_keys([
+        KeyBinding::new("alt-left", GoBack, Some(OUTSIDE_TEXT_FIELDS)),
+        KeyBinding::new("alt-right", GoForward, Some(OUTSIDE_TEXT_FIELDS)),
+    ]);
 }
 
 /// Quit's shortcut: ⌘Q on macOS and Ctrl+Q elsewhere, as in browsers and most
@@ -274,6 +322,54 @@ mod screenshot {
         );
     }
 
+    /// `--bench-frames N`: draws the window `N` times, a frame (33 ms) apart so
+    /// animations move on as they would, and prints how long each draw took. With
+    /// `--bench-at X,Y` the pointer rests there first.
+    async fn bench_frames(window: AnyWindowHandle, count: usize, cx: &mut gpui::AsyncApp) {
+        use gpui::{MouseMoveEvent, PlatformInput, point, px};
+        if let Some(at) = arg_after("--bench-at").and_then(|text| {
+            let (x, y) = text.split_once(',')?;
+            Some(point(px(x.parse().ok()?), px(y.parse().ok()?)))
+        }) {
+            window
+                .update(cx, |_, window, cx| {
+                    let event = MouseMoveEvent {
+                        position: at,
+                        ..Default::default()
+                    };
+                    window.dispatch_event(PlatformInput::MouseMove(event), cx);
+                })
+                .ok();
+        }
+        let mut frames = Vec::with_capacity(count);
+        for _ in 0..count {
+            window
+                .update(cx, |_, window, cx| {
+                    window.refresh();
+                    let start = std::time::Instant::now();
+                    window.draw(cx).clear(cx);
+                    frames.push(start.elapsed().as_secs_f64() * 1000.0);
+                })
+                .ok();
+            cx.background_executor()
+                .timer(Duration::from_millis(33))
+                .await;
+        }
+        frames.sort_by(f64::total_cmp);
+        if frames.is_empty() {
+            return;
+        }
+        let pick = |q: f64| frames[((frames.len() - 1) as f64 * q) as usize];
+        let mean = frames.iter().sum::<f64>() / frames.len() as f64;
+        eprintln!(
+            "bench-frames: {} frames, mean {mean:.2} ms, p50 {:.2} ms, p95 {:.2} ms, max {:.2} ms",
+            frames.len(),
+            pick(0.5),
+            pick(0.95),
+            pick(1.0)
+        );
+    }
+
     pub fn requested_path() -> Option<PathBuf> {
         let mut args = std::env::args().skip_while(|arg| arg != "--screenshot");
         args.next()?;
@@ -322,9 +418,18 @@ mod screenshot {
                     .await;
             }
             // `--click X,Y` (repeatable as X,Y;X,Y): left clicks at window points, each
-            // followed by a short wait, to check how a control responds.
+            // followed by a short wait (`--click-wait MS`, 600 by default), to check how
+            // a control responds, or to catch an animation partway. `X,Y@MS` waits `MS`
+            // after that click instead.
+            let click_wait = arg_after("--click-wait")
+                .and_then(|ms| ms.parse().ok())
+                .unwrap_or(600);
             if let Some(clicks) = arg_after("--click") {
                 for at in clicks.split(';') {
+                    let (at, wait) = match at.split_once('@') {
+                        Some((at, ms)) => (at, ms.trim().parse().unwrap_or(click_wait)),
+                        None => (at, click_wait),
+                    };
                     let Some((x, y)) = at.split_once(',') else {
                         continue;
                     };
@@ -365,7 +470,7 @@ mod screenshot {
                         })
                         .ok();
                     cx.background_executor()
-                        .timer(Duration::from_millis(600))
+                        .timer(Duration::from_millis(wait))
                         .await;
                 }
             }
@@ -499,6 +604,9 @@ mod screenshot {
             if let Some(steps) = arg_after("--bench-scroll").and_then(|n| n.parse().ok()) {
                 bench_scroll(window, steps, cx);
             }
+            if let Some(frames) = arg_after("--bench-frames").and_then(|n| n.parse().ok()) {
+                bench_frames(window, frames, cx).await;
+            }
             let result = window.update(cx, |_, window, _| {
                 window.refresh();
                 window.render_to_image()
@@ -520,7 +628,9 @@ mod screenshot {
 mod tests {
     use std::{cell::Cell, rc::Rc};
 
-    use gpui::{Context, IntoElement, Render, TestAppContext, Window, div};
+    use gpui::{
+        AppContext as _, Context, Focusable as _, IntoElement, Render, TestAppContext, Window, div,
+    };
 
     struct Empty;
 
@@ -550,5 +660,85 @@ mod tests {
         assert_eq!(quits.get(), 0, "{other} doesn't quit");
         cx.simulate_keystrokes(shortcut);
         assert_eq!(quits.get(), 1, "{shortcut} quits");
+    }
+
+    const PASTE: &str = if cfg!(target_os = "macos") {
+        "cmd-v"
+    } else {
+        "ctrl-v"
+    };
+
+    /// Counts PasteInvite, which the shell handles at the window's root.
+    fn count_paste_invites(cx: &mut TestAppContext) -> Rc<Cell<usize>> {
+        let invites = Rc::new(Cell::new(0));
+        cx.update(|cx| {
+            crate::components::init(cx);
+            super::bind_paste_invite(cx);
+            let invites = invites.clone();
+            cx.on_action(move |_: &super::PasteInvite, _| invites.set(invites.get() + 1));
+        });
+        invites
+    }
+
+    /// A field inside the shell's key context, as in the launcher's window.
+    struct Shell {
+        input: gpui::Entity<crate::components::TextInput>,
+        focus: gpui::FocusHandle,
+    }
+
+    impl Render for Shell {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            use gpui::{InteractiveElement as _, ParentElement as _};
+            div()
+                .key_context(super::SHELL_CONTEXT)
+                .track_focus(&self.focus)
+                .child(self.input.clone())
+        }
+    }
+
+    fn shell(cx: &mut TestAppContext) -> (gpui::Entity<Shell>, &mut gpui::VisualTestContext) {
+        cx.add_window_view(|_, cx| Shell {
+            input: cx.new(crate::components::TextInput::new),
+            focus: cx.focus_handle(),
+        })
+    }
+
+    /// The paste shortcut in a focused text field pastes into it, and is not taken for
+    /// an invite link.
+    #[test]
+    fn paste_in_a_text_field_pastes_into_it() {
+        let mut cx = TestAppContext::single();
+        let invites = count_paste_invites(&mut cx);
+        let (shell, cx) = shell(&mut cx);
+        let input = shell.read_with(cx, |shell, _| shell.input.clone());
+        cx.update(|window, cx| {
+            let handle = input.read(cx).focus_handle(cx);
+            window.focus(&handle, cx);
+            cx.write_to_clipboard(gpui::ClipboardItem::new_string(
+                "https://login.live.com/oauth20_desktop.srf?code=M.C1".into(),
+            ));
+        });
+        cx.run_until_parked();
+        cx.simulate_keystrokes(PASTE);
+        assert_eq!(
+            input.read_with(cx, |input, _| input.text().to_string()),
+            "https://login.live.com/oauth20_desktop.srf?code=M.C1"
+        );
+        assert_eq!(invites.get(), 0, "{PASTE} in a field isn't an invite paste");
+    }
+
+    /// Outside a text field, the shortcut looks for an invite link.
+    #[test]
+    fn paste_outside_a_text_field_looks_for_an_invite() {
+        let mut cx = TestAppContext::single();
+        let invites = count_paste_invites(&mut cx);
+        let (shell, cx) = shell(&mut cx);
+        cx.update(|window, cx| {
+            let handle = shell.read(cx).focus.clone();
+            window.focus(&handle, cx);
+        });
+        cx.run_until_parked();
+        cx.simulate_keystrokes(PASTE);
+        assert_eq!(invites.get(), 1);
     }
 }

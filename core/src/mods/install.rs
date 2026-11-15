@@ -420,10 +420,7 @@ async fn install_version_file(
         });
     }
 
-    let temp = tempfile::Builder::new()
-        .prefix(".lodestone-download-")
-        .suffix(".tmp")
-        .tempfile_in(&folder.dir)
+    let temp = crate::util::fs::temp_file_in(&folder.dir, ".lodestone-download-", ".tmp")
         .context("Failed to create a temporary file")?
         .into_temp_path();
     let mut out = tokio::fs::OpenOptions::new()

@@ -37,6 +37,7 @@ impl InstanceState {
 pub enum MinecraftVariant {
     Vanilla,
     Forge,
+    NeoForge,
     Fabric,
     Paper,
     Spigot,
@@ -55,8 +56,8 @@ pub enum Game {
         variant: MinecraftVariant,
     },
     MinecraftBedrock,
-    /// An atom (scripted) instance, or a Docker container. Atom instances need the
-    /// core's `generic_instances` capability, which a core without Deno lacks.
+    /// A Docker container managed as an instance. An older core's atom (scripted)
+    /// instances read as this too, and show as any non-Minecraft server.
     Generic {
         game_name: String,
         game_display_name: String,
@@ -72,6 +73,7 @@ impl Game {
             Game::MinecraftJava { variant } => match variant {
                 MinecraftVariant::Vanilla => "Minecraft".into(),
                 MinecraftVariant::Forge => "Forge (Minecraft)".into(),
+                MinecraftVariant::NeoForge => "NeoForge (Minecraft)".into(),
                 MinecraftVariant::Fabric => "Fabric (Minecraft)".into(),
                 MinecraftVariant::Paper => "Paper (Minecraft)".into(),
                 MinecraftVariant::Spigot => "Spigot (Minecraft)".into(),
@@ -96,10 +98,7 @@ pub enum Player {
         #[serde(default)]
         uuid: Option<String>,
     },
-    GenericPlayer {
-        id: String,
-        name: String,
-    },
+    /// Anything else, such as the `GenericPlayer` of an older core's atom instance.
     #[serde(other)]
     Unknown,
 }
@@ -107,7 +106,7 @@ pub enum Player {
 impl Player {
     pub fn name(&self) -> &str {
         match self {
-            Player::MinecraftPlayer { name, .. } | Player::GenericPlayer { name, .. } => name,
+            Player::MinecraftPlayer { name, .. } => name,
             Player::Unknown => "",
         }
     }
@@ -176,12 +175,6 @@ impl InstanceInfo {
     pub fn is_docker(&self) -> bool {
         self.uuid.starts_with("DOCKER-")
     }
-
-    /// An atom (scripted) instance: only the owner controls it, and only on a core
-    /// with the `generic_instances` capability.
-    pub fn is_atom(&self) -> bool {
-        matches!(self.game_type, Game::Generic { .. }) && !self.is_docker()
-    }
 }
 
 /// What a user may do (`UserPermission`). The per-instance lists hold instance ids.
@@ -241,6 +234,14 @@ pub struct PublicUser {
     pub is_admin: bool,
     #[serde(default)]
     pub permissions: UserPermission,
+    /// Whether they can sign in with a password. Only Lodestone Host's owner has none,
+    /// until they set one to share the core. Older cores don't say: everyone has one.
+    #[serde(default = "yes")]
+    pub has_password: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 impl PublicUser {
@@ -293,6 +294,15 @@ pub struct GlobalSettingsData {
     pub allow_lan_http: bool,
     pub list_instances_publicly: bool,
     pub allow_local_claim: bool,
+    /// Whether other devices may use the core ("Allow access from other devices"). Off
+    /// for Lodestone Host's core until its owner sets up a password to share it. Older
+    /// cores don't say: they always allow it.
+    #[serde(default = "yes")]
+    pub allow_remote_access: bool,
+    /// Whether the core looks for newer versions of servers' modpacks in the background.
+    /// Older cores don't have the check.
+    #[serde(default = "yes")]
+    pub check_modpack_updates: bool,
 }
 
 /// Where the core's HTTPS certificate comes from (`TlsMode`).
@@ -316,23 +326,17 @@ pub struct TlsInfo {
 }
 
 /// The core's optional features (`CoreCapabilities`). A core that doesn't say has
-/// them all. Lodestone Host's own core is built without Deno: no macros and no atom
-/// instances, which the Host shows as unavailable, as the dashboard does.
+/// them all. The core still sends `macros` and `generic_instances`, now always false;
+/// nothing reads them since macros and atom instances were removed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct CoreCapabilities {
-    pub macros: bool,
-    pub generic_instances: bool,
     pub docker: bool,
 }
 
 impl Default for CoreCapabilities {
     fn default() -> Self {
-        Self {
-            macros: true,
-            generic_instances: true,
-            docker: true,
-        }
+        Self { docker: true }
     }
 }
 
@@ -357,6 +361,10 @@ pub struct FullCoreInfo {
     pub capabilities: CoreCapabilities,
     pub product: CoreProduct,
     pub launched_by: LaunchedBy,
+    /// Whether other devices may use the core. Older cores don't say: they always allow
+    /// it.
+    #[serde(default = "yes")]
+    pub remote_access: bool,
 }
 
 /// `POST /user/login` and `POST /setup/{key}` (`LoginReply`). No `Debug`: it holds
@@ -370,6 +378,29 @@ pub struct LoginReply {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Older cores don't say whether other devices may use them, or who has a password:
+    /// they always allow it, and everyone has one.
+    #[test]
+    fn older_cores_allow_remote_access() {
+        let info: FullCoreInfo =
+            serde_json::from_value(serde_json::json!({ "uuid": "c" })).unwrap();
+        assert!(info.remote_access);
+        let settings: GlobalSettingsData =
+            serde_json::from_value(serde_json::json!({ "core_name": "Home" })).unwrap();
+        assert!(settings.allow_remote_access);
+        let user: PublicUser =
+            serde_json::from_value(serde_json::json!({ "uid": "1", "username": "u" })).unwrap();
+        assert!(user.has_password);
+        let local: FullCoreInfo =
+            serde_json::from_value(serde_json::json!({ "remote_access": false })).unwrap();
+        assert!(!local.remote_access);
+        let owner: PublicUser = serde_json::from_value(
+            serde_json::json!({ "uid": "1", "username": "u", "has_password": false }),
+        )
+        .unwrap();
+        assert!(!owner.has_password);
+    }
 
     #[test]
     fn reads_an_instance_from_the_list() {
@@ -399,7 +430,27 @@ mod tests {
         assert_eq!(info.state, InstanceState::Running);
         assert_eq!(info.game_type.title(), "Fabric (Minecraft)");
         assert_eq!(info.player_list.as_ref().unwrap()[0].name(), "Steve");
-        assert!(!info.is_atom());
+    }
+
+    /// An older core may still list an atom (scripted) instance: it reads as a generic,
+    /// non-Minecraft one.
+    #[test]
+    fn reads_an_older_cores_atom_instance() {
+        let info: InstanceInfo = serde_json::from_value(serde_json::json!({
+            "uuid": "atom-1", "name": "Bot", "port": 0, "state": "Stopped",
+            "game_type": { "type": "Generic", "game_name": "bot", "game_display_name": "Bot" },
+        }))
+        .unwrap();
+        assert!(matches!(info.game_type, Game::Generic { .. }));
+        assert!(!info.is_docker());
+        // its players, which only atom instances had, don't fail the list
+        let players: Vec<Player> = serde_json::from_value(serde_json::json!([
+            { "type": "GenericPlayer", "id": "p1", "name": "Bot" },
+            { "type": "MinecraftPlayer", "name": "Steve", "uuid": null },
+        ]))
+        .unwrap();
+        assert_eq!(players[0], Player::Unknown);
+        assert_eq!(players[1].name(), "Steve");
     }
 
     #[test]
@@ -410,9 +461,15 @@ mod tests {
         assert_eq!(game, Game::Unknown);
         let info: FullCoreInfo = serde_json::from_str(r#"{"uuid":"u","version":"0.5.1"}"#).unwrap();
         assert!(
-            info.capabilities.macros,
+            info.capabilities.docker,
             "an older core has every capability"
         );
+        // a core's capabilities with the macro and atom fields it still sends
+        let info: FullCoreInfo = serde_json::from_str(
+            r#"{"capabilities":{"macros":false,"generic_instances":false,"docker":false}}"#,
+        )
+        .unwrap();
+        assert!(!info.capabilities.docker);
         // settings from a core before Lodestone Connect, with its playit.gg switch
         let settings: GlobalSettingsData = serde_json::from_str(
             r#"{"core_name":"Home","safe_mode":true,"domain":null,"playit_enabled":true,
@@ -435,6 +492,7 @@ mod tests {
                 can_start_instance: vec!["a".into()],
                 ..Default::default()
             },
+            has_password: true,
         };
         assert!(user.may(InstancePermission::Start, "a"));
         assert!(!user.may(InstancePermission::Start, "b"));

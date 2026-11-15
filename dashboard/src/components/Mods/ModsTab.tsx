@@ -4,13 +4,13 @@ import { ModrinthSearchIndex } from 'bindings/ModrinthSearchIndex';
 import Checkbox from 'components/Atoms/Checkbox';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { InstanceContext } from 'data/InstanceContext';
-import { useInstalledMods } from 'data/Mods';
+import { useInstalledMods, useModpackHistory } from 'data/Mods';
 import { useUserAuthorized } from 'data/UserInfo';
 import { useT } from 'i18n';
 import { useContext, useEffect, useMemo, useState } from 'react';
 import { useDocumentTitle } from 'usehooks-ts';
 import { getModSupport } from 'utils/mods';
-import { cn } from 'utils/util';
+import { cn, errorToString } from 'utils/util';
 import InstalledMods from './InstalledMods';
 import ModrinthProjectView, { InstallTarget } from './ModrinthProjectView';
 import ModrinthSearch, { ModrinthPick, SortSelect } from './ModrinthSearch';
@@ -121,6 +121,12 @@ export default function ModsTab() {
   const canRead = useUserAuthorized('can_read_instance_file', uuid);
   const canWrite = useUserAuthorized('can_write_instance_file', uuid);
   const canCreate = useUserAuthorized('can_create_instance');
+  const canWriteGlobal = useUserAuthorized('can_write_global_file');
+  // the history and update notice of a server made from a modpack
+  const historyQuery = useModpackHistory(
+    uuid,
+    canRead && instance.modpack !== null
+  );
   const { searchParams, setSearchParam } = useContext(BrowserLocationContext);
 
   // A deep link is read when the tab mounts (InstanceTabs remounts it for
@@ -205,6 +211,12 @@ export default function ModsTab() {
       <div className={cn(view !== 'installed' && 'hidden')}>
         <InstalledMods
           uuid={uuid}
+          instance={instance}
+          history={historyQuery.data}
+          historyError={
+            historyQuery.error ? errorToString(historyQuery.error) : null
+          }
+          canUploadPack={canWrite && canCreate && canWriteGlobal}
           list={list}
           isLoading={installedQuery.isPending}
           error={installedQuery.error}

@@ -1,8 +1,8 @@
 use crate::components::RichText;
 use crate::theme::px;
 use gpui::{
-    AnyElement, Context, ExternalPaths, IntoElement, ObjectFit, SharedString, Transformation, div,
-    img, prelude::*, radians,
+    AnyElement, Context, ElementId, ExternalPaths, IntoElement, ObjectFit, SharedString,
+    Transformation, div, img, prelude::*, radians,
 };
 use launcher_core::instances::{AutoGroup, Instance, last_played};
 use launcher_core::ui_skin::{FontPart, SurfaceId};
@@ -10,11 +10,11 @@ use launcher_core::ui_skin::{FontPart, SurfaceId};
 use super::{LauncherShell, Page, account_box};
 use crate::components::{
     KeyboardFocus,
-    a11y::{Accessible, Role},
+    a11y::{Accessible, AccessibleAction, Role},
 };
 use crate::skin::Skinned;
 use crate::{
-    components::{Align, Button, ButtonVariant, Icon},
+    components::{Align, Button, ButtonVariant, Icon, PlayButtonState},
     i18n::{ShellMsg as M, format, t, tr},
     instances::{Ago, play_time},
     theme::{self, colors, layout, leading, radius, text, weights},
@@ -163,6 +163,7 @@ fn rail(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElem
         .collect();
     let settings_open = shell.settings_open();
     let servers_open = shell.page == Page::Servers;
+    let friends_open = shell.page == Page::Friends;
     div()
         .flex()
         .flex_col()
@@ -226,14 +227,14 @@ fn rail(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElem
                         .child(div().h_1())
                         .child(rail_button(
                             "new-instance",
-                            Icon::SquarePlus,
+                            Glyph::Icon(Icon::SquarePlus),
                             t(M::NewInstance),
                             false,
                             cx.listener(|this, _, window, cx| this.open_new_instance(window, cx)),
                         ))
                         .child(rail_button(
                             "import-instances",
-                            Icon::Download,
+                            Glyph::Icon(Icon::Download),
                             t(M::ImportInstances),
                             false,
                             cx.listener(|this, _, window, cx| this.open_import(window, cx)),
@@ -256,7 +257,7 @@ fn rail(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElem
                 .border_color(crate::theme::ink::border())
                 .child(rail_button(
                     "servers",
-                    Icon::Cube,
+                    Glyph::HostMark(crate::images::mark(false, cx)),
                     t(M::Servers),
                     servers_open,
                     cx.listener(move |this, _, _, cx| {
@@ -271,8 +272,24 @@ fn rail(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElem
                     }),
                 ))
                 .child(rail_button(
+                    "friends",
+                    Glyph::Icon(Icon::UserGroup),
+                    t(M::Friends),
+                    friends_open,
+                    cx.listener(move |this, _, _, cx| {
+                        this.show(
+                            if friends_open {
+                                Page::Instance
+                            } else {
+                                Page::Friends
+                            },
+                            cx,
+                        )
+                    }),
+                ))
+                .child(rail_button(
                     "settings",
-                    Icon::Gear,
+                    Glyph::Icon(Icon::Gear),
                     t(M::Settings),
                     settings_open,
                     cx.listener(|this, _, window, cx| this.open_settings(None, Some(window), cx)),
@@ -280,10 +297,26 @@ fn rail(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElem
         )
 }
 
+/// What a sidebar link shows beside (or, in the rail, instead of) its label: an icon
+/// in the sidebar's ink, or the green Lodestone mark, which stands for Lodestone Host.
+enum Glyph {
+    Icon(Icon),
+    HostMark(gpui::ImageSource),
+}
+
+impl Glyph {
+    fn render(self, size: gpui::Pixels, color: impl Into<gpui::Hsla>) -> AnyElement {
+        match self {
+            Glyph::Icon(icon) => icon.render(size, color).into_any_element(),
+            Glyph::HostMark(mark) => img(mark).size(size).flex_none().into_any_element(),
+        }
+    }
+}
+
 /// A square icon button of the rail, its label as a tooltip.
 fn rail_button(
     id: &'static str,
-    icon: Icon,
+    icon: Glyph,
     label: &'static str,
     open: bool,
     on_click: impl Fn(&gpui::ClickEvent, &mut gpui::Window, &mut gpui::App) + 'static,
@@ -343,10 +376,15 @@ fn rail_instance(
         RowPlace::LastPlayed => format!("last-played-{id}"),
     };
     let launching = instances.is_launching(&id);
-    let description: Option<SharedString> = match (running, active) {
-        (true, _) if launching => Some(t(M::Launching).into()),
-        (true, _) => Some(t(M::Playing).into()),
-        _ => played_summary(instance).map(Into::into),
+    let description: Option<String> = match (running, active) {
+        (true, _) if launching => Some(t(M::Launching).to_string()),
+        (true, _) => Some(t(M::Playing).to_string()),
+        _ => played_summary(instance),
+    };
+    let linked = linked_to(shell, &id, cx);
+    let description: Option<SharedString> = match (description, &linked) {
+        (Some(description), Some(linked)) => Some(format!("{description} · {linked}").into()),
+        (description, linked) => description.or_else(|| linked.clone()).map(Into::into),
     };
     let element_id = SharedString::from(element_id);
     div()
@@ -372,6 +410,9 @@ fn rail_instance(
                 .border_color(crate::theme::ink::border())
         })
         .child(icon)
+        .when(linked.is_some(), |this| {
+            this.child(linked_badge(px(10.), px(4.), cx))
+        })
         .when(active, |this| {
             this.child(
                 div()
@@ -497,8 +538,105 @@ fn played_summary(instance: &Instance) -> Option<String> {
     })
 }
 
+/// The size of an instance's icon in its sidebar row, in logical pixels.
+const ROW_ICON: f32 = 26.;
+
+/// How dark the scrim over an instance's icon is, in percent: dark enough that the
+/// white Play icon reads over a white icon too.
+const SCRIM: u32 = 60;
+const SCRIM_INK: theme::Color = theme::Color::rgb(0x000000);
+
+/// What shows over an instance's icon while the pointer is on its row, as the Play
+/// bar would show for it: Play, which starts the instance as the bar's Play does
+/// (and doesn't open the row); loading dots while it gets ready or starts; nothing
+/// while it runs (Stop stays on the Play bar, away from a stray click) or while
+/// Play waits.
+///
+/// Play is drawn on every row, invisible until the pointer is on it, so assistive
+/// technology finds it as a button named "Play {name}". It isn't a tab stop: Up and
+/// Down still step one row at a time, and the Play bar is one Tab away.
+fn icon_overlay(
+    shell: &LauncherShell,
+    instance: &Instance,
+    row: &SharedString,
+    hovered: bool,
+    size: f32,
+    cx: &mut Context<LauncherShell>,
+) -> Option<AnyElement> {
+    let target = shell.play_target(&instance.id, cx);
+    let scrim = |id: SharedString| {
+        div()
+            .id(id)
+            .absolute()
+            .inset_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(size * 0.2))
+            .bg(SCRIM_INK.opacity(SCRIM))
+    };
+    match target.state {
+        PlayButtonState::Ready => {
+            let button_id = SharedString::from(format!("play-{row}"));
+            let id = instance.id.clone();
+            let joins = target.joins;
+            let selector = button_id.to_string();
+            let button = scrim(button_id.clone())
+                .debug_selector(move || selector.clone())
+                .accessible(
+                    Role::Button,
+                    button_id.clone(),
+                    tr!(M::PlayNamed, name = instance.name),
+                )
+                .when_some(target.caption, |this, caption| {
+                    this.aria_description(caption)
+                })
+                .child(Icon::Play.render(px(size * 0.5), colors::WHITE))
+                // assistive technology's Click, whether Play shows or not
+                .on_a11y_action(AccessibleAction::Click, {
+                    let (id, shell) = (id.clone(), cx.entity().downgrade());
+                    move |_, _, cx| {
+                        shell
+                            .update(cx, |this, cx| this.press_play(&id, joins, cx))
+                            .ok();
+                    }
+                })
+                // A click plays only once Play shows: until the shell has seen the
+                // pointer on the row (after a scroll, say), it opens the row.
+                .when(hovered, |this| {
+                    this.cursor_pointer()
+                        .hover(|style| style.bg(SCRIM_INK.opacity(SCRIM + 15)))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            // Play, not the row's own click, which opens the instance.
+                            cx.stop_propagation();
+                            this.press_play(&id, joins, cx);
+                        }))
+                });
+            // Fades in and out with the pointer.
+            Some(
+                crate::components::motion::Animated::new(
+                    ElementId::Name(format!("{button_id}-shown").into()),
+                    hovered,
+                    button,
+                    |this, t| this.opacity(t),
+                )
+                .into_any_element(),
+            )
+        }
+        // A click on the dots opens the instance, where its progress shows.
+        PlayButtonState::Preparing { .. } if hovered => Some(
+            scrim(format!("preparing-{row}").into())
+                .child(crate::components::loading_dots(colors::WHITE))
+                .into_any_element(),
+        ),
+        PlayButtonState::Preparing { .. }
+        | PlayButtonState::Playing
+        | PlayButtonState::Disabled => None,
+    }
+}
+
 /// One instance: its icon, name, version and loader (or when it was played), and a
-/// dot while it runs. When it was played shows on hover.
+/// dot while it runs. When it was played shows on hover; so does Play, over its icon.
 fn instance_row(
     shell: &LauncherShell,
     instance: &Instance,
@@ -512,13 +650,18 @@ fn instance_row(
     let active = instances.is_active(&id);
     let running = instances.is_running(&id);
     let is_selected = on_instance_page && selected.as_deref() == Some(id.as_str());
-    let icon = crate::instances::appearance::instance_icon(instances, instance, px(26.));
+    let icon = crate::instances::appearance::instance_icon(instances, instance, px(ROW_ICON));
     let detail = match (place, instance.last_played) {
         (RowPlace::LastPlayed, Some(when)) => Ago::since(when).label(),
         _ => match instance.loader.kind() {
             None => instance.game_version.clone(),
             Some(kind) => format!("{} · {}", instance.game_version, kind.label()),
         },
+    };
+    // a friend's server: whose it is, first
+    let detail = match shell.servers.read(cx).instance_owner(&id) {
+        Some(owner) if place == RowPlace::List => format!("{owner} · {detail}"),
+        _ => detail,
     };
     let tooltip: Option<SharedString> = played_summary(instance).map(Into::into);
     let element_id = match place {
@@ -534,20 +677,32 @@ fn instance_row(
         .then(|| instances.sidebar_banner(&id))
         .flatten();
     let banner_readability = crate::skin::look(cx).spec.banner.readability;
-    let description: SharedString = if instances.is_launching(&id) {
-        format!("{detail} · {}", t(M::Launching)).into()
+    let mut description: String = if instances.is_launching(&id) {
+        format!("{detail} · {}", t(M::Launching))
     } else if running {
-        format!("{detail} · {}", t(M::Playing)).into()
+        format!("{detail} · {}", t(M::Playing))
     } else {
-        detail.clone().into()
+        detail.clone()
     };
+    let linked = linked_to(shell, &id, cx);
+    if let Some(linked) = &linked {
+        description = format!("{description} · {linked}");
+    }
     let element_id = SharedString::from(element_id);
+    let hovered = shell.sidebar_hover() == Some(&element_id);
+    let overlay = icon_overlay(shell, instance, &element_id, hovered, ROW_ICON, cx);
+    let hover_row = element_id.clone();
+    let selector = element_id.to_string();
     div()
         .id(element_id.clone())
+        .debug_selector(move || selector.clone())
         .accessible(Role::ListItem, element_id, instance.name.clone())
         .aria_selected(is_selected)
-        .aria_description(description)
+        .aria_description(SharedString::from(description))
         .keyboard_focus()
+        .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
+            this.hover_sidebar_row(&hover_row, *hovered, cx)
+        }))
         .relative()
         .overflow_hidden()
         .flex()
@@ -582,7 +737,17 @@ fn instance_row(
                 banner_readability,
             )))
         })
-        .child(icon)
+        .child(
+            div()
+                .relative()
+                .flex_none()
+                .size(px(ROW_ICON))
+                .child(icon)
+                .children(overlay)
+                .when(linked.is_some(), |this| {
+                    this.child(linked_badge(px(9.), px(-2.), cx))
+                }),
+        )
         .child(
             div()
                 .flex()
@@ -624,6 +789,39 @@ fn instance_row(
         .into_any_element()
 }
 
+/// "Linked to Survival SMP on Peter's core", for an instance linked to a server (one
+/// on a Lodestone core, or a friend's shared server). Its icon carries Lodestone
+/// Host's mark, and assistive technology reads this.
+fn linked_to(shell: &LauncherShell, id: &str, cx: &Context<LauncherShell>) -> Option<String> {
+    let link = shell.servers.read(cx).instance_link(id)?;
+    Some(tr!(
+        M::LinkedTo,
+        server = link.server_name,
+        core = link.core_name
+    ))
+}
+
+/// The Lodestone Host mark on the bottom right corner of a linked instance's icon,
+/// `size` wide, `inset` in from the corner (negative: out past it). A dark round
+/// backing keeps it readable over any icon.
+fn linked_badge(
+    size: gpui::Pixels,
+    inset: gpui::Pixels,
+    cx: &Context<LauncherShell>,
+) -> impl IntoElement + use<> {
+    div()
+        .absolute()
+        .right(inset)
+        .bottom(inset)
+        .size(size + px(3.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded_full()
+        .bg(colors::GRAY_900.opacity(90))
+        .child(img(crate::images::mark(false, cx)).size(size))
+}
+
 /// A group's name as the sidebar shows it: the automatic groups' names in the
 /// current language, the user's own as they are. The name itself stays the group's
 /// key (for folding it away).
@@ -632,6 +830,7 @@ fn group_label(name: &str) -> String {
         .into_iter()
         .find(|group| group.name() == name)
     {
+        Some(AutoGroup::Servers) => t(M::GroupServers).to_string(),
         Some(AutoGroup::Fabric) => tr!(M::GroupModded, loader = "Fabric"),
         Some(AutoGroup::Forge) => tr!(M::GroupModded, loader = "Forge"),
         Some(AutoGroup::NeoForge) => tr!(M::GroupModded, loader = "NeoForge"),
@@ -846,7 +1045,7 @@ fn section_label(label: &'static str) -> impl IntoElement {
 fn page_link(
     id: &'static str,
     label: &'static str,
-    icon: Icon,
+    icon: Glyph,
     page: Page,
     open: bool,
     cx: &mut Context<LauncherShell>,
@@ -884,11 +1083,12 @@ fn page_link(
         }))
 }
 
-/// Servers and Settings, pinned to the bottom, and the version. As tall as the
-/// Play bar beside it, so their top lines meet.
+/// Lodestone Host, then Friends with Settings' gear beside it, pinned to the bottom,
+/// and the version. As tall as the Play bar beside it, so their top lines meet.
 fn footer(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElement {
     let settings_open = shell.settings_open();
     let servers_open = shell.page == Page::Servers;
+    let friends_open = shell.page == Page::Friends;
     div()
         .flex()
         .flex_col()
@@ -904,42 +1104,49 @@ fn footer(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoEl
         .child(page_link(
             "servers",
             t(M::Servers),
-            Icon::Cube,
+            Glyph::HostMark(crate::images::mark(false, cx)),
             Page::Servers,
             servers_open,
             cx,
         ))
         .child(
             div()
-                .id("settings")
-                .accessible(Role::Button, "settings", t(M::Settings))
-                .keyboard_focus()
                 .flex()
                 .flex_row()
                 .items_center()
-                .gap_2()
-                .px_2()
-                .py_1p5()
-                .rounded(radius::MD)
-                .cursor_pointer()
-                .font_weight(weights::BOLD.into())
-                .map(|this| {
-                    if settings_open {
-                        this.bg(crate::skin::sidebar_inks().fill)
-                            .text_color(crate::skin::sidebar_inks().primary)
-                    } else {
-                        this.text_color(crate::skin::sidebar_inks().secondary)
-                            .hover(|style| {
-                                style
-                                    .bg(crate::skin::sidebar_inks().fill)
-                                    .text_color(crate::skin::sidebar_inks().primary)
-                            })
-                    }
-                })
-                .child(Icon::Gear.render(px(14.), crate::skin::sidebar_inks().icon))
-                .child(div().min_w_0().truncate().child(t(M::Settings)))
-                .on_press(
-                    cx.listener(|this, _, window, cx| this.open_settings(None, Some(window), cx)),
+                .gap_1()
+                .child(div().flex_1().min_w_0().child(page_link(
+                    "friends",
+                    t(M::Friends),
+                    Glyph::Icon(Icon::UserGroup),
+                    Page::Friends,
+                    friends_open,
+                    cx,
+                )))
+                .child(
+                    div()
+                        .id("settings")
+                        .accessible(Role::Button, "settings", t(M::Settings))
+                        .keyboard_focus()
+                        .tooltip(crate::components::text_tooltip(t(M::Settings)))
+                        .flex()
+                        .flex_none()
+                        .items_center()
+                        .justify_center()
+                        .size(px(30.))
+                        .rounded(radius::MD)
+                        .cursor_pointer()
+                        .map(|this| {
+                            if settings_open {
+                                this.bg(crate::skin::sidebar_inks().fill)
+                            } else {
+                                this.hover(|style| style.bg(crate::skin::sidebar_inks().fill))
+                            }
+                        })
+                        .child(Icon::Gear.render(px(14.), crate::skin::sidebar_inks().icon))
+                        .on_press(cx.listener(|this, _, window, cx| {
+                            this.open_settings(None, Some(window), cx)
+                        })),
                 ),
         )
         .child(
@@ -955,4 +1162,109 @@ fn footer(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoEl
                     version = env!("CARGO_PKG_VERSION")
                 ))),
         )
+}
+
+#[cfg(all(test, feature = "screenshot"))]
+mod tests {
+    use gpui::{Entity, Modifiers, TestAppContext, VisualTestContext};
+
+    use super::*;
+
+    /// The launcher's window with the sidebar's sample instances, signed out, so a
+    /// Play stops at "add an account first" and nothing is downloaded or started.
+    fn open(cx: &mut TestAppContext) -> (Entity<LauncherShell>, &mut VisualTestContext) {
+        cx.update(crate::components::init);
+        let (shell, cx) = cx.add_window_view(|_, cx| {
+            let accounts = crate::preview::accounts("signed-out", cx);
+            let instances = crate::preview::instances("sidebar-groups", &accounts, cx);
+            LauncherShell::new(accounts, instances, cx)
+        });
+        cx.run_until_parked();
+        (shell, cx)
+    }
+
+    fn id_of(shell: &Entity<LauncherShell>, name: &str, cx: &mut VisualTestContext) -> String {
+        shell.read_with(cx, |shell, cx| {
+            let instances = shell.instances.read(cx);
+            let instance = instances.list().iter().find(|i| i.name == name);
+            instance.expect("a sample instance").id.clone()
+        })
+    }
+
+    fn selected(shell: &Entity<LauncherShell>, cx: &mut VisualTestContext) -> Option<String> {
+        shell.read_with(cx, |shell, cx| {
+            shell.instances.read(cx).selected().map(|i| i.id.clone())
+        })
+    }
+
+    /// Whether the instance was asked to play: Play starts its log.
+    fn asked_to_play(shell: &Entity<LauncherShell>, id: &str, cx: &mut VisualTestContext) -> bool {
+        shell.read_with(cx, |shell, cx| {
+            let instances = shell.instances.read(cx);
+            instances.log(id).is_some_and(|log| !log.rows().is_empty())
+        })
+    }
+
+    fn hovered(shell: &Entity<LauncherShell>, cx: &mut VisualTestContext) -> Option<String> {
+        shell.read_with(cx, |shell, _| {
+            shell.sidebar_hover().map(|row| row.to_string())
+        })
+    }
+
+    /// Where the element with the debug selector `selector` was drawn.
+    fn bounds_of(selector: &str, cx: &mut VisualTestContext) -> gpui::Bounds<gpui::Pixels> {
+        // GPUI looks selectors up by a `&'static str`; a test leaks a few.
+        let selector: &'static str = Box::leak(selector.to_string().into_boxed_str());
+        cx.debug_bounds(selector)
+            .unwrap_or_else(|| panic!("{selector} drawn"))
+    }
+
+    /// A point on the row's name, away from its icon.
+    fn on_name(bounds: gpui::Bounds<gpui::Pixels>) -> gpui::Point<gpui::Pixels> {
+        gpui::point(bounds.right() - px(40.), bounds.center().y)
+    }
+
+    #[test]
+    fn play_over_the_icon_plays_without_opening_the_row() {
+        let mut cx = TestAppContext::single();
+        let (shell, cx) = open(&mut cx);
+
+        // The rest of a row opens it, as before, without playing.
+        let opened = id_of(&shell, "All the mods", cx);
+        let bounds = bounds_of(&format!("instance-{opened}"), cx);
+        cx.simulate_click(on_name(bounds), Modifiers::none());
+        assert_eq!(selected(&shell, cx).as_deref(), Some(opened.as_str()));
+        assert!(!asked_to_play(&shell, &opened, cx), "the row only opens");
+
+        // The pointer on another row shows Play over its icon.
+        let id = id_of(&shell, "Fabulously Optimized", cx);
+        let row = format!("instance-{id}");
+        let bounds = bounds_of(&row, cx);
+        cx.simulate_mouse_move(on_name(bounds), None, Modifiers::none());
+        cx.run_until_parked();
+        assert_eq!(hovered(&shell, cx).as_deref(), Some(row.as_str()));
+
+        // Play plays that instance, and its row stays closed.
+        let play = bounds_of(&format!("play-{row}"), cx);
+        assert!(bounds.contains(&play.center()), "over the row's icon");
+        cx.simulate_click(play.center(), Modifiers::none());
+        assert!(asked_to_play(&shell, &id, cx), "Play plays the instance");
+        assert_eq!(selected(&shell, cx).as_deref(), Some(opened.as_str()));
+    }
+
+    #[test]
+    fn play_hides_when_the_pointer_leaves_the_row() {
+        let mut cx = TestAppContext::single();
+        let (shell, cx) = open(&mut cx);
+        let id = id_of(&shell, "Fabulously Optimized", cx);
+        let row = format!("instance-{id}");
+        let bounds = bounds_of(&row, cx);
+        cx.simulate_mouse_move(on_name(bounds), None, Modifiers::none());
+        cx.run_until_parked();
+        assert_eq!(hovered(&shell, cx).as_deref(), Some(row.as_str()));
+        // over the main area
+        cx.simulate_mouse_move(gpui::point(px(900.), px(400.)), None, Modifiers::none());
+        cx.run_until_parked();
+        assert_eq!(hovered(&shell, cx), None);
+    }
 }

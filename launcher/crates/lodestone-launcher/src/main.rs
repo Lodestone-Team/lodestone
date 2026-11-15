@@ -27,6 +27,16 @@ fn main() {
         }
         return;
     }
+    // A data folder move finished before this restart: remove the old folder, in
+    // the background (it can be large). Not for the offscreen scenes, which use
+    // made-up data.
+    #[cfg(feature = "screenshot")]
+    let scene = lodestone_launcher::preview::requested_scene().is_some();
+    #[cfg(not(feature = "screenshot"))]
+    let scene = false;
+    if !scene {
+        std::thread::spawn(lodestone_launcher::shell::data_folder::finish_pending_move);
+    }
     let trace = StartupTrace::start();
     // Links come from the command line and, on macOS, from the system.
     let links = lodestone_launcher::deep_link::Links::default();
@@ -41,11 +51,14 @@ fn main() {
         }
     });
     app.run(move |cx| {
+        trace.mark("app started");
         // Decode the bundled images first, in the background, while the rest of
         // the app starts; the window opens once they are ready, so its first frame
-        // has them.
-        let decoding = images::decode(cx);
+        // has them. Renders from an earlier start are read back from the cache,
+        // which the offscreen scenes leave alone.
+        let decoding = images::decode(cx, if scene { None } else { images::cache_dir() });
         lodestone_launcher::init(cx);
+        trace.mark("launcher set up");
         let options = lodestone_launcher::window_options(APP_NAME, 1200., 760., cx);
 
         // `--scene <name>` shows a prepared state with made-up accounts, for the
@@ -92,14 +105,18 @@ fn main() {
 
         let accounts = accounts::create(cx);
         let instances = lodestone_launcher::instances::create(&accounts, cx);
+        trace.mark("accounts and instances loaded");
         // The coding-agent skills, in the data folder (Settings > Developer).
+        // Not into a moved data folder that isn't there (the window says so).
         let data_dir = accounts.read(cx).data_dir().clone();
-        gpui::AppContext::background_spawn(cx, async move {
-            if let Err(err) = lodestone_launcher::agent_skills::install(&data_dir) {
-                eprintln!("lodestone-launcher: couldn't write the agent skills: {err}");
-            }
-        })
-        .detach();
+        if lodestone_launcher::shell::data_folder::missing_data_folder().is_none() {
+            gpui::AppContext::background_spawn(cx, async move {
+                if let Err(err) = lodestone_launcher::agent_skills::install(&data_dir) {
+                    eprintln!("lodestone-launcher: couldn't write the agent skills: {err}");
+                }
+            })
+            .detach();
+        }
         cx.spawn(async move |cx| {
             let decoded = decoding.await;
             trace.mark("bundled images decoded");
@@ -120,6 +137,10 @@ fn main() {
                 // "Keep the narrator off", offered until it's answered.
                 window
                     .update(cx, |shell, _, cx| shell.offer_narrator(cx))
+                    .ok();
+                // A moved data folder that isn't there (a drive not connected).
+                window
+                    .update(cx, |shell, _, cx| shell.check_data_folder(cx))
                     .ok();
                 // Invite links opened before or after the window.
                 links.serve(window, cx);

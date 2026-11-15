@@ -219,6 +219,13 @@ pub fn is_root(source: Source, root: &Path) -> bool {
 
 /// Reads `source`'s data folder `root`.
 pub fn read_root(source: Source, root: &Path) -> Launcher {
+    let mut launcher = read_root_as_written(source, root);
+    launcher.instances.iter_mut().for_each(Found::settle_loader);
+    launcher
+}
+
+/// [`read_root`], with the loaders as that launcher wrote them.
+fn read_root_as_written(source: Source, root: &Path) -> Launcher {
     match source {
         Source::Vanilla => vanilla::read(root),
         Source::Prism | Source::MultiMc => prism::read(root, source),
@@ -274,7 +281,9 @@ pub fn read_folder(path: &Path) -> Result<Vec<Launcher>, String> {
     }
     let single = |source: Source, found: Result<Found, String>| -> Result<Vec<Launcher>, String> {
         let mut launcher = Launcher::new(source, path);
-        launcher.instances.push(found?);
+        let mut found = found?;
+        found.settle_loader();
+        launcher.instances.push(found);
         Ok(vec![launcher])
     };
     if path.join("instance.cfg").is_file() {

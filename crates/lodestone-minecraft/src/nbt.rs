@@ -3,8 +3,9 @@
 //!
 //! The tree keeps everything as it was read, in order, with strings as the raw bytes
 //! of Java's "modified UTF-8", so writing a tree that was read gives back the same bytes.
-//! Lengths are checked against the input before anything is allocated, and nesting is
-//! limited to [`MAX_DEPTH`], as in the game.
+//! Lengths are checked against the input before anything is allocated, the tags built
+//! may take at most [`TAG_MEMORY_PER_BYTE`] times the input's size in memory, and nesting
+//! is limited to [`MAX_DEPTH`], as in the game.
 //!
 //! See <https://minecraft.wiki/w/NBT_format>.
 
@@ -12,6 +13,15 @@ use std::io::{Read, Write};
 
 /// How deep compounds and lists may nest.
 pub const MAX_DEPTH: usize = 512;
+
+/// How much memory the tags read may take, per byte of input. A tag takes far more
+/// memory than its smallest encoding (an empty compound is one byte read but a whole
+/// [`Tag`] in memory), so a file of a few tiny tags repeated could otherwise cost 32
+/// times its size. Real files take about 3.
+pub const TAG_MEMORY_PER_BYTE: usize = 8;
+
+/// The tag memory any input may take, however small.
+const MIN_TAG_MEMORY: usize = 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum NbtError {
@@ -33,6 +43,8 @@ pub enum NbtError {
     TooLarge(u64),
     #[error("the gzip data is damaged: {0}")]
     Gzip(String),
+    #[error("the NBT data holds more tags than its size allows")]
+    TooManyTags,
 }
 
 /// A string as stored: Java's modified UTF-8.
@@ -184,9 +196,29 @@ pub struct Root {
 struct Reader<'a> {
     bytes: &'a [u8],
     pos: usize,
+    /// The bytes of tag memory still allowed.
+    budget: usize,
 }
 
 impl<'a> Reader<'a> {
+    fn new(bytes: &'a [u8]) -> Self {
+        Reader {
+            bytes,
+            pos: 0,
+            budget: bytes
+                .len()
+                .saturating_mul(TAG_MEMORY_PER_BYTE)
+                .max(MIN_TAG_MEMORY),
+        }
+    }
+
+    /// Takes `count` items of type `T` from the budget, before they are allocated.
+    fn charge<T>(&mut self, count: usize) -> Result<(), NbtError> {
+        let size = count.saturating_mul(std::mem::size_of::<T>());
+        self.budget = self.budget.checked_sub(size).ok_or(NbtError::TooManyTags)?;
+        Ok(())
+    }
+
     fn remaining(&self) -> usize {
         self.bytes.len() - self.pos
     }
@@ -255,6 +287,7 @@ impl<'a> Reader<'a> {
                 if element == 0 && len > 0 {
                     return Err(NbtError::UnknownTag(0));
                 }
+                self.charge::<Tag>(len)?;
                 let mut items = Vec::with_capacity(len);
                 for _ in 0..len {
                     items.push(self.payload(element, depth + 1)?);
@@ -292,6 +325,7 @@ impl<'a> Reader<'a> {
             if id == 0 {
                 return Ok(Compound(entries));
             }
+            self.charge::<(NbtString, Tag)>(1)?;
             let name = self.string()?;
             let value = self.payload(id, depth)?;
             entries.push((name, value));
@@ -313,7 +347,7 @@ fn element_size(id: u8) -> usize {
 
 /// Reads an uncompressed NBT document whose root is a compound.
 pub fn read(bytes: &[u8]) -> Result<Root, NbtError> {
-    let mut reader = Reader { bytes, pos: 0 };
+    let mut reader = Reader::new(bytes);
     let id = reader.u8()?;
     if id != 10 {
         return Err(NbtError::RootNotCompound);
@@ -563,5 +597,39 @@ mod tests {
         }
         deep.extend(std::iter::repeat_n(0, MAX_DEPTH + 2));
         assert_eq!(read(&deep), Err(NbtError::TooDeep));
+    }
+
+    /// LS-88: a list of empty compounds is one byte each to read but a whole `Tag` each in
+    /// memory, so 32 MB of them must not cost a gigabyte.
+    #[test]
+    fn refuses_tags_far_larger_than_the_input() {
+        let len: usize = 33_554_000;
+        let mut bytes = vec![10, 0, 0, 9, 0, 1, b'x', 10];
+        bytes.extend_from_slice(&(len as i32).to_be_bytes());
+        bytes.resize(bytes.len() + len, 0);
+        bytes.push(0);
+        assert_eq!(read(&bytes), Err(NbtError::TooManyTags));
+        let packed = gzip(&bytes);
+        assert!(packed.len() < 64 * 1024);
+        assert!(matches!(
+            crate::level::summarize(&packed),
+            Err(NbtError::TooManyTags)
+        ));
+
+        // The same in compounds of byte tags.
+        let mut bytes = vec![10, 0, 0];
+        for _ in 0..200_000 {
+            bytes.extend_from_slice(&[1, 0, 0, 0]);
+        }
+        bytes.push(0);
+        assert_eq!(read(&bytes), Err(NbtError::TooManyTags));
+
+        // Small files may still hold lists of tiny tags.
+        let mut bytes = vec![10, 0, 0, 9, 0, 1, b'x', 1];
+        bytes.extend_from_slice(&10_000i32.to_be_bytes());
+        bytes.resize(bytes.len() + 10_000, 7);
+        bytes.push(0);
+        let root = read(&bytes).unwrap();
+        assert!(matches!(root.value.get("x"), Some(Tag::List(1, items)) if items.len() == 10_000));
     }
 }

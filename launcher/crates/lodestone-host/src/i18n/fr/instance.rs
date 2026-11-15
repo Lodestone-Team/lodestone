@@ -22,10 +22,10 @@ pub fn text(message: M) -> &'static str {
         M::DeleteConfirm => "Je comprends, supprimer ce serveur",
         M::DeleteCannotUndo => "Cette action est irréversible.",
         M::DeleteWarning => {
-            "Les paramètres, mondes et sauvegardes de cette instance seront définitivement supprimés. Sauvegardez vos données importantes avant de continuer."
+            "Les paramètres et mondes de cette instance seront définitivement supprimés. Sauvegardez vos données importantes avant de continuer."
         }
+        M::DeleteBackupsToo => "Ses sauvegardes sont supprimées aussi.",
         M::Deleting => "Suppression de {name}…",
-        M::OwnerOnlyAtom => "Seul le propriétaire peut contrôler les serveurs atom.",
         M::CommandLineReadOnly => {
             "Lecture seule tant que l’exécution de code est désactivée sur ce core."
         }
@@ -113,9 +113,26 @@ pub fn text(message: M) -> &'static str {
         M::ModsNeededBy => "Requis par {mods}",
         M::ModsUnknown => "Inconnu",
         M::ModsUnknownModrinth => {
-            "Modrinth n’indique pas si les joueurs en ont besoin. Consultez la page du mod."
+            "Modrinth n’indique pas si les joueurs en ont besoin. Consultez la page du mod, et cochez Pour les joueurs si c’est le cas."
         }
-        M::ModsUnknownNotOnModrinth => "Absent de Modrinth. Consultez la page du mod.",
+        M::ModsUnknownNotOnModrinth => {
+            "Absent de Modrinth. Consultez la page du mod, et cochez Pour les joueurs si les joueurs en ont besoin."
+        }
+        M::ModsForPlayers => "Pour les joueurs",
+        M::ModsForPlayersHint => {
+            "Les joueurs reçoivent ce mod, et les mods dont il a besoin, en rejoignant. Cochez-le pour les mods dont les joueurs ont besoin sans que Lodestone puisse le savoir, comme ceux que vous avez téléversés."
+        }
+        M::ModsForPlayersAlready => {
+            "Les joueurs reçoivent déjà ce mod : Modrinth ou le mod indique qu'ils en ont besoin."
+        }
+        M::ModsForPlayersOptional => {
+            "Modrinth indique que les joueurs peuvent rejoindre sans ce mod, mais sur Fabric, les mods de ce genre les en empêchent souvent : les joueurs le reçoivent donc. Décochez-le pour le retirer."
+        }
+        M::ModsMarkedForPlayers => {
+            "Les joueurs recevront {name} la prochaine fois qu'ils rejoindront"
+        }
+        M::ModsUnmarkedForPlayers => "Les joueurs ne reçoivent plus {name} en rejoignant",
+        M::ModsMarkFailed => "Impossible de modifier {name} : {error}",
         M::ModsRelease => "stable",
         M::ModsBeta => "bêta",
         M::ModsAlpha => "alpha",
@@ -180,12 +197,53 @@ pub fn text(message: M) -> &'static str {
             "Les joueurs peuvent se connecter avec Fabric seul (Minecraft {gameVersion}, {loader})."
         }
         M::ModsDownloadPack => "Télécharger le modpack client (.mrpack)",
+        M::ModsPackShowFewer => "Afficher moins",
         M::ModsDownloadPackFailed => "Impossible de télécharger le modpack client : {error}",
         M::ModsPackSaved => "{name} enregistré",
         M::ModsSavePack => "Enregistrer",
         M::ModsImportHint => {
             "Importez-le dans Prism Launcher, l’application Modrinth ou ATLauncher pour tout obtenir dans les bonnes versions."
         }
+        M::ModpackFrom => "Ce serveur utilise le modpack {pack}.",
+        M::ModpackCheck => "Rechercher une mise à jour",
+        M::ModpackCheckFailed => "Impossible de rechercher une mise à jour : {error}",
+        M::ModpackUpToDate => "C’est la version la plus récente.",
+        M::ModpackUpdateTo => "Mettre à jour vers {version}",
+        M::ModpackFromFile => "Mettre à jour depuis un fichier",
+        M::ModpackFilePrompt => "Mettre à jour",
+        M::ModpackNotMrpack => "{name} n’est pas un fichier .mrpack.",
+        M::ModpackPlanFailed => "Impossible de préparer la mise à jour : {error}",
+        M::ModpackDialogTitle => "Mettre à jour le modpack ?",
+        M::ModpackDialogIntro => "{pack} passe de {from} à {to}.",
+        M::ModpackDialogRestoreIntro => {
+            "Les mods et les configurations reviennent à leur état après « {change} »."
+        }
+        M::ModpackDialogReinstall => "Le serveur passe à {software}, qui est réinstallé.",
+        M::ModpackDialogKept => "Les fichiers que vous avez modifiés restent tels quels : {files}",
+        M::ModpackDialogNothing => "Aucun fichier ne change.",
+        M::ModpackDialogStop => {
+            "Arrêtez d’abord le serveur : il ne peut pas être mis à jour pendant qu’il tourne."
+        }
+        M::ModpackDialogUnsupported => "Cette version ne peut pas être utilisée : {reason}",
+        M::ModpackUpdate => "Mettre à jour",
+        M::ModpackUpdated => "{pack} mis à jour vers {version}.",
+        M::ModpackUpdateFailed => "Impossible de mettre à jour le modpack : {error}",
+        M::ModpackUnknownVersion => "version inconnue",
+        M::ModpackWhatsNew => "Nouveautés",
+        M::ModpackOut => "{version} est disponible",
+        M::ModpackHistory => "Historique",
+        M::ModpackHistoryFailed => "Impossible de charger l’historique du modpack : {error}",
+        M::ModpackHistoryEmpty => {
+            "Rien n’est encore enregistré. Les prochaines modifications pourront être annulées."
+        }
+        M::ModpackCurrent => "Actuelle",
+        M::ModpackRestore => "Restaurer",
+        M::ModpackRestoreMissing => "Lodestone n’a plus certains fichiers de cette version.",
+        M::ModpackRestoreTitle => "Restaurer cette version ?",
+        M::ModpackRestored => "« {change} » restauré.",
+        M::ModpackRestoreFailed => "Impossible de restaurer cette version : {error}",
+        M::ModpackSince => "depuis le {date}",
+        M::ModpackSinceTooltip => "Ce fichier est tel qu’il était après « {change} ».",
         M::ModsProjectFailed => "Impossible de charger le projet : {error}",
         M::ModsSource => "Code source",
         M::ModsIssues => "Tickets",
@@ -224,6 +282,69 @@ pub fn text(message: M) -> &'static str {
         M::ModsIncompatibleBody => {
             "{title} {version} est conçu pour {loaders} {gameVersions}, pas pour {loader} {gameVersion}. Le serveur risque de planter."
         }
+        M::FriendsTitle => "Amis",
+        M::FriendsLead => {
+            "Les amis ajoutés dans Lodestone Launcher voient les serveurs que vous partagez avec eux et les rejoignent sans lien. Rien n’est partagé tant que vous ne cochez pas un ami."
+        }
+        M::FriendsAddInLauncher => "Ajoutez des amis dans Lodestone Launcher",
+        M::FriendsAddInLauncherHint => {
+            "Votre liste d’amis est gérée par Lodestone Launcher sur cet ordinateur. Une fois que vous y avez des amis, vous pouvez partager ce serveur avec eux ici."
+        }
+        M::FriendsLoading => "Chargement de vos amis…",
+        M::FriendsShareWith => "Partager ce serveur avec {name}",
+        M::FriendsNotVerified => "Non vérifié",
+        M::FriendsMinecraft => {
+            "Minecraft\u{a0}: {names}. Ajoutés à la liste blanche quand vous partagez, si le serveur l’a activée."
+        }
+        M::FriendsWhitelisted => "{names} ajouté(s) à la liste blanche du serveur",
+        M::FriendsWhitelistFailed => {
+            "Partagé avec {name}, mais impossible de l’ajouter à la liste blanche du serveur\u{a0}: {error}"
+        }
+        M::FriendsConnected => "Connecté",
+        M::FriendsSyncFailed => {
+            "Impossible de synchroniser votre liste d’amis avec ce core : {error}"
+        }
+        M::FriendsOpenFailed => "Impossible d’ouvrir votre liste d’amis : {error}",
+        M::FriendsPublishFailed => "Impossible de prévenir {name} de ce core : {error}",
+        M::FriendsPublishFailedAll => "Impossible de prévenir vos amis de ce core : {error}",
+        M::FriendsRetry => "Réessayer",
+        M::FriendsRetrying => "Lodestone Host réessaie chaque minute.",
+        M::FriendsSynced => "Liste d’amis synchronisée",
+        M::FriendsRetired => "Votre identité d’ami a été retirée",
+        M::FriendsRetiredHint => {
+            "Ce core ne partage plus avec personne. Pour recommencer, choisissez un nouveau nom dans la section Amis de Lodestone Launcher, puis ajoutez de nouveau vos amis."
+        }
+        M::FriendsOff => "Le partage avec des amis est désactivé dans cette copie de test",
+        M::FriendsOffHint => {
+            "Son core ou sa liste d’amis est dans un dossier de test, et l’autre non : vos vrais amis n’atteignent donc jamais un core de test. Pour tester le partage, définissez LODESTONE_PATH et LODESTONE_LAUNCHER_DATA_DIR sur des dossiers de test."
+        }
+        M::FriendsConfirmUnverified => {
+            "Vous n’avez pas encore comparé les codes de sécurité avec {name} : vous ne pouvez pas être sûr que c’est bien cette personne, quelqu’un d’autre a pu répondre à votre lien d’ami. Comparez d’abord les codes dans Lodestone Launcher, ou partagez quand même."
+        }
+        M::FriendsShareAnyway => "Partager quand même",
+        M::FriendsCertificate => "Certificat d’ami de ce core",
+        M::FriendsCertificateHint => {
+            "Vos amis reconnaissent ce core grâce à lui. Retirez-le si les données de cet ordinateur ont pu être copiées : vos amis l’oublient, et le core en reçoit un nouveau qu’ils trouvent à la place."
+        }
+        M::FriendsCertificateRetire => "Retirer le certificat…",
+        M::FriendsCertificateRetireBody => {
+            "Vos amis oublient le certificat actuel de ce core et ne font plus confiance aux mods de ses serveurs. Le core reçoit un nouveau certificat, sous lequel vos amis le trouvent à leur prochaine vérification. Toutes les personnes connectées sont déconnectées."
+        }
+        M::FriendsCertificateRetireConfirm => "Retirer et en obtenir un nouveau",
+        M::FriendsCertificateRetired => "Le certificat d’ami de ce core a été retiré",
+        M::FriendsCertificateRetiredHint => {
+            "Vos amis ne voient plus ce core. Donnez-lui un nouveau certificat pour partager de nouveau depuis cet ordinateur."
+        }
+        M::FriendsCertificateNew => "Obtenir un nouveau certificat",
+        M::FriendsCertificateManual => {
+            "Vos amis ne voient plus ce core. Ce core ne peut pas créer lui-même un nouveau certificat : quittez Lodestone Host, supprimez {path}, puis rouvrez-le."
+        }
+        M::FriendsCancel => "Annuler",
+        M::MemoryKeywords => "mémoire RAM",
+        M::JvmArgsKeywords => "JVM Java arguments options",
+        M::WhitelistKeywords => "liste blanche joueurs autorisés",
+        M::MotdKeywords => "MOTD message du jour description du serveur",
+        M::AutoStartKeywords => "démarrage lancement automatique",
     }
 }
 
@@ -247,10 +368,16 @@ pub fn plural(message: P) -> [&'static str; 2] {
             "Importez-le dans Prism Launcher, l’application Modrinth ou ATLauncher pour tout obtenir dans les bonnes versions. {count} mod n’est pas sur Modrinth, son fichier est donc inclus dans le pack.",
             "Importez-le dans Prism Launcher, l’application Modrinth ou ATLauncher pour tout obtenir dans les bonnes versions. {count} mods ne sont pas sur Modrinth, leurs fichiers sont donc inclus dans le pack.",
         ],
+        P::ModsPackShowAll => ["Afficher {count} mod", "Afficher les {count} mods"],
         P::ModsShowMore => [
             "Afficher plus ({count} restante)",
             "Afficher plus ({count} restantes)",
         ],
         P::ModsMoreGameVersions => ["+{count} autre", "+{count} autres"],
+        P::ModpackAdded => ["{count} fichier ajouté", "{count} fichiers ajoutés"],
+        P::ModpackReplaced => ["{count} fichier remplacé", "{count} fichiers remplacés"],
+        P::ModpackRemoved => ["{count} fichier supprimé", "{count} fichiers supprimés"],
+        P::ModpackMoreChanges => ["et {count} autre", "et {count} autres"],
+        P::FriendsConnectedCount => ["{count} ami connecté", "{count} amis connectés"],
     }
 }

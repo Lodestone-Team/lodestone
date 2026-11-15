@@ -1,6 +1,7 @@
 //! An instance's Settings tab (`InstanceSettings.tsx`): the core's settings manifest,
 //! rendered setting by setting as the dashboard's `SettingField` does, then
-//! automation, the resource pack, the Minecraft EULA and the danger zone.
+//! automation, public listing, sharing with friends, the resource pack, the Minecraft
+//! EULA and the danger zone.
 //!
 //! Each setting saves on its own: a switch or a list as soon as it changes, a text
 //! field on Enter or its save button (Escape puts the saved value back). The resource
@@ -35,7 +36,10 @@ use lodestone_ui::{
         Button, ButtonSize, ButtonVariant, Dialog, DialogSlot, LoadingDots, TextInput, Toast,
         Toggle,
         a11y::Accessible as _,
-        settings::{SectionNav, SettingRow, card, content_width, link, section, section_list, tag},
+        settings::{
+            FindSetting, SearchRow, SectionNav, SettingRow, SettingsQuery, SettingsSearch,
+            SettingsSearchChanged, card, content_width, link, nav_width, section_list, tag,
+        },
         window_layer,
     },
     i18n::format,
@@ -131,6 +135,11 @@ pub struct InstanceSettingsPage {
     delete: DialogSlot<Self, DeletePrompt>,
     deleting: bool,
     nav: SectionNav,
+    /// The search field over the list of sections: the page shows the settings that
+    /// match it, and the list the sections that have any.
+    search: Entity<SettingsSearch>,
+    /// A section to scroll to at the next draw, by title (the screenshots' `--friends`).
+    pub show_section: Option<SharedString>,
     /// When the tab opened, so "Loading" waits [`LOADING_DELAY`].
     opened: Instant,
     /// What it shows came from the cache, and the fetch hasn't answered yet.
@@ -140,8 +149,61 @@ pub struct InstanceSettingsPage {
 }
 
 impl InstanceSettingsPage {
+    /// For screenshots: a sample Game section with its Difficulty list open, as a
+    /// Minecraft server's settings show it.
+    #[cfg(feature = "screenshot")]
+    pub fn difficulty_for_screenshot(&mut self, cx: &mut Context<Self>) {
+        let setting = |id: &str, name: &str, value: serde_json::Value, kind: serde_json::Value| {
+            serde_json::json!({
+                "setting_id": id, "name": name, "description": "",
+                "value": value, "value_type": kind, "default_value": null,
+                "is_secret": false, "is_required": true, "is_mutable": true,
+            })
+        };
+        let json = serde_json::json!({
+            "auto_start": false, "restart_on_crash": false,
+            "setting_sections": { "game": {
+                "section_id": "game", "name": "Game", "description": "", "settings": {
+                    "difficulty": setting(
+                        "difficulty", "Difficulty",
+                        serde_json::json!({ "type": "Enum", "value": "easy" }),
+                        serde_json::json!({ "type": "Enum",
+                            "options": ["peaceful", "easy", "normal", "hard"] }),
+                    ),
+                    "gamemode": setting(
+                        "gamemode", "Game mode",
+                        serde_json::json!({ "type": "Enum", "value": "survival" }),
+                        serde_json::json!({ "type": "Enum",
+                            "options": ["survival", "creative", "adventure", "spectator"] }),
+                    ),
+                    "pvp": setting(
+                        "pvp", "PvP",
+                        serde_json::json!({ "type": "Boolean", "value": true }),
+                        serde_json::json!({ "type": "Boolean" }),
+                    ),
+                },
+            } },
+        });
+        if let Ok(manifest) = serde_json::from_value::<ConfigurableManifest>(json) {
+            self.manifest = Load::Ready(manifest);
+            self.open_menu = Some(("game".to_string(), "difficulty".to_string()));
+            cx.notify();
+        }
+    }
+
     pub fn new(state: Entity<HostState>, uuid: String, cx: &mut Context<Self>) -> Self {
-        let subscriptions = vec![cx.observe(&state, |_, _, cx| cx.notify())];
+        let search = cx.new(|cx| SettingsSearch::new("instance-settings-search", cx));
+        let mut subscriptions = vec![
+            cx.observe(&state, |_, _, cx| cx.notify()),
+            // what the page shows changed: back to its top
+            cx.subscribe(&search, |this, _, _: &SettingsSearchChanged, cx| {
+                this.nav.reset();
+                cx.notify();
+            }),
+        ];
+        if let Some(friends) = state.read(cx).friends.clone() {
+            subscriptions.push(cx.observe(&friends, |_, _, cx| cx.notify()));
+        }
         let mut this = Self {
             state,
             uuid,
@@ -158,6 +220,8 @@ impl InstanceSettingsPage {
             delete: DialogSlot::new(|this: &mut Self| &mut this.delete),
             deleting: false,
             nav: SectionNav::default(),
+            search,
+            show_section: None,
             opened: Instant::now(),
             fetched: None,
             _tasks: Vec::new(),
@@ -181,6 +245,17 @@ impl InstanceSettingsPage {
         this
     }
 
+    /// Puts the focus in the search field (⌘F).
+    pub fn focus_search(&self, window: &mut Window, cx: &mut App) {
+        self.search
+            .update(cx, |search, cx| search.focus(window, cx));
+    }
+
+    /// The search field, for the development screenshots.
+    pub fn search(&self) -> &Entity<SettingsSearch> {
+        &self.search
+    }
+
     /// Shows fetched settings: the manifest's fields, the resource pack's draft, the
     /// EULA and the listing.
     fn show(&mut self, fetched: Fetched, cx: &mut Context<Self>) {
@@ -200,19 +275,11 @@ impl InstanceSettingsPage {
             .is_some_and(|i| matches!(i.game_type, Game::MinecraftJava { .. }))
     }
 
-    /// Atom instances are the owner's alone (`useCanControlInstance`).
-    fn can_control(&self, cx: &Context<Self>) -> bool {
-        let state = self.state.read(cx);
-        state.me.is_owner || !self.instance(cx).is_some_and(|i| i.is_atom())
-    }
-
     fn can_edit(&self, cx: &Context<Self>) -> bool {
-        self.can_control(cx)
-            && self
-                .state
-                .read(cx)
-                .me
-                .may(InstancePermission::Settings, &self.uuid)
+        self.state
+            .read(cx)
+            .me
+            .may(InstancePermission::Settings, &self.uuid)
     }
 
     /// Why `java_cmd` and `cmd_args` can't change, if they can't
@@ -672,6 +739,18 @@ impl InstanceSettingsPage {
     }
 }
 
+/// Words a setting of the manifest is found by besides its name, which comes from
+/// the core in English: so "memory" or "mémoire" finds Maximum RAM.
+fn setting_keywords(setting_id: &str) -> Option<M> {
+    Some(match setting_id {
+        "min_ram" | "max_ram" => M::MemoryKeywords,
+        "cmd_args" | "java_cmd" => M::JvmArgsKeywords,
+        "white-list" | "enforce-whitelist" => M::WhitelistKeywords,
+        "motd" => M::MotdKeywords,
+        _ => return None,
+    })
+}
+
 /// A paragraph under a card, such as a load error.
 fn note(text_: impl Into<SharedString>, color: lodestone_ui::theme::Color) -> AnyElement {
     div()
@@ -683,7 +762,15 @@ fn note(text_: impl Into<SharedString>, color: lodestone_ui::theme::Color) -> An
 
 impl InstanceSettingsPage {
     /// The manifest's sections, each a card of its settings.
-    fn manifest_sections(&self, cx: &mut Context<Self>) -> Vec<(SharedString, AnyElement)> {
+    fn manifest_sections(
+        &self,
+        query: &SettingsQuery,
+        cx: &mut Context<Self>,
+    ) -> Vec<(SharedString, AnyElement)> {
+        // still loading, or it failed: nothing to search
+        if query.is_active() && !matches!(self.manifest, Load::Ready(_)) {
+            return Vec::new();
+        }
         let manifest = match &self.manifest {
             Load::Loading => {
                 return vec![(
@@ -707,17 +794,15 @@ impl InstanceSettingsPage {
             Load::Ready(manifest) => manifest.clone(),
         };
         let can_edit = self.can_edit(cx);
-        let can_control = self.can_control(cx);
         let blocked = self.command_line_blocked(cx);
         let mut sections = Vec::new();
         for section_ in &manifest.setting_sections {
             let section_id = &section_.section_id;
-            let rows: Vec<AnyElement> = if section_.settings.is_empty() {
+            let rows: Vec<SettingRow> = if section_.settings.is_empty() {
                 vec![
                     SettingRow::new(t(M::NotAvailable))
                         .key(SharedString::from(format!("empty-{section_id}")))
-                        .hint(t(M::NotAvailableHint))
-                        .into_any_element(),
+                        .hint(t(M::NotAvailableHint)),
                 ]
             } else {
                 section_
@@ -727,13 +812,7 @@ impl InstanceSettingsPage {
                         let setting_id = &setting.setting_id;
                         let key = (section_id.clone(), setting_id.clone());
                         // why it is read-only, after its description
-                        let reason = if !can_control {
-                            Some(M::OwnerOnlyAtom)
-                        } else if field::is_command_line(setting_id) {
-                            blocked
-                        } else {
-                            None
-                        };
+                        let reason = blocked.filter(|_| field::is_command_line(setting_id));
                         let hint = if !can_edit {
                             t(M::NoPermission).to_string()
                         } else {
@@ -750,17 +829,21 @@ impl InstanceSettingsPage {
                     })
                     .collect()
             };
-            sections.push((
-                SharedString::from(section_.name.clone()),
-                section(
+            if let Some(section) = query
+                .section(
                     section_.name.clone(),
                     Some(section_.description.clone())
                         .filter(|d| !d.is_empty())
                         .map(Into::into),
                 )
-                .child(card(rows))
-                .into_any_element(),
-            ));
+                .card(rows)
+                .finish()
+            {
+                sections.push((
+                    SharedString::from(section_.name.clone()),
+                    section.into_any_element(),
+                ));
+            }
         }
         sections
     }
@@ -772,11 +855,27 @@ impl InstanceSettingsPage {
         hint: String,
         mutable: bool,
         cx: &mut Context<Self>,
-    ) -> AnyElement {
+    ) -> SettingRow {
         let row_id = SharedString::from(format!("setting-{}-{}", key.0, key.1));
-        let row = SettingRow::new(setting.name.clone())
+        // found by its id (`motd`, `white-list`) too, and words its name lacks
+        let mut row = SettingRow::new(setting.name.clone())
             .key(row_id.clone())
-            .hint(hint);
+            .hint(hint)
+            .search_text(setting.setting_id.clone());
+        if let Some(keywords) = setting_keywords(&setting.setting_id) {
+            row = row.keywords(t(keywords));
+        }
+        // and by the value it holds ("survival"), unless it is a secret
+        if !setting.is_secret {
+            match &setting.value {
+                Some(ConfigurableValue::String(v) | ConfigurableValue::Enum(v)) => {
+                    row = row.search_text(v.clone());
+                }
+                Some(ConfigurableValue::Integer(n)) => row = row.search_text(n.to_string()),
+                Some(ConfigurableValue::UnsignedInteger(n)) => row = row.search_text(n.to_string()),
+                _ => {}
+            }
+        }
         let value = self
             .pending
             .get(&key)
@@ -795,7 +894,6 @@ impl InstanceSettingsPage {
                             this.change(changed.clone(), ConfigurableValue::Boolean(*on), cx)
                         })),
                 )
-                .into_any_element()
             }
             ConfigurableValueType::Enum { options } => {
                 let current = match &value {
@@ -813,11 +911,10 @@ impl InstanceSettingsPage {
                     key,
                     cx,
                 ))
-                .into_any_element()
             }
             _ => {
                 let Some(field) = self.fields.get(&key) else {
-                    return row.into_any_element();
+                    return row;
                 };
                 let typed = field.text(cx);
                 let problem = if field.touched(cx) {
@@ -832,19 +929,17 @@ impl InstanceSettingsPage {
                 row.child(field.render(key, cx))
                     .note_opt(error.map(|e| (e.into(), colors::RED_200)))
                     .when_some(motd, |row, motd| row.below(motd))
-                    .into_any_element()
             }
         }
     }
 
-    fn automation_section(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+    fn automation_section(
+        &self,
+        query: &SettingsQuery,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
         let instance = self.instance(cx)?.clone();
         let can_edit = self.can_edit(cx);
-        let reason = if self.can_control(cx) {
-            M::NoPermission
-        } else {
-            M::OwnerOnlyAtom
-        };
         let saving = self.automation_pending.is_some();
         let rows = [
             (
@@ -867,7 +962,10 @@ impl InstanceSettingsPage {
                 _ => saved,
             };
             SettingRow::new(t(label))
-                .hint(t(if can_edit { hint } else { reason }))
+                .hint(t(if can_edit { hint } else { M::NoPermission }))
+                .when(which == Automation::AutoStart, |row| {
+                    row.keywords(t(M::AutoStartKeywords))
+                })
                 .child(
                     Toggle::new(SharedString::from(format!("automation-{which:?}")), value)
                         .label(t(label))
@@ -876,18 +974,17 @@ impl InstanceSettingsPage {
                             this.set_automation(which, *on, cx)
                         })),
                 )
-                .into_any_element()
         });
-        Some(
-            section(t(M::Automation), Some(t(M::AutomationLead).into()))
-                .child(card(rows))
-                .into_any_element(),
-        )
+        query
+            .section(t(M::Automation), Some(t(M::AutomationLead).into()))
+            .card(rows)
+            .finish()
+            .map(IntoElement::into_any_element)
     }
 
     /// Sharing (`PublicListingSetting.tsx`): whether the server is public and what it
     /// shows; only the owner changes it, and listing needs the core's switch on.
-    fn sharing_section(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+    fn sharing_section(&self, query: &SettingsQuery, cx: &mut Context<Self>) -> Option<AnyElement> {
         let listing = self.listing.clone()?;
         let can_edit = self.state.read(cx).me.is_owner;
         let row = crate::pages::public_listing::scope_row(
@@ -905,14 +1002,14 @@ impl InstanceSettingsPage {
                 }
             },
         );
-        Some(
-            section(
+        query
+            .section(
                 t(CoreMsg::ListingTitle),
                 Some(t(CoreMsg::ListingLead).into()),
             )
-            .child(card([row.into_any_element()]))
-            .into_any_element(),
-        )
+            .card([row])
+            .finish()
+            .map(IntoElement::into_any_element)
     }
 
     fn change_listing(&mut self, change: PublicScopeChange, cx: &mut Context<Self>) {
@@ -945,7 +1042,7 @@ impl InstanceSettingsPage {
         self.push(task);
     }
 
-    fn pack_section(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+    fn pack_section(&self, query: &SettingsQuery, cx: &mut Context<Self>) -> Option<AnyElement> {
         let form = self.pack.as_ref()?;
         let draft = self.pack_draft(cx)?;
         let can_edit = self.can_edit(cx);
@@ -963,7 +1060,7 @@ impl InstanceSettingsPage {
             || draft.required != saved.required
             || draft.prompt.trim() != saved.prompt;
         let control = |input: &Entity<TextInput>| div().w(px(260.)).child(input.clone());
-        let rows = vec![
+        let rows: Vec<SearchRow> = vec![
             SettingRow::new(t(M::PackUrl))
                 .key("pack-url")
                 .hint(if can_edit {
@@ -977,7 +1074,7 @@ impl InstanceSettingsPage {
                         .filter(|_| can_edit)
                         .map(|e| (e.into(), colors::RED_200)),
                 )
-                .into_any_element(),
+                .into(),
             SettingRow::new(t(M::PackSha1))
                 .key("pack-sha1")
                 .hint(
@@ -994,7 +1091,7 @@ impl InstanceSettingsPage {
                         .on_click(cx.listener(|this, _, _, cx| this.compute_sha1(cx))),
                 )
                 .note_opt(sha1_error.map(|e| (e.into(), colors::RED_200)))
-                .into_any_element(),
+                .into(),
             SettingRow::new(t(M::PackRequired))
                 .hint(t(M::PackRequiredHint))
                 .child(
@@ -1008,12 +1105,12 @@ impl InstanceSettingsPage {
                             cx.notify();
                         })),
                 )
-                .into_any_element(),
+                .into(),
             SettingRow::new(t(M::PackPrompt))
                 .key("pack-prompt")
                 .hint(t(M::PackPromptHint))
                 .child(control(&form.prompt))
-                .into_any_element(),
+                .into(),
             // changes here are kept until saved, so the pack is set at once
             div()
                 .flex()
@@ -1044,16 +1141,17 @@ impl InstanceSettingsPage {
                             }
                         })),
                 )
-                .into_any_element(),
+                .into_any_element()
+                .into(),
         ];
-        Some(
-            section(t(M::ResourcePack), Some(t(M::ResourcePackLead).into()))
-                .child(card(rows))
-                .into_any_element(),
-        )
+        query
+            .section(t(M::ResourcePack), Some(t(M::ResourcePackLead).into()))
+            .card(rows)
+            .finish()
+            .map(IntoElement::into_any_element)
     }
 
-    fn eula_section(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+    fn eula_section(&self, query: &SettingsQuery, cx: &mut Context<Self>) -> Option<AnyElement> {
         let status = self.eula?;
         let may_accept = self
             .state
@@ -1086,30 +1184,27 @@ impl InstanceSettingsPage {
                         .on_click(cx.listener(|this, _, _, cx| this.accept_eula(cx))),
                 )
         };
-        Some(
-            section(t(M::Eula), Some(t(M::EulaLead).into()))
-                .child(card([row.into_any_element()]))
-                .into_any_element(),
-        )
+        query
+            .section(t(M::Eula), Some(t(M::EulaLead).into()))
+            .card([row])
+            .finish()
+            .map(IntoElement::into_any_element)
     }
 
-    fn danger_section(&self, cx: &mut Context<Self>) -> AnyElement {
-        let can_control = self.can_control(cx);
-        let can_delete = can_control
-            && self
-                .state
-                .read(cx)
-                .me
-                .may_core(CorePermission::DeleteInstance);
+    fn danger_section(&self, query: &SettingsQuery, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let can_delete = self
+            .state
+            .read(cx)
+            .me
+            .may_core(CorePermission::DeleteInstance);
         let hint = if can_delete {
             M::DeleteServerHint
-        } else if can_control {
-            M::NoPermission
         } else {
-            M::OwnerOnlyAtom
+            M::NoPermission
         };
-        section(t(M::DangerZone), Some(t(M::DangerZoneLead).into()))
-            .child(card([SettingRow::new(t(M::DeleteServer))
+        query
+            .section(t(M::DangerZone), Some(t(M::DangerZoneLead).into()))
+            .card([SettingRow::new(t(M::DeleteServer))
                 .danger()
                 .hint(t(hint))
                 .child(
@@ -1118,9 +1213,9 @@ impl InstanceSettingsPage {
                         .size(ButtonSize::Slim)
                         .disabled(!can_delete)
                         .on_click(cx.listener(|this, _, _, cx| this.open_delete(cx))),
-                )
-                .into_any_element()]))
-            .into_any_element()
+                )])
+            .finish()
+            .map(IntoElement::into_any_element)
     }
 
     fn delete_dialog(&self, prompt: &DeletePrompt, cx: &mut Context<Self>) -> AnyElement {
@@ -1153,7 +1248,8 @@ impl InstanceSettingsPage {
                         .text_color(ink::text())
                         .child(t(M::DeleteCannotUndo)),
                 )
-                .child(t(M::DeleteWarning)),
+                .child(t(M::DeleteWarning))
+                .child(div().pt(px(8.)).child(t(M::DeleteBackupsToo))),
         )
         .footer(
             Button::new("delete-instance-confirm", t(M::DeleteConfirm))
@@ -1173,38 +1269,67 @@ impl Render for InstanceSettingsPage {
         if matches!(self.manifest, Load::Loading) && self.opened.elapsed() < LOADING_DELAY {
             return div().size_full().into_any_element();
         }
-        let mut sections = self.manifest_sections(cx);
-        if let Some(automation) = self.automation_section(cx) {
+        let query = self.search.read(cx).query();
+        let mut sections = self.manifest_sections(&query, cx);
+        if let Some(automation) = self.automation_section(&query, cx) {
             sections.push((t(M::Automation).into(), automation));
         }
-        if let Some(sharing) = self.sharing_section(cx) {
+        if let Some(sharing) = self.sharing_section(&query, cx) {
             sections.push((t(CoreMsg::ListingTitle).into(), sharing));
         }
-        if let Some(pack) = self.pack_section(cx) {
+        // friends: this computer's core, as its owner (`crate::friends`); found as a
+        // whole, by its title
+        if let Some(friends) = self.state.read(cx).friends.clone()
+            && query.matches([t(M::FriendsTitle)])
+        {
+            query.add_found(1);
+            sections.push((
+                t(M::FriendsTitle).into(),
+                crate::pages::friend_sharing::section_for(&friends, &self.uuid, cx),
+            ));
+        }
+        if let Some(pack) = self.pack_section(&query, cx) {
             sections.push((t(M::ResourcePack).into(), pack));
         }
-        if let Some(eula) = self.eula_section(cx) {
+        if let Some(eula) = self.eula_section(&query, cx) {
             sections.push((t(M::Eula).into(), eula));
         }
-        sections.push((t(M::DangerZone).into(), self.danger_section(cx)));
+        if let Some(danger) = self.danger_section(&query, cx) {
+            sections.push((t(M::DangerZone).into(), danger));
+        }
+        // the sections are built: the status counts what they show
+        let status = query.status();
 
         let titles: Vec<SharedString> = sections.iter().map(|(title, _)| title.clone()).collect();
+        if let Some(show) = self.show_section.take()
+            && let Some(index) = titles.iter().position(|title| *title == show)
+        {
+            self.nav.pick(index);
+        }
         let active = self.nav.active(titles.len());
         // the list of sections, when the page is wide enough for it beside them
         let wide = window.viewport_size().width >= px(1080.);
+        // the search field over the list; in a narrow page, over the settings
         let list = wide.then(|| {
             let entity = cx.entity();
-            section_list(
-                "instance-settings-nav",
-                &titles,
-                active,
-                move |index, _, cx| {
-                    entity.update(cx, |this, cx| {
-                        this.nav.pick(index);
-                        cx.notify();
-                    })
-                },
-            )
+            div()
+                .flex()
+                .flex_col()
+                .flex_none()
+                .gap(px(12.))
+                .w(nav_width())
+                .child(self.search.clone())
+                .child(section_list(
+                    "instance-settings-nav",
+                    &titles,
+                    active,
+                    move |index, _, cx| {
+                        entity.update(cx, |this, cx| {
+                            this.nav.pick(index);
+                            cx.notify();
+                        })
+                    },
+                ))
         });
         let content = div()
             .id("instance-settings")
@@ -1218,10 +1343,19 @@ impl Render for InstanceSettingsPage {
             .overflow_y_scroll()
             .track_scroll(&self.nav.scroll)
             .on_scroll(cx.listener(|this, _, _, _| this.nav.scrolled()))
+            .when(!wide, |this| {
+                this.child(
+                    div()
+                        .w_full()
+                        .max_w(content_width())
+                        .child(self.search.clone()),
+                )
+            })
             .children(
-                sections
+                status
                     .into_iter()
-                    .map(|(_, element)| div().w_full().max_w(content_width()).child(element)),
+                    .chain(sections.into_iter().map(|(_, element)| element))
+                    .map(|element| div().w_full().max_w(content_width()).child(element)),
             );
         let dialogs = self
             .delete
@@ -1232,6 +1366,9 @@ impl Render for InstanceSettingsPage {
             .flex()
             .flex_row()
             .gap(px(32.))
+            .on_action(
+                cx.listener(|this, _: &FindSetting, window, cx| this.focus_search(window, cx)),
+            )
             .text_size(text::MEDIUM)
             .line_height(lodestone_ui::theme::line_height(
                 text::MEDIUM,

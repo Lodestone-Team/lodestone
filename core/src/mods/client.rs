@@ -1,7 +1,15 @@
 //! Which installed mods players need too, and the client modpack (`.mrpack`) that gives
 //! them those mods.
+//!
+//! The owner can mark a mod as needed by players ([`set_marked`]), for jars whose need
+//! nothing says: uploaded jars that aren't on Modrinth and don't name an `environment`.
+//! On Fabric, a mod Modrinth calls optional for players is needed too, unless the owner
+//! leaves it out: "optional" often isn't, as a mod that adds a block, an item or a recipe
+//! type on the server turns away players without it (JEI adds recipe types). The marks
+//! are kept in the mods folder ([`MARKS_FILE`]) by the mod's enabled file name, so
+//! disabling, enabling and uploading a new jar under the same name keep them.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::path::Path;
 
 use color_eyre::eyre::{eyre, Context};
@@ -11,8 +19,8 @@ use ts_rs::TS;
 use super::metadata::JarEnvironment;
 use super::scan::{scan_folder, ScannedFile};
 use super::{
-    bad_request, check_mod_file_name, match_files, InstalledModKind, InstalledModLoader, ModFolder,
-    ModrinthMatch,
+    bad_request, check_mod_file_name, enabled_name, existing_mod_path, match_files,
+    InstalledModKind, InstalledModLoader, ModFolder, ModrinthMatch,
 };
 use crate::error::{Error, ErrorKind};
 use crate::modrinth::{ModrinthApi, ModrinthDependencyType, ModrinthVersion, CDN_HOST};
@@ -43,18 +51,141 @@ impl ClientRequirement {
     }
 }
 
-/// The requirement of one mod on its own, before dependencies: plugins never; then
-/// Modrinth's `client_side`; then the jar's `environment`.
+/// The file in the mods folder with the mods the owner marked as needed by players.
+/// Loaders only load `.jar` files, so it's never taken for a mod.
+pub const MARKS_FILE: &str = ".lodestone_client_mods.json";
+
+/// [`MARKS_FILE`]'s contents: enabled file names (without `.disabled`).
+#[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ClientMarks {
+    /// The mods the owner marked as needed by players.
+    #[serde(default)]
+    pub required: BTreeSet<String>,
+    /// The mods the owner left out of the client pack: a mod Modrinth calls optional for
+    /// players then isn't needed by them (unless a mod they need needs it).
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub excluded: BTreeSet<String>,
+}
+
+impl ClientMarks {
+    fn is_empty(&self) -> bool {
+        self.required.is_empty() && self.excluded.is_empty()
+    }
+
+    /// The marks on the mod `file_name`, enabled or not.
+    pub fn of(&self, file_name: &str) -> Marks {
+        let name = enabled_name(file_name);
+        Marks {
+            required: self.required.contains(&name),
+            excluded: self.excluded.contains(&name),
+        }
+    }
+}
+
+/// The owner's marks on one mod ([`set_marked`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Marks {
+    /// Marked as needed by players.
+    pub required: bool,
+    /// Left out of the client pack.
+    pub excluded: bool,
+}
+
+/// The owner's marks. A missing file is none; a damaged one is none too, with a
+/// warning.
+pub async fn read_marks(folder: &ModFolder) -> ClientMarks {
+    if folder.kind() != InstalledModKind::Mod {
+        return ClientMarks::default();
+    }
+    let path = folder.dir.join(MARKS_FILE);
+    match tokio::fs::read_to_string(&path).await {
+        Ok(text) => match serde_json::from_str::<ClientMarks>(&text) {
+            Ok(marks) => marks,
+            Err(e) => {
+                tracing::warn!(
+                    "{} is damaged, so no mods are marked for players: {e}",
+                    path.display()
+                );
+                ClientMarks::default()
+            }
+        },
+        Err(_) => ClientMarks::default(),
+    }
+}
+
+async fn write_marks(folder: &ModFolder, marks: ClientMarks) -> Result<(), Error> {
+    let path = folder.dir.join(MARKS_FILE);
+    if marks.is_empty() {
+        return match tokio::fs::remove_file(&path).await {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                Err(Error::from(eyre!("Failed to update {MARKS_FILE}: {e}")))
+            }
+            _ => Ok(()),
+        };
+    }
+    let text = serde_json::to_string_pretty(&marks).expect("serializable");
+    crate::persist::write_atomic(&path, text, None).await
+}
+
+/// Marks the mod `file_name` as needed by players, or leaves it out of the client pack:
+/// a mod Modrinth calls optional for players isn't needed then, and other mods go back
+/// to what Modrinth, the jar and the mods that need them say. Only mods, not plugins.
+pub async fn set_marked(folder: &ModFolder, file_name: &str, required: bool) -> Result<(), Error> {
+    if folder.kind() != InstalledModKind::Mod {
+        return Err(bad_request("Plugins only run on the server"));
+    }
+    existing_mod_path(folder, file_name).await?;
+    let mut marks = read_marks(folder).await;
+    let name = enabled_name(file_name);
+    let (add, remove) = if required {
+        (&mut marks.required, &mut marks.excluded)
+    } else {
+        (&mut marks.excluded, &mut marks.required)
+    };
+    let removed = remove.remove(&name);
+    let changed = add.insert(name) || removed;
+    if changed {
+        write_marks(folder, marks).await?;
+    }
+    Ok(())
+}
+
+/// Takes the marks off a mod that was deleted, so a later jar under its name isn't
+/// marked by surprise.
+pub async fn forget_mark(folder: &ModFolder, file_name: &str) -> Result<(), Error> {
+    let mut marks = read_marks(folder).await;
+    let name = enabled_name(file_name);
+    let required = marks.required.remove(&name);
+    if marks.excluded.remove(&name) || required {
+        write_marks(folder, marks).await?;
+    }
+    Ok(())
+}
+
+/// The requirement of one mod on its own, before dependencies: plugins never; then the
+/// owner's mark; then Modrinth's `client_side`, where optional is needed on Fabric unless
+/// the owner left the mod out (see the module); then the jar's `environment`.
 pub fn base_requirement(
     loader: InstalledModLoader,
     file: &ScannedFile,
     matched: Option<&ModrinthMatch>,
+    marks: Marks,
 ) -> ClientRequirement {
     if loader.kind() == InstalledModKind::Plugin {
         return ClientRequirement::Unsupported;
     }
+    if marks.required {
+        return ClientRequirement::Required;
+    }
     if let Some(m) = matched {
-        return ClientRequirement::from_modrinth(&m.client_side);
+        return match ClientRequirement::from_modrinth(&m.client_side) {
+            ClientRequirement::Optional
+                if loader == InstalledModLoader::Fabric && !marks.excluded =>
+            {
+                ClientRequirement::Required
+            }
+            requirement => requirement,
+        };
     }
     match file.environment {
         Some(JarEnvironment::Server) => ClientRequirement::Unsupported,
@@ -67,6 +198,8 @@ pub fn base_requirement(
 pub struct MatchedFile {
     pub file: ScannedFile,
     pub matched: Option<(ModrinthMatch, ModrinthVersion)>,
+    /// The owner's marks.
+    pub marks: Marks,
 }
 
 impl MatchedFile {
@@ -97,7 +230,7 @@ pub fn client_requirements(
         .iter()
         .map(|f| {
             (
-                base_requirement(loader, &f.file, f.matched.as_ref().map(|(m, _)| m)),
+                base_requirement(loader, &f.file, f.matched.as_ref().map(|(m, _)| m), f.marks),
                 Vec::new(),
             )
         })
@@ -187,11 +320,17 @@ pub async fn matched_files(
 ) -> Result<Vec<MatchedFile>, Error> {
     let files = scan_folder(folder).await?;
     let mut matches = match_files(api, &files).await?;
+    let marks = read_marks(folder).await;
     Ok(files
         .into_iter()
         .map(|file| {
             let matched = matches.remove(&file.sha512);
-            MatchedFile { file, matched }
+            let marks = marks.of(&file.file_name);
+            MatchedFile {
+                file,
+                matched,
+                marks,
+            }
         })
         .collect())
 }

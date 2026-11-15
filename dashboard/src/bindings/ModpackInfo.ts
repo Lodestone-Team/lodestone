@@ -3,16 +3,24 @@
 /**
  * What the dashboard shows about a pack before an instance is created from it.
  */
-export type ModpackInfo = { name: string, version_number: string | null, summary: string | null, game_version: string, 
-/**
- * For example `fabric`.
- */
-loader: string, loader_version: string | null, server_file_count: number, server_download_size: number, 
-/**
- * Set when no instance can be created from the pack.
- */
-unsupported_reason: string | null, 
-/**
- * Pass this to `create_modpack` to reuse the downloaded or uploaded pack.
- */
-upload_id: string | null, };
+export type ModpackInfo = {
+  name: string;
+  version_number: string | null;
+  summary: string | null;
+  game_version: string;
+  /**
+   * `fabric`, `forge` or `neoforge` for a supported pack.
+   */
+  loader: string;
+  loader_version: string | null;
+  server_file_count: number;
+  server_download_size: number;
+  /**
+   * Set when no instance can be created from the pack.
+   */
+  unsupported_reason: string | null;
+  /**
+   * Pass this to `create_modpack` to reuse the downloaded or uploaded pack.
+   */
+  upload_id: string | null;
+};

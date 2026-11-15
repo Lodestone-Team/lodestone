@@ -43,6 +43,39 @@ pub(crate) fn route_to(bind: SocketAddr, probe: SocketAddr) -> Option<IpAddr> {
     (!ip.is_unspecified()).then_some(ip)
 }
 
+/// Whether a host may probe `addr`, an address the other side named, and let it
+/// connect. Not port 0, and not an address no one else can be at, or one that would
+/// make the host send to many: unspecified, `0.0.0.0/8`, broadcast, multicast,
+/// link-local, documentation or reserved ranges, or loopback (unless `loopback`: both
+/// sides on this computer, in tests). Local network addresses (`10/8`, `172.16/12`,
+/// `192.168/16`, `fc00::/7`) stay, for friends on the same network.
+pub fn is_probe_target(addr: SocketAddr, loopback: bool) -> bool {
+    let addr = canonical(addr);
+    if addr.port() == 0 {
+        return false;
+    }
+    match addr.ip() {
+        IpAddr::V4(v4) => {
+            let first = v4.octets()[0];
+            !(v4.is_unspecified()
+                || first == 0
+                || first >= 240 // reserved, and broadcast
+                || v4.is_multicast()
+                || v4.is_link_local()
+                || v4.is_documentation()
+                || (v4.is_loopback() && !loopback))
+        }
+        IpAddr::V6(v6) => {
+            let first = v6.segments()[0];
+            !(v6.is_unspecified()
+                || v6.is_multicast()
+                || (first & 0xffc0) == 0xfe80 // link-local
+                || (first == 0x2001 && v6.segments()[1] == 0x0db8) // documentation
+                || (v6.is_loopback() && !loopback))
+        }
+    }
+}
+
 /// How a friend is connected to the host, from the address the tunnel runs over.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -91,6 +124,44 @@ mod tests {
         let v4: SocketAddr = "203.0.113.5:7".parse().unwrap();
         assert!(to_socket(v4).is_ipv6());
         assert_eq!(canonical(to_socket(v4)), v4);
+    }
+
+    #[test]
+    fn hosts_probe_only_addresses_someone_else_can_be_at() {
+        let target = |text: &str| is_probe_target(text.parse().unwrap(), false);
+        for good in [
+            "198.51.99.1:40000",
+            "192.168.1.4:40000",
+            "10.0.0.2:40000",
+            "172.16.5.5:40000",
+            "100.64.1.1:40000",
+            "[2606:4700::1]:40000",
+            "[fd00::1]:40000",
+            "[::ffff:81.2.69.1]:40000",
+        ] {
+            assert!(target(good), "{good}");
+        }
+        for bad in [
+            "127.0.0.1:40000",
+            "[::ffff:127.0.0.1]:40000",
+            "[::1]:40000",
+            "0.0.0.0:40000",
+            "0.1.2.3:40000",
+            "255.255.255.255:40000",
+            "240.0.0.1:40000",
+            "224.0.0.251:5353",
+            "[ff02::1]:40000",
+            "169.254.1.1:40000",
+            "[fe80::1]:40000",
+            "192.0.2.1:40000",
+            "203.0.113.5:40000",
+            "[2001:db8::1]:40000",
+            "[::]:40000",
+            "81.2.69.1:0",
+        ] {
+            assert!(!target(bad), "{bad}");
+        }
+        assert!(is_probe_target("127.0.0.1:40000".parse().unwrap(), true));
     }
 
     #[test]

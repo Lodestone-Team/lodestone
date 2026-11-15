@@ -24,6 +24,9 @@ pub enum ErrorKind {
     Conflict,
     External,
     Internal,
+    // the core serves only apps on this computer (its owner hasn't shared it) and the
+    // request came from another device (HTTP 403), see `crate::remote_access`
+    LocalOnly,
 }
 
 #[derive(Error, Debug)]
@@ -65,6 +68,7 @@ impl Display for ErrorKind {
             ErrorKind::Conflict => write!(f, "Conflict"),
             ErrorKind::Internal => write!(f, "Internal Error"),
             ErrorKind::External => write!(f, "External Error"),
+            ErrorKind::LocalOnly => write!(f, "Local Only"),
         }
     }
 }
@@ -124,6 +128,7 @@ impl IntoResponse for Error {
             ErrorKind::Conflict => StatusCode::CONFLICT,
             ErrorKind::Internal => StatusCode::INTERNAL_SERVER_ERROR,
             ErrorKind::External => StatusCode::BAD_GATEWAY,
+            ErrorKind::LocalOnly => StatusCode::FORBIDDEN,
         };
         // the client only gets the top-level message, so log the whole chain here
         if status.is_server_error() {

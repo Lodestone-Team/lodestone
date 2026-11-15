@@ -14,13 +14,18 @@ pub mod auth;
 pub mod configurator;
 pub mod content;
 pub mod cores;
+pub mod data_move;
+pub mod datapacks;
 pub mod discord;
 pub mod disk;
+pub mod downloads;
 pub mod export;
+pub mod friend_list;
 pub mod fsx;
 pub mod game;
 pub mod hero_cache;
 pub mod http;
+pub mod images;
 pub mod import;
 pub mod instances;
 pub mod markdown;
@@ -34,7 +39,7 @@ pub mod secret;
 pub mod settings;
 pub mod shared_options;
 pub mod skin;
-pub mod snapshots;
+pub mod skin_model;
 pub mod storage;
 pub mod trace;
 pub mod ui_skin;
@@ -52,8 +57,10 @@ pub const USER_AGENT: &str = concat!(
     " (+https://github.com/Lodestone-Team/lodestone)"
 );
 
-/// Offline accounts are a development aid: they are available in debug builds, or
-/// in any build with `LODESTONE_LAUNCHER_OFFLINE=1`.
+/// Offline accounts are a development aid. They are always available in debug builds
+/// and with `LODESTONE_LAUNCHER_OFFLINE=1`; other builds offer them once Settings >
+/// Developer > Accounts > "Offline accounts" is on
+/// ([`settings::DeveloperSettings::offline_accounts`]).
 pub fn offline_mode_enabled() -> bool {
     offline_mode_enabled_with(
         cfg!(debug_assertions),

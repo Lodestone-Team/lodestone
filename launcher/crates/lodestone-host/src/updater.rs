@@ -490,8 +490,25 @@ impl UpdateSource for ReleaseSource {
     }
 
     fn restart(&self) -> Result<(), String> {
-        update::restart(&self.exe).map_err(|err| err.to_string())
+        let args = update::restart_args(std::env::args_os().skip(1), std::process::id());
+        restart_command(&self.exe, args)
+            .spawn()
+            .map(drop)
+            .map_err(|err| err.to_string())
     }
+}
+
+/// What [`update::restart`] starts, in a process group of its own on macOS and Linux.
+/// A Host opened at sign-in is its launch agent's job, and when the job exits launchd
+/// kills what is left in its process group: the new Host, waiting for this one to exit,
+/// would go with it. (Newer agents also abandon the group, `crate::login_item`, but an
+/// agent loaded before that was written still doesn't, until the next sign-in.)
+fn restart_command(exe: &std::path::Path, args: Vec<std::ffi::OsString>) -> std::process::Command {
+    let mut command = std::process::Command::new(exe);
+    command.args(args);
+    #[cfg(unix)]
+    std::os::unix::process::CommandExt::process_group(&mut command, 0);
+    command
 }
 
 /// Swaps the staged core and Host in for `core` and `exe`: the core first, so a Host
@@ -525,6 +542,23 @@ pub fn install_pair(exe: &Path, core: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// LS-39: the restarted Host leaves this one's process group, which launchd kills
+    /// when a Host opened at sign-in exits.
+    #[cfg(unix)]
+    #[test]
+    fn the_restarted_host_has_a_process_group_of_its_own() {
+        let output = restart_command(
+            std::path::Path::new("/bin/sh"),
+            vec!["-c".into(), "ps -o pid=,pgid= -p $$".into()],
+        )
+        .output()
+        .unwrap();
+        let text = String::from_utf8(output.stdout).unwrap();
+        let ids: Vec<&str> = text.split_whitespace().collect();
+        assert_eq!(ids.len(), 2, "{text:?}");
+        assert_eq!(ids[0], ids[1], "it leads its own group");
+    }
 
     #[test]
     fn without_a_source_nothing_updates() {

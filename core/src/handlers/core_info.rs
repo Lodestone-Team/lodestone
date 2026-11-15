@@ -32,6 +32,10 @@ pub struct CoreInfo {
     product: CoreProduct,
     /// What started the core. Missing on older cores: unknown.
     launched_by: LaunchedBy,
+    /// Whether other devices may use the core (`crate::remote_access`). Only apps on its
+    /// computer see `false`: others are refused. Missing on older cores: `true`.
+    #[serde(default = "crate::global_settings::default_true")]
+    remote_access: bool,
 }
 
 /// Hardware details that do not change while the core runs.
@@ -89,6 +93,7 @@ pub async fn get_core_info(
         capabilities: CoreCapabilities::new(state.docker_bridge.is_available()),
         product: state.product,
         launched_by: state.launched_by,
+        remote_access: state.remote_access.allowed(),
     })
 }
 

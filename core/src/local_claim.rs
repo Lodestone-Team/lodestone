@@ -15,6 +15,9 @@
 //!    there, in a folder only its user can open.
 //! 2. The program writes the value into `claim`, a random value of its own into `reply`
 //!    and, for a core without an owner yet, `owner.json` (`{"username", "password"}`).
+//!    A session claim from this computer may leave the password out (Lodestone Host's
+//!    first run): the owner then has none, and the core serves only this computer until
+//!    they set one (`crate::remote_access`).
 //! 3. `POST /local_claim/finish` checks `claim`, creates the owner if asked, mints an
 //!    owner API key and writes `result.json` (0600): the key, the program's `reply`, and
 //!    the SHA-256 fingerprint of the core's certificate. A program that asks for a
@@ -36,7 +39,9 @@
 //! only be finished from the address that started it, and is used up by any failure. A
 //! claim's folder is deleted [`ABANDONED_AFTER`] after it expires when it was never
 //! finished (`owner.json` holds a password), and [`RESULT_TTL`] after `finish`. The
-//! `allow_local_claim` setting turns it all off.
+//! `allow_local_claim` setting turns it all off. Web pages can't claim at all: a request
+//! with a browser's `Origin` or `Sec-Fetch-Site` header is refused, since a page in a
+//! browser on this computer connects from a loopback address too.
 //!
 //! The file API never reads, writes, moves or deletes `local_claim/` (see
 //! `handlers::global_fs`). The folders are created owner-only in one step and checked
@@ -53,7 +58,12 @@ use std::{
     time::{Duration, Instant},
 };
 
-use axum::{extract::State, routing::post, Json, Router};
+use axum::{
+    extract::State,
+    http::{header, HeaderMap},
+    routing::post,
+    Json, Router,
+};
 use color_eyre::eyre::{eyre, Context};
 use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq;
@@ -145,11 +155,15 @@ pub struct ClaimResult {
     pub tls_fingerprint_sha256: Option<String>,
 }
 
-/// `<dir>/owner.json`, written by the program for a core without an owner.
+/// `<dir>/owner.json`, written by the program for a core without an owner. Without a
+/// password (`null` or left out), the owner has none: only for a session claim from this
+/// computer (Lodestone Host's first run), and the core then serves only this computer
+/// until the owner sets one (see `crate::remote_access`).
 #[derive(Deserialize)]
 struct OwnerFile {
     username: String,
-    password: String,
+    #[serde(default)]
+    password: Option<String>,
 }
 
 /// The kinds of client address, each with its own waiting claims.
@@ -470,7 +484,8 @@ impl LocalClaims {
                          username and password",
                     ));
                 };
-                (create_owner(app, &text).await?, true)
+                let passwordless_allowed = session && pending.origin == Origin::Loopback;
+                (create_owner(app, &text, passwordless_allowed).await?, true)
             }
         };
         let name = key_name(name);
@@ -535,37 +550,42 @@ async fn current_owner(app: &AppState) -> Option<User> {
 }
 
 /// Creates the owner from `owner.json`, as `POST /setup/{key}` does, using up the
-/// first-time setup key. Errors never repeat the file's contents.
-async fn create_owner(app: &AppState, text: &str) -> Result<User, Error> {
+/// first-time setup key. Without a password only when `passwordless_allowed`. Errors
+/// never repeat the file's contents.
+async fn create_owner(
+    app: &AppState,
+    text: &str,
+    passwordless_allowed: bool,
+) -> Result<User, Error> {
     let owner: OwnerFile =
         serde_json::from_str(text).map_err(|_| denied("owner.json isn't valid"))?;
-    let username = owner.username.trim().to_string();
-    let chars = username.chars().count();
-    if chars == 0 || chars > 64 || username.chars().any(char::is_control) {
-        return Err(denied("The owner's username must have 1 to 64 characters"));
-    }
-    if owner.password.chars().count() < 12 || owner.password.len() > 256 {
-        return Err(denied(
-            "The owner's password must have 12 to 256 characters",
-        ));
+    let username = crate::auth::user::valid_username(&owner.username).map_err(denied)?;
+    match &owner.password {
+        Some(password) => crate::remote_access::owner_password(password).map_err(denied)?,
+        None if passwordless_allowed => {}
+        None => return Err(denied("owner.json must have the owner's password")),
     }
     // held until the owner is saved, as in setup_owner
     let mut setup_key = app.first_time_setup_key.lock().await;
     if current_owner(app).await.is_some() {
         return Err(denied("This core already has an owner"));
     }
-    let password = owner.password;
-    let user = tokio::task::spawn_blocking(move || {
-        User::new(username, &password, true, false, UserPermission::default())
-    })
-    .await
-    .context("Password hashing task failed")?;
+    let user = match owner.password {
+        Some(password) => tokio::task::spawn_blocking(move || {
+            User::new(username, &password, true, false, UserPermission::default())
+        })
+        .await
+        .context("Password hashing task failed")?,
+        None => User::owner_without_password(username),
+    };
     app.users_manager
         .write()
         .await
         .add_user(user.clone(), CausedBy::System)
         .await?;
     setup_key.take();
+    drop(setup_key);
+    crate::remote_access::owner_created(app, user.has_password()).await;
     Ok(user)
 }
 
@@ -764,10 +784,32 @@ fn create_private_file(path: &Path) -> Result<(), Error> {
         .map_err(|e| internal(format!("Failed to create {}: {e}", path.display())))
 }
 
+/// Refuses a request a web page sent. The core allows every origin (CORS), and a page in
+/// a browser on this computer connects from a loopback address, so without this any site
+/// could read the data folder's path from `start` and use up this computer's claims.
+/// Browsers send `Origin` with every POST and `Sec-Fetch-Site` with every request (`none`
+/// only for one the person made themselves, such as a typed address), and no page can
+/// leave them out; Lodestone's own programs send neither.
+fn refuse_web_pages(headers: &HeaderMap) -> Result<(), Error> {
+    let from_page = headers.contains_key(header::ORIGIN)
+        || headers
+            .get("sec-fetch-site")
+            .is_some_and(|site| site.as_bytes() != b"none");
+    if from_page {
+        return Err(denied(
+            "Owner access can't be claimed from a web page. Use Lodestone Host or \
+             Lodestone Launcher on this computer",
+        ));
+    }
+    Ok(())
+}
+
 async fn start_claim(
     State(state): State<AppState>,
     ClientIp(ip): ClientIp,
+    headers: HeaderMap,
 ) -> Result<Json<StartReply>, Error> {
+    refuse_web_pages(&headers)?;
     if !state.global_settings.lock().await.allow_local_claim() {
         return Err(denied(
             "Claiming owner access from this computer is turned off in Core Settings",
@@ -784,8 +826,10 @@ async fn start_claim(
 async fn finish_claim(
     State(state): State<AppState>,
     ClientIp(ip): ClientIp,
+    headers: HeaderMap,
     Json(request): Json<FinishRequest>,
 ) -> Result<Json<serde_json::Value>, Error> {
+    refuse_web_pages(&headers)?;
     if !state.global_settings.lock().await.allow_local_claim() {
         return Err(denied(
             "Claiming owner access from this computer is turned off in Core Settings",
@@ -796,7 +840,7 @@ async fn finish_claim(
 }
 
 /// `POST /local_claim/start` and `POST /local_claim/finish`. No sign-in: the proof is the
-/// data folder.
+/// data folder. Never for web pages (`refuse_web_pages`).
 pub fn get_local_claim_routes(state: AppState) -> Router {
     Router::new()
         .route("/local_claim/start", post(start_claim))
@@ -1056,6 +1100,98 @@ mod tests {
                 .unwrap();
             assert_eq!(response.status(), StatusCode::OK);
         }
+    }
+
+    /// Lodestone Host's first run: the owner without a password, and the core only for
+    /// this computer from then on.
+    #[tokio::test]
+    async fn a_session_claim_makes_an_owner_without_a_password() {
+        let core = core(false).await;
+        assert!(core.state.remote_access.allowed());
+        let start = core.start().await;
+        core.answer(&start, &start.value);
+        std::fs::write(
+            core.folder(&start).join("owner.json"),
+            r#"{"username":" peter ","password":null}"#,
+        )
+        .unwrap();
+        let (status, body) = core
+            .post(
+                "/local_claim/finish",
+                json!({ "id": start.id, "name": "Lodestone Host", "session": true }),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let result = core.result(&start);
+        assert!(result.owner_created);
+        assert_eq!(result.owner_username, "peter");
+        let token = result.session_token.unwrap();
+        assert!(core.state.first_time_setup_key.lock().await.is_none());
+
+        let users = core.state.users_manager.read().await;
+        let owner = users.try_auth(&token).unwrap();
+        assert!(owner.is_owner);
+        assert!(!owner.has_password());
+        assert!(users.login("peter", "").is_err());
+        assert!(users.login("peter", "any password at all").is_err());
+        drop(users);
+        // explicit and saved: only this computer from now on
+        assert!(!core.state.remote_access.allowed());
+        let stored: Value = serde_json::from_slice(
+            &std::fs::read(core.dir.path().join("global_settings.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(stored["allow_remote_access"], false);
+        // a later claim signs in the same owner
+        let again = core.claim().await;
+        assert!(!again.owner_created);
+        assert_eq!(again.owner_username, "peter");
+    }
+
+    /// Only a session claim may leave the password out: a launcher's claim (a key) can't
+    /// make a core nobody can sign in to with a password.
+    #[tokio::test]
+    async fn a_key_claim_must_give_the_owners_password() {
+        let core = core(false).await;
+        let start = core.start().await;
+        core.answer(&start, &start.value);
+        std::fs::write(
+            core.folder(&start).join("owner.json"),
+            r#"{"username":"peter"}"#,
+        )
+        .unwrap();
+        assert_eq!(core.finish(&start.id).await.0, StatusCode::FORBIDDEN);
+        assert!(core.state.first_time_setup_key.lock().await.is_some());
+        assert!(core.state.remote_access.allowed());
+    }
+
+    /// An owner made with a password (an older Host) serves other devices, as before,
+    /// even on a core that started local-only.
+    #[tokio::test]
+    async fn an_owner_with_a_password_lets_other_devices_in() {
+        let core = core_with(
+            GlobalSettingsData {
+                allow_remote_access: false,
+                ..Default::default()
+            },
+            false,
+        )
+        .await;
+        let start = core.start().await;
+        core.answer(&start, &start.value);
+        std::fs::write(
+            core.folder(&start).join("owner.json"),
+            r#"{"username":"host_owner","password":"Zq8-strong-chosen-pw"}"#,
+        )
+        .unwrap();
+        let (status, _) = core
+            .post(
+                "/local_claim/finish",
+                json!({ "id": start.id, "name": "Lodestone Host", "session": true }),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(core.state.remote_access.allowed());
     }
 
     /// A launcher's claim (no `session`) still gets a key and no token.
@@ -1325,6 +1461,63 @@ mod tests {
         // and the JSON leaves it out rather than sending null
         let lan = core.start_from("10.0.0.2".parse().unwrap()).await.unwrap();
         assert!(!serde_json::to_string(&lan).unwrap().contains("data_folder"));
+    }
+
+    #[tokio::test]
+    async fn web_pages_cant_claim() {
+        let core = core(true).await;
+        let post = |path: &str, headers: &[(&str, &str)], body: Value| {
+            let mut request = core.client.post(format!("{}{path}", core.base)).json(&body);
+            for (name, value) in headers {
+                request = request.header(*name, *value);
+            }
+            request.send()
+        };
+        // what a page's fetch() sends, from another site or from the core's own origin
+        let pages: [&[(&str, &str)]; 4] = [
+            &[("Origin", "https://evil.example")],
+            &[("Origin", "null")],
+            &[("Sec-Fetch-Site", "cross-site"), ("Sec-Fetch-Mode", "cors")],
+            &[
+                ("Origin", "https://127.0.0.1:16662"),
+                ("Sec-Fetch-Site", "same-origin"),
+            ],
+        ];
+        for headers in pages {
+            let response = post("/local_claim/start", headers, json!({}))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::FORBIDDEN, "{headers:?}");
+            let body: Value = response.json().await.unwrap();
+            assert!(body.get("data_folder").is_none(), "{headers:?}: {body}");
+        }
+        // nothing was started, so the page used none of this computer's allowance
+        assert!(core.state.local_claims.state.lock().await.starts.is_empty());
+        assert!(!core.dir.path().join(CLAIM_DIR).exists());
+
+        // nor can a page finish a claim a program started
+        let start = core.start().await;
+        core.answer(&start, &start.value);
+        let response = post(
+            "/local_claim/finish",
+            &[("Origin", "https://evil.example")],
+            json!({ "id": start.id, "name": NAME }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert!(!core.folder(&start).join("result.json").exists());
+        // the program's own requests (no browser headers) still work, as does a request
+        // a person made themselves
+        let response = post(
+            "/local_claim/finish",
+            &[("Sec-Fetch-Site", "none")],
+            json!({ "id": start.id, "name": NAME }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(core.folder(&start).join("result.json").is_file());
     }
 
     #[tokio::test]

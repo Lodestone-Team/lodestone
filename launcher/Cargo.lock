@@ -940,7 +940,7 @@ dependencies = [
 [[package]]
 name = "collections"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed?rev=c84af5b99cbc366d675064e52b23664a015b6e35#c84af5b99cbc366d675064e52b23664a015b6e35"
+source = "git+https://github.com/Lodestone-Team/zed?rev=6e65bdf7b79aa74ee54adf6eedbc50004ea3689b#6e65bdf7b79aa74ee54adf6eedbc50004ea3689b"
 dependencies = [
  "gpui_util",
  "indexmap",
@@ -1270,7 +1270,7 @@ dependencies = [
 [[package]]
 name = "derive_refineable"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed?rev=c84af5b99cbc366d675064e52b23664a015b6e35#c84af5b99cbc366d675064e52b23664a015b6e35"
+source = "git+https://github.com/Lodestone-Team/zed?rev=6e65bdf7b79aa74ee54adf6eedbc50004ea3689b#6e65bdf7b79aa74ee54adf6eedbc50004ea3689b"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1993,7 +1993,7 @@ dependencies = [
 [[package]]
 name = "gpui"
 version = "0.2.2"
-source = "git+https://github.com/zed-industries/zed?rev=c84af5b99cbc366d675064e52b23664a015b6e35#c84af5b99cbc366d675064e52b23664a015b6e35"
+source = "git+https://github.com/Lodestone-Team/zed?rev=6e65bdf7b79aa74ee54adf6eedbc50004ea3689b#6e65bdf7b79aa74ee54adf6eedbc50004ea3689b"
 dependencies = [
  "accesskit",
  "anyhow",
@@ -2060,7 +2060,7 @@ dependencies = [
 [[package]]
 name = "gpui_apple"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed?rev=c84af5b99cbc366d675064e52b23664a015b6e35#c84af5b99cbc366d675064e52b23664a015b6e35"
+source = "git+https://github.com/Lodestone-Team/zed?rev=6e65bdf7b79aa74ee54adf6eedbc50004ea3689b#6e65bdf7b79aa74ee54adf6eedbc50004ea3689b"
 dependencies = [
  "anyhow",
  "async-task",
@@ -2099,7 +2099,7 @@ dependencies = [
 [[package]]
 name = "gpui_ios"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed?rev=c84af5b99cbc366d675064e52b23664a015b6e35#c84af5b99cbc366d675064e52b23664a015b6e35"
+source = "git+https://github.com/Lodestone-Team/zed?rev=6e65bdf7b79aa74ee54adf6eedbc50004ea3689b#6e65bdf7b79aa74ee54adf6eedbc50004ea3689b"
 dependencies = [
  "anyhow",
  "block2 0.6.2",
@@ -2120,7 +2120,7 @@ dependencies = [
 [[package]]
 name = "gpui_linux"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed?rev=c84af5b99cbc366d675064e52b23664a015b6e35#c84af5b99cbc366d675064e52b23664a015b6e35"
+source = "git+https://github.com/Lodestone-Team/zed?rev=6e65bdf7b79aa74ee54adf6eedbc50004ea3689b#6e65bdf7b79aa74ee54adf6eedbc50004ea3689b"
 dependencies = [
  "accesskit",
  "accesskit_unix",
@@ -2164,7 +2164,7 @@ dependencies = [
 [[package]]
 name = "gpui_macos"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed?rev=c84af5b99cbc366d675064e52b23664a015b6e35#c84af5b99cbc366d675064e52b23664a015b6e35"
+source = "git+https://github.com/Lodestone-Team/zed?rev=6e65bdf7b79aa74ee54adf6eedbc50004ea3689b#6e65bdf7b79aa74ee54adf6eedbc50004ea3689b"
 dependencies = [
  "accesskit",
  "accesskit_macos",
@@ -2203,7 +2203,7 @@ dependencies = [
 [[package]]
 name = "gpui_macros"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed?rev=c84af5b99cbc366d675064e52b23664a015b6e35#c84af5b99cbc366d675064e52b23664a015b6e35"
+source = "git+https://github.com/Lodestone-Team/zed?rev=6e65bdf7b79aa74ee54adf6eedbc50004ea3689b#6e65bdf7b79aa74ee54adf6eedbc50004ea3689b"
 dependencies = [
  "heck 0.5.0",
  "proc-macro2",
@@ -2214,7 +2214,7 @@ dependencies = [
 [[package]]
 name = "gpui_platform"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed?rev=c84af5b99cbc366d675064e52b23664a015b6e35#c84af5b99cbc366d675064e52b23664a015b6e35"
+source = "git+https://github.com/Lodestone-Team/zed?rev=6e65bdf7b79aa74ee54adf6eedbc50004ea3689b#6e65bdf7b79aa74ee54adf6eedbc50004ea3689b"
 dependencies = [
  "anyhow",
  "console_error_panic_hook",
@@ -2230,7 +2230,7 @@ dependencies = [
 [[package]]
 name = "gpui_shared_string"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed?rev=c84af5b99cbc366d675064e52b23664a015b6e35#c84af5b99cbc366d675064e52b23664a015b6e35"
+source = "git+https://github.com/Lodestone-Team/zed?rev=6e65bdf7b79aa74ee54adf6eedbc50004ea3689b#6e65bdf7b79aa74ee54adf6eedbc50004ea3689b"
 dependencies = [
  "schemars",
  "serde",
@@ -2240,7 +2240,7 @@ dependencies = [
 [[package]]
 name = "gpui_util"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed?rev=c84af5b99cbc366d675064e52b23664a015b6e35#c84af5b99cbc366d675064e52b23664a015b6e35"
+source = "git+https://github.com/Lodestone-Team/zed?rev=6e65bdf7b79aa74ee54adf6eedbc50004ea3689b#6e65bdf7b79aa74ee54adf6eedbc50004ea3689b"
 dependencies = [
  "anyhow",
  "log",
@@ -2250,7 +2250,7 @@ dependencies = [
 [[package]]
 name = "gpui_web"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed?rev=c84af5b99cbc366d675064e52b23664a015b6e35#c84af5b99cbc366d675064e52b23664a015b6e35"
+source = "git+https://github.com/Lodestone-Team/zed?rev=6e65bdf7b79aa74ee54adf6eedbc50004ea3689b#6e65bdf7b79aa74ee54adf6eedbc50004ea3689b"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -2278,7 +2278,7 @@ dependencies = [
 [[package]]
 name = "gpui_wgpu"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed?rev=c84af5b99cbc366d675064e52b23664a015b6e35#c84af5b99cbc366d675064e52b23664a015b6e35"
+source = "git+https://github.com/Lodestone-Team/zed?rev=6e65bdf7b79aa74ee54adf6eedbc50004ea3689b#6e65bdf7b79aa74ee54adf6eedbc50004ea3689b"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -2305,7 +2305,7 @@ dependencies = [
 [[package]]
 name = "gpui_windows"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed?rev=c84af5b99cbc366d675064e52b23664a015b6e35#c84af5b99cbc366d675064e52b23664a015b6e35"
+source = "git+https://github.com/Lodestone-Team/zed?rev=6e65bdf7b79aa74ee54adf6eedbc50004ea3689b#6e65bdf7b79aa74ee54adf6eedbc50004ea3689b"
 dependencies = [
  "accesskit",
  "accesskit_windows",
@@ -2508,7 +2508,7 @@ dependencies = [
 [[package]]
 name = "http_client"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed?rev=c84af5b99cbc366d675064e52b23664a015b6e35#c84af5b99cbc366d675064e52b23664a015b6e35"
+source = "git+https://github.com/Lodestone-Team/zed?rev=6e65bdf7b79aa74ee54adf6eedbc50004ea3689b#6e65bdf7b79aa74ee54adf6eedbc50004ea3689b"
 dependencies = [
  "anyhow",
  "bytes",
@@ -2526,7 +2526,7 @@ dependencies = [
 [[package]]
 name = "http_client_tls"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed?rev=c84af5b99cbc366d675064e52b23664a015b6e35#c84af5b99cbc366d675064e52b23664a015b6e35"
+source = "git+https://github.com/Lodestone-Team/zed?rev=6e65bdf7b79aa74ee54adf6eedbc50004ea3689b#6e65bdf7b79aa74ee54adf6eedbc50004ea3689b"
 dependencies = [
  "log",
  "rustls",
@@ -2998,11 +2998,14 @@ dependencies = [
  "dirs",
  "flate2",
  "futures",
+ "futures-util",
  "http_client",
  "http_client_tls",
  "image",
+ "launcher-control",
  "libc",
  "lodestone_connect",
+ "lodestone_image",
  "lodestone_minecraft",
  "lodestone_trace",
  "md-5",
@@ -3019,6 +3022,7 @@ dependencies = [
  "thiserror 2.0.17",
  "tiny_http",
  "tokio",
+ "tokio-tungstenite",
  "trash",
  "tungstenite",
  "url",
@@ -3147,6 +3151,7 @@ dependencies = [
  "http_client",
  "launcher-core",
  "lodestone-ui",
+ "lodestone_connect",
  "objc2 0.6.3",
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
@@ -3155,6 +3160,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "url",
+ "uuid",
  "windows-sys 0.61.2",
 ]
 
@@ -3208,6 +3214,7 @@ dependencies = [
  "launcher-core",
  "lodestone_minecraft",
  "log",
+ "raw-window-handle",
  "serde_json",
  "unicode-segmentation",
  "windows-sys 0.61.2",
@@ -3217,6 +3224,8 @@ dependencies = [
 name = "lodestone_connect"
 version = "0.5.1"
 dependencies = [
+ "aws-lc-rs",
+ "futures-util",
  "quinn",
  "ring",
  "rustls",
@@ -3228,9 +3237,24 @@ dependencies = [
  "thiserror 2.0.17",
  "tokio",
  "tokio-rustls",
+ "tokio-tungstenite",
  "tracing",
  "url",
  "webpki-roots",
+ "zeroize",
+]
+
+[[package]]
+name = "lodestone_image"
+version = "0.5.1"
+dependencies = [
+ "flate2",
+ "ring",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+ "walkdir",
+ "zip",
 ]
 
 [[package]]
@@ -4830,7 +4854,7 @@ dependencies = [
 [[package]]
 name = "refineable"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed?rev=c84af5b99cbc366d675064e52b23664a015b6e35#c84af5b99cbc366d675064e52b23664a015b6e35"
+source = "git+https://github.com/Lodestone-Team/zed?rev=6e65bdf7b79aa74ee54adf6eedbc50004ea3689b#6e65bdf7b79aa74ee54adf6eedbc50004ea3689b"
 dependencies = [
  "derive_refineable",
 ]
@@ -4873,7 +4897,7 @@ checksum = "19b30a45b0cd0bcca8037f3d0dc3421eaf95327a17cad11964fb8179b4fc4832"
 [[package]]
 name = "reqwest_client"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed?rev=c84af5b99cbc366d675064e52b23664a015b6e35#c84af5b99cbc366d675064e52b23664a015b6e35"
+source = "git+https://github.com/Lodestone-Team/zed?rev=6e65bdf7b79aa74ee54adf6eedbc50004ea3689b#6e65bdf7b79aa74ee54adf6eedbc50004ea3689b"
 dependencies = [
  "anyhow",
  "bytes",
@@ -5131,7 +5155,7 @@ dependencies = [
 [[package]]
 name = "scheduler"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed?rev=c84af5b99cbc366d675064e52b23664a015b6e35#c84af5b99cbc366d675064e52b23664a015b6e35"
+source = "git+https://github.com/Lodestone-Team/zed?rev=6e65bdf7b79aa74ee54adf6eedbc50004ea3689b#6e65bdf7b79aa74ee54adf6eedbc50004ea3689b"
 dependencies = [
  "async-task",
  "backtrace",
@@ -5582,7 +5606,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 [[package]]
 name = "sum_tree"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed?rev=c84af5b99cbc366d675064e52b23664a015b6e35#c84af5b99cbc366d675064e52b23664a015b6e35"
+source = "git+https://github.com/Lodestone-Team/zed?rev=6e65bdf7b79aa74ee54adf6eedbc50004ea3689b#6e65bdf7b79aa74ee54adf6eedbc50004ea3689b"
 dependencies = [
  "heapless",
  "rayon",
@@ -5913,7 +5937,19 @@ dependencies = [
  "mio",
  "pin-project-lite",
  "socket2",
+ "tokio-macros",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "tokio-macros"
+version = "2.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "385a6cb71ab9ab790c5fe8d67f1645e6c450a7ce006a33de03daa956cf70a496"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
 ]
 
 [[package]]
@@ -5936,6 +5972,18 @@ dependencies = [
  "futures-util",
  "thiserror 1.0.69",
  "tokio",
+]
+
+[[package]]
+name = "tokio-tungstenite"
+version = "0.28.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d25a406cddcc431a75d3d9afc6a7c0f7428d4891dd973e4d54c56b46127bf857"
+dependencies = [
+ "futures-util",
+ "log",
+ "tokio",
+ "tungstenite",
 ]
 
 [[package]]
@@ -8020,7 +8068,7 @@ checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
 [[package]]
 name = "ztracing"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed?rev=c84af5b99cbc366d675064e52b23664a015b6e35#c84af5b99cbc366d675064e52b23664a015b6e35"
+source = "git+https://github.com/Lodestone-Team/zed?rev=6e65bdf7b79aa74ee54adf6eedbc50004ea3689b#6e65bdf7b79aa74ee54adf6eedbc50004ea3689b"
 dependencies = [
  "tracing",
  "ztracing_macro",
@@ -8029,7 +8077,7 @@ dependencies = [
 [[package]]
 name = "ztracing_macro"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed?rev=c84af5b99cbc366d675064e52b23664a015b6e35#c84af5b99cbc366d675064e52b23664a015b6e35"
+source = "git+https://github.com/Lodestone-Team/zed?rev=6e65bdf7b79aa74ee54adf6eedbc50004ea3689b#6e65bdf7b79aa74ee54adf6eedbc50004ea3689b"
 
 [[package]]
 name = "zune-core"

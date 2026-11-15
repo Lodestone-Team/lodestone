@@ -11,32 +11,37 @@
 //! - [`join`]: where to join a server;
 //! - [`live`]: a server's live state, players and console, and linking Minecraft
 //!   accounts;
-//! - [`worlds`]: a server's world as a singleplayer copy;
 //! - [`hosting`]: "Host this modpack", a launcher instance as a new server;
-//! - [`resource_pack`]: a server's resource pack;
 //! - [`lan`]: worlds opened to LAN on this network;
+//! - [`lan_open`]: the worlds this computer has open to LAN, for friends;
 //! - [`local_claim`]: "Connect as owner" for a core on this computer;
 //! - [`connect`] and [`friends`]: servers friends share with Lodestone Connect invite
 //!   links, joined through a direct tunnel, and the ones the user joined;
+//! - [`connect_service`]: which Lodestone Connect introduction service the apps use;
 //! - [`admin`]: the core's full API, as the dashboard and Lodestone Host use it.
 
 pub mod admin;
 pub mod client;
 pub mod connect;
+pub mod connect_service;
+pub mod download;
 pub mod friends;
 pub mod hosting;
+pub mod image_sync;
 pub mod join;
 pub mod lan;
+pub mod lan_open;
 pub mod link;
 pub mod live;
 pub mod local_claim;
 pub mod models;
-pub mod resource_pack;
+pub mod player_image;
+pub mod server_list;
 pub mod store;
 pub mod sync;
 pub mod tls;
 pub mod trust;
-pub mod worlds;
+pub mod world_download;
 
 pub use client::{CoreClient, CoreError, PackFetch, parse_address};
 pub use models::{
@@ -45,12 +50,13 @@ pub use models::{
 
 use crate::game::loaders::{LoaderChoice, LoaderKind};
 
-/// The loader a launcher instance needs to join `server`: Fabric or Forge at the
+/// The loader a launcher instance needs to join `server`: Fabric, Forge or NeoForge at the
 /// server's version, or none (vanilla) for vanilla, Paper and Spigot servers.
 pub fn matching_loader(server: &ServerInstance) -> Result<Option<LoaderChoice>, String> {
     let kind = match server.loader {
         ServerLoader::Fabric => LoaderKind::Fabric,
         ServerLoader::Forge => LoaderKind::Forge,
+        ServerLoader::NeoForge => LoaderKind::NeoForge,
         ServerLoader::Vanilla | ServerLoader::Paper | ServerLoader::Spigot => return Ok(None),
         ServerLoader::Other => {
             return Err(format!(
@@ -62,7 +68,7 @@ pub fn matching_loader(server: &ServerInstance) -> Result<Option<LoaderChoice>, 
     };
     let Some(version) = server.loader_version.clone().filter(|v| !v.is_empty()) else {
         return Err(format!(
-            "The core doesn't say which {} version {} runs.",
+            "The host doesn't say which {} version {} runs.",
             kind.label(),
             server.name
         ));
@@ -94,6 +100,7 @@ mod tests {
             max_player_count: None,
             has_client_pack: Some(false),
             listed: false,
+            public_only: false,
         }
     }
 

@@ -54,13 +54,18 @@ pub const SCENES: &[&str] = &[
     "sidebar-resized",
     "sidebar-rail",
     "sidebar-rail-skin",
+    "sidebar-rail-host",
+    "skin-bright-host",
     "settings-skin",
     "account-menu",
+    "skin-dialog",
     "needs-sign-in",
     "sign-in",
     "sign-in-browser",
     "sign-in-code",
     "offer-main",
+    "disable-mod",
+    "enable-mod",
     "confirm-main",
     "sign-in-stop",
     "sign-in-not-approved",
@@ -71,34 +76,66 @@ pub const SCENES: &[&str] = &[
     "remove",
     "new-instance",
     "new-instance-fabric",
+    "new-instance-loader-versions",
     "new-instance-versions",
     "new-instance-versions-failed",
     "play-progress",
+    "play-press",
+    "play-press-grassblock",
+    "play-press-glass",
+    "play-press-neon",
+    "play-press-bright",
+    "play-press-overrides",
+    "play-press-server",
     "playing",
     "launching",
     "logs",
     "logs-select",
     "logs-scroll",
+    "logs-past",
+    "logs-past-menu",
     "instance-settings",
     "crash",
     "crash-mods",
     "mod-finder",
     "mod-finder-found",
     "rosetta",
+    "rosetta-note",
+    "rosetta-notice",
+    "rosetta-override",
     "content-mods",
     "content-browse",
+    "content-sort",
+    "content-browse-idle",
+    "content-filters",
+    "content-filters-packs",
+    "content-filters-shaders",
     "content-search",
     "content-search-modrinth-only",
     "content-menu",
     "content-project",
     "content-resourcepacks",
+    "content-mods-paged",
+    "content-mods-paged-last",
+    "content-mods-paged-search",
+    "content-packs-paged",
+    "content-shaders-paged",
     "content-shaders",
     "content-shaders-missing",
     "content-shaders-vanilla",
     "content-formatted",
     "content-formatted-shaders",
     "content-description",
-    "loader-change",
+    "content-gallery",
+    "content-page-scrolled",
+    "content-project-narrow",
+    "content-cf-project",
+    "copy-as",
+    "copy-as-older",
+    "copy-as-same",
+    "copy-as-loader",
+    "instance-settings-game",
+    "instance-settings-maintenance",
     "new-instance-modpack",
     "new-instance-code",
     "new-instance-code-pack",
@@ -107,25 +144,39 @@ pub const SCENES: &[&str] = &[
     "modpack-importing",
     "modpack-settings",
     "modpack-update",
+    "modpack-add",
+    "modpack-add-review",
+    "modpack-added-settings",
     "worlds",
     "worlds-backups",
+    "worlds-datapacks",
     "screenshots",
     "screenshot-view",
     "shared-settings",
+    "shared-settings-sync",
     "instance-shared-settings",
     "import",
     "import-progress",
     "import-stop",
     "instance-linked",
+    "instance-linked-friend-running",
+    "instance-linked-friend-starting",
+    "instance-linked-friend-stopped",
     "settings",
     "settings-general",
+    "settings-language",
     "undo-toast",
     "narrator-offer",
     "settings-accounts",
     "settings-developer",
+    "settings-developer-relay-default",
+    "settings-developer-relay",
+    "settings-developer-relay-error",
     "perf-monitor",
     "settings-storage",
     "settings-storage-confirm",
+    "settings-storage-moved",
+    "settings-storage-move",
     "play-background",
     "play-background-dark",
     "icon-picker",
@@ -139,8 +190,20 @@ pub const SCENES: &[&str] = &[
     "settings-narrow",
     "settings-narrow-open",
     "settings-unsaved",
+    "settings-window-sizes",
+    "settings-window-custom",
+    "instance-settings-window-sizes",
+    "instance-settings-window-custom",
     "settings-unsaved-prompt",
     "instance-settings-unsaved",
+    "settings-search",
+    "settings-search-empty",
+    "settings-search-defaults",
+    "settings-defaults",
+    "settings-search-memory",
+    "instance-settings-search",
+    "instance-settings-search-narrow",
+    "instance-settings-search-crash",
     "focus-dialog",
     "focus-settings-row",
     "focus-home",
@@ -149,10 +212,16 @@ pub const SCENES: &[&str] = &[
     "focus-escape-prompt",
     "snapshots",
     "snapshot-take",
-    "snapshot-revert",
-    "snapshot-share",
+    "snapshot-restore",
+    "snapshot-restore-mods",
+    "snapshot-restore-new",
+    "snapshot-export",
     "snapshot-delete",
     "snapshot-import",
+    "snapshot-import-server",
+    "snapshot-import-server-downloaded",
+    "snapshot-import-server-done",
+    "snapshot-import-pack-skipped",
 ];
 
 /// Keys pressed once a scene has settled, before the screenshot, to show where
@@ -162,8 +231,9 @@ pub fn keystrokes(scene: &str) -> &'static [&'static str] {
         // The Remove dialog takes focus when it opens; Tab reaches its ×, Remove, then
         // Cancel.
         "focus-dialog" => &["tab", "tab", "tab"],
-        // Settings > Instance defaults: past Manage accounts, the seven pages and the
-        // four fields, to the Fullscreen switch. (The dialog's × comes last.)
+        // Settings > Instance defaults: past Manage accounts, the seven pages,
+        // automatic setup, the two memory fields and the window size list, to the
+        // Fullscreen switch. (The dialog's × comes last.)
         "focus-settings-row" => &[
             "tab", "tab", "tab", "tab", "tab", "tab", "tab", "tab", "tab", "tab", "tab", "tab",
             "tab",
@@ -171,6 +241,11 @@ pub fn keystrokes(scene: &str) -> &'static [&'static str] {
         // From the window's root: the logo, the account box, then the sidebar's New
         // instance.
         "focus-home" => &["tab", "tab", "tab"],
+        // The Lodestone Host page: Tab to Survival SMP's name, and Enter opens its page.
+        "servers-open-title" => &[
+            "tab", "tab", "tab", "tab", "tab", "tab", "tab", "tab", "tab", "tab", "tab", "tab",
+            "enter",
+        ],
         // Shared game settings: past Manage accounts and the seven pages, the Sync
         // from list opened with Enter (it takes focus), then Tab to its second row.
         "focus-popover" => &[
@@ -414,6 +489,31 @@ fn materials_skin() -> launcher_core::ui_skin::SkinSpec {
     spec
 }
 
+/// The "Bright" skin: a bright sky behind the sidebar and no tint. The launcher
+/// leaves its text alone, and the editor suggests fixes.
+fn use_bright_skin(shell: &mut LauncherShell, cx: &mut gpui::Context<LauncherShell>) {
+    let instances = shell.instances().clone();
+    let store = instances.read(cx).skins();
+    let mut spec = launcher_core::ui_skin::SkinSpec::named("Bright");
+    spec.sidebar.image = Some("builtin:sky".into());
+    spec.banner.in_sidebar = true;
+    if store.save("bright", &spec).is_ok() {
+        instances.update(cx, |instances, cx| {
+            instances.set_skin(Some("bright".into()), cx)
+        });
+    }
+}
+
+/// The Lodestone Host page with no cores, and nothing found on this computer: the
+/// sidebar's Lodestone Host selected, and the page offering Lodestone Host.
+fn show_empty_host_page(shell: &mut LauncherShell, cx: &mut gpui::Context<LauncherShell>) {
+    shell
+        .servers()
+        .clone()
+        .update(cx, |servers, _| servers.preview(Vec::new(), Vec::new()));
+    shell.show(crate::shell::Page::Servers, cx);
+}
+
 /// Scenes that show instance icons and Play backgrounds.
 fn is_appearance_scene(scene: &str) -> bool {
     scene.starts_with("play-background")
@@ -454,6 +554,13 @@ fn has_instances(scene: &str) -> bool {
     matches!(
         scene,
         "play-progress"
+            | "play-press"
+            | "play-press-grassblock"
+            | "play-press-glass"
+            | "play-press-neon"
+            | "play-press-bright"
+            | "play-press-overrides"
+            | "play-press-server"
             | "playing"
             | "launching"
             | "offer-main"
@@ -461,12 +568,17 @@ fn has_instances(scene: &str) -> bool {
             | "logs"
             | "logs-select"
             | "logs-scroll"
+            | "logs-past"
+            | "logs-past-menu"
             | "instance-settings"
             | "crash"
             | "crash-mods"
             | "mod-finder"
             | "mod-finder-found"
             | "rosetta"
+            | "rosetta-note"
+            | "rosetta-notice"
+            | "rosetta-override"
     ) || scene.starts_with("content-")
         || scene.starts_with("modpack-")
         || scene == "new-instance-modpack"
@@ -474,18 +586,22 @@ fn has_instances(scene: &str) -> bool {
         || scene == "share-code-pack"
         || is_worlds_scene(scene)
         || snapshots::is_scene(scene)
-        || scene == "loader-change"
+        || scene.starts_with("copy-as")
+        || scene == "instance-settings-game"
+        || scene == "instance-settings-maintenance"
         || shared::is_scene(scene)
         || scene.starts_with("instance-settings-narrow")
         || scene == "instance-settings-unsaved"
+        || scene.starts_with("instance-settings-search")
+        || scene.starts_with("instance-settings-window")
         || scene.starts_with("import")
         || servers::has_instances(scene)
-        || scene == "instance-linked"
+        || scene.starts_with("instance-linked")
         || is_appearance_scene(scene)
         || scene.starts_with("skin-")
         || matches!(
             scene,
-            "sidebar-resized" | "sidebar-rail" | "sidebar-rail-skin"
+            "sidebar-resized" | "sidebar-rail" | "sidebar-rail-skin" | "sidebar-rail-host"
         )
 }
 
@@ -544,8 +660,14 @@ fn microsoft_account() -> Account {
 }
 
 pub fn accounts(scene: &str, cx: &mut App) -> Entity<Accounts> {
-    let dir =
-        std::env::temp_dir().join(format!("lodestone-launcher-preview-{}", std::process::id()));
+    // A folder of its own each time, so tests running side by side don't remove
+    // each other's.
+    static MADE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let made = MADE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let dir = std::env::temp_dir().join(format!(
+        "lodestone-launcher-preview-{}-{made}",
+        std::process::id()
+    ));
     let _ = std::fs::remove_dir_all(&dir);
     // Remove the made-up data when the screenshot has been taken.
     cx.on_app_quit({
@@ -571,6 +693,11 @@ pub fn accounts(scene: &str, cx: &mut App) -> Entity<Accounts> {
         // The scenes show Lodestone's own sign-in, apart from the "-launcher" ones.
         accounts.preview_launcher_identity(false);
         if scene == "signed-out" {
+            return accounts;
+        }
+        if scene == "servers-friend-list-offline" {
+            // no Microsoft account: no Minecraft name to use
+            accounts.insert_for_preview(Account::offline("Dev_Steve").expect("a valid name"));
             return accounts;
         }
         let mut microsoft = microsoft_account();
@@ -635,7 +762,7 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
                 instance.group = group.map(str::to_string);
                 let _ = store.save(&instance);
                 if name == "Survival 1.20.1"
-                    && (scene.starts_with("content-") || scene == "loader-change")
+                    && (scene.starts_with("content-") || scene.starts_with("copy-as"))
                 {
                     content::fill(&store.dir(&instance.id), scene);
                 }
@@ -678,12 +805,26 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
                 }
                 if name == "Survival 1.20.1" && is_worlds_scene(scene) {
                     worlds::fill(&store.dir(&instance.id));
+                    snapshots::fill_worlds(&data_dir, &instance);
                 }
-                if name == "Survival 1.20.1" && scene.starts_with("modpack-") {
+                if name == "Survival 1.20.1" && scene.starts_with("modpack-add") {
+                    modpacks::fill_server(&store.dir(&instance.id), scene);
+                } else if name == "Survival 1.20.1" && scene.starts_with("modpack-") {
                     modpacks::fill(&store.dir(&instance.id));
                 }
                 if played > 0 {
                     let _ = store.record_play(&instance.id, 1_762_500_000, played);
+                }
+                // 1.8.9 runs under Rosetta 2 on Apple silicon, and the header says so
+                // (and why: here, an Intel Java chosen in its Settings).
+                if name == "Old school" && scene.starts_with("rosetta-") {
+                    use launcher_core::game::install::Rosetta;
+                    let reason = if scene == "rosetta-override" {
+                        Rosetta::JavaOverride
+                    } else {
+                        Rosetta::Version
+                    };
+                    let _ = store.record_rosetta(&instance.id, Some(reason));
                 }
             }
         }
@@ -701,6 +842,10 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
         let mut instances = Instances::new(data_dir, accounts, cx);
         // The screenshots never touch the network.
         instances.preview_offline();
+        // The last page of what is installed ends with the way to Modrinth's projects.
+        if scene == "content-mods-paged-last" {
+            instances.preview_modrinth_unreachable();
+        }
         let manifest: MojangVersionManifest = serde_json::from_str(include_str!(
             "../../launcher-core/testdata/version_manifest_v2.json"
         ))
@@ -718,14 +863,17 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
         );
         let wanted = match scene.as_str() {
             "content-shaders-vanilla" => Some("Latest release"),
-            "instance-shared-settings" | "instance-linked" => Some("Survival 1.20.1"),
+            scene if scene.starts_with("rosetta-") => Some("Old school"),
+            "instance-shared-settings" => Some("Survival 1.20.1"),
+            scene if scene.starts_with("instance-linked") => Some("Survival 1.20.1"),
+            "instance-settings-game" | "instance-settings-maintenance" => Some("Survival 1.20.1"),
             scene if groups::is_scene(scene) => Some(groups::SELECTED),
             scene if is_appearance_scene(scene) => Some("Survival 1.20.1"),
             scene
                 if scene.starts_with("content-")
                     || scene.starts_with("modpack-")
                     || is_worlds_scene(scene)
-                    || scene == "loader-change" =>
+                    || scene.starts_with("copy-as") =>
             {
                 Some("Survival 1.20.1")
             }
@@ -762,9 +910,20 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
             "playing" => instances.preview_play_state(crate::instances::PlayState::Playing),
             "launching" => instances.preview_play_state(crate::instances::PlayState::Preparing {
                 label: crate::i18n::t(crate::i18n::InstancesMsg::StageLaunching).into(),
-                detail: None,
+                detail: Some("Loading 143 mods: fabric-api, sodium, iris, lithium".into()),
                 fraction: None,
+                step: crate::components::LaunchStep::Launching,
             }),
+            // Play, pressed with `--click 710,706`, melts into the filings; with a
+            // skin's name after it, in that skin's colours.
+            scene if scene.starts_with("play-press") => {
+                instances.preview_press(crate::instances::PlayState::Preparing {
+                    label: crate::i18n::t(crate::i18n::InstancesMsg::StageAssets).into(),
+                    detail: Some("1,234/4,567 · 210 MB/380 MB".into()),
+                    fraction: Some(0.55),
+                    step: crate::components::LaunchStep::Downloading,
+                });
+            }
             "modpack-importing" => modpacks::importing(&mut instances, cx),
             _ => {}
         }
@@ -872,6 +1031,7 @@ fn long_log() -> Vec<LogLine> {
 }
 
 mod content;
+mod friend_list;
 mod groups;
 mod import;
 mod modpacks;
@@ -886,7 +1046,7 @@ pub use shared::{window_height, window_width};
 pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherShell>) {
     match scene {
         "new-instance" => shell.open_new_instance_with(Some(("Survival", "")), None, cx),
-        "new-instance-fabric" | "new-instance-versions" => {
+        "new-instance-fabric" | "new-instance-loader-versions" | "new-instance-versions" => {
             let search = if scene == "new-instance-versions" {
                 "26"
             } else {
@@ -895,8 +1055,14 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             shell.open_new_instance_with(Some(("", search)), None, cx);
             if let Some(dialog) = shell.new_instance_dialog().cloned() {
                 dialog.update(cx, |dialog, cx| {
-                    if scene == "new-instance-fabric" {
+                    if scene != "new-instance-versions" {
                         dialog.choose_loader(launcher_core::game::loaders::LoaderKind::Fabric, cx);
+                        if scene == "new-instance-loader-versions" {
+                            dialog
+                                .loader_picker()
+                                .clone()
+                                .update(cx, |picker, cx| picker.preview_open(cx));
+                        }
                     } else {
                         dialog.open_versions(cx);
                     }
@@ -940,12 +1106,23 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             shell.show_share(dialog, cx);
         }
         "logs" | "logs-scroll" => shell.select_tab(InstanceTab::Logs, cx),
+        "logs-past" | "logs-past-menu" => {
+            shell.select_tab(InstanceTab::Logs, cx);
+            let console = shell.console().clone();
+            let menu_open = scene == "logs-past-menu";
+            console.update(cx, |console, cx| {
+                console.preview_past(past_log_files(), 1, SAMPLE_CRASH_REPORT, menu_open, cx)
+            });
+        }
         "logs-select" => {
             shell.select_tab(InstanceTab::Logs, cx);
             let console = shell.console().clone();
             console.update(cx, |console, cx| console.preview_select(cx));
         }
         "sidebar-groups-settings" => shell.select_tab(InstanceTab::Settings, cx),
+        scene if scene.starts_with("sidebar-play-") || scene.starts_with("sidebar-linked") => {
+            groups::apply(scene, shell, cx)
+        }
         "instance-settings" => {
             shell.select_tab(InstanceTab::Settings, cx);
             if let Some(settings) = shell.settings_view() {
@@ -1032,34 +1209,59 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             crate::instances::rosetta_missing(),
             cx,
         ),
+        // Before an instance's first game under Rosetta 2: Play or Cancel.
+        "rosetta-notice" | "rosetta-override" => {
+            use launcher_core::game::install::Rosetta;
+            let reason = if scene == "rosetta-override" {
+                Rosetta::JavaOverride
+            } else {
+                Rosetta::Version
+            };
+            shell.preview_confirm_rosetta("1.8.9", reason, cx);
+        }
         scene if snapshots::is_scene(scene) => snapshots::apply(scene, shell, cx),
         scene if is_worlds_scene(scene) => {
             shell.select_tab(InstanceTab::Worlds, cx);
             let view = shell.worlds().clone();
             view.update(cx, |view, cx| worlds::apply(scene, view, cx));
         }
-        "new-instance-modpack" | "modpack-settings" | "modpack-update" => {
-            modpacks::apply(scene, shell, cx)
-        }
+        "new-instance-modpack"
+        | "modpack-settings"
+        | "modpack-update"
+        | "modpack-add"
+        | "modpack-add-review"
+        | "modpack-added-settings" => modpacks::apply(scene, shell, cx),
         scene if scene.starts_with("content-") => {
             shell.select_tab(InstanceTab::Content, cx);
             let view = shell.content().clone();
             view.update(cx, |view, cx| content::apply(scene, view, cx));
         }
-        "loader-change" => {
+        "copy-as" | "copy-as-older" | "copy-as-same" | "copy-as-loader" => {
+            copy_as(scene, shell, cx)
+        }
+        // the Minecraft version and loader as they are, the loader's version to pick,
+        // and the way to a copy with others
+        // (in a tall window, from the top), and the Maintenance section
+        "instance-settings-game" => shell.select_tab(InstanceTab::Settings, cx),
+        "instance-settings-maintenance" => {
             shell.select_tab(InstanceTab::Settings, cx);
-            let prompt = shell.settings_view().and_then(|settings| {
-                settings.read(cx).preview_loader_change(
-                    launcher_core::instances::Loader::Forge,
-                    "1.20.1-47.4.28",
-                    cx,
-                )
-            });
-            if let Some(prompt) = prompt {
-                shell.show_loader_change(prompt, cx);
+            if let Some(settings) = shell.settings_view().cloned() {
+                settings.update(cx, |settings, cx| {
+                    settings.preview_section(crate::i18n::t(
+                        crate::i18n::InstanceSettingsMsg::Maintenance,
+                    ));
+                    cx.notify();
+                });
             }
         }
         "narrator-offer" => shell.preview_narrator_offer(cx),
+        "shared-settings-sync" => {
+            shell.open_settings(Some(crate::shell::SettingsPage::Shared), None, cx);
+            shell
+                .shared_settings()
+                .clone()
+                .update(cx, |shared, cx| shared.preview_sync_from_open(cx));
+        }
         "shared-settings" => {
             shell.open_settings(Some(crate::shell::SettingsPage::Shared), None, cx);
             shell.shared_settings().clone().update(cx, |shared, cx| {
@@ -1122,11 +1324,64 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                 shell.preview_unsaved_prompt(cx);
             }
         }
+        // Instance defaults' Window row: its size list open, and a size of no name
+        // (Custom, with the width and height).
+        "settings-window-sizes" | "settings-window-custom" => {
+            shell.open_settings(Some(crate::shell::SettingsPage::Defaults), None, cx);
+            shell.preview_window_size(scene.ends_with("-sizes"), cx);
+        }
+        "instance-settings-window-sizes" | "instance-settings-window-custom" => {
+            shell.select_tab(InstanceTab::Settings, cx);
+            if let Some(settings) = shell.settings_view().cloned() {
+                let open = scene.ends_with("-sizes");
+                settings.update(cx, |settings, cx| settings.preview_window_size(open, cx));
+            }
+        }
         "instance-settings-unsaved" => {
             shell.select_tab(InstanceTab::Settings, cx);
             if let Some(settings) = shell.settings_view().cloned() {
                 settings.update(cx, |settings, cx| settings.preview_change(cx));
             }
+        }
+        // A search typed in Settings: General by "update", nothing found, Instance
+        // defaults by "ram" (a keyword of Memory) and by "memory" (with `--lang fr`,
+        // found through the English).
+        "settings-search"
+        | "settings-search-empty"
+        | "settings-search-defaults"
+        | "settings-search-memory" => {
+            let (page, text) = match scene {
+                "settings-search" => (crate::shell::SettingsPage::General, "update"),
+                "settings-search-empty" => (crate::shell::SettingsPage::General, "zzqx"),
+                "settings-search-defaults" => (crate::shell::SettingsPage::Defaults, "ram"),
+                _ => (crate::shell::SettingsPage::Defaults, "memory"),
+            };
+            shell.open_settings(Some(page), None, cx);
+            shell.preview_settings_search(text, cx);
+        }
+        // An instance's Settings tab searched for "java": the list shows only the
+        // sections that match.
+        "instance-settings-search"
+        | "instance-settings-search-narrow"
+        | "instance-settings-search-crash" => {
+            shell.select_tab(InstanceTab::Settings, cx);
+            // "crash": Maintenance's mod finder row, found by its keywords
+            let query = if scene.ends_with("-crash") {
+                "crash"
+            } else {
+                "java"
+            };
+            if let Some(settings) = shell.settings_view().cloned() {
+                settings.update(cx, |settings, cx| settings.preview_search(query, cx));
+            }
+        }
+        // Instance defaults with "Take a snapshot after each play session" on, in the card
+        // it shares with automatic setup.
+        "settings-defaults" => {
+            shell.instances().clone().update(cx, |instances, cx| {
+                instances.set_default_snapshot_after_play(true, cx)
+            });
+            shell.open_settings(Some(crate::shell::SettingsPage::Defaults), None, cx);
         }
         "settings-narrow" | "settings-narrow-open" => {
             shell.open_settings(Some(crate::shell::SettingsPage::Defaults), None, cx);
@@ -1134,9 +1389,10 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                 shell.preview_settings_nav_open();
             }
         }
-        "settings" | "settings-general" | "settings-accounts" | "settings-developer" => {
+        "settings" | "settings-general" | "settings-language" | "settings-accounts"
+        | "settings-developer" => {
             let page = match scene {
-                "settings-general" => crate::shell::SettingsPage::General,
+                "settings-general" | "settings-language" => crate::shell::SettingsPage::General,
                 "settings-accounts" => crate::shell::SettingsPage::Accounts,
                 "settings-developer" => crate::shell::SettingsPage::Developer,
                 _ => crate::shell::SettingsPage::Defaults,
@@ -1145,22 +1401,81 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                 preview_control(cx);
             }
             shell.open_settings(Some(page), None, cx);
-        }
-        "skin-bright" | "settings-skin-bright" => {
-            // a pack with a bright sky behind the sidebar and no tint: the launcher
-            // leaves its text alone, and the editor suggests fixes
-            let instances = shell.instances().clone();
-            let store = instances.read(cx).skins();
-            let mut spec = launcher_core::ui_skin::SkinSpec::named("Bright");
-            spec.sidebar.image = Some("builtin:sky".into());
-            spec.banner.in_sidebar = true;
-            if store.save("bright", &spec).is_ok() {
-                instances.update(cx, |instances, cx| {
-                    instances.set_skin(Some("bright".into()), cx)
-                });
+            if scene == "settings-language" {
+                shell.preview_language_menu_open();
             }
+        }
+        // Settings > Developer's "Connect service (relay)": as it is,
+        // pointed at the dev service, and with a URL it refuses.
+        "settings-developer-relay-default"
+        | "settings-developer-relay"
+        | "settings-developer-relay-error" => {
+            use launcher_core::cores::connect_service::{self, Service};
+            preview_control(cx);
+            let dev = "https://connect-dev.lodestone.cc";
+            let (setting, typed) = match scene {
+                "settings-developer-relay" => (Service::from_setting(dev).ok(), dev),
+                "settings-developer-relay-error" => (None, "http://connect-dev.lodestone.cc"),
+                _ => (None, ""),
+            };
+            // set for this process only: the screenshots save nothing
+            connect_service::set_setting(setting);
+            shell
+                .connect_service_setting()
+                .update(cx, |setting, cx| setting.preview_type(typed, cx));
+            shell.open_settings(Some(crate::shell::SettingsPage::Developer), None, cx);
+        }
+        "play-press-bright" => use_bright_skin(shell, cx),
+        // an instance made for a server: Play joins it, "Play without joining" under it
+        "play-press-server" => {
+            let selected = shell.instances().read(cx).selected().map(|i| i.id.clone());
+            if let Some(selected) = selected {
+                let link = (
+                    format!(
+                        "{}preview",
+                        launcher_core::cores::friends::FRIEND_LIST_PREFIX
+                    ),
+                    "My Server".to_string(),
+                    selected,
+                );
+                shell
+                    .servers()
+                    .clone()
+                    .update(cx, |servers, _| servers.preview(Vec::new(), vec![link]));
+            }
+        }
+        "play-press-grassblock"
+        | "play-press-glass"
+        | "play-press-neon"
+        | "play-press-overrides" => {
+            let id = match scene {
+                "play-press-grassblock" => "grassblock",
+                "play-press-glass" => "glass",
+                _ => "neon",
+            };
+            let instances = shell.instances().clone();
+            instances.update(cx, |instances, cx| {
+                instances.set_skin(Some(id.into()), cx);
+                // the instance's own Play colour, over the skin's
+                if scene == "play-press-overrides"
+                    && let Some(selected) = instances.selected().map(|i| i.id.clone())
+                {
+                    let _ = instances.set_instance_colors(
+                        &selected,
+                        Some(launcher_core::ui_skin::Rgb(0xEFB440)),
+                        Some(launcher_core::ui_skin::Rgb(0xE5484D)),
+                        cx,
+                    );
+                }
+            });
+        }
+        "skin-bright" | "settings-skin-bright" | "skin-bright-host" => {
+            use_bright_skin(shell, cx);
             if scene == "settings-skin-bright" {
                 shell.open_settings(Some(crate::shell::SettingsPage::Skin), None, cx);
+            }
+            if scene == "skin-bright-host" {
+                show_empty_host_page(shell, cx);
             }
         }
         "skin-showcase" | "settings-skin-showcase" => {
@@ -1279,7 +1594,7 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                 }
             }
         }
-        "sidebar-resized" | "sidebar-rail" | "sidebar-rail-skin" => {
+        "sidebar-resized" | "sidebar-rail" | "sidebar-rail-skin" | "sidebar-rail-host" => {
             let instances = shell.instances().clone();
             instances.update(cx, |instances, cx| {
                 if scene == "sidebar-resized" {
@@ -1291,6 +1606,9 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                     instances.set_skin(Some("grassblock".into()), cx);
                 }
             });
+            if scene == "sidebar-rail-host" {
+                show_empty_host_page(shell, cx);
+            }
         }
         "skin-grassblock" | "skin-glass" | "skin-neon" | "skin-overrides" | "settings-skin" => {
             let id = match scene {
@@ -1321,6 +1639,17 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             let confirm = (scene == "settings-storage-confirm")
                 .then_some(launcher_core::disk::Clean::UnusedGameFiles);
             shell.preview_storage(storage_report(), confirm, cx);
+            shell.preview_data_folder(false, false, cx);
+        }
+        // The data folder moved to another drive, and "Move your data?".
+        "settings-storage-moved" | "settings-storage-move" => {
+            shell.open_settings(Some(crate::shell::SettingsPage::Storage), None, cx);
+            shell.preview_storage(storage_report(), None, cx);
+            shell.preview_data_folder(
+                scene == "settings-storage-moved",
+                scene == "settings-storage-move",
+                cx,
+            );
         }
         "undo-toast" => {
             shell.open_settings(Some(crate::shell::SettingsPage::General), None, cx);
@@ -1330,7 +1659,56 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                 .update(cx, |instances, cx| instances.set_auto_groups(false, cx));
         }
         "instance-linked" => servers::apply_linked_instance(shell, cx),
+        "instance-linked-friend-running" => {
+            servers::apply_linked_friend(shell, Some("Running"), cx)
+        }
+        "instance-linked-friend-starting" => {
+            servers::apply_linked_friend(shell, Some("Starting"), cx)
+        }
+        "instance-linked-friend-stopped" => {
+            servers::apply_linked_friend(shell, Some("Stopped"), cx)
+        }
         "account-menu" | "needs-sign-in" | "account-menu-launcher" => shell.open_account_menu(cx),
+        "skin-dialog" => {
+            use launcher_core::auth::wardrobe::{Cape, SkinModel, Wardrobe};
+            let accounts = shell.accounts().clone();
+            let Some(account) = accounts.read(cx).active().cloned() else {
+                return;
+            };
+            let cape = |id: &str, name: &str, active: bool| Cape {
+                id: id.into(),
+                name: name.into(),
+                url: String::new(),
+                active,
+            };
+            let current = Wardrobe {
+                skin_url: Some("http://textures.minecraft.net/texture/abc123".into()),
+                model: SkinModel::Classic,
+                capes: vec![
+                    cape("migrator", "Migrator", true),
+                    cape("vanilla", "Vanilla", false),
+                ],
+            };
+            let png = launcher_core::skin::encode_png(&launcher_core::skin::sample_body_skin())
+                .unwrap_or_default();
+            let sample_cape = |id: &str, colour: [u8; 3]| {
+                let cape = launcher_core::skin_model::sample_cape(colour);
+                (
+                    id.to_string(),
+                    launcher_core::skin::encode_png(&cape).unwrap_or_default(),
+                )
+            };
+            let capes = vec![
+                sample_cape("migrator", [150, 40, 190]),
+                sample_cape("vanilla", [40, 140, 70]),
+            ];
+            let dialog = cx.new(|cx| {
+                crate::accounts::skin_dialog::SkinDialog::preview(
+                    accounts, account, current, png, capes, cx,
+                )
+            });
+            shell.show_skin(dialog, None, cx);
+        }
         "launcher-identity" => shell.preview_enable_launcher_identity(cx),
         "sign-in-launcher" => shell.open_sign_in_at(Stage::Choose, None, cx),
         "sign-in" => shell.open_sign_in_at(Stage::Choose, None, cx),
@@ -1348,6 +1726,38 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             shell.preview_ask_to_stop_signing_in(cx);
         }
         "offer-main" => shell.preview_main_dialog(false, cx),
+        "disable-mod" | "enable-mod" => {
+            use launcher_core::content::mod_finder::LinkedMod;
+            let linked = |file: &str, name: &str| LinkedMod {
+                file_name: file.into(),
+                name: name.into(),
+            };
+            let prompt = if scene == "enable-mod" {
+                crate::instances::content::TogglePrompt {
+                    instance_id: String::new(),
+                    file_name: "sodium-extra-0.7.0+mc26.3.jar.disabled".into(),
+                    name: "Sodium Extra".into(),
+                    enable: true,
+                    others: vec![
+                        linked("fabric-api-0.166.0+26.3.jar.disabled", "Fabric API"),
+                        linked("sodium-fabric-0.9.2+mc26.3.jar.disabled", "Sodium"),
+                    ],
+                }
+            } else {
+                crate::instances::content::TogglePrompt {
+                    instance_id: String::new(),
+                    file_name: "fabric-api-0.166.0+26.3.jar".into(),
+                    name: "Fabric API".into(),
+                    enable: false,
+                    others: vec![
+                        linked("entityculling-fabric-1.11.3-mc26.3.jar", "Entity Culling"),
+                        linked("modmenu-17.0.0.jar", "Mod Menu"),
+                        linked("sodium-extra-0.7.0+mc26.3.jar", "Sodium Extra"),
+                    ],
+                }
+            };
+            shell.preview_toggle_mod(prompt, cx);
+        }
         "confirm-main" => shell.preview_main_dialog(true, cx),
         "sign-in-code" => shell.open_sign_in_at(
             Stage::DeviceCode {
@@ -1437,11 +1847,11 @@ fn storage_report() -> launcher_core::disk::Report {
             old_bytes: 9 * MB,
             old_files: 61,
         },
-        snapshots: launcher_core::snapshots::Usage {
+        images: launcher_core::disk::ImagesUsage {
             bytes: 186 * MB,
             snapshots: 7,
-            removable_snapshots: 2,
-            removable_bytes: 41 * MB,
+            removable: 3,
+            retired_instances: 1,
         },
         other: 400_000,
     }
@@ -1695,4 +2105,179 @@ fn perf_history() -> Vec<crate::perf::Sample> {
             }
         })
         .collect()
+}
+
+/// The files in the Logs tab's list, for the `logs-past` scenes.
+fn past_log_files() -> Vec<launcher_core::game::past_logs::LogFile> {
+    use launcher_core::game::past_logs::{Kind, LogFile};
+    [
+        ("latest.log", Kind::Log, 184_320),
+        (
+            "crash-2026-11-07_12.00.00-client.txt",
+            Kind::CrashReport,
+            41_200,
+        ),
+        ("2026-11-06-2.log.gz", Kind::Log, 22_500),
+        ("2026-11-06-1.log.gz", Kind::Log, 9_800),
+        ("hs_err_pid18244.log", Kind::JvmCrash, 96_000),
+        ("debug.log", Kind::Log, 2_400_000),
+    ]
+    .into_iter()
+    .map(|(name, kind, size)| LogFile {
+        path: name.into(),
+        name: name.into(),
+        kind,
+        modified: None,
+        size,
+    })
+    .collect()
+}
+
+const SAMPLE_CRASH_REPORT: &str = "---- Minecraft Crash Report ----
+// Why did you do that?
+
+Time: 2026-11-07 12:00:00
+Description: Rendering entity in world
+
+java.lang.NullPointerException: Cannot invoke \"net.minecraft.class_1297.method_5628()\" because \"entity\" is null
+\tat knot//com.example.shinymobs.GlowRenderer.render(GlowRenderer.java:48)
+\tat knot//net.minecraft.class_898.method_3954(class_898.java:158)
+\tat knot//net.minecraft.class_761.method_22977(class_761.java:1420)
+\tat knot//net.minecraft.class_757.method_3188(class_757.java:1110)
+\tat knot//net.minecraft.class_310.method_1523(class_310.java:1285)
+\tat knot//net.minecraft.client.main.Main.main(Main.java:256)
+
+A detailed walkthrough of the error, its code path and all known details is as follows:
+---------------------------------------------------------------------------------------
+
+-- Head --
+Thread: Render thread
+Stacktrace:
+\tat knot//com.example.shinymobs.GlowRenderer.render(GlowRenderer.java:48)
+
+-- Entity being rendered --
+Details:
+\tEntity Type: minecraft:zombie (net.minecraft.class_1642)
+\tEntity ID: 418
+\tEntity Name: Zombie
+
+-- System Details --
+Details:
+\tMinecraft Version: 1.21.1
+\tOperating System: Windows 11 (amd64) version 10.0
+\tJava Version: 21.0.4, Microsoft
+\tMemory: 1836056576 bytes (1751 MiB) / 4294967296 bytes (4096 MiB)
+\tFabric Mods:
+\t\tfabric-api: Fabric API 0.105.0+1.21.1
+\t\tshinymobs: Shiny Mobs 1.2.0
+\t\tsodium: Sodium 0.6.0
+";
+
+/// "Copy with another version or loader" for Survival 1.20.1 (Fabric, with mods and two
+/// worlds): to 26.3 with Fabric, the worlds going (upgraded) and some mods without a
+/// build, (`copy-as-older`) to vanilla 1.16.5, where the worlds can't go, or
+/// (`copy-as-loader`) to vanilla on its own version, the worlds going without the mods'
+/// blocks.
+fn copy_as(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherShell>) {
+    use launcher_core::{
+        content::copy_as::{self, CopyAsOptions},
+        game::loaders::LoaderKind,
+    };
+    let instances = shell.instances().clone();
+    let Some(source) = instances.read(cx).selected().cloned() else {
+        return;
+    };
+    let older = scene == "copy-as-older";
+    let same_version = scene == "copy-as-loader";
+    let version = match () {
+        _ if older => "1.16.5",
+        _ if same_version => source.game_version.as_str(),
+        _ => "26.3",
+    }
+    .to_string();
+    let version = version.as_str();
+    // the recorded Fabric builds, for the new version too
+    let fabric = launcher_core::game::loaders::meta::parse_fabric_versions(
+        include_bytes!("../../launcher-core/testdata/loaders/fabric/loaders-1.20.1.json"),
+        version,
+    )
+    .expect("the recorded Fabric list parses");
+    instances.update(cx, |instances, cx| {
+        instances.set_loader_versions(
+            LoaderKind::Fabric,
+            version,
+            crate::instances::LoaderVersions::Ready(Arc::new(fabric)),
+        );
+        cx.notify();
+    });
+    let dirs = instances.read(cx).content_dirs(&source.id);
+    let contents = futures::executor::block_on(copy_as::contents(None, &dirs)).unwrap_or_default();
+    shell.open_copy_as(&source.id, None, cx);
+    let Some(dialog) = shell.new_instance_dialog().cloned() else {
+        return;
+    };
+    dialog.update(cx, |dialog, cx| {
+        // the instance's own version and loader, as the dialog opens: it asks for others
+        if scene == "copy-as-same" {
+            dialog.preview_copy_contents(contents, cx);
+            return;
+        }
+        dialog.preview_version(version, cx);
+        dialog.preview_copy_contents(contents, cx);
+        if same_version {
+            dialog.choose_loader_kind(None, cx);
+            // the same version: worlds are checked
+            dialog.preview_copy_lookup(
+                CopyAsOptions {
+                    worlds: true,
+                    ..CopyAsOptions::default()
+                },
+                |_| None,
+                cx,
+            );
+            return;
+        }
+        if older {
+            dialog.choose_loader_kind(None, cx);
+            dialog.preview_copy_lookup(
+                CopyAsOptions {
+                    worlds: true,
+                    ..CopyAsOptions::default()
+                },
+                |_| None,
+                cx,
+            );
+        } else {
+            // every other mod has a build for 26.3
+            let mut index = 0;
+            dialog.preview_copy_lookup(
+                CopyAsOptions {
+                    worlds: true,
+                    ..CopyAsOptions::default()
+                },
+                |source| {
+                    index += 1;
+                    (index % 3 != 0).then(|| sample_build(source, version))
+                },
+                cx,
+            );
+        }
+    });
+}
+
+/// A made-up Modrinth build of `source` for Fabric on `version`.
+fn sample_build(
+    source: &launcher_core::content::copy_as::SourceMod,
+    version: &str,
+) -> lodestone_minecraft::modrinth::RawVersion {
+    serde_json::from_value(serde_json::json!({
+        "id": format!("{}-{version}", source.project_id),
+        "project_id": source.project_id,
+        "name": source.title,
+        "version_number": "1.0.0",
+        "version_type": "release",
+        "loaders": ["fabric"],
+        "game_versions": [version],
+    }))
+    .expect("a version")
 }

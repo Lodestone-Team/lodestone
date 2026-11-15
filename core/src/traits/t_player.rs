@@ -9,26 +9,6 @@ use crate::traits::GameInstance;
 #[enum_dispatch::enum_dispatch]
 pub trait TPlayer {
     fn get_id(&self) -> String;
-    fn get_name(&self) -> String;
-}
-
-// The player of an atom (generic) instance. Here rather than with the atom implementation,
-// which needs the `deno` feature, because `Player` is part of the API either way.
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, TS, Clone, Hash)]
-#[ts(export)]
-pub struct GenericPlayer {
-    pub id: String,
-    pub name: String,
-}
-
-impl TPlayer for GenericPlayer {
-    fn get_id(&self) -> String {
-        self.id.clone()
-    }
-
-    fn get_name(&self) -> String {
-        self.name.clone()
-    }
 }
 
 #[enum_dispatch::enum_dispatch(TPlayer)]
@@ -37,7 +17,6 @@ impl TPlayer for GenericPlayer {
 #[ts(export)]
 pub enum Player {
     MinecraftPlayer,
-    GenericPlayer,
 }
 
 impl PartialEq for Player {

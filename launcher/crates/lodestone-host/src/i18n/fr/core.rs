@@ -24,7 +24,7 @@ pub fn text(message: M) -> &'static str {
             "Autoriser les applications de cet ordinateur à obtenir l’accès propriétaire"
         }
         M::LocalClaimHint => {
-            "Lodestone Launcher peut devenir propriétaire en prouvant qu’il peut écrire dans le dossier de données de ce core. Tout ce qui peut y écrire peut déjà modifier chaque utilisateur et réglageu00a0: cela ne compte que sur un ordinateur partagé."
+            "Lodestone Launcher peut devenir propriétaire en prouvant qu’il peut écrire dans le dossier de données de ce core. Tout ce qui peut y écrire peut déjà modifier chaque utilisateur et réglage\u{a0}: cela ne compte que sur un ordinateur partagé."
         }
         M::SafeMode => "Mode sécurisé",
         M::SafeModeHint => "Réserve l’accès administrateur de cette machine au propriétaire.",
@@ -34,22 +34,13 @@ pub fn text(message: M) -> &'static str {
         }
         M::TurnOff => "Désactiver",
         M::CodeExecution => "Exécution de code",
-        M::CodeExecutionHint => {
-            "Macros, serveurs atom, extensions, scripts de serveur et commandes Java personnalisées."
-        }
-        M::CodeExecutionHintJavaOnly => "Commandes Java personnalisées.",
+        M::CodeExecutionHint => "Commandes Java personnalisées.",
         M::CodeExecutionLocked => {
             "Verrouillé par l’administrateur de ce core (LODESTONE_DISABLE_CODE_EXECUTION ou --disable-code-execution)."
         }
         M::CodeExecutionOffTitle => "Désactiver l’exécution de code ?",
         M::CodeExecutionOffBody => {
-            "Les macros et serveurs atom en cours seront arrêtés. Les macros, serveurs atom, extensions, scripts de serveur et commandes Java personnalisées ne s’exécuteront plus sur ce core tant que vous n’aurez pas réactivé l’exécution de code. Rien n’est redémarré automatiquement."
-        }
-        M::CodeExecutionOffBodyJavaOnly => {
             "Les commandes Java personnalisées ne s’exécuteront plus sur ce core tant que vous n’aurez pas réactivé l’exécution de code. Rien n’est redémarré automatiquement."
-        }
-        M::NoScripting => {
-            "Ce core a été compilé sans prise en charge des scripts (Deno) : les macros ne sont pas disponibles."
         }
         M::LanHttp => "Autoriser l’accès LAN en HTTP simple",
         M::LanHttpHint => {
@@ -123,10 +114,6 @@ pub fn text(message: M) -> &'static str {
         M::UnsafePermissions => "Autorisations à risque",
         M::UnsafePermissionsLead => {
             "Désactivez le mode sécurisé pour les accorder à d’autres utilisateurs."
-        }
-        M::OwnerOnly => "Macros, extensions et serveurs atom",
-        M::OwnerOnlyHint => {
-            "Réservé au propriétaire. Les serveurs Docker utilisent les autorisations habituelles."
         }
         M::UsersOwnerOnly => "Seul le propriétaire gère les utilisateurs.",
         M::You => "Vous",
@@ -227,6 +214,12 @@ pub fn text(message: M) -> &'static str {
         M::Appearance => "Apparence",
         M::AppearanceLead => "Enregistré sur cet ordinateur, pas sur le core.",
         M::ColoredConsole => "Console en couleur",
+        M::Startup => "Démarrage",
+        M::StartAtLogin => "Ouvrir Lodestone Host à l’ouverture de ma session",
+        M::StartAtLoginHint => {
+            "Il s’ouvre en arrière-plan quand vous ouvrez votre session sur cet ordinateur, et démarre les serveurs réglés pour démarrer automatiquement."
+        }
+        M::StartAtLoginFailed => "Impossible de modifier le réglage de démarrage : {error}",
         M::Language => "Langue",
         M::LanguageAuto => "Langue du système ({language})",
         M::Theme => "Thème",
@@ -305,10 +298,6 @@ pub fn text(message: M) -> &'static str {
         M::KeyUnsafeSafeMode => {
             "Le mode sécurisé est activé : le core refuse donc ces autorisations aux clés à accès personnalisé tant que le mode sécurisé n’est pas désactivé dans les paramètres du core."
         }
-        M::KeyOwnerOnly => "Macros, extensions et serveurs atom",
-        M::KeyOwnerOnlyHint => {
-            "Seules les clés à accès complet peuvent utiliser les macros, les extensions et les serveurs atom."
-        }
         M::NewKeyTitle => "Clé d’API « {name} » créée",
         M::NewKeyCopyNow => "Copiez cette clé maintenant. Vous ne pourrez plus la voir.",
         M::NewKeyUseWithCli => "Utilisez-la avec la CLI Lodestone :",
@@ -345,6 +334,7 @@ pub fn text(message: M) -> &'static str {
         M::WarningToast => {
             "Avertissement : un serveur a émis un avertissement. Cela ne devrait pas arriver, veuillez le signaler aux développeurs."
         }
+        M::EventModpackUpdate => "{pack} {version} est disponible pour {name}",
         M::EventWarning => "Le serveur {name} a émis un avertissement",
         M::EventError => "Le serveur {name} a rencontré une erreur",
         M::PlayersJoined => "{players} a rejoint {name}",
@@ -353,11 +343,7 @@ pub fn text(message: M) -> &'static str {
         M::PlayerMessage => "{player} a dit {message} sur {name}",
         M::EventApiKeyCreated => "Clé d’API « {name} » créée",
         M::EventApiKeyRevoked => "Clé d’API « {name} » révoquée",
-        M::MacroStarted => "Macro {pid} démarrée sur {server}",
-        M::MacroDetached => "Macro {pid} détachée sur {server}",
-        M::MacroStopped => "Macro {pid} arrêtée sur {server} avec l’état {status}",
         M::LoadFailed => "Impossible de charger les notifications : {error}",
-        M::CoreFallback => "Core",
         M::CoreFailedNotice => "Lodestone Core n’a pas pu démarrer : {error}",
         M::UpdatesTitle => "Mises à jour",
         M::UpdatesLead => {
@@ -367,12 +353,10 @@ pub fn text(message: M) -> &'static str {
         M::UpdateAutomatically => "Mettre à jour automatiquement",
         M::UpdateAutomaticallyHint => "Télécharge les nouveaux builds en arrière-plan.",
         M::BetaBuilds => "Builds bêta",
-        M::BetaBuildsHint => {
-            "Profitez des nouveautés avant tout le monde. Les builds bêta peuvent comporter des bugs. Si vous désactivez cette option, vous gardez votre build jusqu’à ce qu’un build stable plus récent sorte."
-        }
+        M::BetaBuildsHint => "Les builds bêta peuvent comporter des bugs.",
         M::DeveloperBuilds => "Builds de développeur",
         M::DeveloperBuildsHint => {
-            "Pour les développeurs de Lodestone : met à jour vers des builds de travaux en cours, qui peuvent ne pas fonctionner. Si vous désactivez cette option, vous gardez votre build jusqu’à ce qu’une version plus récente sorte."
+            "Pour les développeurs de Lodestone : met à jour vers des builds de développement, qui peuvent comporter des bugs."
         }
         M::BuildNumber => "Build {build}",
         M::BuildNumberCommit => "Build {build} · {commit}",
@@ -393,6 +377,28 @@ pub fn text(message: M) -> &'static str {
             "Redémarrer Lodestone Host les arrête d’abord. Les serveurs qui démarrent tout seuls redémarrent après."
         }
         M::RestartUpdateConfirm => "Arrêter les serveurs et redémarrer",
+        M::DeveloperSection => "Développeur",
+        M::ConnectService => "Service Connect (relais)",
+        M::ConnectServiceHint => {
+            "Pour les tests. Les liens d’invitation et la liste d’amis utilisent ce service. Le changer redémarre le cœur."
+        }
+        M::ConnectServiceInUse => "Relais de dév.\u{a0}: {service}",
+        M::ConnectServiceEnv => {
+            "{var} est défini, donc le cœur utilise {service}. Le réglage s’appliquera une fois la variable retirée."
+        }
+        M::ConnectServiceScheme => "Commencez l’adresse par https://.",
+        M::ConnectServiceInsecure => {
+            "Utilisez https://. Seul un service sur cet ordinateur (127.0.0.1 ou localhost) peut utiliser http://."
+        }
+        M::ConnectServiceExtra => {
+            "Saisissez seulement l’adresse, sans chemin, requête ni nom d’utilisateur."
+        }
+        M::ConnectServiceAddress => "Cette adresse n’est pas valide.",
+        M::SaveAndRestartCore => "Enregistrer et redémarrer le cœur",
+        M::RestartCoreTitle => "Redémarrer le cœur ?",
+        M::RestartCoreBody => {
+            "Changer le service Connect redémarre Lodestone Core, qui arrête d’abord ces serveurs. Les serveurs qui démarrent tout seuls redémarrent après."
+        }
         M::UpdateFailed => "Impossible de mettre à jour : {error}",
         M::CheckForUpdates => "Vérifier",
         M::DownloadUpdate => "Télécharger",
@@ -433,6 +439,42 @@ pub fn text(message: M) -> &'static str {
         M::RemoteSignedOut => {
             "Vous avez été déconnecté de {name}. Lodestone Host est revenu au core de cet ordinateur."
         }
+        M::RemoteAccess => "Autoriser l’accès depuis d’autres appareils",
+        M::RemoteAccessHintOff => {
+            "Désactivé : seules les applications de cet ordinateur peuvent utiliser ce core (Lodestone Host, Lodestone Launcher et Lodestone CLI). Activez-le pour utiliser le tableau de bord web depuis d’autres appareils, ajouter des utilisateurs ou créer des clés API. Le partage de serveurs fonctionne dans les deux cas."
+        }
+        M::RemoteAccessHintOn => {
+            "D’autres appareils peuvent se connecter à ce core avec un nom d’utilisateur et un mot de passe, en HTTPS."
+        }
+        M::RemoteAccessOffTitle => "Désactiver l’accès depuis d’autres appareils ?",
+        M::RemoteAccessOffBody => {
+            "Seules les applications de cet ordinateur pourront utiliser ce core. Les autres appareils, les autres utilisateurs et les clés API utilisées ailleurs cesseront de fonctionner jusqu’à ce que vous le réactiviez. Le partage de serveurs continue de fonctionner."
+        }
+        M::LocalClaimNeedsPassword => {
+            "Configurez d’abord le compte propriétaire : sans mot de passe, c’est le seul moyen de se connecter."
+        }
+        M::OwnerAccountTitle => "Configurer un compte propriétaire pour partager ce core",
+        M::OwnerAccountLead => {
+            "Les autres appareils se connectent avec un nom d’utilisateur et un mot de passe. Choisissez ceux que vous utiliserez sur le tableau de bord web et vos autres appareils. Les applications de cet ordinateur continuent de se connecter sans eux."
+        }
+        M::OwnerAccountButton => "Configurer et autoriser l’accès",
+        M::OwnerAccountDone => {
+            "Compte propriétaire configuré. D’autres appareils peuvent maintenant se connecter à ce core."
+        }
+        M::PasswordTooShort => "Le mot de passe doit comporter au moins 12 caractères.",
+        M::SetPassword => "Définir un mot de passe",
+        M::NoPasswordYet => {
+            "Pas encore de mot de passe. Seules les applications de cet ordinateur peuvent utiliser ce core."
+        }
+        M::ModpackChecks => "Rechercher les mises à jour des modpacks",
+        M::ModpackChecksHint => {
+            "Toutes les quelques heures, chercher sur Modrinth de nouvelles versions des modpacks dont les serveurs sont issus, et le signaler. « Rechercher une mise à jour » dans l’onglet Mods d’un serveur fonctionne toujours quand c’est désactivé."
+        }
+        M::ModpackChecksKeywords => "modpack mise à jour notification Modrinth automatique",
+        M::RemoteAccessKeywords => "à distance réseau LAN partager",
+        M::DomainKeywords => "adresse nom d’hôte URL",
+        M::OpenPortKeywords => "redirection de port routeur UPnP pare-feu",
+        M::ThemeKeywords => "sombre clair mode apparence couleurs",
     }
 }
 

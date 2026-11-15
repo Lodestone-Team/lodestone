@@ -19,9 +19,9 @@ pub fn text(message: M) -> &'static str {
         M::DeleteTitle => "删除“{name}”",
         M::DeleteConfirm => "我明白，删除此服务器",
         M::DeleteCannotUndo => "此操作无法撤销。",
-        M::DeleteWarning => "此实例的设置、世界和备份将被永久删除。继续之前，请备份所有重要数据。",
+        M::DeleteWarning => "此实例的设置和世界将被永久删除。继续之前，请备份所有重要数据。",
+        M::DeleteBackupsToo => "它的备份也会被删除。",
         M::Deleting => "正在删除 {name}…",
-        M::OwnerOnlyAtom => "只有所有者可以控制 atom 服务器。",
         M::CommandLineReadOnly => "此核心已禁用代码执行，此设置为只读。",
         M::CommandLineOwnerOnly => "只有所有者可以更改此设置。",
         M::CannotBeEmpty => "不能为空",
@@ -88,8 +88,23 @@ pub fn text(message: M) -> &'static str {
         M::ModsPlayersNeed => "玩家需要安装",
         M::ModsNeededBy => "{mods} 需要它",
         M::ModsUnknown => "未知",
-        M::ModsUnknownModrinth => "Modrinth 未说明玩家是否需要它，请查看该模组的页面。",
-        M::ModsUnknownNotOnModrinth => "不在 Modrinth 上，请查看该模组的页面。",
+        M::ModsUnknownModrinth => {
+            "Modrinth 未说明玩家是否需要它，请查看该模组的页面。如果玩家需要，请勾选“给玩家”。"
+        }
+        M::ModsUnknownNotOnModrinth => {
+            "不在 Modrinth 上，请查看该模组的页面。如果玩家需要，请勾选“给玩家”。"
+        }
+        M::ModsForPlayers => "给玩家",
+        M::ModsForPlayersHint => {
+            "玩家加入时会获得这个模组及其依赖的模组。对于 Lodestone 无法判断但玩家需要的模组（例如你上传的），请勾选此项。"
+        }
+        M::ModsForPlayersAlready => "玩家已会获得这个模组：Modrinth 或模组本身表明玩家需要它。",
+        M::ModsMarkedForPlayers => "玩家下次加入时会获得 {name}",
+        M::ModsForPlayersOptional => {
+            "Modrinth 表示玩家没有这个模组也能加入，但在 Fabric 上，这类模组常常会让玩家无法加入，所以玩家会获得它。取消勾选即可不给玩家。"
+        }
+        M::ModsUnmarkedForPlayers => "玩家加入时不再获得 {name}",
+        M::ModsMarkFailed => "无法更改 {name}：{error}",
         M::ModsRelease => "正式版",
         M::ModsBeta => "测试版",
         M::ModsAlpha => "早期测试版",
@@ -146,12 +161,47 @@ pub fn text(message: M) -> &'static str {
         M::ModsLoaderNoVersion => "Fabric Loader",
         M::ModsPlainFabric => "玩家只需原版 Fabric 即可加入（Minecraft {gameVersion}，{loader}）。",
         M::ModsDownloadPack => "下载客户端整合包（.mrpack）",
+        M::ModsPackShowFewer => "收起",
         M::ModsDownloadPackFailed => "无法下载客户端整合包：{error}",
         M::ModsPackSaved => "已保存 {name}",
         M::ModsSavePack => "保存",
         M::ModsImportHint => {
             "将其导入 Prism Launcher、Modrinth App 或 ATLauncher，即可获得所有正确版本的内容。"
         }
+        M::ModpackFrom => "此服务器使用整合包 {pack}。",
+        M::ModpackCheck => "检查更新",
+        M::ModpackCheckFailed => "无法检查更新：{error}",
+        M::ModpackUpToDate => "已是最新版本。",
+        M::ModpackUpdateTo => "更新到 {version}",
+        M::ModpackFromFile => "从文件更新",
+        M::ModpackFilePrompt => "更新",
+        M::ModpackNotMrpack => "{name} 不是 .mrpack 文件。",
+        M::ModpackPlanFailed => "无法准备更新：{error}",
+        M::ModpackDialogTitle => "更新整合包？",
+        M::ModpackDialogIntro => "{pack} 将从 {from} 更新到 {to}。",
+        M::ModpackDialogRestoreIntro => "模组和配置将回到“{change}”之后的样子。",
+        M::ModpackDialogReinstall => "服务器将改用 {software} 并重新安装。",
+        M::ModpackDialogKept => "你修改过的文件将保持不变：{files}",
+        M::ModpackDialogNothing => "没有文件会改变。",
+        M::ModpackDialogStop => "请先停止服务器：服务器运行时无法更新。",
+        M::ModpackDialogUnsupported => "无法使用此版本：{reason}",
+        M::ModpackUpdate => "更新",
+        M::ModpackUpdated => "已将 {pack} 更新到 {version}。",
+        M::ModpackUpdateFailed => "无法更新整合包：{error}",
+        M::ModpackUnknownVersion => "未知版本",
+        M::ModpackWhatsNew => "更新内容",
+        M::ModpackOut => "{version} 已发布",
+        M::ModpackHistory => "历史",
+        M::ModpackHistoryFailed => "无法加载整合包的历史：{error}",
+        M::ModpackHistoryEmpty => "尚无记录。之后的更改可以撤销。",
+        M::ModpackCurrent => "当前",
+        M::ModpackRestore => "恢复",
+        M::ModpackRestoreMissing => "Lodestone 已不再保有此版本的部分文件。",
+        M::ModpackRestoreTitle => "恢复此版本？",
+        M::ModpackRestored => "已恢复“{change}”。",
+        M::ModpackRestoreFailed => "无法恢复此版本：{error}",
+        M::ModpackSince => "自 {date} 起",
+        M::ModpackSinceTooltip => "此文件保持“{change}”之后的样子。",
         M::ModsProjectFailed => "无法加载项目：{error}",
         M::ModsSource => "源代码",
         M::ModsIssues => "问题反馈",
@@ -184,6 +234,65 @@ pub fn text(message: M) -> &'static str {
         M::ModsIncompatibleBody => {
             "{title} {version} 适用于 {loaders} {gameVersions}，而不是 {loader} {gameVersion}。它可能导致服务器崩溃。"
         }
+        M::FriendsTitle => "好友",
+        M::FriendsLead => {
+            "你在 Lodestone Launcher 中添加的好友可以看到你与他们共享的服务器，无需链接即可加入。在你勾选好友之前，不会共享任何内容。"
+        }
+        M::FriendsAddInLauncher => "在 Lodestone Launcher 中添加好友",
+        M::FriendsAddInLauncherHint => {
+            "你的好友列表由这台电脑上的 Lodestone Launcher 保存。在那里添加好友后，即可在这里与他们共享此服务器。"
+        }
+        M::FriendsLoading => "正在加载好友…",
+        M::FriendsShareWith => "与 {name} 共享此服务器",
+        M::FriendsNotVerified => "未验证",
+        M::FriendsMinecraft => {
+            "Minecraft：{names}。如果服务器开启了白名单，共享时会把他们加入白名单。"
+        }
+        M::FriendsWhitelisted => "已将 {names} 加入服务器白名单",
+        M::FriendsWhitelistFailed => "已与 {name} 共享，但无法把对方加入服务器白名单：{error}",
+        M::FriendsConnected => "已连接",
+        M::FriendsSyncFailed => "无法将好友列表同步到此核心：{error}",
+        M::FriendsOpenFailed => "无法打开你的好友列表：{error}",
+        M::FriendsPublishFailed => "无法通知 {name} 此核心：{error}",
+        M::FriendsPublishFailedAll => "无法通知好友此核心：{error}",
+        M::FriendsRetry => "重试",
+        M::FriendsRetrying => "Lodestone Host 每分钟会自动重试。",
+        M::FriendsSynced => "好友列表已同步",
+        M::FriendsRetired => "你的好友身份已停用",
+        M::FriendsRetiredHint => {
+            "此核心不再与任何人共享。要重新开始，请在 Lodestone Launcher 的好友部分选择一个新名字，然后重新添加好友。"
+        }
+        M::FriendsOff => "此测试副本已关闭与好友共享",
+        M::FriendsOffHint => {
+            "它的核心或好友列表在测试文件夹中，而另一个不在，因此你真正的好友永远不会进入测试核心。要测试共享，请将 LODESTONE_PATH 和 LODESTONE_LAUNCHER_DATA_DIR 都设为测试文件夹。"
+        }
+        M::FriendsConfirmUnverified => {
+            "你还没有和 {name} 核对安全码，所以无法确定真的是对方：别人也可能回应了你的好友链接。请先在 Lodestone Launcher 中核对安全码，或仍然共享。"
+        }
+        M::FriendsShareAnyway => "仍然共享",
+        M::FriendsCertificate => "此核心的好友证书",
+        M::FriendsCertificateHint => {
+            "好友通过它识别此核心。如果这台电脑的数据可能被复制，请停用它：好友会放弃它，核心会获得一个新证书，好友改用新证书找到它。"
+        }
+        M::FriendsCertificateRetire => "停用证书…",
+        M::FriendsCertificateRetireBody => {
+            "好友会放弃此核心当前的证书，并不再信任其服务器的模组。核心会获得新证书，好友下次检查时会通过新证书找到它。现在连接的所有人都会断开。"
+        }
+        M::FriendsCertificateRetireConfirm => "停用并获取新证书",
+        M::FriendsCertificateRetired => "此核心的好友证书已停用",
+        M::FriendsCertificateRetiredHint => {
+            "好友现在看不到此核心。为它获取新证书，即可再次从这台电脑共享。"
+        }
+        M::FriendsCertificateNew => "获取新证书",
+        M::FriendsCertificateManual => {
+            "好友现在看不到此核心。此核心无法自行生成新证书：请退出 Lodestone Host，删除 {path}，然后重新打开。"
+        }
+        M::FriendsCancel => "取消",
+        M::MemoryKeywords => "内存 RAM",
+        M::JvmArgsKeywords => "JVM Java 参数 选项",
+        M::WhitelistKeywords => "白名单 玩家",
+        M::MotdKeywords => "MOTD 服务器描述 消息",
+        M::AutoStartKeywords => "开机 启动 自动",
     }
 }
 
@@ -207,7 +316,13 @@ pub fn plural(message: P) -> [&'static str; 2] {
             "将其导入 Prism Launcher、Modrinth App 或 ATLauncher，即可获得所有正确版本的内容。有 {count} 个模组不在 Modrinth 上，因此其文件已包含在整合包中。",
             "将其导入 Prism Launcher、Modrinth App 或 ATLauncher，即可获得所有正确版本的内容。有 {count} 个模组不在 Modrinth 上，因此其文件已包含在整合包中。",
         ],
+        P::ModsPackShowAll => ["显示全部 {count} 个模组", "显示全部 {count} 个模组"],
         P::ModsShowMore => ["显示更多（还有 {count} 个）", "显示更多（还有 {count} 个）"],
         P::ModsMoreGameVersions => ["还有 {count} 个", "还有 {count} 个"],
+        P::ModpackAdded => ["已添加 {count} 个文件", "已添加 {count} 个文件"],
+        P::ModpackReplaced => ["已替换 {count} 个文件", "已替换 {count} 个文件"],
+        P::ModpackRemoved => ["已删除 {count} 个文件", "已删除 {count} 个文件"],
+        P::ModpackMoreChanges => ["还有 {count} 个", "还有 {count} 个"],
+        P::FriendsConnectedCount => ["{count} 位好友已连接", "{count} 位好友已连接"],
     }
 }

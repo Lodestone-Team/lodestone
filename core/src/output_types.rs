@@ -2,10 +2,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::{
-    events::{
-        CausedBy, Event, EventInner, EventLevel, InstanceEventInner, MacroEventInner,
-        ProgressionEventInner,
-    },
+    events::{CausedBy, Event, EventInner, EventLevel, InstanceEventInner, ProgressionEventInner},
     types::Snowflake,
 };
 
@@ -28,17 +25,6 @@ impl From<&Event> for ClientEvent {
                 _ => EventLevel::Info,
             },
             EventInner::UserEvent(_) => EventLevel::Info,
-            EventInner::MacroEvent(m) => match m.macro_event_inner {
-                MacroEventInner::Started => EventLevel::Info,
-                MacroEventInner::Stopped { ref exit_status } => {
-                    if exit_status.is_success() {
-                        EventLevel::Info
-                    } else {
-                        EventLevel::Error
-                    }
-                }
-                MacroEventInner::Detach => EventLevel::Info,
-            },
             EventInner::ProgressionEvent(p) => match p.progression_event_inner() {
                 ProgressionEventInner::ProgressionStart { .. } => EventLevel::Info,
                 ProgressionEventInner::ProgressionUpdate { .. } => EventLevel::Info,

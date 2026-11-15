@@ -143,7 +143,10 @@ pub struct MinecraftLinks {
     /// The file could not be read at startup; it is kept until a link changes.
     corrupt: std::sync::atomic::AtomicBool,
     profile_url: String,
-    http: reqwest::Client,
+    /// Built on the first check, not at startup, since building a client loads the
+    /// system's CA certificates. Its own client rather than the core's shared one, since
+    /// it must not follow redirects with the account's token.
+    http: std::sync::OnceLock<reqwest::Client>,
 }
 
 impl MinecraftLinks {
@@ -174,17 +177,12 @@ impl MinecraftLinks {
                 Vec::new()
             }
         };
-        let http = reqwest::Client::builder()
-            .timeout(VERIFY_TIMEOUT)
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .unwrap_or_default();
         Self {
             path,
             links: tokio::sync::Mutex::new(links),
             corrupt: corrupt.into(),
             profile_url: profile_url.into(),
-            http,
+            http: std::sync::OnceLock::new(),
         }
     }
 
@@ -227,8 +225,14 @@ impl MinecraftLinks {
     /// Asks Minecraft's services whose profile `access_token` belongs to. The token is
     /// only put in this request's `Authorization` header, and never in an error.
     async fn verify(&self, access_token: &str) -> Result<Profile, Error> {
-        let response = self
-            .http
+        let http = self.http.get_or_init(|| {
+            reqwest::Client::builder()
+                .timeout(VERIFY_TIMEOUT)
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+                .unwrap_or_default()
+        });
+        let response = http
             .get(&self.profile_url)
             .bearer_auth(access_token)
             .header(reqwest::header::ACCEPT, "application/json")
@@ -400,5 +404,54 @@ impl MinecraftLinks {
         self.save(&updated).await?;
         *links = updated;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A profile URL on loopback that redirects to another path, which answers with a
+    /// profile.
+    async fn redirecting_profile_url() -> String {
+        use axum::{response::Redirect, routing::get, Json};
+        let app = axum::Router::new()
+            .route(
+                "/minecraft/profile",
+                get(|| async { Redirect::temporary("/elsewhere") }),
+            )
+            .route(
+                "/elsewhere",
+                get(|| async {
+                    Json(serde_json::json!({
+                        "id": "069a79f444e94726a5befca90e38aaf5",
+                        "name": "Steve",
+                    }))
+                }),
+            );
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await });
+        format!("http://{addr}/minecraft/profile")
+    }
+
+    #[tokio::test]
+    async fn the_client_is_built_on_the_first_check_and_follows_no_redirect() {
+        crate::test_util::install_crypto_provider();
+        let dir = tempfile::tempdir().unwrap();
+        let links = MinecraftLinks::load(
+            dir.path().join("minecraft_links.json"),
+            redirecting_profile_url().await,
+        )
+        .await;
+        assert!(links.http.get().is_none(), "loading built the HTTP client");
+
+        let Err(error) = links.verify("token").await else {
+            panic!("the redirect was followed");
+        };
+        assert!(error.source.to_string().contains("307"), "{}", error.source);
+        assert!(links.http.get().is_some());
     }
 }

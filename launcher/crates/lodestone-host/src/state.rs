@@ -15,6 +15,7 @@ use launcher_core::cores::{
             InstanceEventInner, ProgressionEndValue, ProgressionEventInner, ProgressionStartValue,
             UserEventInner,
         },
+        images::CreationOutcome,
         instances::Power,
         models::GlobalSettingsData,
     },
@@ -38,6 +39,44 @@ pub enum Connection {
     Degraded(String),
     /// The core refused the session.
     SignedOut,
+}
+
+/// What the core says when it created a server without anything more to tell
+/// (`spawn_minecraft_instance_creation`).
+const CREATED_PLAINLY: &str = "Server created successfully";
+
+/// The toast for the end of a server's creation: its failure, or what the creation flow
+/// says beyond its plain success (a file's server: what couldn't be downloaded and was
+/// left out). Another success (a backup restored as a new server, whose page already said
+/// it started) says nothing more. What a file's server didn't get comes translated from
+/// the end's `outcome`; a core that sends none (from before milestone 6's second part)
+/// gives its own English words, as for zipping in the Files tab. A core's own words are
+/// shown escaped (`display_text`): the Host can be signed in to another person's core.
+pub fn creation_toast(
+    success: bool,
+    message: Option<&str>,
+    outcome: Option<&CreationOutcome>,
+) -> Option<Toast> {
+    let message = message.map(str::trim).filter(|m| !m.is_empty());
+    match (success, message, outcome) {
+        (false, Some(message), _) => Some(Toast::error(
+            launcher_core::images::display_text(message).into_owned(),
+        )),
+        (false, None, _) => Some(Toast::error(crate::i18n::t(
+            crate::i18n::InstancesMsg::CreateFailedLater,
+        ))),
+        (true, _, Some(outcome)) => {
+            let lines = lodestone_ui::sharing::outcome_lines(outcome);
+            (!lines.is_empty()).then(|| Toast::info(lines.join("\n")))
+        }
+        (true, Some(message), None) => message
+            .strip_prefix(CREATED_PLAINLY)
+            .and_then(|rest| rest.strip_prefix(". "))
+            .map(str::trim)
+            .filter(|extra| !extra.is_empty())
+            .map(|extra| Toast::info(launcher_core::images::display_text(extra).into_owned())),
+        (true, None, None) => None,
+    }
 }
 
 /// An instance being made, from its progress events.
@@ -74,6 +113,11 @@ pub enum HostEvent {
     /// Starting (or restarting) the instance failed: its Minecraft EULA may not be
     /// accepted (`pages::eula_prompt` asks).
     StartFailed(String),
+    /// Work on an instance's files that outlives its Files tab (a paste, delete, upload
+    /// or download) finished: the tab, if it is open again, lists the folder again.
+    FilesChanged(String),
+    /// An instance's "Update all" finished: its Mods tab lists the mods again.
+    ModsChanged(String),
 }
 
 pub struct HostState {
@@ -87,12 +131,31 @@ pub struct HostState {
     pub creating: Vec<Creating>,
     /// Why the last list or power request failed.
     pub error: Option<String>,
-    /// An instance whose Overview should start sharing it with friends when it opens
-    /// (the sidebar's "Share" button).
+    /// An instance whose Overview should scroll to its Share section (the sidebar's
+    /// "Share" button, which only goes there, as the dashboard's does).
     pub share_requested: Option<String>,
+    /// With [`Self::share_requested`]: also start the invite link unless there are
+    /// friends to pick (the `--share` screenshot flag).
+    pub share_start: bool,
+    /// The scroll of the page beside the sidebar, so a page can bring a section into
+    /// view (the Overview's Share).
+    pub page_scroll: gpui::ScrollHandle,
+    /// Sharing with friends: only for this computer's core, signed in as its owner
+    /// (set by the window, `crate::app`).
+    pub friends: Option<Entity<crate::friends::FriendSharing>>,
     /// The window's toasts, which the shell draws over the page (see [`Self::toast`]).
     pub toasts: Entity<Toasts>,
     _stream: Option<LiveStream>,
+    /// File operations a page shows its own toast for: the core's "Installed 1
+    /// file(s)" event for them isn't toasted again.
+    own_file_toasts: OwnFileToasts,
+    /// The instances whose mods "Update all" is updating. The batch outlives the Mods
+    /// tab (switching tabs rebuilds it), so this is kept here, where a new tab sees it.
+    mod_updates: std::collections::HashSet<String>,
+    /// Made-up servers kept in the list across reloads, for the development
+    /// screenshots' `--fake-instance` (a page that reloads the list keeps its server).
+    #[cfg(feature = "screenshot")]
+    pub fake_instances: Vec<InstanceInfo>,
     _tasks: Vec<Task<()>>,
 }
 
@@ -112,6 +175,13 @@ impl HostState {
             toasts: cx.new(|_| Toasts::new()),
             _stream: None,
             share_requested: None,
+            share_start: false,
+            page_scroll: gpui::ScrollHandle::new(),
+            friends: None,
+            own_file_toasts: OwnFileToasts::default(),
+            mod_updates: Default::default(),
+            #[cfg(feature = "screenshot")]
+            fake_instances: Vec::new(),
             _tasks: Vec::new(),
         };
         this.follow_events(cx);
@@ -169,6 +239,59 @@ impl HostState {
         }
     }
 
+    /// The owner account was set up (`PUT /user/owner_account`): `owner` as the core now
+    /// has them, with a password, and other devices may use the core.
+    pub fn owner_account_set_up(&mut self, owner: PublicUser, cx: &mut Context<Self>) {
+        if owner.uid == self.me.uid {
+            self.me = owner;
+        }
+        if let Some(settings) = self.settings.as_mut() {
+            settings.allow_remote_access = true;
+        }
+        self.info.remote_access = true;
+        self.toast(
+            Toast::success(crate::i18n::t(crate::i18n::CoreMsg::OwnerAccountDone))
+                .key("owner-account"),
+            cx,
+        );
+        cx.notify();
+    }
+
+    /// A page is about to start a file operation on `instance` and shows its own toast
+    /// for the result, so the core's event for it shouldn't make a second one. The
+    /// claim can be released when the operation fails without the core's event.
+    pub fn expect_own_file_toast(&mut self, instance: &str) -> OwnToastClaim {
+        self.own_file_toasts.expect(instance)
+    }
+
+    /// Whether the core's file-operation event for `instance` belongs to an operation
+    /// a page toasts itself (and forgets it). Claims older than a minute lapse, for
+    /// operations that failed before the core sent its event.
+    pub fn take_own_file_toast(&mut self, instance: &str) -> bool {
+        self.own_file_toasts.take(instance)
+    }
+
+    /// Gives up a claim whose operation failed, if its event hasn't taken it, so it
+    /// doesn't hide the toast of another operation's event.
+    pub fn release_own_file_toast(&mut self, claim: OwnToastClaim) {
+        self.own_file_toasts.release(claim);
+    }
+
+    /// Whether "Update all" is updating the instance's mods.
+    pub fn updating_mods(&self, instance: &str) -> bool {
+        self.mod_updates.contains(instance)
+    }
+
+    /// Marks the instance's "Update all" as started (true) or finished; false when it
+    /// was already in that state.
+    pub fn set_updating_mods(&mut self, instance: &str, updating: bool) -> bool {
+        if updating {
+            self.mod_updates.insert(instance.to_string())
+        } else {
+            self.mod_updates.remove(instance)
+        }
+    }
+
     /// Shows a toast at the bottom right of the window: `Toast::success(…)`,
     /// `Toast::error(…)`, with a key to replace an earlier one, or an action button.
     pub fn toast(&mut self, toast: Toast, cx: &mut Context<Self>) {
@@ -191,6 +314,12 @@ impl HostState {
             this.update(cx, |this, cx| {
                 match instances {
                     Ok(instances) => {
+                        #[cfg(feature = "screenshot")]
+                        let instances = {
+                            let mut instances = instances;
+                            instances.extend(this.fake_instances.iter().cloned());
+                            instances
+                        };
                         this.instances = Some(instances);
                         this.error = None;
                     }
@@ -404,14 +533,33 @@ impl HostState {
                             creating.progress += progress;
                         }
                     }
-                    ProgressionEventInner::ProgressionEnd { inner, .. } => {
+                    ProgressionEventInner::ProgressionEnd {
+                        inner,
+                        success,
+                        message,
+                    } => {
+                        let was_creating = self.creating.iter().any(|c| c.event_id == id);
                         self.creating.retain(|c| c.event_id != id);
+                        // a server made in the background says how it went: what a file's
+                        // server didn't get, or why it failed after it was asked for
+                        let outcome = match inner {
+                            Some(ProgressionEndValue::InstanceCreation(created)) => {
+                                created.outcome.as_ref()
+                            }
+                            _ => None,
+                        };
+                        if was_creating
+                            && let Some(toast) =
+                                creation_toast(*success, message.as_deref(), outcome)
+                        {
+                            self.toast(toast, cx);
+                        }
                         match inner {
-                            Some(ProgressionEndValue::InstanceCreation(info)) => {
+                            Some(ProgressionEndValue::InstanceCreation(created)) => {
                                 if let Some(list) = self.instances.as_mut()
-                                    && !list.iter().any(|i| i.uuid == info.uuid)
+                                    && !list.iter().any(|i| i.uuid == created.info.uuid)
                                 {
-                                    list.push((**info).clone());
+                                    list.push(created.info.clone());
                                 }
                             }
                             Some(ProgressionEndValue::InstanceDelete { instance_uuid }) => {
@@ -470,21 +618,132 @@ pub fn connection_after_probe(answer: Result<(), CoreError>, reason: String) -> 
     }
 }
 
-/// What the power button offers for an instance in `state`, as the dashboard's
-/// instance card does.
-pub fn power_actions(state: InstanceState) -> &'static [Power] {
-    match state {
-        InstanceState::Stopped => &[Power::Start],
-        InstanceState::Running => &[Power::Stop, Power::Restart],
-        InstanceState::Starting | InstanceState::Stopping => &[Power::Kill],
-        InstanceState::Error => &[Power::Restart],
-        InstanceState::Unknown => &[],
+/// A claim on the core's next file-operation event for an instance (see
+/// [`HostState::expect_own_file_toast`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OwnToastClaim(u64);
+
+/// The claims on the core's file-operation events, by instance, oldest first, with
+/// when each was made.
+#[derive(Default)]
+struct OwnFileToasts {
+    next: u64,
+    claims: Vec<(OwnToastClaim, String, std::time::Instant)>,
+}
+
+impl OwnFileToasts {
+    /// How long a claim waits for its event.
+    const LAPSE: std::time::Duration = std::time::Duration::from_secs(60);
+
+    fn expect(&mut self, instance: &str) -> OwnToastClaim {
+        let claim = OwnToastClaim(self.next);
+        self.next += 1;
+        self.claims
+            .push((claim, instance.to_string(), std::time::Instant::now()));
+        claim
+    }
+
+    fn take(&mut self, instance: &str) -> bool {
+        self.claims
+            .retain(|(_, _, made)| made.elapsed() < Self::LAPSE);
+        match self.claims.iter().position(|(_, id, _)| id == instance) {
+            Some(index) => {
+                self.claims.remove(index);
+                true
+            }
+            None => false,
+        }
+    }
+
+    fn release(&mut self, claim: OwnToastClaim) {
+        self.claims.retain(|(c, _, _)| *c != claim);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_creation_says_how_it_went_only_when_there_is_more_to_say() {
+        use lodestone_ui::components::ToastLevel;
+        crate::i18n::force(crate::i18n::Locale::En);
+        assert!(creation_toast(true, Some("Server created successfully"), None).is_none());
+        assert!(creation_toast(true, None, None).is_none());
+        // an older core: its English
+        let left_out = creation_toast(
+            true,
+            Some("Server created successfully. 1 file(s) couldn't be downloaded and were left out: mods/a.jar"),
+            None,
+        )
+        .unwrap();
+        assert_eq!(left_out.level, ToastLevel::Info);
+        assert_eq!(
+            left_out.text.as_ref(),
+            "1 file(s) couldn't be downloaded and were left out: mods/a.jar"
+        );
+        // a core with the outcome: translated from its data
+        let outcome: CreationOutcome = serde_json::from_value(serde_json::json!({
+            "not_downloaded": {"names": ["mods/a.jar"], "count": 1}, "scripts": 1
+        }))
+        .unwrap();
+        let translated = creation_toast(
+            true,
+            Some("Server created successfully. the core's English"),
+            Some(&outcome),
+        )
+        .unwrap();
+        assert_eq!(
+            translated.text.as_ref(),
+            "1 file couldn’t be downloaded and was left out: mods/a.jar\n1 script was left out: only the owner can add scripts, while code execution is on."
+        );
+        // an outcome with nothing in it says nothing
+        assert!(
+            creation_toast(
+                true,
+                Some("Server created successfully"),
+                Some(&CreationOutcome::default())
+            )
+            .is_none()
+        );
+        // a backup restored as a new server: its page said so already
+        assert!(creation_toast(true, Some("Restored the backup as Copy"), None).is_none());
+        let failed = creation_toast(false, Some("Server creation failed: no room"), None).unwrap();
+        assert_eq!(failed.level, ToastLevel::Error);
+        assert_eq!(failed.text.as_ref(), "Server creation failed: no room");
+        // a core's words can't hide text or span lines
+        let hostile = creation_toast(false, Some("bad \u{202E}gpj.exe\nline"), None).unwrap();
+        assert_eq!(hostile.text.as_ref(), "bad \\u{202E}gpj.exe\\u{000A}line");
+        assert_eq!(
+            creation_toast(false, None, None).unwrap().level,
+            ToastLevel::Error
+        );
+    }
+
+    #[test]
+    fn a_failed_operation_gives_up_its_claim_on_the_cores_toast() {
+        let mut claims = OwnFileToasts::default();
+        // "Update all" claims each update's event just before it starts
+        let first = claims.expect("smp");
+        // the first update failed before the core said anything
+        claims.release(first);
+        // so the event of something else on that server is toasted as usual
+        assert!(!claims.take("smp"));
+
+        // an update whose event came: its claim is taken, and releasing it after does
+        // nothing to a later claim
+        let second = claims.expect("smp");
+        assert!(claims.take("smp"));
+        let third = claims.expect("smp");
+        claims.release(second);
+        assert!(claims.take("smp"));
+        claims.release(third);
+        assert!(!claims.take("smp"));
+        // claims are per server
+        claims.expect("creative");
+        assert!(!claims.take("smp"));
+        assert!(claims.take("creative"));
+    }
 
     #[test]
     fn a_failed_stream_is_degraded_only_while_the_core_answers() {
@@ -501,16 +760,5 @@ mod tests {
             connection_after_probe(Err(CoreError::SignedOut), reason()),
             None
         );
-    }
-
-    #[test]
-    fn power_follows_the_state() {
-        assert_eq!(power_actions(InstanceState::Stopped), [Power::Start]);
-        assert_eq!(
-            power_actions(InstanceState::Running),
-            [Power::Stop, Power::Restart]
-        );
-        assert_eq!(power_actions(InstanceState::Starting), [Power::Kill]);
-        assert_eq!(power_actions(InstanceState::Error), [Power::Restart]);
     }
 }

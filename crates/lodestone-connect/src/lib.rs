@@ -22,6 +22,9 @@
 #![cfg_attr(not(feature = "join"), allow(dead_code))]
 
 pub mod addr;
+#[cfg(feature = "host")]
+mod cert;
+pub mod friend;
 pub mod gather;
 pub mod info;
 mod link;
@@ -40,7 +43,7 @@ pub use addr::ConnectionKind;
 pub use gather::{Candidate, CandidateKind, GatherOptions};
 pub use info::SharedServer;
 pub use link::{Invite, LinkError, DEEP_LINK_PREFIX};
-pub use service::{Service, DEFAULT_SERVICE};
+pub use service::{Service, SettingError, DEFAULT_SERVICE};
 pub use tunnel::{StreamKind, TunnelStream, TOKEN_LEN};
 
 /// What can go wrong while sharing or joining.

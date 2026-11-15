@@ -2,6 +2,7 @@
 //! the game stream reaches a TCP echo server, the info stream an HTTP server, and the
 //! link keeps working after the invite ends and after the host restarts.
 
+#[allow(dead_code)]
 mod support {
     pub mod fake_service;
 }
@@ -61,6 +62,7 @@ fn server() -> SharedServer {
         state: Some("Running".into()),
         player_count: Some(1),
         max_player_count: Some(20),
+        online_mode: None,
     }
 }
 
@@ -162,6 +164,20 @@ async fn a_friend_joins_plays_and_keeps_the_link() {
         .unwrap();
     let mut tcp = TcpStream::connect(forward.local_addr()).await.unwrap();
     echo_through(&mut tcp, "through a local port\n").await;
+
+    // A given port (the launcher keeps one per friend's server) works the same; while
+    // it is open, a second forward can't take it.
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let fixed: SocketAddr = ([127, 0, 0, 1], port).into();
+    let stable = joined.forward(StreamKind::Game, fixed).await.unwrap();
+    assert_eq!(stable.local_addr(), fixed);
+    let mut tcp = TcpStream::connect(fixed).await.unwrap();
+    echo_through(&mut tcp, "through the usual port\n").await;
+    assert!(joined.forward(StreamKind::Game, fixed).await.is_err());
 
     // An info port answers HTTP, as a core client would ask.
     let info = joined

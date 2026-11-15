@@ -194,6 +194,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # To delete this run's builds once they're in the draft.
+      actions: write
 
     steps:
     # The workflow's own copy of the script uploads (main's, or the tag's when a
@@ -208,7 +210,10 @@ jobs:
         pattern: launcher-*
         path: ${{ runner.temp }}/builds
 
+    # shell: bash runs it with pipefail, so a refused or failed upload fails the
+    # step through the tee (and the builds below are kept for a re-run).
     - name: Upload to the draft
+      shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
         TAG: ${{ needs.draft.outputs.tag }}
@@ -219,6 +224,18 @@ jobs:
         done
         python3 launcher/scripts/publish_release.py --tag "$TAG" --skip-existing "${args[@]}" \
           | tee -a "$GITHUB_STEP_SUMMARY"
+
+    # The draft has them now, so the run's copies (kept 14 days otherwise) go.
+    # Only after a successful upload: a failed one keeps them for a re-run.
+    - name: Delete the builds
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" \
+          --jq '.artifacts[] | select(.name | startswith("launcher-")) | .id' |
+        while read -r id; do
+          gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$id"
+        done
 
   promote:
     needs: draft
@@ -232,7 +249,10 @@ jobs:
       with:
         persist-credentials: false
 
+    # shell: bash runs it with pipefail, so a refused copy fails the step through
+    # the tee instead of showing green.
     - name: Copy the beta's files to the draft
+      shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
         TAG: ${{ needs.draft.outputs.tag }}

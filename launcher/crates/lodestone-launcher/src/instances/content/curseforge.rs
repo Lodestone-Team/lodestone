@@ -18,6 +18,7 @@ use launcher_core::content::{
     install::{InstallOutcome, InstallProgress, Placed},
     listing,
 };
+use launcher_core::images::labels;
 
 use super::{
     ContentView, Job, Load, PAGE_SIZE,
@@ -59,7 +60,10 @@ impl Default for CfBrowse {
 /// A CurseForge project opened from Browse.
 pub struct CfProjectView {
     pub project_id: u64,
+    pub tab: super::ProjectTab,
     pub project: Load<CfMod>,
+    /// The description, as HTML.
+    pub description: Load<String>,
     pub files: Load<Vec<CfFile>>,
     pub show_all: bool,
     pub with_dependencies: bool,
@@ -76,6 +80,18 @@ pub struct BlockedDownloads {
     pub folder: Option<PathBuf>,
     pub error: Option<SharedString>,
     _watch: Option<Task<()>>,
+}
+
+impl BlockedDownloads {
+    /// The files not in the instance yet.
+    pub fn unfinished(&self) -> Vec<CfPlannedFile> {
+        self.files
+            .iter()
+            .zip(&self.added)
+            .filter(|(_, added)| !**added)
+            .map(|(file, _)| file.clone())
+            .collect()
+    }
 }
 
 impl ContentView {
@@ -143,15 +159,22 @@ impl ContentView {
         };
         let work = cx.background_spawn(async move {
             let project = cf.project(project_id).await;
+            let description = cf.description(project_id).await;
             let files = cf.files(project_id, None, None).await;
-            (project, files)
+            (project, description, files)
         });
         let task = cx.spawn(async move |this, cx| {
-            let (project, files) = work.await;
+            let (project, description, files) = work.await;
             this.update(cx, |this, cx| {
-                if let Some(view) = &mut this.section_mut(kind).cf.project {
+                if let Some(view) = &mut this.section_mut(kind).cf.project
+                    && view.project_id == project_id
+                {
                     view.project = match project {
                         Ok(project) => Load::Ready(project),
+                        Err(err) => Load::Failed(err.to_string().into()),
+                    };
+                    view.description = match description {
+                        Ok(description) => Load::Ready(description),
                         Err(err) => Load::Failed(err.to_string().into()),
                     };
                     view.files = match files {
@@ -164,9 +187,14 @@ impl ContentView {
             .ok();
         });
         let _ = target;
+        self.panel_closing = None;
+        self.page_scroll.set_offset(gpui::Point::default());
+        self.section_mut(kind).browse.project = None;
         self.section_mut(kind).cf.project = Some(CfProjectView {
             project_id,
+            tab: super::ProjectTab::default(),
             project: Load::Loading,
+            description: Load::Loading,
             files: Load::Loading,
             show_all: false,
             with_dependencies: true,
@@ -177,6 +205,12 @@ impl ContentView {
     }
 
     pub fn close_cf_project(&mut self, kind: ContentKind, cx: &mut Context<Self>) {
+        // The panel beside the list slides shut first.
+        if self.panel_width.is_some() && self.panel_closing.is_none() {
+            self.panel_closing = Some(kind);
+            cx.notify();
+            return;
+        }
         self.section_mut(kind).cf.project = None;
         if matches!(self.section(kind).cf.results, Load::NotLoaded) {
             self.cf_search(kind, cx);
@@ -188,23 +222,56 @@ impl ContentView {
         self.section_mut(kind).cf.project.as_mut()
     }
 
+    /// Shows a prepared CurseForge project, for the offscreen screenshots.
+    pub fn preview_cf_project(
+        &mut self,
+        kind: ContentKind,
+        project: CfMod,
+        description: String,
+        files: Vec<CfFile>,
+        cx: &mut Context<Self>,
+    ) {
+        self.kind = kind;
+        self.section_mut(kind).browse.project = None;
+        self.section_mut(kind).cf.project = Some(CfProjectView {
+            project_id: project.id,
+            tab: super::ProjectTab::default(),
+            project: Load::Ready(project),
+            description: Load::Ready(description),
+            files: Load::Ready(files),
+            show_all: false,
+            with_dependencies: true,
+            confirm_force: None,
+            _task: None,
+        });
+        cx.notify();
+    }
+
+    pub fn set_cf_project_tab(
+        &mut self,
+        kind: ContentKind,
+        tab: super::ProjectTab,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(view) = self.cf_project_mut(kind) {
+            view.tab = tab;
+        }
+        cx.notify();
+    }
+
     // ---- Installing ----
 
-    /// Installs a file from the project view.
+    /// Installs a file, with its dependencies when `with_dependencies`: a result's
+    /// Install always, the project page's as its toggle says.
     pub fn install_cf_file(
         &mut self,
         kind: ContentKind,
         file: CfFile,
         project: Option<CfMod>,
         force: bool,
+        with_dependencies: bool,
         cx: &mut Context<Self>,
     ) {
-        let with_dependencies = self
-            .section(kind)
-            .cf
-            .project
-            .as_ref()
-            .is_none_or(|p| p.with_dependencies);
         self.cf_install(
             vec![CfInstallRequest {
                 kind,
@@ -220,6 +287,17 @@ impl ContentView {
     /// Installs `requests` one after the other in the background, with progress. Files
     /// the user has to download themselves end up in the blocked card.
     pub fn cf_install(&mut self, requests: Vec<CfInstallRequest>, cx: &mut Context<Self>) {
+        self.cf_install_with(requests, None, cx);
+    }
+
+    /// [`Self::cf_install`], first taking a snapshot named after the `updating` titles when
+    /// it updates content (a risky change: [`launcher_core::images::RiskyChange`]).
+    pub(super) fn cf_install_with(
+        &mut self,
+        requests: Vec<CfInstallRequest>,
+        updating: Option<Vec<String>>,
+        cx: &mut Context<Self>,
+    ) {
         if requests.is_empty() || !self.can_change(cx) {
             return;
         }
@@ -228,6 +306,9 @@ impl ContentView {
         };
         let modrinth = self.modrinth(cx);
         let downloader = self.instances.read(cx).content_downloader();
+        let busy = self.instances.read(cx).mark_files_busy(&id);
+        let images = self.images(cx);
+        let image_id = id.clone();
         let progress = Arc::new(InstallProgress::default());
         let cancel = launcher_core::game::download::CancelToken::new();
         let kinds: Vec<ContentKind> = requests.iter().map(|r| r.kind).collect();
@@ -238,53 +319,103 @@ impl ContentView {
                 let mut total = InstallOutcome::default();
                 let mut blocked: Vec<CfPlannedFile> = Vec::new();
                 let mut target = target;
-                for request in requests {
-                    let kind = request.kind;
-                    progress.set_label(match &request.project {
-                        Some(project) => tr!(M::CheckingProject, name = project.name),
-                        None => t(M::CheckingDependencies).to_string(),
-                    });
-                    let plan: CfInstallPlan = curseforge_install::plan(
-                        &cf,
-                        Platforms::new(modrinth.as_deref(), Some(&cf)),
-                        &dirs,
-                        &target,
-                        request,
-                    )
-                    .await?;
-                    let outcome = curseforge_install::execute(
-                        &cf,
-                        modrinth.as_deref(),
-                        &downloader,
-                        &dirs,
-                        &target,
-                        &plan,
-                        &progress,
-                        &cancel,
-                    )
-                    .await?;
-                    total.installed.extend(outcome.installed);
-                    total.removed.extend(outcome.removed);
-                    total.skipped.extend(outcome.skipped);
-                    blocked.extend(plan.blocked);
-                    if kind == ContentKind::Mod {
-                        target.shader_loader = listing::shader_state(&dirs)?.loader;
+                // The tab may not have read the instance's shader mod yet: "Update all"
+                // goes on here when its instance is shown again, as the tab starts over.
+                target.shader_loader = listing::shader_state(&dirs)?.loader;
+                let no_snapshot = match &updating {
+                    Some(titles) => super::snapshot_before_update(
+                        &images, &image_id, titles, &progress, &cancel,
+                    )?,
+                    None => None,
+                };
+                // The whole job is one operation, as for Modrinth's.
+                let mut operation = images.begin(&image_id, "");
+                let result = async {
+                    for request in requests {
+                        let kind = request.kind;
+                        progress.set_label(match &request.project {
+                            Some(project) => tr!(M::CheckingProject, name = project.name),
+                            None => t(M::CheckingDependencies).to_string(),
+                        });
+                        let plan: CfInstallPlan = curseforge_install::plan(
+                            &cf,
+                            Platforms::new(modrinth.as_deref(), Some(&cf)),
+                            &dirs,
+                            &target,
+                            request,
+                        )
+                        .await?;
+                        let executed = curseforge_install::execute(
+                            &cf,
+                            modrinth.as_deref(),
+                            &downloader,
+                            &dirs,
+                            &target,
+                            &plan,
+                            &progress,
+                            &cancel,
+                        )
+                        .await;
+                        let outcome = match executed {
+                            Ok(outcome) => outcome,
+                            Err(err) => {
+                                let title =
+                                    plan.files.first().map(|f| f.title()).unwrap_or_default();
+                                operation.note(labels::partly_installed(&title));
+                                return Err(err);
+                            }
+                        };
+                        if let Some(label) = labels::installed(&outcome, kind) {
+                            operation.note(label);
+                        }
+                        total.installed.extend(outcome.installed);
+                        total.removed.extend(outcome.removed);
+                        total.skipped.extend(outcome.skipped);
+                        blocked.extend(plan.blocked);
+                        if kind == ContentKind::Mod {
+                            target.shader_loader = listing::shader_state(&dirs)?.loader;
+                        }
                     }
+                    Ok::<_, ContentError>(())
                 }
-                Ok::<_, ContentError>((total, blocked))
+                .await;
+                operation.succeed();
+                result.map(|()| (total, blocked, no_snapshot))
             })
         };
         let task = cx.spawn(async move |this, cx| {
             let result = work.await;
             this.update(cx, |this, cx| {
-                this.job = None;
-                if this.instance_id.as_deref() != Some(id.as_str()) {
+                let Some((_, shown)) = this.finish_job(&id) else {
+                    return;
+                };
+                if !shown {
+                    let message = match result {
+                        Ok((outcome, blocked, no_snapshot)) => {
+                            let said = !outcome.installed.is_empty() || blocked.is_empty();
+                            // the card shows them when the instance is shown again
+                            this.instances.update(cx, |instances, _| {
+                                instances.put_back_pending_downloads(&id, blocked)
+                            });
+                            said.then(|| {
+                                let message = super::outcome_message(&outcome);
+                                let message =
+                                    super::with_snapshot_note(message, no_snapshot.as_deref());
+                                (message.into(), false)
+                            })
+                        }
+                        Err(err) => Some((err.to_string().into(), true)),
+                    };
+                    this.keep_finished(&id, message, Vec::new());
                     return;
                 }
                 match result {
-                    Ok((outcome, blocked)) => {
+                    Ok((outcome, blocked, no_snapshot)) => {
                         if !outcome.installed.is_empty() || blocked.is_empty() {
-                            this.set_message(super::outcome_message(&outcome), false, cx);
+                            let message = super::outcome_message(&outcome);
+                            let message =
+                                super::with_snapshot_note(message, no_snapshot.as_deref());
+                            this.set_message(message, false, cx);
                         }
                         for kind in &kinds {
                             this.section_mut(*kind).updates.clear();
@@ -320,8 +451,10 @@ impl ContentView {
         self.job = Some(Job {
             progress,
             cancel,
+            queued_cf: Vec::new(),
             _task: task,
             _ticker: ticker,
+            _busy: busy,
         });
         cx.notify();
     }
@@ -330,7 +463,8 @@ impl ContentView {
     /// allows it, else through the blocked card.
     pub fn cf_update_one(&mut self, kind: ContentKind, file_name: &str, cx: &mut Context<Self>) {
         if let Some(update) = self.section(kind).cf_updates.get(file_name).cloned() {
-            self.cf_install(
+            let title = vec![launcher_core::content::enabled_name(file_name)];
+            self.cf_install_with(
                 vec![CfInstallRequest {
                     kind,
                     file: update.file,
@@ -338,9 +472,22 @@ impl ContentView {
                     install_dependencies: true,
                     force: false,
                 }],
+                Some(title),
                 cx,
             );
         }
+    }
+
+    /// The files the last check found CurseForge updates for, by their names when on.
+    pub(super) fn cf_update_titles(&self, kind: ContentKind) -> Vec<String> {
+        let mut titles: Vec<String> = self
+            .section(kind)
+            .cf_updates
+            .keys()
+            .map(|name| launcher_core::content::enabled_name(name))
+            .collect();
+        titles.sort();
+        titles
     }
 
     /// The CurseForge requests for every CurseForge update the last check found.
@@ -379,19 +526,27 @@ impl ContentView {
         let task = cx.spawn(async move |this, cx| {
             loop {
                 cx.background_executor().timer(WATCH_EVERY).await;
-                let Ok(Some((folder, waiting, dirs, target))) = this.update(cx, |this, cx| {
-                    let blocked = this.blocked.as_ref()?;
-                    let folder = blocked.folder.clone()?;
-                    let waiting: Vec<(usize, CfPlannedFile)> = blocked
-                        .files
-                        .iter()
-                        .enumerate()
-                        .filter(|(i, _)| !blocked.added[*i])
-                        .map(|(i, f)| (i, f.clone()))
-                        .collect();
-                    let (_, dirs, target) = this.context(cx)?;
-                    Some((folder, waiting, dirs, target))
-                }) else {
+                let Ok(Some((folder, waiting, dirs, target, id, images))) =
+                    this.update(cx, |this, cx| {
+                        let blocked = this.blocked.as_ref()?;
+                        let folder = blocked.folder.clone()?;
+                        let waiting: Vec<(usize, CfPlannedFile)> = blocked
+                            .files
+                            .iter()
+                            .enumerate()
+                            .filter(|(i, _)| !blocked.added[*i])
+                            .map(|(i, f)| (i, f.clone()))
+                            .collect();
+                        // Content never changes while the game runs: the file waits in the
+                        // folder until it ends.
+                        if this.locked(cx) {
+                            return None;
+                        }
+                        let (id, dirs, target) = this.context(cx)?;
+                        let images = this.images(cx);
+                        Some((folder, waiting, dirs, target, id, images))
+                    })
+                else {
                     // The card was closed, or there is nothing to watch.
                     if this
                         .update(cx, |this, _| this.blocked.is_none())
@@ -412,9 +567,11 @@ impl ContentView {
                             .into_iter()
                             .map(|(at, path)| {
                                 let (index, planned) = &waiting[at];
+                                let operation = images.begin(&id, labels::added(&planned.title()));
                                 let result = curseforge_install::install_downloaded(
                                     &dirs, &target, planned, &path,
                                 );
+                                operation.finish(&result);
                                 (*index, planned.title(), result)
                             })
                             .collect::<Vec<_>>()
@@ -566,7 +723,7 @@ impl ContentView {
                                     tr!(M::BlockedWaiting, file = file.file.file_name)
                                 })
                                 .truncate()
-                                .text_color(colors::WHITE.opacity(40)),
+                                .text_color(crate::theme::ink::faint()),
                             ),
                     )
                     .child(status),
@@ -658,7 +815,7 @@ impl ContentView {
                     return;
                 }
                 match picked {
-                    Ok(Some(file)) => this.install_cf_file(kind, file, None, false, cx),
+                    Ok(Some(file)) => this.install_cf_file(kind, file, None, false, true, cx),
                     Ok(None) => this.open_cf_project(kind, project_id, cx),
                     Err(err) => this.set_message(err.to_string(), true, cx),
                 }
@@ -669,22 +826,14 @@ impl ContentView {
         .detach();
     }
 
-    /// "On CurseForge · n", with CurseForge's sorts (the compatibility filter is the one
-    /// on Modrinth's heading, shared by both).
-    pub(super) fn render_cf_heading(
+    /// Beside the views when CurseForge's is shown: its sorts and the compatibility
+    /// filter (shared with Modrinth's view).
+    pub(super) fn render_cf_tools(
         &mut self,
         kind: ContentKind,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let cf = &self.section(kind).cf;
-        let sort = cf.sort;
-        let title = match cf.results.ready() {
-            Some(results) => tr!(
-                M::OnCurseForgeCount,
-                count = format::number(results.total as u64)
-            ),
-            None => t(M::OnCurseForge).to_string(),
-        };
+        let sort = self.section(kind).cf.sort;
         let sorts = [
             (CfSort::Popularity, M::SortPopular),
             (CfSort::TotalDownloads, M::SortDownloads),
@@ -693,19 +842,13 @@ impl ContentView {
         ];
         let selected = sorts.iter().position(|(s, _)| *s == sort).unwrap_or(0);
         let entity = cx.entity();
+        let chip = self.compat_chip(kind, cx);
         div()
             .flex()
             .flex_row()
             .flex_wrap()
             .items_center()
             .gap_2()
-            .child(
-                div().flex_1().min_w_0().child(
-                    small(title)
-                        .font_weight(weights::BOLD.into())
-                        .text_color(crate::theme::ink::muted()),
-                ),
-            )
             .child(pills(
                 "cf-sort",
                 sorts
@@ -718,6 +861,8 @@ impl ContentView {
                     entity.update(cx, |this, cx| this.cf_set_sort(kind, sort, cx))
                 },
             ))
+            .child(chip)
+            .child(self.installed_chip(kind, cx))
             .into_any_element()
     }
 
@@ -728,44 +873,16 @@ impl ContentView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let cf = &self.section(kind).cf;
-        let offset = cf.offset;
         let total = cf.results.ready().map_or(0, |r| r.total);
         let page_size = PAGE_SIZE as usize;
-        let pages = total.div_ceil(page_size).max(1);
-        let page = offset / page_size + 1;
-        div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .justify_center()
-            .gap_3()
-            .child(
-                Button::new(("cf-previous-page", kind as usize), t(CommonMsg::Previous))
-                    .variant(ButtonVariant::Secondary)
-                    .size(ButtonSize::Slim)
-                    .disabled(offset == 0)
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.cf_set_page(kind, offset.saturating_sub(page_size), cx)
-                    })),
-            )
-            .child(
-                small(tr!(
-                    M::PageOf,
-                    page = format::number(page as u64),
-                    pages = format::number(pages as u64)
-                ))
-                .text_color(crate::theme::ink::muted()),
-            )
-            .child(
-                Button::new(("cf-next-page", kind as usize), t(CommonMsg::Next))
-                    .variant(ButtonVariant::Secondary)
-                    .size(ButtonSize::Slim)
-                    .disabled(page >= pages)
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.cf_set_page(kind, offset + page_size, cx)
-                    })),
-            )
-            .into_any_element()
+        super::view::pager(
+            kind,
+            ("cf-previous-page", "cf-next-page"),
+            cf.offset / page_size,
+            total.div_ceil(page_size),
+            move |this, page, cx| this.cf_set_page(kind, page * page_size, cx),
+            cx,
+        )
     }
 
     /// A CurseForge result as a row of the list: opens its page, or installs it.
@@ -774,6 +891,7 @@ impl ContentView {
         kind: ContentKind,
         index: usize,
         hit: &CfMod,
+        installed: bool,
         first: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -786,6 +904,13 @@ impl ContentView {
             .first()
             .map(|a| a.name.clone())
             .unwrap_or_default();
+        let open = self
+            .section(kind)
+            .cf
+            .project
+            .as_ref()
+            .is_some_and(|p| p.project_id == id)
+            && self.panel_closing != Some(kind);
         row_base(("cf-hit", index), first)
             .accessible(
                 Role::ListItem,
@@ -793,9 +918,13 @@ impl ContentView {
                 hit.name.clone(),
             )
             .aria_description(hit.summary.clone())
+            .aria_selected(open)
             .keyboard_focus()
             .cursor_pointer()
             .hover(|style| style.bg(colors::GRAY_750))
+            .when(open, |this| {
+                this.bg(crate::theme::accent::base().opacity(18))
+            })
             .on_press(cx.listener(move |this, _, _, cx| this.open_cf_project(kind, id, cx)))
             .child(icon_box(icon, 36.))
             .child(
@@ -822,7 +951,7 @@ impl ContentView {
                                 this.child(
                                     small(tr!(M::ByAuthor, author = author))
                                         .flex_none()
-                                        .text_color(colors::WHITE.opacity(50)),
+                                        .text_color(crate::theme::ink::muted()),
                                 )
                             }),
                     )
@@ -841,18 +970,24 @@ impl ContentView {
                 .flex_none()
                 .text_color(crate::theme::ink::muted()),
             )
-            .child(
-                Button::new(("cf-install-hit", index), t(CommonMsg::Install))
-                    .variant(ButtonVariant::Primary)
-                    .size(ButtonSize::Slim)
-                    .loading(resolving)
-                    .disabled(busy || resolving)
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        // Not also the row's click, which opens the page.
-                        cx.stop_propagation();
-                        this.cf_install_hit(kind, id, cx)
-                    })),
-            )
+            .map(|this| {
+                if installed {
+                    this.child(super::view::installed_mark())
+                } else {
+                    this.child(
+                        Button::new(("cf-install-hit", index), t(CommonMsg::Install))
+                            .variant(ButtonVariant::Primary)
+                            .size(ButtonSize::Slim)
+                            .loading(resolving)
+                            .disabled(busy || resolving)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                // Not also the row's click, which opens the page.
+                                cx.stop_propagation();
+                                this.cf_install_hit(kind, id, cx)
+                            })),
+                    )
+                }
+            })
             .into_any_element()
     }
 
@@ -869,11 +1004,9 @@ impl ContentView {
         let show_all = view.show_all;
         let with_dependencies = view.with_dependencies;
         let confirm_force = view.confirm_force;
-        let back = Button::new(("cf-back", kind as usize), t(CommonMsg::Back))
-            .variant(ButtonVariant::Ghost)
-            .icon(Icon::ArrowLeft)
-            .size(ButtonSize::Slim)
-            .on_click(cx.listener(move |this, _, _, cx| this.close_cf_project(kind, cx)));
+        let tab = view.tab;
+        let description = view.description.clone();
+        let back = self.page_bar(kind, "cf-back", None, Self::close_cf_project, cx);
         let project = match project {
             Load::Ready(project) => project,
             Load::Failed(err) => {
@@ -881,7 +1014,7 @@ impl ContentView {
                     .flex()
                     .flex_col()
                     .gap_3()
-                    .child(div().flex().child(back))
+                    .child(back)
                     .child(small(err).text_color(colors::RED_200))
                     .into_any_element();
             }
@@ -890,7 +1023,7 @@ impl ContentView {
                     .flex()
                     .flex_col()
                     .gap_3()
-                    .child(div().flex().child(back))
+                    .child(back)
                     .child(
                         div()
                             .flex()
@@ -910,70 +1043,129 @@ impl ContentView {
             .first()
             .map(|a| a.name.clone())
             .unwrap_or_default();
-        let mut column = div()
-            .flex()
-            .flex_col()
-            .gap_4()
-            .child(div().flex().child(back))
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_start()
-                    .gap_4()
-                    .child(icon_box(icon, 72.))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .flex_1()
-                            .min_w_0()
-                            .gap_1()
-                            .child(
-                                div()
-                                    .font_family(fonts::display())
-                                    .text_size(theme::text_size(text::H2))
-                                    .font_weight(weights::BOLD.into())
-                                    .text_color(crate::theme::ink::text())
-                                    .child(project.name.clone()),
-                            )
-                            .child(
-                                div()
-                                    .text_color(crate::theme::ink::secondary())
-                                    .whitespace_normal()
-                                    .child(project.summary.clone()),
-                            )
-                            .child(
-                                small(if author.is_empty() {
+        let bar = self.page_bar(
+            kind,
+            "cf-back",
+            Some(("open-curseforge", t(M::ViewOnCurseForge).into(), page)),
+            Self::close_cf_project,
+            cx,
+        );
+        let icon_size = if self.panel_width.is_some() { 56. } else { 72. };
+        let mut column = div().flex().flex_col().gap_4().child(bar).child(
+            div()
+                .flex()
+                .flex_row()
+                .items_start()
+                .gap_4()
+                .child(icon_box(icon, icon_size))
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .flex_1()
+                        .min_w_0()
+                        .gap_1()
+                        .child(
+                            div()
+                                .font_family(fonts::display())
+                                .text_size(theme::text_size(text::H2))
+                                .font_weight(weights::BOLD.into())
+                                .text_color(crate::theme::ink::text())
+                                .whitespace_normal()
+                                .child(project.name.clone()),
+                        )
+                        .child(
+                            div()
+                                .text_color(crate::theme::ink::secondary())
+                                .whitespace_normal()
+                                .child(project.summary.clone()),
+                        )
+                        .child(
+                            small(if author.is_empty() {
+                                counted(
+                                    project.download_count.max(0.0) as u64,
+                                    P::Downloads,
+                                    M::DownloadsCompact,
+                                )
+                            } else {
+                                format!(
+                                    "{} · {}",
+                                    tr!(M::ByAuthor, author = author),
                                     counted(
                                         project.download_count.max(0.0) as u64,
                                         P::Downloads,
-                                        M::DownloadsCompact,
+                                        M::DownloadsCompact
                                     )
-                                } else {
-                                    format!(
-                                        "{} · {}",
-                                        tr!(M::ByAuthor, author = author),
-                                        counted(
-                                            project.download_count.max(0.0) as u64,
-                                            P::Downloads,
-                                            M::DownloadsCompact
-                                        )
-                                    )
-                                })
-                                .text_color(crate::theme::ink::muted()),
-                            ),
-                    )
-                    .child(
-                        Button::new(("open-curseforge", kind as usize), t(M::ViewOnCurseForge))
-                            .variant(ButtonVariant::Secondary)
-                            .icon(Icon::ArrowUpRightFromSquare)
-                            .size(ButtonSize::Slim)
-                            .on_click(move |_, _, cx| cx.open_url(&page)),
-                    ),
-            );
+                                )
+                            })
+                            .text_color(crate::theme::ink::muted()),
+                        ),
+                ),
+        );
         if kind == ContentKind::ShaderPack && self.shaders.loader.is_none() {
             column = column.child(self.render_shader_mod(cx));
+        }
+        let screenshots: Vec<(String, Option<String>)> = project
+            .screenshots
+            .iter()
+            .filter_map(|s| Some((s.url.clone()?, s.title.clone())))
+            .collect();
+        let mut tabs: Vec<(super::ProjectTab, SharedString)> =
+            vec![(super::ProjectTab::Description, t(M::Description).into())];
+        if !screenshots.is_empty() {
+            tabs.push((super::ProjectTab::Gallery, t(M::Gallery).into()));
+        }
+        tabs.push((super::ProjectTab::Versions, t(M::Files).into()));
+        let tab = if tabs.iter().any(|(t, _)| *t == tab) {
+            tab
+        } else {
+            super::ProjectTab::Versions
+        };
+        column = column.child(self.page_tabs(
+            kind,
+            "cf-project-tabs",
+            &tabs,
+            tab,
+            Self::set_cf_project_tab,
+            cx,
+        ));
+        match tab {
+            super::ProjectTab::Description => {
+                let body = match description {
+                    Load::Ready(html) if html.trim().is_empty() => {
+                        muted(t(M::NoDescription)).into_any_element()
+                    }
+                    Load::Ready(html) => {
+                        let blocks = self.parsed_description(&format!("cf-{}", project.id), &html);
+                        self.description_box(
+                            format!("cf-description-{}", project.id),
+                            &blocks,
+                            t(M::RestOnCurseForge).into(),
+                            cx,
+                        )
+                    }
+                    Load::Failed(err) => small(err).text_color(colors::RED_200).into_any_element(),
+                    _ => div()
+                        .flex()
+                        .flex_row()
+                        .gap_2()
+                        .text_color(crate::theme::ink::muted())
+                        .child(LoadingDots)
+                        .child(t(M::LoadingDescription))
+                        .into_any_element(),
+                };
+                return column.child(body).into_any_element();
+            }
+            super::ProjectTab::Gallery => {
+                return column
+                    .child(self.render_gallery(
+                        format!("cf-gallery-{}", project.id),
+                        screenshots,
+                        cx,
+                    ))
+                    .into_any_element();
+            }
+            super::ProjectTab::Versions => {}
         }
         let files = match files {
             Load::Ready(files) => files,
@@ -1135,6 +1327,7 @@ impl ContentView {
                         file_for_click.clone(),
                         Some(project_for_click.clone()),
                         forcing,
+                        with_dependencies,
                         cx,
                     )
                 }))
@@ -1168,7 +1361,10 @@ impl ContentView {
                                     )
                                     .child(badge(type_label, type_color))
                                     .when(!file.downloadable(), |this| {
-                                        this.child(badge(t(M::WebsiteDownload), colors::GRAY_500))
+                                        this.child(badge(
+                                            t(M::WebsiteDownload),
+                                            crate::theme::ink::muted(),
+                                        ))
                                     }),
                             )
                             .child(
@@ -1183,7 +1379,7 @@ impl ContentView {
                                     format::bytes(file.file_length)
                                 ))
                                 .truncate()
-                                .text_color(colors::WHITE.opacity(40)),
+                                .text_color(crate::theme::ink::faint()),
                             )
                             .when_some(problem, |this, problem| {
                                 this.child(small(problem).text_color(colors::YELLOW_300))
@@ -1200,5 +1396,39 @@ impl ContentView {
             );
         }
         column.into_any_element()
+    }
+}
+
+#[cfg(test)]
+pub(super) mod tests {
+    use super::*;
+
+    /// A file CurseForge doesn't let launchers download.
+    pub(in crate::instances::content) fn planned(id: u64) -> CfPlannedFile {
+        let file = serde_json::json!({
+            "id": id,
+            "modId": id,
+            "fileName": format!("lodestone-test-blocked-{id}.jar"),
+        });
+        CfPlannedFile {
+            kind: ContentKind::Mod,
+            file: serde_json::from_value(file).expect("a CurseForge file"),
+            project: None,
+            on_modrinth: None,
+            depth: 0,
+        }
+    }
+
+    #[test]
+    fn unfinished_leaves_out_the_files_added() {
+        let blocked = BlockedDownloads {
+            files: vec![planned(1), planned(2), planned(3)],
+            added: vec![false, true, false],
+            folder: None,
+            error: None,
+            _watch: None,
+        };
+        let ids: Vec<u64> = blocked.unfinished().iter().map(|f| f.file.id).collect();
+        assert_eq!(ids, vec![1, 3]);
     }
 }

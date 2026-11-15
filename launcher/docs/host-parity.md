@@ -15,8 +15,7 @@ be built in parallel with little file overlap. Tick items (`[x]`) as you build t
 - **The core is a child process.** The Host can't link the core: the core's
   dependencies would break the launcher workspace's rule that every crate comes from
   Zed v1.27.0's lockfile. It runs the core's own program, `lodestone_core`, built from
-  the root workspace **without the `deno` feature** (`cargo build -p lodestone_core
-  --no-default-features`; never build Deno, in development, bundles or releases), and
+  the root workspace (`cargo build -p lodestone_core --no-default-features`), and
   shipped next to the Host's executable. `core_process.rs` finds it, picks the port
   (16662; a debug build takes the next free one; `LODESTONE_HOST_CORE_PORT` overrides),
   and starts it with `--is-host --lodestone-path <data> --port <port>
@@ -24,7 +23,7 @@ be built in parallel with little file overlap. Tick items (`[x]`) as you build t
   builds: `~/.lodestone-host-dev`). `supervisor.rs` waits until `/info` answers,
   restarts a core that exits (giving up after 4 quick exits, showing the end of its
   log), and on Quit closes the core's stdin: the core stops its servers and exits
-  (killed after 20 s). If the Host dies, the system closes the pipe and the core stops
+  (killed after 60 s, longer than the core's 45 s for its servers). If the Host dies, the system closes the pipe and the core stops
   too. The core's output goes to `<host folder>/logs/core.log`.
 - **The Host signs in as the owner without a password**, through the core's local
   claim (`core/src/local_claim.rs`), with `"session": true`: the Host proves it can
@@ -32,11 +31,28 @@ be built in parallel with little file overlap. Tick items (`[x]`) as you build t
   owner sign-in token (a JWT, as `POST /user/login` gives) into the claim's private
   folder. The token is tied to the core's HTTPS certificate (pinned, strict client) and
   never saved: the Host claims again at each start (`session.rs`,
-  `launcher_core::cores::local_claim::claim_session`). On the first run (a core without
-  an owner) the Host asks for the owner's username and password, which the claim uses
-  to make the account (no setup key needed), then for the core's name and public
-  address. If the owner turned off "Let apps on this computer claim owner access", the
+  `launcher_core::cores::local_claim::claim_session`). **The first run asks nothing**: on
+  a core without an owner the claim makes the owner without a password, named after this
+  computer's user (`session::default_owner_name`, else "owner"; changed in Settings ›
+  Profile), and the Host goes straight to the app. If the owner turned off "Let apps on this computer claim owner access", the
   Host asks for a username and password (`POST /user/login` over loopback).
+- **Local-only until shared** (`core/src/remote_access.rs`). The core's global setting
+  `allow_remote_access` ("Allow access from other devices", saved) is off for a new
+  `--is-host` core without an owner and after a claim makes an owner without a password;
+  every existing install (no field in its settings) keeps it on, and so does any owner
+  made with a password. While it is off, the core answers every API request from an
+  address that isn't this computer's with `403 {"kind":"LocalOnly"}` (a middleware inside
+  the CORS layer, before every route, WebSockets and the public listing included), and
+  connections from other devices opened while it was on stop when it is turned off.
+  Lodestone Connect is not affected (friends come through the tunnel). Anything that
+  only makes sense from other devices first asks for the owner's username and password
+  (`pages/account_dialogs.rs`, `AccountDialog::owner_account`, `PUT
+  /user/owner_account`, which also turns remote access on): Settings › General's "Allow
+  access from other devices", "List servers publicly" and plain HTTP from the network,
+  Settings › Users' new user, a new API key, and Profile's "Set a password". Turning it
+  off again asks first and is only allowed from this computer. While the owner has no
+  password, "Let apps on this computer claim owner access" can't be turned off (the
+  claim is then the only way in).
 - **Shared code.** `launcher/crates/lodestone-ui`: components, theme, fonts and icons,
   the i18n plumbing and the Common/Format words, undo, file dialogs, the skin paint
   layer, toasts (`components::toast`: `HostState::toast(Toast::success(…), cx)`, drawn
@@ -91,9 +107,12 @@ python3 scripts/host_dev_bundle.py --open             # "Lodestone Host Dev.app"
   `--notifications`, `--create games|basic|server|auto|modpack`, `--demo` (sample data
   on the Console, Files and Overview), `--select-lines` (a selection across the
   Console's lines, with `--tab console --demo`), `--find <text>` (the editor's find bar, with
-  `--tab files --demo`), `--degraded` (the "live updates stopped" banner), `--height <px>`.
-  For a run that acts as a user would: `--owner <name>` fills in the first run's forms
-  (the password comes from `LODESTONE_E2E_PASSWORD`), `--share` presses the sidebar's
+  `--tab files --demo`), `--degraded` (the "live updates stopped" banner), `--power-menu` (the sidebar's power
+  menu open on the selected instance), `--height <px>`.
+  For a run that acts as a user would: `--share-core` flips Settings › General's "Allow
+  access from other devices" (the owner account dialog opens), `--owner <name>` also
+  fills that dialog in and sends it (the password comes from `LODESTONE_E2E_PASSWORD`),
+  `--share` presses the sidebar's
   Share on the first instance, and `--control <folder>` keeps the Host running, saving
   the screenshot every 3 s, until a file named `quit` appears in the folder (a file
   named `stop-share` presses the Overview's Stop sharing).
@@ -106,13 +125,12 @@ the real connect.lodestone.cc and throwaway folders (never `~/.lodestone` or the
 launcher's real data). No Minecraft server is started: a plain TCP listener stands in
 for the game port.
 
-1. **Build** the core without Deno (`cargo build -p lodestone_core
-   --no-default-features`), then in `launcher/`: `cargo build -p lodestone-host
+1. **Build** the core (`cargo build -p lodestone_core --no-default-features`), then in `launcher/`: `cargo build -p lodestone-host
    --features screenshot -p lodestone-launcher -p lodestone-launcher-cli`.
 2. **Host, first run.** With `LODESTONE_PATH`, `LODESTONE_HOST_DATA_DIR` and
    `LODESTONE_HOST_CORE` (`../target/debug/lodestone_core`) set to a new temp folder,
-   run the Host. It asks for the owner account, then the core's name. (Offscreen:
-   `--screenshot first.png --owner alex` with `LODESTONE_E2E_PASSWORD` set.)
+   run the Host. It goes straight to the app: no account to make. Sharing a server with
+   friends needs none either. (Offscreen: `--screenshot first.png`.)
 3. **New server.** "New server" › Minecraft › the Server Settings step starts on the
    newest *release* (not a snapshot) › the last step shows "I agree to the Minecraft
    EULA", and Create stays off until the user ticks it. A test may not tick it: create
@@ -177,21 +195,25 @@ package has its i18n area (`InstancesMsg`, `ConsoleFilesMsg`, `InstanceMsg`,
 translation in `fr`, `zh_hans` and `zh_hant` (a missing one doesn't compile). Each
 package has its `cores/admin/<area>.rs` with the routes to add listed at its top.
 
-**Out of scope: everything that needs Deno.** The Host's core is built without the
-`deno` feature, so macros, tasks, instance scripts, extensions and atom (scripted)
-instances don't exist there. The Host shows them as unavailable, as the dashboard does
-for a core without the capability (`core/src/capabilities.rs`): the Macros tab only
-shows for a core with the `macros` capability and then says scripting is unavailable
-(`pages/macros.rs`), and atom instances' controls are disabled without
-`generic_instances`. Don't build them. They are marked **out of scope** below.
+**Removed: everything that ran on Deno.** Lodestone Core no longer has Deno, so
+macros, tasks, instance scripts, extensions and atom (scripted) instances are gone
+from the core, the dashboard and the Host. `/info` still sends `capabilities.macros`
+and `capabilities.generic_instances`, always false, and `UserPermission` still has
+`can_access_instance_macro` and `can_install_extension`; the Host reads neither the
+capabilities nor shows those permissions. An older core may still send macro events
+or list an atom instance: the events read as unknown and are skipped, and an atom
+instance shows as any other non-Minecraft (`Generic`) server, with the core deciding
+who may control it. These items are marked **removed** below.
 
 ## Done in the foundation
 
 - [x] The core as a child process: find, port, start, wait, restart, stop; log file
   (`core_process.rs`, `supervisor.rs`; core: `--port`, `--stop-with-stdin`).
-- [x] Owner sign-in without a password (local claim session), first-run owner account
-  and core name/address, password sign-in when claims are off (`session.rs`,
-  `onboarding.rs`, `app.rs`; core: `"session": true` claims).
+- [x] Owner sign-in without a password (local claim session), password sign-in when
+  claims are off (`session.rs`, `onboarding.rs`, `app.rs`; core: `"session": true`
+  claims). The first run asks nothing: the owner is made without a password and the core
+  stays local-only until the owner sets one up to share it (`account_dialogs.rs`; core:
+  `remote_access.rs`).
 - [x] The shell: top bar with logo and DEV badge, sidebar with the selected instance
   (state, players, power buttons by state and permission), its tabs by the dashboard's
   visibility rules, every instance with a live status dot, instances being made, "New
@@ -265,11 +287,11 @@ Conventions in the code that every area relies on:
 - Owner bypasses all permission checks client-side (`data/UserInfo.ts` `isUserAuthorized`): `is_owner` →
   true; boolean perms → value; per-instance perms (arrays of instance UUIDs) → membership.
 - "Atom" instance = `game_type.type === 'Generic'` and UUID not starting `DOCKER-`; owner-only to control
-  (`data/CodeExecution.ts`). "Docker" instance = UUID starts with `DOCKER-`, normal permissions apply.
+  (`data/CodeExecution.ts`). Removed: the Host shows one from an older core as any `Generic` server. "Docker" instance = UUID starts with `DOCKER-`, normal permissions apply.
 - Code-execution switch: `useCodeExecution()` → `enabled` (= !`code_execution_locked` && `code_execution_enabled`,
   default true), `locked`, `canManage` (= `is_owner`), `canRun` (= canManage && enabled).
 - Core capabilities (`/info` → `capabilities`, missing = available): `macros`, `generic_instances`
-  (`docker` exists in the type but the dashboard never reads it).
+  (now always false; the Host doesn't read them) (`docker` exists in the type but the dashboard never reads it).
 - "Saved" toast: one small reusable toast (`components/Settings/savedToast.ts`, id `settings-saved`,
   1.5 s) after any auto-saving setting.
 
@@ -330,11 +352,11 @@ Conventions in the code that every area relies on:
   - Empty state: dashed box "No instance selected" (faExpand icon).
   - Loading skeleton when URL names an instance but list still loading.
   - Instance card (§2.2) then the tab list. Tab visibility rules:
-    - `macros` only if owner (`canManage`) and core capability `macros` (and capabilities loaded).
+    - `macros` only if owner (`canManage`) and core capability `macros` (and capabilities loaded); removed.
     - `mods` only if the game supports mods/plugins (Fabric/Forge → "Mods", Paper/Spigot → "Plugins",
       `utils/mods.ts getModSupport`) **and** user has `can_read_instance_file` on the instance.
     - Tabs + icons (`pages/InstanceTabs/tabList.tsx`): Overview (chart-line), Settings (cog),
-      Console (server), Files (folder), Mods/Plugins (puzzle), Macros (code-compare), Event Logs (inbox).
+      Console (server), Files (folder), Mods/Plugins (puzzle), Event Logs (inbox). (Macros (code-compare): removed.)
       Active tab highlighted.
 - [x] Footer: core connection status row — `components/DashboardLayout/CoreConnectionStatus.tsx`
   - Icon + core name; colour by status: success (plug-check, green), loading (plug, gray), degraded
@@ -480,7 +502,7 @@ Conventions in the code that every area relies on:
   - *Host:* The Host's own core: the supervisor's status screen, which restarts it and shows its log.
 - [x] **Setup required dialog** (`/info.is_setup === false` while in dashboard): **Set up** (→ first_setup)
   / **Change core**.
-  - *Host:* The Host's own core: the first run's owner form (onboarding.rs).
+  - *Host:* The Host's own core: the claim makes the owner, without a password (session.rs); nothing is asked.
 - [x] **Version mismatch** (`DASHBOARD_VERSION` vs `/info.version`, semver): different major or minor, or
   core 0.4.x with patch < 4 → danger dialog (core/dashboard versions, "incompatible", wiki Updating link,
   "Continue anyway"); patch-only difference → warning toast top-centre 10 s (id `patchVersionMismatch`).
@@ -510,15 +532,15 @@ Conventions in the code that every area relies on:
 - [x] Notification titles produced per event (i18n `shell.event.*`): state transitions per state
   (`Starting/Running/Stopping/Stopped/Error` "<name> is …"), instance warning (+ error toast
   "warningToast"), instance error, players joined/left/both, player chat message, API key created/revoked,
-  macro started/detached/stopped (with exit status type).
+  macro started/detached/stopped (with exit status type; removed).
 - [x] Cache side effects of events (fresh only): StateTransition → instance state; InstanceError → state
   Error; PlayerChange → player list/count; UserCreated → refetch user list; UserDeleted → drop user (self →
   sign out); UsernameChanged / PermissionChanged → update self + list; ApiKeyCreated/Revoked → refetch key
-  lists; Macro Started → refetch task+macro lists; Macro Stopped → refetch task+history;
+  lists; Macro Started → refetch task+macro lists; Macro Stopped → refetch task+history (removed);
   ProgressionEnd InstanceCreation → add instance; InstanceDelete → remove instance;
   FSOperationCompleted → success/error toast with core message + refetch that instance's file lists;
   GlobalSettingsChanged → refetch global settings. `FSEvent`, `UserLoggedIn/Out` ignored.
-  - *Host:* `HostState::apply` (instances, players, self, creations, deletions, settings); Users and API keys refetch on their events; a zip or unzip that finishes shows its toast on any page and the Files tab lists its folder again. Macro events: out of scope (no Deno).
+  - *Host:* `HostState::apply` (instances, players, self, creations, deletions, settings); Users and API keys refetch on their events; a zip or unzip that finishes shows its toast on any page and the Files tab lists its folder again. Macro events: removed; an older core's read as unknown and are skipped.
 - [x] Global toasts (react-toastify): bottom-right, click to close, pause on hover, Zoom transition,
   level icon; colours info gray / error red / warning yellow / success green — `pages/_app.tsx`.
   - *Host:* `lodestone_ui::components::Toasts` (#632), drawn by the shell.
@@ -586,6 +608,7 @@ Conventions in the code that every area relies on:
     `can_stop_instance` (per instance).
   - Atom instances: whole menu disabled with tooltip if core lacks `generic_instances` ("no scripting") or
     user isn't owner; Start/Restart disabled with note when code execution is disabled.
+    - *Host:* **Removed** (Lodestone dropped Deno, with macros, tasks, instance scripts, extensions and atom instances); the menu follows the permissions alone.
 
 ### 2.3 Create instance dialog — `components/Instance/InstanceCreateForm.tsx`, `components/Instance/Create/*`, `components/DashboardLayout/LeftNav.tsx`  
 **Package: A.**
@@ -612,9 +635,9 @@ Conventions in the code that every area relies on:
 - [x] Create: `POST /instance/create/{HandlerGameType}` body `SetupValue {name, description, auto_start,
   restart_on_crash, setting_sections: {sectionId: {settings: {id: {value}}}}}`; failure → toast, dialog
   stays open; success closes dialog; the instance appears through progression events (pill → list).
-- [x] **Out of scope** (needs Deno). Generic/atom path: `PUT /generic_setup_manifest {url}` and `POST /instance/create_generic
-  {url, setup_value}` exist in code but there's no URL field in the UI **(dead)**. No Docker-instance UI.
-  - *Host:* Not applicable: out of scope (Deno), and dead in the dashboard.
+- [x] **Removed** (Lodestone dropped Deno, with macros, tasks, instance scripts, extensions and atom instances). Generic/atom path: `PUT /generic_setup_manifest {url}` and `POST /instance/create_generic
+  {url, setup_value}` existed in code but there was no URL field in the UI **(dead)**. No Docker-instance UI.
+  - *Host:* Not applicable: removed from the core.
 - [x] Dialog skeleton while code loads (`CreateInstanceFlow.tsx`); Back keeps typed values.
 
 ### 2.4 Create from Modrinth modpack — `components/Instance/Create/ModpackCreateForm.tsx`, `components/Mods/ModrinthSearch.tsx`, `data/Mods.ts`  
@@ -644,14 +667,30 @@ Conventions in the code that every area relies on:
   version_id} | {type:'upload', upload_id}, name, port, description, min_ram, max_ram, auto_start,
   restart_on_crash}` → `InstanceUuid`; progress via progression events.
 
+### 2.4b Import an existing server (Host only)
+**Package: A.**
+
+- [x] Not in the dashboard.
+  - *Host:* the "Existing server" card (`pages/create_instance/import.rs`): choose the
+    server's folder on this computer, which the core reads
+    (`POST /instance/import/inspect`: the Minecraft version, the server software, the
+    port, the size), then the settings (software, version, name, port, RAM) and
+    **Import Server** (`POST /instance/import`). The core makes the server as any
+    other, with its own Java and server software, and copies the folder into it; the
+    folder itself is never changed. Lodestone's own files, the old server's jars,
+    `libraries`, `versions` and caches are left out, as are symbolic links. Purpur,
+    Spigot and the like come in as Paper. Both routes need `CreateInstance` and
+    `ReadGlobalFile` (`core/src/handlers/instance_import.rs`).
+
 ### 2.5 Delete instance — `components/Instance/InstanceSettings.tsx`  
 **Package: C.**
 
 - [x] In Settings › Danger zone: "Delete" button → danger confirm dialog ("Delete <name>?", cannot be
   undone) → `DELETE /instance/{uuid}`; refetch list, deselect; error toast.
-- [x] Permission: `can_delete_instance` (global) and, for atom instances, owner.
+- [x] Permission: `can_delete_instance` (global) and, for atom instances, owner (atom rule removed).
 - [x] No clone, rename-folder, import-existing, backup or export features exist in the dashboard.
-  - *Host:* Not applicable: not in the dashboard.
+  - *Host:* The Host has backups (its Backups tab, §6.5); deleting a server deletes
+    its backups too, and the delete dialog says so.
 
 ---
 
@@ -661,7 +700,7 @@ Conventions in the code that every area relies on:
 - [x] Inline-editable **name** (heading) and **description**: click or pencil → input, Enter/floppy saves,
   Esc/blur cancels; trimmed; inline error text; spinner — `components/EditableTextfield.tsx`.
   - `PUT /instance/{uuid}/name` / `PUT /instance/{uuid}/description` (JSON string body); updates list cache.
-  - Read-only for non-owners on atom instances (tooltip). No explicit permission check client-side.
+  - Read-only for non-owners on atom instances (tooltip; removed). No explicit permission check client-side.
   - Host: Enter or the floppy saves, Esc or × cancels; leaving the field does not
     cancel. An empty name is refused before it is sent.
 - [x] Labels row: game icon, state label, "Version x", "n/m players", address chip `<domain|core
@@ -721,8 +760,8 @@ Conventions in the code that every area relies on:
 - [x] Command input: `POST /instance/{uuid}/console` body JSON string; error toast "Couldn't send: …";
   history of last ~50 commands per tab session, ↑/↓ navigation. *Host: kept per instance
   while the Host runs.*
-  - Input disabled with message when: no `can_access_instance_console`; atom instance and not owner;
-    instance Stopped; stream closed.
+  - Input disabled with message when: no `can_access_instance_console`; atom instance and not owner
+    (removed); instance Stopped; stream closed.
 - [x] Empty/no-permission states with server icon graphic; skeleton code lines while loading.
 - [x] The instance tab container's Console heading with the state label (§1.2): not done,
   the heading is the shell's; the sidebar and the status dot show the state.
@@ -815,7 +854,7 @@ Conventions in the code that every area relies on:
     pause and on submit (not empty for numbers, strict integer/float parse, min/max).
   - Save: `PUT /instance/{uuid}/settings/{sectionId}/{settingId}` body `ConfigurableValue` JSON → "Saved" toast.
   - Disabled when `!is_mutable`, no `can_access_instance_setting` (row shows "No permission"), atom &
-    not owner, or `java_cmd`/`cmd_args` blocked (reason appended).
+    not owner (removed), or `java_cmd`/`cmd_args` blocked (reason appended).
   - Section with no settings: "Not available" row.
   - Special preview: `motd` setting shows rendered MOTD (Minecraft formatting, `\uXXXX`/`\n` unescaped) on a
     dirt background with the Minecraft font — `SettingOverrides.tsx`, `components/Atoms/MOTDRender.tsx`,
@@ -823,7 +862,7 @@ Conventions in the code that every area relies on:
   - (Which settings exist — port, RAM, java, flags, server.properties fields… — comes entirely from the
     core's manifest; the dashboard has no hard-coded list.)
 - [x] **Automation** section: Auto start, Restart on crash toggles → `PUT /instance/{uuid}/auto_start` /
-  `/restart_on_crash` (JSON bool); refetch list; needs `can_access_instance_setting` (+ owner for atom).
+  `/restart_on_crash` (JSON bool); refetch list; needs `can_access_instance_setting` (owner for atom: removed).
 - [x] **Sharing / public listing** (Minecraft Java only; hidden on cores without scopes) —
   `components/Instance/PublicListingSetting.tsx`
   - `GET /instance/{uuid}/public_listing` → `InstancePublicListing`; "Public" toggle + checkboxes
@@ -908,12 +947,13 @@ Conventions in the code that every area relies on:
   deep links: the Host has no URLs. Results and projects aren't cached in the Host (the
   core caches Modrinth for 5 minutes).
 
-### 6.3 Macros tab — `pages/macros.tsx`, `components/Table.tsx`, `components/ButtonMenu.tsx`  
-**Package: **out of scope** (needs Deno).**
+### 6.3 Macros tab (removed)
+
+**Removed** (Lodestone dropped Deno, with macros, tasks, instance scripts, extensions and atom instances): the core, the dashboard and the Host have no Macros tab. What the dashboard had, for reference:
 
 - [x] Visible only to the owner on cores with the `macros` capability; otherwise "owner only" /
   "no scripting" text. Banner when code execution is disabled (listing, kill and history still work).
-  - *Host:* Not applicable: out of scope (Deno).
+  - *Host:* Not applicable: removed.
 - [x] Sub-tabs: **Macros**, **Tasks**, **History** (tables with skeleton rows, "No data", zebra rows, per-row
   "…" menu).
   - Macros: `GET /instance/{uuid}/macro/list` → `MacroEntry[]`; columns Name, Last run. Row menu:
@@ -922,14 +962,14 @@ Conventions in the code that every area relies on:
   - Tasks: `GET /instance/{uuid}/task/list` → `TaskEntry[]`; columns Name, Created, PID; menu **Kill** →
     `PUT /instance/{uuid}/macro/kill/{pid}`.
   - History: `GET /instance/{uuid}/history/list` → `HistoryEntry[]`; columns Name, Created, Finished, PID.
-  - *Host:* Not applicable: out of scope (Deno).
+  - *Host:* Not applicable: removed.
 - [x] Macro config dialog: `GET /instance/{uuid}/macro/config/get/{name}` → `GetConfigResponse {config:
   {name: SettingManifest}, message, error}`; renders each setting with the same setting-field controls
   (edits local only); red "config required" note if `error`; **Save** → `POST
   /instance/{uuid}/macro/config/store/{name}` body the config map; failure keeps dialog open.
-  - *Host:* Not applicable: out of scope (Deno).
+  - *Host:* Not applicable: removed.
 - [x] Lists refetch on macro events and every visit. `MacroCreateForm.tsx` ("create macro") **(dead)**.
-  - *Host:* Not applicable: out of scope (Deno).
+  - *Host:* Not applicable: removed.
 
 ### 6.4 Event Logs tab — `pages/InstanceTabs/InstanceTabs.tsx`  
 **Package: C.**
@@ -940,11 +980,21 @@ Conventions in the code that every area relies on:
   `GET /events/all/buffer` then the live event stream (at most 500 lines).
 
 ### 6.5 Players / whitelist / ops / backups / scheduling  
-**Package: nobody (not in the dashboard).**
+**Package: nobody (not in the dashboard); backups: the backups change.**
 
 - [x] Not present in the dashboard (only the read-only player list on Overview). Any such feature would
   come only through the core's settings manifest.
-  - *Host:* Not applicable: not in the dashboard.
+  - *Host:* Players, whitelist and ops: not applicable, not in the dashboard. Backups
+    are the Host's own (the core's `/instance/{uuid}/backups` routes, §10.6b): a
+    **Backups** tab after Files (`pages/backups.rs`, `cores/admin/backups.rs`,
+    `i18n/*/backups.rs`), for Minecraft Java servers when the user may read their
+    files. It backs up now, keeps the schedule (on/off, how often, only when players
+    were on, and Fewer/Normal/More kept), shows the storage used and the list (tags:
+    Manual, Automatic, Before restore, Live, May be inconsistent, files skipped,
+    Pinned), and restores (everything or only the world, after a safety backup),
+    restores as a new server, downloads a zip, pins and deletes. Progress comes from
+    the job's progression events and the list (fetched again while a job runs, since
+    only owners and admins get updates). The dashboard has no backup UI.
 
 ### 6.6 Ports  
 **Package: C (through the settings manifest).**
@@ -987,9 +1037,9 @@ Conventions in the code that every area relies on:
   - *Host:* Shows the Lodestone Host version where the dashboard shows its own.
 - [x] **Danger zone**:
   - Safe mode toggle (turning on saves; turning off asks confirm) → `PUT /global_settings/safe_mode`.
-  - Code execution toggle (owner; disabled if locked, with "locked by administrator" note; hint differs
-    when core has no Deno: only custom Java commands) → turning off asks danger confirm → `PUT
-    /global_settings/code_execution`, then refetch.
+  - Code execution toggle (owner; disabled if locked, with "locked by administrator" note; it covers
+    custom Java commands only, now that macros, atoms, extensions and scripts are removed) → turning off
+    asks danger confirm → `PUT /global_settings/code_execution`, then refetch.
   - Allow plain HTTP from LAN (owner, if supported) → turning on asks danger confirm → `PUT
     /global_settings/allow_lan_http`.
   - Allow local claim (owner, if supported) → `PUT /global_settings/allow_local_claim`.
@@ -1017,10 +1067,12 @@ Conventions in the code that every area relies on:
     `components/Atoms/MultiSelectGrid.tsx`.
   - **Unsafe permissions** (danger card; disabled while safe mode is on): `can_write_instance_resource`,
     `can_write_instance_file` (per instance), `can_write_global_file`, `can_manage_permission` (toggles);
-    plus a disabled "Owner only" row explaining macros/extensions/atoms are owner-only (or "no scripting").
+    plus a disabled "Owner only" row explaining macros/extensions/atoms are owner-only (or "no scripting");
+    the row is removed (the Host's API key scope had the same row, removed too).
   - Each change: `PUT /user/{uid}/update_perm` body full `UserPermission`; changes are queued and each is
     computed from the latest cached permissions; "Saved" toast; edits only by owner.
-  - Not editable/listed: `can_access_instance_macro`, `can_install_extension`.
+  - Not editable/listed: `can_access_instance_macro`, `can_install_extension` (still on the wire; the
+    features are removed, and the Host doesn't count them in a key's permissions).
   - **API keys** of that user (§7.4, revoke only).
   - **Minecraft accounts** of that user (owner): list + Remove (§7.5).
 - [x] Non-owners see no user list (the page is effectively empty for them).
@@ -1035,6 +1087,12 @@ Conventions in the code that every area relies on:
 - [x] Password: **Change password** button → dialog (old/new/confirm) → `PUT /user/{uid}/password`.
 - [x] **Appearance**: Language select (§1.8), Theme segmented control (§1.8), "Coloured console" toggle
   (local only).
+- [x] Not in the dashboard: **Startup**.
+  - *Host:* "Open Lodestone Host when I sign in" (`login_item.rs`), off until the user
+    turns it on. The system keeps it (Windows: the user's `Run` key; macOS: a launch
+    agent; Linux: an autostart entry), and it starts the Host with `--background`,
+    which keeps the window hidden. The servers set to start automatically then start
+    with the core. Uninstalling on Windows removes it.
 - [x] **API keys** section (own keys, §7.4).
 - [x] **Minecraft accounts** section (own links, §7.5).
 
@@ -1073,7 +1131,8 @@ Conventions in the code that every area relies on:
 **Package: nobody.**
 
 - [x] No system-stats page (`/system/ram|disk|cpu` hooks and `SystemStat.tsx` exist but are unused
-  **(dead)**), no core updater UI, no global event-log page, no extension management, no backup UI.
+  **(dead)**), no core updater UI, no global event-log page, no extension management (extensions are removed), no backup UI (the Host has a
+  Backups tab, §6.5).
   Version/info appears only in Core › General › Information and the connection tooltip.
   - *Host:* Not applicable: not in the dashboard.
 
@@ -1091,8 +1150,8 @@ Conventions in the code that every area relies on:
 - [x] Core start failure → native desktop notification "Lodestone Host failed to start: <error>"
   (`notify-rust`) and exit.
 - [x] If the core future ends on its own (not via Quit) → `process::exit(128)`.
-- [x] **No Deno, ever:** the Host bundles a core built with `--no-default-features`, and shows scripting as unavailable. (The Tauri Host had:) Cargo feature `deno` (default) passes through to core (macros/atoms); `--no-default-features` build
-  has no scripting (dashboard reacts via capabilities).
+- [x] **No Deno:** Lodestone Core no longer has Deno, macros or atoms (removed). (The Tauri Host had:) Cargo feature `deno` (default) passed through to core (macros/atoms); `--no-default-features` built
+  without scripting (dashboard reacted via capabilities).
 
 ### 8.2 Commands exposed to JS (all permission-free) — `src-tauri/src/main.rs`  
 **Package: foundation (done: replaced by the local claim).**
@@ -1139,7 +1198,7 @@ Conventions in the code that every area relies on:
   - *Host:* macOS: the menu bar icon (foundation). Windows: a notification area icon with Show and Quit (tray_windows.rs; compile-checked for x86_64-pc-windows-msvc in a scratch crate, not run). Linux: none, see tray.rs.
 - [x] Left click (button up) shows + focuses the main window; on macOS left click also opens the menu.
   - *Host:* Windows: a left click shows the window, a right click opens the menu.
-- [x] Quit: signals core shutdown (stop servers), waits up to 10 s for it, then exits.
+- [x] Quit: signals core shutdown (stop servers), waits up to 60 s for it (the core gives its servers 45 s), then exits.
 
 ### 8.6 Single instance — `main.rs`  
 **Package: foundation (done).**
@@ -1314,7 +1373,24 @@ All paths are under `/api/v1`. Bodies are JSON unless noted. Types are in `dashb
 | POST | `/modpack/inspect` | `ModpackInspectRequest {version_id}` | `ModpackInfo` |
 | POST | `/modpack/upload` | multipart `file` | `ModpackInfo` (with `upload_id`) |
 
-### 10.7 Macros / tasks
+### 10.6b Backups (Host only)
+
+| Method | Path | Request | Response |
+|---|---|---|---|
+| GET | `/instance/{uuid}/backups` | – | `BackupList` |
+| POST | `/instance/{uuid}/backups` | `{name?}` | `{task_id}` |
+| PATCH | `/instance/{uuid}/backups/{id}` | `{name?, pinned?}` | `BackupInfo` |
+| DELETE | `/instance/{uuid}/backups/{id}` | – | `{}` |
+| POST | `/instance/{uuid}/backups/{id}/restore` | `RestoreRequest {scope, stop, start_after, safety_backup}` | `{task_id}` |
+| POST | `/instance/{uuid}/backups/{id}/restore_as_new` | `{name?}` | `{task_id}` (the new server comes as `InstanceCreation`) |
+| POST | `/instance/{uuid}/backups/{id}/download` | – | `{key, file_name, size}` → `/file/{key}` |
+| GET | `/instance/{uuid}/backups/policy` | – | `BackupPolicy` |
+| PUT | `/instance/{uuid}/backups/policy` | `BackupPolicy` | `BackupPolicy` |
+
+### 10.7 Macros / tasks (removed)
+
+These routes are gone from the core, with `/task/*`, `/history/*`, `/extension/*` and
+`/instance/create_generic`. What they were:
 
 | Method | Path | Request | Response |
 |---|---|---|---|
@@ -1352,14 +1428,17 @@ Event variants the dashboard handles (everything else must at least be tolerated
   {key_id, name}`; `UserLoggedIn`, `UserLoggedOut` (ignored).
   - *Host:* As above.
 - [x] `MacroEvent` {instance_uuid, macro_pid, macro_event_inner}: `Started`, `Detach`, `Stopped
-  {exit_status: ExitStatus}`.
-  - *Host:* Parsed and tolerated; macros are out of scope.
+  {exit_status: ExitStatus}`. Removed.
+  - *Host:* Not modelled: an older core's macro events read as `EventInner::Unknown`, and
+    `caused_by: {type: "Macro"}` as `CausedBy::Unknown`.
 - [x] `ProgressionEvent` {event_id, progression_event_inner}: `ProgressionStart {progression_name, total,
   inner: ProgressionStartValue (InstanceCreation|InstanceDelete {instance_uuid})}`, `ProgressionUpdate
   {progress_message, progress}`, `ProgressionEnd {success, message, inner: ProgressionEndValue
   (InstanceCreation & InstanceInfo | InstanceDelete {instance_uuid} | FSOperationCompleted {instance_uuid,
   success, message})}`.
-  - *Host:* As above.
+  - *Host:* As above, plus the backups' `Backup`/`Restore {instance_uuid}` starts and
+    `BackupCompleted`/`RestoreCompleted {instance_uuid, backup_id, success, message}` ends,
+    which the Backups tab follows.
 - [x] `FSEvent {operation, target}` (ignored).
   - *Host:* Tolerated and ignored.
 - [x] `GlobalSettingsChanged` (no payload).

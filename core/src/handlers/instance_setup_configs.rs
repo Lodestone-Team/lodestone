@@ -23,6 +23,7 @@ pub enum HandlerGameType {
     MinecraftJavaVanilla,
     MinecraftFabric,
     MinecraftForge,
+    MinecraftNeoForge,
     MinecraftPaper,
     MinecraftBedrock,
 }
@@ -33,6 +34,7 @@ impl From<HandlerGameType> for GameType {
             HandlerGameType::MinecraftJavaVanilla => Self::MinecraftJava,
             HandlerGameType::MinecraftFabric => Self::MinecraftJava,
             HandlerGameType::MinecraftForge => Self::MinecraftJava,
+            HandlerGameType::MinecraftNeoForge => Self::MinecraftJava,
             HandlerGameType::MinecraftPaper => Self::MinecraftJava,
             HandlerGameType::MinecraftBedrock => Self::MinecraftBedrock,
         }
@@ -47,6 +49,7 @@ impl TryFrom<HandlerGameType> for FlavourKind {
             HandlerGameType::MinecraftJavaVanilla => Self::Vanilla,
             HandlerGameType::MinecraftFabric => Self::Fabric,
             HandlerGameType::MinecraftForge => Self::Forge,
+            HandlerGameType::MinecraftNeoForge => Self::NeoForge,
             HandlerGameType::MinecraftPaper => Self::Paper,
             HandlerGameType::MinecraftBedrock => {
                 return Err(Error {
@@ -63,6 +66,7 @@ pub async fn get_available_games() -> Json<Vec<HandlerGameType>> {
         HandlerGameType::MinecraftJavaVanilla,
         HandlerGameType::MinecraftFabric,
         HandlerGameType::MinecraftForge,
+        HandlerGameType::MinecraftNeoForge,
         HandlerGameType::MinecraftPaper,
     ])
 }

@@ -24,13 +24,14 @@ use launcher_core::cores::{
 use lodestone_ui::{
     components::{
         Button, ButtonVariant, Dialog, DialogSlot, Icon, TextInput, segmented,
-        settings::{self, SettingRow},
+        settings::{self, SettingRow, SettingsQuery, SettingsSearch},
         window_layer,
     },
     theme::{colors, fonts, ink, px, radius, text, weights},
 };
 
 use super::{
+    account_dialogs::{self, AccountDialog, AccountDialogEvent},
     parts::{self, Confirm},
     permissions,
 };
@@ -105,10 +106,51 @@ pub struct ApiKeysSection {
     revoking: DialogSlot<Self, Revoking>,
     create: DialogSlot<Self, Entity<CreateKeyDialog>>,
     created: DialogSlot<Self, Created>,
+    /// The owner account to set up before the first key: keys are for other devices
+    /// and scripts, which sign in remotely.
+    owner_account: DialogSlot<Self, Entity<AccountDialog>>,
+    /// The Settings' search, on a page that has one: only the keys that match show.
+    search: Option<Entity<SettingsSearch>>,
     _subscriptions: Vec<Subscription>,
 }
 
+/// Whether `query` finds `key`, by its name or the start of its secret.
+fn key_matches(query: &SettingsQuery, key: &ApiKeyInfo) -> bool {
+    query.matches([key.name.as_str(), key.display.as_str()])
+}
+
 impl ApiKeysSection {
+    /// Shows `key` as just created, as Create does: for tests.
+    #[cfg(test)]
+    pub fn show_created(&mut self, key: CreatedApiKey, cx: &mut Context<Self>) {
+        let focus = cx.focus_handle();
+        self.created.open(Created { key, focus }, cx);
+    }
+
+    /// Whether the new key's dialog is open: for tests.
+    #[cfg(test)]
+    pub fn created_open(&self) -> bool {
+        self.created.is_open()
+    }
+
+    /// Shows only what matches `search`.
+    pub fn set_search(&mut self, search: Entity<SettingsSearch>) {
+        self.search = Some(search);
+    }
+
+    /// While `query` is active, how many settings it finds here: every key (or the
+    /// empty list's line) when it matches the section's title, else the keys it finds.
+    pub fn found(&self, query: &SettingsQuery) -> usize {
+        let keys = match &self.keys {
+            Some(Ok(keys)) => keys.as_slice(),
+            _ => &[],
+        };
+        if query.matches([t(CoreMsg::ApiKeys)]) {
+            return keys.len().max(1);
+        }
+        keys.iter().filter(|key| key_matches(query, key)).count()
+    }
+
     pub fn new(state: Entity<HostState>, owner: Owner, cx: &mut Context<Self>) -> Self {
         let subscription = cx.subscribe(&state, |this, _, event, cx| {
             // a key made or revoked elsewhere
@@ -129,6 +171,8 @@ impl ApiKeysSection {
             revoking: DialogSlot::new(|this: &mut Self| &mut this.revoking),
             create: DialogSlot::new(|this: &mut Self| &mut this.create),
             created: DialogSlot::new(|this: &mut Self| &mut this.created),
+            owner_account: DialogSlot::new(|this: &mut Self| &mut this.owner_account),
+            search: None,
             _subscriptions: vec![subscription],
         };
         this.load(cx);
@@ -197,6 +241,25 @@ impl ApiKeysSection {
 
     fn open_create(&mut self, cx: &mut Context<Self>) {
         let state = self.state.clone();
+        if account_dialogs::needs_owner_account(state.read(cx)) {
+            let (dialog, subscription) = account_dialogs::open(
+                move |cx| AccountDialog::owner_account(state, cx),
+                |this: &mut Self, dialog, event, cx| {
+                    if this.owner_account.current() != Some(dialog) {
+                        return;
+                    }
+                    this.owner_account.close(cx);
+                    // on to the key it was for
+                    if matches!(event, AccountDialogEvent::OwnerSetUp(_)) {
+                        this.open_create(cx);
+                    }
+                },
+                cx,
+            );
+            self._subscriptions.push(subscription);
+            self.owner_account.open(dialog, cx);
+            return;
+        }
         let dialog = cx.new(|cx| CreateKeyDialog::new(state, cx));
         self._subscriptions
             .push(cx.subscribe(&dialog, |this, dialog, event, cx| {
@@ -427,6 +490,14 @@ impl Render for ApiKeysSection {
                 tr!(CoreMsg::ApiKeysUserEmpty, username = username),
             ),
         };
+        let query = self
+            .search
+            .as_ref()
+            .map(|search| search.read(cx).query())
+            .unwrap_or_default();
+        // the title matches (or nothing is typed): every key
+        let all = query.matches([t(CoreMsg::ApiKeys)]);
+        let hidden = !all && self.found(&query) == 0;
         let body: AnyElement = match &self.keys {
             None => {
                 settings::card([parts::empty_row(t(CoreMsg::LoadingApiKeys))]).into_any_element()
@@ -439,6 +510,7 @@ impl Render for ApiKeysSection {
                 let keys = keys.clone();
                 settings::card(
                     keys.iter()
+                        .filter(|key| all || key_matches(&query, key))
                         .map(|key| self.key_row(key, cx))
                         .collect::<Vec<_>>(),
                 )
@@ -470,6 +542,13 @@ impl Render for ApiKeysSection {
             self.created
                 .render(window, |created| Some(self.render_created(created, cx))),
         );
+        dialogs.extend(
+            self.owner_account
+                .render(window, |dialog| Some(dialog.clone().into_any_element())),
+        );
+        if hidden {
+            return div().children(window_layer(window, dialogs));
+        }
         div()
             .flex()
             .flex_col()
@@ -597,7 +676,6 @@ impl CreateKeyDialog {
         let safe_mode = state.settings.as_ref().is_some_and(|s| s.safe_mode);
         let mut instances = state.instances.clone().unwrap_or_default();
         instances.sort_by(|a, b| a.name.cmp(&b.name));
-        let macros = state.info.capabilities.macros;
         let this = cx.entity().downgrade();
         let on_change: permissions::OnChange =
             Rc::new(move |permission, instance, value, _, cx| {
@@ -646,7 +724,9 @@ impl CreateKeyDialog {
             .when(!me.is_owner, |this| {
                 this.child(parts::paragraph(t(CoreMsg::OnlyYours)))
             })
-            .child(settings::card(normal))
+            .child(settings::card(
+                normal.into_iter().map(IntoElement::into_any_element),
+            ))
             .child(
                 div()
                     .text_size(text::H3)
@@ -662,12 +742,9 @@ impl CreateKeyDialog {
                         .child(t(CoreMsg::KeyUnsafeSafeMode)),
                 )
             })
-            .child(settings::card(unsafe_rows))
-            .child(SettingRow::new(t(CoreMsg::KeyOwnerOnly)).hint(if macros {
-                t(CoreMsg::KeyOwnerOnlyHint)
-            } else {
-                t(CoreMsg::NoScripting)
-            }))
+            .child(settings::card(
+                unsafe_rows.into_iter().map(IntoElement::into_any_element),
+            ))
             .into_any_element()
     }
 }

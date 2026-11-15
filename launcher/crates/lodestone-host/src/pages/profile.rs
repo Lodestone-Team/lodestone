@@ -4,16 +4,18 @@
 //! §7.3 and §1.8). The appearance is saved on this computer ([`crate::prefs`]).
 
 use gpui::{
-    AnyElement, AppContext as _, Context, Entity, InteractiveElement as _, IntoElement,
-    ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled, Subscription,
-    Window, div, prelude::FluentBuilder as _,
+    AnyElement, AppContext as _, Context, Entity, IntoElement, ParentElement, Render, SharedString,
+    StatefulInteractiveElement as _, Styled, Subscription, Window, div,
+    prelude::FluentBuilder as _,
 };
 use launcher_core::settings::Language;
 use lodestone_ui::{
     components::{
-        Button, ButtonSize, DialogSlot, ListRow, Toggle,
+        Button, ButtonSize, DialogSlot, Dropdown, ListRow, Toggle,
         a11y::Accessible as _,
-        settings::{self, SettingRow, popover, popover_panel, select_button},
+        settings::{
+            SearchRow, SettingRow, SettingsQuery, SettingsSearch, popover_panel, select_button,
+        },
         window_layer,
     },
     i18n::Locale,
@@ -63,7 +65,7 @@ fn theme_name(theme: Theme) -> (&'static str, &'static str) {
 }
 
 /// The Appearance dropdown that is open, if any.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Menu {
     Language,
     Theme,
@@ -75,12 +77,27 @@ pub struct ProfilePage {
     username: Entity<TextSetting>,
     api_keys: Entity<ApiKeysSection>,
     links: Entity<MinecraftLinksSection>,
+    /// Whether the Host opens when the user signs in to the computer, as the system
+    /// has it ([`crate::login_item`]).
+    start_at_login: bool,
+    /// The Settings' search field: the page shows the settings that match it.
+    search: Entity<SettingsSearch>,
     dialog: DialogSlot<Self, Entity<AccountDialog>>,
     _subscriptions: Vec<Subscription>,
 }
 
 impl ProfilePage {
-    pub fn new(state: Entity<HostState>, cx: &mut Context<Self>) -> Self {
+    /// The signed-in user's API keys: for tests.
+    #[cfg(test)]
+    pub fn api_keys(&self) -> &Entity<ApiKeysSection> {
+        &self.api_keys
+    }
+
+    pub fn new(
+        state: Entity<HostState>,
+        search: Entity<SettingsSearch>,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let name = state.read(cx).me.username.clone();
         let username = cx.new(|cx| {
             TextSetting::new(
@@ -94,10 +111,19 @@ impl ProfilePage {
                 cx,
             )
         });
-        let api_keys = cx.new(|cx| ApiKeysSection::new(state.clone(), api_keys::Owner::Me, cx));
-        let links =
-            cx.new(|cx| MinecraftLinksSection::new(state.clone(), minecraft_links::Owner::Me, cx));
+        let api_keys = cx.new(|cx| {
+            let mut section = ApiKeysSection::new(state.clone(), api_keys::Owner::Me, cx);
+            section.set_search(search.clone());
+            section
+        });
+        let links = cx.new(|cx| {
+            let mut section =
+                MinecraftLinksSection::new(state.clone(), minecraft_links::Owner::Me, cx);
+            section.set_search(search.clone());
+            section
+        });
         let subscriptions = vec![
+            cx.observe(&search, |_, _, cx| cx.notify()),
             cx.subscribe(&username, |this, _, event, cx| {
                 let TextSettingEvent::Submit(name) = event;
                 this.rename(name.clone(), cx);
@@ -114,7 +140,9 @@ impl ProfilePage {
             menu: None,
             username,
             api_keys,
+            start_at_login: crate::login_item::is_enabled(),
             links,
+            search,
             dialog: DialogSlot::new(|this: &mut Self| &mut this.dialog),
             _subscriptions: subscriptions,
         }
@@ -143,11 +171,21 @@ impl ProfilePage {
         );
     }
 
+    /// Changes the password, or for an owner without one, sets up the owner account
+    /// (which also lets other devices use the core).
     fn change_password(&mut self, cx: &mut Context<Self>) {
         let state = self.state.clone();
         let uid = state.read(cx).me.uid.clone();
+        let owner = state.read(cx).me.is_owner;
+        let set_up = account_dialogs::needs_owner_account(state.read(cx));
         let (dialog, subscription) = account_dialogs::open(
-            move |cx| AccountDialog::change_password(state, uid, cx),
+            move |cx| {
+                if set_up {
+                    AccountDialog::owner_account(state, cx)
+                } else {
+                    AccountDialog::change_password(state, uid, owner, cx)
+                }
+            },
             |this: &mut Self, dialog, event, cx| {
                 if this.dialog.current() != Some(dialog) {
                     return;
@@ -194,18 +232,11 @@ impl ProfilePage {
             page.update(cx, |this, cx| this.toggle_menu(menu, cx)).ok();
         })
         .on_press(cx.listener(move |this, _, _, cx| this.toggle_menu(menu, cx)));
-        div()
-            .flex()
-            .flex_col()
-            .items_end()
-            .child(button)
+        Dropdown::new(button)
+            .align_end()
             .when(open, |this| {
-                let mut panel = popover_panel(SharedString::from(format!("{id}-list")))
-                    .min_w(px(200.))
-                    .on_mouse_down_out(cx.listener(|this, _, _, cx| {
-                        this.menu = None;
-                        cx.notify();
-                    }));
+                let mut panel =
+                    popover_panel(SharedString::from(format!("{id}-list"))).min_w(px(200.));
                 for (index, (value, name)) in options.into_iter().enumerate() {
                     panel = panel.child(
                         ListRow::new(SharedString::from(format!("{id}-option-{index}")), name)
@@ -218,7 +249,7 @@ impl ProfilePage {
                     );
                 }
                 let page = cx.entity().downgrade();
-                this.child(popover(
+                this.popover(
                     SharedString::from(format!("{id}-menu")),
                     panel,
                     move |_, cx| {
@@ -228,9 +259,20 @@ impl ProfilePage {
                         })
                         .ok();
                     },
-                ))
+                )
             })
             .into_any_element()
+    }
+
+    /// For screenshots: opens the `language` or `theme` list.
+    #[cfg(feature = "screenshot")]
+    pub fn open_menu_for_screenshot(&mut self, name: &str, cx: &mut Context<Self>) {
+        self.menu = Some(if name == "theme" {
+            Menu::Theme
+        } else {
+            Menu::Language
+        });
+        cx.notify();
     }
 
     fn toggle_menu(&mut self, menu: Menu, cx: &mut Context<Self>) {
@@ -242,7 +284,41 @@ impl ProfilePage {
         cx.notify();
     }
 
-    fn appearance(&self, cx: &mut Context<Self>) -> AnyElement {
+    /// Turns opening at sign-in on or off. The switch only moves once the system took
+    /// the change.
+    fn set_start_at_login(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        match crate::login_item::set(enabled) {
+            Ok(()) => self.start_at_login = enabled,
+            Err(error) => {
+                let text = tr!(CoreMsg::StartAtLoginFailed, error = error);
+                self.state.update(cx, |state, cx| {
+                    state.toast(
+                        lodestone_ui::components::Toast::error(text).key("start-at-login"),
+                        cx,
+                    )
+                });
+            }
+        }
+        cx.notify();
+    }
+
+    fn startup(&self, query: &SettingsQuery, cx: &mut Context<Self>) -> Option<AnyElement> {
+        query
+            .section(t(CoreMsg::Startup), None)
+            .card([SettingRow::new(t(CoreMsg::StartAtLogin))
+                .hint(t(CoreMsg::StartAtLoginHint))
+                .child(
+                    Toggle::new("start-at-login", self.start_at_login)
+                        .label(t(CoreMsg::StartAtLogin))
+                        .on_change(cx.listener(|this, value: &bool, _, cx| {
+                            this.set_start_at_login(*value, cx)
+                        })),
+                )])
+            .finish()
+            .map(IntoElement::into_any_element)
+    }
+
+    fn appearance(&self, query: &SettingsQuery, cx: &mut Context<Self>) -> Option<AnyElement> {
         let prefs = Prefs::get(cx).clone();
         let language = self.dropdown(
             Menu::Language,
@@ -309,61 +385,90 @@ impl ProfilePage {
                     .disabled((zoom_value - 1.0).abs() < 1e-3)
                     .on_click(|_, _, cx| Prefs::update(cx, |p| p.zoom = 1.0)),
             );
-        settings::section(
-            t(CoreMsg::Appearance),
-            Some(t(CoreMsg::AppearanceLead).into()),
-        )
-        .child(settings::card([
-            SettingRow::new(t(CoreMsg::Language))
-                .child(language)
-                .into_any_element(),
-            SettingRow::new(t(CoreMsg::Theme))
-                .hint(theme_name(prefs.theme).1)
-                .child(theme)
-                .into_any_element(),
-            SettingRow::new(t(CoreMsg::Zoom))
-                .hint(tr!(CoreMsg::ZoomHint, modifier = modifier))
-                .child(zoom_control)
-                .into_any_element(),
-            SettingRow::new(t(CoreMsg::ColoredConsole))
-                .child(
+        query
+            .section(
+                t(CoreMsg::Appearance),
+                Some(t(CoreMsg::AppearanceLead).into()),
+            )
+            .card([
+                SettingRow::new(t(CoreMsg::Language))
+                    .search_text(language_name(prefs.language))
+                    .child(language),
+                SettingRow::new(t(CoreMsg::Theme))
+                    .hint(theme_name(prefs.theme).1)
+                    .keywords(t(CoreMsg::ThemeKeywords))
+                    .child(theme),
+                SettingRow::new(t(CoreMsg::Zoom))
+                    .hint(tr!(CoreMsg::ZoomHint, modifier = modifier))
+                    .child(zoom_control),
+                SettingRow::new(t(CoreMsg::ColoredConsole)).child(
                     Toggle::new("colored-console", prefs.colored_console)
                         .label(t(CoreMsg::ColoredConsole))
                         .on_change(|value, _, cx| {
                             let value = *value;
                             Prefs::update(cx, |p| p.colored_console = value)
                         }),
-                )
-                .into_any_element(),
-        ]))
-        .into_any_element()
+                ),
+            ])
+            .finish()
+            .map(IntoElement::into_any_element)
     }
 }
 
 impl Render for ProfilePage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let account = settings::section(t(CoreMsg::Account), None)
-            .child(settings::card([
-                self.username.clone().into_any_element(),
+        let no_password = account_dialogs::needs_owner_account(self.state.read(cx));
+        let query = self.search.read(cx).query();
+        let username = self.state.read(cx).me.username.clone();
+        let account = query
+            .section(t(CoreMsg::Account), None)
+            .card([
+                SearchRow::new(
+                    self.username.clone(),
+                    [t(CoreMsg::ProfileUsername), username.as_str()],
+                ),
                 SettingRow::new(t(CoreMsg::ProfilePassword))
+                    .hint_opt(no_password.then(|| t(CoreMsg::NoPasswordYet)))
                     .child(
-                        Button::new("change-password", t(CoreMsg::ChangePassword))
-                            .on_click(cx.listener(|this, _, _, cx| this.change_password(cx))),
+                        Button::new(
+                            "change-password",
+                            t(if no_password {
+                                CoreMsg::SetPassword
+                            } else {
+                                CoreMsg::ChangePassword
+                            }),
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| this.change_password(cx))),
                     )
-                    .into_any_element(),
-            ]))
-            .into_any_element();
+                    .into(),
+            ])
+            .finish()
+            .map(IntoElement::into_any_element);
+        let appearance = self.appearance(&query, cx);
+        let startup = self.startup(&query, cx);
+        // the API keys and accounts are drawn by views of their own, which match
+        // what is typed themselves; their count is added here for the status line
+        if query.is_active() {
+            query.add_found(self.api_keys.read(cx).found(&query));
+            query.add_found(self.links.read(cx).found(&query));
+        }
         let dialog = window_layer(
             window,
             self.dialog
                 .render(window, |dialog| Some(dialog.clone().into_any_element())),
         );
-        parts::page([
-            account,
-            self.appearance(cx),
-            self.api_keys.clone().into_any_element(),
-            self.links.clone().into_any_element(),
-        ])
+        parts::page(
+            query
+                .status()
+                .into_iter()
+                .chain(account)
+                .chain(appearance)
+                .chain(startup)
+                .chain([
+                    self.api_keys.clone().into_any_element(),
+                    self.links.clone().into_any_element(),
+                ]),
+        )
         .text_size(text::MEDIUM)
         .children(dialog)
     }

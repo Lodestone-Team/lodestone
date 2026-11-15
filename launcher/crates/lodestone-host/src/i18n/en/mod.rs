@@ -2,6 +2,7 @@
 //! edits its own (see `launcher/docs/host-parity.md`). Write messages as the
 //! interface shows them, with `{name}` for what is filled in.
 
+pub mod backups;
 pub mod console_files;
 pub mod core;
 pub mod instance;

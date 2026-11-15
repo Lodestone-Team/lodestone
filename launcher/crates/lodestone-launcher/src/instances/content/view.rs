@@ -1,5 +1,6 @@
 //! How the Content tab looks: the kinds and the search over the list, the installed
-//! lists (filtered by the search), the Modrinth results below them while searching,
+//! lists (filtered by the search, a page at a time), Modrinth's projects below them
+//! (searched, or browsed with nothing typed) with their filters,
 //! the Shaders section's shader mod card, and a project's page.
 
 use crate::skin::Skinned;
@@ -22,10 +23,11 @@ use launcher_core::{
     mc_text,
 };
 use lodestone_minecraft::modrinth::{
-    ModrinthSearchHit, ModrinthSearchIndex, ModrinthVersionType, RawVersion,
+    ClientEnvironment, ModrinthSearchHit, ModrinthSearchIndex, ModrinthVersionType, RawVersion,
 };
 
-use super::{ContentView, Load, PAGE_SIZE, ProjectTab};
+use super::filters::{self, Filters};
+use super::{ContentView, ListView, Load, PAGE_SIZE, ProjectTab, RemoteIcon};
 use crate::components::{
     KeyboardFocus,
     a11y::{Accessible, Role, Toggled},
@@ -33,10 +35,10 @@ use crate::components::{
 use crate::i18n::{CommonMsg, ContentMsg as M, ContentPlural as P, format, t, tr, trn};
 use crate::{
     components::{
-        Button, ButtonSize, ButtonVariant, Icon, IconButton, ListRow, LoadingDots, RichText,
-        Toggle,
+        Button, ButtonSize, ButtonVariant, Dropdown, Icon, IconButton, ListRow, LoadingDots,
+        RichText, ScrollSource as _, Scrollbar, Toggle,
         focus::Dismiss,
-        settings::{popover, popover_panel, select_button},
+        settings::{popover_panel, select_button},
     },
     theme::{self, colors, fonts, leading, radius, text, weights},
 };
@@ -66,6 +68,32 @@ fn loader_name(loader: Loader) -> &'static str {
     match loader {
         Loader::None => t(M::Vanilla),
         other => other.label(),
+    }
+}
+
+/// The project panel's padding (and border), which gallery images fit inside.
+const PANEL_PADDING: f32 = 36.;
+/// The panel's padding and the description box's, which a description's images fit
+/// inside.
+const PANEL_INSET: f32 = 72.;
+/// Room kept on the right of the list and the page for the scroll bar.
+const SCROLLBAR_GUTTER: f32 = crate::components::scrollbar::WIDTH + 2.;
+/// Room under the list's last entry, so "Back to top" doesn't cover it.
+const BACK_TO_TOP_ROOM: f32 = 56.;
+/// How far down the list is scrolled (at most a screen) before "Back to top" shows.
+const BACK_TO_TOP_AFTER: f32 = 600.;
+/// How long the project panel takes to slide out or shut.
+const PANEL_SLIDE: std::time::Duration = std::time::Duration::from_millis(220);
+/// Below this window width a project's page takes the whole area instead of a panel
+/// beside the list.
+const PANEL_MIN_WINDOW: f32 = 1100.;
+
+/// The project type in a Modrinth page's URL for `kind`.
+pub fn page_type(kind: ContentKind) -> &'static str {
+    match kind {
+        ContentKind::Mod => "mod",
+        ContentKind::ResourcePack => "resourcepack",
+        ContentKind::ShaderPack => "shader",
     }
 }
 
@@ -186,9 +214,53 @@ pub(crate) fn pills(
                 item,
                 |this, t| {
                     this.bg(colors::GRAY_700.opacity(0).mix(colors::GRAY_700, t))
-                        .text_color(colors::GRAY_500.mix(colors::GRAY_300, t))
+                        .text_color(crate::theme::ink::muted().mix(colors::GRAY_300, t))
                 },
             )
+        }))
+}
+
+/// Small text tabs, the chosen one underlined: the list's views. As short as a
+/// heading, so they cost the list little height.
+fn view_tabs(
+    id: &'static str,
+    labels: Vec<SharedString>,
+    selected: usize,
+    on_select: impl Fn(usize, &mut Window, &mut gpui::App) + 'static,
+) -> impl IntoElement {
+    let on_select = std::rc::Rc::new(on_select);
+    crate::components::ArrowGroup::new(id)
+        .group_role(Role::TabList)
+        .flex()
+        .flex_row()
+        .flex_none()
+        .items_end()
+        .gap_4()
+        .text_size(theme::text_size(text::SMALL))
+        .font_weight(weights::BOLD.into())
+        .children(labels.into_iter().enumerate().map(|(index, label)| {
+            let on_select = on_select.clone();
+            let chosen = index == selected;
+            div()
+                .id((id, index))
+                .accessible(Role::Tab, format!("{id}-{index}"), label.clone())
+                .aria_selected(chosen)
+                .keyboard_focus()
+                .pb_1()
+                .border_b_2()
+                .cursor_pointer()
+                .map(|this| {
+                    if chosen {
+                        this.border_color(crate::theme::accent::light())
+                            .text_color(crate::theme::ink::text())
+                    } else {
+                        this.border_color(colors::TRANSPARENT)
+                            .text_color(crate::theme::ink::muted())
+                            .hover(|style| style.text_color(crate::theme::ink::secondary()))
+                    }
+                })
+                .on_press(move |_, window, cx| on_select(index, window, cx))
+                .child(label)
         }))
 }
 
@@ -248,39 +320,46 @@ pub(super) enum Entry {
         last: bool,
         reorder: Option<(bool, bool)>,
     },
-    /// "On Modrinth · n", with the sort and the compatibility filter.
-    ModrinthHeading,
+    /// The open filter panel, with what it has picked (so it is measured again when
+    /// that changes).
+    ModrinthFilters(Filters),
     ModrinthLoading,
     ModrinthFailed(SharedString),
     /// No network: Modrinth can't be searched.
     ModrinthOffline,
     ModrinthNothing,
-    /// Not searching, with content installed: a placeholder that says the search box
-    /// finds more on Modrinth (and focuses it when clicked).
-    ModrinthPrompt,
-    /// A Modrinth result, by its index in the results.
+    /// A Modrinth result, by its index in the results; `installed` when the instance
+    /// has it already.
     Hit {
         index: usize,
         id: String,
+        installed: bool,
         first: bool,
         last: bool,
     },
     /// Previous and next page of the Modrinth results.
     Pager,
-    /// "On CurseForge · n", with its sort.
-    CurseForgeHeading,
     CurseForgeLoading,
     CurseForgeFailed(SharedString),
     CurseForgeNothing,
-    /// A CurseForge result, by its index in the results.
+    /// A CurseForge result, by its index in the results; `installed` when the
+    /// instance has it already.
     CfHit {
         index: usize,
         id: u64,
+        installed: bool,
         first: bool,
         last: bool,
     },
     /// Previous and next page of the CurseForge results.
     CfPager,
+    /// Previous and next page of what is installed: `page` (from 0) of `pages`.
+    InstalledPager {
+        page: usize,
+        pages: usize,
+    },
+    /// Below what's installed: buttons to the platforms' views.
+    FindMore,
 }
 
 /// A heading over installed rows, with how many there are.
@@ -290,6 +369,121 @@ pub(super) enum Heading {
     /// Resource packs in use, the top one winning.
     Enabled(usize),
     Available(usize),
+}
+
+/// Page `page` (from 0) of the Installed list's `plan`, `PAGE_SIZE` rows to a page as
+/// the platforms' results are: the rows on it, each box under its heading, then the
+/// pager. A page past the last shows the last. Headings keep the count of their whole
+/// box, and the rows on the page that start or end a box's part close it (a box that
+/// starts with the Shaders list's "Off" row keeps it on every page, the choice of no
+/// pack). The other entries stay: the cards and notes above the list, and "Looking for
+/// something new?", which ends the list, on the last page. A list that fits one page
+/// has no pager.
+pub(super) fn page_of_plan(plan: Vec<Entry>, page: usize) -> Vec<Entry> {
+    let size = PAGE_SIZE as usize;
+    let is_row = |entry: &Entry| matches!(entry, Entry::Row { .. });
+    let rows = plan.iter().filter(|entry| is_row(entry)).count();
+    if rows <= size {
+        return plan;
+    }
+    let pages = rows.div_ceil(size);
+    let page = page.min(pages - 1);
+    let shown = page * size..(page + 1) * size;
+    // The rows of the box starting at `at`, which follow one another.
+    let run = |at: usize| plan[at..].iter().take_while(|entry| is_row(entry)).count();
+    let mut out = Vec::with_capacity(size + 8);
+    let mut pager_at = None;
+    // How many rows came before the entry looked at.
+    let mut seen = 0;
+    let mut at = 0;
+    while at < plan.len() {
+        match &plan[at] {
+            Entry::Heading(_) => {
+                let len = run(at + 1);
+                if seen < shown.end && shown.start < seen + len {
+                    out.push(plan[at].clone());
+                }
+            }
+            Entry::Row { .. } => {
+                let len = run(at);
+                let edge = |entry: &Entry| match entry {
+                    Entry::Row { first, last, .. } => (*first, *last),
+                    _ => (false, false),
+                };
+                let (box_first, _) = edge(&plan[at]);
+                let (_, box_last) = edge(&plan[at + len - 1]);
+                let kept = seen.max(shown.start)..(seen + len).min(shown.end);
+                for n in kept.clone() {
+                    let mut entry = plan[at + n - seen].clone();
+                    if let Entry::Row { first, last, .. } = &mut entry {
+                        *first = n == kept.start && box_first;
+                        *last = n + 1 == kept.end && box_last;
+                    }
+                    out.push(entry);
+                }
+                if !kept.is_empty() {
+                    pager_at = Some(out.len());
+                }
+                seen += len;
+                at += len;
+                continue;
+            }
+            Entry::FindMore if page + 1 < pages => {}
+            entry => out.push(entry.clone()),
+        }
+        at += 1;
+    }
+    out.insert(
+        pager_at.unwrap_or(out.len()),
+        Entry::InstalledPager { page, pages },
+    );
+    out
+}
+
+/// "Previous", "Page 2 of 5" and "Next" under a list shown a page at a time (the
+/// platforms' results, and what is installed): `page` (from 0) of `pages`, and the
+/// buttons' ids. `go` shows another page.
+pub(super) fn pager(
+    kind: ContentKind,
+    (previous_id, next_id): (&'static str, &'static str),
+    page: usize,
+    pages: usize,
+    go: impl Fn(&mut ContentView, usize, &mut Context<ContentView>) + Clone + 'static,
+    cx: &mut Context<ContentView>,
+) -> AnyElement {
+    let pages = pages.max(1);
+    let back = go.clone();
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .justify_center()
+        .gap_3()
+        .child(
+            Button::new((previous_id, kind as usize), t(CommonMsg::Previous))
+                .variant(ButtonVariant::Secondary)
+                .size(ButtonSize::Slim)
+                .disabled(page == 0)
+                .on_click(
+                    cx.listener(move |this, _, _, cx| back(this, page.saturating_sub(1), cx)),
+                ),
+        )
+        .child(
+            small(tr!(
+                M::PageOf,
+                page = format::number(page as u64 + 1),
+                pages = format::number(pages as u64)
+            ))
+            .text_color(crate::theme::ink::muted()),
+        )
+        .child(
+            Button::new((next_id, kind as usize), t(CommonMsg::Next))
+                .variant(ButtonVariant::Secondary)
+                .size(ButtonSize::Slim)
+                .disabled(page + 1 >= pages)
+                .on_click(cx.listener(move |this, _, _, cx| go(this, page + 1, cx))),
+        )
+        .into_any_element()
 }
 
 /// Whether an installed file matches what was typed: its name, file name or
@@ -304,6 +498,21 @@ fn item_matches(item: &Item, query: &str) -> bool {
             .modrinth
             .as_ref()
             .is_some_and(|m| m.title.to_lowercase().contains(&query))
+}
+
+/// In place of Install on a result the instance has already: "✓ Installed".
+pub(super) fn installed_mark() -> gpui::Div {
+    div()
+        .flex()
+        .flex_row()
+        .flex_none()
+        .items_center()
+        .gap_1()
+        .text_size(theme::text_size(text::SMALL))
+        .font_weight(weights::BOLD.into())
+        .text_color(crate::theme::ink::muted())
+        .child(Icon::Check.render(px(12.), crate::theme::ink::muted()))
+        .child(t(M::AlreadyInstalled))
 }
 
 /// A row drawn as part of a `list_box`: the box's sides, and its top or bottom edge
@@ -470,69 +679,57 @@ impl ContentView {
     fn render_menu(&mut self, kind: ContentKind, cx: &mut Context<Self>) -> impl IntoElement {
         let can_check = (self.modrinth(cx).is_some() || self.curseforge(cx).is_some())
             && !self.section(kind).items().is_empty();
-        div()
-            .flex()
-            .flex_col()
-            .items_end()
-            .child(
-                IconButton::new(("content-menu", kind as usize), Icon::Ellipsis)
-                    .label(format!("{}: {}", t(CommonMsg::Menu), kind.label()))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.menu_open = !this.menu_open;
-                        cx.notify();
-                    })),
-            )
-            .when(self.menu_open, |this| {
-                let close = cx.listener(|this, _: &(), _, cx| {
-                    this.menu_open = false;
+        Dropdown::new(
+            IconButton::new(("content-menu", kind as usize), Icon::Ellipsis)
+                .label(format!("{}: {}", t(CommonMsg::Menu), kind.label()))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.menu_open = !this.menu_open;
                     cx.notify();
-                });
-                let mut panel = popover_panel("content-menu-list")
-                    .w(px(220.))
-                    .on_mouse_down_out(cx.listener(|this, _, _, cx| {
-                        this.menu_open = false;
-                        cx.notify();
-                    }));
-                if can_check {
-                    panel = panel.child(
-                        ListRow::new("menu-check-updates", t(M::CheckForUpdates))
-                            .icon(Icon::CircleUp)
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.menu_open = false;
-                                this.check_updates(kind, cx);
-                            })),
-                    );
-                }
-                panel = panel
-                    .children(
-                        super::add_rows(kind, cx.can_select_mixed_files_and_dirs())
-                            .into_iter()
-                            .map(|(id, label, pick)| {
-                                ListRow::new(id, t(label))
-                                    .icon(Icon::Upload)
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.menu_open = false;
-                                        this.pick_files(kind, pick, cx);
-                                    }))
-                            }),
-                    )
-                    .child(
-                        ListRow::new("menu-open-folder", t(CommonMsg::OpenFolder))
-                            .icon(Icon::ArrowUpRightFromSquare)
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.menu_open = false;
-                                this.open_folder(kind, cx);
-                                cx.notify();
-                            })),
-                    );
-                // In a box of its own under the button: the popover starts where its
-                // parent does.
-                this.child(div().child(popover(
-                    "content-menu-popover",
-                    panel,
-                    move |window, cx| close(&(), window, cx),
-                )))
+                })),
+        )
+        .align_end()
+        .when(self.menu_open, |this| {
+            let close = cx.listener(|this, _: &(), _, cx| {
+                this.menu_open = false;
+                cx.notify();
+            });
+            let mut panel = popover_panel("content-menu-list").w(px(220.));
+            if can_check {
+                panel = panel.child(
+                    ListRow::new("menu-check-updates", t(M::CheckForUpdates))
+                        .icon(Icon::CircleUp)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.menu_open = false;
+                            this.check_updates(kind, cx);
+                        })),
+                );
+            }
+            panel = panel
+                .children(
+                    super::add_rows(kind, cx.can_select_mixed_files_and_dirs())
+                        .into_iter()
+                        .map(|(id, label, pick)| {
+                            ListRow::new(id, t(label))
+                                .icon(Icon::Upload)
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.menu_open = false;
+                                    this.pick_files(kind, pick, cx);
+                                }))
+                        }),
+                )
+                .child(
+                    ListRow::new("menu-open-folder", t(CommonMsg::OpenFolder))
+                        .icon(Icon::ArrowUpRightFromSquare)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.menu_open = false;
+                            this.open_folder(kind, cx);
+                            cx.notify();
+                        })),
+                );
+            this.popover("content-menu-popover", panel, move |window, cx| {
+                close(&(), window, cx)
             })
+        })
     }
 
     fn render_banners(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -743,26 +940,16 @@ impl ContentView {
         };
         // The "Older version" or "Newer version" tag says the rest.
         let warning = item.file.meta.problem.clone();
+        // Whether the row can open a page: in the panel, or the browser.
         let page = item
             .modrinth
             .as_ref()
-            .filter(|m| !m.slug.is_empty())
-            .map(|m| {
-                modrinth_page(
-                    match kind {
-                        ContentKind::Mod => "mod",
-                        ContentKind::ResourcePack => "resourcepack",
-                        ContentKind::ShaderPack => "shader",
-                    },
-                    &m.slug,
-                )
-            })
-            .or_else(|| {
-                item.curseforge
-                    .as_ref()
-                    .map(|c| c.page_url.clone())
-                    .filter(|p| !p.is_empty())
-            });
+            .is_some_and(|m| !m.project_id.is_empty())
+            || item
+                .curseforge
+                .as_ref()
+                .is_some_and(|c| c.project_id != 0 || !c.page_url.is_empty());
+        let page_open = self.is_open_page(kind, item);
         let enabled = item.enabled;
         let compatibility = item.compatibility;
         let id_base = kind as usize * 100_000 + index;
@@ -775,92 +962,131 @@ impl ContentView {
             )
             .aria_description(detail.clone())
             .when(inner, |this| this.bg(colors::TRANSPARENT).pl_3())
-            .child(icon_box(icon, 36.))
+            .when(page_open, |this| {
+                this.bg(crate::theme::accent::base().opacity(18))
+            })
             .child(
+                // The icon and name open the page beside the list (not on a shader row,
+                // whose click selects the pack).
                 div()
+                    .id(("content-open", id_base))
                     .flex()
-                    .flex_col()
+                    .flex_row()
+                    .items_center()
+                    .gap_3()
                     .flex_1()
                     .min_w_0()
+                    .when(page && !inner, |this| {
+                        let name = name.clone();
+                        // A button for the keyboard and screen readers too.
+                        this.accessible(
+                            Role::Button,
+                            format!("{}-open-{name}", kind.dir()),
+                            tr!(M::ShowPageOf, name = row_name.clone()),
+                        )
+                        .keyboard_focus()
+                        .cursor_pointer()
+                        .on_press(
+                            cx.listener(move |this, _, _, cx| this.open_item_page(kind, &name, cx)),
+                        )
+                    })
+                    .child(icon_box(icon, 36.))
                     .child(
                         div()
                             .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap_2()
+                            .flex_col()
+                            .flex_1()
                             .min_w_0()
                             .child(
                                 div()
-                                    .truncate()
-                                    .font_weight(weights::BOLD.into())
-                                    .text_color(if enabled || kind == ContentKind::ShaderPack {
-                                        colors::GRAY_300
-                                    } else {
-                                        colors::WHITE.opacity(50)
+                                    .flex()
+                                    .flex_row()
+                                    .items_center()
+                                    .gap_2()
+                                    .min_w_0()
+                                    .child(
+                                        div()
+                                            .truncate()
+                                            .font_weight(weights::BOLD.into())
+                                            .text_color(
+                                                if enabled || kind == ContentKind::ShaderPack {
+                                                    colors::GRAY_300
+                                                } else {
+                                                    colors::WHITE.opacity(50)
+                                                },
+                                            )
+                                            .child(RichText::minecraft(title)),
+                                    )
+                                    .when_some(version, |this, version| {
+                                        this.child(
+                                            small_rich(RichText::minecraft(version))
+                                                .flex_none()
+                                                .text_color(crate::theme::ink::muted()),
+                                        )
                                     })
-                                    .child(RichText::minecraft(title)),
-                            )
-                            .when_some(version, |this, version| {
-                                this.child(
-                                    small_rich(RichText::minecraft(version))
-                                        .flex_none()
-                                        .text_color(colors::WHITE.opacity(50)),
-                                )
-                            })
-                            .when(
-                                kind == ContentKind::ResourcePack
-                                    && compatibility == Compatibility::Compatible,
-                                |this| this.child(badge(t(M::Compatible), colors::GREEN_300)),
-                            )
-                            .when(item.compatibility.warning().is_some(), |this| {
-                                this.child(badge(
-                                    if compatibility == Compatibility::TooOld {
-                                        t(M::OlderVersion)
-                                    } else {
-                                        t(M::NewerVersion)
-                                    },
-                                    colors::YELLOW_300,
-                                ))
-                            })
-                            .when(
-                                item.modrinth.is_none() && item.curseforge.is_some(),
-                                |this| this.child(badge(t(M::CurseForgeTab), colors::YELLOW_300)),
-                            )
-                            .when(!item.identified() && !item.file.is_dir, |this| {
-                                this.child(badge(
-                                    t(if curseforge_on {
-                                        M::NotOnEitherPlatform
-                                    } else {
-                                        M::NotOnModrinth
+                                    .when(
+                                        kind == ContentKind::ResourcePack
+                                            && compatibility == Compatibility::Compatible,
+                                        |this| {
+                                            this.child(badge(t(M::Compatible), colors::GREEN_300))
+                                        },
+                                    )
+                                    .when(item.compatibility.warning().is_some(), |this| {
+                                        this.child(badge(
+                                            if compatibility == Compatibility::TooOld {
+                                                t(M::OlderVersion)
+                                            } else {
+                                                t(M::NewerVersion)
+                                            },
+                                            colors::YELLOW_300,
+                                        ))
+                                    })
+                                    .when(
+                                        item.modrinth.is_none() && item.curseforge.is_some(),
+                                        |this| {
+                                            this.child(badge(
+                                                t(M::CurseForgeTab),
+                                                colors::YELLOW_300,
+                                            ))
+                                        },
+                                    )
+                                    .when(!item.identified() && !item.file.is_dir, |this| {
+                                        this.child(badge(
+                                            t(if curseforge_on {
+                                                M::NotOnEitherPlatform
+                                            } else {
+                                                M::NotOnModrinth
+                                            }),
+                                            crate::theme::ink::muted(),
+                                        ))
                                     }),
-                                    colors::GRAY_500,
-                                ))
-                            }),
-                    )
-                    .child(
-                        small_rich(RichText::minecraft(detail))
-                            .truncate()
-                            .text_color(colors::WHITE.opacity(30)),
-                    )
-                    .when_some(
-                        item.file
-                            .meta
-                            .description
-                            .clone()
-                            .filter(|_| kind == ContentKind::ResourcePack),
-                        |this, description| {
-                            this.child(
-                                small_rich(RichText::minecraft(description))
-                                    .truncate()
-                                    .text_color(crate::theme::ink::secondary()),
                             )
-                        },
-                    )
-                    .when_some(warning, |this, warning| {
-                        this.child(
-                            small_rich(RichText::new(warning)).text_color(colors::YELLOW_300),
-                        )
-                    }),
+                            .child(
+                                small_rich(RichText::minecraft(detail))
+                                    .truncate()
+                                    .text_color(crate::theme::ink::faint()),
+                            )
+                            .when_some(
+                                item.file
+                                    .meta
+                                    .description
+                                    .clone()
+                                    .filter(|_| kind == ContentKind::ResourcePack),
+                                |this, description| {
+                                    this.child(
+                                        small_rich(RichText::minecraft(description))
+                                            .truncate()
+                                            .text_color(crate::theme::ink::secondary()),
+                                    )
+                                },
+                            )
+                            .when_some(warning, |this, warning| {
+                                this.child(
+                                    small_rich(RichText::new(warning))
+                                        .text_color(colors::YELLOW_300),
+                                )
+                            }),
+                    ),
             )
             .child(
                 div()
@@ -926,17 +1152,17 @@ impl ContentView {
                                 })),
                         )
                     })
-                    .when_some(page, |this, page| {
+                    // A shader row's click selects the pack, so its page has a button.
+                    .when(page && inner, |this| {
+                        let name = name.clone();
                         this.child(
-                            IconButton::new(
-                                ("modrinth-page", id_base),
-                                Icon::ArrowUpRightFromSquare,
-                            )
-                            .label(format!("{} {row_name}", t(CommonMsg::Open)))
-                            .on_click(move |_, _, cx| {
-                                cx.stop_propagation();
-                                cx.open_url(&page)
-                            }),
+                            IconButton::new(("modrinth-page", id_base), Icon::CircleInfo)
+                                .label(tr!(M::ShowPageOf, name = row_name.clone()))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    // Not also the shader row's click, which selects it.
+                                    cx.stop_propagation();
+                                    this.open_item_page(kind, &name, cx)
+                                })),
                         )
                     })
                     .when(kind != ContentKind::ShaderPack, |this| {
@@ -944,7 +1170,7 @@ impl ContentView {
                         this.child(
                             Toggle::new(("enabled", id_base), enabled)
                                 .label(row_name.clone())
-                                .disabled(busy)
+                                .disabled(busy || self.checking_dependents.as_ref() == Some(&name))
                                 .on_change(cx.listener(
                                     move |this, value: &bool, _, cx| match kind {
                                         ContentKind::Mod => {
@@ -1015,7 +1241,7 @@ impl ContentView {
             .border_2()
             .border_dashed()
             .border_color(colors::GRAY_FADED.opacity(10))
-            .text_color(colors::GRAY_FADED.opacity(50))
+            .text_color(crate::theme::ink::faint())
             .font_weight(weights::BOLD.into())
             .child(
                 div()
@@ -1030,8 +1256,6 @@ impl ContentView {
     /// The card for vanilla instances: content that needs a mod loader.
     fn render_needs_loader(&mut self, what: NeedsLoader, cx: &mut Context<Self>) -> AnyElement {
         self.ensure_mod_loader_offer(cx);
-        let switching = self.is_switching_loader(cx);
-        let busy = self.locked(cx) || self.job.is_some();
         let game_version = self
             .context(cx)
             .map(|(_, _, target)| target.game_version)
@@ -1042,10 +1266,10 @@ impl ContentView {
             .on_click(cx.listener(|this, _, _, cx| this.new_fabric_instance(cx)));
         let (text, buttons): (String, Option<AnyElement>) = match &self.mod_loader_offer {
             Load::Ready(Some(kind)) => {
-                let label = kind.label();
+                let (kind, label) = (*kind, kind.label());
                 (
                     tr!(
-                        what.pick(M::VanillaSwitchMods, M::VanillaSwitchShaders),
+                        what.pick(M::VanillaCopyMods, M::VanillaCopyShaders),
                         loader = label
                     ),
                     Some(
@@ -1056,15 +1280,13 @@ impl ContentView {
                             .gap_2()
                             .child(
                                 Button::new(
-                                    "switch-to-mod-loader",
-                                    tr!(M::SwitchTo, loader = label),
+                                    "copy-with-mod-loader",
+                                    tr!(M::CopyWith, loader = label),
                                 )
                                 .variant(ButtonVariant::Primary)
-                                .loading(switching)
-                                .disabled(busy)
-                                .on_click(
-                                    cx.listener(|this, _, _, cx| this.switch_to_mod_loader(cx)),
-                                ),
+                                .on_click(cx.listener(
+                                    move |this, _, _, cx| this.copy_with_loader(kind, cx),
+                                )),
                             )
                             .child(new_instance)
                             .into_any_element(),
@@ -1268,14 +1490,21 @@ impl ContentView {
             .into_any_element()
     }
 
-    /// What the Installed view lists, top to bottom: the cards and toolbar above the
-    /// list, then one entry per row. Cheap to build every frame; the rows' elements
-    /// are only made for the entries on screen (see [`Self::render_entry`]).
-    fn installed_plan(&self, kind: ContentKind, cx: &gpui::App) -> Vec<Entry> {
+    /// What the list shows, top to bottom: the cards and toolbar above the list, then
+    /// one entry per row, what is installed a page at a time (see [`page_of_plan`]).
+    /// Cheap to build every frame; the rows' elements are only made for the entries
+    /// on screen (see [`Self::render_entry`]).
+    pub(super) fn installed_plan(&self, kind: ContentKind, cx: &gpui::App) -> Vec<Entry> {
+        page_of_plan(self.whole_plan(kind, cx), self.section(kind).installed_page)
+    }
+
+    /// The list's entries with everything installed (that matches the search).
+    pub(super) fn whole_plan(&self, kind: ContentKind, cx: &gpui::App) -> Vec<Entry> {
         let query = self.query(kind, cx);
         let searching = !query.is_empty();
         let mut plan = Vec::new();
-        if kind == ContentKind::ShaderPack && !searching {
+        let view = self.list_view(kind, cx);
+        if kind == ContentKind::ShaderPack && !searching && view == ListView::Installed {
             plan.push(Entry::ShaderMod);
         }
         if kind == ContentKind::Mod
@@ -1286,13 +1515,21 @@ impl ContentView {
         {
             plan.push(Entry::NeedsLoader);
         }
+        match view {
+            ListView::Installed => {}
+            ListView::Modrinth => {
+                self.modrinth_plan(kind, cx, &mut plan);
+                return plan;
+            }
+            ListView::CurseForge => {
+                self.curseforge_plan(kind, cx, &mut plan);
+                return plan;
+            }
+        }
+        let find_more = self.modrinth(cx).is_some() || self.curseforge(cx).is_some();
         let listing = match &self.section(kind).listing {
             Load::NotLoaded | Load::Loading => {
                 plan.push(Entry::Loading);
-                if searching {
-                    self.modrinth_plan(kind, cx, &mut plan);
-                    self.curseforge_plan(kind, cx, &mut plan);
-                }
                 return plan;
             }
             Load::Failed(err) => {
@@ -1324,8 +1561,9 @@ impl ContentView {
                     plan.push(row(index, item, position == 0, position + 1 == count, None));
                 }
             }
-            self.modrinth_plan(kind, cx, &mut plan);
-            self.curseforge_plan(kind, cx, &mut plan);
+            if find_more {
+                plan.push(Entry::FindMore);
+            }
             return plan;
         }
         if let Some(error) = &listing.lookup_error {
@@ -1335,17 +1573,15 @@ impl ContentView {
             plan.push(Entry::Note(error.clone(), true));
         }
         if listing.items.is_empty() {
-            plan.push(Entry::Heading(Heading::Installed(0)));
             plan.push(Entry::Empty);
-            // Something to start from: the most relevant projects.
-            self.modrinth_plan(kind, cx, &mut plan);
-            self.curseforge_plan(kind, cx, &mut plan);
+            if find_more {
+                plan.push(Entry::FindMore);
+            }
             return plan;
         }
         let count = listing.items.len();
         match kind {
             ContentKind::Mod => {
-                plan.push(Entry::Heading(Heading::Installed(count)));
                 for (index, item) in listing.items.iter().enumerate() {
                     plan.push(row(index, item, index == 0, index + 1 == count, None));
                 }
@@ -1387,76 +1623,211 @@ impl ContentView {
                 }
             }
             ContentKind::ShaderPack => {
-                plan.push(Entry::Heading(Heading::Installed(count)));
                 plan.push(Entry::ShadersOff);
                 for (index, item) in listing.items.iter().enumerate() {
                     plan.push(row(index, item, false, index + 1 == count, None));
                 }
             }
         }
-        // Below what's installed, always the Modrinth section: until something is
-        // typed, a placeholder pointing at the search box.
-        plan.push(Entry::ModrinthHeading);
-        plan.push(Entry::ModrinthPrompt);
+        // Below what's installed, the way to the platforms' projects to browse.
+        if find_more {
+            plan.push(Entry::FindMore);
+        }
         plan
     }
 
-    /// Whether the Modrinth section shows its placeholder rather than results: nothing
-    /// is typed and something is installed (with nothing installed, it suggests the
-    /// most relevant projects instead).
-    fn modrinth_prompting(&self, kind: ContentKind, cx: &gpui::App) -> bool {
-        self.query(kind, cx).is_empty()
-            && matches!(&self.section(kind).listing, Load::Ready(listing) if !listing.items.is_empty())
+    /// The view the list of `kind` shows: CurseForge's only in builds with
+    /// Lodestone's CurseForge key.
+    pub(super) fn list_view(&self, kind: ContentKind, cx: &gpui::App) -> ListView {
+        match self.section(kind).view {
+            ListView::CurseForge if self.curseforge(cx).is_none() => ListView::Installed,
+            view => view,
+        }
     }
 
-    /// The Modrinth section's placeholder: the search box finds more there.
-    fn render_modrinth_prompt(&self, kind: ContentKind, cx: &mut Context<Self>) -> AnyElement {
-        let message = t(match kind {
-            ContentKind::Mod => M::ModrinthPromptMods,
-            ContentKind::ResourcePack => M::ModrinthPromptResourcePacks,
-            ContentKind::ShaderPack => M::ModrinthPromptShaderPacks,
-        });
-        let target = self.target_label(kind, cx);
+    /// Installed / Modrinth / CurseForge, over the list.
+    fn render_views(&mut self, kind: ContentKind, cx: &mut Context<Self>) -> AnyElement {
+        // A platform's view says how many projects it found, as the kinds do.
+        let counted = |label: M, total: Option<u64>| -> SharedString {
+            match total {
+                Some(total) => format!("{} {}", t(label), format::number(total)).into(),
+                None => t(label).into(),
+            }
+        };
+        let modrinth_total = self
+            .section(kind)
+            .browse
+            .results
+            .ready()
+            .map(|r| r.total_hits as u64);
+        let cf_total = self
+            .section(kind)
+            .cf
+            .results
+            .ready()
+            .map(|r| r.total as u64);
+        let installed = self
+            .section(kind)
+            .listing
+            .ready()
+            .map(|l| l.items.len() as u64);
+        let mut views = vec![
+            (ListView::Installed, counted(M::ViewInstalled, installed)),
+            (ListView::Modrinth, counted(M::ViewModrinth, modrinth_total)),
+        ];
+        if self.curseforge(cx).is_some() {
+            views.push((ListView::CurseForge, counted(M::ViewCurseForge, cf_total)));
+        }
+        let current = self.list_view(kind, cx);
+        let selected = views.iter().position(|(v, _)| *v == current).unwrap_or(0);
+        let order: Vec<ListView> = views.iter().map(|(v, _)| *v).collect();
+        let entity = cx.entity();
+        let tools = match current {
+            ListView::Installed => None,
+            ListView::Modrinth => Some(self.render_modrinth_tools(kind, cx)),
+            ListView::CurseForge => Some(self.render_cf_tools(kind, cx)),
+        };
         div()
-            .id(("modrinth-prompt", kind as usize))
             .flex()
-            .flex_col()
+            .flex_row()
+            .flex_wrap()
+            .items_center()
+            .justify_between()
+            .gap_2()
+            .min_h(px(28.))
+            .child(view_tabs(
+                "content-views",
+                views.into_iter().map(|(_, label)| label).collect(),
+                selected,
+                move |index, _, cx| {
+                    if let Some(view) = order.get(index).copied() {
+                        entity.update(cx, |this, cx| this.set_view(kind, view, cx));
+                    }
+                },
+            ))
+            .children(tools)
+            .into_any_element()
+    }
+
+    /// "Looking for something new?", with a button to each platform's view (searching
+    /// it for what is typed).
+    fn render_find_more(&mut self, kind: ContentKind, cx: &mut Context<Self>) -> AnyElement {
+        let searching = !self.query(kind, cx).is_empty();
+        let mut platforms = Vec::new();
+        if self.modrinth(cx).is_some() {
+            platforms.push((
+                ListView::Modrinth,
+                "find-more-modrinth",
+                if searching {
+                    M::SearchModrinth
+                } else {
+                    M::BrowseModrinth
+                },
+            ));
+        }
+        if self.curseforge(cx).is_some() {
+            platforms.push((
+                ListView::CurseForge,
+                "find-more-curseforge",
+                if searching {
+                    M::SearchCurseForge
+                } else {
+                    M::BrowseCurseForge
+                },
+            ));
+        }
+        div()
+            .flex()
+            .flex_row()
+            .flex_wrap()
             .items_center()
             .justify_center()
-            .gap_2()
-            .py_8()
-            .rounded(radius::XL)
-            .border_2()
-            .border_dashed()
-            .border_color(colors::GRAY_FADED.opacity(10))
-            .text_color(colors::GRAY_FADED.opacity(50))
-            .font_weight(weights::BOLD.into())
-            .cursor_pointer()
-            .hover(|style| style.border_color(colors::GRAY_FADED.opacity(25)))
-            .on_click(cx.listener(move |this, _, window, cx| {
-                let search = this.section(kind).browse.search.clone();
-                window.focus(&gpui::Focusable::focus_handle(search.read(cx), cx), cx);
+            .gap_3()
+            .py_4()
+            .child(muted(t(M::LookingForMore)))
+            .children(platforms.into_iter().map(|(view, id, label)| {
+                Button::new((id, kind as usize), t(label))
+                    .variant(ButtonVariant::Secondary)
+                    .icon(Icon::MagnifyingGlass)
+                    .size(ButtonSize::Slim)
+                    .on_click(cx.listener(move |this, _, _, cx| this.set_view(kind, view, cx)))
             }))
-            .child(Icon::MagnifyingGlass.render(px(20.), colors::GRAY_FADED.opacity(50)))
-            .child(
-                div()
-                    .px_4()
-                    .text_center()
-                    .whitespace_normal()
-                    .child(message),
-            )
-            .when(!target.is_empty(), |this| {
+            // A modpack's mods, added next to the instance's own (a server's, say).
+            .when(kind == ContentKind::Mod && self.has_loader(), |this| {
                 this.child(
-                    small(tr!(M::ModrinthPromptTarget, target = target))
-                        .font_weight(weights::MEDIUM.into()),
+                    Button::new("find-more-modpack", t(M::AddModpackContent))
+                        .variant(ButtonVariant::Secondary)
+                        .icon(Icon::Cube)
+                        .size(ButtonSize::Slim)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            if let Some(id) = this.instance_id().map(str::to_string) {
+                                cx.emit(super::ContentEvent::AddModpack(id));
+                            }
+                        })),
                 )
             })
             .into_any_element()
     }
 
+    /// "Back to top", floating over the bottom of the list or a project's page once it
+    /// is scrolled down; `to_top` scrolls it back.
+    fn back_to_top(
+        &mut self,
+        kind: ContentKind,
+        id: &'static str,
+        to_top: fn(&mut Self, ContentKind, &mut Context<Self>),
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let automation = format!("{}-{id}", kind.dir());
+        div()
+            .absolute()
+            .bottom_3()
+            .left_0()
+            .right_0()
+            .flex()
+            .justify_center()
+            .child(
+                div()
+                    .id((id, kind as usize))
+                    // The row under it doesn't take the press (the wheel still scrolls).
+                    .block_mouse_except_scroll()
+                    .accessible(Role::Button, automation, t(M::BackToTop))
+                    .keyboard_focus()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_1p5()
+                    .px_3()
+                    .py_1p5()
+                    .rounded_full()
+                    .bg(colors::GRAY_700)
+                    .border_1()
+                    .border_color(crate::theme::ink::border())
+                    .shadow(vec![gpui::BoxShadow {
+                        color: crate::theme::shadow::COLOR.into(),
+                        offset: gpui::point(px(0.), px(4.)),
+                        blur_radius: px(12.),
+                        spread_radius: px(0.),
+                        inset: false,
+                    }])
+                    .text_size(theme::text_size(text::SMALL))
+                    .font_weight(weights::BOLD.into())
+                    .text_color(colors::GRAY_300)
+                    .cursor_pointer()
+                    .hover(|style| style.bg(colors::GRAY_600))
+                    .on_press(cx.listener(move |this, _, _, cx| to_top(this, kind, cx)))
+                    .child(Icon::ArrowUp.render(px(12.), colors::GRAY_300))
+                    .child(t(M::BackToTop)),
+            )
+            .into_any_element()
+    }
+
     /// The Modrinth part of the list: its heading, then the results not installed yet.
     fn modrinth_plan(&self, kind: ContentKind, cx: &gpui::App, plan: &mut Vec<Entry>) {
-        plan.push(Entry::ModrinthHeading);
+        let browse = &self.section(kind).browse;
+        if browse.filters_open {
+            plan.push(Entry::ModrinthFilters(browse.filters.clone()));
+        }
         match &self.section(kind).browse.results {
             Load::NotLoaded | Load::Loading if self.modrinth(cx).is_none() => {
                 plan.push(Entry::ModrinthOffline)
@@ -1464,21 +1835,26 @@ impl ContentView {
             Load::NotLoaded | Load::Loading => plan.push(Entry::ModrinthLoading),
             Load::Failed(err) => plan.push(Entry::ModrinthFailed(err.clone())),
             Load::Ready(results) => {
+                // What's installed stays in the results, marked (hiding it left the
+                // first pages, where the popular projects are, nearly empty).
                 let installed = self.section(kind).installed_projects();
-                let hits: Vec<(usize, &ModrinthSearchHit)> = results
+                let show_installed = self.section(kind).browse.show_installed;
+                let hits: Vec<(usize, &ModrinthSearchHit, bool)> = results
                     .hits
                     .iter()
                     .enumerate()
-                    .filter(|(_, hit)| !installed.contains_key(&hit.project_id))
+                    .map(|(index, hit)| (index, hit, installed.contains_key(&hit.project_id)))
+                    .filter(|(_, _, installed)| show_installed || !installed)
                     .collect();
                 if hits.is_empty() {
                     plan.push(Entry::ModrinthNothing);
                 }
                 let count = hits.len();
-                for (position, (index, hit)) in hits.into_iter().enumerate() {
+                for (position, (index, hit, installed)) in hits.into_iter().enumerate() {
                     plan.push(Entry::Hit {
                         index,
                         id: hit.project_id.clone(),
+                        installed,
                         first: position == 0,
                         last: position + 1 == count,
                     });
@@ -1490,13 +1866,12 @@ impl ContentView {
         }
     }
 
-    /// The CurseForge part of the list, after Modrinth's: its heading, then the results
-    /// not installed yet. Only in builds with Lodestone's CurseForge key.
+    /// The CurseForge view's list: its results, those installed marked. Only in builds
+    /// with Lodestone's CurseForge key.
     fn curseforge_plan(&self, kind: ContentKind, cx: &gpui::App, plan: &mut Vec<Entry>) {
         if self.curseforge(cx).is_none() {
             return;
         }
-        plan.push(Entry::CurseForgeHeading);
         match &self.section(kind).cf.results {
             Load::NotLoaded | Load::Loading => plan.push(Entry::CurseForgeLoading),
             Load::Failed(err) => plan.push(Entry::CurseForgeFailed(err.clone())),
@@ -1507,21 +1882,23 @@ impl ContentView {
                     .iter()
                     .filter_map(|i| i.curseforge.as_ref().map(|c| c.project_id))
                     .collect();
-                let hits: Vec<(usize, u64)> = results
+                let show_installed = self.section(kind).browse.show_installed;
+                let hits: Vec<(usize, u64, bool)> = results
                     .hits
                     .iter()
                     .enumerate()
-                    .filter(|(_, hit)| !installed.contains(&hit.id))
-                    .map(|(index, hit)| (index, hit.id))
+                    .map(|(index, hit)| (index, hit.id, installed.contains(&hit.id)))
+                    .filter(|(_, _, installed)| show_installed || !installed)
                     .collect();
                 if hits.is_empty() {
                     plan.push(Entry::CurseForgeNothing);
                 }
                 let count = hits.len();
-                for (position, (index, id)) in hits.into_iter().enumerate() {
+                for (position, (index, id, installed)) in hits.into_iter().enumerate() {
                     plan.push(Entry::CfHit {
                         index,
                         id,
+                        installed,
                         first: position == 0,
                         last: position + 1 == count,
                     });
@@ -1529,6 +1906,73 @@ impl ContentView {
                 if results.total > PAGE_SIZE as usize {
                     plan.push(Entry::CfPager);
                 }
+            }
+        }
+    }
+
+    /// Turns the Installed list of `kind` to the page with `file`'s row, and has its
+    /// next frame scroll to the row: a file a change moved, now read again. A file
+    /// the list doesn't show (the search hides it, or another view is open) leaves
+    /// the page as it is.
+    pub(super) fn follow(&mut self, kind: ContentKind, file: String, cx: &gpui::App) {
+        let row = (self.list_view(kind, cx) == ListView::Installed)
+            .then(|| {
+                self.whole_plan(kind, cx)
+                    .iter()
+                    .filter(|entry| matches!(entry, Entry::Row { .. }))
+                    .position(|entry| matches!(entry, Entry::Row { file: f, .. } if *f == file))
+            })
+            .flatten();
+        let shown = self.kind == kind;
+        let section = self.section_mut(kind);
+        section.reveal = None;
+        if let Some(row) = row {
+            let page = row / PAGE_SIZE as usize;
+            let turned = page != section.installed_page;
+            section.installed_page = page;
+            if shown {
+                section.reveal = Some((file, turned));
+            }
+        }
+    }
+
+    /// Brings the list of `kind` up to date for this frame: the page of what is
+    /// installed, brought back onto the list when it got shorter (a file removed, or
+    /// a search), and the entries; a file followed there is scrolled to.
+    pub(super) fn update_installed_list(&mut self, kind: ContentKind, cx: &gpui::App) {
+        let plan = self.installed_plan(kind, cx);
+        if self.list_view(kind, cx) == ListView::Installed
+            && self.section(kind).listing.ready().is_some()
+        {
+            self.section_mut(kind).installed_page = plan
+                .iter()
+                .find_map(|entry| match entry {
+                    Entry::InstalledPager { page, .. } => Some(*page),
+                    _ => None,
+                })
+                .unwrap_or(0);
+        }
+        self.sync_installed_list(kind, plan);
+        // Shown on this frame or not at all, so a file that didn't come back (changed
+        // from outside meanwhile) isn't scrolled to later.
+        let section = self.section_mut(kind);
+        if let Some((file, turned)) = section.reveal.take()
+            && let Some(ix) = section
+                .plan
+                .iter()
+                .position(|entry| matches!(entry, Entry::Row { file: f, .. } if *f == file))
+        {
+            if turned {
+                // From its top, with its heading: the rows just put in aren't measured
+                // yet, so revealing it from where the list is would stop short. The
+                // list keeps its end at the bottom when the row is near it.
+                let heading = ix > 0 && matches!(section.plan[ix - 1], Entry::Heading(_));
+                section.rows.scroll_to(gpui::ListOffset {
+                    item_ix: ix - heading as usize,
+                    offset_in_item: px(0.),
+                });
+            } else {
+                section.rows.scroll_to_reveal_item(ix);
             }
         }
     }
@@ -1587,7 +2031,7 @@ impl ContentView {
             .text_color(if *warning {
                 colors::YELLOW_300
             } else {
-                colors::GRAY_500
+                crate::theme::ink::muted()
             })
             .into_any_element(),
             Entry::Empty => self.render_empty(kind),
@@ -1609,7 +2053,6 @@ impl ContentView {
             ))
             .text_color(crate::theme::ink::muted())
             .into_any_element(),
-            Entry::ModrinthHeading => self.render_modrinth_heading(kind, cx),
             Entry::ModrinthLoading => div()
                 .flex()
                 .flex_row()
@@ -1626,9 +2069,13 @@ impl ContentView {
                 .into_any_element(),
             Entry::ModrinthOffline => muted(t(M::BrowsingNeedsNetwork)).into_any_element(),
             Entry::ModrinthNothing => muted(t(M::NothingMatches)).into_any_element(),
-            Entry::ModrinthPrompt => self.render_modrinth_prompt(kind, cx),
+            Entry::ModrinthFilters(_) => self.render_modrinth_filters(kind, cx),
             Entry::Hit {
-                index, first, last, ..
+                index,
+                installed,
+                first,
+                last,
+                ..
             } => {
                 let hit = match &self.section(kind).browse.results {
                     Load::Ready(results) => results.hits.get(*index).cloned(),
@@ -1637,11 +2084,10 @@ impl ContentView {
                 let Some(hit) = hit else {
                     return div().into_any_element();
                 };
-                let row = self.render_hit(kind, *index, &hit, *first, cx);
+                let row = self.render_hit(kind, *index, &hit, *installed, *first, cx);
                 in_box(row, *first, *last)
             }
             Entry::Pager => self.render_pager(kind, cx),
-            Entry::CurseForgeHeading => self.render_cf_heading(kind, cx),
             Entry::CurseForgeLoading => div()
                 .flex()
                 .flex_row()
@@ -1658,7 +2104,11 @@ impl ContentView {
                 .into_any_element(),
             Entry::CurseForgeNothing => muted(t(M::NothingOnCurseForge)).into_any_element(),
             Entry::CfHit {
-                index, first, last, ..
+                index,
+                installed,
+                first,
+                last,
+                ..
             } => {
                 let hit = match &self.section(kind).cf.results {
                     Load::Ready(results) => results.hits.get(*index).cloned(),
@@ -1667,10 +2117,19 @@ impl ContentView {
                 let Some(hit) = hit else {
                     return div().into_any_element();
                 };
-                let row = self.render_cf_hit(kind, *index, &hit, *first, cx);
+                let row = self.render_cf_hit(kind, *index, &hit, *installed, *first, cx);
                 in_box(row, *first, *last)
             }
             Entry::CfPager => self.render_cf_pager(kind, cx),
+            Entry::InstalledPager { page, pages } => pager(
+                kind,
+                ("installed-previous-page", "installed-next-page"),
+                *page,
+                *pages,
+                move |this, page, cx| this.set_installed_page(kind, page, cx),
+                cx,
+            ),
+            Entry::FindMore => self.render_find_more(kind, cx),
             Entry::ShadersOff => {
                 let loader = self.shaders.loader;
                 let busy = self.locked(cx) || self.job.is_some() || loader.is_none();
@@ -1702,7 +2161,7 @@ impl ContentView {
                                         .child(t(M::ShadersOff)),
                                 )
                                 .child(
-                                    small(t(M::NormalLook)).text_color(colors::WHITE.opacity(30)),
+                                    small(t(M::NormalLook)).text_color(crate::theme::ink::faint()),
                                 ),
                         )
                         .into_any_element(),
@@ -1784,17 +2243,16 @@ impl ContentView {
         div()
             .w_full()
             .when(ix > 0 && !joined, |this| this.pt_3())
-            .when(last_entry, |this| this.pb_4())
+            // Room under the end to scroll it clear of "Back to top".
+            .when(last_entry, |this| this.pb(px(BACK_TO_TOP_ROOM)))
             .child(element)
             .into_any_element()
     }
 
-    /// "On Modrinth · n", with the sort and the "1.20.1 Fabric only" filter.
-    fn render_modrinth_heading(&mut self, kind: ContentKind, cx: &mut Context<Self>) -> AnyElement {
-        let browse = &self.section(kind).browse;
-        let only = browse.only_compatible;
-        let index = browse.index;
-        let total = browse.results.ready().map(|r| r.total_hits);
+    /// Beside the views when Modrinth's is shown: the sort, Filters and the
+    /// "1.20.1 Fabric only" filter.
+    fn render_modrinth_tools(&mut self, kind: ContentKind, cx: &mut Context<Self>) -> AnyElement {
+        let index = self.section(kind).browse.index;
         let indexes = [
             (ModrinthSearchIndex::Relevance, M::SortRelevance),
             (ModrinthSearchIndex::Downloads, M::SortDownloads),
@@ -1806,75 +2264,70 @@ impl ContentView {
             .iter()
             .find(|(i, _)| *i == index)
             .map_or(M::SortRelevance, |(_, label)| *label);
-        let target = self.target_label(kind, cx);
-        // The placeholder's heading has no count: the results it would count are from
-        // an earlier search, or none.
-        let title = match total.filter(|_| !self.modrinth_prompting(kind, cx)) {
-            Some(total) => tr!(M::OnModrinthCount, count = format::number(total as u64)),
-            None => t(M::OnModrinth).to_string(),
-        };
-        let sort = div()
-            .flex()
-            .flex_col()
-            .items_end()
-            .child(
-                select_button(
-                    ("modrinth-sort", kind as usize),
-                    small(t(current)).font_weight(weights::BOLD.into()),
-                )
-                .aria_value(t(current))
-                .expandable(self.sort_open, {
-                    let view = cx.entity().downgrade();
-                    move |_: &mut Window, cx: &mut gpui::App| {
-                        view.update(cx, |this, cx| {
-                            this.sort_open = !this.sort_open;
-                            cx.notify();
-                        })
-                        .ok();
-                    }
-                })
-                .on_press(cx.listener(|this, _, _, cx| {
-                    this.sort_open = !this.sort_open;
-                    cx.notify();
-                })),
+        let sort = Dropdown::new(
+            select_button(
+                ("modrinth-sort", kind as usize),
+                small(t(current)).font_weight(weights::BOLD.into()),
             )
-            .when(self.sort_open, |this| {
-                let close = cx.listener(|this, _: &(), _, cx| {
-                    this.sort_open = false;
-                    cx.notify();
-                });
-                let mut panel = popover_panel("modrinth-sort-list")
-                    .w(px(180.))
-                    .on_mouse_down_out(cx.listener(|this, _, _, cx| {
-                        this.sort_open = false;
+            .aria_value(t(current))
+            .expandable(self.sort_open, {
+                let view = cx.entity().downgrade();
+                move |_: &mut Window, cx: &mut gpui::App| {
+                    view.update(cx, |this, cx| {
+                        this.sort_open = !this.sort_open;
                         cx.notify();
-                    }));
-                for (i, (value, label)) in indexes.into_iter().enumerate() {
-                    panel = panel.child(
-                        ListRow::new(("modrinth-sort-choice", i), t(label))
-                            .selected(value == index)
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.sort_open = false;
-                                this.set_index(kind, value, cx);
-                            })),
-                    );
+                    })
+                    .ok();
                 }
-                // In a box of its own under the button: the popover starts where its
-                // parent does.
-                this.child(div().child(popover(
-                    "modrinth-sort-popover",
-                    panel,
-                    move |window, cx| close(&(), window, cx),
-                )))
+            })
+            .on_press(cx.listener(|this, _, _, cx| {
+                this.sort_open = !this.sort_open;
+                cx.notify();
+            })),
+        )
+        .when(self.sort_open, |this| {
+            let close = cx.listener(|this, _: &(), _, cx| {
+                this.sort_open = false;
+                cx.notify();
             });
-        let chip = div()
-            .id(("only-compatible", kind as usize))
+            let mut panel = popover_panel("modrinth-sort-list").w(px(180.));
+            for (i, (value, label)) in indexes.into_iter().enumerate() {
+                panel = panel.child(
+                    ListRow::new(("modrinth-sort-choice", i), t(label))
+                        .selected(value == index)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.sort_open = false;
+                            this.set_index(kind, value, cx);
+                        })),
+                );
+            }
+            this.popover("modrinth-sort-popover", panel, move |window, cx| {
+                close(&(), window, cx)
+            })
+        });
+        let chip = self.compat_chip(kind, cx);
+        // Filters, with how many are picked; opens the panel under the heading.
+        let browse = &self.section(kind).browse;
+        let (open, picked) = (browse.filters_open, browse.filters.count());
+        let label: SharedString = if picked == 0 {
+            t(M::Filters).into()
+        } else {
+            tr!(M::FiltersCount, count = format::number(picked as u64)).into()
+        };
+        let filters_button = div()
+            .id(("modrinth-filters", kind as usize))
             .accessible(
-                Role::CheckBox,
-                format!("{}-only-compatible", kind.dir()),
-                tr!(M::OnlyTarget, target = target),
+                Role::Button,
+                format!("{}-filters", kind.dir()),
+                label.clone(),
             )
-            .aria_toggled(if only { Toggled::True } else { Toggled::False })
+            .expandable(open, {
+                let view = cx.entity().downgrade();
+                move |_: &mut Window, cx: &mut gpui::App| {
+                    view.update(cx, |this, cx| this.toggle_filters_open(kind, cx))
+                        .ok();
+                }
+            })
             .keyboard_focus()
             .flex()
             .flex_row()
@@ -1888,7 +2341,7 @@ impl ContentView {
             .text_size(theme::text_size(text::SMALL))
             .font_weight(weights::BOLD.into())
             .map(|this| {
-                if only {
+                if picked > 0 {
                     this.bg(crate::theme::accent::base().opacity(25))
                         .border_color(crate::theme::accent::light().opacity(60))
                         .text_color(colors::WHITE)
@@ -1902,68 +2355,220 @@ impl ContentView {
                         })
                 }
             })
-            .when(only, |this| {
-                this.child(Icon::Check.render(px(10.), colors::WHITE))
-            })
-            .child(tr!(M::OnlyTarget, target = target))
-            .on_press(cx.listener(move |this, _, _, cx| this.set_only_compatible(kind, !only, cx)));
+            .child(label)
+            .child(
+                if open {
+                    Icon::ChevronDown
+                } else {
+                    Icon::ChevronRight
+                }
+                .render(px(10.), crate::theme::ink::secondary()),
+            )
+            .on_press(cx.listener(move |this, _, _, cx| this.toggle_filters_open(kind, cx)));
         div()
             .flex()
             .flex_row()
+            .flex_wrap()
             .items_center()
             .gap_2()
-            .child(
-                div().flex_1().min_w_0().child(
-                    small(title)
+            .child(sort)
+            .child(filters_button)
+            .child(chip)
+            .child(self.installed_chip(kind, cx))
+            .into_any_element()
+    }
+
+    /// "Show installed": whether results the instance has already stay in the list.
+    pub(super) fn installed_chip(
+        &mut self,
+        kind: ContentKind,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let on = self.section(kind).browse.show_installed;
+        filter_chip(
+            ("show-installed", kind as usize),
+            format!("{}-show-installed", kind.dir()),
+            t(M::ShowInstalled).into(),
+            None,
+            on,
+        )
+        .on_press(cx.listener(move |this, _, _, cx| this.set_show_installed(kind, !on, cx)))
+        .into_any_element()
+    }
+
+    /// "1.20.1 / Fabric only", shared by Modrinth's and CurseForge's views.
+    pub(super) fn compat_chip(&mut self, kind: ContentKind, cx: &mut Context<Self>) -> AnyElement {
+        let only = self.section(kind).browse.only_compatible;
+        let target = self.target_label(kind, cx);
+        filter_chip(
+            ("only-compatible", kind as usize),
+            format!("{}-only-compatible", kind.dir()),
+            tr!(M::OnlyTarget, target = target).into(),
+            None,
+            only,
+        )
+        .on_press(cx.listener(move |this, _, _, cx| this.set_only_compatible(kind, !only, cx)))
+        .into_any_element()
+    }
+
+    /// The filter panel under the Modrinth heading: Modrinth's categories of the kind
+    /// (with features, resolution or performance impact), where a mod is installed, and
+    /// open source.
+    fn render_modrinth_filters(&mut self, kind: ContentKind, cx: &mut Context<Self>) -> AnyElement {
+        let current = self.section(kind).browse.filters.clone();
+        let group = |label: M, chips: Vec<AnyElement>| {
+            div()
+                .flex()
+                .flex_col()
+                .gap_1p5()
+                .child(
+                    small(t(label))
                         .font_weight(weights::BOLD.into())
                         .text_color(crate::theme::ink::muted()),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .flex_wrap()
+                        .gap_1p5()
+                        .children(chips),
+                )
+        };
+        let mut panel = div()
+            .id(("modrinth-filter-panel", kind as usize))
+            .flex()
+            .flex_col()
+            .gap_3()
+            .p_3()
+            .rounded(radius::XL)
+            .bg(colors::GRAY_800)
+            .border_1()
+            .border_color(colors::GRAY_FADED.opacity(15));
+        for (filter_group, categories) in filters::groups(kind) {
+            let chips = categories
+                .iter()
+                .map(|category| {
+                    let slug = category.slug;
+                    filter_chip(
+                        SharedString::from(format!("filter-{}-{slug}", kind.dir())),
+                        format!("{}-filter-{slug}", kind.dir()),
+                        category.label().into(),
+                        category.icon,
+                        current.categories.contains(slug),
+                    )
+                    .on_press(cx.listener(move |this, _, _, cx| {
+                        this.change_filters(kind, |f| f.toggle_category(slug), cx)
+                    }))
+                    .into_any_element()
+                })
+                .collect();
+            panel = panel.child(group(filter_group.label(), chips));
+        }
+        if filters::has_environment(kind) {
+            let choices = [
+                (
+                    ClientEnvironment::Any,
+                    M::EnvAny,
+                    "any",
+                    filters::ENV_ANY_ICON,
                 ),
-            )
-            .child(sort)
-            .child(chip)
-            .into_any_element()
+                (
+                    ClientEnvironment::ClientOnly,
+                    M::EnvClientOnly,
+                    "client",
+                    filters::ENV_CLIENT_ICON,
+                ),
+                (
+                    ClientEnvironment::ServerToo,
+                    M::EnvServerToo,
+                    "server",
+                    filters::ENV_SERVER_ICON,
+                ),
+            ];
+            let chips = choices
+                .into_iter()
+                .map(|(value, label, id, icon)| {
+                    filter_chip(
+                        SharedString::from(format!("filter-env-{id}")),
+                        format!("{}-filter-env-{id}", kind.dir()),
+                        t(label).into(),
+                        Some(icon),
+                        current.environment == value,
+                    )
+                    .on_press(cx.listener(move |this, _, _, cx| {
+                        this.change_filters(kind, |f| f.environment = value, cx)
+                    }))
+                    .into_any_element()
+                })
+                .collect();
+            panel = panel.child(
+                group(M::FilterEnvironment, chips).child(
+                    small(t(M::FilterEnvironmentHint))
+                        .whitespace_normal()
+                        .text_color(crate::theme::ink::muted()),
+                ),
+            );
+        }
+        let open_source = current.open_source;
+        panel = panel.child(group(
+            M::FilterOther,
+            vec![
+                filter_chip(
+                    ("filter-open-source", kind as usize),
+                    format!("{}-filter-open-source", kind.dir()),
+                    t(M::FilterOpenSource).into(),
+                    Some(filters::OPEN_SOURCE_ICON),
+                    open_source,
+                )
+                .on_press(cx.listener(move |this, _, _, cx| {
+                    this.change_filters(kind, |f| f.open_source = !open_source, cx)
+                }))
+                .into_any_element(),
+            ],
+        ));
+        let modrinth_only = self.curseforge(cx).is_some();
+        if current.count() > 0 || modrinth_only {
+            panel = panel.child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_3()
+                    .child(div().flex_1().min_w_0().when(modrinth_only, |this| {
+                        this.child(
+                            small(t(M::FiltersModrinthOnly))
+                                .whitespace_normal()
+                                .text_color(crate::theme::ink::muted()),
+                        )
+                    }))
+                    .when(current.count() > 0, |this| {
+                        this.child(
+                            Button::new(("clear-filters", kind as usize), t(M::ClearFilters))
+                                .variant(ButtonVariant::Secondary)
+                                .size(ButtonSize::Slim)
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.change_filters(kind, |f| *f = Filters::default(), cx)
+                                })),
+                        )
+                    }),
+            );
+        }
+        panel.into_any_element()
     }
 
     /// Previous and next page of the Modrinth results.
     fn render_pager(&mut self, kind: ContentKind, cx: &mut Context<Self>) -> AnyElement {
         let browse = &self.section(kind).browse;
-        let offset = browse.offset;
         let total = browse.results.ready().map_or(0, |r| r.total_hits);
-        let pages = total.div_ceil(PAGE_SIZE).max(1);
-        let page = offset / PAGE_SIZE + 1;
-        div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .justify_center()
-            .gap_3()
-            .child(
-                Button::new(("previous-page", kind as usize), t(CommonMsg::Previous))
-                    .variant(ButtonVariant::Secondary)
-                    .size(ButtonSize::Slim)
-                    .disabled(offset == 0)
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.set_page(kind, offset.saturating_sub(PAGE_SIZE), cx)
-                    })),
-            )
-            .child(
-                small(tr!(
-                    M::PageOf,
-                    page = format::number(page as u64),
-                    pages = format::number(pages as u64)
-                ))
-                .text_color(crate::theme::ink::muted()),
-            )
-            .child(
-                Button::new(("next-page", kind as usize), t(CommonMsg::Next))
-                    .variant(ButtonVariant::Secondary)
-                    .size(ButtonSize::Slim)
-                    .disabled(page >= pages)
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.set_page(kind, offset + PAGE_SIZE, cx)
-                    })),
-            )
-            .into_any_element()
+        pager(
+            kind,
+            ("previous-page", "next-page"),
+            (browse.offset / PAGE_SIZE) as usize,
+            total.div_ceil(PAGE_SIZE) as usize,
+            move |this, page, cx| this.set_page(kind, page as u32 * PAGE_SIZE, cx),
+            cx,
+        )
     }
 
     /// A Modrinth result as a row of the list: opens its page, or installs it.
@@ -1972,6 +2577,7 @@ impl ContentView {
         kind: ContentKind,
         index: usize,
         hit: &ModrinthSearchHit,
+        installed: bool,
         first: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -1984,6 +2590,13 @@ impl ContentView {
         let resolving = self.section(kind).resolving.contains(&hit.project_id);
         let busy = self.locked(cx) || self.job.is_some();
         let client_badge = kind == ContentKind::Mod && hit.client_side == "optional";
+        let open = self
+            .section(kind)
+            .browse
+            .project
+            .as_ref()
+            .is_some_and(|p| p.project_id == hit.project_id)
+            && self.panel_closing != Some(kind);
         row_base(("hit", index), first)
             .accessible(
                 Role::ListItem,
@@ -1991,9 +2604,13 @@ impl ContentView {
                 hit.title.clone(),
             )
             .aria_description(hit.description.clone())
+            .aria_selected(open)
             .keyboard_focus()
             .cursor_pointer()
             .hover(|style| style.bg(colors::GRAY_750))
+            .when(open, |this| {
+                this.bg(crate::theme::accent::base().opacity(18))
+            })
             .on_press(
                 cx.listener(move |this, _, _, cx| this.open_project(kind, id.clone(), None, cx)),
             )
@@ -2021,10 +2638,13 @@ impl ContentView {
                             .child(
                                 small(tr!(M::ByAuthor, author = hit.author))
                                     .flex_none()
-                                    .text_color(colors::WHITE.opacity(50)),
+                                    .text_color(crate::theme::ink::muted()),
                             )
                             .when(client_badge, |this| {
-                                this.child(badge(t(M::OptionalOnServers), colors::GRAY_500))
+                                this.child(badge(
+                                    t(M::OptionalOnServers),
+                                    crate::theme::ink::muted(),
+                                ))
                             }),
                     )
                     .child(
@@ -2038,19 +2658,195 @@ impl ContentView {
                     .flex_none()
                     .text_color(crate::theme::ink::muted()),
             )
-            .child(
-                Button::new(("install-hit", index), t(CommonMsg::Install))
-                    .variant(ButtonVariant::Primary)
-                    .size(ButtonSize::Slim)
-                    .loading(resolving)
-                    .disabled(busy || resolving)
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        // Not also the row's click, which opens the page.
-                        cx.stop_propagation();
-                        this.install_hit(kind, install_id.clone(), cx)
-                    })),
-            )
+            .map(|this| {
+                if installed {
+                    this.child(installed_mark())
+                } else {
+                    this.child(
+                        Button::new(("install-hit", index), t(CommonMsg::Install))
+                            .variant(ButtonVariant::Primary)
+                            .size(ButtonSize::Slim)
+                            .loading(resolving)
+                            .disabled(busy || resolving)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                // Not also the row's click, which opens the page.
+                                cx.stop_propagation();
+                                this.install_hit(kind, install_id.clone(), cx)
+                            })),
+                    )
+                }
+            })
             .into_any_element()
+    }
+
+    /// How wide a page's images may be: the panel's room, or the renderer's own limit
+    /// on a full page.
+    pub(super) fn page_image_width(&self) -> f32 {
+        self.panel_width
+            .map_or(crate::markdown::MAX_IMAGE_WIDTH, |w| w - PANEL_INSET)
+    }
+
+    /// The bar above a project's page: Back to the list and the platform's link on a
+    /// full page; the link and Close in the panel beside the list. `open` is the link's
+    /// id, label and URL.
+    pub(super) fn page_bar(
+        &self,
+        kind: ContentKind,
+        close_id: &'static str,
+        open: Option<(&'static str, SharedString, String)>,
+        close: fn(&mut Self, ContentKind, &mut Context<Self>),
+        cx: &mut Context<Self>,
+    ) -> gpui::Div {
+        let side = self.panel_width.is_some();
+        let close_button = if side {
+            IconButton::new((close_id, kind as usize), Icon::Xmark)
+                .label(t(M::ClosePage))
+                .on_click(cx.listener(move |this, _, _, cx| close(this, kind, cx)))
+                .into_any_element()
+        } else {
+            Button::new((close_id, kind as usize), t(CommonMsg::Back))
+                .variant(ButtonVariant::Ghost)
+                .icon(Icon::ArrowLeft)
+                .size(ButtonSize::Slim)
+                .on_click(cx.listener(move |this, _, _, cx| close(this, kind, cx)))
+                .into_any_element()
+        };
+        let open_button = open.map(|(id, label, url)| {
+            Button::new((id, kind as usize), label)
+                .variant(ButtonVariant::Secondary)
+                .icon(Icon::ArrowUpRightFromSquare)
+                .size(ButtonSize::Slim)
+                .on_click(move |_, _, cx| cx.open_url(&url))
+        });
+        let row = div().flex().flex_row().items_center().gap_2();
+        if side {
+            row.children(open_button)
+                .child(div().flex_1())
+                .child(close_button)
+        } else {
+            row.child(close_button)
+                .child(div().flex_1())
+                .children(open_button)
+        }
+    }
+
+    /// The tabs of a project's page; `set` switches to one.
+    pub(super) fn page_tabs(
+        &self,
+        kind: ContentKind,
+        id: &'static str,
+        tabs: &[(ProjectTab, SharedString)],
+        current: ProjectTab,
+        set: fn(&mut Self, ContentKind, ProjectTab, &mut Context<Self>),
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let entity = cx.entity();
+        let order: Vec<ProjectTab> = tabs.iter().map(|(tab, _)| *tab).collect();
+        let selected = order.iter().position(|tab| *tab == current).unwrap_or(0);
+        div()
+            .flex()
+            .child(pills(
+                id,
+                tabs.iter().map(|(_, label)| label.clone()).collect(),
+                selected,
+                move |index, _, cx| {
+                    if let Some(tab) = order.get(index).copied() {
+                        entity.update(cx, |this, cx| set(this, kind, tab, cx));
+                    }
+                },
+            ))
+            .into_any_element()
+    }
+
+    /// A description in its box, with its images (fetched the first time).
+    pub(super) fn description_box(
+        &mut self,
+        id: String,
+        blocks: &[launcher_core::markdown::Block],
+        rest: SharedString,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let urls = crate::markdown::image_urls(blocks);
+        let images = self.description_images(&urls, cx);
+        let width = self.page_image_width();
+        div()
+            .p_4()
+            .rounded(radius::LG)
+            .border_1()
+            .border_color(crate::theme::ink::border())
+            .bg(colors::GRAY_850)
+            .child(crate::markdown::render_sized(
+                id, blocks, &images, rest, width,
+            ))
+            .into_any_element()
+    }
+
+    /// A project's gallery: each image (by URL, with its title) as wide as there is room
+    /// for, opening in the browser on a click. Images that can't be loaded are left out.
+    pub(super) fn render_gallery(
+        &mut self,
+        id: String,
+        images: Vec<(String, Option<String>)>,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let urls: Vec<String> = images.iter().map(|(url, _)| url.clone()).collect();
+        let loaded = self.description_images(&urls, cx);
+        // Not in a box: as wide as the panel's inside.
+        let width = self
+            .panel_width
+            .map_or(crate::markdown::MAX_IMAGE_WIDTH, |w| w - PANEL_PADDING);
+        let id: SharedString = id.into();
+        let mut column = div().flex().flex_col().gap_4();
+        for (index, (url, title)) in images.into_iter().enumerate() {
+            if matches!(self.description_images.get(&url), Some(RemoteIcon::Failed)) {
+                continue;
+            }
+            let picture = match loaded.get(&url) {
+                Some(image) => {
+                    let size = image.size(0);
+                    let (w, h) = (size.width.0.max(1) as f32, size.height.0.max(1) as f32);
+                    let scale = (width / w).min(1.0);
+                    img(image.clone())
+                        .w(px(w * scale))
+                        .h(px(h * scale))
+                        .rounded(radius::MD)
+                        .object_fit(ObjectFit::Contain)
+                        .into_any_element()
+                }
+                None => div()
+                    .w(px(width))
+                    .h(px(width * 9. / 16.))
+                    .rounded(radius::MD)
+                    .bg(colors::GRAY_850)
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .text_color(crate::theme::ink::muted())
+                    .child(LoadingDots)
+                    .into_any_element(),
+            };
+            let title = title.filter(|t| !t.trim().is_empty());
+            let label: SharedString = title
+                .clone()
+                .unwrap_or_else(|| format!("{} {}", t(M::Gallery), index + 1))
+                .into();
+            column = column.child(
+                div()
+                    .id((id.clone(), index))
+                    .accessible(Role::Link, format!("{id}-{index}"), label)
+                    .keyboard_focus()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .cursor_pointer()
+                    .on_press(move |_, _, cx| cx.open_url(&url))
+                    .child(picture)
+                    .when_some(title, |this, title| {
+                        this.child(small(title).text_color(crate::theme::ink::secondary()))
+                    }),
+            );
+        }
+        column.into_any_element()
     }
 
     fn render_project(&mut self, kind: ContentKind, cx: &mut Context<Self>) -> AnyElement {
@@ -2064,11 +2860,7 @@ impl ContentView {
         let with_dependencies = view.with_dependencies;
         let confirm_force = view.confirm_force.clone();
         let linked = view.linked_version.clone();
-        let back = Button::new(("back", kind as usize), t(CommonMsg::Back))
-            .variant(ButtonVariant::Ghost)
-            .icon(Icon::ArrowLeft)
-            .size(ButtonSize::Slim)
-            .on_click(cx.listener(move |this, _, _, cx| this.close_project(kind, cx)));
+        let back = self.page_bar(kind, "back", None, Self::close_project, cx);
         let project = match project {
             Load::Ready(project) => project,
             Load::Failed(err) => {
@@ -2076,7 +2868,7 @@ impl ContentView {
                     .flex()
                     .flex_col()
                     .gap_3()
-                    .child(div().flex().child(back))
+                    .child(back)
                     .child(small(err).text_color(colors::RED_200))
                     .into_any_element();
             }
@@ -2085,7 +2877,7 @@ impl ContentView {
                     .flex()
                     .flex_col()
                     .gap_3()
-                    .child(div().flex().child(back))
+                    .child(back)
                     .child(
                         div()
                             .flex()
@@ -2103,118 +2895,126 @@ impl ContentView {
             .as_deref()
             .and_then(|url| self.remote_icon(url, cx));
         let page = modrinth_page(&project.project_type, &project.slug);
+        let bar = self.page_bar(
+            kind,
+            "back",
+            Some(("open-modrinth", t(M::ViewOnModrinth).into(), page)),
+            Self::close_project,
+            cx,
+        );
+        let icon_size = if self.panel_width.is_some() { 56. } else { 72. };
         let mut column =
-            div()
-                .flex()
-                .flex_col()
-                .gap_4()
-                .child(div().flex().child(back))
-                .child(
-                    div()
-                        .flex()
-                        .flex_row()
-                        .items_start()
-                        .gap_4()
-                        .child(icon_box(icon, 72.))
-                        .child(
-                            div()
-                                .flex()
-                                .flex_col()
-                                .flex_1()
-                                .min_w_0()
-                                .gap_1()
-                                .child(
-                                    div()
-                                        .font_family(fonts::display())
-                                        .text_size(theme::text_size(text::H2))
-                                        .font_weight(weights::BOLD.into())
-                                        .text_color(crate::theme::ink::text())
-                                        .child(project.title.clone()),
-                                )
-                                .child(
-                                    div()
-                                        .text_color(crate::theme::ink::secondary())
-                                        .whitespace_normal()
-                                        .child(RichText::minecraft(project.description.clone())),
-                                )
-                                .child(
-                                    div()
-                                        .flex()
-                                        .flex_row()
-                                        .flex_wrap()
-                                        .items_center()
-                                        .gap_2()
-                                        .child(
-                                            small(format!(
-                                                "{} · {}",
-                                                counted(
-                                                    project.downloads,
-                                                    P::Downloads,
-                                                    M::DownloadsCompact
-                                                ),
-                                                counted(
-                                                    project.followers,
-                                                    P::Followers,
-                                                    M::FollowersCompact
-                                                )
-                                            ))
-                                            .text_color(crate::theme::ink::muted()),
-                                        )
-                                        .children(project.categories.iter().take(6).map(|c| {
+            div().flex().flex_col().gap_4().child(bar).child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_start()
+                    .gap_4()
+                    .child(icon_box(icon, icon_size))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .flex_1()
+                            .min_w_0()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .font_family(fonts::display())
+                                    .text_size(theme::text_size(text::H2))
+                                    .font_weight(weights::BOLD.into())
+                                    .text_color(crate::theme::ink::text())
+                                    .whitespace_normal()
+                                    .child(project.title.clone()),
+                            )
+                            .child(
+                                div()
+                                    .text_color(crate::theme::ink::secondary())
+                                    .whitespace_normal()
+                                    .child(RichText::minecraft(project.description.clone())),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_row()
+                                    .flex_wrap()
+                                    .items_center()
+                                    .gap_2()
+                                    .child(
+                                        small(format!(
+                                            "{} · {}",
+                                            counted(
+                                                project.downloads,
+                                                P::Downloads,
+                                                M::DownloadsCompact
+                                            ),
+                                            counted(
+                                                project.followers,
+                                                P::Followers,
+                                                M::FollowersCompact
+                                            )
+                                        ))
+                                        .text_color(crate::theme::ink::muted()),
+                                    )
+                                    .children(
+                                        project.categories.iter().take(6).map(|c| {
                                             badge(c.clone(), crate::theme::accent::light())
-                                        })),
-                                ),
-                        )
-                        .child(
-                            Button::new(("open-modrinth", kind as usize), t(M::ViewOnModrinth))
-                                .variant(ButtonVariant::Secondary)
-                                .icon(Icon::ArrowUpRightFromSquare)
-                                .size(ButtonSize::Slim)
-                                .on_click(move |_, _, cx| cx.open_url(&page)),
-                        ),
-                );
+                                        }),
+                                    ),
+                            ),
+                    ),
+            );
         if kind == ContentKind::ShaderPack && self.shaders.loader.is_none() {
             column = column.child(self.render_shader_mod(cx));
         }
         let has_body = !project.body.trim().is_empty();
+        let mut gallery = project.gallery.clone();
+        gallery.sort_by_key(|image| !image.featured);
+        let mut tabs: Vec<(ProjectTab, SharedString)> = Vec::new();
         if has_body {
-            let entity = cx.entity();
-            column = column.child(div().flex().child(pills(
-                "project-tabs",
-                vec![t(M::Versions).into(), t(M::Description).into()],
-                match tab {
-                    ProjectTab::Versions => 0,
-                    ProjectTab::Description => 1,
-                },
-                move |index, _, cx| {
-                    let tab = if index == 0 {
-                        ProjectTab::Versions
-                    } else {
-                        ProjectTab::Description
-                    };
-                    entity.update(cx, |this, cx| this.set_project_tab(kind, tab, cx));
-                },
-            )));
+            tabs.push((ProjectTab::Description, t(M::Description).into()));
         }
-        if has_body && tab == ProjectTab::Description {
-            let blocks = self.description(&project);
-            let urls = crate::markdown::image_urls(&blocks);
-            let images = self.description_images(&urls, cx);
-            return column
-                .child(
-                    div()
-                        .p_4()
-                        .rounded(radius::LG)
-                        .border_1()
-                        .border_color(crate::theme::ink::border())
-                        .bg(colors::GRAY_850)
-                        .child(crate::markdown::render(
-                            format!("description-{}", project.id),
-                            &blocks,
-                            &images,
-                        )),
-                )
-                .into_any_element();
+        if !gallery.is_empty() {
+            tabs.push((ProjectTab::Gallery, t(M::Gallery).into()));
+        }
+        tabs.push((ProjectTab::Versions, t(M::Versions).into()));
+        let tab = if tabs.iter().any(|(t, _)| *t == tab) {
+            tab
+        } else {
+            ProjectTab::Versions
+        };
+        if tabs.len() > 1 {
+            column = column.child(self.page_tabs(
+                kind,
+                "project-tabs",
+                &tabs,
+                tab,
+                Self::set_project_tab,
+                cx,
+            ));
+        }
+        match tab {
+            ProjectTab::Description => {
+                let blocks = self.description(&project);
+                return column
+                    .child(self.description_box(
+                        format!("description-{}", project.id),
+                        &blocks,
+                        t(crate::i18n::ShellMsg::RestOnModrinth).into(),
+                        cx,
+                    ))
+                    .into_any_element();
+            }
+            ProjectTab::Gallery => {
+                let images = gallery
+                    .into_iter()
+                    .map(|image| (image.url, image.title))
+                    .collect();
+                return column
+                    .child(self.render_gallery(format!("gallery-{}", project.id), images, cx))
+                    .into_any_element();
+            }
+            ProjectTab::Versions => {}
         }
         let versions = match versions {
             Load::Ready(versions) => versions,
@@ -2381,6 +3181,7 @@ impl ContentView {
                             version_for_click.clone(),
                             Some(project_for_click.clone()),
                             forcing,
+                            with_dependencies,
                             cx,
                         )
                     }))
@@ -2422,7 +3223,7 @@ impl ContentView {
                                     format::bytes(size)
                                 ))
                                 .truncate()
-                                .text_color(colors::WHITE.opacity(40)),
+                                .text_color(crate::theme::ink::faint()),
                             )
                             .when_some(problem, |this, problem| {
                                 this.child(small(problem).text_color(colors::YELLOW_300))
@@ -2457,6 +3258,66 @@ impl NeedsLoader {
     }
 }
 
+/// A pill that is on or off: the compatibility filter beside the Modrinth heading and
+/// the filter panel's choices, with `icon` (an asset path) before its label. One
+/// without an icon shows a check when it is on. The caller adds what pressing it does.
+fn filter_chip(
+    id: impl Into<gpui::ElementId>,
+    automation_id: String,
+    label: SharedString,
+    icon: Option<&'static str>,
+    on: bool,
+) -> gpui::Stateful<gpui::Div> {
+    let icon_color = if on {
+        colors::WHITE.into()
+    } else {
+        crate::theme::ink::secondary()
+    };
+    div()
+        .id(id)
+        .accessible(Role::CheckBox, automation_id, label.clone())
+        .aria_toggled(if on { Toggled::True } else { Toggled::False })
+        .keyboard_focus()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_1()
+        .px_2p5()
+        .py_0p5()
+        .rounded_full()
+        .border_1()
+        .cursor_pointer()
+        .text_size(theme::text_size(text::SMALL))
+        .font_weight(weights::BOLD.into())
+        .map(|this| {
+            if on {
+                this.bg(crate::theme::accent::base().opacity(25))
+                    .border_color(crate::theme::accent::light().opacity(60))
+                    .text_color(colors::WHITE)
+            } else {
+                this.border_color(crate::theme::ink::border())
+                    .text_color(crate::theme::ink::secondary())
+                    .hover(|style| {
+                        style
+                            .text_color(crate::theme::ink::text())
+                            .bg(colors::GRAY_750)
+                    })
+            }
+        })
+        .map(|this| match icon {
+            Some(path) => this.child(
+                gpui::svg()
+                    .path(path)
+                    .flex_none()
+                    .size(px(12.))
+                    .text_color(icon_color),
+            ),
+            None if on => this.child(Icon::Check.render(px(10.), colors::WHITE)),
+            None => this,
+        })
+        .child(label)
+}
+
 /// A round selection mark.
 fn radio(selected: bool) -> impl IntoElement {
     div()
@@ -2483,56 +3344,191 @@ fn radio(selected: bool) -> impl IntoElement {
 }
 
 impl Render for ContentView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let kind = self.kind;
+        // A wide window shows a project's page in a panel beside the list.
+        let window_width = f32::from(window.viewport_size().width);
+        self.panel_width =
+            (window_width >= PANEL_MIN_WINDOW).then(|| (window_width * 0.36).clamp(380., 560.));
         // Every section, for the counts in the switch; the Shaders card and shader
         // searches also need to know the shader mod.
         for kind in ContentKind::ALL {
             self.ensure_loaded(kind, cx);
         }
+        // A closing panel in a section no longer shown, or in a window too narrow for
+        // it: nothing to slide.
+        if let Some(closing) = self.panel_closing
+            && (closing != kind || self.panel_width.is_none())
+        {
+            self.finish_closing(closing, cx);
+        }
+        let open_now =
+            self.section(kind).browse.project.is_some() || self.section(kind).cf.project.is_some();
+        // How far the panel has slid out: 0 shut, 1 open.
+        let slide = crate::components::motion::tween(
+            ("content-panel-slide", kind as usize),
+            if open_now && self.panel_closing.is_none() {
+                1.0
+            } else {
+                0.0
+            },
+            PANEL_SLIDE,
+            window,
+            cx,
+        );
+        if self.panel_closing == Some(kind) && slide <= 0.001 {
+            self.finish_closing(kind, cx);
+        }
         let cf_project_open = self.section(kind).cf.project.is_some();
         let project_open = self.section(kind).browse.project.is_some() || cf_project_open;
-        if !project_open
-            && self.shows_modrinth(kind, cx)
+        // The page covers the list (a narrow window).
+        let full_page = project_open && self.panel_width.is_none();
+        if !full_page
             && matches!(self.section(kind).cf.results, Load::NotLoaded)
             && self.curseforge(cx).is_some()
             && (self.query(kind, cx).is_empty() || self.section(kind).browse.task.is_none())
         {
             self.cf_search(kind, cx);
         }
-        // Nothing installed: the most relevant projects, to start from. (While typing,
-        // the search runs once typing pauses.)
-        if !project_open
-            && self.shows_modrinth(kind, cx)
+        // Nothing typed: Modrinth's projects to browse. (While typing, the search runs
+        // once typing pauses.)
+        if !full_page
             && matches!(self.section(kind).browse.results, Load::NotLoaded)
             && self.section(kind).browse.task.is_none()
             && self.modrinth(cx).is_some()
         {
             self.search(kind, cx);
         }
-        let body = if project_open {
-            div()
-                .id(("content-project", kind as usize))
+        let page = project_open.then(|| {
+            if cf_project_open {
+                self.render_cf_project(kind, cx)
+            } else {
+                self.render_project(kind, cx)
+            }
+        });
+        // The page has its own way back up, once scrolled down as far as the list's.
+        let page_top = (project_open
+            && self
+                .page_scroll
+                .metrics(cx)
+                .is_some_and(|m| m.offset > m.viewport.min(px(BACK_TO_TOP_AFTER))))
+        .then(|| self.back_to_top(kind, "page-back-to-top", Self::scroll_page_to_top, cx));
+        let body = match (page, self.panel_width) {
+            (Some(page), None) => div()
+                .relative()
                 .size_full()
-                .overflow_y_scroll()
-                .child(div().pb_4().child(if cf_project_open {
-                    self.render_cf_project(kind, cx)
-                } else {
-                    self.render_project(kind, cx)
-                }))
-                .into_any_element()
-        } else {
-            // Only the rows on screen are made: a long list scrolls as fast as a short
-            // one.
-            let plan = self.installed_plan(kind, cx);
-            self.sync_installed_list(kind, plan);
-            let entity = cx.entity();
-            list(self.section(kind).rows.clone(), move |ix, _, cx| {
-                entity.update(cx, |this, cx| this.render_entry(kind, ix, cx))
-            })
-            .size_full()
-            .into_any_element()
+                .child(
+                    div()
+                        .id(("content-project", kind as usize))
+                        .size_full()
+                        .overflow_y_scroll()
+                        .track_scroll(&self.page_scroll)
+                        .child(
+                            div()
+                                .pb(px(BACK_TO_TOP_ROOM))
+                                .pr(px(SCROLLBAR_GUTTER))
+                                .child(page),
+                        ),
+                )
+                .child(Scrollbar::new(
+                    ("content-page-scrollbar", kind as usize),
+                    self.page_scroll.clone(),
+                ))
+                .children(page_top)
+                .into_any_element(),
+            (page, panel_width) => {
+                // Only the rows on screen are made: a long list scrolls as fast as a
+                // short one.
+                self.update_installed_list(kind, cx);
+                let entity = cx.entity();
+                let state = self.section(kind).rows.clone();
+                // Far enough down that the top is out of sight: a way back up.
+                let scrolled = state
+                    .metrics(cx)
+                    .is_some_and(|m| m.offset > m.viewport.min(px(BACK_TO_TOP_AFTER)));
+                let gutter = state.metrics(cx).is_some_and(|m| m.overflows());
+                let rows = div()
+                    .relative()
+                    .size_full()
+                    .child(
+                        div()
+                            .size_full()
+                            .when(gutter, |this| this.pr(px(SCROLLBAR_GUTTER)))
+                            .child(
+                                list(state.clone(), move |ix, _, cx| {
+                                    entity.update(cx, |this, cx| this.render_entry(kind, ix, cx))
+                                })
+                                .size_full(),
+                            ),
+                    )
+                    .child(Scrollbar::new(("content-scrollbar", kind as usize), state))
+                    .when(scrolled, |this| {
+                        this.child(self.back_to_top(
+                            kind,
+                            "back-to-top",
+                            Self::scroll_list_to_top,
+                            cx,
+                        ))
+                    });
+                match (page, panel_width) {
+                    // The panel slides out from the right edge: its box widens while
+                    // the page inside keeps its width, held at the box's left edge.
+                    (Some(page), Some(width)) => div()
+                        .flex()
+                        .flex_row()
+                        .size_full()
+                        .child(div().flex_1().min_w_0().h_full().child(rows))
+                        .child(
+                            div()
+                                .relative()
+                                .flex_none()
+                                .h_full()
+                                .ml(px(12. * slide))
+                                .w(px(width * slide))
+                                .overflow_hidden()
+                                .opacity(slide.clamp(0., 1.))
+                                .child(
+                                    div()
+                                        .id(("content-project", kind as usize))
+                                        .absolute()
+                                        .top_0()
+                                        .left_0()
+                                        .accessible(
+                                            Role::Region,
+                                            format!("{}-page", kind.dir()),
+                                            t(M::ProjectPage),
+                                        )
+                                        .flex_none()
+                                        .w(px(width))
+                                        .h_full()
+                                        .rounded(radius::LG)
+                                        .border_1()
+                                        .border_color(crate::theme::ink::border())
+                                        .bg(colors::GRAY_800)
+                                        .overflow_hidden()
+                                        .child(
+                                            div()
+                                                .id(("content-project-scroll", kind as usize))
+                                                .size_full()
+                                                .overflow_y_scroll()
+                                                .track_scroll(&self.page_scroll)
+                                                .p_4()
+                                                .pb(px(BACK_TO_TOP_ROOM))
+                                                .child(page),
+                                        )
+                                        .child(Scrollbar::new(
+                                            ("content-page-scrollbar", kind as usize),
+                                            self.page_scroll.clone(),
+                                        ))
+                                        .children(page_top),
+                                ),
+                        )
+                        .into_any_element(),
+                    _ => rows.into_any_element(),
+                }
+            }
         };
+        let views = (!full_page).then(|| self.render_views(kind, cx));
         div()
             .flex()
             .flex_col()
@@ -2541,6 +3537,7 @@ impl Render for ContentView {
             .child(self.render_header(cx))
             .child(self.render_banners(cx))
             .children(self.render_blocked(cx))
+            .children(views)
             .child(
                 div()
                     .id(("content-body", kind as usize))
@@ -2549,7 +3546,7 @@ impl Render for ContentView {
                     .rounded(radius::LG)
                     .border_2()
                     .border_color(colors::TRANSPARENT)
-                    .when(!project_open, |this| {
+                    .when(!full_page, |this| {
                         this.drag_over::<ExternalPaths>(|style, _, _, _| {
                             style
                                 .border_color(crate::theme::accent::light().opacity(60))
@@ -2563,5 +3560,166 @@ impl Render for ContentView {
                     })
                     .child(body),
             )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `count` rows of one box, from listing index `from`, as `installed_plan` makes
+    /// them; `opened` when an entry above opens the box (the Shaders list's "Off").
+    fn rows(from: usize, count: usize, opened: bool, reorder: bool) -> Vec<Entry> {
+        (0..count)
+            .map(|position| Entry::Row {
+                index: from + position,
+                file: format!("file-{}", from + position),
+                first: position == 0 && !opened,
+                last: position + 1 == count,
+                reorder: reorder.then_some((position > 0, position + 1 < count)),
+            })
+            .collect()
+    }
+
+    /// The listing indexes of the rows in `plan`, with their box edges.
+    fn shown(plan: &[Entry]) -> Vec<(usize, bool, bool)> {
+        plan.iter()
+            .filter_map(|entry| match entry {
+                Entry::Row {
+                    index, first, last, ..
+                } => Some((*index, *first, *last)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Everything but the rows, in order.
+    fn around(plan: &[Entry]) -> Vec<Entry> {
+        plan.iter()
+            .filter(|entry| !matches!(entry, Entry::Row { .. }))
+            .cloned()
+            .collect()
+    }
+
+    #[test]
+    fn a_list_that_fits_one_page_has_no_pager() {
+        let mut plan = rows(0, PAGE_SIZE as usize, false, false);
+        plan.push(Entry::FindMore);
+        assert_eq!(page_of_plan(plan.clone(), 0), plan);
+        // nor on a page past it, as after files were removed
+        assert_eq!(page_of_plan(plan.clone(), 3), plan);
+
+        let mut plan = rows(0, PAGE_SIZE as usize + 1, false, false);
+        plan.push(Entry::FindMore);
+        assert_eq!(
+            around(&page_of_plan(plan, 0)),
+            [Entry::InstalledPager { page: 0, pages: 2 }]
+        );
+    }
+
+    #[test]
+    fn each_page_has_its_rows_under_their_headings_with_whole_counts() {
+        // resource packs: 23 in use and 9 not
+        let note = Entry::Note("offline".into(), false);
+        let mut plan = vec![note.clone(), Entry::Heading(Heading::Enabled(23))];
+        plan.extend(rows(0, 23, false, true));
+        plan.push(Entry::Heading(Heading::Available(9)));
+        plan.extend(rows(23, 9, false, false));
+        plan.push(Entry::FindMore);
+
+        let first = page_of_plan(plan.clone(), 0);
+        assert_eq!(
+            around(&first),
+            [
+                note.clone(),
+                Entry::Heading(Heading::Enabled(23)),
+                Entry::InstalledPager { page: 0, pages: 2 },
+            ],
+            "the packs not in use and the way to the platforms are on the next page"
+        );
+        let edges = shown(&first);
+        assert_eq!(edges.len(), 20);
+        assert_eq!(edges[0], (0, true, false));
+        assert_eq!(
+            edges[19],
+            (19, false, true),
+            "the page's part of the box is closed"
+        );
+
+        let second = page_of_plan(plan, 1);
+        assert_eq!(
+            around(&second),
+            [
+                note,
+                Entry::Heading(Heading::Enabled(23)),
+                Entry::Heading(Heading::Available(9)),
+                Entry::InstalledPager { page: 1, pages: 2 },
+                Entry::FindMore,
+            ]
+        );
+        let edges = shown(&second);
+        assert_eq!(edges.len(), 12);
+        assert_eq!(
+            edges[..3],
+            [(20, true, false), (21, false, false), (22, false, true)]
+        );
+        assert_eq!(edges[3], (23, true, false));
+        assert_eq!(edges[11], (31, false, true));
+        // the headings sit right above their rows, and the pager below the last row
+        assert_eq!(second[1], Entry::Heading(Heading::Enabled(23)));
+        assert!(matches!(second[2], Entry::Row { index: 20, .. }));
+        assert_eq!(second[5], Entry::Heading(Heading::Available(9)));
+        assert_eq!(
+            second[second.len() - 2],
+            Entry::InstalledPager { page: 1, pages: 2 }
+        );
+        // a pack at the top of a page can still move up, onto the page before
+        assert!(matches!(
+            second[2],
+            Entry::Row {
+                reorder: Some((true, true)),
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn a_search_keeps_its_count_on_every_page() {
+        let mut plan = vec![Entry::Heading(Heading::Installed(41))];
+        plan.extend(rows(0, 41, false, false));
+        plan.push(Entry::FindMore);
+        for page in 0..3 {
+            let paged = page_of_plan(plan.clone(), page);
+            assert_eq!(paged[0], Entry::Heading(Heading::Installed(41)));
+            assert!(paged.contains(&Entry::InstalledPager { page, pages: 3 }));
+        }
+        assert_eq!(shown(&page_of_plan(plan, 2)), [(40, true, true)]);
+    }
+
+    #[test]
+    fn a_page_past_the_end_shows_the_last() {
+        let plan = rows(0, 45, false, false);
+        let paged = page_of_plan(plan, 99);
+        assert!(paged.contains(&Entry::InstalledPager { page: 2, pages: 3 }));
+        assert_eq!(
+            shown(&paged).iter().map(|row| row.0).collect::<Vec<_>>(),
+            (40..45).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn the_shaders_off_row_starts_every_page() {
+        let mut plan = vec![Entry::ShaderMod, Entry::ShadersOff];
+        plan.extend(rows(0, 25, true, false));
+        let second = page_of_plan(plan, 1);
+        assert_eq!(second[..2], [Entry::ShaderMod, Entry::ShadersOff]);
+        let edges = shown(&second);
+        assert_eq!(edges.len(), 5);
+        assert_eq!(
+            edges[0],
+            (20, false, false),
+            "the Off row stays the box's first"
+        );
+        assert_eq!(edges[4], (24, false, true));
     }
 }

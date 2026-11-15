@@ -20,7 +20,6 @@
 -->
 [![Contributors][contributors-shield]][contributors-url]
 [![Issues][issues-shield]][issues-url]
-[![Build][workflow-shield]][workflow-url]
 <!-- [![Forks][forks-shield]][forks-url]
 [![Stargazers][stars-shield]][stars-url] -->
 <!-- [![MIT License][license-shield]][license-url] -->
@@ -138,10 +137,6 @@ These instructions apply to Ubuntu 20.04 LTS and later.
   ```sh
   sudo apt-get install pkg-config
   ```
-* `clang` and `libclang-dev` are required to generate bindings for native dependencies of the Deno runtime
-  ```sh
-  sudo apt-get install clang libclang-dev
-  ```
 * `cpuidtool` is required to query CPU information
   ```sh
   sudo apt-get install cpuidtool libcpuid-dev
@@ -166,26 +161,6 @@ These instructions apply to Ubuntu 20.04 LTS and later.
    ```sh
    cargo run -p lodestone_core
    ```
-
-#### Building without Deno
-
-Macros, tasks, server scripts (`prelaunch`), extensions and atom (generic TypeScript) servers run on the Deno runtime, which is behind the `deno` cargo feature. It is on by default. Turning it off builds a much smaller core much faster:
-
-```sh
-cargo build -p lodestone_core --no-default-features
-cargo test -p lodestone_core --no-default-features
-```
-
-Lodestone Host forwards the feature: `cargo build -p lodestone-host --no-default-features`.
-
-Without the feature:
-
-* Macro, task, extension and `/instance/create_generic` routes answer `501 Not Implemented` (error kind `UnsupportedOperation`, naming the missing capability).
-* Prelaunch scripts are skipped; the server still starts.
-* Atom servers on disk are not restored. The core logs a warning, keeps their files and restores them again once it is built with the feature. Macros and their configs stay on disk too.
-* `GET /api/v1/info` reports `"capabilities": { "macros": false, "generic_instances": false, ... }`, and the dashboard hides the features this core lacks.
-
-Minecraft servers, mods, modpacks, Docker servers, sharing with Lodestone Connect and everything else work as usual. The code execution setting still controls custom Java commands.
 
 <p align="right">(<a href="#top">back to top</a>)</p>
 
@@ -268,8 +243,6 @@ Active members of the Lodestone client team:
 [stars-url]: https://github.com/github_username/repo_name/stargazers -->
 [issues-shield]: https://img.shields.io/github/issues/Lodestone-Team/client?style=for-the-badge
 [issues-url]: https://github.com/Lodestone-Team/client/issues
-[workflow-shield]: https://img.shields.io/github/actions/workflow/status/Lodestone-Team/client/push.yml?style=for-the-badge
-[workflow-url]: https://github.com/Lodestone-Team/lodestone_core/actions
 [license-shield]: https://img.shields.io/github/license/github_username/repo_name.svg?style=for-the-badge
 [license-url]: https://github.com/github_username/repo_name/blob/master/LICENSE.txt
 [product-screenshot]: images/screenshot.png

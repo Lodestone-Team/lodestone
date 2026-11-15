@@ -101,7 +101,8 @@ pub enum Command {
     /// Mods, resource packs and shader packs: search Modrinth, install, update, remove.
     #[command(subcommand)]
     Content(Content),
-    /// Modpacks: search, install as an instance, check for and apply updates.
+    /// Modpacks: search, install as an instance, check for and apply updates, and add
+    /// a pack's files to an instance (next to a server's mods, say).
     #[command(subcommand)]
     Modpacks(Modpacks),
     /// Worlds and their backups.
@@ -125,14 +126,18 @@ pub enum Command {
     /// Friends' servers (Lodestone Connect): join one from an invite link, list, remove.
     #[command(subcommand)]
     Friends(Friends),
+    /// The friend list: your name and safety code, friend links and their answers,
+    /// friends, and the servers they share with you.
+    #[command(subcommand)]
+    FriendList(FriendList),
     /// Long operations: list, wait for, cancel.
     #[command(subcommand)]
     Jobs(Jobs),
     /// Disk space: what the data folder takes, and removing what can go.
     #[command(subcommand)]
     Storage(Storage),
-    /// Snapshots of instances: take, list, go back to, share as .lodesnap files, and
-    /// make new instances from them.
+    /// Snapshots of instances: take, list, restore, share as image files (.lodeimg),
+    /// make new instances from them, pin, and how many are kept.
     #[command(subcommand)]
     Snapshots(Snapshots),
     /// The launcher's look: list skins, use one, import or export a pack.
@@ -226,10 +231,10 @@ pub enum Instances {
         after_help = "Examples:\n  lodestone-launcher-cli instances create --version 1.21.1 --loader fabric --name Survival\n  lodestone-launcher-cli instances create            # the newest release, vanilla\n  lodestone-launcher-cli instances create --loader forge --loader-version 47.4.0 --version 1.20.1 --group Modded"
     )]
     Create {
-        /// The name (default: \"<version> <loader>\").
+        /// The name (default: "<version> <loader>").
         #[arg(long)]
         name: Option<String>,
-        /// A Minecraft version, or \"latest\" (the newest release, the default).
+        /// A Minecraft version, or "latest" (the newest release, the default).
         #[arg(long)]
         version: Option<String>,
         /// vanilla, fabric, quilt, forge or neoforge.
@@ -310,6 +315,50 @@ pub enum Instances {
     /// Copies an instance (with its worlds and mods).
     #[command(after_help = "Examples:\n  lodestone-launcher-cli instances duplicate Survival")]
     Duplicate(InstanceArg),
+    /// Makes a new instance from one for another Minecraft version or loader (an
+    /// instance's own never change): each Modrinth mod's build for them, the resource
+    /// packs, shaders and options, and (with --worlds, to the same or a newer version)
+    /// the worlds. Mods with no build, and mods not on Modrinth, stay behind. Needs --yes
+    /// when mods stay behind or worlds are upgraded: show the user the plan first.
+    #[command(
+        name = "copy-as",
+        after_help = "Examples:\n  lodestone-launcher-cli instances copy-as Survival --version 1.21.1\n  lodestone-launcher-cli instances copy-as Survival --loader neoforge --name \"Survival NeoForge\"\n  lodestone-launcher-cli instances copy-as Vanilla121 --loader fabric --worlds\n  lodestone-launcher-cli instances copy-as Survival --version latest --no-mods"
+    )]
+    CopyAs {
+        instance: String,
+        /// A Minecraft version, or "latest" (default: the instance's).
+        #[arg(long)]
+        version: Option<String>,
+        /// vanilla, fabric, quilt, forge or neoforge (default: the instance's).
+        #[arg(long)]
+        loader: Option<String>,
+        /// The loader version (default: the recommended one).
+        #[arg(long)]
+        loader_version: Option<String>,
+        /// The copy's name (default: "<name> (<version> <loader>)").
+        #[arg(long)]
+        name: Option<String>,
+        /// Copy the worlds too (only to the same or a newer version, which upgrades them).
+        #[arg(long)]
+        worlds: bool,
+        /// Leave the resource packs, shaders and options.txt out.
+        #[arg(long)]
+        no_packs: bool,
+        /// Leave the mods out.
+        #[arg(long)]
+        no_mods: bool,
+    },
+    /// Changes the version of an instance's mod loader (installs next launch). The
+    /// loader itself stays: `instances copy-as` makes a copy with another.
+    #[command(
+        name = "set-loader-version",
+        after_help = "Examples:\n  lodestone-launcher-cli instances set-loader-version Survival 0.16.14\n  lodestone-launcher-cli instances set-loader-version Survival      # the recommended one"
+    )]
+    SetLoaderVersion {
+        instance: String,
+        /// A version of its loader (default: the recommended one).
+        loader_version: Option<String>,
+    },
     /// Moves an instance to the Trash. Destructive: needs --yes.
     #[command(after_help = "Examples:\n  lodestone-launcher-cli instances delete Survival --yes")]
     Delete(InstanceArg),
@@ -422,13 +471,13 @@ pub struct GameSettingsArgs {
     /// Game arguments, as one string.
     #[arg(long, allow_hyphen_values = true)]
     pub game_args: Option<String>,
-    /// Window size, WIDTHxHEIGHT, or \"default\".
+    /// Window size, WIDTHxHEIGHT, or "default".
     #[arg(long)]
     pub resolution: Option<String>,
     /// Start fullscreen: true or false.
     #[arg(long)]
     pub fullscreen: Option<bool>,
-    /// Environment variables: \"NAME=value NAME2='a b'\".
+    /// Environment variables: "NAME=value NAME2='a b'".
     #[arg(long)]
     pub env: Option<String>,
 }
@@ -527,17 +576,28 @@ pub enum DeveloperSettings {
     /// Developer settings, and the accounts signed in with the launcher identity.
     #[command(after_help = "Examples:\n  lodestone-launcher-cli settings developer get")]
     Get,
-    /// "Sign in as the Minecraft Launcher". Turning it on needs --yes after the user
-    /// read the disclosure (printed without --yes).
+    /// "Sign in as the Minecraft Launcher" and "Connect service (relay)". Turning the
+    /// first on needs --yes after the user read the disclosure (printed without --yes).
     #[command(
-        after_help = "Examples:\n  lodestone-launcher-cli settings developer set --sign-in-as-minecraft-launcher true --yes\n  lodestone-launcher-cli settings developer set --sign-in-as-minecraft-launcher false --sign-out-accounts --yes"
+        after_help = "Examples:\n  lodestone-launcher-cli settings developer set --sign-in-as-minecraft-launcher true --yes\n  lodestone-launcher-cli settings developer set --sign-in-as-minecraft-launcher false --sign-out-accounts --yes\n  lodestone-launcher-cli settings developer set --connect-service https://connect-dev.lodestone.cc\n  lodestone-launcher-cli settings developer set --connect-service default"
     )]
+    #[command(group(
+        clap::ArgGroup::new("change")
+            .required(true)
+            .multiple(true)
+            .args(["sign_in_as_minecraft_launcher", "connect_service"])
+    ))]
     Set {
         #[arg(long, action = clap::ArgAction::Set, value_name = "BOOL")]
-        sign_in_as_minecraft_launcher: bool,
+        sign_in_as_minecraft_launcher: Option<bool>,
         /// Turning it off: also sign out the accounts signed in with it.
         #[arg(long)]
         sign_out_accounts: bool,
+        /// The Lodestone Connect service the friend list uses, for testing:
+        /// https://name (or http://127.0.0.1:PORT for one on this computer), or
+        /// "default" for connect.lodestone.cc.
+        #[arg(long, value_name = "URL")]
+        connect_service: Option<String>,
     },
 }
 
@@ -630,6 +690,12 @@ pub enum Content {
         #[arg(long)]
         kind: Option<String>,
     },
+    /// The instance's content images, newest first: what each was recorded for, when,
+    /// its game and how many files it lists.
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli content history Survival\n  lodestone-launcher-cli content history Survival --human"
+    )]
+    History { instance: String },
     /// Searches Modrinth. With --instance, only what fits it (unless --all).
     #[command(
         after_help = "Examples:\n  lodestone-launcher-cli content search sodium --instance Survival\n  lodestone-launcher-cli content search \"faithful\" --kind resourcepack --sort downloads\n  lodestone-launcher-cli content search --kind shader --instance Survival"
@@ -727,21 +793,6 @@ pub enum Content {
         #[arg(long)]
         kind: Option<String>,
     },
-    /// Changes the instance's mod loader (installs next launch). Without LOADER: the
-    /// Content tab's offer for a vanilla instance (Fabric, or Forge before 1.14).
-    #[command(
-        after_help = "Examples:\n  lodestone-launcher-cli content switch-loader Survival\n  lodestone-launcher-cli content switch-loader Survival quilt\n  lodestone-launcher-cli content switch-loader Survival forge --disable-mismatched"
-    )]
-    SwitchLoader {
-        instance: String,
-        /// fabric, quilt, forge, neoforge or vanilla.
-        loader: Option<String>,
-        #[arg(long)]
-        loader_version: Option<String>,
-        /// Turn off mods made for another loader.
-        #[arg(long)]
-        disable_mismatched: bool,
-    },
 }
 
 #[derive(Args, Debug, Clone)]
@@ -790,15 +841,43 @@ pub enum Modpacks {
     Check(InstanceArg),
     /// Updates the instance's modpack. Without --yes it prints the plan (exit code 5).
     #[command(
-        after_help = "Examples:\n  lodestone-launcher-cli modpacks update FO          # the plan\n  lodestone-launcher-cli modpacks update FO --yes    # apply it\n  lodestone-launcher-cli modpacks update FO --version 6.0.1 --no-backup-worlds --yes"
+        after_help = "Examples:\n  lodestone-launcher-cli modpacks update FO          # the plan\n  lodestone-launcher-cli modpacks update FO --yes    # apply it\n  lodestone-launcher-cli modpacks update FO --version 6.0.1 --yes"
     )]
     Update {
         instance: String,
         #[arg(long)]
         version: Option<String>,
-        /// Don't back up the worlds first.
+    },
+    /// Adds a modpack's mods and configs to an instance, next to the ones it has: for an
+    /// instance made for a server, the server's mods stay as the server has them.
+    /// Without --yes it prints the plan (exit code 5).
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli modpacks add \"Friends SMP\" fabulously-optimized          # the plan\n  lodestone-launcher-cli modpacks add \"Friends SMP\" fabulously-optimized --yes    # add it\n  lodestone-launcher-cli modpacks add SMP --file ./pack.mrpack --yes"
+    )]
+    Add {
+        instance: String,
+        /// A slug, project id or modrinth.com link.
+        #[arg(required_unless_present = "file")]
+        project: Option<String>,
+        /// A .mrpack, or a CurseForge pack's .zip.
+        #[arg(long, conflicts_with = "project")]
+        file: Option<PathBuf>,
+        /// A version id or number; the newest release for the instance without it.
         #[arg(long)]
-        no_backup_worlds: bool,
+        version: Option<String>,
+    },
+    /// The modpacks added to an instance, with the files each added.
+    #[command(after_help = "Examples:\n  lodestone-launcher-cli modpacks added \"Friends SMP\"")]
+    Added(InstanceArg),
+    /// Removes a modpack added to an instance: the files it added that you didn't
+    /// change. Without --yes it prints what it removes (exit code 5).
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli modpacks remove \"Friends SMP\" fabulously-optimized\n  lodestone-launcher-cli modpacks remove \"Friends SMP\" \"Fabulously Optimized\" --yes"
+    )]
+    Remove {
+        instance: String,
+        /// The added pack's id (from `modpacks added`), slug, project id or title.
+        pack: String,
     },
 }
 
@@ -814,27 +893,28 @@ pub enum Worlds {
     /// An instance's worlds.
     #[command(after_help = "Examples:\n  lodestone-launcher-cli worlds list Survival")]
     List(InstanceArg),
-    /// A world's backups, newest first.
+    /// The snapshots that hold a world, newest first.
     #[command(
         after_help = "Examples:\n  lodestone-launcher-cli worlds backups Survival \"New World\""
     )]
     Backups(WorldArgs),
-    /// Backs up a world (a zip in the instance's backups folder).
+    /// Backs up a world: a snapshot named after it.
     #[command(
         after_help = "Examples:\n  lodestone-launcher-cli worlds backup Survival \"New World\""
     )]
     Backup(WorldArgs),
-    /// Restores a backup: as a copy beside the world, or replacing it (--replace, --yes).
+    /// Puts a world back from a snapshot that holds it: as a copy beside the world, or in
+    /// its place (--replace, --yes; a safety snapshot is taken first).
     #[command(
-        after_help = "Examples:\n  lodestone-launcher-cli worlds restore Survival \"New World\"\n  lodestone-launcher-cli worlds restore Survival \"New World\" --backup 2026-11-08_14-30-00.zip --replace --yes"
+        after_help = "Examples:\n  lodestone-launcher-cli worlds restore Survival \"New World\"\n  lodestone-launcher-cli worlds restore Survival \"New World\" --snapshot \"Before 1.21\" --replace --yes"
     )]
     Restore {
         #[command(flatten)]
         world: WorldArgs,
-        /// The backup's file name (default: the newest).
+        /// The snapshot's id or name (default: the newest that holds the world).
         #[arg(long, default_value = "latest")]
-        backup: String,
-        /// Replace the world (it is backed up, then moved to the Trash).
+        snapshot: String,
+        /// Put it in the world's place (after a safety snapshot of it).
         #[arg(long)]
         replace: bool,
     },
@@ -843,31 +923,76 @@ pub enum Worlds {
         after_help = "Examples:\n  lodestone-launcher-cli worlds delete Survival \"Old World\" --yes"
     )]
     Delete(WorldArgs),
-    /// Moves a backup to the Trash. Needs --yes.
+    /// A world's data packs, and whether each is on.
     #[command(
-        after_help = "Examples:\n  lodestone-launcher-cli worlds delete-backup Survival \"New World\" 2026-11-01_10-00-00.zip --yes"
+        after_help = "Examples:\n  lodestone-launcher-cli worlds datapacks Survival \"New World\""
     )]
-    DeleteBackup {
+    Datapacks(WorldArgs),
+    /// Data packs on Modrinth for the instance's Minecraft version.
+    #[command(
+        name = "datapack-search",
+        after_help = "Examples:\n  lodestone-launcher-cli worlds datapack-search Survival terralith"
+    )]
+    DatapackSearch {
+        instance: String,
+        query: Option<String>,
+        #[arg(long)]
+        limit: Option<u32>,
+    },
+    /// Copies a data pack (.zip or folder) into a world.
+    #[command(
+        name = "datapack-add",
+        after_help = "Examples:\n  lodestone-launcher-cli worlds datapack-add Survival \"New World\" ~/Downloads/tools.zip"
+    )]
+    DatapackAdd {
         #[command(flatten)]
         world: WorldArgs,
-        backup: String,
+        path: std::path::PathBuf,
     },
-    /// Downloads a server's world from its core into an instance, as a singleplayer copy.
-    /// Signs in with your core password (from stdin), once.
+    /// Installs a data pack from Modrinth into a world (the newest that fits by default).
     #[command(
-        after_help = "Examples:\n  printf '%s\\n' \"$PASSWORD\" | lodestone-launcher-cli worlds download Survival --server Smp --username alice --password-stdin"
+        name = "datapack-install",
+        after_help = "Examples:\n  lodestone-launcher-cli worlds datapack-install Survival \"New World\" terralith"
     )]
-    Download {
-        instance: String,
-        /// The server's id or name.
-        #[arg(long)]
-        server: String,
-        #[arg(long)]
-        core: Option<String>,
-        #[arg(long)]
-        username: String,
+    DatapackInstall {
         #[command(flatten)]
-        password: PasswordArgs,
+        world: WorldArgs,
+        /// A Modrinth project id or slug.
+        project: String,
+        /// A version id or number.
+        #[arg(long)]
+        version: Option<String>,
+    },
+    /// Turns a data pack on, from the next time the world loads.
+    #[command(
+        name = "datapack-enable",
+        after_help = "Examples:\n  lodestone-launcher-cli worlds datapack-enable Survival \"New World\" tools.zip"
+    )]
+    DatapackEnable {
+        #[command(flatten)]
+        world: WorldArgs,
+        /// The pack's file name (`.zip` may be left off).
+        pack: String,
+    },
+    /// Turns a data pack off, from the next time the world loads.
+    #[command(
+        name = "datapack-disable",
+        after_help = "Examples:\n  lodestone-launcher-cli worlds datapack-disable Survival \"New World\" tools"
+    )]
+    DatapackDisable {
+        #[command(flatten)]
+        world: WorldArgs,
+        pack: String,
+    },
+    /// Moves a data pack to the Trash. Needs --yes.
+    #[command(
+        name = "datapack-remove",
+        after_help = "Examples:\n  lodestone-launcher-cli worlds datapack-remove Survival \"New World\" tools.zip --yes"
+    )]
+    DatapackRemove {
+        #[command(flatten)]
+        world: WorldArgs,
+        pack: String,
     },
 }
 
@@ -890,7 +1015,8 @@ pub enum Accounts {
         /// The account's id or username.
         account: String,
     },
-    /// Adds an offline account (debug builds, or LODESTONE_LAUNCHER_OFFLINE=1).
+    /// Adds an offline account (once Settings › Developer › Offline accounts is on;
+    /// always in debug builds and with LODESTONE_LAUNCHER_OFFLINE=1).
     #[command(after_help = "Examples:\n  lodestone-launcher-cli accounts add-offline Tester")]
     AddOffline { username: String },
     /// Removes an account and its saved sign-in. Needs --yes.
@@ -1047,7 +1173,8 @@ pub enum Servers {
         #[arg(long)]
         accept_advisory: bool,
     },
-    /// Makes an instance matching the server (version, loader, client mods) and links it.
+    /// Makes an instance matching the server (its Minecraft version and loader, and the
+    /// files its image gives players: base modpack, mods, shared configs) and links it.
     #[command(
         after_help = "Examples:\n  lodestone-launcher-cli servers create-instance Smp\n  lodestone-launcher-cli servers create-instance Smp --accept-advisory"
     )]
@@ -1067,17 +1194,22 @@ pub enum Servers {
     /// Unlinks an instance from its server (its mods stay).
     #[command(after_help = "Examples:\n  lodestone-launcher-cli servers unlink Survival")]
     Unlink(InstanceArg),
-    /// Hosts an instance's modpack as a new (stopped) server on a core. Hosting accepts
-    /// Minecraft's EULA: ask the user, then pass --accept-eula.
+    /// Hosts an instance as a new (stopped) server on a core: its mods and configs, and
+    /// the worlds sent (--send-world's, else --world's alone, else the last played), as a
+    /// .lodeimg the core reads. Making it accepts Minecraft's EULA: ask the user, then
+    /// pass --accept-eula (not needed with --preview, which only shows what the server
+    /// would get). On a core this computer is the owner of (`cores claim-local`) the
+    /// owner key creates it; on any other core, sign in with --username (the password
+    /// from stdin).
     #[command(
-        after_help = "Examples:\n  printf '%s\\n' \"$PASSWORD\" | lodestone-launcher-cli servers host Survival --core \"Home core\" --username alice --password-stdin --max-ram 4096 --accept-eula"
+        after_help = "Examples:\n  lodestone-launcher-cli servers host Survival --core \"Lodestone Host\" --preview\n  lodestone-launcher-cli servers host Survival --core \"Lodestone Host\" --send-world Island --world Island --accept-eula\n  printf '%s\\n' \"$PASSWORD\" | lodestone-launcher-cli servers host Survival --core \"Home core\" --username alice --password-stdin --no-worlds --max-ram 4096 --accept-eula"
     )]
     Host {
         instance: String,
         #[arg(long)]
         core: String,
         #[arg(long)]
-        username: String,
+        username: Option<String>,
         #[command(flatten)]
         password: PasswordArgs,
         /// The server's name (default: the instance's).
@@ -1086,18 +1218,65 @@ pub enum Servers {
         /// MB: 2048, 4096, 6144 or 8192.
         #[arg(long)]
         max_ram: Option<u32>,
+        /// A world to send, by its folder in saves/, spelt exactly (repeat for several;
+        /// default: --world's, else the last played, none with --no-world). A folder the
+        /// instance doesn't have is refused before anything is sent.
+        #[arg(long = "send-world", conflicts_with = "no_worlds")]
+        send_worlds: Vec<String>,
+        /// Send no world: the server makes a new one.
+        #[arg(long)]
+        no_worlds: bool,
+        /// The world (its folder) that becomes the server's: one sent, or alone sent when
+        /// --send-world isn't given (default: the host's choice).
+        #[arg(long, conflicts_with = "no_world")]
+        world: Option<String>,
+        /// The server makes a new world, whatever is sent (nothing, without --send-world).
+        #[arg(long)]
+        no_world: bool,
+        /// The game port (default: the first free one from 25565).
+        #[arg(long)]
+        port: Option<u16>,
+        /// The server software, one of the preview's `server_choices` (any case): Paper
+        /// or Vanilla for a vanilla instance. One the file doesn't allow is refused.
+        #[arg(long)]
+        server_software: Option<String>,
+        /// Only show what the server would get; nothing is made. It costs a whole
+        /// transfer: the instance is written and sent for the core to read, then
+        /// discarded, and the real run sends it again.
+        #[arg(long)]
+        preview: bool,
         #[arg(long)]
         accept_eula: bool,
     },
-    /// Saves a server's resource pack into an instance.
+    /// Downloads a server's world as a new instance: a backup of it (the newest unless
+    /// --backup or --new-backup says) with the mods its players get, never the server's
+    /// settings or plugins. Needs permission to read the server's files: on a core this
+    /// computer is the owner of the owner key, else --username (the password from stdin).
     #[command(
-        after_help = "Examples:\n  lodestone-launcher-cli servers resource-pack Smp --instance Survival"
+        after_help = "Examples:\n  lodestone-launcher-cli servers download-world Smp --core \"Lodestone Host\" --preview\n  lodestone-launcher-cli servers download-world Smp --core \"Lodestone Host\" --backup <id from the preview> --yes\n  lodestone-launcher-cli servers download-world Smp --core \"Lodestone Host\" --new-backup --name \"SMP at home\"\n  printf '%s\\n' \"$PASSWORD\" | lodestone-launcher-cli servers download-world Smp --core \"Home core\" --username alice --password-stdin"
     )]
-    ResourcePack {
+    DownloadWorld {
         #[command(flatten)]
         server: ServerArg,
         #[arg(long)]
-        instance: String,
+        username: Option<String>,
+        #[command(flatten)]
+        password: PasswordArgs,
+        /// The backup to download, by id (default: the newest).
+        #[arg(long, conflicts_with = "new_backup")]
+        backup: Option<String>,
+        /// Back the server up now and download that. Not with --preview, which changes
+        /// nothing on the core: preview the newest backup, then download it by --backup.
+        #[arg(long, conflicts_with = "preview")]
+        new_backup: bool,
+        /// The new instance's name (default: the server's).
+        #[arg(long)]
+        name: Option<String>,
+        /// Only show what the instance would get (the whole backup is downloaded to read
+        /// it, then deleted, and downloaded again by the real run); nothing is made. The
+        /// reply's `backup` is the one to download.
+        #[arg(long)]
+        preview: bool,
     },
 }
 
@@ -1141,6 +1320,131 @@ pub enum Friends {
 }
 
 #[derive(Subcommand, Debug)]
+pub enum FriendList {
+    /// Your name on the friend list and your safety code (makes your friend key the
+    /// first time).
+    #[command(after_help = "Examples:\n  lodestone-launcher-cli friend-list me")]
+    Me,
+    /// Sets the name your friends see.
+    #[command(after_help = "Examples:\n  lodestone-launcher-cli friend-list set-name Peter")]
+    SetName { name: String },
+    /// Makes a friend link to send. It works once, for 24 hours; anyone with it can ask
+    /// to be your friend, so send it only to them.
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli friend-list make-link\n  lodestone-launcher-cli --json friend-list make-link | jq -r .link"
+    )]
+    MakeLink,
+    /// Your open friend links (their codes and when they stop working).
+    #[command(after_help = "Examples:\n  lodestone-launcher-cli friend-list links")]
+    Links,
+    /// Cancels one of your friend links.
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli friend-list cancel-link 7KQ2M9XD4T"
+    )]
+    CancelLink { code: String },
+    /// Shows who a friend link is from (name and safety code), without answering it.
+    #[command(
+        after_help = "Examples:\n  printf '%s\\n' \"$LINK\" | lodestone-launcher-cli friend-list preview -\n  lodestone-launcher-cli friend-list preview 'https://connect.lodestone.cc/f/…'"
+    )]
+    Preview {
+        /// The friend link (https://connect.lodestone.cc/f/…, lodestone://friend?link=…),
+        /// or "-" to read it from stdin.
+        link: String,
+    },
+    /// Answers a friend link: its sender becomes your friend, pending until they
+    /// accept. Show the user the name and safety code from `preview` first.
+    #[command(
+        after_help = "Examples:\n  printf '%s\\n' \"$LINK\" | lodestone-launcher-cli friend-list answer - --safety-code K7Q2-M9XD-4TRW-H3BE --yes"
+    )]
+    Answer {
+        /// The friend link, or "-" to read it from stdin.
+        link: String,
+        /// Refuse unless the link's safety code is this one (the code the user saw).
+        #[arg(long)]
+        safety_code: Option<String>,
+    },
+    /// Answers to your friend links, waiting for you to accept. More than one answer to
+    /// a link means someone else may have it.
+    #[command(after_help = "Examples:\n  lodestone-launcher-cli friend-list replies")]
+    Replies,
+    /// Accepts an answer to one of your friend links (its code and the person's key,
+    /// from `replies`): they become your friend.
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli friend-list accept 7KQ2M9XD4T 3f9a…c4 --yes"
+    )]
+    Accept { code: String, key: String },
+    /// Your friends: status, verified, hidden, their cores and whether they're online
+    /// (as last checked; `refresh` checks again).
+    #[command(after_help = "Examples:\n  lodestone-launcher-cli friend-list list")]
+    List,
+    /// Checks on friends: confirms pending ones, notes retired cores, which cores share
+    /// now, and answers to your links.
+    #[command(after_help = "Examples:\n  lodestone-launcher-cli friend-list refresh")]
+    Refresh,
+    /// Ticks "Codes match" for a friend, once the user compared safety codes with them
+    /// by voice or in person. Only the user can say they match: it needs --yes.
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli friend-list verify Alex --yes\n  lodestone-launcher-cli friend-list verify Alex --undo"
+    )]
+    Verify {
+        /// Their name, nickname, or key (or its first 8+ hex digits).
+        friend: String,
+        /// Untick it.
+        #[arg(long)]
+        undo: bool,
+    },
+    /// Gives a friend a name only you see.
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli friend-list nickname Samantha Sam\n  lodestone-launcher-cli friend-list nickname Sam --clear"
+    )]
+    Nickname {
+        friend: String,
+        #[arg(required_unless_present = "clear")]
+        nickname: Option<String>,
+        /// Show their own name again.
+        #[arg(long, conflicts_with = "nickname")]
+        clear: bool,
+    },
+    /// Hides your cores from a friend: they stop seeing your servers. You stay friends.
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli friend-list hide Kim\n  lodestone-launcher-cli friend-list hide Kim --undo"
+    )]
+    Hide {
+        friend: String,
+        /// Show them your cores again.
+        #[arg(long)]
+        undo: bool,
+    },
+    /// Removes a friend. Becoming friends again needs a new friend link.
+    #[command(after_help = "Examples:\n  lodestone-launcher-cli friend-list remove Kim --yes")]
+    Remove { friend: String },
+    /// The servers a friend's cores share with you.
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli friend-list servers Alex\n  lodestone-launcher-cli friend-list servers Alex --core \"Alex's PC\""
+    )]
+    Servers {
+        friend: String,
+        /// One core: its name, or its fingerprint's first hex digits.
+        #[arg(long)]
+        core: Option<String>,
+    },
+    /// Retires your friend identity: every friend is told and drops you, then your key
+    /// and friend list are deleted from this computer. It can't be undone.
+    #[command(after_help = "Examples:\n  lodestone-launcher-cli friend-list retire --yes")]
+    Retire,
+    /// Retires one of your cores (a lost or stolen computer, or one you no longer share
+    /// from): friends drop it and stop trusting its servers' mods, and it's never shown
+    /// to them again. `me` lists your cores. It can't be undone.
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli friend-list retire-core \"Peter's PC\" --yes\n  lodestone-launcher-cli friend-list retire-core 3f9a0c11 --yes"
+    )]
+    RetireCore {
+        /// The core's name, or its fingerprint (or its first 8+ hex digits).
+        core: String,
+    },
+}
+
+#[derive(Subcommand, Debug)]
 pub enum Prompts {
     /// What the window is asking: update, advisory, certificate or trust.
     #[command(after_help = "Examples:\n  lodestone-launcher-cli prompts list")]
@@ -1160,49 +1464,57 @@ pub enum Prompts {
     },
 }
 
-/// The parts of an instance a snapshot takes or puts back.
-#[derive(clap::Args, Debug, Default)]
-pub struct PartsArgs {
-    /// A part to include (repeatable): mods, resource_packs, shader_packs, configs,
-    /// worlds, screenshots, settings, other. Default: take all but screenshots and
-    /// other; put back or import all the snapshot has.
-    #[arg(long = "include", value_name = "PART", value_parser = ["mods", "resource_packs", "shader_packs", "configs", "worlds", "screenshots", "settings", "other"])]
-    pub include: Vec<String>,
-    /// Only this world (its folder name; repeatable). Default: every world.
-    #[arg(long = "world", value_name = "FOLDER")]
-    pub worlds: Vec<String>,
-}
-
 #[derive(Subcommand, Debug)]
 pub enum Snapshots {
-    /// An instance's snapshots, newest first: id, name, date, sizes (total, and new
-    /// bytes it added to the store), and the parts it has.
-    #[command(after_help = "Examples:\n  lodestone-launcher-cli snapshots list Survival")]
-    List(InstanceArg),
-    /// Takes a snapshot. Files shared with other snapshots are stored once.
+    /// An instance's snapshots, newest first (id, name, kind, date, worlds, sizes, pin),
+    /// the images that can't be read, and its snapshot settings. --deleted lists the
+    /// snapshots kept of deleted instances instead.
     #[command(
-        after_help = "Examples:\n  lodestone-launcher-cli snapshots create Survival --name \"Before 1.21\"\n  lodestone-launcher-cli snapshots create Survival --include worlds --world \"New World\""
+        after_help = "Examples:\n  lodestone-launcher-cli snapshots list Survival\n  lodestone-launcher-cli snapshots list --deleted"
+    )]
+    List {
+        #[arg(required_unless_present = "deleted")]
+        instance: Option<String>,
+        #[arg(long)]
+        deleted: bool,
+    },
+    /// Takes a snapshot: the instance's worlds and other files, linked to the mods they
+    /// run with. --everything takes the mods and configs too.
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli snapshots create Survival --name \"Before 1.21\"\n  lodestone-launcher-cli snapshots create Survival --everything"
     )]
     Create {
         instance: String,
         #[arg(long)]
         name: Option<String>,
-        #[command(flatten)]
-        parts: PartsArgs,
+        #[arg(long)]
+        everything: bool,
     },
-    /// Puts back the chosen parts of a snapshot, replacing them whole, after an
-    /// automatic snapshot of them. Needs --yes.
+    /// Restores a snapshot: its worlds (--world, repeatable; default all), the worlds and
+    /// their mods, everything, or as a new instance (--name). A safety snapshot is taken
+    /// first. --preview only says what it would do (and how the mods differ); in place it
+    /// needs --yes.
     #[command(
-        after_help = "Examples:\n  lodestone-launcher-cli snapshots revert Survival \"Before 1.21\" --yes\n  lodestone-launcher-cli snapshots revert Survival latest --include mods --include configs --yes"
+        after_help = "Examples:\n  lodestone-launcher-cli snapshots restore Survival \"Before 1.21\" --preview\n  lodestone-launcher-cli snapshots restore Survival latest --scope worlds --world \"New World\" --yes\n  lodestone-launcher-cli snapshots restore Survival \"Before 1.21\" --scope new --name \"Survival again\""
     )]
-    Revert {
+    Restore {
         instance: String,
         /// The snapshot's id, its name, or latest.
         snapshot: String,
-        #[command(flatten)]
-        parts: PartsArgs,
+        #[arg(long, default_value = "worlds", value_parser = ["worlds", "worlds_and_mods", "everything", "new"])]
+        scope: String,
+        /// A world to put back (its folder; repeatable). Default: every world it has.
+        #[arg(long = "world", value_name = "FOLDER")]
+        worlds: Vec<String>,
+        /// The new instance's name, for --scope new.
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long)]
+        preview: bool,
     },
-    /// Writes a snapshot to a .lodesnap file to share (a folder: named after it).
+    /// Writes a snapshot as an image file (.lodeimg) to share (a folder: named after
+    /// it). Mods from Modrinth and CurseForge are listed, not copied; private files
+    /// (command history, saved hotbars, account switchers' files) are left out.
     #[command(
         after_help = "Examples:\n  lodestone-launcher-cli snapshots export Survival latest ~/Desktop"
     )]
@@ -1212,19 +1524,20 @@ pub enum Snapshots {
         snapshot: String,
         path: PathBuf,
     },
-    /// Makes a new instance from a .lodesnap file. --preview only reads it (its mods,
-    /// parts and sizes). One with mods needs --yes: only use files from people you trust.
+    /// Makes a new instance from an image file (.lodeimg). --preview only reads it (its
+    /// game, worlds, mods, downloads and size). One with mods needs --yes: only use files
+    /// from people you trust.
     #[command(
-        after_help = "Examples:\n  lodestone-launcher-cli snapshots import ~/Downloads/Survival.lodesnap --preview\n  lodestone-launcher-cli snapshots import ~/Downloads/Survival.lodesnap --yes"
+        after_help = "Examples:\n  lodestone-launcher-cli snapshots import ~/Downloads/Survival.lodeimg --preview\n  lodestone-launcher-cli snapshots import ~/Downloads/Survival.lodeimg --name Survival --yes"
     )]
     Import {
         path: PathBuf,
         #[arg(long)]
         preview: bool,
-        #[command(flatten)]
-        parts: PartsArgs,
+        #[arg(long)]
+        name: Option<String>,
     },
-    /// Deletes a snapshot, and the files no other snapshot uses. Needs --yes.
+    /// Deletes a snapshot (its image too, when no other snapshot uses it). Needs --yes.
     #[command(
         after_help = "Examples:\n  lodestone-launcher-cli snapshots delete Survival \"Before 1.21\" --yes"
     )]
@@ -1232,6 +1545,33 @@ pub enum Snapshots {
         instance: String,
         /// The snapshot's id or name.
         snapshot: String,
+    },
+    /// Pins a snapshot: retention and Storage's clean-up never delete it.
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli snapshots pin Survival \"Before 1.21\""
+    )]
+    Pin { instance: String, snapshot: String },
+    /// Unpins a snapshot.
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli snapshots unpin Survival \"Before 1.21\""
+    )]
+    Unpin { instance: String, snapshot: String },
+    /// An instance's snapshot settings, changing those given: a snapshot after each play
+    /// session (--after-play on, off or default), and how many automatic snapshots are
+    /// kept (--keep-last, --keep-daily, --keep-weekly: a number, or default).
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli snapshots policy Survival\n  lodestone-launcher-cli snapshots policy Survival --after-play on --keep-last 10"
+    )]
+    Policy {
+        instance: String,
+        #[arg(long, value_parser = ["on", "off", "default"])]
+        after_play: Option<String>,
+        #[arg(long)]
+        keep_last: Option<String>,
+        #[arg(long)]
+        keep_daily: Option<String>,
+        #[arg(long)]
+        keep_weekly: Option<String>,
     },
 }
 
@@ -1246,8 +1586,8 @@ pub enum Storage {
     Show,
     /// Removes unused game files (versions, libraries, assets) or unused Java runtimes,
     /// clears the cache, removes leftovers of unfinished downloads and imports, or
-    /// deletes logs and crash reports, or removes automatic snapshots, those of
-    /// deleted instances and shared snapshot files. Game files and runtimes
+    /// deletes logs and crash reports, or removes the snapshots the Launcher took on its
+    /// own and those of deleted instances. Game files and runtimes
     /// download again when needed; logs are gone for good. Needs --yes.
     #[command(
         after_help = "Examples:\n  lodestone-launcher-cli storage clean game-files --yes\n  lodestone-launcher-cli storage clean old-logs --yes"

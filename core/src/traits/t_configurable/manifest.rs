@@ -603,8 +603,6 @@ pub struct ConfigurableManifest {
     setting_sections: IndexMap<String, SectionManifest>,
 }
 
-// some methods are only called by macros, which need the `deno` feature
-#[cfg_attr(not(feature = "deno"), allow(dead_code))]
 impl ConfigurableManifest {
     pub fn new(
         auto_start: bool,
@@ -626,40 +624,6 @@ impl ConfigurableManifest {
         }
     }
 
-    /// Returns the setting manifest for the first setting with the given key.
-    ///
-    /// The caller must ensure that the key is unique across all sections.
-    pub fn get_unique_setting_key(&self, setting_id: &str) -> Option<&SettingManifest> {
-        for section in self.setting_sections.values() {
-            for setting in section.settings.values() {
-                if setting.setting_id == setting_id {
-                    return Some(setting);
-                }
-            }
-        }
-        None
-    }
-    /// Sets the value of the first setting with the given key.
-    ///
-    /// The caller must ensure that the key is unique across all sections.
-    pub fn set_unique_setting_key(
-        &mut self,
-        setting_id: &str,
-        value: ConfigurableValue,
-    ) -> Result<(), Error> {
-        for section in self.setting_sections.values_mut() {
-            for setting in section.settings.values_mut() {
-                if setting.setting_id == setting_id {
-                    return setting.set_value(value);
-                }
-            }
-        }
-        Err(Error {
-            kind: ErrorKind::NotFound,
-            source: eyre!("Setting does not exist"),
-        })
-    }
-
     fn get_setting_mut(
         &mut self,
         section_id: &str,
@@ -667,56 +631,6 @@ impl ConfigurableManifest {
     ) -> Option<&mut SettingManifest> {
         if let Some(section) = self.setting_sections.get_mut(section_id) {
             section.settings.get_mut(setting_id)
-        } else {
-            None
-        }
-    }
-
-    pub fn get_section(&self, section_id: &str) -> Option<&SectionManifest> {
-        self.setting_sections.get(section_id)
-    }
-
-    pub fn get_all_sections(&self) -> IndexMap<String, SectionManifest> {
-        self.setting_sections.clone()
-    }
-
-    pub fn set_setting_value(
-        &mut self,
-        section_id: &str,
-        setting_id: &str,
-        value: Option<ConfigurableValue>,
-    ) -> Result<(), Error> {
-        if let Some(setting) = self.get_setting_mut(section_id, setting_id) {
-            setting.set_optional_value(value)
-        } else {
-            Err(Error {
-                kind: ErrorKind::NotFound,
-                source: eyre!("Setting not found"),
-            })
-        }
-    }
-
-    pub fn set_setting(&mut self, section_id: &str, setting: SettingManifest) -> Result<(), Error> {
-        if let Some(section) = self.setting_sections.get_mut(section_id) {
-            section.set_setting(setting)
-        } else {
-            Err(Error {
-                kind: ErrorKind::NotFound,
-                source: eyre!("Section not found"),
-            })
-        }
-    }
-
-    pub fn set_setting_mut(
-        &mut self,
-        section_id: &str,
-        setting_id: &str,
-        is_mutable: bool,
-    ) -> Option<bool> {
-        if let Some(setting) = self.get_setting_mut(section_id, setting_id) {
-            let ret = setting.is_mutable;
-            setting.is_mutable = is_mutable;
-            Some(ret)
         } else {
             None
         }
@@ -736,15 +650,6 @@ impl ConfigurableManifest {
                 source: eyre!("Setting not found"),
             })
         }
-    }
-
-    pub fn clear_section(
-        &mut self,
-        section_id: impl AsRef<str>,
-    ) -> Option<IndexMap<String, SettingManifest>> {
-        self.setting_sections
-            .get_mut(section_id.as_ref())
-            .map(|section| std::mem::take(&mut section.settings))
     }
 
     /// Replaces all settings of a section in one step.
@@ -818,39 +723,6 @@ impl SectionManifest {
             }
         }
         Ok(())
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export)]
-pub struct SettingLocalCache {
-    setting_id: String,
-    value: Option<ConfigurableValue>,
-    value_type: ConfigurableValueType,
-}
-
-impl SettingLocalCache {
-    pub fn from(manifest: &SettingManifest) -> SettingLocalCache {
-        SettingLocalCache {
-            setting_id: manifest.setting_id.clone(),
-            value: manifest.value.clone(),
-            value_type: manifest.value_type.clone(),
-        }
-    }
-
-    pub fn validate_type(&self, target_manifest: Option<&SettingManifest>) -> bool {
-        match target_manifest {
-            None => false,
-            Some(manifest) => manifest.value_type == self.value_type,
-        }
-    }
-
-    pub fn get_identifier(&self) -> &String {
-        &self.setting_id
-    }
-
-    pub fn get_value(&self) -> &Option<ConfigurableValue> {
-        &self.value
     }
 }
 

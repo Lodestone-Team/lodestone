@@ -35,7 +35,63 @@ impl Default for Service {
     }
 }
 
+/// Why a service URL given as a setting (or in `LODESTONE_CONNECT_SERVICE`) wasn't
+/// taken.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum SettingError {
+    /// It doesn't start with `https://` (or `http://`).
+    #[error("it should start with https://")]
+    Scheme,
+    /// `http://` to another computer: only a test service on this computer may skip
+    /// HTTPS.
+    #[error("only a service on this computer (127.0.0.1 or localhost) may use http://")]
+    Insecure,
+    /// It has a path, a query or a user name: the service is only an address.
+    #[error("it should be only an address, without a path, query or user name")]
+    Extra,
+    /// The address isn't one.
+    #[error("the address isn't valid")]
+    Address,
+}
+
 impl Service {
+    /// A service URL given as a setting: `https://name.example[:port]`, or
+    /// `http://127.0.0.1:8787` (or `localhost`, `[::1]`) for a test service on this
+    /// computer (`wrangler dev`). Nothing may follow the address but one `/`.
+    pub fn from_setting(text: &str) -> std::result::Result<Self, SettingError> {
+        let text = text.trim();
+        let (rest, tls) = match text.split_once("://") {
+            Some((scheme, rest)) if scheme.eq_ignore_ascii_case("https") => (rest, true),
+            Some((scheme, rest)) if scheme.eq_ignore_ascii_case("http") => (rest, false),
+            _ => return Err(SettingError::Scheme),
+        };
+        let rest = rest.strip_suffix('/').unwrap_or(rest);
+        if rest.contains(['/', '?', '#', '@']) {
+            return Err(SettingError::Extra);
+        }
+        let service =
+            Self::host_port(rest, if tls { 443 } else { 80 }, tls).ok_or(SettingError::Address)?;
+        if !tls && !service.is_this_computer() {
+            return Err(SettingError::Insecure);
+        }
+        Ok(service)
+    }
+
+    /// The service runs on this computer: 127.0.0.1, `localhost` or `::1`.
+    pub fn is_this_computer(&self) -> bool {
+        self.host == "localhost"
+            || self
+                .host
+                .parse::<std::net::IpAddr>()
+                .is_ok_and(|ip| ip.is_loopback())
+    }
+
+    /// The host, with the port unless it is the scheme's: `connect-dev.lodestone.cc`,
+    /// `127.0.0.1:8787`. For showing which service is used.
+    pub fn display_name(&self) -> String {
+        self.authority()
+    }
+
     /// `https://name.example`, `http://1.2.3.4:8787`, `1.2.3.4:8787` or `name.example`.
     pub fn parse(text: &str) -> Option<Self> {
         let text = text.trim().trim_end_matches('/');
@@ -98,7 +154,7 @@ impl Service {
     }
 
     /// The Host header's value.
-    fn authority(&self) -> String {
+    pub(crate) fn authority(&self) -> String {
         match (self.tls, self.port) {
             (true, 443) | (false, 80) => self.bracketed(),
             _ => format!("{}:{}", self.bracketed(), self.port),
@@ -153,11 +209,11 @@ pub(crate) fn addrs_of(value: &Value) -> Vec<SocketAddr> {
         .unwrap_or_default()
 }
 
-trait Io: AsyncRead + AsyncWrite + Unpin + Send {}
+pub(crate) trait Io: AsyncRead + AsyncWrite + Unpin + Send {}
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> Io for T {}
 
 /// A connection to the service: TLS for a named service, plain TCP for a test one.
-async fn connect(service: &Service) -> Result<Pin<Box<dyn Io>>> {
+pub(crate) async fn connect(service: &Service) -> Result<Pin<Box<dyn Io>>> {
     let unreachable = |what: String| Error::Unreachable(what);
     let tcp = tokio::time::timeout(
         CONNECT_TIMEOUT,
@@ -202,7 +258,7 @@ pub(crate) async fn call(
         .map(|secret| format!("Authorization: Bearer {secret}\r\n"))
         .unwrap_or_default();
     let request = format!(
-        "{method} {path} HTTP/1.1\r\nHost: {}\r\n{authorization}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\nUser-Agent: lodestone-connect\r\n\r\n{body}",
+        "{method} {path} HTTP/1.1\r\nHost: {}\r\n{authorization}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\nUser-Agent: lodestone-connect\r\nX-Lodestone-Client: 1\r\n\r\n{body}",
         service.authority(),
         body.len()
     );
@@ -255,11 +311,14 @@ mod host {
     use super::*;
 
     /// How often a waiting host says it's still there.
-    const PING_EVERY: Duration = Duration::from_secs(30);
+    pub(crate) const PING_EVERY: Duration = Duration::from_secs(30);
     /// The close code for "the invite has ended".
     pub const CLOSE_ENDED: u16 = 4000;
     /// The close code for "the invite was renewed": wait on it again from join 0.
     pub const CLOSE_RENEWED: u16 = 4001;
+    /// The largest WebSocket message or frame taken from the service. Its messages (a
+    /// knock, a few joins) are a few KiB at most; tungstenite's own limit is 64 MiB.
+    pub(crate) const MAX_SERVICE_MESSAGE: usize = 64 * 1024;
 
     /// An invite the service holds for this host.
     #[derive(Clone, Debug, PartialEq, Eq)]
@@ -321,11 +380,22 @@ mod host {
         /// Waits on an invite for the joins after the `after`th, over a WebSocket.
         /// `None` if the invite has ended.
         pub async fn watch(&self, code: &str, secret: &str, after: u64) -> Result<Option<Watch>> {
+            let path = format!("/v1/invites/{code}/joins?after={after}");
+            Ok(self.websocket(&path, secret).await?.map(|ws| {
+                let mut ping = tokio::time::interval(PING_EVERY);
+                ping.reset();
+                Watch { ws, ping }
+            }))
+        }
+
+        /// Opens a WebSocket to `path` with `secret` as its Bearer. `None` on a 404.
+        pub(crate) async fn websocket(
+            &self,
+            path: &str,
+            secret: &str,
+        ) -> Result<Option<WebSocketStream<Pin<Box<dyn Io>>>>> {
             let scheme = if self.tls { "wss" } else { "ws" };
-            let url = format!(
-                "{scheme}://{}/v1/invites/{code}/joins?after={after}",
-                self.authority()
-            );
+            let url = format!("{scheme}://{}{path}", self.authority());
             let unreachable = |err: String| Error::Unreachable(err);
             let mut request = url
                 .into_client_request()
@@ -336,17 +406,23 @@ mod host {
                     .map_err(|err| unreachable(err.to_string()))?,
             );
             let stream = connect(self).await?;
-            let ws = match tokio::time::timeout(
+            match tokio::time::timeout(
                 ANSWER_TIMEOUT,
-                tokio_tungstenite::client_async(request, stream),
+                tokio_tungstenite::client_async_with_config(
+                    request,
+                    stream,
+                    Some(
+                        tungstenite::protocol::WebSocketConfig::default()
+                            .max_message_size(Some(MAX_SERVICE_MESSAGE))
+                            .max_frame_size(Some(MAX_SERVICE_MESSAGE)),
+                    ),
+                ),
             )
             .await
             .map_err(|_| unreachable("no answer".into()))?
             {
-                Ok((ws, _)) => ws,
-                Err(tungstenite::Error::Http(response)) if response.status() == 404 => {
-                    return Ok(None)
-                }
+                Ok((ws, _)) => Ok(Some(ws)),
+                Err(tungstenite::Error::Http(response)) if response.status() == 404 => Ok(None),
                 Err(tungstenite::Error::Http(response)) => {
                     let status = response.status().as_u16();
                     let body: Value = response
@@ -354,20 +430,17 @@ mod host {
                         .as_deref()
                         .and_then(|body| serde_json::from_slice(body).ok())
                         .unwrap_or(Value::Null);
-                    return Err(Error::Service {
+                    Err(Error::Service {
                         status,
                         code: body["error"].as_str().unwrap_or("unknown").to_string(),
                         message: body["message"]
                             .as_str()
                             .unwrap_or("no reason given")
                             .to_string(),
-                    });
+                    })
                 }
-                Err(err) => return Err(unreachable(err.to_string())),
-            };
-            let mut ping = tokio::time::interval(PING_EVERY);
-            ping.reset();
-            Ok(Some(Watch { ws, ping }))
+                Err(err) => Err(unreachable(err.to_string())),
+            }
         }
     }
 
@@ -475,5 +548,55 @@ mod tests {
         assert!(Service::parse("https://a b").is_none());
         let v6 = Service::parse("http://[::1]:8787").unwrap();
         assert_eq!(v6.base_url(), "http://[::1]:8787");
+    }
+
+    #[test]
+    fn settings_take_https_or_a_service_on_this_computer() {
+        let ok = |text: &str| Service::from_setting(text).map(|s| s.base_url());
+        assert_eq!(
+            ok(" https://connect-dev.lodestone.cc/ "),
+            Ok("https://connect-dev.lodestone.cc".into())
+        );
+        assert_eq!(
+            Service::from_setting("HTTPS://Connect.Lodestone.cc"),
+            Ok(Service::default())
+        );
+        assert_eq!(
+            ok("https://a.example:8443"),
+            Ok("https://a.example:8443".into())
+        );
+        assert_eq!(
+            ok("http://127.0.0.1:8787"),
+            Ok("http://127.0.0.1:8787".into())
+        );
+        assert_eq!(
+            ok("http://localhost:8787"),
+            Ok("http://localhost:8787".into())
+        );
+        assert_eq!(ok("http://[::1]:8787"), Ok("http://[::1]:8787".into()));
+
+        let err = |text: &str| Service::from_setting(text).unwrap_err();
+        assert_eq!(err("connect-dev.lodestone.cc"), SettingError::Scheme);
+        assert_eq!(err("ftp://a.example"), SettingError::Scheme);
+        assert_eq!(err(""), SettingError::Scheme);
+        assert_eq!(
+            err("http://connect-dev.lodestone.cc"),
+            SettingError::Insecure
+        );
+        assert_eq!(err("http://192.168.1.5:8787"), SettingError::Insecure);
+        assert_eq!(err("https://a.example/v1"), SettingError::Extra);
+        assert_eq!(err("https://a.example/?x=1"), SettingError::Extra);
+        assert_eq!(err("https://a.example#x"), SettingError::Extra);
+        assert_eq!(err("https://user:pw@a.example"), SettingError::Extra);
+        assert_eq!(err("https://"), SettingError::Address);
+        assert_eq!(err("https://a b.example"), SettingError::Address);
+        assert_eq!(err("https://a.example:0"), SettingError::Address);
+        assert_eq!(err("https://a.example:99999"), SettingError::Address);
+
+        let dev = Service::from_setting("https://connect-dev.lodestone.cc").unwrap();
+        assert_eq!(dev.display_name(), "connect-dev.lodestone.cc");
+        let local = Service::from_setting("http://127.0.0.1:8787").unwrap();
+        assert_eq!(local.display_name(), "127.0.0.1:8787");
+        assert!(local.is_this_computer() && !dev.is_this_computer());
     }
 }

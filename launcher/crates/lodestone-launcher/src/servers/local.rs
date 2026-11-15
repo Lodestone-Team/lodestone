@@ -5,10 +5,11 @@
 //! core without one) is kept in plain text in `cores/local_credentials.json`, not the
 //! Keychain: it exists only because this user can already write the core's folder. A
 //! claimed core is saved at its HTTPS address with its certificate pinned, and its key
-//! is used only for that entry, at that address, to that certificate.
+//! is used only for that entry, at that address, to that certificate. The page offers
+//! the key to copy; an owner account's password is never shown (it only revokes the
+//! key), since the owner signs in to Lodestone Host itself.
 
 use std::{
-    collections::HashSet,
     path::PathBuf,
     sync::Arc,
     time::{Duration, Instant},
@@ -54,8 +55,6 @@ pub struct LocalCores {
     /// Data folders the user chose, looked in first.
     pub folders: Vec<PathBuf>,
     pub credentials: CredentialsFile,
-    /// Cores whose owner password is shown.
-    pub shown: HashSet<String>,
     last_scan: Option<Instant>,
     scan_task: Option<Task<()>>,
     claim_task: Option<Task<()>>,
@@ -282,6 +281,24 @@ impl Servers {
         })
     }
 
+    /// Whether core card `index` shows in "On this computer", not "Other cores": the
+    /// scan found its core here, it was claimed here (and may be stopped now), or its
+    /// address is this computer's (a core on another port, say).
+    pub(super) fn is_local_card(&self, index: usize) -> bool {
+        self.cores.get(index).is_some_and(|core| {
+            core.saved.local_claim
+                || core
+                    .url
+                    .host_str()
+                    .is_some_and(cores::client::is_loopback_host)
+                || self
+                    .local
+                    .found
+                    .iter()
+                    .any(|found| found.info.uuid == core.saved.uuid)
+        })
+    }
+
     /// "Connect as owner" for a core found on this computer. `folder` is a data folder
     /// the user chose ("Choose folder…").
     pub fn connect_local(&mut self, uuid: &str, folder: Option<PathBuf>, cx: &mut Context<Self>) {
@@ -448,14 +465,6 @@ impl Servers {
             this.update(cx, |this, cx| this.connect_local(&uuid, Some(folder), cx))
                 .ok();
         }));
-    }
-
-    /// Shows or hides core `uuid`'s owner password on its card.
-    pub fn toggle_owner_password(&mut self, uuid: &str, cx: &mut Context<Self>) {
-        if !self.local.shown.remove(uuid) {
-            self.local.shown.insert(uuid.to_string());
-        }
-        cx.notify();
     }
 
     /// Fills "On this computer", for the offscreen screenshots.

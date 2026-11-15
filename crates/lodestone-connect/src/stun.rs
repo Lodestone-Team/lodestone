@@ -13,24 +13,46 @@ pub const STUN_V4: [&str; 2] = ["stun.l.google.com:19302", "stun.cloudflare.com:
 /// The STUN server asked over IPv6.
 pub const STUN_V6: &str = "stun.l.google.com:19302";
 
-/// What `server` sees as this socket's address, over IPv4 or IPv6 (`v6`). The socket
-/// needs a read timeout.
-pub fn mapped_address(socket: &UdpSocket, server: &str, v6: bool) -> Result<SocketAddr, String> {
-    let server = server
+/// `server`'s IPv4 or IPv6 (`v6`) address. Blocking (DNS).
+pub(crate) fn resolve(server: &str, v6: bool) -> Result<SocketAddr, String> {
+    server
         .to_socket_addrs()
         .map_err(|err| err.to_string())?
         .find(|addr| addr.is_ipv6() == v6)
-        .ok_or(if v6 {
-            "no IPv6 address"
-        } else {
-            "no IPv4 address"
-        })?;
+        .ok_or_else(|| {
+            if v6 {
+                "no IPv6 address".into()
+            } else {
+                "no IPv4 address".into()
+            }
+        })
+}
+
+/// A Binding request with transaction id `txid`.
+pub(crate) fn request(txid: &[u8; 12]) -> [u8; 20] {
+    let mut request = [0u8; 20];
+    request[..2].copy_from_slice(&0x0001u16.to_be_bytes()); // Binding request
+                                                            // bytes 2..4: no attributes
+    request[4..8].copy_from_slice(&COOKIE.to_be_bytes());
+    request[8..].copy_from_slice(txid);
+    request
+}
+
+/// The transaction id of what looks like a Binding success response.
+#[cfg(feature = "host")]
+pub(crate) fn response_txid(msg: &[u8]) -> Option<[u8; 12]> {
+    (msg.len() >= 20
+        && u16::from_be_bytes([msg[0], msg[1]]) == 0x0101
+        && msg[4..8] == COOKIE.to_be_bytes())
+    .then(|| msg[8..20].try_into().expect("12 bytes"))
+}
+
+/// What `server` sees as this socket's address, over IPv4 or IPv6 (`v6`). The socket
+/// needs a read timeout.
+pub fn mapped_address(socket: &UdpSocket, server: &str, v6: bool) -> Result<SocketAddr, String> {
+    let server = resolve(server, v6)?;
     let txid: [u8; 12] = crate::random().map_err(|err| err.to_string())?;
-    let mut request = Vec::with_capacity(20);
-    request.extend_from_slice(&0x0001u16.to_be_bytes()); // Binding request
-    request.extend_from_slice(&0u16.to_be_bytes()); // no attributes
-    request.extend_from_slice(&COOKIE.to_be_bytes());
-    request.extend_from_slice(&txid);
+    let request = request(&txid);
     let mut buf = [0u8; 512];
     for _ in 0..3 {
         socket
@@ -49,7 +71,8 @@ pub fn mapped_address(socket: &UdpSocket, server: &str, v6: bool) -> Result<Sock
     Err("no answer".into())
 }
 
-fn parse(msg: &[u8], txid: &[u8; 12]) -> Option<SocketAddr> {
+/// The mapped address in a Binding success response.
+pub(crate) fn parse(msg: &[u8], txid: &[u8; 12]) -> Option<SocketAddr> {
     if msg.len() < 20 || u16::from_be_bytes([msg[0], msg[1]]) != 0x0101 {
         return None; // not a Binding success response
     }
@@ -109,5 +132,10 @@ mod tests {
             Some("203.0.113.5:54321".parse().unwrap())
         );
         assert_eq!(parse(&msg[..10], &txid), None);
+        #[cfg(feature = "host")]
+        {
+            assert_eq!(response_txid(&msg), Some(txid));
+            assert_eq!(response_txid(&request(&txid)), None);
+        }
     }
 }

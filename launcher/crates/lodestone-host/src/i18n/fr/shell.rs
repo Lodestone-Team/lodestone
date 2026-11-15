@@ -9,23 +9,10 @@ pub fn text(message: M) -> &'static str {
         M::OpenLogFolder => "Ouvrir le dossier du journal",
         M::StoppingCore => "Arrêt de vos serveurs…",
         M::SigningIn => "Connexion…",
-        M::SetupTitle => "Configurer Lodestone Core",
-        M::SetupIntro => {
-            "Créez le compte propriétaire. Vous vous connectez avec lui depuis le tableau de bord web et vos autres appareils."
-        }
         M::Username => "Nom d’utilisateur",
         M::Password => "Mot de passe",
-        M::ConfirmPassword => "Confirmer le mot de passe",
-        M::CreateOwner => "Créer le compte propriétaire",
         M::NoUsername => "Saisissez un nom d’utilisateur.",
         M::NoPassword => "Saisissez un mot de passe.",
-        M::PasswordsDiffer => "Les mots de passe ne correspondent pas.",
-        M::FirstConfigTitle => "Nommez votre core",
-        M::CoreName => "Nom du core",
-        M::PublicAddress => "Domaine ou adresse IP publique",
-        M::PublicAddressHint => {
-            "Les joueurs rejoignent vos serveurs avec cette adresse. Vous pouvez la laisser vide."
-        }
         M::SignInTitle => "Se connecter",
         M::SignInIntro => {
             "Ce core ne laisse pas les applications de cet ordinateur obtenir l’accès propriétaire. Connectez-vous avec votre compte Lodestone."
@@ -43,8 +30,8 @@ pub fn text(message: M) -> &'static str {
         M::TabFiles => "Fichiers",
         M::TabMods => "Mods",
         M::TabPlugins => "Plugins",
-        M::TabMacros => "Macros",
         M::TabEventLogs => "Journal des événements",
+        M::TabBackups => "Sauvegardes",
         M::Settings => "Paramètres",
         M::SettingsMenu => "Paramètres…",
         M::SettingsCore => "Core",
@@ -58,9 +45,8 @@ pub fn text(message: M) -> &'static str {
         M::StateStopped => "Arrêté",
         M::StateError => "Planté",
         M::StateUnknown => "Inconnu",
-        M::Restart => "Redémarrer",
-        M::Kill => "Forcer l’arrêt",
-        M::PlayersOnline => "{online}/{max} joueurs",
+        M::PlayersOnline => "{online}/{max} en ligne",
+        M::PowerMenu => "Alimentation : {state}",
         M::Connected => "Connecté",
         M::Connecting => "Connexion…",
         M::Reconnecting => "Reconnexion…",
@@ -70,9 +56,6 @@ pub fn text(message: M) -> &'static str {
         M::HomeSubtitle => "Sélectionnez un serveur dans la barre latérale, ou créez-en un.",
         M::CreateServer => "Créer un serveur",
         M::NotBuilt => "Cette page n’est pas encore dans Lodestone Host.",
-        M::NeedsScripting => {
-            "Les macros nécessitent un core avec les scripts. Le core de Lodestone Host fonctionne sans."
-        }
         M::InstanceNotFound => "Serveur introuvable",
         M::ShowHost => "Afficher Lodestone Host",
         M::QuitHost => "Quitter Lodestone Host",

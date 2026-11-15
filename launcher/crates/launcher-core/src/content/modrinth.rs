@@ -444,8 +444,15 @@ impl Modrinth {
     }
 
     /// The URL to download a Modrinth file from, if it is an HTTPS URL on
-    /// `cdn.modrinth.com`.
+    /// `cdn.modrinth.com` whose path is the one written: a URL with dot segments (`..`,
+    /// `%2e%2e`) or backslashes is refused, since parsing would resolve it to another path
+    /// than the one a caller checked (an image entry's URL naming its project and version).
     pub fn cdn_url(&self, url: &str) -> Result<String, ModrinthError> {
+        if has_dot_segments(url) {
+            return Err(ModrinthError::Invalid(format!(
+                "Refusing to download from {url}: its path has dot segments"
+            )));
+        }
         let parsed =
             Url::parse(url).map_err(|_| ModrinthError::Invalid(format!("{url} isn't a URL")))?;
         if parsed.scheme() != "https"
@@ -502,11 +509,27 @@ impl Modrinth {
         })
     }
 
-    /// The bytes of an image on Modrinth's CDN (project icons), at most
-    /// [`MAX_IMAGE_BYTES`].
+    /// The bytes of an image: one on Modrinth's CDN, at most [`MAX_IMAGE_BYTES`] for an
+    /// icon and more for uploaded screenshots, or one a project page names on another
+    /// allowed host ([`page_images`](super::page_images)), at most
+    /// [`MAX_PAGE_IMAGE_BYTES`](super::page_images::MAX_PAGE_IMAGE_BYTES).
     pub async fn image(&self, url: &str) -> Result<Vec<u8>, ModrinthError> {
-        let url = self.cdn_url(url)?;
-        self.send(Method::GET, &url, None, MAX_IMAGE_BYTES).await
+        if let Ok(cdn) = self.cdn_url(url) {
+            // Gallery and description uploads are bigger than icons.
+            let limit = if url.contains("images/") {
+                super::page_images::MAX_PAGE_IMAGE_BYTES
+            } else {
+                MAX_IMAGE_BYTES
+            };
+            return self.send(Method::GET, &cdn, None, limit).await;
+        }
+        let http = self.http.clone();
+        let mirror = self.cdn_mirror.clone();
+        crate::http::in_http_runtime(async move {
+            super::page_images::fetch(http, url, USER_AGENT, mirror.as_ref()).await
+        })
+        .await
+        .map_err(ModrinthError::Unreachable)
     }
 }
 
@@ -526,6 +549,18 @@ fn parse<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, ModrinthErro
 /// Sorts versions newest first, by their publication time.
 pub fn sort_newest_first(versions: &mut [RawVersion]) {
     versions.sort_by(|a, b| b.date_published.cmp(&a.date_published));
+}
+
+/// Whether `url`'s path (before any query or fragment) has a segment that URL parsing
+/// resolves away: `.` or `..`, also percent-encoded (`%2e`), or a backslash, which parsing
+/// reads as `/` in an `https` URL.
+fn has_dot_segments(url: &str) -> bool {
+    let path = url.split(['?', '#']).next().unwrap_or_default();
+    path.contains('\\')
+        || path.split('/').any(|segment| {
+            let segment = segment.to_ascii_lowercase().replace("%2e", ".");
+            segment == "." || segment == ".."
+        })
 }
 
 #[cfg(test)]
@@ -562,6 +597,11 @@ mod tests {
             "https://github.com/x.jar",
             "file:///etc/passwd",
             "not a url",
+            "https://cdn.modrinth.com/data/A/versions/v/../../../B/versions/w/x.jar",
+            "https://cdn.modrinth.com/data/A/versions/v/%2e%2e/%2E%2E/B/x.jar",
+            "https://cdn.modrinth.com/data/A/versions/v/.%2e/x.jar",
+            "https://cdn.modrinth.com/data/A/versions/v/./x.jar",
+            "https://cdn.modrinth.com/data/A/versions/v\\..\\x.jar",
         ] {
             assert!(modrinth.cdn_url(bad).is_err(), "{bad}");
         }

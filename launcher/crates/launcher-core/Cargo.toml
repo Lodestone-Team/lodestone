@@ -17,8 +17,10 @@ futures.workspace = true
 http_client.workspace = true
 http_client_tls.workspace = true
 image.workspace = true
+launcher-control.workspace = true
 libc.workspace = true
 lodestone_connect.workspace = true
+lodestone_image.workspace = true
 lodestone_minecraft.workspace = true
 lodestone_trace.workspace = true
 md-5.workspace = true
@@ -48,6 +50,7 @@ windows-sys = { workspace = true, features = [
     "Win32_Networking_WinSock",
     "Win32_Storage_FileSystem",
     "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_IO",
     "Win32_System_ProcessStatus",
     "Win32_System_Registry",
     "Win32_System_SystemInformation",
@@ -56,3 +59,9 @@ windows-sys = { workspace = true, features = [
 
 [dev-dependencies]
 tempfile.workspace = true
+# tests/lan_worlds.rs runs Lodestone Connect's in-process introduction service
+# (crates/lodestone-connect/tests/support/fake_service.rs). Already in the lockfile,
+# through lodestone_connect's `host` feature.
+futures-util = "0.3.34"
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tokio-tungstenite = { version = "0.28.0", default-features = false, features = ["handshake"] }

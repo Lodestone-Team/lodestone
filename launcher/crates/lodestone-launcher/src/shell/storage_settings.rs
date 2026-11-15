@@ -1,24 +1,38 @@
 //! Settings > Storage: what the data folder takes, by instance, game files, Java
-//! runtimes, the cache and logs, with a way to remove what can go.
+//! runtimes, the cache and logs, with a way to remove what can go, and where the
+//! data folder is, with a way to move it (to another drive, say).
 //!
 //! The count runs on a background thread while the page is shown and stops when it
 //! is left. Removing asks first (the shell's dialog), runs in the background, and
 //! counts again. The rules for what is safe to remove are `launcher_core::disk`'s.
+//!
+//! Moving the data folder asks first too (`data_folder`'s dialogs), then runs
+//! `launcher_core::data_move` in the background while the dialog shows its progress,
+//! and restarts the launcher into the new folder.
 
 use crate::components::a11y::Accessible as _;
 use crate::theme::px;
 use gpui::{
-    AnyElement, Context, Entity, EventEmitter, IntoElement, Render, SharedString, Task, Window,
-    div, prelude::*, relative,
+    AnyElement, App, Context, Entity, EventEmitter, IntoElement, Render, SharedString, Task,
+    Window, div, prelude::*, relative,
 };
-use launcher_core::disk::{self, Cancel, Clean, Report};
+use launcher_control::paths::{DataDirLocation, DataDirSource};
+use launcher_core::{
+    data_move::{self, MoveError, MoveProgress, MoveRequest},
+    disk::{self, Cancel, Clean, Report},
+};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use crate::{
     components::{
         Button, ButtonSize, ButtonVariant, LoadingDots,
-        settings::{SettingRow, Toast, card, muted_link, section, tag, value},
+        settings::{
+            SearchRow, SettingRow, SettingsQuery, SettingsSearch, Toast, card, muted_link, tag,
+            value,
+        },
     },
-    i18n::{ShellMsg as M, format, t, tr},
+    file_dialog,
+    i18n::{ShellMsg as M, ShellPlural as P, format, t, tr, trn},
     instances::Instances,
     theme::{self, Color, colors, radius, text, weights},
 };
@@ -38,6 +52,22 @@ pub enum StorageEvent {
     DeleteInstance(String),
     /// A removal to confirm, with what it frees.
     Confirm { what: Clean, bytes: u64 },
+    /// A move of the data folder to `to` to confirm; `back` when `to` is the
+    /// default folder.
+    ConfirmMove { to: PathBuf, back: bool },
+    /// The data folder moved: the launcher restarts into it.
+    Moved,
+    /// The move was cancelled, and the data is where it was.
+    MoveCancelled,
+}
+
+/// A move of the data folder that is running.
+pub struct Moving {
+    pub progress: Arc<MoveProgress>,
+    cancel: Cancel,
+    _task: Task<()>,
+    /// Redraws the progress while it runs.
+    _tick: Task<()>,
 }
 
 pub struct StorageSettings {
@@ -48,6 +78,22 @@ pub struct StorageSettings {
     /// A removal is running.
     cleaning: bool,
     toast: Toast,
+    /// Where the data folder is and why, as the launcher found it at start.
+    location: Option<DataDirLocation>,
+    /// The folder dialog for "Move…", while it is open.
+    picking: Option<Task<()>>,
+    moving: Option<Moving>,
+    /// Why the last move didn't happen.
+    move_failed: Option<SharedString>,
+    /// The Settings dialog's search.
+    search: Option<Entity<SettingsSearch>>,
+}
+
+impl file_dialog::ShowsError for StorageSettings {
+    fn show_error(&mut self, message: SharedString, cx: &mut Context<Self>) {
+        self.toast
+            .show(message, true, |this: &mut Self| &mut this.toast, cx);
+    }
 }
 
 impl EventEmitter<StorageEvent> for StorageSettings {}
@@ -67,7 +113,24 @@ impl StorageSettings {
             work: None,
             cleaning: false,
             toast: Toast::default(),
+            location: launcher_control::paths::locate(),
+            picking: None,
+            moving: None,
+            move_failed: None,
+            search: None,
         }
+    }
+
+    /// Filters the page by the Settings dialog's search.
+    pub fn set_search(&mut self, search: Entity<SettingsSearch>) {
+        self.search = Some(search);
+    }
+
+    fn query(&self, cx: &App) -> SettingsQuery {
+        self.search
+            .as_ref()
+            .map(|search| search.read(cx).query())
+            .unwrap_or_default()
     }
 
     pub fn toast(&self) -> &Toast {
@@ -150,7 +213,7 @@ impl StorageSettings {
         if let Some((_, cancel)) = self.work.take() {
             cancel.cancel();
         }
-        let (data, list, running) = {
+        let (data, list, running, images) = {
             let instances = self.instances.read(cx);
             let running: Vec<String> = instances
                 .list()
@@ -162,12 +225,20 @@ impl StorageSettings {
                 instances.data_dir().clone(),
                 instances.list().to_vec(),
                 running,
+                instances.images(),
             )
         };
         let cancel = Cancel::new();
         let stop = cancel.clone();
-        let work =
-            cx.background_spawn(async move { disk::clean(&data, &list, &running, what, &stop) });
+        let work = cx.background_spawn(async move {
+            match what {
+                Clean::Snapshots => {
+                    let live: Vec<String> = list.iter().map(|i| i.id.clone()).collect();
+                    disk::clean_snapshots(&data, &images, &live)
+                }
+                _ => disk::clean(&data, &list, &running, what, &stop),
+            }
+        });
         self.cleaning = true;
         let task = cx.spawn(async move |this, cx| {
             let result = work.await;
@@ -201,6 +272,300 @@ impl StorageSettings {
         cx.notify();
     }
 
+    /// The data folder.
+    pub fn data_root(&self, cx: &gpui::App) -> PathBuf {
+        self.instances.read(cx).data_dir().root().to_path_buf()
+    }
+
+    /// The default folder and why the data is where it is, when the data folder can
+    /// be moved from here: not when it isn't the folder the launcher finds (the
+    /// offscreen scenes).
+    fn movable(&self, cx: &gpui::App) -> Option<(PathBuf, DataDirSource)> {
+        let location = self.location.as_ref()?;
+        (location.dir == self.data_root(cx)).then(|| (location.default.clone(), location.source))
+    }
+
+    /// Whether a move can start now; shows why not when it can't.
+    fn can_start_move(&mut self, cx: &mut Context<Self>) -> bool {
+        if self.moving.is_some() || self.cleaning {
+            return false;
+        }
+        if self.game_running(cx) {
+            self.toast.show(
+                t(M::StorageMoveStopGame),
+                true,
+                |this: &mut Self| &mut this.toast,
+                cx,
+            );
+            return false;
+        }
+        true
+    }
+
+    /// "Move…": asks for a folder, then for confirmation (the shell's dialog).
+    /// Choosing a folder that has other things in it, such as a games folder, moves
+    /// the data into a "Lodestone Launcher" folder in it.
+    pub fn choose_move_target(&mut self, cx: &mut Context<Self>) {
+        let Some((default, _)) = self.movable(cx) else {
+            return;
+        };
+        if !self.can_start_move(cx) {
+            return;
+        }
+        let from = self.data_root(cx);
+        let picked = cx.prompt_for_paths(gpui::PathPromptOptions {
+            files: false,
+            directories: true,
+            multiple: false,
+            prompt: Some(t(M::StorageMoveHere).into()),
+        });
+        self.picking = Some(cx.spawn(async move |this, cx| {
+            let Some(paths) = file_dialog::chosen(picked, &this, cx).await else {
+                return;
+            };
+            let Some(chosen) = paths.into_iter().next() else {
+                return;
+            };
+            let Ok(check) = this.update(cx, |_, cx| {
+                cx.background_spawn(async move { data_move::target_for(&chosen, &from, &default) })
+            }) else {
+                return;
+            };
+            let result = check.await;
+            this.update(cx, |this, cx| {
+                this.picking = None;
+                match result {
+                    Ok(to) => {
+                        let back = this
+                            .location
+                            .as_ref()
+                            .is_some_and(|location| location.default == to);
+                        cx.emit(StorageEvent::ConfirmMove { to, back });
+                    }
+                    Err(err) => this.toast.show(
+                        tr!(M::StorageMoveCantUse, error = err),
+                        true,
+                        |this: &mut Self| &mut this.toast,
+                        cx,
+                    ),
+                }
+            })
+            .ok();
+        }));
+    }
+
+    /// "Move back…": the default folder, after confirmation.
+    pub fn choose_move_back(&mut self, cx: &mut Context<Self>) {
+        let Some((default, DataDirSource::Moved)) = self.movable(cx) else {
+            return;
+        };
+        if !self.can_start_move(cx) {
+            return;
+        }
+        let request = MoveRequest {
+            from: self.data_root(cx),
+            to: default.clone(),
+            default: default.clone(),
+        };
+        match data_move::check(&request) {
+            Ok(()) => cx.emit(StorageEvent::ConfirmMove {
+                to: default,
+                back: true,
+            }),
+            Err(err) => self.toast.show(
+                tr!(M::StorageMoveCantUse, error = err),
+                true,
+                |this: &mut Self| &mut this.toast,
+                cx,
+            ),
+        }
+    }
+
+    /// Moves the data folder to `to` in the background (confirmed in the shell's
+    /// dialog, which shows the progress). Ends with [`StorageEvent::Moved`],
+    /// [`StorageEvent::MoveCancelled`] or [`Self::move_failed`].
+    pub fn start_move(&mut self, to: PathBuf, cx: &mut Context<Self>) {
+        let Some((default, _)) = self.movable(cx) else {
+            return;
+        };
+        if self.moving.is_some() {
+            return;
+        }
+        if self.game_running(cx) {
+            self.move_failed = Some(t(M::StorageMoveStopGame).into());
+            cx.notify();
+            return;
+        }
+        // A count would read files as they move.
+        if let Some((_, cancel)) = self.work.take() {
+            cancel.cancel();
+        }
+        let request = MoveRequest {
+            from: self.data_root(cx),
+            to,
+            default,
+        };
+        let progress = Arc::new(MoveProgress::default());
+        let cancel = Cancel::new();
+        let images = self.instances.read(cx).images();
+        let work = {
+            let (progress, cancel) = (progress.clone(), cancel.clone());
+            let request = request.clone();
+            cx.background_spawn(async move {
+                // The content images queued in the last few seconds are written before
+                // their store moves with everything else; then every write to the store
+                // stops (waiting for a record or collection still running), so the copy
+                // never holds a manifest without its objects and nothing remakes the old
+                // folder. Moved, the store stays stopped until the Launcher restarts. Cancel
+                // works while it waits (the first record of a big pack can take minutes).
+                images.settle(Duration::from_secs(6));
+                let Some(suspended) = images.suspend_unless(&|| cancel.is_cancelled()) else {
+                    return Err(launcher_core::data_move::MoveError::Cancelled);
+                };
+                let moved = data_move::run(&request, &progress, &cancel);
+                if moved.is_ok() {
+                    suspended.keep();
+                }
+                moved
+            })
+        };
+        let task = cx.spawn(async move |this, cx| {
+            let result = work.await;
+            this.update(cx, |this, cx| {
+                this.moving = None;
+                launcher_core::trace::emit("storage.move", || {
+                    serde_json::json!({
+                        "to": request.to.display().to_string(),
+                        "error": result.as_ref().err().map(|e| e.to_string()),
+                    })
+                });
+                match result {
+                    Ok(()) => cx.emit(StorageEvent::Moved),
+                    Err(MoveError::Cancelled) => cx.emit(StorageEvent::MoveCancelled),
+                    Err(err) => this.move_failed = Some(sentence(&err.to_string()).into()),
+                }
+                cx.notify();
+            })
+            .ok();
+        });
+        let tick = cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_millis(200))
+                    .await;
+                if this.update(cx, |_, cx| cx.notify()).is_err() {
+                    break;
+                }
+            }
+        });
+        self.move_failed = None;
+        self.moving = Some(Moving {
+            progress,
+            cancel,
+            _task: task,
+            _tick: tick,
+        });
+        cx.notify();
+    }
+
+    /// Stops the running move; the data stays where it was.
+    pub fn cancel_move(&mut self) {
+        if let Some(moving) = &self.moving {
+            moving.cancel.cancel();
+        }
+    }
+
+    pub fn moving(&self) -> Option<&Moving> {
+        self.moving.as_ref()
+    }
+
+    pub fn move_failed(&self) -> Option<SharedString> {
+        self.move_failed.clone()
+    }
+
+    pub fn clear_move_failed(&mut self, cx: &mut Context<Self>) {
+        self.move_failed = None;
+        cx.notify();
+    }
+
+    /// The total the last count found, if there is one.
+    pub fn counted_total(&self) -> Option<u64> {
+        match &self.count {
+            Count::Ready(report) => Some(report.total()),
+            _ => None,
+        }
+    }
+
+    /// Shows a message under the page, such as why the launcher didn't restart.
+    pub fn show_toast(&mut self, message: SharedString, error: bool, cx: &mut Context<Self>) {
+        self.toast
+            .show(message, error, |this: &mut Self| &mut this.toast, cx);
+    }
+
+    /// The "Data folder" section: where it is, and moving it.
+    fn data_folder_section(
+        &self,
+        query: &SettingsQuery,
+        cx: &mut Context<Self>,
+    ) -> Option<gpui::Div> {
+        let root = self.data_root(cx);
+        let movable = self.movable(cx);
+        let busy = self.cleaning || self.moving.is_some() || self.picking.is_some();
+        let mut row = SettingRow::new(root.display().to_string())
+            .key("storage-data-folder")
+            .hint(t(M::StorageDataFolderHint))
+            .keywords(t(M::StorageDataFolder))
+            .child(
+                muted_link("storage-open-data", t(M::StorageOpenFolder)).on_press(cx.listener(
+                    |this, _, _, cx| {
+                        let root = this.data_root(cx);
+                        cx.open_with_system(&root);
+                    },
+                )),
+            );
+        if let Some((_, source)) = movable {
+            if source == DataDirSource::Moved {
+                row = row.child(
+                    Button::new("storage-move-back", t(M::StorageMoveBackEllipsis))
+                        .variant(ButtonVariant::Secondary)
+                        .size(ButtonSize::Slim)
+                        .disabled(busy)
+                        .on_click(cx.listener(|this, _, _, cx| this.choose_move_back(cx))),
+                );
+            }
+            row = row.child(
+                Button::new("storage-move", t(M::StorageMoveEllipsis))
+                    .variant(ButtonVariant::Secondary)
+                    .size(ButtonSize::Slim)
+                    .disabled(busy)
+                    .on_click(cx.listener(|this, _, _, cx| this.choose_move_target(cx))),
+            );
+        }
+        query
+            .section(t(M::StorageDataFolder), None)
+            .card([row])
+            .finish()
+    }
+
+    /// Shows the data folder as moved (or not), for the offscreen screenshots.
+    pub fn preview_location(&mut self, moved: bool, cx: &mut Context<Self>) {
+        let root = self.data_root(cx);
+        self.location = Some(DataDirLocation {
+            default: if moved {
+                PathBuf::from("C:\\Users\\Alex\\AppData\\Roaming\\Lodestone Launcher")
+            } else {
+                root.clone()
+            },
+            dir: root,
+            source: if moved {
+                DataDirSource::Moved
+            } else {
+                DataDirSource::Default
+            },
+        });
+        cx.notify();
+    }
+
     /// Shows a count, for the offscreen screenshots.
     pub fn preview(&mut self, report: Report, cx: &mut Context<Self>) {
         if let Some((_, cancel)) = self.work.take() {
@@ -209,6 +574,19 @@ impl StorageSettings {
         self.count = Count::Ready(Box::new(report));
         cx.notify();
     }
+}
+
+/// `error` as a sentence of its own: a capital first letter and a full stop.
+fn sentence(error: &str) -> String {
+    let mut chars = error.chars();
+    let mut text: String = chars
+        .next()
+        .map(|first| first.to_uppercase().chain(chars).collect())
+        .unwrap_or_default();
+    if !text.ends_with(['.', '!', '?']) {
+        text.push('.');
+    }
+    text
 }
 
 /// A size, as a row's value.
@@ -261,18 +639,24 @@ impl Render for StorageSettings {
             Count::Failed(error) => Some(error.clone()),
             _ => None,
         };
+        let query = self.query(cx);
+        let data_folder = self.data_folder_section(&query, cx);
         let page = div().flex().flex_col().gap_6().w_full();
         let Some(report) = report else {
             return page
-                .child(card([match failed {
-                    Some(error) => div()
-                        .px_4()
-                        .py_3()
-                        .text_color(colors::RED_200)
-                        .child(tr!(M::StorageCouldntCount, error = error))
-                        .into_any_element(),
-                    None => counting(),
-                }]))
+                .children(query.status())
+                .children(data_folder)
+                .when(!query.is_active(), |page| {
+                    page.child(card([match failed {
+                        Some(error) => div()
+                            .px_4()
+                            .py_3()
+                            .text_color(colors::RED_200)
+                            .child(tr!(M::StorageCouldntCount, error = error))
+                            .into_any_element(),
+                        None => counting(),
+                    }]))
+                })
                 .into_any_element();
         };
 
@@ -281,7 +665,7 @@ impl Render for StorageSettings {
             (
                 INSTANCES,
                 t(M::StorageInstances),
-                report.instances_total() + report.snapshots.bytes,
+                report.instances_total() + report.images.bytes,
             ),
             (
                 GAME_FILES,
@@ -348,16 +732,7 @@ impl Render for StorageSettings {
                             .text_color(crate::theme::ink::text())
                             .child(format::bytes(report.total())),
                     )
-                    .when(self.work.is_some() && !busy, |this| this.child(LoadingDots))
-                    .child(div().flex_1())
-                    .child(
-                        muted_link("storage-open-data", t(M::StorageOpenFolder)).on_press(
-                            cx.listener(|this, _, _, cx| {
-                                let root = this.instances.read(cx).data_dir().root().to_path_buf();
-                                cx.open_with_system(&root);
-                            }),
-                        ),
-                    ),
+                    .when(self.work.is_some() && !busy, |this| this.child(LoadingDots)),
             )
             .child(bar)
             .child(legend)
@@ -371,8 +746,8 @@ impl Render for StorageSettings {
             });
 
         // Instances.
-        let mut instance_rows: Vec<AnyElement> = if report.instances.is_empty() {
-            vec![SettingRow::new(t(M::StorageNoInstances)).into_any_element()]
+        let mut instance_rows: Vec<SearchRow> = if report.instances.is_empty() {
+            vec![SettingRow::new(t(M::StorageNoInstances)).into()]
         } else {
             report
                 .instances
@@ -418,23 +793,23 @@ impl Render for StorageSettings {
                                     cx.emit(StorageEvent::DeleteInstance(id.clone()))
                                 })),
                         )
-                        .into_any_element()
+                        .into()
                 })
                 .collect()
         };
 
         // Game files.
         let unused = report.game_files.unused.total();
-        let game_rows = vec![
+        let game_rows: Vec<SearchRow> = vec![
             SettingRow::new(t(M::StorageVersions))
                 .child(size(report.game_files.versions))
-                .into_any_element(),
+                .into(),
             SettingRow::new(t(M::StorageLibraries))
                 .child(size(report.game_files.libraries))
-                .into_any_element(),
+                .into(),
             SettingRow::new(t(M::StorageAssets))
                 .child(size(report.game_files.assets))
-                .into_any_element(),
+                .into(),
             SettingRow::new(t(M::StorageUnused))
                 .hint_opt(
                     (!report.game_files.unused.versions.is_empty())
@@ -449,35 +824,35 @@ impl Render for StorageSettings {
                     Clean::UnusedGameFiles,
                     unused,
                 ))
-                .into_any_element(),
+                .into(),
         ];
 
-        // Snapshots, shared by every instance.
-        let snapshots = report.snapshots;
-        if snapshots.snapshots > 0 || snapshots.bytes > 0 {
+        // The image store: every instance's snapshots and content history.
+        let images = report.images;
+        if images.snapshots > 0 || images.bytes > 0 {
             instance_rows.push(
                 SettingRow::new(t(M::StorageSnapshots))
-                    .hint(tr!(
-                        M::StorageSnapshotsHint,
-                        count = snapshots.snapshots,
-                        size = format::bytes(snapshots.removable_bytes)
+                    .hint(trn!(
+                        P::StorageSnapshotsHint,
+                        images.snapshots,
+                        removable = images.removable
                     ))
-                    .child(size(snapshots.bytes))
+                    .child(size(images.bytes))
                     .child(remove_button(
                         "storage-clean-snapshots",
                         t(M::StorageRemoveEllipsis),
-                        snapshots.removable_bytes > 0 && !busy,
+                        images.removable > 0 && !busy,
                         cx,
                         Clean::Snapshots,
-                        snapshots.removable_bytes,
+                        images.removable as u64,
                     ))
-                    .into_any_element(),
+                    .into(),
             );
         }
 
         // Java runtimes.
         let unused_runtimes = report.unused_runtimes();
-        let mut runtime_rows: Vec<AnyElement> = report
+        let mut runtime_rows: Vec<SearchRow> = report
             .runtimes
             .iter()
             .map(|runtime| {
@@ -497,14 +872,14 @@ impl Render for StorageSettings {
                     .key(SharedString::from(format!("runtime-{}", runtime.component)))
                     .hint_opt((!detail.is_empty()).then(|| detail.join(" · ")))
                     .when(runtime.unused(), |row| {
-                        row.child(tag(t(M::StorageUnusedTag), colors::GRAY_500))
+                        row.child(tag(t(M::StorageUnusedTag), crate::theme::ink::muted()))
                     })
                     .child(size(runtime.bytes))
-                    .into_any_element()
+                    .into()
             })
             .collect();
         if runtime_rows.is_empty() {
-            runtime_rows.push(SettingRow::new(t(M::StorageNoRuntimes)).into_any_element());
+            runtime_rows.push(SettingRow::new(t(M::StorageNoRuntimes)).into());
         } else {
             runtime_rows.push(
                 SettingRow::new(t(M::StorageUnused))
@@ -517,13 +892,13 @@ impl Render for StorageSettings {
                         Clean::UnusedRuntimes,
                         unused_runtimes,
                     ))
-                    .into_any_element(),
+                    .into(),
             );
         }
 
         // Cache, logs and the rest.
         let logs = &report.logs;
-        let mut other_rows = vec![
+        let mut other_rows: Vec<SearchRow> = vec![
             SettingRow::new(t(M::StorageCache))
                 .child(size(report.cache))
                 .child(remove_button(
@@ -534,7 +909,7 @@ impl Render for StorageSettings {
                     Clean::Cache,
                     report.cache,
                 ))
-                .into_any_element(),
+                .into(),
             SettingRow::new(t(M::StorageLogs))
                 .hint(tr!(M::StorageOldLogs, size = format::bytes(logs.old_bytes)))
                 .child(size(logs.bytes))
@@ -554,10 +929,10 @@ impl Render for StorageSettings {
                     Clean::AllLogs,
                     logs.bytes,
                 ))
-                .into_any_element(),
+                .into(),
             SettingRow::new(t(M::StorageOther))
                 .child(size(report.other))
-                .into_any_element(),
+                .into(),
         ];
         if report.leftovers.bytes > 0 {
             other_rows.insert(
@@ -572,24 +947,44 @@ impl Render for StorageSettings {
                         Clean::Leftovers,
                         report.leftovers.bytes,
                     ))
-                    .into_any_element(),
+                    .into(),
             );
         }
 
-        page.child(
-            div()
-                .p_4()
-                .rounded(radius::LG)
-                .border_1()
-                .border_color(colors::GRAY_FADED.opacity(30))
-                .bg(colors::GRAY_800)
-                .child(summary),
-        )
-        .child(section(t(M::StorageInstances), None).child(card(instance_rows)))
-        .child(section(t(M::StorageGameFiles), None).child(card(game_rows)))
-        .child(section(t(M::StorageRuntimes), None).child(card(runtime_rows)))
-        .child(section(t(M::StorageCacheAndLogs), None).child(card(other_rows)))
-        .into_any_element()
+        let sections = [
+            query
+                .section(t(M::StorageInstances), None)
+                .card(instance_rows)
+                .finish(),
+            query
+                .section(t(M::StorageGameFiles), None)
+                .card(game_rows)
+                .finish(),
+            query
+                .section(t(M::StorageRuntimes), None)
+                .card(runtime_rows)
+                .finish(),
+            query
+                .section(t(M::StorageCacheAndLogs), None)
+                .card(other_rows)
+                .finish(),
+        ];
+        page.children(query.status())
+            .children(data_folder)
+            // the total is about everything: only while nothing is typed
+            .when(!query.is_active(), |page| {
+                page.child(
+                    div()
+                        .p_4()
+                        .rounded(radius::LG)
+                        .border_1()
+                        .border_color(colors::GRAY_FADED.opacity(30))
+                        .bg(colors::GRAY_800)
+                        .child(summary),
+                )
+            })
+            .children(sections.into_iter().flatten())
+            .into_any_element()
     }
 }
 
@@ -634,9 +1029,10 @@ impl super::LauncherShell {
                 tr!(M::StorageDeleteAllLogsBody, size = size),
                 M::StorageDeleteConfirm,
             ),
+            // `bytes` is a count of snapshots here.
             Clean::Snapshots => (
                 M::StorageCleanSnapshotsTitle,
-                tr!(M::StorageCleanSnapshotsBody, size = size),
+                trn!(P::StorageCleanSnapshotsBody, bytes as usize),
                 M::StorageRemove,
             ),
         };
@@ -678,7 +1074,8 @@ impl super::LauncherShell {
                 Clean::Leftovers => report.leftovers.bytes,
                 Clean::OldLogs => report.logs.old_bytes,
                 Clean::AllLogs => report.logs.bytes,
-                Clean::Snapshots => report.snapshots.removable_bytes,
+                // A count, not bytes: what a clean-up of snapshots frees is known after.
+                Clean::Snapshots => report.images.removable as u64,
             };
             let focus = cx.focus_handle();
             self.modal

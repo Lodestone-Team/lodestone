@@ -10,12 +10,11 @@ import InstancePerformance from 'components/Instance/InstancePerformance';
 import { InstanceContext } from 'data/InstanceContext';
 import GameIcon from 'components/Atoms/GameIcon';
 import { useGlobalSettings } from 'data/GlobalSettings';
-import { useCanControlInstance } from 'data/CodeExecution';
 
 import { useDocumentTitle } from 'usehooks-ts';
 import InstancePlayerList from './InstancePlayerList';
 import InstanceDetails from './InstanceDetails';
-import ShareWithFriends from './ShareWithFriends';
+import InstanceShareSection from './InstanceShareSection';
 import { useT } from 'i18n';
 
 const InstanceOverview = () => {
@@ -30,8 +29,6 @@ const InstanceOverview = () => {
   const domain = globalSettings?.domain || address || 'localhost';
   const queryClient = useQueryClient();
   const uuid = instance?.uuid;
-  // only the owner can rename atom instances
-  const canControlInstance = useCanControlInstance(instance);
 
   if (!instance || !uuid) {
     return (
@@ -88,8 +85,6 @@ const InstanceOverview = () => {
               onSubmit={setInstanceName}
               placeholder={t('server.overview.noName')}
               containerClassName="min-w-0"
-              disabled={!canControlInstance}
-              disabledTooltip={t('console.ownerOnlyAtom')}
             />
           </div>
           <div className="-mt-2 flex flex-row flex-wrap items-center gap-4">
@@ -125,13 +120,11 @@ const InstanceOverview = () => {
               onSubmit={setInstanceDescription}
               placeholder={t('server.overview.noDescription')}
               containerClassName="min-w-0"
-              disabled={!canControlInstance}
-              disabledTooltip={t('console.ownerOnlyAtom')}
             />
           </div>
         </div>
       </div>
-      <ShareWithFriends instance={instance} />
+      <InstanceShareSection instance={instance} />
       <InstancePerformance />
       <InstancePlayerList />
       <InstanceDetails instance={instance} />

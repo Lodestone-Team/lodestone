@@ -9,15 +9,18 @@ use launcher_core::cores::admin::{
     models::{CorePermission, GlobalSettingsData, InstancePermission},
 };
 use lodestone_ui::{
-    components::{Button, ButtonSize, ButtonVariant, Icon, ListRow, text_tooltip},
+    components::{
+        Align, Button, ButtonSize, ButtonVariant, Dropdown, Icon, IconButton, ListRow,
+        PowerButtons, power_name, settings::popover_panel, text_tooltip,
+    },
     theme::{Color, colors, ink, px, radius, text, weights},
 };
 
 use super::HostShell;
 use crate::{
-    i18n::{CommonMsg, ShellMsg, t, tr},
+    i18n::{ShellMsg, t, tr},
     routes::{InstanceTab, ModSupport, Route, TabContext, mod_support},
-    state::{Connection, Creating, HostState, power_actions},
+    state::{Connection, Creating, HostState},
 };
 
 /// An instance's state, as the dashboard's status dots colour it.
@@ -26,7 +29,8 @@ pub fn state_color(state: InstanceState) -> Color {
         InstanceState::Running => colors::GREEN,
         InstanceState::Starting | InstanceState::Stopping => colors::YELLOW,
         InstanceState::Error => colors::RED,
-        InstanceState::Stopped | InstanceState::Unknown => colors::GRAY_500,
+        // also the colour of its name on the state pill, so it is readable there
+        InstanceState::Stopped | InstanceState::Unknown => ink::muted(),
     }
 }
 
@@ -41,15 +45,6 @@ pub fn state_name(state: InstanceState) -> &'static str {
     })
 }
 
-pub fn power_name(power: Power) -> &'static str {
-    match power {
-        Power::Start => t(CommonMsg::Start),
-        Power::Stop => t(CommonMsg::Stop),
-        Power::Restart => t(ShellMsg::Restart),
-        Power::Kill => t(ShellMsg::Kill),
-    }
-}
-
 /// A tab's name for `instance`: "Mods" or "Plugins" by what it runs.
 pub fn tab_name(tab: InstanceTab, instance: &InstanceInfo) -> &'static str {
     t(match tab {
@@ -57,11 +52,11 @@ pub fn tab_name(tab: InstanceTab, instance: &InstanceInfo) -> &'static str {
         InstanceTab::Settings => ShellMsg::TabSettings,
         InstanceTab::Console => ShellMsg::TabConsole,
         InstanceTab::Files => ShellMsg::TabFiles,
+        InstanceTab::Backups => ShellMsg::TabBackups,
         InstanceTab::Mods => match mod_support(instance) {
             Some(ModSupport::Plugins) => ShellMsg::TabPlugins,
             _ => ShellMsg::TabMods,
         },
-        InstanceTab::Macros => ShellMsg::TabMacros,
         InstanceTab::EventLogs => ShellMsg::TabEventLogs,
     })
 }
@@ -74,8 +69,8 @@ pub fn tab_icon(tab: InstanceTab) -> Icon {
         InstanceTab::Settings => Icon::Gear,
         InstanceTab::Console => Icon::Server,
         InstanceTab::Files => Icon::Folder,
+        InstanceTab::Backups => Icon::ClockRotateLeft,
         InstanceTab::Mods => Icon::PuzzlePiece,
-        InstanceTab::Macros => Icon::CodeCompare,
         InstanceTab::EventLogs => Icon::Inbox,
     }
 }
@@ -152,7 +147,7 @@ pub fn render(shell: &HostShell, cx: &mut Context<HostShell>) -> impl IntoElemen
             let shell_entity = cx.entity().downgrade();
             div()
                 .relative()
-                .child(selected_card(instance, selected_tab, state, cx))
+                .child(selected_card(shell, instance, selected_tab, state, cx))
                 .child(
                     gpui::canvas(
                         move |bounds, _, cx| {
@@ -189,7 +184,8 @@ pub fn render(shell: &HostShell, cx: &mut Context<HostShell>) -> impl IntoElemen
             .text_size(text::MEDIUM)
             .text_color(ink::muted())
             .child(Icon::Expand.render(px(20.), ink::faint()))
-            .child(t(ShellMsg::NoInstanceSelected))
+            // centred under the icon, also when it wraps in a narrow sidebar
+            .child(div().text_center().child(t(ShellMsg::NoInstanceSelected)))
             .into_any_element(),
     };
 
@@ -465,9 +461,51 @@ pub fn system_name(os: &str, arch: &str) -> String {
     format!("{os} {arch}")
 }
 
-/// The selected instance: its name, game, state, players, power button and tabs
-/// (`SelectedInstanceInfo.tsx`, `InstanceCard.tsx`).
+/// The power icon's colour, as the launcher's server rows and the dashboard's card
+/// show the state on it: green running, yellow starting or stopping, red after a
+/// crash, grey stopped.
+pub fn power_color(state: InstanceState) -> Color {
+    match state {
+        InstanceState::Running => colors::GREEN_200,
+        InstanceState::Starting | InstanceState::Stopping => colors::YELLOW,
+        InstanceState::Error => colors::RED_200,
+        InstanceState::Stopped | InstanceState::Unknown => colors::GRAY_500,
+    }
+}
+
+/// The players pill's background and text, as the dashboard's `Label` colours it by
+/// the state.
+fn pill_colors(state: InstanceState) -> (Color, Color) {
+    match state {
+        InstanceState::Running => (colors::GREEN_FADED.opacity(25), colors::GREEN),
+        InstanceState::Starting | InstanceState::Stopping => {
+            (colors::YELLOW_FADED.opacity(25), colors::YELLOW)
+        }
+        InstanceState::Error => (colors::RED_FADED.opacity(25), colors::RED),
+        InstanceState::Stopped | InstanceState::Unknown => {
+            (colors::GRAY_FADED.opacity(30), colors::GRAY_300)
+        }
+    }
+}
+
+/// The power menu's id.
+const POWER_MENU: &str = "power-menu";
+
+/// The power menu's icon for `power`, after the dashboard's.
+fn power_icon(power: Power) -> Icon {
+    match power {
+        Power::Start | Power::Stop => Icon::PowerOff,
+        Power::Restart => Icon::ArrowsRotate,
+        Power::Kill => Icon::Xmark,
+    }
+}
+
+/// The selected instance, as the dashboard's card (`SelectedInstanceInfo.tsx`,
+/// `InstanceCard.tsx`): its icon and name with the power button, which shows the
+/// state and opens the power actions the user may do; Share (Copy IP for servers
+/// that can't be shared) and the players pill; then the tabs.
 fn selected_card(
+    shell: &HostShell,
     instance: &InstanceInfo,
     selected_tab: Option<InstanceTab>,
     state: &Snapshot,
@@ -475,71 +513,143 @@ fn selected_card(
 ) -> impl IntoElement {
     let me = &state.me;
     let uuid = instance.uuid.clone();
-    let atom_blocked =
-        instance.is_atom() && (!me.is_owner || !state.info.capabilities.generic_instances);
-    let powers = power_actions(instance.state)
-        .iter()
-        .copied()
-        .filter(|power| {
-            let permission = match power {
-                Power::Start => InstancePermission::Start,
-                Power::Restart => InstancePermission::Start,
-                Power::Stop | Power::Kill => InstancePermission::Stop,
-            };
-            me.may(permission, &uuid) && !atom_blocked
+    // what the core lets this user do: a restart stops and starts the server
+    let powers = {
+        let (uuid, me) = (uuid.clone(), me.clone());
+        PowerButtons::new("power", instance.state).allow(move |power| {
+            let may = |permission| me.may(permission, &uuid);
+            match power {
+                Power::Start => may(InstancePermission::Start),
+                Power::Restart => may(InstancePermission::Start) && may(InstancePermission::Stop),
+                Power::Stop | Power::Kill => may(InstancePermission::Stop),
+            }
         })
-        .map(|power| {
-            let uuid = uuid.clone();
-            Button::new(
-                gpui::SharedString::from(format!("power-{power:?}")),
+    }
+    .actions();
+    let menu_open = !powers.is_empty() && shell.power_menu.as_deref() == Some(uuid.as_str());
+
+    let power_button = {
+        let uuid = uuid.clone();
+        IconButton::new("power-menu-button", Icon::PowerOff)
+            .label(tr!(ShellMsg::PowerMenu, state = state_name(instance.state)))
+            .color(power_color(instance.state))
+            .disabled(powers.is_empty())
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.power_menu = match this.power_menu {
+                    Some(ref open) if *open == uuid => None,
+                    _ => Some(uuid.clone()),
+                };
+                cx.notify();
+            }))
+    };
+    let panel = powers.iter().fold(
+        popover_panel("power-menu-panel").min_w(px(128.)),
+        |panel, &power| {
+            let item = Button::new(
+                gpui::SharedString::from(format!("power-menu-{power:?}")),
                 power_name(power),
             )
             .size(ButtonSize::Slim)
-            .variant(match power {
-                Power::Start => ButtonVariant::Primary,
-                Power::Kill => ButtonVariant::Danger,
-                _ => ButtonVariant::Secondary,
-            })
-            .on_click(cx.listener(move |this, _, _, cx| {
+            .variant(ButtonVariant::Ghost)
+            .align(Align::Between)
+            .icon_right(power_icon(power))
+            .full_width();
+            // a closing menu takes no presses
+            let item = if menu_open {
                 let uuid = uuid.clone();
-                this.state
-                    .update(cx, |state, cx| state.power(&uuid, power, cx));
-            }))
-        })
-        .collect::<Vec<_>>();
-    // "Share" next to Start: opens the Overview, which starts sharing
-    let share = (matches!(
+                item.on_click(cx.listener(move |this, _, _, cx| {
+                    this.power_menu = None;
+                    this.state
+                        .update(cx, |state, cx| state.power(&uuid, power, cx));
+                    cx.notify();
+                }))
+            } else {
+                item
+            };
+            panel.child(item)
+        },
+    );
+    let close = cx.listener(|this, _: &(), _, cx| {
+        this.power_menu = None;
+        cx.notify();
+    });
+    let power = div()
+        .flex_none()
+        .child(Dropdown::new(power_button).align_end().animated_popover(
+            POWER_MENU,
+            menu_open,
+            panel,
+            move |window, cx| close(&(), window, cx),
+        ));
+
+    // Share opens the Overview's Share section, which Minecraft Java servers have, for
+    // those who may change them
+    let can_share = matches!(
         instance.game_type,
         launcher_core::cores::admin::models::Game::MinecraftJava { .. }
-    ) && me.may(InstancePermission::Settings, &uuid)
-        && !atom_blocked)
-        .then(|| {
-            let uuid = uuid.clone();
-            Button::new("sidebar-share", t(crate::i18n::InstancesMsg::ShareShort))
-                .size(ButtonSize::Slim)
-                .variant(ButtonVariant::Secondary)
-                .icon(Icon::Link)
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    let uuid = uuid.clone();
-                    // an Overview already open hears it through the state
-                    this.state.update(cx, |state, cx| {
-                        state.share_requested = Some(uuid.clone());
-                        cx.notify();
-                    });
-                    this.navigate(
-                        Route::Instance {
-                            uuid,
-                            tab: InstanceTab::Overview,
-                        },
-                        cx,
-                    );
-                }))
-        });
-    let address = instance_address(state.settings.as_ref(), instance.port);
-    let players = match (instance.player_count, instance.max_player_count) {
-        (Some(online), Some(max)) => Some(tr!(ShellMsg::PlayersOnline, online = online, max = max)),
-        _ => None,
+    ) && me.may(InstancePermission::Settings, &uuid);
+    let share: AnyElement = if can_share {
+        let uuid = uuid.clone();
+        div()
+            .flex_1()
+            .min_w_0()
+            .child(
+                Button::new("sidebar-share", t(crate::i18n::InstancesMsg::ShareShort))
+                    .size(ButtonSize::Slim)
+                    .variant(ButtonVariant::Secondary)
+                    .icon(Icon::Link)
+                    .full_width()
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        let uuid = uuid.clone();
+                        // an Overview already open hears it through the state; it only
+                        // goes to Share, as the dashboard's button does
+                        this.state.update(cx, |state, cx| {
+                            state.share_requested = Some(uuid.clone());
+                            state.share_start = false;
+                            cx.notify();
+                        });
+                        this.navigate(
+                            Route::Instance {
+                                uuid,
+                                tab: InstanceTab::Overview,
+                            },
+                            cx,
+                        );
+                    })),
+            )
+            .id("sidebar-share-hint")
+            .tooltip(text_tooltip(t(crate::i18n::InstancesMsg::ShareShortHint)))
+            .into_any_element()
+    } else {
+        let address = instance_address(state.settings.as_ref(), instance.port);
+        address_chip(&address, cx).into_any_element()
     };
+    // always shown, as the dashboard's: "/20 Online" while the count is unknown
+    let players = {
+        let count = |n: Option<u32>| n.map(|n| n.to_string()).unwrap_or_default();
+        tr!(
+            ShellMsg::PlayersOnline,
+            online = count(instance.player_count),
+            max = count(instance.max_player_count)
+        )
+    };
+    let players = {
+        let (bg, fg) = pill_colors(instance.state);
+        div()
+            .flex_1()
+            .min_w_0()
+            .flex()
+            .justify_center()
+            .px(px(8.))
+            .py(px(2.))
+            .rounded_full()
+            .bg(bg)
+            .text_size(text::SMALL)
+            .font_weight(weights::BOLD.face())
+            .text_color(fg)
+            .child(div().truncate().child(players))
+    };
+
     let tab_cx = TabContext {
         me,
         info: &state.info,
@@ -575,68 +685,49 @@ fn selected_card(
         .flex_col()
         .gap(px(4.))
         .child(
+            // the dashboard's `my-2 border-b-2 pb-2`, at its paddings
             div()
                 .flex()
                 .flex_col()
-                .gap(px(6.))
-                .p(px(10.))
-                .rounded(radius::LG)
-                .bg(colors::GRAY_800)
-                .border_1()
-                .border_color(ink::border())
+                .gap(px(12.))
+                .mx(px(4.))
+                .mt(px(4.))
+                .mb(px(4.))
+                .pb(px(8.))
+                .border_b_2()
+                .border_color(colors::GRAY_FADED.opacity(30))
                 .child(
                     div()
                         .flex()
                         .items_center()
-                        .gap(px(8.))
+                        .gap(px(6.))
                         .child(crate::instance_icons::game_icon(
                             "selected-instance-icon",
                             &instance.game_type,
                             instance.icon_url.as_deref(),
-                            px(20.),
+                            px(16.),
                             cx,
                         ))
                         .child(
                             div()
+                                .flex_1()
                                 .min_w_0()
-                                .text_size(text::H3)
+                                .text_size(text::MEDIUM)
                                 .font_weight(weights::BOLD.face())
                                 .text_color(ink::text())
                                 .truncate()
                                 .child(instance.name.clone()),
-                        ),
+                        )
+                        .child(power),
                 )
                 .child(
                     div()
                         .flex()
                         .items_center()
                         .gap(px(6.))
-                        .text_size(text::SMALL)
-                        .text_color(ink::muted())
-                        .child(dot(state_color(instance.state)))
-                        .child(state_name(instance.state))
-                        .child("·")
-                        .child(div().truncate().child(instance.game_type.title())),
-                )
-                .when_some(players, |this, players| {
-                    this.child(
-                        div()
-                            .text_size(text::SMALL)
-                            .text_color(state_color(instance.state))
-                            .child(players),
-                    )
-                })
-                .child(address_chip(&address, cx))
-                .when(!powers.is_empty() || share.is_some(), |this| {
-                    this.child(
-                        div()
-                            .flex()
-                            .flex_wrap()
-                            .gap(px(6.))
-                            .children(powers)
-                            .children(share),
-                    )
-                }),
+                        .child(share)
+                        .child(players),
+                ),
         )
         .children(tabs)
 }
@@ -652,7 +743,8 @@ pub fn instance_address(settings: Option<&GlobalSettingsData>, port: u32) -> Str
     format!("{domain}:{port}")
 }
 
-/// The "Copy IP" chip (`ClipboardTextfield`): a click copies the address.
+/// The "Copy IP" chip (`ClipboardTextfield`), in place of Share for servers that
+/// can't be shared: a click copies the address.
 fn address_chip(address: &str, cx: &mut Context<HostShell>) -> impl IntoElement + use<> {
     let text = address.to_string();
     div()
@@ -660,8 +752,9 @@ fn address_chip(address: &str, cx: &mut Context<HostShell>) -> impl IntoElement 
         .flex()
         .items_center()
         .gap(px(6.))
-        .self_start()
-        .max_w_full()
+        .flex_1()
+        .min_w_0()
+        .justify_center()
         .px(px(6.))
         .py(px(2.))
         .rounded(radius::MD)

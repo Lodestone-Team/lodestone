@@ -45,7 +45,10 @@ use tokio_util::either::Either;
 use tracing::{debug, error, info, warn};
 use ts_rs::TS;
 
-use crate::persist::write_atomic;
+use crate::{
+    persist::write_atomic,
+    remote_access::{GatedStream, RemoteAccess},
+};
 
 /// Where the TLS certificate in use comes from.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, TS)]
@@ -589,7 +592,10 @@ pub fn decide(
 }
 
 /// The TLS stream type produced by axum-server's rustls acceptor.
-type TlsStream<S> = <RustlsAcceptor as Accept<TcpStream, S>>::Stream;
+type TlsStream<S> = <RustlsAcceptor as Accept<Gated, S>>::Stream;
+/// A connection, cut off if it comes from another device and remote access is turned off
+/// (see [`crate::remote_access`]).
+type Gated = GatedStream<TcpStream>;
 
 /// Serves TLS and plain HTTP on one port. It peeks the first byte of each connection without
 /// consuming it: a TLS handshake goes through axum-server's [`RustlsAcceptor`], anything else
@@ -599,15 +605,23 @@ type TlsStream<S> = <RustlsAcceptor as Accept<TcpStream, S>>::Stream;
 pub struct DualProtocolAcceptor {
     tls: Option<RustlsAcceptor>,
     allow_lan_http: Arc<AtomicBool>,
+    remote_access: Arc<RemoteAccess>,
 }
 
 impl DualProtocolAcceptor {
     /// `allow_lan_http` is read on every connection, so changing the setting takes effect
-    /// for new connections at once.
-    pub fn new(tls: Option<RustlsConfig>, allow_lan_http: Arc<AtomicBool>) -> Self {
+    /// for new connections at once. `remote_access` cuts off connections from other
+    /// devices when it is turned off; refusing their requests is the API's job
+    /// ([`crate::remote_access::guard`]), which can say why.
+    pub fn new(
+        tls: Option<RustlsConfig>,
+        allow_lan_http: Arc<AtomicBool>,
+        remote_access: Arc<RemoteAccess>,
+    ) -> Self {
         Self {
             tls: tls.map(RustlsAcceptor::new),
             allow_lan_http,
+            remote_access,
         }
     }
 
@@ -617,7 +631,7 @@ impl DualProtocolAcceptor {
         stream: TcpStream,
         peer: IpAddr,
         service: S,
-    ) -> io::Result<(Either<TlsStream<S>, TcpStream>, S)> {
+    ) -> io::Result<(Either<TlsStream<S>, Gated>, S)> {
         let mut first_byte = [0_u8; 1];
         let read = tokio::time::timeout(FIRST_BYTE_TIMEOUT, stream.peek(&mut first_byte))
             .await
@@ -633,10 +647,14 @@ impl DualProtocolAcceptor {
         );
         match (decision, &self.tls) {
             (ConnectionDecision::Tls, Some(tls)) => {
+                let stream = GatedStream::new(stream, peer, &self.remote_access);
                 let (stream, service) = tls.accept(stream, service).await?;
                 Ok((Either::Left(stream), service))
             }
-            (ConnectionDecision::PlainHttp, _) => Ok((Either::Right(stream), service)),
+            (ConnectionDecision::PlainHttp, _) => Ok((
+                Either::Right(GatedStream::new(stream, peer, &self.remote_access)),
+                service,
+            )),
             (ConnectionDecision::RefusePlainHttp, _) => {
                 debug!("Refused plain HTTP from {peer}");
                 refuse_plain_http(stream).await;
@@ -654,7 +672,7 @@ impl DualProtocolAcceptor {
 }
 
 impl<S: Send + 'static> Accept<TcpStream, S> for DualProtocolAcceptor {
-    type Stream = Either<TlsStream<S>, TcpStream>;
+    type Stream = Either<TlsStream<S>, Gated>;
     type Service = S;
     type Future = Pin<Box<dyn Future<Output = io::Result<(Self::Stream, S)>> + Send>>;
 
@@ -1252,6 +1270,7 @@ mod tests {
         let acceptor = DualProtocolAcceptor::new(
             Some(RustlsConfig::from_config(Arc::new(self_signed.config))),
             Arc::new(AtomicBool::new(false)),
+            RemoteAccess::new(true),
         );
 
         let handle = axum_server::Handle::<std::net::SocketAddr>::new();
@@ -1387,6 +1406,7 @@ mod tests {
         let acceptor = DualProtocolAcceptor::new(
             Some(RustlsConfig::from_config(Arc::new(config))),
             allow_lan_http.clone(),
+            RemoteAccess::new(true),
         );
         let lan_peer = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 50));
 
@@ -1417,5 +1437,62 @@ mod tests {
         allow_lan_http.store(true, Ordering::SeqCst);
         let (accepted, _) = plain_http_from(acceptor, lan_peer).await;
         assert!(accepted.unwrap());
+    }
+
+    /// A connection accepted through `acceptor` as if from `peer`, and the client's end.
+    async fn connection_from(
+        acceptor: &DualProtocolAcceptor,
+        peer: IpAddr,
+    ) -> (Either<TlsStream<()>, Gated>, tokio::net::TcpStream) {
+        let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+            .await
+            .unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let mut client = tokio::net::TcpStream::connect((Ipv4Addr::LOCALHOST, port))
+            .await
+            .unwrap();
+        // plain HTTP: the acceptor peeks at the first byte
+        client.write_all(b"G").await.unwrap();
+        let (server_stream, _) = listener.accept().await.unwrap();
+        let (stream, ()) = acceptor.accept_from(server_stream, peer, ()).await.unwrap();
+        (stream, client)
+    }
+
+    #[tokio::test]
+    async fn turning_remote_access_off_cuts_off_other_devices() {
+        let remote_access = RemoteAccess::new(true);
+        // plain HTTP from the network, so no certificate is needed here
+        let acceptor =
+            DualProtocolAcceptor::new(None, Arc::new(AtomicBool::new(true)), remote_access.clone());
+        let lan_peer = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 50));
+        let (mut remote, _remote_client) = connection_from(&acceptor, lan_peer).await;
+        let mapped_loopback = IpAddr::V6(Ipv4Addr::LOCALHOST.to_ipv6_mapped());
+        let (mut local, _local_client) = connection_from(&acceptor, mapped_loopback).await;
+        let mut byte = [0_u8; 1];
+        assert_eq!(remote.read_exact(&mut byte).await.unwrap(), 1);
+        assert_eq!(local.read_exact(&mut byte).await.unwrap(), 1);
+        remote.write_all(b"ok").await.unwrap();
+
+        remote_access.set(false);
+        let refused = remote.write_all(b"after").await.unwrap_err();
+        assert_eq!(refused.kind(), io::ErrorKind::PermissionDenied);
+        assert_eq!(
+            remote.read(&mut byte).await.unwrap_err().kind(),
+            io::ErrorKind::PermissionDenied
+        );
+        // this computer's connection goes on
+        local.write_all(b"still here").await.unwrap();
+
+        // a connection from the network made while it is off gets through to the API,
+        // which says why it refuses (see `remote_access::guard`), and stays cut off
+        // after it is turned on and off again
+        let (mut later, _later_client) = connection_from(&acceptor, lan_peer).await;
+        later.write_all(b"403").await.unwrap();
+        remote_access.set(true);
+        remote_access.set(false);
+        assert_eq!(
+            later.write_all(b"x").await.unwrap_err().kind(),
+            io::ErrorKind::PermissionDenied
+        );
     }
 }

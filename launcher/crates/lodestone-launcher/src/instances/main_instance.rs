@@ -73,13 +73,15 @@ impl Instances {
     }
 
     /// Settings > Developer > "Reset first-time setup": the next new instance is
-    /// offered as the main one again, and "Keep the narrator off" at the next start.
-    /// The main instance is cleared, as the offer only comes without one.
+    /// offered as the main one again, "Keep the narrator off" at the next start, and
+    /// Lodestone Host on the Lodestone Host page. The main instance is cleared, as the
+    /// offer only comes without one.
     pub fn reset_first_time_setup(&mut self, cx: &mut Context<Self>) {
         if let Err(err) = self.update_settings(
             |settings| {
                 settings.main_instance_offered = false;
                 settings.narrator_offered = false;
+                settings.host_offer_dismissed = false;
             },
             cx,
         ) {

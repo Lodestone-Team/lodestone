@@ -12,7 +12,6 @@ use crate::{
     auth::{permission::UserPermission, user::User},
     events::CausedBy,
     global_settings::{CodeExecutionSwitch, GlobalSettingsData},
-    macro_executor::MacroExecutor,
     test_util::{serve_api, test_app_state},
     types::DotLodestoneConfig,
 };
@@ -87,11 +86,7 @@ async fn core() -> Core {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, content).unwrap();
     }
-    let executor = MacroExecutor::new(
-        state.event_broadcaster.clone(),
-        tokio::runtime::Handle::current(),
-        CodeExecutionSwitch::new(false),
-    );
+    let executor = CodeExecutionSwitch::new(false);
     let restored = crate::restore_instances(&instances, state.event_broadcaster.clone(), executor)
         .await
         .unwrap();
@@ -236,9 +231,14 @@ fn world_folder_names_must_be_plain() {
         "..\\world",
         "world\0",
         " world",
+        // Windows short names of a restore's folders
+        "LODEST~1",
+        "lodest~2",
+        "worlds/LO1F2A~1",
     ] {
         assert!(world_folder(bad).is_err(), "{bad:?}");
     }
+    assert!(world_folder("world~1").is_ok());
 }
 
 #[tokio::test]
@@ -705,7 +705,7 @@ async fn an_uploaded_launcher_pack_creates_a_server_instance() {
     let (status, _) = core.upload(&key, "p.mrpack", launcher_pack(fabric)).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
 
-    // a pack without Fabric can't be hosted, and says why
+    // a pack without a mod loader can't be hosted, and says why
     let (status, info) = core
         .upload(
             &core.owner_jwt,
@@ -717,6 +717,6 @@ async fn an_uploaded_launcher_pack_creates_a_server_instance() {
     assert!(info["unsupported_reason"]
         .as_str()
         .unwrap()
-        .contains("Only Fabric"));
+        .contains("Only modded packs"));
     assert_eq!(info["upload_id"], Value::Null);
 }

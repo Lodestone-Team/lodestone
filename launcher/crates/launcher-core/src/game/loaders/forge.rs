@@ -115,30 +115,10 @@ pub fn forge_display(id: &str, game_version: &str) -> String {
         .to_string()
 }
 
-/// The Minecraft version a NeoForge version is for: `21.1.209` is 1.21.1, `21.0.167`
-/// is 1.21, `20.2.3-beta` is 1.20.2, and since Minecraft's 2026 numbering
-/// `26.3.0.101` is 26.3 and `26.1.1.4` is 26.1.1. Snapshot builds have none.
-pub fn neoforge_game_version(version: &str) -> Option<String> {
-    let numbers: Vec<u32> = version
-        .split(['-', '+'])
-        .next()?
-        .split('.')
-        .map(|part| part.parse().ok())
-        .collect::<Option<_>>()?;
-    match numbers.as_slice() {
-        [major, minor, patch, _build] if *major >= 26 => Some(if *patch == 0 {
-            format!("{major}.{minor}")
-        } else {
-            format!("{major}.{minor}.{patch}")
-        }),
-        [major, minor, _build] if (20..26).contains(major) => Some(if *minor == 0 {
-            format!("1.{major}")
-        } else {
-            format!("1.{major}.{minor}")
-        }),
-        _ => None,
-    }
-}
+/// The Minecraft version a NeoForge version is for: `21.1.209` is 1.21.1, `26.3.0.101`
+/// is 26.3. Builds for snapshots, pre-releases and release candidates have none. Shared
+/// with the core, so the launcher and servers read NeoForge's versions the same way.
+pub use lodestone_minecraft::versions::neoforge::neoforge_game_version;
 
 #[derive(Deserialize)]
 struct NeoForgeVersions {
@@ -483,6 +463,15 @@ fn legacy_libraries(
         if library.get("clientreq").and_then(Value::as_bool) == Some(false) {
             continue;
         }
+        // Forge 1.6's profiles copy vanilla's LWJGL and JInput entries: natives,
+        // whose jars have a classifier per OS (the bare jar doesn't exist), and
+        // jars only some systems take. Vanilla's own profile already lists them,
+        // with their classifiers and rules; a plain copy here would ask for jars
+        // that aren't there, put every system's LWJGL on the classpath, and
+        // replace vanilla's entries in the merge.
+        if library.get("natives").is_some() || library.get("rules").is_some() {
+            continue;
+        }
         let name = library
             .get("name")
             .and_then(Value::as_str)
@@ -674,6 +663,8 @@ pub(crate) mod tests {
             ("26.1.1.4-beta", Some("26.1.1")),
             ("0.25w14craftmine.3-beta", None),
             ("nonsense", None),
+            ("26.1.0.0-alpha.1+snapshot-1", None),
+            ("26.1.0.0-alpha.15+pre-3", None),
         ] {
             assert_eq!(neoforge_game_version(neo).as_deref(), game, "{neo}");
         }
@@ -689,6 +680,14 @@ pub(crate) mod tests {
         let betas =
             parse_neoforge_versions(&loader_fixture("neoforge/versions.json"), "1.20.2").unwrap();
         assert!(betas.iter().all(|v| !v.stable && !v.recommended));
+        // builds for 26.1's snapshots aren't builds for the 26.1 release (LS-43)
+        let snapshots = br#"{"versions": ["26.1.0.0-alpha.1+snapshot-1", "26.1.0.0-alpha.15+pre-3", "26.1.0.1-beta"]}"#;
+        let ids: Vec<String> = parse_neoforge_versions(snapshots, "26.1")
+            .unwrap()
+            .into_iter()
+            .map(|v| v.id)
+            .collect();
+        assert_eq!(ids, ["26.1.0.1-beta"]);
     }
 
     #[test]
@@ -864,6 +863,61 @@ pub(crate) mod tests {
             normalize_legacy(&raw["versionInfo"], &install, "x", &hashes, b"u").unwrap();
         assert!(normalized.get("jar").is_none());
         assert_eq!(normalized["id"], "x");
+    }
+
+    #[test]
+    fn legacy_profiles_leave_natives_and_os_specific_jars_to_vanilla() {
+        // As Forge 1.6.4's installer lists them.
+        let os_x_10_5 =
+            json!([{"action": "allow", "os": {"name": "osx", "version": "^10\\.5\\.\\d$"}}]);
+        let not_os_x_10_5 = json!([
+            {"action": "allow"},
+            {"action": "disallow", "os": {"name": "osx", "version": "^10\\.5\\.\\d$"}},
+        ]);
+        let natives =
+            json!({"linux": "natives-linux", "windows": "natives-windows", "osx": "natives-osx"});
+        let version = json!({
+            "mainClass": "net.minecraft.launchwrapper.Launch",
+            "libraries": [
+                {"name": "net.minecraftforge:minecraftforge:9.11.1.1345", "url": "https://maven.minecraftforge.net/"},
+                {"name": "net.minecraft:launchwrapper:1.8"},
+                {"name": "net.java.jinput:jinput:2.0.5"},
+                {"name": "org.lwjgl.lwjgl:lwjgl:2.9.0", "rules": not_os_x_10_5},
+                {"name": "org.lwjgl.lwjgl:lwjgl-platform:2.9.0", "natives": natives, "extract": {"exclude": ["META-INF/"]}, "rules": not_os_x_10_5},
+                {"name": "org.lwjgl.lwjgl:lwjgl:2.9.1-nightly-20130708-debug3", "rules": os_x_10_5},
+                {"name": "org.lwjgl.lwjgl:lwjgl-platform:2.9.1-nightly-20130708-debug3", "natives": natives, "rules": os_x_10_5},
+                {"name": "net.java.jinput:jinput-platform:2.0.5", "natives": natives, "extract": {"exclude": ["META-INF/"]}},
+            ],
+        });
+        let install = LegacyInstall {
+            path: "net.minecraftforge:minecraftforge:9.11.1.1345".into(),
+            file_path: "minecraftforge-universal-1.6.4-9.11.1.1345.jar".into(),
+            minecraft: Some("1.6.4".into()),
+        };
+        let urls = legacy_downloads(&version, &install).unwrap();
+        assert_eq!(
+            urls,
+            [
+                "https://libraries.minecraft.net/net/minecraft/launchwrapper/1.8/launchwrapper-1.8.jar",
+                "https://libraries.minecraft.net/net/java/jinput/jinput/2.0.5/jinput-2.0.5.jar",
+            ]
+        );
+        let hashes = urls.into_iter().map(|url| (url, "0".repeat(40))).collect();
+        let normalized = normalize_legacy(&version, &install, "x", &hashes, b"u").unwrap();
+        let names: Vec<&str> = normalized["libraries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|library| library["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "net.minecraftforge:minecraftforge:9.11.1.1345",
+                "net.minecraft:launchwrapper:1.8",
+                "net.java.jinput:jinput:2.0.5",
+            ]
+        );
     }
 
     #[test]

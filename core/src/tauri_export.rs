@@ -1,7 +1,11 @@
 use color_eyre::eyre::eyre;
 
 use crate::{
-    auth::{jwt_token::JwtToken, permission::UserPermission, user::User},
+    auth::{
+        jwt_token::JwtToken,
+        permission::UserPermission,
+        user::{valid_username, User},
+    },
     error::{Error, ErrorKind},
     events::CausedBy,
     AppState,
@@ -33,6 +37,10 @@ pub async fn setup_owner_account(
     username: String,
     password: String,
 ) -> Result<(), Error> {
+    let username = valid_username(&username).map_err(|message| Error {
+        kind: ErrorKind::BadRequest,
+        source: eyre!(message.to_string()),
+    })?;
     let user = User::new(username, password, true, false, UserPermission::default());
     // Same lock order as the `/setup/{key}` handler (setup key, then users), and the owner
     // check and the insert happen under one users write lock, so two owners cannot be
@@ -47,6 +55,10 @@ pub async fn setup_owner_account(
     }
     users_manager.add_user(user, CausedBy::System).await?;
     setup_key_lock.take();
+    drop(users_manager);
+    drop(setup_key_lock);
+    // an owner with a password: other devices may use the core, as always
+    crate::remote_access::owner_created(app_state, true).await;
     Ok(())
 }
 

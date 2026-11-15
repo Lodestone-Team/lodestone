@@ -11,7 +11,7 @@ export const instanceShareKey = (uuid: InstanceUuid) => [
 ];
 
 /**
- * Whether an instance is shared with friends through Lodestone Connect, its
+ * Whether an instance is shared with a link through Lodestone Connect, its
  * link and who is connected. Checked every few seconds while it is shared.
  * Fails (and stays failed) for users who can't manage the instance and on
  * cores without sharing.

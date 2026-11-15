@@ -1,0 +1,144 @@
+/* The header's Products menu, the same on every page (nav.js closes it). It
+   is a <details>, so it opens and closes without JavaScript too. Its colours
+   are its own, so it reads the same on the home page's darker background and
+   on the product pages'. */
+
+.products-menu {
+  position: relative;
+}
+
+.products-menu > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #bcbdc4;
+  font-size: 15px;
+  font-weight: 500;
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.15s;
+}
+
+.products-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.products-menu > summary:hover,
+.products-menu[open] > summary {
+  color: #eceeef;
+}
+
+.products-menu > summary:focus-visible {
+  outline: 2px solid #6aaeee;
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+
+.products-menu > summary svg {
+  transition: transform 0.2s;
+}
+
+.products-menu[open] > summary svg {
+  transform: rotate(180deg);
+}
+
+.products-list {
+  position: absolute;
+  z-index: 10;
+  top: calc(100% + 12px);
+  right: -12px;
+  display: grid;
+  gap: 2px;
+  width: min(300px, calc(100vw - 32px));
+  margin: 0;
+  padding: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  background: #1a1d22;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+  list-style: none;
+}
+
+.products-list a {
+  display: grid;
+  grid-template-columns: 32px 1fr;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  color: #eceeef;
+  text-decoration: none;
+}
+
+.products-list a:hover,
+.products-list a:focus-visible {
+  background: rgba(255, 255, 255, 0.06);
+  outline: none;
+}
+
+.products-list a[aria-current='page'] {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.products-list img,
+.products-icon {
+  width: 32px;
+  height: 32px;
+}
+
+/* Host's mark and the Connect tile fill their box and the hexagon doesn't. */
+.products-list .is-square {
+  width: 28px;
+  height: 28px;
+  margin: 2px;
+}
+
+.products-icon {
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  border-radius: 7px;
+  background: linear-gradient(160deg, #123430, #0e1a18);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+  color: #4fe0a5;
+}
+
+.products-list b {
+  display: block;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.products-list small {
+  display: block;
+  color: #a2a8ae;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+/* On a phone the menu spans the header, under it, since "Products" isn't at
+   the edge of the screen. */
+@media (max-width: 560px) {
+  .top {
+    position: relative;
+  }
+
+  .products-menu {
+    position: static;
+  }
+
+  .products-list {
+    top: calc(100% - 6px);
+    left: 16px;
+    right: 16px;
+    width: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .products-menu > summary svg {
+    transition: none;
+  }
+}

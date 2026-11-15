@@ -1,5 +1,6 @@
 //! "Add offline account": a username for single-player and offline-mode servers.
-//! Only offered in debug builds or with `LODESTONE_LAUNCHER_OFFLINE=1`.
+//! Offered once Settings > Developer > Accounts > "Offline accounts" is on, and always
+//! in debug builds or with `LODESTONE_LAUNCHER_OFFLINE=1`.
 
 use gpui::{
     App, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement, Render, SharedString,

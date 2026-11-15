@@ -18,6 +18,11 @@ on:
         required: false
         type: string
         default: ""
+      prerelease:
+        description: "\"true\" or \"false\": whether the version's draft is a pre-release (release-draft.yml's output). Empty: a version with a -suffix is one"
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -39,8 +44,9 @@ jobs:
             os: "windows"
             arch: "x86_64"
             postfix: ".exe"
-          # Pinned (not ubuntu-latest): the binary is shipped in the ubuntu:24.04 image
-          # (core/githubactions.Dockerfile), so the build host's glibc must not be newer.
+          # Pinned (not ubuntu-latest): the binary is shipped in the Debian 13 image
+          # (core/githubactions.Dockerfile, glibc 2.41), so the build host's glibc must
+          # not be newer.
           - platform: "ubuntu-24.04"
             target: "x86_64-unknown-linux-gnu"
             os: "linux"
@@ -61,20 +67,12 @@ jobs:
           persist-credentials: false
           ref: ${{ inputs.ref }}
 
-      # Installs the toolchain pinned in rust-toolchain.toml. Core is never cross-compiled
-      # (its build script snapshots deno for the host), so the target is the host target.
+      # Installs the toolchain pinned in rust-toolchain.toml, with the matrix's target.
       - name: Install Rust toolchain
         shell: bash
         run: |
           rustup toolchain install --profile minimal --no-self-update
           rustup target add ${{ matrix.target }}
-
-      # libclang is needed by bindgen (libsqlite3-sys, libnghttp2) in the deno dependency tree
-      - name: Install dependencies (linux only)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev
 
       - name: Cache Dependencies
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
@@ -103,6 +101,17 @@ jobs:
           echo "VERSION=$VERSION" | Out-File -Append -FilePath $env:GITHUB_ENV -Encoding utf8
           $FILENAME = "lodestone_core_${{matrix.os}}_${{matrix.arch}}_$VERSION${{matrix.postfix}}"
           echo "FILENAME=$FILENAME" | Out-File -Append -FilePath $env:GITHUB_ENV -Encoding utf8
+
+      # Packed relative relocations (DT_RELR): about 1.5 MB (7%) off the binary, and less
+      # for the loader to do at start. The binary then needs glibc 2.36, older than the 2.39
+      # it already needs from this builder, and the Debian 13 image has 2.41. Only here and
+      # in core/Dockerfile, not in .cargo/config.toml, which every build (tests, developers'
+      # machines with an older glibc) reads. x86_64 only: aarch64's builder is a self-hosted
+      # runner whose linker may be too old. RUSTFLAGS replaces the config's rustflags, and
+      # .cargo/config.toml sets none.
+      - name: Pack relative relocations (Linux x86_64)
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: echo "RUSTFLAGS=-C link-arg=-Wl,-z,pack-relative-relocs" >> "$GITHUB_ENV"
 
       - name: Build Lodestone Core
         run: cargo build --locked --profile=github-release --target ${{ matrix.target }}
@@ -137,4 +146,6 @@ jobs:
           # Cargo.toml's version.
           tag_name: ${{ inputs.version }}
           draft: true
-          prerelease: true
+          # The draft's own flag: a stable vX.Y.Z draft stays stable, so it can be
+          # published as Latest (and Docker tags it latest-stable).
+          prerelease: ${{ inputs.prerelease == 'true' || (inputs.prerelease == '' && contains(inputs.version, '-')) }}

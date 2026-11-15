@@ -1,4 +1,6 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant, SystemTime};
 
 use axum::{
@@ -25,15 +27,15 @@ use crate::{
     auth::user::{User, UserAction},
     error::{Error, ErrorKind},
     events::{new_fs_event, Event, FSOperation, FSTarget, ProgressionEventID},
-    prelude::{lodestone_path, path_to_instances, path_to_stores, path_to_tmp},
+    prelude::{lodestone_path, path_to_stores, path_to_tmp},
     types::InstanceUuid,
-    util::{list_dir, rand_alphanumeric, resolve_path_conflict, zip_files},
+    util::{
+        disk::require_free_space, list_dir, rand_alphanumeric, resolve_path_conflict, zip_files,
+    },
     AppState,
 };
 
-use super::util::{
-    contains_script, decode_base64, is_in_macros_dir, is_script_path, require_code_write,
-};
+use super::util::{contains_script, decode_base64, is_script_path, require_code_write};
 use tempfile::TempDir;
 
 /// How long a download link from `/fs/.../download` or `/instance/.../url` keeps working.
@@ -62,12 +64,22 @@ impl DownloadScope {
     }
 }
 
+/// The most zipped folders one user's download links may hold at once. Each is a zip of a
+/// whole folder (maybe a whole server, many GB) kept in the temporary folder for
+/// [`DOWNLOAD_LINK_TTL`], so without a cap anyone who may read a server's files could fill
+/// the disk by asking for links again and again. Asking again for a folder that hasn't
+/// changed reuses its zip, which doesn't count again.
+pub(super) const MAX_ZIPPED_FOLDERS_PER_USER: usize = 5;
+
 /// A file behind a download link.
 pub struct DownloadableFile {
     path: PathBuf,
-    /// For a zipped folder, the temporary folder that holds the zip.
-    /// Dropping it deletes the zip.
+    /// For a file made for the link (a backup's or a world's zip, say), the temporary
+    /// folder that holds it. Dropping it deletes the file.
     temp_dir: Option<TempDir>,
+    /// For a zipped folder, the zip, which other links for the same folder may share.
+    /// It is deleted once the last of them is dropped.
+    zip: Option<Arc<ZippedFolder>>,
     /// The user who made the link, as their request authenticated (session or API key).
     owner: User,
     scope: DownloadScope,
@@ -77,13 +89,13 @@ pub struct DownloadableFile {
 /// Drops a download entry. Deleting a zipped folder can take a while, so it runs on a
 /// blocking thread.
 fn discard_download(file: DownloadableFile) {
-    if file.temp_dir.is_some() {
+    if file.temp_dir.is_some() || file.zip.is_some() {
         tokio::task::spawn_blocking(move || drop(file));
     }
 }
 
 /// Stores a download link for `path` and returns its key. The link expires after
-/// `DOWNLOAD_LINK_TTL`, and its temporary zip (if any) is deleted then.
+/// `DOWNLOAD_LINK_TTL`, and its temporary file (if any) is deleted then.
 pub(super) async fn register_download(
     state: &AppState,
     path: PathBuf,
@@ -91,14 +103,48 @@ pub(super) async fn register_download(
     owner: User,
     scope: DownloadScope,
 ) -> String {
+    insert_download(
+        state,
+        DownloadableFile {
+            path,
+            temp_dir,
+            zip: None,
+            owner,
+            scope,
+            expires_at: Instant::now() + DOWNLOAD_LINK_TTL,
+        },
+    )
+    .await
+}
+
+/// Stores a download link for a folder zipped by [`zip_folder_for_download`], like
+/// [`register_download`].
+pub(super) async fn register_zipped_folder_download(
+    state: &AppState,
+    zipped: ZippedDownload,
+    owner: User,
+    scope: DownloadScope,
+) -> String {
+    let ZippedDownload { zip, slot } = zipped;
+    let key = insert_download(
+        state,
+        DownloadableFile {
+            path: zip.zip_path.clone(),
+            temp_dir: None,
+            zip: Some(zip),
+            owner,
+            scope,
+            expires_at: Instant::now() + DOWNLOAD_LINK_TTL,
+        },
+    )
+    .await;
+    // the link holds the zip now, and counts for its owner from here on
+    drop(slot);
+    key
+}
+
+async fn insert_download(state: &AppState, file: DownloadableFile) -> String {
     let key = rand_alphanumeric(32);
-    let file = DownloadableFile {
-        path,
-        temp_dir,
-        owner,
-        scope,
-        expires_at: Instant::now() + DOWNLOAD_LINK_TTL,
-    };
     state.download_urls.lock().await.insert(key.clone(), file);
 
     let download_urls = state.download_urls.clone();
@@ -113,15 +159,263 @@ pub(super) async fn register_download(
     key
 }
 
-/// Zips the folder at `path` into a new temporary folder, off the async runtime.
-/// Returns the zip's path and the temporary folder that owns it.
-pub(super) async fn zip_folder_for_download(path: PathBuf) -> Result<(PathBuf, TempDir), Error> {
-    tokio::task::spawn_blocking(move || {
+/// A folder zipped for download links, in a temporary folder of its own that is deleted
+/// with it.
+pub(super) struct ZippedFolder {
+    zip_path: PathBuf,
+    source: PathBuf,
+    fingerprint: FolderFingerprint,
+    _temp_dir: TempDir,
+}
+
+/// What a folder held when it was zipped: every entry's path in it, its kind, and each
+/// file's size and modification time, hashed together, with the files' total size.
+/// Adding, removing or renaming an entry changes the paths, and rewriting a file changes
+/// its modification time, so a folder with the same fingerprint still has what its zip has,
+/// as long as the times can be trusted: see `settled`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct FolderFingerprint {
+    hash: u64,
+    bytes: u64,
+    /// Whether every file was last changed more than [`RACY_WINDOW`] before the scan. A
+    /// file changed within that window (or dated in the future, by a clock that was ahead,
+    /// or kept from an archive or a copy) could be rewritten again at the same size without
+    /// its time changing, where the file system keeps times to the second or two, so a
+    /// fingerprint that isn't settled never reuses a zip. Backups trust times the same way.
+    settled: bool,
+}
+
+/// How recently a file may have changed before its modification time stops telling
+/// rewrites apart: FAT keeps times to 2 seconds, HFS+ and some network shares to 1.
+const RACY_WINDOW: Duration = Duration::from_secs(2);
+
+impl FolderFingerprint {
+    /// Walks `path` as zipping does, without following symbolic links.
+    fn of(path: &std::path::Path) -> Result<FolderFingerprint, Error> {
+        use std::hash::{Hash, Hasher};
+        // times from here on may still change unseen
+        let racy_after = SystemTime::now()
+            .checked_sub(RACY_WINDOW)
+            .unwrap_or(SystemTime::UNIX_EPOCH);
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        let mut bytes = 0_u64;
+        let mut settled = true;
+        // sorted, so the same folder hashes the same however the disk lists it
+        for entry in walkdir::WalkDir::new(path).sort_by_file_name() {
+            let entry =
+                entry.context(format!("Failed to read the contents of {}", path.display()))?;
+            let metadata = entry
+                .metadata()
+                .context(format!("Failed to read the contents of {}", path.display()))?;
+            entry
+                .path()
+                .strip_prefix(path)
+                .unwrap_or(entry.path())
+                .hash(&mut hasher);
+            metadata.is_dir().hash(&mut hasher);
+            metadata.is_symlink().hash(&mut hasher);
+            // a folder's own time only tells that an entry was added or removed, which its
+            // paths already tell
+            if metadata.is_dir() {
+                continue;
+            }
+            metadata.len().hash(&mut hasher);
+            if metadata.is_file() {
+                bytes = bytes.saturating_add(metadata.len());
+            }
+            match metadata.modified() {
+                Ok(modified) => {
+                    modified.hash(&mut hasher);
+                    settled &= modified < racy_after;
+                }
+                Err(_) => settled = false,
+            }
+        }
+        Ok(FolderFingerprint {
+            hash: hasher.finish(),
+            bytes,
+            settled,
+        })
+    }
+}
+
+/// Places some of each user's requests hold while they make a file for a download link, by
+/// user id.
+type UserSlots = std::sync::Mutex<HashMap<String, usize>>;
+
+/// The number of folders each user is zipping for download right now, by user id, so a
+/// user's requests at the same time can't all pass [`MAX_ZIPPED_FOLDERS_PER_USER`] before
+/// any of them holds its zip. A place is checked for and taken only while `download_urls`
+/// is locked, and given back when its [`UserSlot`] is dropped: once the zip's link is
+/// stored, or once the zip ends when it failed or its request was cancelled.
+static ZIPPING_FOR_DOWNLOAD: LazyLock<UserSlots> = LazyLock::new(Default::default);
+
+/// The number of backups each user is writing for download right now (zips and `.lodeimg`
+/// exports), as [`ZIPPING_FOR_DOWNLOAD`] is for folders, against
+/// [`MAX_BACKUP_FILES_PER_USER`].
+static WRITING_BACKUP_FILES: LazyLock<UserSlots> = LazyLock::new(Default::default);
+
+/// One of a user's places in a [`UserSlots`], given back when dropped.
+pub(super) struct UserSlot {
+    slots: &'static UserSlots,
+    user: String,
+}
+
+impl UserSlot {
+    fn count(slots: &'static UserSlots, user: &str) -> usize {
+        let taken = slots.lock().unwrap_or_else(|e| e.into_inner());
+        taken.get(user).copied().unwrap_or(0)
+    }
+
+    fn take(slots: &'static UserSlots, user: &str) -> UserSlot {
+        let mut taken = slots.lock().unwrap_or_else(|e| e.into_inner());
+        *taken.entry(user.to_string()).or_default() += 1;
+        UserSlot {
+            slots,
+            user: user.to_string(),
+        }
+    }
+}
+
+impl Drop for UserSlot {
+    fn drop(&mut self) {
+        let mut taken = self.slots.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(count) = taken.get_mut(&self.user) {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                taken.remove(&self.user);
+            }
+        }
+    }
+}
+
+/// The most backups (zips and `.lodeimg` exports) one user's download links may hold at
+/// once, counting those being written. Each is the size of a world, kept in the temporary
+/// folder for [`DOWNLOAD_LINK_TTL`] unless its link is let go of
+/// (`DELETE /file/{key}`), so without a cap anyone who may read a server's files could keep
+/// the disk at its margin by asking again and again, as [`MAX_ZIPPED_FOLDERS_PER_USER`]
+/// guards against for folders.
+pub(crate) const MAX_BACKUP_FILES_PER_USER: usize = 3;
+
+/// Takes one of `requester`'s places for writing a backup into `dir` for download, unless
+/// their live links to files in `dir` and the backups they are writing already make
+/// [`MAX_BACKUP_FILES_PER_USER`]. The place goes with the write onto its blocking thread
+/// and is dropped once the file's link is stored, or the write ended without one.
+pub(super) async fn take_backup_file_slot(
+    state: &AppState,
+    requester: &User,
+    dir: &std::path::Path,
+) -> Result<UserSlot, Error> {
+    let user: &str = requester.uid.as_ref();
+    let download_urls = state.download_urls.lock().await;
+    let now = Instant::now();
+    let held = download_urls
+        .values()
+        .filter(|file| file.expires_at > now && file.owner.uid == user)
+        .filter(|file| file.path.starts_with(dir))
+        .count();
+    if held + UserSlot::count(&WRITING_BACKUP_FILES, user) >= MAX_BACKUP_FILES_PER_USER {
+        return Err(Error {
+            kind: ErrorKind::TooManyRequests,
+            source: eyre!(
+                "You already have {MAX_BACKUP_FILES_PER_USER} backup files waiting to be downloaded. Their links expire an hour after they were made; try again then"
+            ),
+        });
+    }
+    Ok(UserSlot::take(&WRITING_BACKUP_FILES, user))
+}
+
+/// A zipped folder ready for [`register_zipped_folder_download`]. A new zip keeps its
+/// user's place among the folders being zipped until its link is stored.
+pub(super) struct ZippedDownload {
+    zip: Arc<ZippedFolder>,
+    slot: Option<UserSlot>,
+}
+
+impl ZippedDownload {
+    pub(super) fn zip_path(&self) -> &std::path::Path {
+        &self.zip.zip_path
+    }
+}
+
+/// Zips the folder at `path` for a download link of `requester`, off the async runtime.
+/// When a live link already holds a zip of the folder as it is now, that zip is reused,
+/// unless a file in it changed too recently (or is dated in the future) for its time to be
+/// trusted.
+/// Otherwise the folder is zipped into a new temporary folder, unless the requester's
+/// links already hold [`MAX_ZIPPED_FOLDERS_PER_USER`] zips or the disk can't fit the
+/// folder's files and still keep its margin free.
+pub(super) async fn zip_folder_for_download(
+    state: &AppState,
+    path: PathBuf,
+    requester: &User,
+) -> Result<ZippedDownload, Error> {
+    let scanned = path.clone();
+    let fingerprint = tokio::task::spawn_blocking(move || FolderFingerprint::of(&scanned))
+        .await
+        .context("Failed to zip file")??;
+    let user: &str = requester.uid.as_ref();
+    let slot = {
+        let download_urls = state.download_urls.lock().await;
+        let now = Instant::now();
+        let live_zips = || {
+            download_urls
+                .values()
+                .filter(|file| file.expires_at > now)
+                .filter_map(|file| Some((file, file.zip.as_ref()?)))
+        };
+        let reusable = live_zips()
+            .find(|(_, zip)| {
+                fingerprint.settled && zip.source == path && zip.fingerprint == fingerprint
+            })
+            .map(|(_, zip)| zip.clone());
+        if let Some(zip) = reusable {
+            return Ok(ZippedDownload { zip, slot: None });
+        }
+        let mut held: Vec<*const ZippedFolder> = live_zips()
+            .filter(|(file, _)| file.owner.uid == user)
+            .map(|(_, zip)| Arc::as_ptr(zip))
+            .collect();
+        held.sort();
+        held.dedup();
+        if held.len() + UserSlot::count(&ZIPPING_FOR_DOWNLOAD, user) >= MAX_ZIPPED_FOLDERS_PER_USER
+        {
+            return Err(Error {
+                kind: ErrorKind::TooManyRequests,
+                source: eyre!(
+                    "You already have {MAX_ZIPPED_FOLDERS_PER_USER} zipped folders waiting to be downloaded. Their links expire an hour after they were made; try again then"
+                ),
+            });
+        }
+        UserSlot::take(&ZIPPING_FOR_DOWNLOAD, user)
+    };
+
+    // The slot goes with the zip onto its blocking thread, which runs to the end even when
+    // the request is cancelled (the client went away): the place stays taken until then,
+    // so cancelled requests can't leave any number of zips being made.
+    let large_writes = state.images.large_writes.clone();
+    let (zip, slot) = tokio::task::spawn_blocking(move || {
+        #[cfg(test)]
+        drop(tests::ZIP_GATE.lock());
         let lodestone_tmp = path_to_tmp();
         std::fs::create_dir_all(lodestone_tmp).context(format!(
             "Failed to create temporary directory {}",
             lodestone_tmp.display()
         ))?;
+        // a world's files hardly compress, so the zip needs about as much room as they use,
+        // on top of what the core's other large writes (uploads, servers made from files,
+        // folders and backups zipped or exported) still need
+        let reserved = large_writes.reserve(fingerprint.bytes);
+        let others = reserved.others();
+        require_free_space(
+            lodestone_tmp,
+            fingerprint.bytes.saturating_add(others),
+            if others > 0 {
+                "to zip the folder for download, with the other large files being written"
+            } else {
+                "to zip the folder for download"
+            },
+        )?;
         let temp_dir =
             tempfile::tempdir_in(lodestone_tmp).context("Failed to create temporary folder")?;
         let name = path
@@ -130,10 +424,21 @@ pub(super) async fn zip_folder_for_download(path: PathBuf) -> Result<(PathBuf, T
             .unwrap_or_else(|| "download".to_string());
         let zip_path = temp_dir.path().join(format!("{name}.zip"));
         zip_files(&[&path], &zip_path, true).context("Failed to zip file")?;
-        Ok((zip_path, temp_dir))
+        drop(reserved);
+        let zip = ZippedFolder {
+            zip_path,
+            source: path,
+            fingerprint,
+            _temp_dir: temp_dir,
+        };
+        Ok::<_, Error>((zip, slot))
     })
     .await
-    .context("Failed to zip file")?
+    .context("Failed to zip file")??;
+    Ok(ZippedDownload {
+        zip: Arc::new(zip),
+        slot: Some(slot),
+    })
 }
 
 #[derive(Debug, Serialize, Deserialize, TS)]
@@ -220,17 +525,20 @@ fn touches_lodestone_secret(
 /// What the file API never reads or changes, in the data folder `root` with its `stores`
 /// folder: `stores` (users.json with every user's password hash and token secret, the API
 /// keys), `local_claim`, whose files grant owner access (see [`crate::local_claim`]),
-/// `tls`, the web server's certificate and private key, and `playit.toml`.
+/// `tls`, the web server's certificate and private key, `backups`
+/// ([`crate::prelude::path_to_backups`]: every server's backed-up files, and the restore
+/// journals that startup recovery trusts), and `playit.toml`.
 ///
 /// Compatibility: cores before Lodestone Connect saved a playit.gg secret key in
 /// `playit.toml`. Playit.gg support is gone, but the file can still be on disk (the core
 /// never deletes it), so it stays protected.
-fn lodestone_secret_paths(root: &std::path::Path, stores: &std::path::Path) -> [PathBuf; 4] {
+fn lodestone_secret_paths(root: &std::path::Path, stores: &std::path::Path) -> [PathBuf; 5] {
     [
         stores.to_path_buf(),
         root.join("playit.toml"),
         root.join(crate::local_claim::CLAIM_DIR),
         root.join("tls"),
+        root.join(crate::prelude::BACKUPS_DIR),
     ]
 }
 
@@ -249,7 +557,7 @@ async fn resolved_secret_paths() -> Vec<PathBuf> {
 /// own data ([`lodestone_secret_paths`]), or is a folder holding some of it (such as the
 /// data folder itself). Symbolic links are resolved first; a path that can't be checked
 /// is refused. This applies to every user, including users with `WriteGlobalFile`.
-async fn reject_protected_change(path: &std::path::Path) -> Result<(), Error> {
+pub(crate) async fn reject_protected_change(path: &std::path::Path) -> Result<(), Error> {
     let protected = || Error {
         kind: ErrorKind::PermissionDenied,
         source: eyre!("Lodestone's own data cannot be changed through the file API"),
@@ -264,7 +572,7 @@ async fn reject_protected_change(path: &std::path::Path) -> Result<(), Error> {
 /// Canonicalizes `path` and rejects it if it is Lodestone's own data: the `stores` folder,
 /// which holds users.json with every user's password hash and token secret and the API
 /// keys, the old playit.gg key file, and the `local_claim` folder. This applies to every user, including users with `ReadGlobalFile`.
-async fn canonicalize_global_read(
+pub(crate) async fn canonicalize_global_read(
     path: &std::path::Path,
     include_parents: bool,
 ) -> Result<PathBuf, Error> {
@@ -304,53 +612,19 @@ async fn resolve_existing_prefix(path: &std::path::Path) -> Option<PathBuf> {
     }
 }
 
-/// `path` relative to `base`, comparing names without case on the platforms whose file
-/// systems usually ignore it.
-fn strip_base(path: &std::path::Path, base: &std::path::Path) -> Option<PathBuf> {
-    if let Ok(relative) = path.strip_prefix(base) {
-        return Some(relative.to_path_buf());
-    }
-    if !cfg!(any(windows, target_os = "macos")) {
-        return None;
-    }
-    let mut components = path.components();
-    for base_component in base.components() {
-        let component = components.next()?;
-        let same = component.as_os_str().to_string_lossy().to_lowercase()
-            == base_component.as_os_str().to_string_lossy().to_lowercase();
-        if !same {
-            return None;
-        }
-    }
-    Some(components.as_path().to_path_buf())
-}
-
-/// Whether `relative_path`, relative to the instances folder, is in an instance's macros
-/// folder (or is one).
-fn is_in_instance_macros_dir(relative_path: &std::path::Path) -> bool {
-    let mut components = relative_path.components();
-    // the instance's own folder
-    components.next();
-    is_in_macros_dir(components.as_path())
-}
-
-/// Whether creating or changing the absolute `path` creates or changes code: a script file,
-/// or anything in an instance's macros folder. Symbolic links are resolved first; a path
-/// that cannot be checked counts as code.
+/// Whether creating or changing the absolute `path` creates or changes code: a script file.
+/// Symbolic links are resolved first; a path that cannot be checked counts as code.
 async fn is_global_code_path(path: &std::path::Path, is_dir: bool) -> bool {
-    if !is_dir && is_script_path(path) {
+    if is_dir {
+        return false;
+    }
+    if is_script_path(path) {
         return true;
     }
-    let Some(resolved) = resolve_existing_prefix(path).await else {
-        return true;
-    };
-    if !is_dir && is_script_path(&resolved) {
-        return true;
+    match resolve_existing_prefix(path).await {
+        Some(resolved) => is_script_path(&resolved),
+        None => true,
     }
-    let instances = tokio::fs::canonicalize(path_to_instances())
-        .await
-        .unwrap_or_else(|_| path_to_instances().clone());
-    strip_base(&resolved, &instances).is_some_and(|relative| is_in_instance_macros_dir(&relative))
 }
 
 fn token_error() -> Error {
@@ -612,9 +886,8 @@ async fn new_file(
         require_code_write(&state, &requester)?;
     }
 
-    tokio::fs::File::create(&path)
-        .await
-        .context(format!("Failed to create file {}", path.display()))?;
+    // never replaces an existing file, see `create_new`
+    crate::util::fs::create_new(&path).await?;
 
     let caused_by = requester.caused_by();
     state.event_broadcaster.send(new_fs_event(
@@ -646,21 +919,28 @@ async fn download_file(
         .await
         .context(format!("Failed to read metadata of {}", path.display()))?
         .is_dir();
-    let (downloadable_file_path, temp_dir) = if is_dir {
-        let (zip_path, temp_dir) = zip_folder_for_download(path).await?;
-        (zip_path, Some(temp_dir))
+    let (downloadable_file_path, key) = if is_dir {
+        let zipped = zip_folder_for_download(&state, path, &requester).await?;
+        let zip_path = zipped.zip_path().to_path_buf();
+        let key = register_zipped_folder_download(
+            &state,
+            zipped,
+            requester.clone(),
+            DownloadScope::GlobalFile,
+        )
+        .await;
+        (zip_path, key)
     } else {
-        (path, None)
+        let key = register_download(
+            &state,
+            path.clone(),
+            None,
+            requester.clone(),
+            DownloadScope::GlobalFile,
+        )
+        .await;
+        (path, key)
     };
-
-    let key = register_download(
-        &state,
-        downloadable_file_path.clone(),
-        temp_dir,
-        requester.clone(),
-        DownloadScope::GlobalFile,
-    )
-    .await;
     let caused_by = requester.caused_by();
     state.event_broadcaster.send(new_fs_event(
         FSOperation::Download,
@@ -893,6 +1173,34 @@ async fn download(
         .context("Failed to build the download response")?)
 }
 
+/// `DELETE /file/{key}`: lets go of a download link its owner no longer needs, deleting a
+/// file made for it (a backup's zip or export, which can be the size of a world) at once
+/// instead of an hour later. A client that downloaded the file, or gave up on it, calls
+/// it. Only the user who made the link may.
+async fn release_download(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    Path(key): Path<String>,
+    requester: super::util::AuthedUser,
+) -> Result<Json<serde_json::Value>, Error> {
+    let released = {
+        let mut download_urls = state.download_urls.lock().await;
+        match download_urls.get(&key) {
+            Some(file) if file.owner.uid == requester.uid => download_urls.remove(&key),
+            _ => None,
+        }
+    };
+    match released {
+        Some(file) => {
+            discard_download(file);
+            Ok(Json(serde_json::json!({})))
+        }
+        None => Err(Error {
+            kind: ErrorKind::NotFound,
+            source: eyre!("File not found with the download key"),
+        }),
+    }
+}
+
 pub fn get_global_fs_routes(state: AppState) -> Router {
     Router::new()
         .route("/fs/{base64_absolute_path}/ls", get(list_files))
@@ -915,7 +1223,7 @@ pub fn get_global_fs_routes(state: AppState) -> Router {
             // uploads are streamed to disk, so they have no size limit
             put(upload_file).layer(DefaultBodyLimit::disable()),
         )
-        .route("/file/{key}", get(download))
+        .route("/file/{key}", get(download).delete(release_download))
         .with_state(state)
 }
 
@@ -933,6 +1241,8 @@ mod tests {
             "/home/u/.lodestone/local_claim/abc/result.json",
             "/home/u/.lodestone/playit.toml",
             "/home/u/.lodestone/tls/key.pem",
+            "/home/u/.lodestone/backups/images/x/restore-journal.json",
+            "/home/u/.lodestone/backups/objects/ab/abcd",
         ] {
             assert!(
                 touches_lodestone_secret(std::path::Path::new(path), &secrets, false),
@@ -1056,43 +1366,6 @@ mod tests {
         assert_eq!(missing.modification_time, None);
     }
 
-    #[test]
-    fn test_instance_macros_dir() {
-        let check = |p: &str| is_in_instance_macros_dir(std::path::Path::new(p));
-        assert!(check("server-1234/macros"));
-        assert!(check("server-1234/macros/prelaunch.ts"));
-        assert!(check("server-1234/MACROS/x/config.json"));
-        assert!(!check("server-1234"));
-        assert!(!check("server-1234/world/macros"));
-        assert!(!check("macros"));
-        assert!(!check(""));
-    }
-
-    #[test]
-    fn test_strip_base() {
-        let base = std::path::Path::new("/home/u/.lodestone/instances");
-        assert_eq!(
-            strip_base(
-                std::path::Path::new("/home/u/.lodestone/instances/a/macros"),
-                base
-            ),
-            Some(PathBuf::from("a/macros"))
-        );
-        assert_eq!(
-            strip_base(std::path::Path::new("/home/u/.lodestone/stores"), base),
-            None
-        );
-        let other_case = strip_base(
-            std::path::Path::new("/home/u/.lodestone/INSTANCES/a/macros"),
-            base,
-        );
-        if cfg!(any(windows, target_os = "macos")) {
-            assert_eq!(other_case, Some(PathBuf::from("a/macros")));
-        } else {
-            assert_eq!(other_case, None);
-        }
-    }
-
     #[tokio::test]
     async fn test_resolve_existing_prefix() {
         let temp = tempfile::tempdir().unwrap();
@@ -1124,5 +1397,269 @@ mod tests {
                 Some(root.join("instances/a/macros/x.txt"))
             );
         }
+    }
+
+    /// Lodestone's folders for these tests, for the whole process: the paths are set once,
+    /// so a folder of one test's own would be deleted under the others when it ends.
+    fn init_paths() {
+        static LODESTONE_DIR: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
+        let dir = LODESTONE_DIR.get_or_init(|| tempfile::tempdir().unwrap());
+        crate::prelude::try_init_paths(dir.path().to_owned()).unwrap();
+    }
+
+    fn hours_ago(hours: u64) -> SystemTime {
+        SystemTime::now() - Duration::from_secs(hours * 60 * 60)
+    }
+
+    /// Sets a file's modification time, as a copy or an archive that keeps times would.
+    fn set_modified(file: &std::path::Path, time: SystemTime) {
+        std::fs::File::options()
+            .write(true)
+            .open(file)
+            .unwrap()
+            .set_modified(time)
+            .unwrap();
+    }
+
+    /// What the file in `zip` whose name ends with `suffix` holds.
+    fn zipped(zip: &std::path::Path, suffix: &str) -> String {
+        use std::io::Read;
+        let mut archive = zip::ZipArchive::new(std::fs::File::open(zip).unwrap()).unwrap();
+        let name = archive
+            .file_names()
+            .map(|name| name.unwrap().into_owned())
+            .find(|name| name.ends_with(suffix))
+            .unwrap();
+        let mut contents = String::new();
+        archive
+            .by_name(&name)
+            .unwrap()
+            .read_to_string(&mut contents)
+            .unwrap();
+        contents
+    }
+
+    /// A file rewritten at the same size gets a new zip even when the folder's latest
+    /// time doesn't change: when another file is dated in the future (a clock that was
+    /// ahead, or times kept from an archive), or when the rewritten file's time goes back
+    /// (LS-86). Before, a folder was matched by its entry count, its bytes and its latest
+    /// time only, so the old zip was handed out again.
+    #[tokio::test]
+    async fn a_rewritten_file_is_zipped_again_whatever_its_time() {
+        init_paths();
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_util::test_app_state(dir.path(), Default::default()).await;
+        // a user for each folder, so their zips stay within a user's cap
+        let saver = User::new("saver".into(), "pw", false, false, Default::default());
+        let copier = User::new("copier".into(), "pw", false, false, Default::default());
+        let zip_of = |folder: PathBuf, user: &User| {
+            let state = state.clone();
+            let user = user.clone();
+            async move {
+                let zipped = zip_folder_for_download(&state, folder, &user)
+                    .await
+                    .unwrap();
+                let reused = zipped.slot.is_none();
+                let key = register_zipped_folder_download(
+                    &state,
+                    zipped,
+                    user.clone(),
+                    DownloadScope::GlobalFile,
+                )
+                .await;
+                let urls = state.download_urls.lock().await;
+                (urls[&key].path.clone(), reused)
+            }
+        };
+
+        // a file dated in the future, and a region file the server saves in place
+        let future = dir.path().join("future");
+        std::fs::create_dir_all(future.join("region")).unwrap();
+        std::fs::write(future.join("level.dat"), "level").unwrap();
+        set_modified(
+            &future.join("level.dat"),
+            SystemTime::now() + Duration::from_secs(24 * 60 * 60),
+        );
+        std::fs::write(future.join("region/r.0.0.mca"), "aaaa").unwrap();
+        set_modified(&future.join("region/r.0.0.mca"), hours_ago(1));
+        let (first, _) = zip_of(future.clone(), &saver).await;
+        std::fs::write(future.join("region/r.0.0.mca"), "bbbb").unwrap();
+        let (saved, reused) = zip_of(future.clone(), &saver).await;
+        assert!(!reused);
+        assert_ne!(first, saved);
+        assert_eq!(zipped(&saved, "r.0.0.mca"), "bbbb");
+        // while a file is dated in the future, its folder is never trusted to be unchanged
+        let (again, reused) = zip_of(future.clone(), &saver).await;
+        assert!(!reused);
+        assert_ne!(again, saved);
+
+        // a file put back with an older time, at the same size, below the latest time
+        let copied = dir.path().join("copied");
+        std::fs::create_dir_all(&copied).unwrap();
+        std::fs::write(copied.join("a.mca"), "aaaa").unwrap();
+        set_modified(&copied.join("a.mca"), hours_ago(2));
+        std::fs::write(copied.join("b.dat"), "b").unwrap();
+        set_modified(&copied.join("b.dat"), hours_ago(1));
+        let (first, _) = zip_of(copied.clone(), &copier).await;
+        let (again, reused) = zip_of(copied.clone(), &copier).await;
+        assert!(reused);
+        assert_eq!(first, again);
+        std::fs::write(copied.join("a.mca"), "bbbb").unwrap();
+        set_modified(&copied.join("a.mca"), hours_ago(3));
+        let (restored, reused) = zip_of(copied.clone(), &copier).await;
+        assert!(!reused);
+        assert_ne!(first, restored);
+        assert_eq!(zipped(&restored, "a.mca"), "bbbb");
+
+        // a file changed just now can't be told apart from one changed again within the
+        // same second, so its folder isn't reused until its time is old enough
+        std::fs::write(copied.join("b.dat"), "c").unwrap();
+        let (fresh, _) = zip_of(copied.clone(), &copier).await;
+        let (again, reused) = zip_of(copied.clone(), &copier).await;
+        assert!(!reused);
+        assert_ne!(fresh, again);
+    }
+
+    /// Holding it keeps folders zipped for download from starting, so a test can cancel a
+    /// request while its zip is being made.
+    pub(super) static ZIP_GATE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// A request cancelled while its folder is being zipped (its client went away) keeps
+    /// its user's place among the folders being zipped until the zip ends, since the zip
+    /// goes on without it (LS-86). Before, the place was given back at once, so a user
+    /// could start any number of zips by cancelling requests.
+    #[tokio::test]
+    // the gate is held across awaits on purpose, to hold the zip back meanwhile
+    #[allow(clippy::await_holding_lock)]
+    async fn a_cancelled_zip_keeps_its_place_until_it_ends() {
+        init_paths();
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_util::test_app_state(dir.path(), Default::default()).await;
+        let user = User::new("canceller".into(), "pw", false, false, Default::default());
+        let uid: &str = user.uid.as_ref();
+        let uid = uid.to_owned();
+        let folder = dir.path().join("server");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join("level.dat"), "level").unwrap();
+
+        let gate = ZIP_GATE.lock().unwrap_or_else(|e| e.into_inner());
+        let request = tokio::spawn({
+            let state = state.clone();
+            let user = user.clone();
+            async move {
+                zip_folder_for_download(&state, folder, &user)
+                    .await
+                    .map(|_| ())
+            }
+        });
+        while UserSlot::count(&ZIPPING_FOR_DOWNLOAD, &uid) == 0 {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+        request.abort();
+        assert!(request.await.unwrap_err().is_cancelled());
+        assert_eq!(
+            UserSlot::count(&ZIPPING_FOR_DOWNLOAD, &uid),
+            1,
+            "the zip still holds its place"
+        );
+
+        drop(gate);
+        let started = Instant::now();
+        while UserSlot::count(&ZIPPING_FOR_DOWNLOAD, &uid) != 0 {
+            assert!(
+                started.elapsed() < Duration::from_secs(30),
+                "the zip never ended"
+            );
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }
+
+    /// Asking again for a link to a folder that hasn't changed reuses its zip, a changed
+    /// folder is zipped again, and one user's links hold at most
+    /// [`MAX_ZIPPED_FOLDERS_PER_USER`] zips, counting those being made (LS-86). Before,
+    /// every request zipped the folder again and kept the zip for an hour.
+    #[tokio::test]
+    async fn zipped_folders_are_reused_and_capped_per_user() {
+        init_paths();
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_util::test_app_state(dir.path(), Default::default()).await;
+        let viewer = User::new("viewer".into(), "pw", false, false, Default::default());
+        let other = User::new("other".into(), "pw", false, false, Default::default());
+        let scope = || DownloadScope::GlobalFile;
+        let folder = |name: &str| {
+            let path = dir.path().join(name);
+            std::fs::create_dir_all(path.join("world")).unwrap();
+            std::fs::write(path.join("world/level.dat"), name).unwrap();
+            set_modified(&path.join("world/level.dat"), hours_ago(1));
+            path
+        };
+        let link = |key: &str| {
+            let state = state.clone();
+            let key = key.to_string();
+            async move {
+                let urls = state.download_urls.lock().await;
+                let file = &urls[&key];
+                (file.path.clone(), Arc::as_ptr(file.zip.as_ref().unwrap()))
+            }
+        };
+
+        let server = folder("server");
+        let first = zip_folder_for_download(&state, server.clone(), &viewer)
+            .await
+            .unwrap();
+        let first = register_zipped_folder_download(&state, first, viewer.clone(), scope()).await;
+        let again = zip_folder_for_download(&state, server.clone(), &viewer)
+            .await
+            .unwrap();
+        assert!(again.slot.is_none(), "a reused zip takes no place");
+        let again = register_zipped_folder_download(&state, again, viewer.clone(), scope()).await;
+        let (first_zip, first_ptr) = link(&first).await;
+        let (again_zip, again_ptr) = link(&again).await;
+        assert_eq!(first_ptr, again_ptr);
+        assert_eq!(first_zip, again_zip);
+        assert!(first_zip.is_file());
+
+        // a changed file gets a new zip
+        std::fs::write(server.join("world/level.dat"), "changed level").unwrap();
+        set_modified(&server.join("world/level.dat"), hours_ago(1));
+        let changed = zip_folder_for_download(&state, server.clone(), &viewer)
+            .await
+            .unwrap();
+        let changed =
+            register_zipped_folder_download(&state, changed, viewer.clone(), scope()).await;
+        assert_ne!(link(&changed).await.1, first_ptr);
+
+        // two zips held; fill up to the cap, with one still being made
+        for i in 2..MAX_ZIPPED_FOLDERS_PER_USER - 1 {
+            let zipped = zip_folder_for_download(&state, folder(&format!("f{i}")), &viewer)
+                .await
+                .unwrap();
+            register_zipped_folder_download(&state, zipped, viewer.clone(), scope()).await;
+        }
+        let being_made = UserSlot::take(&ZIPPING_FOR_DOWNLOAD, viewer.uid.as_ref());
+        let error = zip_folder_for_download(&state, folder("one_more"), &viewer)
+            .await
+            .err()
+            .unwrap();
+        assert!(matches!(error.kind, ErrorKind::TooManyRequests), "{error}");
+        // a folder whose zip is held is still reused, and other users aren't limited
+        zip_folder_for_download(&state, server.clone(), &viewer)
+            .await
+            .unwrap();
+        zip_folder_for_download(&state, folder("theirs"), &other)
+            .await
+            .unwrap();
+        drop(being_made);
+        zip_folder_for_download(&state, folder("one_more"), &viewer)
+            .await
+            .unwrap();
+
+        // the shared zip is deleted with the last link that holds it
+        let removed = state.download_urls.lock().await.remove(&first).unwrap();
+        drop(removed);
+        assert!(first_zip.is_file());
+        let removed = state.download_urls.lock().await.remove(&again).unwrap();
+        drop(removed);
+        assert!(!first_zip.exists());
     }
 }

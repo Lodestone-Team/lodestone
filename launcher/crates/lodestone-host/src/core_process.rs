@@ -3,8 +3,8 @@
 //!
 //! The Host can't link the core: the core's dependencies would break the launcher
 //! workspace's rule that every crate comes from Zed's lockfile. So it runs the core's
-//! own program, `lodestone_core`, built from the repository's root workspace without
-//! the `deno` feature and shipped next to the Host's executable.
+//! own program, `lodestone_core`, built from the repository's root workspace and
+//! shipped next to the Host's executable.
 //!
 //! The core is started with `--is-host` (so `/info` says Lodestone Host started it),
 //! `--lodestone-path` (its data folder), `--port` (the Host picks the port, so it knows
@@ -34,7 +34,10 @@ pub const CORE_PROGRAM: &str = if cfg!(windows) {
 pub const DEFAULT_PORT: u16 = 16662;
 
 /// How long a stopping core may take (its servers stop first) before it is killed.
-pub const STOP_TIMEOUT: Duration = Duration::from_secs(20);
+/// Longer than the core's own 45 s deadline for its servers to stop (saving their
+/// worlds), after which it kills them: killing the core sooner would leave the servers
+/// running without it, and an update could then replace the core under them.
+pub const STOP_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// The core's log files are rotated once they pass this size.
 const MAX_LOG_BYTES: u64 = 5 * 1024 * 1024;
@@ -178,9 +181,36 @@ pub struct CoreConfig {
     pub port: u16,
     /// Where the core's output goes.
     pub log_file: PathBuf,
+    /// The Lodestone Connect service the core shares through, when it isn't
+    /// connect.lodestone.cc: `https://connect-dev.lodestone.cc`. Passed as
+    /// `LODESTONE_CONNECT_SERVICE`; see [`CoreConfig::env`].
+    pub connect_service: Option<String>,
 }
 
 impl CoreConfig {
+    /// The Connect service the core should use: the Host's
+    /// ([`connect_service::active`]: `LODESTONE_CONNECT_SERVICE`, else Settings ›
+    /// Updates › Developer), when it isn't the default.
+    ///
+    /// [`connect_service::active`]: launcher_core::cores::connect_service::active
+    pub fn connect_service_now() -> Option<String> {
+        let active = launcher_core::cores::connect_service::active();
+        active.is_custom().then(|| active.url())
+    }
+
+    /// What changes in the core's environment: `Some` to set a variable, `None` to
+    /// remove it. Our `LODESTONE_PATH` is removed (the folder is on the command line),
+    /// and `LODESTONE_CONNECT_SERVICE` is always the Host's choice, never inherited.
+    pub fn env(&self) -> Vec<(&'static str, Option<String>)> {
+        vec![
+            (env::DATA, None),
+            (
+                launcher_core::cores::connect_service::ENV,
+                self.connect_service.clone(),
+            ),
+        ]
+    }
+
     /// The core's arguments.
     pub fn args(&self) -> Vec<std::ffi::OsString> {
         vec![
@@ -218,15 +248,22 @@ impl CoreProcess {
             .args(config.args())
             .stdin(Stdio::piped())
             .stdout(Stdio::from(log.try_clone()?))
-            .stderr(Stdio::from(log))
-            // the folder is given on the command line; don't let ours confuse it
-            .env_remove(env::DATA);
+            .stderr(Stdio::from(log));
+        for (name, value) in config.env() {
+            match value {
+                Some(value) => command.env(name, value),
+                None => command.env_remove(name),
+            };
+        }
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt as _;
-            // no console window for the core
-            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-            command.creation_flags(CREATE_NO_WINDOW);
+            // No console at all for the core: CREATE_NO_WINDOW would still give it a hidden
+            // console, and a conhost.exe process to host it. The core needs none: its
+            // stdio is redirected above, it stops when stdin closes, and nothing sends it
+            // console control events.
+            const DETACHED_PROCESS: u32 = 0x0000_0008;
+            command.creation_flags(DETACHED_PROCESS);
         }
         let mut child = command.spawn()?;
         let stdin = child.stdin.take();
@@ -350,6 +387,7 @@ mod tests {
             data_dir: "/data".into(),
             port: 17000,
             log_file: "/log".into(),
+            connect_service: None,
         };
         let args: Vec<String> = config
             .args()
@@ -368,6 +406,84 @@ mod tests {
             ]
         );
         assert_eq!(config.local_url().as_str(), "http://127.0.0.1:17000/");
+        // the default service: the variable is removed, so the core uses its default
+        assert_eq!(
+            config.env(),
+            [
+                ("LODESTONE_PATH", None),
+                ("LODESTONE_CONNECT_SERVICE", None)
+            ]
+        );
+    }
+
+    #[test]
+    fn the_connect_service_reaches_the_core_in_its_environment() {
+        let config = CoreConfig {
+            program: "core".into(),
+            data_dir: "/data".into(),
+            port: 17000,
+            log_file: "/log".into(),
+            connect_service: Some("https://connect-dev.lodestone.cc".into()),
+        };
+        assert!(config.env().contains(&(
+            "LODESTONE_CONNECT_SERVICE",
+            Some("https://connect-dev.lodestone.cc".into())
+        )));
+    }
+
+    /// A real child process gets the variable: `sh` prints it.
+    #[cfg(unix)]
+    #[test]
+    fn the_child_process_sees_the_connect_service() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = dir.path().join("core");
+        fs::write(
+            &script,
+            "#!/bin/sh\necho \"service=$LODESTONE_CONNECT_SERVICE data=$LODESTONE_PATH\"\n",
+        )
+        .unwrap();
+        use std::os::unix::fs::PermissionsExt as _;
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        let config = CoreConfig {
+            program: script,
+            data_dir: dir.path().join("data"),
+            port: 17000,
+            log_file: dir.path().join("core.log"),
+            connect_service: Some("https://connect-dev.lodestone.cc".into()),
+        };
+        let mut process = CoreProcess::spawn(&config).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while process.try_wait().is_none() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let log = fs::read_to_string(&config.log_file).unwrap();
+        assert_eq!(log.trim(), "service=https://connect-dev.lodestone.cc data=");
+    }
+
+    /// Started without a console, the core still reads its stdin and writes its log, and
+    /// stops when the Host closes its stdin. `cmd.exe` stands in for it: it ignores the
+    /// core's arguments, runs the commands it reads from stdin, and exits at its end.
+    #[cfg(windows)]
+    #[test]
+    fn a_core_without_a_console_stops_when_its_stdin_closes() {
+        use std::io::Write as _;
+        let dir = tempfile::tempdir().unwrap();
+        let config = CoreConfig {
+            program: "cmd.exe".into(),
+            data_dir: dir.path().join("data"),
+            port: 17000,
+            log_file: dir.path().join("core.log"),
+            connect_service: None,
+        };
+        let mut process = CoreProcess::spawn(&config).unwrap();
+        let stdin = process.stdin.as_mut().unwrap();
+        stdin.write_all(b"echo through the pipe\r\n").unwrap();
+        stdin.flush().unwrap();
+        // a kill would end it with exit code 1
+        let status = process.stop(Duration::from_secs(10)).unwrap();
+        assert!(status.success(), "{status}");
+        let log = fs::read_to_string(&config.log_file).unwrap();
+        assert!(log.lines().any(|l| l == "through the pipe"), "{log}");
     }
 
     #[test]

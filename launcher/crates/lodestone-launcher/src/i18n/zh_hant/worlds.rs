@@ -14,15 +14,14 @@ pub fn text(message: M) -> &'static str {
         M::RestoringBackup => "正在還原備份",
         M::ReplacingWorld => "正在以備份取代世界",
         M::MovingToTrash => "正在將 {name} 移到{trash}",
-        M::MovingBackupToTrash => "正在將備份移到{trash}",
         M::Renaming => "正在重新命名",
         M::Exporting => "正在匯出 {name}",
         M::ImportingWorlds => "正在匯入世界",
 
-        M::BackedUp => "已備份 {name}（{size}）。",
+        M::BackedUp => "已備份 {name}。",
         M::RestoredAsCopy => "已還原為新世界 {folder}。",
         M::Restored => "已還原 {folder}。",
-        M::RestoredWithSafety => "已還原 {folder}。原本的世界已備份為 {backup}，並已移到{trash}。",
+        M::RestoredWithSafety => "已還原 {folder}。原本的世界保存在快照「{snapshot}」中。",
         M::InTrash => "{name} 已移到{trash}。",
         M::RenamedTo => "已重新命名為 {name}。",
         M::RenamedToFolder => "已重新命名為 {name}（資料夾 {folder}）。",
@@ -47,10 +46,36 @@ pub fn text(message: M) -> &'static str {
         M::Export => "匯出…",
         M::DeleteWorld => "刪除…",
         M::NoBackupsYet => {
-            "還沒有備份。「建立備份」會將世界儲存為 zip 檔，放在實例的 backups 資料夾中。"
+            "這個世界還沒有快照。點選「備份」拍攝一個；設定 › 快照中列出了全部快照。"
         }
         M::RestoreAsCopy => "還原為副本",
         M::ReplaceWorld => "取代世界…",
+
+        M::DataPacks => "資料包",
+        M::ReadingDataPacks => "正在讀取資料包",
+        M::NoDataPacksYet => {
+            "這個世界還沒有資料包。加入一個 .zip 檔或資料夾，或在下方從 Modrinth 尋找。"
+        }
+        M::AddDataPack => "加入資料包…",
+        M::AddDataPackPrompt => "加入資料包",
+        M::SearchDataPacks => "在 Modrinth 上搜尋資料包，或貼上 Modrinth 連結",
+        M::NewPack => "新",
+        M::NewPackHint => "遊戲會在下次載入這個世界時啟用它。",
+        M::PacksNotSwitchable => {
+            "請先用 Minecraft 1.13 或更新版本開啟這個世界一次，之後就能在這裡啟用和停用它的資料包。"
+        }
+        M::AddingDataPacks => "正在加入資料包",
+        M::SavingPackList => "正在儲存世界的資料包清單",
+        M::AddedDataPacks => "已將 {packs} 加入 {name}。",
+        M::InstalledDataPack => "已將 {pack} 安裝到 {name}。",
+        M::UpdatedDataPack => "已將 {pack} 安裝到 {name}，取代了 {old}。",
+        M::PackTurnedOn => "{pack} 已啟用，會在下次開啟世界時載入。",
+        M::PackTurnedOff => "{pack} 已停用，下次開啟世界時不再載入。",
+        M::NoDataPackVersion => "{name} 沒有適用於 Minecraft {version} 的資料包。",
+        M::SearchingModrinth => "正在搜尋 Modrinth",
+        M::NoDataPacksFound => "找不到適用於 Minecraft {version} 的資料包。",
+        M::LinkNotDataPack => "這個連結不是資料包。",
+        M::ModrinthUnavailable => "目前無法連線到 Modrinth；仍然可以從檔案加入資料包。",
 
         M::ImportWorld => "匯入世界…",
         M::OpenSavesFolder => "開啟 saves 資料夾",
@@ -71,5 +96,6 @@ pub fn text(message: M) -> &'static str {
 pub fn plural(message: P) -> [&'static str; 2] {
     match message {
         P::ScreenshotsSummary => ["{count} 張截圖 · 在遊戲中按 F2 即可截圖"; 2],
+        P::WithOtherWorlds => ["另含 {count} 個世界"; 2],
     }
 }

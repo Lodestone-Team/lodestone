@@ -29,13 +29,6 @@ pub use types::*;
 /// The Modrinth API.
 pub const API_BASE: &str = "https://api.modrinth.com/v2";
 
-/// Modrinth asks API clients to identify themselves. No personal data.
-pub const USER_AGENT: &str = concat!(
-    "Lodestone/",
-    env!("CARGO_PKG_VERSION"),
-    " (https://github.com/Lodestone-Team/lodestone)"
-);
-
 pub use lodestone_minecraft::modrinth::CDN_HOST;
 
 /// The size and hashes of a downloaded file, as lowercase hex.

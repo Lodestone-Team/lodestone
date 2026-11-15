@@ -37,6 +37,7 @@ mod tests {
             max_player_count: None,
             has_client_pack: None,
             listed: true,
+            public_only: false,
         }
     }
 

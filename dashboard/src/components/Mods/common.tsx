@@ -72,7 +72,10 @@ export const WithTooltip = ({
   children: ReactNode;
 }) => (
   <Tooltip
-    overlay={<span>{message}</span>}
+    // long hints wrap instead of spanning the page
+    overlay={
+      <span className="block max-w-xs whitespace-normal">{message}</span>
+    }
     placement="top"
     showArrow={false}
     trigger={['hover']}
@@ -108,10 +111,18 @@ export const ClientSideLabel = ({ clientSide }: { clientSide: string }) => {
  * Whether players need an installed mod to join (CLIENT_MODS_SPEC 2.1).
  * Optional mods show nothing; unknown ones a quiet note.
  */
-export const ClientRequirementLabel = ({ mod }: { mod: InstalledMod }) => {
+export const ClientRequirementLabel = ({
+  mod,
+  marks = false,
+}: {
+  mod: InstalledMod;
+  /** the row has a "For players" box, which shows "required" itself */
+  marks?: boolean;
+}) => {
   const { t, formatList } = useI18n();
   switch (mod.client_requirement) {
     case 'required': {
+      if (marks) return null;
       const label = (
         <Label size="small" color="blue" className="shrink-0 whitespace-nowrap">
           {t('mods.clientRequirement.required')}
@@ -139,9 +150,13 @@ export const ClientRequirementLabel = ({ mod }: { mod: InstalledMod }) => {
       return (
         <WithTooltip
           message={
-            mod.modrinth
-              ? t('mods.clientRequirement.unknownModrinth')
-              : t('mods.clientRequirement.unknownNotOnModrinth')
+            marks
+              ? mod.modrinth
+                ? t('mods.clientRequirement.unknownModrinthMark')
+                : t('mods.clientRequirement.unknownNotOnModrinthMark')
+              : mod.modrinth
+                ? t('mods.clientRequirement.unknownModrinth')
+                : t('mods.clientRequirement.unknownNotOnModrinth')
           }
         >
           <span className="shrink-0 cursor-default text-small whitespace-nowrap text-white/30">

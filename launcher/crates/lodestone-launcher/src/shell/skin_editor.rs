@@ -810,7 +810,9 @@ fn sample(surface: SurfaceId, look: &crate::skin::Look) -> AnyElement {
                 .and_then(|p| p.text)
                 .or(tokens.text.map(|c| Color::rgb(c.0)))
                 .unwrap_or(colors::GRAY_300),
-            tokens.muted.map_or(colors::GRAY_500, |c| Color::rgb(c.0)),
+            tokens
+                .muted
+                .map_or(crate::theme::ink::MUTED, |c| Color::rgb(c.0)),
         )
     };
     let base = Color::rgb(surface.base().0);
@@ -1657,7 +1659,7 @@ impl SkinEditor {
                                 .child(
                                     div()
                                         .text_size(theme::text_size(text::SMALL))
-                                        .text_color(colors::GRAY_500)
+                                        .text_color(crate::theme::ink::MUTED)
                                         .child(banner.id.clone()),
                                 ),
                         )
@@ -1703,7 +1705,7 @@ impl SkinEditor {
                     .when(look.spec.banners.is_empty(), |this| {
                         this.child(
                             div()
-                                .text_color(colors::GRAY_500)
+                                .text_color(crate::theme::ink::MUTED)
                                 .child(t(M::SkinBannersNone)),
                         )
                     }),
@@ -1911,7 +1913,7 @@ impl Render for SkinEditor {
                 .pb_1()
                 .text_size(theme::text_size(text::SMALL))
                 .font_weight(weights::BOLD.into())
-                .text_color(colors::GRAY_500)
+                .text_color(crate::theme::ink::MUTED)
                 .child(label.to_uppercase())
         };
         let shown = self.previews.clone();
@@ -2007,7 +2009,7 @@ impl Render for SkinEditor {
                             )
                             .child(
                                 div()
-                                    .text_color(colors::GRAY_500)
+                                    .text_color(crate::theme::ink::MUTED)
                                     .child(look.spec.name.clone()),
                             ),
                     )

@@ -40,8 +40,8 @@ pub struct Settings {
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub collapsed_groups: BTreeSet<String>,
     /// "Group instances automatically": the sidebar lists instances without a group
-    /// of their own by loader, or under Imported. On by default; left out of the file
-    /// while on.
+    /// of their own under Servers (linked to a server), by loader, or under Imported.
+    /// On by default; left out of the file while on.
     #[serde(default = "yes", skip_serializing_if = "is_true")]
     pub auto_groups: bool,
     /// Settings > Instance defaults > "Set up new instances automatically": a new
@@ -80,6 +80,17 @@ pub struct Settings {
     /// Developer can ask again). Left out of the file until then.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub narrator_offered: bool,
+    /// The Lodestone Host page's offer to download Lodestone Host, shown while no
+    /// Host or Core runs on this computer, was dismissed (Settings > Developer can
+    /// show it again). Left out of the file until then.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub host_offer_dismissed: bool,
+    /// Friends page > "Share LAN worlds with friends": the worlds this person opens to
+    /// LAN show on their friends' Friends pages, and friends can join them while they're
+    /// open (launcher/docs/friends.md, "LAN worlds"). Off by default; left out of the
+    /// file while off.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub share_lan_worlds: bool,
     /// The interface's zoom, from Ctrl/⌘ + and −: 1.0 is 100%. Left out of the file
     /// at 100%.
     #[serde(default = "one", skip_serializing_if = "is_one")]
@@ -115,6 +126,8 @@ impl Default for Settings {
             discord: DiscordSettings::default(),
             main_instance_offered: false,
             narrator_offered: false,
+            host_offer_dismissed: false,
+            share_lan_worlds: false,
             zoom: 1.0,
             skin: None,
             sidebar_width: None,
@@ -231,12 +244,36 @@ pub struct DeveloperSettings {
     /// [`ClientIdentity::MinecraftLauncher`]: crate::auth::ClientIdentity::MinecraftLauncher
     #[serde(default = "yes", skip_serializing_if = "is_true")]
     pub sign_in_as_minecraft_launcher: bool,
+    /// "Offline accounts": "Add offline account" in the account menu and Settings >
+    /// Accounts. Always on in debug builds and with `LODESTONE_LAUNCHER_OFFLINE=1`
+    /// ([`crate::offline_mode_enabled`]); off by default otherwise, and left out of the
+    /// file while off.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub offline_accounts: bool,
+    /// "Connect service (relay)": the Lodestone Connect introduction service the
+    /// friend list uses, as a URL (`https://connect-dev.lodestone.cc`), for testing.
+    /// `LODESTONE_CONNECT_SERVICE` wins over it ([`crate::cores::connect_service`]).
+    /// Left out of the file for connect.lodestone.cc.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connect_service: Option<String>,
+    /// Developer options this build doesn't know, kept so that a newer build's
+    /// options survive a save by this one (as [`Settings::other`] does for the whole
+    /// file).
+    #[serde(flatten)]
+    pub other: Map<String, Value>,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 impl Default for DeveloperSettings {
     fn default() -> Self {
         Self {
             sign_in_as_minecraft_launcher: true,
+            offline_accounts: false,
+            connect_service: None,
+            other: Map::new(),
         }
     }
 }
@@ -379,6 +416,10 @@ pub struct InstanceDefaults {
     pub fullscreen: bool,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub env: BTreeMap<String, String>,
+    /// Take a snapshot of an instance after each play session, unless the instance says
+    /// otherwise. Off by default: each one copies the worlds into the image store.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub snapshot_after_play: bool,
     #[serde(flatten)]
     pub other: Map<String, Value>,
 }
@@ -448,6 +489,21 @@ mod tests {
                 "future_key": [1, 2],
                 "instance_defaults": {"max_ram": 3072, "later": true, "jvm_args": "", "game_args": "", "fullscreen": false},
             })
+        );
+    }
+
+    #[test]
+    fn snapshot_after_play_is_off_by_default_and_written_only_when_on() {
+        let defaults: InstanceDefaults = serde_json::from_value(json!({})).unwrap();
+        assert!(!defaults.snapshot_after_play);
+        let raw = serde_json::to_value(&defaults).unwrap();
+        assert!(raw.get("snapshot_after_play").is_none());
+        let on: InstanceDefaults =
+            serde_json::from_value(json!({"snapshot_after_play": true})).unwrap();
+        assert!(on.snapshot_after_play);
+        assert_eq!(
+            serde_json::to_value(&on).unwrap()["snapshot_after_play"],
+            json!(true)
         );
     }
 
@@ -543,6 +599,62 @@ mod tests {
         // Left out of the file while on.
         let raw = serde_json::to_value(Settings::default()).unwrap();
         assert!(raw.get("developer").is_none(), "{raw}");
+    }
+
+    #[test]
+    fn offline_accounts_are_off_by_default_and_saved_only_while_on() {
+        assert!(!Settings::default().developer.offline_accounts);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        update(&path, |s| s.developer.offline_accounts = true).unwrap();
+        let raw: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(raw["developer"], json!({ "offline_accounts": true }));
+        assert!(load_or_default(&path).developer.offline_accounts);
+        update(&path, |s| s.developer.offline_accounts = false).unwrap();
+        let raw: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert!(raw.get("developer").is_none(), "{raw}");
+    }
+
+    #[test]
+    fn the_connect_service_is_saved_only_while_set() {
+        assert_eq!(Settings::default().developer.connect_service, None);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let dev = "https://connect-dev.lodestone.cc";
+        update(&path, |s| s.developer.connect_service = Some(dev.into())).unwrap();
+        let raw: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(raw["developer"], json!({ "connect_service": dev }));
+        assert_eq!(
+            load_or_default(&path).developer.connect_service.as_deref(),
+            Some(dev)
+        );
+        update(&path, |s| s.developer.connect_service = None).unwrap();
+        let raw: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert!(raw.get("developer").is_none(), "{raw}");
+    }
+
+    #[test]
+    fn developer_options_from_a_newer_build_are_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        std::fs::write(
+            &path,
+            r#"{"version":1,"developer":{"offline_accounts":true,"from_a_newer_build":{"a":1}}}"#,
+        )
+        .unwrap();
+        update(&path, |s| s.zoom = 1.25).unwrap();
+        let raw: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(
+            raw["developer"],
+            json!({ "offline_accounts": true, "from_a_newer_build": { "a": 1 } })
+        );
+        // and with every known option at its default, the unknown one still is
+        update(&path, |s| s.developer.offline_accounts = false).unwrap();
+        let raw: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(
+            raw["developer"],
+            json!({ "from_a_newer_build": { "a": 1 } })
+        );
     }
 
     #[test]

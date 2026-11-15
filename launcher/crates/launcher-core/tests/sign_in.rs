@@ -522,3 +522,64 @@ fn caches_skin_heads_and_refuses_other_hosts() {
     assert!(matches!(err, skin::SkinError::UntrustedUrl));
     assert_eq!(mock.paths().len(), 1);
 }
+
+#[test]
+fn friends_heads_come_from_the_session_server_by_uuid() {
+    let mock = MockServer::start();
+    let client: Arc<dyn http_client::HttpClient> = http::default_client().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let endpoints = mock.config().endpoints;
+    let uuid = |hex: &str| -> [u8; 16] { uuid::Uuid::parse_str(hex).unwrap().into_bytes() };
+    let head = |id: &str| {
+        block_on(skin::cached_profile_head(
+            &*client,
+            &endpoints.textures,
+            &endpoints.sessions,
+            dir.path(),
+            &uuid(id),
+        ))
+    };
+
+    let path = head(support::PROFILE_ID).unwrap().unwrap();
+    assert_eq!(path, skin::head_path(dir.path(), support::SKIN_HASH));
+    let image = image::open(&path).unwrap().to_rgba8();
+    assert_eq!(
+        image.dimensions(),
+        (8 * skin::HEAD_SCALE, 8 * skin::HEAD_SCALE)
+    );
+    // which skin the profile has is cached: asked again, nothing is fetched
+    head(support::PROFILE_ID).unwrap().unwrap();
+    assert_eq!(
+        mock.paths(),
+        [
+            format!(
+                "/sessions/session/minecraft/profile/{}",
+                support::PROFILE_ID
+            ),
+            format!("/textures/texture/{}", support::SKIN_HASH),
+        ]
+    );
+
+    // the default skin, and no such profile: no head (the caller draws its own)
+    assert_eq!(head(support::STEVE_ID).unwrap(), None);
+    assert_eq!(head("00000000000000000000000000000001").unwrap(), None);
+    // and those answers are cached too
+    let asked = mock.paths().len();
+    assert_eq!(head(support::STEVE_ID).unwrap(), None);
+    assert_eq!(mock.paths().len(), asked);
+
+    // the session server out of reach: an answer from before is still used, and with
+    // none, the error says so
+    let unreachable = url::Url::parse("http://127.0.0.1:9").unwrap();
+    let offline = |id: &str| {
+        block_on(skin::cached_profile_head(
+            &*client,
+            &endpoints.textures,
+            &unreachable,
+            dir.path(),
+            &uuid(id),
+        ))
+    };
+    assert!(offline(support::PROFILE_ID).unwrap().is_some());
+    assert!(offline("00000000000000000000000000000002").is_err());
+}

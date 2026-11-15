@@ -8,6 +8,10 @@ pub fn text(message: M) -> &'static str {
         M::Browse => "Parcourir…",
         M::Cancel => "Annuler",
         M::Change => "Modifier…",
+        M::Clear => "Effacer",
+        M::SearchSettings => "Rechercher dans les paramètres",
+        M::NoSettingsMatch => "Aucun paramètre ne correspond à «\u{a0}{query}\u{a0}»",
+        M::ClearSearch => "Effacer la recherche",
         M::Close => "Fermer",
         M::Continue => "Continuer",
         M::Copy => "Copier",
@@ -40,6 +44,8 @@ pub fn text(message: M) -> &'static str {
         M::SignOut => "Se déconnecter",
         M::Start => "Démarrer",
         M::Stop => "Arrêter",
+        M::Restart => "Redémarrer",
+        M::Kill => "Forcer l’arrêt",
         M::TryAgain => "Réessayer",
         M::Update => "Mettre à jour",
         M::Menu => "Menu",
@@ -120,5 +126,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
     match message {
         P::Instances => ["{count} instance", "{count} instances"],
         P::Files => ["{count} fichier", "{count} fichiers"],
+        P::SettingsFound => ["{count} paramètre trouvé", "{count} paramètres trouvés"],
     }
 }

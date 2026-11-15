@@ -11,21 +11,10 @@ crate::i18n::messages! {
         /// While quitting: the servers stop first.
         StoppingCore = "Stopping your servers…",
         SigningIn = "Signing in…",
-        /// The first run: the owner account.
-        SetupTitle = "Set up Lodestone Core",
-        SetupIntro = "Create the owner account. You sign in with it from the web dashboard and your other devices.",
         Username = "Username",
         Password = "Password",
-        ConfirmPassword = "Confirm password",
-        CreateOwner = "Create owner account",
         NoUsername = "Enter a username.",
         NoPassword = "Enter a password.",
-        PasswordsDiffer = "The passwords don’t match.",
-        /// The first run, after the owner account.
-        FirstConfigTitle = "Name your core",
-        CoreName = "Core name",
-        PublicAddress = "Public domain or IP address",
-        PublicAddressHint = "Players join your servers with this address. You can leave it empty.",
         SignInTitle = "Sign in",
         SignInIntro = "This core doesn’t let apps on this computer claim owner access. Sign in with your Lodestone account.",
         /// The sidebar.
@@ -44,8 +33,8 @@ crate::i18n::messages! {
         TabFiles = "Files",
         TabMods = "Mods",
         TabPlugins = "Plugins",
-        TabMacros = "Macros",
         TabEventLogs = "Event logs",
+        TabBackups = "Backups",
         /// The settings and their pages.
         Settings = "Settings",
         /// The app menu's item that opens the Settings dialog.
@@ -62,10 +51,10 @@ crate::i18n::messages! {
         StateStopped = "Stopped",
         StateError = "Crashed",
         StateUnknown = "Unknown",
-        /// The power menu (Start and Stop are Common).
-        Restart = "Restart",
-        Kill = "Kill",
-        PlayersOnline = "{online}/{max} players",
+        /// The selected instance's players pill, as the dashboard's card: "3/20 Online".
+        PlayersOnline = "{online}/{max} Online",
+        /// The selected instance's power button, which opens Start, Stop, Restart or Kill; {state} is its state.
+        PowerMenu = "Power: {state}",
         /// The connection to the core, in the footer.
         Connected = "Connected",
         Connecting = "Connecting…",
@@ -78,7 +67,6 @@ crate::i18n::messages! {
         CreateServer = "Create a new server",
         /// A page still to be built (development builds).
         NotBuilt = "This page isn’t in Lodestone Host yet.",
-        NeedsScripting = "Macros need a core with scripting. Lodestone Host’s core runs without it.",
         InstanceNotFound = "Server not found",
         /// The menu bar icon.
         ShowHost = "Show Lodestone Host",

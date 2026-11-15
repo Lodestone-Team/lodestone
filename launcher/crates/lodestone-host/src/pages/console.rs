@@ -367,6 +367,7 @@ impl ConsolePage {
                 .with_placeholder(M::ConsoleSearch)
                 .with_automation_id("console-search")
                 .with_leading_icon(Icon::MagnifyingGlass)
+                .with_clear_button()
         });
         let command = cx.new(|cx| {
             TextInput::new(cx)
@@ -659,8 +660,6 @@ impl ConsolePage {
         let instance = state.instance(&self.uuid);
         if !self.can_read || self.status == StreamStatus::NoPermission {
             Some(M::ConsoleInputNoPermission)
-        } else if instance.is_some_and(|i| i.is_atom()) && !state.me.is_owner {
-            Some(M::ConsoleOwnerOnlyAtom)
         } else if instance.is_some_and(|i| i.state == InstanceState::Stopped) {
             Some(M::ConsoleServerStopped)
         } else if self.status == StreamStatus::Closed {
@@ -824,7 +823,7 @@ impl ConsolePage {
                         .px(px(4.))
                         .rounded(radius::DEFAULT)
                         .bg(colors::GRAY_800)
-                        .text_color(colors::WHITE.opacity(50))
+                        .text_color(lodestone_ui::theme::ink::muted())
                         .child(user),
                 )
             })
@@ -852,7 +851,7 @@ pub(crate) fn graphic(
             div()
                 .text_size(text::H3)
                 .font_weight(weights::MEDIUM.face())
-                .text_color(colors::WHITE.opacity(50))
+                .text_color(lodestone_ui::theme::ink::muted())
                 .child(message.into()),
         )
         .when_some(detail, |this, detail| {

@@ -53,6 +53,7 @@ fn package_a_routes_against_a_real_core() {
         data_dir: data.path().join("core"),
         port,
         log_file: logs.path().join("core.log"),
+        connect_service: CoreConfig::connect_service_now(),
     };
     let mut process = CoreProcess::spawn(&config).expect("the core starts");
     let http = launcher_core::http::default_client().unwrap();
@@ -187,6 +188,7 @@ fn make_a_screenshot_fixture() {
         data_dir: std::path::PathBuf::from(dir),
         port,
         log_file: logs.path().join("core.log"),
+        connect_service: CoreConfig::connect_service_now(),
     };
     let mut process = CoreProcess::spawn(&config).expect("the core starts");
     let http = launcher_core::http::default_client().unwrap();

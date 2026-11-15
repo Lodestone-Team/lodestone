@@ -33,16 +33,18 @@ pub fn text(message: M) -> &'static str {
         M::NewInstance => "Nouvelle instance…",
         M::ImportInstances => "Importer…",
         M::Servers => "Lodestone Host",
+        M::Friends => "Amis",
         M::AppVersion => "Lodestone Launcher v{version}",
         M::PlayedInTotal => "{when} · {time} au total",
         M::ImportProgress => "{percent} · {label}",
         M::GroupModded => "{loader} (moddé)",
         M::Vanilla => "Vanilla",
         M::GroupImported => "Importées",
+        M::GroupServers => "Serveurs",
 
         M::NoInstanceSelected => "Aucune instance sélectionnée",
         M::NoInstanceSelectedHint => {
-            "Créez une instance pour choisir une version de Minecraft et un chargeur."
+            "Sélectionnez une instance dans la barre latérale pour commencer."
         }
         M::MinecraftVersion => "Minecraft {version}",
         M::MinecraftWith => "Minecraft {version} avec {loader}",
@@ -60,41 +62,38 @@ pub fn text(message: M) -> &'static str {
         M::LogsPlaceholder => "Les journaux s’affichent ici une fois que vous avez une instance.",
         M::LinkedTo => "Liée à {server} sur {core}",
         M::LinkedToRemoved => {
-            "Liée à {server} sur {core} (ce core a été retiré de la page Lodestone Host)"
+            "Liée à {server} sur {core} (cet hôte a été retiré de la page Lodestone Host)"
+        }
+        M::RunsUnderRosetta => {
+            "S’exécute via Rosetta\u{a0}2\u{a0}: Mojang n’a pas fait de version Apple Silicon de certaines bibliothèques dont cette version a besoin. Démarrage plus lent, puis fonctionnement normal."
+        }
+        M::RunsUnderRosettaOverride => {
+            "S’exécute via Rosetta\u{a0}2\u{a0}: le Java choisi dans les Paramètres est un Java Intel. Démarrage plus lent, puis fonctionnement normal."
         }
         M::NoInstances => "Aucune instance",
         M::AndJoin => "et rejoindre {server}",
         M::PlayWithoutJoining => "Jouer sans rejoindre",
+        M::ServerStoppedCaption => "{server} est arrêté",
+        M::ServerStartingCaption => "{server} démarre",
+        M::ServerOnline => "En ligne",
+        M::ServerStarting => "Démarrage",
+        M::ServerStopped => "Arrêté",
+        M::ServerUnreachable => "Injoignable",
+        M::ServerChecking => "Vérification…",
+        M::PlayNamed => "Jouer à {name}",
 
         M::DeleteNamed => "Supprimer {name}\u{202F}?",
         M::DeleteWorldBody => {
             "Le dossier du monde est placé dans {trash}, d’où vous pouvez le récupérer. Ses sauvegardes sont conservées."
         }
         M::DeleteInstanceBody => {
-            "Le dossier de l’instance, avec ses mondes, ses mods et ses paramètres, est placé dans {trash}. Vous pouvez le récupérer depuis cet endroit."
+            "Le dossier de l’instance, avec ses mondes, ses mods et ses paramètres, est placé dans {trash}. Vous pouvez le récupérer depuis cet endroit. Ses instantanés sont conservés jusqu’à ce que vous les supprimiez dans Paramètres › Stockage, et reviennent avec elle."
         }
         M::ReplaceWorldTitle => "Remplacer {name} par cette sauvegarde\u{202F}?",
         M::ReplaceWorldBody => {
-            "{name} revient à son état de la sauvegarde ({when}). Tout ce qui a changé depuis est perdu dans le monde, mais il est d’abord sauvegardé et le dossier actuel est placé dans {trash}."
+            "{name} revient à son état de la sauvegarde ({when}). Un instantané du monde tel qu’il est maintenant est pris d’abord et gardé 30\u{a0}jours."
         }
         M::BackUpAndReplace => "Sauvegarder et remplacer",
-        M::SwitchToLoader => "Passer à {loader}\u{202F}?",
-        M::SwitchToVanilla => "Passer à Vanilla\u{202F}?",
-        M::ModsWontLoadOn => {
-            "Ces mods activés sont faits pour un autre chargeur et ne se chargeront pas avec {loader}\u{a0}:"
-        }
-        M::ModsWontLoadVanilla => {
-            "Minecraft Vanilla ne charge aucun mod, donc ces mods activés ne se chargeront pas\u{a0}:"
-        }
-        M::ModMadeFor => "mod {loader}",
-        M::TurningOffRenames => {
-            "Les désactiver les renomme en .disabled, pour que vous puissiez les réactiver dans Contenu."
-        }
-        M::WorldsAtRisk => {
-            "Les mondes qui utilisaient des blocs ou des objets de ces mods peuvent les perdre. Sauvegardez d’abord vos mondes."
-        }
-        M::TurnOffAndSave => "Les désactiver et enregistrer",
-        M::SaveAndKeep => "Enregistrer et les garder",
         M::RemoveAccountTitle => "Retirer {name}\u{202F}?",
         M::RemoveAccountBody => {
             "Lodestone Launcher oublie ce compte et supprime sa connexion enregistrée de votre {keychain}. Vous pourrez l’ajouter de nouveau plus tard."
@@ -113,7 +112,7 @@ pub fn text(message: M) -> &'static str {
             "Mémoire insuffisante. Augmentez la mémoire maximale dans Paramètres, ou fermez d’autres applications."
         }
         M::CauseNatives => {
-            "Des bibliothèques natives manquent ou sont faites pour un autre processeur. Sur Apple Silicon, les versions antérieures à 1.19 tournent dans un Java Intel sous Rosetta\u{a0}2\u{202F}; vérifiez que Rosetta est installé et que le Java personnalisé n’est pas un Java arm64."
+            "Des bibliothèques natives manquent ou sont faites pour un autre processeur. Sur Apple Silicon, les versions antérieures à 1.14 tournent dans un Java Intel sous Rosetta\u{a0}2, et les suivantes dans un Java Apple Silicon\u{202F}; vérifiez que Rosetta est installé et que le Java personnalisé est fait pour le même processeur."
         }
         M::CauseJvmOptions => {
             "Java a refusé l’un des réglages. Vérifiez les arguments JVM et la mémoire dans Paramètres."
@@ -158,9 +157,8 @@ pub fn text(message: M) -> &'static str {
         M::KeptFiles => "Gardés tels que vous les avez modifiés ({count})",
         M::WrittenFiles => "Configurations et autres fichiers écrits ({count})",
         M::ModpackUpdateSafety => {
-            "Vos propres mods, vos mondes et vos configurations modifiées ne sont pas touchés. Chaque fichier remplacé ou supprimé est d’abord enregistré dans le dossier de sauvegardes de l’instance."
+            "Vos propres mods, mondes et configurations modifiées ne sont pas touchés. Un instantané de l’instance est pris d’abord, et chaque fichier remplacé ou supprimé est gardé dans le dossier de sauvegardes de l’instance."
         }
-        M::BackUpEveryWorld => "Sauvegarder d’abord tous les mondes",
 
         M::SaveChangesTitle => "Enregistrer vos modifications\u{202F}?",
         M::UnsavedDefaultsBody => {
@@ -187,19 +185,18 @@ pub fn text(message: M) -> &'static str {
         M::NoAccount => "Aucun compte",
         M::ManageAccounts => "Gérer les comptes",
         M::GroupAutomatically => "Grouper les instances automatiquement",
-        M::GroupAutomaticallyHint => "Classe les instances sans groupe par chargeur de mods.",
+        M::GroupAutomaticallyHint => {
+            "Classe les instances sans groupe par serveur ou par chargeur de mods."
+        }
         M::AutoConfigure => "Configurer automatiquement les nouvelles instances",
         M::AutoConfigureHint => {
-            "Avant la première partie d’une nouvelle instance, choisit sa mémoire, ses arguments Java et ses réglages graphiques selon cet ordinateur et ses mods, et reprend votre sensibilité de la souris et vos touches si les paramètres partagés ne le font pas. Ce que vous modifiez vous-même est conservé."
+            "Laissez Lodestone régler automatiquement la mémoire, la sensibilité de la souris et d’autres réglages du jeu."
         }
         M::WhenAGameStarts => "Au lancement d’un jeu",
         M::AfterLaunchStay => "Rester ouvert",
         M::AfterLaunchMinimize => "Réduire",
         M::AfterLaunchQuit => "Quitter",
         M::AfterLaunchStayHint => "Le lanceur reste ouvert à côté du jeu.",
-        M::AfterLaunchMinimizeHint => {
-            "Le lanceur se réduit dès que la fenêtre du jeu s’ouvre, et revient quand le jeu se ferme."
-        }
         M::AfterLaunchQuitHint => {
             "Le lanceur se ferme dès que la fenêtre du jeu s’ouvre. Le jeu continue, mais son journal, son rapport de plantage et son temps de jeu ne sont pas enregistrés."
         }
@@ -233,7 +230,7 @@ pub fn text(message: M) -> &'static str {
         M::Value => "Valeur",
         M::SyncFrom => "Instance principale",
         M::SyncFromHint => {
-            "Les réglages modifiés en jeu dans votre instance principale sont copiés dans vos autres instances à leur démarrage."
+            "Les réglages que vous modifiez dans l’instance principale sont copiés automatiquement dans vos autres instances."
         }
         M::SyncFromNoneHint => {
             "Sans instance principale, les réglages partagés ne changent qu’ici."
@@ -253,7 +250,7 @@ pub fn text(message: M) -> &'static str {
         M::FirstTimeSetupSection => "Première configuration",
         M::ResetFirstTimeSetup => "Réinitialiser la première configuration",
         M::ResetFirstTimeSetupHint => {
-            "La prochaine nouvelle instance sera de nouveau proposée comme instance principale, et la désactivation du narrateur sera proposée au prochain démarrage. L’instance principale actuelle est retirée\u{a0}; les valeurs partagées restent."
+            "La prochaine nouvelle instance sera de nouveau proposée comme instance principale, et la désactivation du narrateur sera proposée au prochain démarrage, et la page Lodestone Host propose de nouveau Lodestone Host. L’instance principale actuelle est retirée\u{a0}; les valeurs partagées restent."
         }
         M::FirstTimeSetupReset => {
             "La première configuration est réinitialisée. Créez une instance pour la voir."
@@ -271,7 +268,7 @@ pub fn text(message: M) -> &'static str {
         M::ServerListHint => "Bientôt disponible.",
         M::Source => "Source",
         M::WhatsShared => "Ce qui est partagé",
-        M::WhatsSharedLead => "Les catégories désactivées restent propres à chaque instance.",
+        M::WhatsSharedLead => "Désactivez chaque catégorie que vous ne voulez pas partager.",
         M::CategoryControls => "Commandes",
         M::CategoryVideo => "Vidéo",
         M::CategorySound => "Son",
@@ -311,6 +308,38 @@ pub fn text(message: M) -> &'static str {
         M::AddOfflineAccount => "Ajouter un compte hors ligne",
         M::RemoveNamed => "Retirer {name}",
         M::OfflineNote => "Hors ligne – solo et serveurs en mode hors ligne uniquement",
+        M::ChangePlayerSkin => "Changer de skin…",
+        M::PlayerSkinDialogTitle => "Skin de {name}",
+        M::PlayerSkinLoading => "Minecraft indique ce que vous portez",
+        M::PlayerSkinLoadFailed => "Impossible de charger votre skin : {error}",
+        M::PlayerSkinSection => "Skin",
+        M::PlayerSkinChooseFile => "Choisir un fichier…",
+        M::PlayerSkinUseDefault => "Utiliser le skin par défaut",
+        M::PlayerSkinFileHint => "Un skin est une image PNG de 64×64.",
+        M::PlayerSkinFileChosen => "{name} sera votre skin une fois enregistré.",
+        M::PlayerSkinDefaultChosen => "Vous aurez le skin par défaut une fois enregistré.",
+        M::PlayerSkinDefault => "Skin par défaut",
+        M::PlayerSkinPreview => "Votre personnage, avec le skin",
+        M::PlayerSkinDragHint => "Faites glisser pour tourner",
+        M::PlayerSkinModel => "Bras",
+        M::PlayerSkinModelClassic => "Larges",
+        M::PlayerSkinModelSlim => "Fins",
+        M::PlayerSkinCape => "Cape",
+        M::PlayerSkinNoCape => "Aucune",
+        M::PlayerSkinNoCapes => "Ce compte n’a pas de cape.",
+        M::PlayerSkinFileRefused => "{name} ne peut pas être utilisé : {error}",
+        M::PlayerSkinFileTooLarge => "le fichier dépasse 1 Mo",
+        M::PlayerSkinFileNotPng => "ce n’est pas une image PNG",
+        M::PlayerSkinFileWrongSize => "il fait {width}×{height}, et un skin fait 64×64",
+        M::PlayerSkinNetworkError => "Impossible de joindre les services Minecraft : {error}",
+        M::PlayerSkinRateLimited => {
+            "Les services Minecraft sont occupés. Réessayez dans une minute."
+        }
+        M::PlayerSkinSignedOut => {
+            "Votre connexion a expiré. Reconnectez-vous, puis changez de skin."
+        }
+        M::PlayerSkinRefusedBecause => "Minecraft n’a pas accepté le changement : {reason}",
+        M::PlayerSkinRefused => "Minecraft n’a pas accepté le changement (erreur {status}).",
 
         M::OfflineDialogBody => {
             "Pour le développement et les tests. Le compte n’a pas de connexion Microsoft, et son UUID est celui que les serveurs en mode hors ligne donnent à ce nom."
@@ -363,6 +392,30 @@ pub fn text(message: M) -> &'static str {
         M::TurnOffAndSignOut => "Désactiver et déconnecter",
         M::TurnOffOnly => "Désactiver seulement",
         M::SignInSection => "Connexion Microsoft",
+        M::OfflineAccountsSetting => "Comptes hors ligne",
+        M::OfflineAccountsSettingHint => {
+            "Affiche «\u{a0}{add}\u{a0}» dans le menu du compte. Pour les tests uniquement."
+        }
+        M::OfflineAccountsAlwaysOn => {
+            "Toujours activé dans les versions de débogage et avec LODESTONE_LAUNCHER_OFFLINE=1."
+        }
+        M::ConnectSection => "Lodestone Connect",
+        M::ConnectService => "Service Connect (relais)",
+        M::ConnectServiceHint => {
+            "Pour les tests. La liste d’amis utilise ce service. Les liens d’invitation utilisent toujours le service qu’ils indiquent."
+        }
+        M::ConnectServiceInUse => "Relais de dév.\u{a0}: {service}",
+        M::ConnectServiceEnv => {
+            "{var} est défini, donc le lanceur utilise {service}. Le réglage s’appliquera une fois la variable retirée."
+        }
+        M::ConnectServiceScheme => "Commencez l’adresse par https://.",
+        M::ConnectServiceInsecure => {
+            "Utilisez https://. Seul un service sur cet ordinateur (127.0.0.1 ou localhost) peut utiliser http://."
+        }
+        M::ConnectServiceExtra => {
+            "Saisissez seulement l’adresse, sans chemin, requête ni nom d’utilisateur."
+        }
+        M::ConnectServiceAddress => "Cette adresse n’est pas valide.",
         M::CodingAgentsSection => "Agents de programmation",
         M::CodingAgentsLead => {
             "Claude Code, Codex et d’autres agents de programmation peuvent piloter le lanceur avec lodestone-launcher-cli. Le lanceur garde des guides pour eux dans son dossier de données."
@@ -375,7 +428,7 @@ pub fn text(message: M) -> &'static str {
         M::CopyPrompt => "Copier le prompt",
         M::CommandLineSection => "Ligne de commande",
         M::CommandLineLead => {
-            "lodestone-launcher-cli et les autres programmes que vous lancez joignent le lanceur par un socket dans son dossier de données. Seul votre compte utilisateur peut s’y connecter. Ces réglages ne se changent qu’ici, jamais depuis la ligne de commande."
+            "lodestone-launcher-cli et les autres programmes que vous lancez joignent le lanceur par un socket dans son dossier de données. Seul votre compte utilisateur peut s’y connecter."
         }
         M::AllowCli => "Autoriser les connexions en ligne de commande",
         M::AllowCliHint => {
@@ -453,7 +506,6 @@ pub fn text(message: M) -> &'static str {
         M::LauncherIdentityNote => {
             "Option de développement\u{a0}: connexion en tant que Minecraft Launcher, et non en tant que Lodestone Launcher. Les pages de Microsoft peuvent afficher le nom de Minecraft au lieu de celui de Lodestone."
         }
-        M::UseLinkInstead => "Utiliser plutôt un lien de connexion",
         M::UseCodeInstead => "Utiliser plutôt un code",
         M::SignInCodeBody => {
             "Connectez-vous avec le compte Microsoft avec lequel vous jouez à Minecraft: Java Edition. Vous recevrez un code à saisir sur le site de Microsoft."
@@ -482,10 +534,6 @@ pub fn text(message: M) -> &'static str {
         }
         M::StopSigningIn => "Arrêter la connexion",
         M::KeepWaiting => "Continuer d’attendre",
-        M::LinkInstructions => {
-            "Connectez-vous dans la fenêtre du navigateur qui s’est ouverte. Microsoft affiche ensuite une page indiquant qu’elle n’est normalement pas affichée. Copiez l’adresse complète depuis la barre d’adresse du navigateur et collez-la uniquement dans ce lanceur."
-        }
-        M::LinkStartsWith => "Elle commence par {url}",
         M::SigningInToMinecraft => "Connexion à Minecraft…",
         M::ExpectedUntilApproved => {
             "C’est normal tant que Mojang n’a pas approuvé l’application. Votre compte n’a aucun problème."
@@ -612,12 +660,10 @@ pub fn text(message: M) -> &'static str {
             "Télécharge les nouveaux builds depuis GitHub en arrière-plan."
         }
         M::BetaBuilds => "Builds bêta",
-        M::BetaBuildsHint => {
-            "Profitez des nouveautés avant tout le monde. Les builds bêta peuvent comporter des bugs. Si vous désactivez cette option, vous gardez votre build jusqu’à ce qu’un build stable plus récent sorte."
-        }
+        M::BetaBuildsHint => "Les builds bêta peuvent comporter des bugs.",
         M::DeveloperBuilds => "Builds de développeur",
         M::DeveloperBuildsHint => {
-            "Pour les développeurs de Lodestone : met à jour vers des builds de travaux en cours, qui peuvent ne pas fonctionner. Si vous désactivez cette option, vous gardez votre build jusqu’à ce qu’une version plus récente sorte."
+            "Pour les développeurs de Lodestone : met à jour vers des builds de développement, qui peuvent comporter des bugs."
         }
         M::BuildNumber => "Build {build}",
         M::BuildNumberCommit => "Build {build} · {commit}",
@@ -684,6 +730,9 @@ pub fn text(message: M) -> &'static str {
         M::RestartToUpdate => "Redémarrer",
         M::UpdateReadyBadge => "Mise à jour prête",
         M::UpdateAvailableBadge => "Mise à jour disponible",
+        M::DevBadge => "DEV",
+        M::GoBack => "Précédent",
+        M::GoForward => "Suivant",
 
         M::RestOnModrinth => "La suite de la description est sur Modrinth.",
         M::Storage => "Stockage",
@@ -790,9 +839,6 @@ pub fn text(message: M) -> &'static str {
         }
         M::SkinEditorTitle => "Éditeur de thème",
         M::SkinPopOut => "Ouvrir l’éditeur",
-        M::SkinEditorLead => {
-            "Modifiez chaque surface, police et bannière dans l’éditeur. Les changements s’affichent dans la fenêtre au fur et à mesure, et Annuler les reprend."
-        }
         M::SkinSummary => "{surfaces} surfaces peintes · {fonts} polices · {banners} bannières",
         M::SkinSurfaces => "Surfaces",
         M::SkinTokens => "Couleurs du texte",
@@ -853,11 +899,7 @@ pub fn text(message: M) -> &'static str {
         M::StorageRuntimes => "Environnements Java",
         M::StorageCache => "Cache",
         M::StorageSnapshots => "Instantanés",
-        M::StorageSnapshotsHint => "{count} instantanés · {size} récupérables",
-        M::StorageCleanSnapshotsTitle => "Supprimer les instantanés automatiques\u{a0}?",
-        M::StorageCleanSnapshotsBody => {
-            "Libère {size}. Supprime les instantanés pris avant un retour en arrière, ceux des instances supprimées et les fichiers créés pour le partage."
-        }
+        M::StorageCleanSnapshotsTitle => "Supprimer les instantanés pris par le Launcher\u{a0}?",
         M::StorageLeftovers => "Téléchargements et importations inachevés",
         M::StorageCleanLeftoversTitle => "Supprimer les téléchargements inachevés\u{a0}?",
         M::StorageCleanLeftoversBody => {
@@ -865,6 +907,41 @@ pub fn text(message: M) -> &'static str {
         }
         M::StorageOther => "Réglages et autres fichiers",
         M::StorageCacheAndLogs => "Cache et journaux",
+        M::StorageDataFolder => "Dossier de données",
+        M::StorageDataFolderHint => {
+            "L’endroit où Lodestone garde vos instances et mondes, comptes, réglages et fichiers du jeu."
+        }
+        M::StorageMoveEllipsis => "Déplacer…",
+        M::StorageMoveBackEllipsis => "Ramener…",
+        M::StorageMoveHere => "Déplacer ici",
+        M::StorageMoveCantUse => "Impossible de déplacer les données là\u{a0}: {error}",
+        M::StorageMoveStopGame => "Arrêtez le jeu avant de déplacer le dossier de données.",
+        M::StorageMoveTitle => "Déplacer vos données\u{a0}?",
+        M::StorageMoveBody => {
+            "Tout le dossier de données va dans {to}\u{a0}: vos instances et mondes, comptes, réglages et fichiers du jeu. Le launcher redémarre une fois terminé."
+        }
+        M::StorageMoveBackTitle => "Ramener vos données\u{a0}?",
+        M::StorageMoveBackBody => {
+            "Tout revient dans le dossier par défaut, {to}. Le launcher redémarre une fois terminé."
+        }
+        M::StorageMoveSize => "Cela représente {size}.",
+        M::StorageMoveConfirm => "Déplacer et redémarrer",
+        M::StorageMoving => "Déplacement de vos données…",
+        M::StorageMovingTo => "Vers {to}",
+        M::StorageMovingPreparing => "Préparation…",
+        M::StorageMovingProgress => "{done} sur {total}",
+        M::StorageMovingNote => "Annuler les laisse où elles étaient.",
+        M::StorageMoveFailedTitle => "Impossible de déplacer vos données",
+        M::StorageMoveFailedBody => "Vos données sont toujours dans {from}. {error}",
+        M::StorageMoveRestartFailed => {
+            "Vos données ont été déplacées. Quittez le launcher et rouvrez-le pour utiliser le nouveau dossier."
+        }
+        M::DataFolderMissingTitle => "Dossier de données introuvable",
+        M::DataFolderMissingBody => {
+            "Vos instances et mondes sont dans {path}, qui est introuvable. S'il est sur un disque non connecté, connectez-le et réessayez. Le dossier par défaut démarre vide, et vos données restent où elles sont."
+        }
+        M::DataFolderUseDefault => "Utiliser le dossier par défaut",
+        M::DataFolderQuit => "Quitter",
         M::StorageLogs => "Journaux et rapports de plantage",
         M::StorageOldLogs => "{size} de plus de 30\u{a0}jours",
         M::StorageVersions => "Versions",
@@ -915,6 +992,15 @@ pub fn text(message: M) -> &'static str {
         M::StorageDeleteAllLogsBody => {
             "Cela libère {size}. Tous les journaux et rapports de plantage sont supprimés définitivement, sauf ceux d’un jeu en cours."
         }
+        M::ZoomKeywords => "échelle taille agrandir réduire texte",
+        M::WhenAGameStartsKeywords => "après le lancement réduire masquer fermer quitter",
+        M::ModpackUpdateNoSnapshot => {
+            "Aucun instantané n’a pu être pris avant, donc rien n’a changé. Vous pouvez mettre à jour sans instantané, ou régler le problème et réessayer.\n{error}"
+        }
+        M::UpdateWithoutSnapshot => "Mettre à jour sans instantané",
+        M::ReplaceWorldModsNote => {
+            "Seul le monde revient en arrière\u{a0}; les mods de l’instance restent tels quels. Pour remettre aussi les mods avec lesquels il tournait, restaurez l’instantané depuis Paramètres › Instantanés."
+        }
     }
 }
 
@@ -936,5 +1022,13 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::DiscordMobsKilled => ["{count} monstre tué", "{count} monstres tués"],
         P::DiscordBlocksMined => ["{count} bloc miné", "{count} blocs minés"],
         P::DiscordMods => ["{count} mod", "{count} mods"],
+        P::StorageSnapshotsHint => [
+            "{count}\u{a0}instantané et l’historique du contenu de chaque instance · {removable} peuvent être supprimés",
+            "{count}\u{a0}instantanés et l’historique du contenu de chaque instance · {removable} peuvent être supprimés",
+        ],
+        P::StorageCleanSnapshotsBody => [
+            "Cela supprime {count}\u{a0}instantané\u{a0}: ceux pris par le Launcher et tous ceux des instances supprimées, épinglés compris. Ceux de vos instances que vous avez pris ou épinglés restent. Les fichiers de la dernière heure sont libérés au prochain nettoyage.",
+            "Cela supprime {count}\u{a0}instantanés\u{a0}: ceux pris par le Launcher et tous ceux des instances supprimées, épinglés compris. Ceux de vos instances que vous avez pris ou épinglés restent. Les fichiers de la dernière heure sont libérés au prochain nettoyage.",
+        ],
     }
 }

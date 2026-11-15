@@ -14,7 +14,7 @@ use gpui::App;
 use launcher_control::{ErrorObject, codes};
 use launcher_core::cores::{
     connect::{ConnectionKind, Invite, JoinError},
-    friends::InstanceMatch,
+    friends::{InstanceMatch, Placement},
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -26,7 +26,9 @@ use super::{
 };
 use crate::servers::{
     AdvisoryAnswer, Servers,
-    friends::{FriendEntry, FriendStatus, JoinStage, join_error_text},
+    friends::{
+        FriendEntry, FriendStatus, JoinStage, game_address, join_error_text, port_taken_text,
+    },
 };
 
 fn kind_name(kind: ConnectionKind) -> &'static str {
@@ -89,8 +91,19 @@ fn friend_json(entry: &FriendEntry, servers: &Servers) -> Value {
         "instance": saved.instance_id,
         "added_at": saved.added_at,
         "last_joined": saved.last_joined,
+        // where Minecraft joins it whenever its tunnel is open, the same every time
+        "address": saved.game_port.map(game_address),
         "status": status,
         "playing": playing,
+        // where the page shows it: "friends", or under the core on this computer that
+        // shares it ("local"), or in that core's row of the same server ("core_row")
+        "placement": match servers.friend_placement(entry) {
+            Placement::Friends => json!({ "section": "friends" }),
+            Placement::Local(core) => json!({ "section": "local", "core": core }),
+            Placement::CoreRow(core) => json!({ "section": "core_row", "core": core }),
+        },
+        // Play joins it straight at its core on this computer, without a tunnel
+        "direct": servers.friend_direct(&saved.id).is_some(),
     })
 }
 
@@ -135,9 +148,15 @@ struct OpenParams {
     link: String,
 }
 
-/// `friends.open`: the join dialog for a link, as opening the link does.
+/// `friends.open`: the join dialog for an invite link, or the Add friend dialog for a
+/// friend link, as opening the link does.
 pub fn open(call: Call, cx: &mut App) -> Reply {
     let params: OpenParams = params!(call);
+    // a friend link (`lodestone://friend?link=…`) opens the Add friend dialog
+    if launcher_core::cores::friends::FriendLink::parse(&params.link).is_ok() {
+        let servers = call.control.servers.clone();
+        return ready(super::friend_list::open_link(params.link, cx, &servers));
+    }
     if Invite::parse(&params.link).is_err() {
         return ready(Err(not_an_invite()));
     }
@@ -197,7 +216,15 @@ fn card_json(servers: &Servers, id: &str, cx: &App) -> Option<Value> {
         "players": shared.player_count,
         "max_players": shared.max_player_count,
         "connection": kind_name(session.kind()),
+        // joined straight at its core on this computer, without a tunnel
+        "direct": session.is_direct(),
         "rtt_ms": session.rtt().as_millis() as u64,
+        // this session's; another than the usual one when that port was taken
+        "address": session.address,
+        "port_taken": session.port_taken.map(|saved| {
+            let (title, body) = port_taken_text(saved, &session.address);
+            json!({ "port": saved, "message": format!("{title}. {body}") })
+        }),
         "instance": instance,
     }))
 }
@@ -358,6 +385,10 @@ fn answer_questions(
     if let Some(prompt) = servers.prompt.current()
         && prompt.server.name == server_name
     {
+        if let Some(err) = super::servers::snapshot_failed(prompt) {
+            servers.cancel_prompt(cx);
+            return Some(Err(err));
+        }
         return Some(match params.update_mods {
             Some(update) => {
                 servers.answer_prompt(update, cx);
@@ -376,21 +407,13 @@ fn answer_questions(
     if prompt.server_name != server_name {
         return None;
     }
-    if params.accept_advisory {
+    // from a trusted server, only what a new instance gets is shown: install it
+    if params.accept_advisory || prompt.advisory.is_none() {
         servers.answer_advisory(AdvisoryAnswer::InstallOnce, cx);
         return Some(Ok(()));
     }
     let core = prompt.core_name.clone();
-    let data = json!({
-        "core_name": prompt.core_name,
-        "server_name": prompt.server_name,
-        "on_modrinth": prompt.advisory.on_modrinth.iter().map(|m| json!({ "path": m.path, "project": m.project, "version": m.version })).collect::<Vec<_>>(),
-        "uploaded": prompt.advisory.uploaded,
-        "scripts": prompt.advisory.scripts,
-        "configs": prompt.advisory.configs,
-        "other": prompt.advisory.other,
-        "unchecked": prompt.advisory.unchecked,
-    });
+    let data = super::servers::advisory_json(prompt);
     servers.answer_advisory(AdvisoryAnswer::Cancel, cx);
     Some(Err(api_error(
         codes::UNTRUSTED_CORE,

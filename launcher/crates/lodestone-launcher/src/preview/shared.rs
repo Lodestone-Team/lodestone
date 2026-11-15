@@ -11,7 +11,11 @@ const OPTIONS_1_8_9: &str = include_str!("../../../launcher-core/testdata/option
 pub fn is_scene(scene: &str) -> bool {
     matches!(
         scene,
-        "shared-settings" | "instance-shared-settings" | "focus-popover" | "focus-escape"
+        "shared-settings"
+            | "shared-settings-sync"
+            | "instance-shared-settings"
+            | "focus-popover"
+            | "focus-escape"
     )
 }
 
@@ -71,9 +75,26 @@ pub fn window_height(scene: &str) -> Option<f32> {
     match scene {
         "shared-settings" => Some(1700.),
         "instance-shared-settings" => Some(2100.),
+        // Down to Game & loader, under General.
+        "instance-settings-game" => Some(2150.),
         "sidebar-groups" | "sidebar-groups-off" => Some(1000.),
-        // Tall enough for the Modrinth section's placeholder under six mods.
+        // Tall enough for the Modrinth section under six mods.
         "content-mods" => Some(1100.),
+        // A world's data packs, then Modrinth's results.
+        "worlds-datapacks" => Some(1050.),
+        // The installed mods, then Modrinth's results to browse (and its filters).
+        "content-browse-idle" => Some(1500.),
+        "content-description" | "content-gallery" | "content-cf-project" => Some(1400.),
+        "content-filters" | "content-filters-packs" | "content-filters-shaders" => Some(1700.),
+        // Down to "Other cores", under the friends sections.
+        "servers-local" => Some(2500.),
+        "servers"
+        | "servers-core-menu"
+        | "servers-core-menu-other"
+        | "servers-local-none"
+        | "servers-local-unclaimed"
+        | "servers-shared-local"
+        | "servers-shared-local-gone" => Some(2000.),
         _ => None,
     }
 }

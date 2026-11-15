@@ -7,9 +7,9 @@ use ts_rs::TS;
 
 use crate::{
     auth::{permission::UserPermission, user_id::UserId},
-    macro_executor::MacroPID,
     output_types::ClientEvent,
-    traits::{t_macro::ExitStatus, t_player::Player, t_server::State, InstanceInfo},
+    public_listing::PublicScope,
+    traits::{t_player::Player, t_server::State, InstanceInfo},
     types::{InstanceUuid, Snowflake, TimeRange},
 };
 
@@ -116,6 +116,18 @@ pub enum InstanceEventInner {
         player: String,
         player_message: String,
     },
+    /// A newer version of the modpack the server was made from is on Modrinth. Sent once
+    /// per version.
+    ModpackUpdateAvailable {
+        modpack: String,
+        version_id: String,
+        version_number: String,
+    },
+    /// The owner changed what the server shows publicly: `scope` is what it shows now.
+    /// Only for those who can view the server, as its name is in the event.
+    PublicListingChanged {
+        scope: PublicScope,
+    },
 }
 
 impl AsRef<InstanceEventInner> for InstanceEventInner {
@@ -175,40 +187,8 @@ pub struct UserEvent {
 #[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[ts(export)]
 #[serde(tag = "type")]
-pub enum MacroEventInner {
-    Started,
-    /// Macro requests to be detached, useful for macros that run in the background such as prelaunch script
-    Detach,
-    Stopped {
-        exit_status: ExitStatus,
-    },
-}
-#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
-#[ts(export)]
-pub struct MacroEvent {
-    pub instance_uuid: Option<InstanceUuid>,
-    pub macro_pid: MacroPID,
-    pub macro_event_inner: MacroEventInner,
-}
-
-impl From<MacroEvent> for Event {
-    fn from(val: MacroEvent) -> Self {
-        Event {
-            details: "".to_string(),
-            snowflake: Snowflake::default(),
-            event_inner: EventInner::MacroEvent(val.clone()),
-            caused_by: CausedBy::Macro {
-                macro_pid: val.macro_pid,
-            },
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
-#[ts(export)]
-#[serde(tag = "type")]
 pub enum ProgressionEndValue {
-    InstanceCreation(InstanceInfo),
+    InstanceCreation(CreatedInstance),
     InstanceDelete {
         instance_uuid: InstanceUuid,
     },
@@ -217,6 +197,45 @@ pub enum ProgressionEndValue {
         success: bool,
         message: String,
     },
+    /// A backup ended. `backup_id` is the new backup, or the newest one when nothing had
+    /// changed since it; `None` when the backup failed.
+    BackupCompleted {
+        instance_uuid: InstanceUuid,
+        backup_id: Option<String>,
+        success: bool,
+        message: String,
+    },
+    /// A restore into the server's own folder ended. `backup_id` is the backup restored.
+    RestoreCompleted {
+        instance_uuid: InstanceUuid,
+        backup_id: Option<String>,
+        success: bool,
+        message: String,
+    },
+}
+
+/// A new server, at the end of its creation: its info, and for one made from a `.lodeimg`
+/// what it didn't get (`docs/instance-images.md`, "M6b decisions"). On the wire it is the
+/// `InstanceInfo` fields with an `outcome` field beside them only for a creation from a
+/// file, so readers of the info alone see no change.
+#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
+#[ts(export)]
+pub struct CreatedInstance {
+    #[serde(flatten)]
+    #[ts(flatten)]
+    pub info: InstanceInfo,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub outcome: Option<Box<crate::images::share::outcome::CreationOutcome>>,
+}
+
+impl From<InstanceInfo> for CreatedInstance {
+    fn from(info: InstanceInfo) -> Self {
+        CreatedInstance {
+            info,
+            outcome: None,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
@@ -225,6 +244,8 @@ pub enum ProgressionEndValue {
 pub enum ProgressionStartValue {
     InstanceCreation { instance_uuid: InstanceUuid },
     InstanceDelete { instance_uuid: InstanceUuid },
+    Backup { instance_uuid: InstanceUuid },
+    Restore { instance_uuid: InstanceUuid },
 }
 
 // the backend will keep exactly 1 copy of ProgressionStart, and 1 copy of ProgressionUpdate OR ProgressionEnd
@@ -318,7 +339,6 @@ impl ProgressionEvent {
 pub enum EventInner {
     InstanceEvent(InstanceEvent),
     UserEvent(UserEvent),
-    MacroEvent(MacroEvent),
     FSEvent(FSEvent),
     ProgressionEvent(ProgressionEvent),
     /// A global setting that changes what clients may do (such as code execution) changed.
@@ -344,7 +364,6 @@ fn event_type_export() {
 pub enum CausedBy {
     User { user_id: UserId, user_name: String },
     Instance { instance_uuid: InstanceUuid },
-    Macro { macro_pid: MacroPID },
     System,
     Unknown,
 }
@@ -412,13 +431,6 @@ impl Event {
     pub fn get_instance_uuid(&self) -> Option<InstanceUuid> {
         match &self.event_inner {
             EventInner::InstanceEvent(instance_event) => Some(instance_event.instance_uuid.clone()),
-            _ => None,
-        }
-    }
-
-    pub fn try_macro_event(&self) -> Option<&MacroEvent> {
-        match &self.event_inner {
-            EventInner::MacroEvent(macro_event) => Some(macro_event),
             _ => None,
         }
     }
@@ -561,17 +573,77 @@ impl Event {
             caused_by: CausedBy::System,
         }
     }
+}
 
-    pub fn new_macro_detach_event(macro_pid: MacroPID) -> Event {
-        Event {
-            details: "".to_string(),
-            snowflake: Snowflake::default(),
-            event_inner: EventInner::MacroEvent(MacroEvent {
-                macro_pid,
-                instance_uuid: None,
-                macro_event_inner: MacroEventInner::Detach,
-            }),
-            caused_by: CausedBy::System,
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::images::share::inspect::NameList;
+    use crate::images::share::outcome::CreationOutcome;
+    use crate::traits::t_configurable::{Game, MinecraftVariant};
+    use crate::traits::t_server::State;
+
+    fn info() -> InstanceInfo {
+        InstanceInfo {
+            uuid: InstanceUuid::default(),
+            name: "Survival".into(),
+            game_type: Game::MinecraftJava {
+                variant: MinecraftVariant::Fabric,
+            },
+            description: String::new(),
+            version: "1.21.1".into(),
+            port: 25565,
+            creation_time: 1,
+            path: "/servers/Survival".into(),
+            auto_start: false,
+            restart_on_crash: false,
+            state: State::Stopped,
+            player_count: None,
+            max_player_count: None,
+            player_list: None,
+            icon_url: None,
+            modpack: None,
+            loader_version: None,
+            min_ram: None,
+            max_ram: None,
         }
+    }
+
+    /// The dashboard and older clients read a creation's end value as the server's info:
+    /// a creation that isn't from a file sends exactly that, and one from a file only adds
+    /// `outcome` beside the info's fields.
+    #[test]
+    fn a_creation_end_is_the_info_with_an_outcome_only_from_a_file() {
+        let info = info();
+        let plain = ProgressionEndValue::InstanceCreation(info.clone().into());
+        let json = serde_json::to_value(&plain).unwrap();
+        let mut expected = serde_json::to_value(&info).unwrap();
+        expected["type"] = "InstanceCreation".into();
+        assert_eq!(json, expected);
+        assert!(json.get("outcome").is_none());
+        assert_eq!(
+            serde_json::from_value::<ProgressionEndValue>(json).unwrap(),
+            plain
+        );
+
+        let outcome = CreationOutcome {
+            not_downloaded: NameList::of(["mods/a.jar"]),
+            scripts: 1,
+            ..CreationOutcome::default()
+        };
+        let from_file = ProgressionEndValue::InstanceCreation(CreatedInstance {
+            info,
+            outcome: Some(Box::new(outcome.clone())),
+        });
+        let json = serde_json::to_value(&from_file).unwrap();
+        assert_eq!(json["type"], "InstanceCreation");
+        assert_eq!(json["name"], "Survival");
+        assert_eq!(json["port"], 25565);
+        assert_eq!(json["outcome"]["not_downloaded"]["names"][0], "mods/a.jar");
+        assert_eq!(json["outcome"]["scripts"], 1);
+        assert_eq!(
+            serde_json::from_value::<ProgressionEndValue>(json).unwrap(),
+            from_file
+        );
     }
 }

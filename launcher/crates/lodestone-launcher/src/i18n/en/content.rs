@@ -9,20 +9,29 @@ crate::i18n::messages! {
         /// An instance without a mod loader, in "1.21.1 / Vanilla".
         Vanilla = "Vanilla",
 
-        /// The search over the list: it filters what is installed and searches
-        /// Modrinth too.
-        SearchInstalledOrModrinth = "Search installed, or find more on Modrinth",
+        /// The list's views: what is installed, or a platform's projects to browse.
+        ViewInstalled = "Installed",
+        ViewModrinth = "Modrinth",
+        ViewCurseForge = "CurseForge",
+        /// The search over the list, in each view.
+        SearchInstalled = "Search what's installed",
+        SearchModrinth = "Search Modrinth",
+        SearchCurseForge = "Search CurseForge",
+        /// Below what's installed, with buttons that switch to a platform's view.
+        LookingForMore = "Looking for something new?",
+        BrowseModrinth = "Browse Modrinth",
+        BrowseCurseForge = "Browse CurseForge",
+        /// The button that scrolls the list back to its top.
+        BackToTop = "Back to top",
+        /// In place of Install on a search result the instance already has.
+        AlreadyInstalled = "Installed",
+        /// The filter beside a platform's view that keeps installed results listed.
+        ShowInstalled = "Show installed",
         /// Headings over the list, with how many rows follow.
         InstalledCount = "Installed · {count}",
         /// Resource packs in use; the top one wins where they overlap.
         EnabledCount = "Enabled · {count} · the top pack wins where packs overlap",
         AvailableCount = "Available · {count}",
-        /// The heading of the Modrinth results below the installed ones.
-        OnModrinthCount = "On Modrinth · {count}",
-        OnModrinth = "On Modrinth",
-        /// The heading over CurseForge's results in the list.
-        OnCurseForgeCount = "On CurseForge · {count}",
-        OnCurseForge = "On CurseForge",
         /// Nothing installed matches the search; {kind} is "mods", "resource packs" or
         /// "shaders".
         NoInstalledMatch = "Installed · {count} · No installed {kind} match.",
@@ -70,6 +79,7 @@ crate::i18n::messages! {
 
         /// {kind} is Modrinth's word for the project's type: "modpack", "plugin".
         LinkNotInstallable = "That link is a {kind}, which Lodestone Launcher doesn't install yet.",
+        LinkIsDataPack = "That link is a data pack. Data packs belong to a world: add it from the world's Data packs in the Worlds tab.",
 
         // The installed list.
         CheckForUpdates = "Check for updates",
@@ -99,17 +109,18 @@ crate::i18n::messages! {
         // A vanilla instance: content that needs a mod loader.
         ModsNeedLoader = "Mods need a mod loader",
         ShadersNeedLoader = "Shaders need a mod loader",
-        /// {loader} is Fabric or Forge.
-        VanillaSwitchMods = "This instance is vanilla Minecraft. Mods run through a mod loader such as {loader}; switching keeps your worlds and settings, and {loader} installs the next time you press Play.",
-        VanillaSwitchShaders = "This instance is vanilla Minecraft. Shaders run through a mod loader such as {loader}; switching keeps your worlds and settings, and {loader} installs the next time you press Play.",
         VanillaNoLoaderMods = "This instance is vanilla Minecraft {version}. Mods need a mod loader, and none that Lodestone Launcher supports runs on this version: Fabric starts at 1.14, and Forge has no build for it. A new instance on a newer version can use them.",
         VanillaNoLoaderShaders = "This instance is vanilla Minecraft {version}. Shaders need a mod loader, and none that Lodestone Launcher supports runs on this version: Fabric starts at 1.14, and Forge has no build for it. A new instance on a newer version can use them.",
         VanillaCheckFailedMods = "This instance is vanilla Minecraft. Mods need a mod loader, but checking which one fits didn't work: {error}",
         VanillaCheckFailedShaders = "This instance is vanilla Minecraft. Shaders need a mod loader, but checking which one fits didn't work: {error}",
         VanillaCheckingMods = "This instance is vanilla Minecraft. Mods run through a mod loader; checking which one runs on Minecraft {version}…",
         VanillaCheckingShaders = "This instance is vanilla Minecraft. Shaders run through a mod loader; checking which one runs on Minecraft {version}…",
-        SwitchTo = "Switch to {loader}",
         NewFabricInstance = "New Fabric instance…",
+        /// {loader} is Fabric or Forge.
+        VanillaCopyMods = "This instance is vanilla Minecraft. Mods run through a mod loader such as {loader}, and an instance keeps the loader it was made with. A copy with {loader} can take your worlds and settings along.",
+        VanillaCopyShaders = "This instance is vanilla Minecraft. Shaders run through a mod loader such as {loader}, and an instance keeps the loader it was made with. A copy with {loader} can take your worlds and settings along.",
+        /// Opens "Copy with another version or loader" with the loader chosen.
+        CopyWith = "Copy with {loader}…",
 
         // The Shaders section's shader mod card. {shader_mod} is Iris, Oculus or OptiFine.
         ShaderModUsingPack = "{shader_mod} is using {pack}.",
@@ -140,12 +151,79 @@ crate::i18n::messages! {
         SortUpdated = "Updated",
         SearchingModrinth = "Searching Modrinth",
         NothingMatches = "Nothing on Modrinth matches.",
-        /// The Modrinth section before anything is typed in the search box.
-        ModrinthPromptMods = "Search above to find mods on Modrinth.",
-        ModrinthPromptResourcePacks = "Search above to find resource packs on Modrinth.",
-        ModrinthPromptShaderPacks = "Search above to find shader packs on Modrinth.",
-        /// {target} is the instance's version and loader: "26.3 / Fabric".
-        ModrinthPromptTarget = "Results that work with {target} show here.",
+        /// The Filters button beside the sort; {count} is how many are picked.
+        Filters = "Filters",
+        FiltersCount = "Filters · {count}",
+        /// The filter panel's headings.
+        FilterCategories = "Categories",
+        FilterFeatures = "Features",
+        FilterResolution = "Resolution",
+        FilterPerformance = "Performance impact",
+        FilterEnvironment = "Where it's installed",
+        /// Where a mod has to be installed.
+        EnvAny = "Any",
+        EnvClientOnly = "Client only",
+        EnvServerToo = "Needs the server too",
+        FilterEnvironmentHint = "Client-only mods work on any server; the others must be on the server as well.",
+        FilterOther = "Other",
+        FilterOpenSource = "Open source only",
+        ClearFilters = "Clear filters",
+        FiltersModrinthOnly = "These filters apply to Modrinth's results.",
+        /// Modrinth's categories, features, resolutions and performance impacts.
+        CatAdventure = "Adventure",
+        CatCursed = "Cursed",
+        CatDecoration = "Decoration",
+        CatEconomy = "Economy",
+        CatEquipment = "Equipment",
+        CatFood = "Food",
+        CatGameMechanics = "Game mechanics",
+        CatLibrary = "Library",
+        CatMagic = "Magic",
+        CatManagement = "Management",
+        CatMinigame = "Minigame",
+        CatMobs = "Mobs",
+        CatOptimization = "Optimization",
+        CatSocial = "Social",
+        CatStorage = "Storage",
+        CatTechnology = "Technology",
+        CatTransportation = "Transportation",
+        CatUtility = "Utility",
+        CatWorldGen = "World generation",
+        CatCombat = "Combat",
+        CatModded = "Modded",
+        CatRealistic = "Realistic",
+        CatSimplistic = "Simplistic",
+        CatThemed = "Themed",
+        CatTweaks = "Tweaks",
+        CatVanillaLike = "Vanilla-like",
+        CatAudio = "Audio",
+        CatBlocks = "Blocks",
+        CatCoreShaders = "Core shaders",
+        CatEntities = "Entities",
+        CatEnvironment = "Environment",
+        CatFonts = "Fonts",
+        CatGui = "GUI",
+        CatItems = "Items",
+        CatLocale = "Locale",
+        CatModels = "Models",
+        CatResolutionLow = "8x or lower",
+        CatResolutionHigh = "512x or higher",
+        CatCartoon = "Cartoon",
+        CatFantasy = "Fantasy",
+        CatSemiRealistic = "Semi-realistic",
+        CatAtmosphere = "Atmosphere",
+        CatBloom = "Bloom",
+        CatColoredLighting = "Colored lighting",
+        CatFoliage = "Foliage",
+        CatPathTracing = "Path tracing",
+        CatPbr = "PBR",
+        CatReflections = "Reflections",
+        CatShadows = "Shadows",
+        CatPotato = "Potato",
+        CatLow = "Low",
+        CatMedium = "Medium",
+        CatHigh = "High",
+        CatScreenshot = "Screenshot",
         NothingOnCurseForge = "Nothing on CurseForge matches.",
         PageOf = "Page {page} of {pages}",
         /// A project's author.
@@ -164,6 +242,16 @@ crate::i18n::messages! {
         ViewOnModrinth = "View on Modrinth",
         Versions = "Versions",
         Description = "Description",
+        Gallery = "Gallery",
+        /// The panel beside the list that shows a project's page.
+        ProjectPage = "Project page",
+        Files = "Files",
+        ClosePage = "Close the page",
+        /// The info button on an installed file's row: opens its page beside the list.
+        ShowPageOf = "Show the page for {name}",
+        LoadingDescription = "Loading the description",
+        NoDescription = "This project has no description.",
+        RestOnCurseForge = "The rest of the description is on CurseForge.",
         LoadingVersions = "Loading versions",
         ShowAllVersions = "Show versions for other loaders and Minecraft versions",
         AlsoInstallDependencies = "Also install required dependencies",
@@ -212,6 +300,21 @@ crate::i18n::messages! {
         CouldntAddDownload = "Couldn't add {name}: {error}",
         /// {names} is the list of files the user downloaded.
         AddedDownloads = "Added {names}.",
+        /// Turning off a mod other enabled mods need: "Turn off Fabric API?"
+        DisableModTitle = "Turn off {name}?",
+        DisableModOnlyWarning = "With only {name} off, the game won't start until they're off too or {name} is back on.",
+        DisableModAll = "Turn them all off",
+        DisableModOnly = "Only {name}",
+        /// Turning on a mod that needs mods that are off: "Turn on Sodium?"
+        EnableModTitle = "Turn on {name}?",
+        EnableModOnlyWarning = "With only {name} on, the game won't start until they're on too or {name} is off again.",
+        EnableModAll = "Turn them all on",
+        EnableModOnly = "Only {name}",
+
+        /// Next to "Browse Modrinth" on the Mods tab: add a modpack's mods.
+        AddModpackContent = "Add a modpack",
+        /// After an update: the worlds weren't copied before it.
+        NoSnapshotFirst = "No snapshot was taken first, so take one in Settings › Snapshots before you play.\n{error}",
     }
 
     pub enum ContentPlural {
@@ -219,5 +322,9 @@ crate::i18n::messages! {
         Follows = ("{count} follow", "{count} follows"),
         Followers = ("{count} follower", "{count} followers"),
         MoreVersions = ("{count} more version is on Modrinth.", "{count} more versions are on Modrinth."),
+        /// Over the list of mods that need the one being turned off.
+        NeededBy = ("{count} mod needs {name} and won't load without it:", "{count} mods need {name} and won't load without it:"),
+        /// Over the list of mods that are off that the one being turned on needs.
+        Needs = ("{name} needs {count} mod that is off:", "{name} needs {count} mods that are off:"),
     }
 }

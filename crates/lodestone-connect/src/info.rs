@@ -8,10 +8,19 @@
 //!   instance list shows it (no address: the friend plays through the tunnel).
 //! - `GET /api/v1/public/instances/<uuid>/client-pack`: its client modpack (Fabric
 //!   servers with mods), with `ETag` and `If-None-Match` as the core does it.
+//! - `GET /api/v1/public/instances/<uuid>/image?side=client[&have=…]`: the client view of
+//!   its current content image, or a delta to it (204 when the player is in step).
+//! - `GET` and `HEAD /api/v1/public/instances/<uuid>/objects/<sha256>`: a file only the
+//!   server has that the current client view names, whole or one byte range (`Range`).
 //!
-//! Nothing else answers. So a launcher can point its core client at a local port that
-//! forwards info streams (`Joined::forward`) and fetch the client pack as it does from a
-//! core whose servers are listed publicly.
+//! The core's `docs/instance-images.md` ("Server to player") says what these two answer.
+//! Nothing else answers, and nothing takes a request body. So a launcher can point its core
+//! client at a local port that forwards info streams (`Joined::forward`) and fetch the
+//! client pack, the view and the objects as it does from a core whose servers are listed
+//! publicly. [`get`] reads at most 256 KiB of an answer and stops there, and the image
+//! and object routes can answer more (an object is a whole file; a big pack's client view
+//! or a delta to it passes 256 KiB too): read those through the forwarded port with a
+//! client that streams, and use [`get`] only for the info and the instance list.
 
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
@@ -52,6 +61,11 @@ pub struct SharedServer {
     pub player_count: Option<u32>,
     #[serde(default)]
     pub max_player_count: Option<u32>,
+    /// Whether players need a Microsoft account to join, when known. A LAN world (a
+    /// friend's Launcher, launcher/docs/friends.md) is in online mode when its host
+    /// plays with a Microsoft account.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub online_mode: Option<bool>,
 }
 
 /// An HTTP/1.1 answer's status and body (de-chunked). `None` if it isn't one.

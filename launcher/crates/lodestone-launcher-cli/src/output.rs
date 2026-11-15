@@ -1,6 +1,6 @@
 //! Printing: JSON for programs, text for people.
 
-use std::io::Write as _;
+use std::io::{self, Write};
 
 use launcher_control::ErrorObject;
 use serde_json::{Value, json};
@@ -24,14 +24,83 @@ pub fn result(mode: Mode, value: &Value) {
     };
 }
 
-/// One line of a stream (log rows, events), on stdout.
-pub fn line(mode: Mode, value: &Value) {
-    let mut out = std::io::stdout().lock();
-    let _ = match mode {
-        Mode::Json => writeln!(out, "{value}"),
-        Mode::Human => writeln!(out, "{}", human_line(value)),
-    };
-    let _ = out.flush();
+/// `content.history` for people: one line per image, newest first.
+pub fn history(value: &Value) {
+    let _ = write!(std::io::stdout().lock(), "{}", history_text(value));
+}
+
+/// See [`history`]: `2026-11-14 10:02  Added JEI  (42 files, fabric 0.16.10 on 1.21.1)
+/// current`. Labels come from images other computers may have made: the Launcher sends
+/// them with control and invisible characters written visibly (`label_shown`,
+/// `game_shown`).
+pub fn history_text(value: &Value) -> String {
+    let images = value["images"].as_array().cloned().unwrap_or_default();
+    if images.is_empty() {
+        return "No content images yet.\n".into();
+    }
+    let mut text = String::new();
+    for image in &images {
+        let s = |key: &str| image[key].as_str().unwrap_or_default();
+        let label = s("label_shown").to_string();
+        let label = if label.is_empty() {
+            "(no label)".into()
+        } else {
+            label
+        };
+        let files = image["files"].as_u64().unwrap_or(0);
+        text.push_str(&format!(
+            "{}  {label}  ({files} {}, {})",
+            utc_minute(image["created"].as_i64().unwrap_or(0)),
+            if files == 1 { "file" } else { "files" },
+            s("game_shown"),
+        ));
+        if image["current"].as_bool() == Some(true) {
+            text.push_str("  current");
+        }
+        text.push('\n');
+    }
+    text
+}
+
+/// Unix seconds as `YYYY-MM-DD HH:MM` in UTC.
+fn utc_minute(seconds: i64) -> String {
+    let days = seconds.div_euclid(86_400);
+    let minute = seconds.rem_euclid(86_400) / 60;
+    // Howard Hinnant's days-to-civil.
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!(
+        "{year:04}-{month:02}-{day:02} {:02}:{:02}",
+        minute / 60,
+        minute % 60
+    )
+}
+
+/// One line of a stream (log rows, events), on stdout. Fails once stdout is gone,
+/// such as when `head` read what it wanted and exited: Rust ignores SIGPIPE, so the
+/// stream has to stop on the error or it would never end.
+pub fn line(mode: Mode, value: &Value) -> io::Result<()> {
+    match mode {
+        Mode::Json => text_line(&value.to_string()),
+        Mode::Human => text_line(&human_line(value)),
+    }
+}
+
+/// A line of text of a stream, on stdout; fails like [`line`].
+pub fn text_line(text: &str) -> io::Result<()> {
+    write_line(&mut std::io::stdout().lock(), text)
+}
+
+fn write_line(out: &mut impl Write, text: &str) -> io::Result<()> {
+    writeln!(out, "{text}")?;
+    out.flush()
 }
 
 /// An error, on stderr.
@@ -203,6 +272,28 @@ pub fn trace_line(event: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A pipe whose reader went away.
+    struct Closed;
+
+    impl Write for Closed {
+        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+            Err(io::ErrorKind::BrokenPipe.into())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Err(io::ErrorKind::BrokenPipe.into())
+        }
+    }
+
+    #[test]
+    fn stream_lines_say_when_stdout_is_gone() {
+        let mut out = Vec::new();
+        write_line(&mut out, "one").unwrap();
+        assert_eq!(out, b"one\n");
+        let err = write_line(&mut Closed, "two").unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::BrokenPipe);
+    }
 
     #[test]
     fn trace_lines_read_well() {

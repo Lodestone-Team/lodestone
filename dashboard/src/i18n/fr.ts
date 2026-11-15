@@ -22,7 +22,6 @@
 //   upload / download                importer / télécharger
 //   mod / modpack                    mod / modpack
 //   resource pack                    pack de ressources
-//   macro                            macro (f.)
 //   player / world                   joueur / monde
 //   port / address                   port / adresse
 //   memory (RAM)                     mémoire
@@ -222,17 +221,11 @@ export const fr: Messages = {
   'shell.event.playersLeft': '{players} a quitté {name}',
   'shell.event.playersJoinedAndLeft':
     '{joined} a rejoint {name} et {left} a quitté {name}',
+  'shell.event.modpackUpdate': '{pack} {version} est disponible pour {name}',
   'shell.event.playerMessage': '{player} a dit {message} sur {name}',
   'shell.event.apiKeyCreated': 'Clé d’API « {name} » créée',
   'shell.event.apiKeyRevoked': 'Clé d’API « {name} » révoquée',
-  'shell.event.macroStarted': 'Macro {pid} démarrée sur {server}',
-  'shell.event.macroDetached': 'Macro {pid} détachée sur {server}',
-  'shell.event.macroStopped':
-    'Macro {pid} arrêtée sur {server} avec l’état {status}',
   'shell.event.loadFailed': 'Impossible de charger les notifications : {error}',
-
-  'shell.noScripting':
-    'Ce core a été compilé sans prise en charge des scripts (Deno) : les macros ne sont pas disponibles.',
 
   'shell.userMenu.guest': 'Invité',
   'shell.userMenu.account': 'Compte : {name}',
@@ -279,6 +272,11 @@ export const fr: Messages = {
   'shell.login.passwordRequired': 'Le mot de passe est obligatoire',
   'shell.login.changeCore': 'Changer de core',
   'shell.login.signIn': 'Se connecter',
+  'common.localOnly':
+    'Ce core n’autorise que les applications de son propre ordinateur. Ouvrez Lodestone Host sur cet ordinateur pour le gérer, ou configurez-y un compte propriétaire (Paramètres › Général › Autoriser l’accès depuis d’autres appareils) pour utiliser le tableau de bord.',
+  'shell.localOnly.title': 'Ce core n’autorise que son propre ordinateur',
+  'shell.login.localOnly':
+    'Ce core n’autorise que les applications de cet ordinateur. Ouvrez Lodestone Host pour le gérer, ou définissez-y un mot de passe propriétaire (Paramètres › Général › Autoriser l’accès depuis d’autres appareils) pour utiliser le tableau de bord.',
 
   'shell.login.withApiKey': 'Se connecter avec une clé d’API',
   'shell.login.withPassword':
@@ -392,6 +390,10 @@ export const fr: Messages = {
     'Le domaine ne peut pas dépasser {max} caractères',
   'settings.core.domain.tooltip':
     'C’est votre IP publique si vous avez configuré une redirection de port. Sinon, laissez tel quel.',
+  'settings.core.modpackChecks.label':
+    'Rechercher les mises à jour des modpacks',
+  'settings.core.modpackChecks.hint':
+    'Toutes les quelques heures, chercher sur Modrinth de nouvelles versions des modpacks dont les serveurs sont issus, et le signaler. « Rechercher une mise à jour » dans l’onglet Mods d’un serveur fonctionne toujours quand c’est désactivé.',
   'settings.core.listPublicly.label': 'Lister les serveurs publiquement',
   'settings.core.listPublicly.hint':
     'Toute personne qui peut joindre ce core voit les serveurs que vous rendez publics ci-dessous.',
@@ -407,15 +409,11 @@ export const fr: Messages = {
     'Voulez-vous vraiment désactiver le mode sécurisé ? Vous pourrez alors permettre à d’autres utilisateurs que vous d’exécuter des commandes potentiellement dangereuses. Assurez-vous de faire confiance à tous les utilisateurs à qui vous donnez ces autorisations.',
   'settings.core.turnOff': 'Désactiver',
   'settings.core.codeExecution.label': 'Exécution de code',
-  'settings.core.codeExecution.hint':
-    'Macros, serveurs atom, extensions, scripts de serveur et commandes Java personnalisées.',
-  'settings.core.codeExecution.hintJavaOnly': 'Commandes Java personnalisées.',
+  'settings.core.codeExecution.hint': 'Commandes Java personnalisées.',
   'settings.core.codeExecution.locked':
     'Verrouillé par l’administrateur de ce core (LODESTONE_DISABLE_CODE_EXECUTION ou --disable-code-execution).',
   'settings.core.codeExecution.offTitle': 'Désactiver l’exécution de code ?',
   'settings.core.codeExecution.offBody':
-    'Les macros et serveurs atom en cours seront arrêtés. Les macros, serveurs atom, extensions, scripts de serveur et commandes Java personnalisées ne s’exécuteront plus sur ce core tant que vous n’aurez pas réactivé l’exécution de code. Rien n’est redémarré automatiquement.',
-  'settings.core.codeExecution.offBodyJavaOnly':
     'Les commandes Java personnalisées ne s’exécuteront plus sur ce core tant que vous n’aurez pas réactivé l’exécution de code. Rien n’est redémarré automatiquement.',
   'settings.core.lanHttp.label': 'Autoriser l’accès LAN en HTTP simple',
   'settings.core.lanHttp.hint':
@@ -472,9 +470,6 @@ export const fr: Messages = {
   'settings.users.unsafePermissions': 'Autorisations à risque',
   'settings.users.unsafePermissionsLead':
     'Désactivez le mode sécurisé pour les accorder à d’autres utilisateurs.',
-  'settings.users.ownerOnly': 'Macros, extensions et serveurs atom',
-  'settings.users.ownerOnlyHint':
-    'Réservé au propriétaire. Les serveurs Docker utilisent les autorisations habituelles.',
 
   'settings.permission.can_create_instance.title': 'Créer des serveurs',
   'settings.permission.can_create_instance.user':
@@ -661,9 +656,6 @@ export const fr: Messages = {
   'settings.apiKeys.unsafe': 'Paramètres à risque',
   'settings.apiKeys.unsafeSafeMode':
     'Le mode sécurisé est activé : le core refuse donc ces autorisations aux clés à accès personnalisé tant que le mode sécurisé n’est pas désactivé dans les paramètres du core.',
-  'settings.apiKeys.ownerOnly': 'Macros, extensions et serveurs atom',
-  'settings.apiKeys.ownerOnlyHint':
-    'Seules les clés à accès complet peuvent utiliser les macros, les extensions et les serveurs atom.',
   'settings.apiKeys.newTitle': 'Clé d’API « {name} » créée',
   'settings.apiKeys.newCopyNow':
     'Copiez cette clé maintenant. Vous ne pourrez plus la voir.',
@@ -683,7 +675,6 @@ export const fr: Messages = {
   'server.tab.console': 'Console',
   'server.tab.files': 'Fichiers',
   'server.tab.mods': 'Mods',
-  'server.tab.macros': 'Macros',
   'server.tab.logs': 'Journal d’événements',
 
   // InstanceTabs
@@ -773,12 +764,12 @@ export const fr: Messages = {
   'server.settingField.unknownType': 'Erreur d’envoi : type de valeur inconnu.',
 
   // PublicListingSetting
-  'server.share.title': 'Partager avec des amis',
+  'server.share.title': 'Partager',
   'server.share.lead':
-    'Vos amis rejoignent depuis Lodestone Launcher avec un lien',
+    'Les personnes ayant le lien rejoignent depuis Lodestone Launcher',
   'server.share.off':
-    "Envoyez un lien à vos amis. Ils l'ouvrent dans Lodestone Launcher, et leur jeu se connecte directement à cet ordinateur. Aucune redirection de port nécessaire.",
-  'server.share.start': 'Partager avec des amis',
+    "Envoyez un lien à qui vous voulez. Ces personnes l'ouvrent dans Lodestone Launcher, et leur jeu se connecte directement à cet ordinateur. Aucune redirection de port nécessaire.",
+  'server.share.start': 'Partager',
   'server.share.state.starting': 'Démarrage…',
   'server.share.state.sharing': 'Partagé',
   'server.share.state.reconnecting': 'Reconnexion…',
@@ -789,19 +780,19 @@ export const fr: Messages = {
   'server.share.copyFailed':
     'Impossible de copier. Sélectionnez le lien et copiez-le.',
   'server.share.preparing': 'Création du lien…',
-  'server.share.howFriendsJoin':
-    "Toute personne ayant le lien peut rejoindre ce serveur pendant qu'il tourne. Les amis sans Lodestone Launcher reçoivent un lien de téléchargement.",
+  'server.share.howToJoin':
+    "Toute personne ayant le lien peut rejoindre ce serveur pendant qu'il tourne. Les personnes sans Lodestone Launcher reçoivent un lien de téléchargement.",
   'server.share.hardNetwork':
-    'Le routeur de ce réseau rend les connexions directes difficiles. Certains amis ne pourront peut-être pas rejoindre.',
+    'Le routeur de ce réseau rend les connexions directes difficiles. Certaines personnes ne pourront peut-être pas rejoindre.',
   'server.share.connected': {
-    one: '{count} ami connecté',
-    other: '{count} amis connectés',
+    one: '{count} personne connectée',
+    other: '{count} personnes connectées',
   },
   'server.share.joins': {
     one: '({count} connexion jusqu’ici)',
     other: '({count} connexions jusqu’ici)',
   },
-  'server.share.friendLine': 'via {connection}, {ms} ms',
+  'server.share.peerLine': 'via {connection}, {ms} ms',
   'server.share.connection.same_computer': 'cet ordinateur',
   'server.share.connection.local_network': 'le réseau local',
   'server.share.connection.ipv6': 'IPv6',
@@ -809,7 +800,7 @@ export const fr: Messages = {
   'server.share.stop': 'Arrêter le partage',
   'server.share.stopTitle': 'Arrêter le partage ?',
   'server.share.stopBody':
-    'Les amis en train de jouer sont déconnectés et le lien ne fonctionne plus. Partager à nouveau crée un nouveau lien.',
+    'Les personnes qui jouent via le lien sont déconnectées et le lien ne fonctionne plus. Partager à nouveau crée un nouveau lien.',
   'server.publicListing.title': 'Partage',
   'server.publicListing.lead': 'Qui peut trouver ce serveur sans se connecter.',
   'server.publicListing.listedPublicly': 'Listé publiquement',
@@ -862,11 +853,9 @@ export const fr: Messages = {
   'server.action.restart': 'Redémarrer',
   'server.action.kill': 'Forcer l’arrêt',
   'server.card.power': 'Alimentation',
-  'server.card.noScripting':
-    'Ce core a été compilé sans prise en charge des scripts (Deno) : les serveurs atom ne sont pas disponibles.',
-  'server.card.codeExecutionDisabled':
-    'L’exécution de code est désactivée sur ce core',
   'server.card.copyIp': 'Copier l’IP',
+  'server.card.share': 'Partager',
+  'server.card.shareHint': 'Partager ce serveur avec un lien',
   'server.card.online': '{players}/{max} en ligne',
 
   // InstanceCard : démarrer un serveur dont le CLUF de Minecraft n’est pas accepté
@@ -911,7 +900,7 @@ export const fr: Messages = {
   'server.api.loginFailed': 'Échec de la connexion : {message}',
   'server.api.loginError': 'Erreur : {message}',
 
-  // ===== Console and macros =====
+  // ===== Console =====
 
   // GameConsole: a server's console tab
   'console.pageTitle': 'Console du serveur',
@@ -944,57 +933,11 @@ export const fr: Messages = {
   'console.line.linkedUser':
     'L’utilisateur Lodestone qui a associé ce compte Minecraft',
 
-  // CodeExecution: owner-only features and the code execution switch
-  'console.ownerOnlyAtom':
-    'Seul le propriétaire peut contrôler les serveurs atom',
-  'console.ownerOnlyAtomSentence':
-    'Seul le propriétaire peut contrôler les serveurs atom.',
+  // CodeExecution: the custom Java command settings and the code execution switch
   'console.commandLine.readOnly':
     'Lecture seule tant que l’exécution de code est désactivée sur ce core.',
   'console.commandLine.ownerOnly':
     'Seul le propriétaire peut modifier ce paramètre.',
-
-  // Macros page
-  'console.macros.pageTitle': 'Macros du serveur',
-  'console.macros.intro': 'Toutes les macros de votre serveur',
-  'console.macros.ownerOnly':
-    'Les macros sont réservées au propriétaire de ce core.',
-  'console.macros.codeExecutionDisabledBanner':
-    'L’exécution de code est désactivée sur ce core. Les macros ne peuvent pas être exécutées ni configurées tant qu’elle n’est pas réactivée dans les paramètres du core.',
-  'console.macros.codeExecutionDisabled':
-    'L’exécution de code est désactivée sur ce core',
-  'console.macros.tab.macros': 'Toutes les macros',
-  'console.macros.tab.tasks': 'Tâches en cours',
-  'console.macros.tab.history': 'Historique',
-  'console.macros.column.name': 'NOM DE LA MACRO',
-  'console.macros.column.lastRun': 'DERNIÈRE EXÉCUTION',
-  'console.macros.column.created': 'CRÉÉE',
-  'console.macros.column.finished': 'TERMINÉE',
-  'console.macros.column.pid': 'ID DE PROCESSUS',
-  'console.macros.noTime': 'N/D',
-  'console.macros.run': 'Exécuter la macro',
-  'console.macros.editConfig': 'Modifier la configuration',
-  'console.macros.killTask': 'Forcer l’arrêt de la tâche',
-  'console.macros.configTitle': 'Configuration de la macro',
-  'console.macros.configRequired':
-    'Cette macro nécessite une configuration supplémentaire.',
-  'console.macros.noServer': 'Aucun serveur sélectionné',
-  'console.macros.loadFailed': 'Impossible de charger les macros : {error}',
-  'console.macros.openConfigFailed':
-    'Erreur à l’ouverture de la configuration de la macro : {error}',
-  'console.macros.runFailed':
-    'Erreur lors de l’exécution de la macro : {error}',
-  'console.macros.killFailed':
-    'Impossible de forcer l’arrêt de la tâche : {error}',
-  'console.macros.saveConfigFailed':
-    'Impossible d’enregistrer la configuration de la macro : {error}',
-  'console.macros.invalidState': 'Erreur : état non valide',
-
-  // MacroCreateForm (not used yet)
-  'console.macros.create.name': 'Nom de la macro',
-  'console.macros.create.args': 'Arguments',
-  'console.macros.create.submit': 'Créer la macro',
-  'console.macros.create.nameRequired': 'Le nom de la macro est obligatoire',
 
   // ===== Creating a server =====
 
@@ -1065,7 +1008,7 @@ export const fr: Messages = {
   'create.gameType.new': 'Nouveau',
   'create.gameType.modpack': 'Modpack Modrinth',
   'create.gameType.modpackDescription':
-    'Créer un serveur Fabric à partir d’un modpack Modrinth',
+    'Créer un serveur Fabric, Forge ou NeoForge à partir d’un modpack Modrinth',
 
   // GameTypeMappings: games' titles and descriptions
   'create.game.genericTitle': '{name} (générique)',
@@ -1073,6 +1016,8 @@ export const fr: Messages = {
     'Serveur Minecraft vanilla standard de Mojang.',
   'create.game.forgeDescription':
     'Framework de modding pour installer des mods et personnaliser votre expérience Minecraft.',
+  'create.game.neoforgeDescription':
+    'Fork communautaire de Forge, avec ses propres mods, pour Minecraft 1.20.2 et versions ultérieures.',
   'create.game.fabricDescription':
     'Chaîne d’outils de modding légère pour Minecraft.',
   'create.game.paperDescription':
@@ -1089,7 +1034,7 @@ export const fr: Messages = {
   // ModpackCreateForm: creating a server from a Modrinth modpack
   'create.modpack.sourceTitle': 'Choisissez un modpack',
   'create.modpack.sourceDescription':
-    'Recherchez sur Modrinth, collez un lien Modrinth ou importez un fichier .mrpack. Seuls les modpacks Fabric sont pris en charge.',
+    'Recherchez sur Modrinth, collez un lien Modrinth ou importez un fichier .mrpack. Les modpacks Fabric, Forge et NeoForge sont pris en charge.',
   'create.modpack.searchPlaceholder':
     'Rechercher des modpacks ou coller un lien Modrinth',
   'create.modpack.onlyFabric': 'Afficher uniquement les modpacks Fabric',
@@ -1234,6 +1179,7 @@ export const fr: Messages = {
   'files.createFolder.label': 'Nommez votre dossier',
   'files.createFolder.placeholder': 'Dossier sans titre',
   'files.createFolder.submit': 'Créer le dossier',
+  'files.nameTaken': '{name} existe déjà dans ce dossier',
   'files.rename.label': 'Nommez votre fichier',
   'files.rename.submit': 'Renommer le fichier',
 
@@ -1277,6 +1223,22 @@ export const fr: Messages = {
     'Modrinth n’indique pas si les joueurs en ont besoin ; consultez la page du mod',
   'mods.clientRequirement.unknownNotOnModrinth':
     'Absent de Modrinth ; consultez la page du mod',
+  'mods.clientRequirement.unknownModrinthMark':
+    'Modrinth n’indique pas si les joueurs en ont besoin. Consultez la page du mod, et cochez Pour les joueurs si c’est le cas.',
+  'mods.clientRequirement.unknownNotOnModrinthMark':
+    'Absent de Modrinth. Consultez la page du mod, et cochez Pour les joueurs si les joueurs en ont besoin.',
+  'mods.forPlayers.label': 'Pour les joueurs',
+  'mods.forPlayers.hint':
+    'Les joueurs reçoivent ce mod, et les mods dont il a besoin, en rejoignant. Cochez-le pour les mods dont les joueurs ont besoin sans que Lodestone puisse le savoir, comme ceux que vous avez téléversés.',
+  'mods.forPlayers.already':
+    'Les joueurs reçoivent déjà ce mod : Modrinth ou le mod indique qu’ils en ont besoin.',
+  'mods.forPlayers.optional':
+    'Modrinth indique que les joueurs peuvent rejoindre sans ce mod, mais sur Fabric, les mods de ce genre les en empêchent souvent : les joueurs le reçoivent donc. Décochez-le pour le retirer.',
+  'mods.forPlayers.marked':
+    'Les joueurs recevront {name} la prochaine fois qu’ils rejoindront',
+  'mods.forPlayers.unmarked':
+    'Les joueurs ne reçoivent plus {name} en rejoignant',
+  'mods.forPlayers.failed': 'Impossible de modifier {name} : {error}',
   'mods.versionType.release': 'stable',
   'mods.versionType.beta': 'bêta',
   'mods.versionType.alpha': 'alpha',
@@ -1357,6 +1319,68 @@ export const fr: Messages = {
   'mods.installed.empty.plugin':
     'Aucun plugin installé pour l’instant. Parcourez Modrinth ou importez un fichier .jar.',
 
+  'mods.modpack.from': 'Ce serveur utilise le modpack {pack}.',
+  'mods.modpack.check': 'Rechercher une mise à jour',
+  'mods.modpack.checkFailed':
+    'Impossible de rechercher une mise à jour : {error}',
+  'mods.modpack.upToDate': 'C’est la version la plus récente.',
+  'mods.modpack.whatsNew': 'Nouveautés',
+  'mods.modpack.out': '{version} est disponible',
+  'mods.modpack.updateTo': 'Mettre à jour vers {version}',
+  'mods.modpack.fromFile': 'Mettre à jour depuis un fichier',
+  'mods.modpack.notMrpack': '{name} n’est pas un fichier .mrpack.',
+  'mods.modpack.planFailed': 'Impossible de préparer la mise à jour : {error}',
+  'mods.modpack.history': 'Historique',
+  'mods.modpack.historyFailed':
+    'Impossible de charger l’historique du modpack : {error}',
+  'mods.modpack.historyEmpty':
+    'Rien n’est encore enregistré. Les prochaines modifications pourront être annulées.',
+  'mods.modpack.current': 'Actuelle',
+  'mods.modpack.restore': 'Restaurer',
+  'mods.modpack.restoreMissing':
+    'Lodestone n’a plus certains fichiers de cette version.',
+  'mods.modpack.restoreTitle': 'Restaurer cette version ?',
+  'mods.modpack.updateTitle': 'Mettre à jour le modpack ?',
+  'mods.modpack.update': 'Mettre à jour',
+  'mods.modpack.restored': '« {change} » restauré.',
+  'mods.modpack.updated': '{pack} mis à jour vers {version}.',
+  'mods.modpack.restoreFailed':
+    'Impossible de restaurer cette version : {error}',
+  'mods.modpack.updateFailed':
+    'Impossible de mettre à jour le modpack : {error}',
+  'mods.modpack.since': 'depuis le {date}',
+  'mods.modpack.sinceTooltip':
+    'Ce fichier est tel qu’il était après « {change} ».',
+  'mods.modpack.unknownVersion': 'version inconnue',
+  'mods.modpack.dialog.intro': '{pack} passe de {from} à {to}.',
+  'mods.modpack.dialog.restoreIntro':
+    'Les mods et les configurations reviennent à leur état après « {change} ».',
+  'mods.modpack.dialog.reinstall':
+    'Le serveur passe à {software}, qui est réinstallé.',
+  'mods.modpack.dialog.kept':
+    'Les fichiers que vous avez modifiés restent tels quels : {files}',
+  'mods.modpack.dialog.nothing': 'Aucun fichier ne change.',
+  'mods.modpack.dialog.stop':
+    'Arrêtez d’abord le serveur : il ne peut pas être mis à jour pendant qu’il tourne.',
+  'mods.modpack.dialog.unsupported':
+    'Cette version ne peut pas être utilisée : {reason}',
+  'mods.modpack.added': {
+    one: '{count} fichier ajouté',
+    other: '{count} fichiers ajoutés',
+  },
+  'mods.modpack.replaced': {
+    one: '{count} fichier remplacé',
+    other: '{count} fichiers remplacés',
+  },
+  'mods.modpack.removed': {
+    one: '{count} fichier supprimé',
+    other: '{count} fichiers supprimés',
+  },
+  'mods.modpack.moreChanges': {
+    one: 'et {count} autre',
+    other: 'et {count} autres',
+  },
+
   // ClientPackPanel
   'mods.clientPack.loader': 'Fabric Loader {version}',
   'mods.clientPack.loaderNoVersion': 'Fabric Loader',
@@ -1367,6 +1391,11 @@ export const fr: Messages = {
     other: 'Les joueurs ont besoin de {count} mods pour se connecter',
   },
   'mods.clientPack.download': 'Télécharger le modpack client (.mrpack)',
+  'mods.clientPack.showAll': {
+    one: 'Afficher {count} mod',
+    other: 'Afficher les {count} mods',
+  },
+  'mods.clientPack.showFewer': 'Afficher moins',
   'mods.clientPack.downloadFailed':
     'Impossible de télécharger le modpack client : {error}',
   'mods.clientPack.importHint':

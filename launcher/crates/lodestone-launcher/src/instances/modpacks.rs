@@ -1,6 +1,7 @@
 //! Modpacks: importing a `.mrpack` (a file, or a version from Modrinth) or a CurseForge
 //! pack (a `.zip` with `manifest.json`, or a file from CurseForge) as a new instance in
-//! the background, and updating an instance to another version of its pack.
+//! the background, updating an instance to another version of its pack, and adding a
+//! pack's files to an instance that exists (one made for a server, say).
 //! The work is `launcher_core::modpack`'s; this keeps the jobs and their progress.
 
 use std::{path::PathBuf, sync::Arc, time::Duration};
@@ -14,10 +15,16 @@ use launcher_core::{
         install::InstallProgress,
         share::{self, ShareCode, ShareOutcome},
     },
-    game::{download::CancelToken, install::Installer, loaders::LoaderKind},
+    game::{
+        download::{CancelToken, ProgressSnapshot},
+        install::Installer,
+        loaders::LoaderKind,
+    },
+    images::{RiskyChange, labels},
     instances::{Instance, Loader},
     modpack::{
         self, CurseForgePack, ModpackError, ModpackRecord, PackInfo,
+        addon::{self, AddPlan, AddedPacks},
         import::{self, ImportOptions},
         update::{self, UpdatePlan},
     },
@@ -27,7 +34,7 @@ use lodestone_minecraft::{
     modrinth::{ModrinthProject, RawVersion},
 };
 
-use super::{Instances, InstancesEvent};
+use super::{About, Instances, InstancesEvent};
 use crate::i18n::{InstancesMsg as M, InstancesPlural as P, t, tr, trn};
 
 /// A modpack import's or update's progress label, in the interface's language.
@@ -43,6 +50,12 @@ pub fn progress_label(label: &str) -> String {
             M::SavingSnapshot,
         ),
         ("Reading the modpack", M::ReadingModpack),
+        ("Copying the worlds", M::CopyingWorlds),
+        (
+            "Copying the resource packs, shaders and options",
+            M::CopyingPacksAndOptions,
+        ),
+        ("Installing the mods", M::InstallingMods),
     ];
     if let Some((_, message)) = fixed.iter().find(|(english, _)| *english == label) {
         return t(*message).into();
@@ -65,13 +78,17 @@ pub fn progress_label(label: &str) -> String {
             return tr!(message, name = name);
         }
     }
+    if let Some(name) = label.strip_prefix("Adding ") {
+        return tr!(M::AddingName, name = name);
+    }
     if let Some(version) = label.strip_prefix("Updating to ") {
         return tr!(M::UpdatingTo, version = version);
     }
     label.to_string()
 }
 
-/// A pack being made into an instance.
+/// A pack being made into an instance (or an instance being copied with another version
+/// or loader, see `copy_as.rs`): a row in the sidebar until it ends.
 pub struct ImportJob {
     pub id: u64,
     pub name: SharedString,
@@ -80,11 +97,42 @@ pub struct ImportJob {
     _task: Task<()>,
 }
 
+impl ImportJob {
+    pub(super) fn new(
+        id: u64,
+        name: SharedString,
+        progress: Arc<InstallProgress>,
+        cancel: CancelToken,
+        task: Task<()>,
+    ) -> Self {
+        Self {
+            id,
+            name,
+            progress,
+            cancel,
+            _task: task,
+        }
+    }
+}
+
 /// An update of an instance's pack in progress.
 pub struct UpdateJob {
     pub progress: Arc<InstallProgress>,
     pub cancel: CancelToken,
-    _task: Task<()>,
+    pub(super) _task: Task<()>,
+}
+
+/// How a modpack update's background work ended.
+enum Started {
+    /// The snapshot first, then the update ran.
+    Applied(
+        Result<update::UpdateOutcome, ModpackError>,
+        launcher_core::images::Operation,
+    ),
+    /// Cancelled while the snapshot was taken: nothing changed.
+    Cancelled,
+    /// The snapshot first failed, so nothing changed (the pack stays for the prompt).
+    NoSnapshot(String),
 }
 
 /// An update that was planned and waits for the user to confirm it.
@@ -97,6 +145,64 @@ pub struct UpdatePrompt {
     /// The downloaded pack, removed when the prompt is answered.
     pub pack_path: PathBuf,
     pub pack: Arc<PackInfo>,
+    /// Why the snapshot before this update couldn't be taken, when the prompt is shown
+    /// again after it failed: the user may update without one.
+    pub snapshot_failed: Option<String>,
+    /// Update without taking a snapshot first (the user chose to, after one failed).
+    pub without_snapshot: bool,
+}
+
+/// A pack to add to an instance, picked in "Add a modpack".
+#[derive(Clone)]
+pub enum AddSource {
+    Modrinth(Box<(ModrinthProject, RawVersion)>),
+    CurseForge(Box<(CfMod, CfFile)>),
+    /// A `.mrpack`, or a CurseForge pack's `.zip`, on disk (kept afterwards).
+    File(PathBuf),
+}
+
+impl AddSource {
+    /// The record of the pack, without files.
+    fn record(&self) -> ModpackRecord {
+        match self {
+            AddSource::Modrinth(picked) => ModpackRecord::from_modrinth(&picked.0, &picked.1),
+            AddSource::CurseForge(picked) => curseforge_record(&picked.0, &picked.1),
+            // Filled in from Modrinth, or from the pack, once it is read.
+            AddSource::File(_) => ModpackRecord::default(),
+        }
+    }
+}
+
+/// What adding a pack to an instance will do, before it does it.
+#[derive(Clone)]
+pub struct AddPrompt {
+    pub instance_id: String,
+    pub instance_name: String,
+    /// The server the instance was made for, whose mods the pack can't replace.
+    pub server: Option<String>,
+    pub plan: Arc<AddPlan>,
+    pub pack_path: PathBuf,
+    /// The pack is the user's own file, not a download: it stays when done.
+    pub keep_pack: bool,
+    /// The pack's files only CurseForge's website serves, left out.
+    pub blocked: Vec<CfPlannedFile>,
+}
+
+/// The record of a CurseForge pack's `file`, without files.
+fn curseforge_record(project: &CfMod, file: &CfFile) -> ModpackRecord {
+    ModpackRecord {
+        title: project.name.clone(),
+        slug: project.slug.clone(),
+        version_number: file.display_name_or_file().to_string(),
+        date_published: file.file_date.clone(),
+        curseforge: Some(CurseForgePack {
+            project_id: project.id,
+            file_id: file.id,
+            file_date: file.file_date.clone(),
+            page_url: project.page_url(),
+        }),
+        ..ModpackRecord::default()
+    }
 }
 
 /// What comes before the import itself: where the pack is and where it came from.
@@ -187,7 +293,8 @@ impl Instances {
     }
 
     /// Imports `.mrpack` files and CurseForge packs (`.zip` files with `manifest.json`),
-    /// from "Import…" or a drop, and offers `.lodesnap` snapshots. Others are refused.
+    /// from "Import…" or a drop, and offers image files (`.lodeimg`, exported snapshots).
+    /// Others are refused.
     pub fn import_files(&mut self, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
         for path in paths {
             let extension = path
@@ -195,7 +302,7 @@ impl Instances {
                 .and_then(|e| e.to_str())
                 .map(str::to_ascii_lowercase)
                 .unwrap_or_default();
-            if extension == launcher_core::snapshots::EXTENSION {
+            if extension == launcher_core::images::export::EXTENSION {
                 cx.emit(InstancesEvent::ImportSnapshot(path));
                 continue;
             }
@@ -211,6 +318,7 @@ impl Instances {
                             .map_or_else(String::new, |n| n.to_string_lossy().into_owned())
                     )
                     .into(),
+                    about: About::Nothing,
                 });
                 continue;
             }
@@ -243,19 +351,7 @@ impl Instances {
         name: Option<String>,
         cx: &mut Context<Self>,
     ) {
-        let record = ModpackRecord {
-            title: project.name.clone(),
-            slug: project.slug.clone(),
-            version_number: file.display_name_or_file().to_string(),
-            date_published: file.file_date.clone(),
-            curseforge: Some(CurseForgePack {
-                project_id: project.id,
-                file_id: file.id,
-                file_date: file.file_date.clone(),
-                page_url: project.page_url(),
-            }),
-            ..ModpackRecord::default()
-        };
+        let record = curseforge_record(&project, &file);
         let title = name.clone().unwrap_or_else(|| project.name.clone());
         self.start_import(
             title,
@@ -302,7 +398,9 @@ impl Instances {
     /// background, like a modpack import (with its progress in the sidebar). Returns
     /// the new instance's id.
     /// Makes the empty instance a share code describes: its Minecraft version and
-    /// loader, named `name`, else the code's name, else "1.21.1 Fabric".
+    /// loader, named `name`, else the code's name, else "1.21.1 Fabric". Records nothing:
+    /// the caller records its first image (`labels::created`) before the code's content
+    /// installs, in the same task, so none of that content is in "Created".
     pub fn create_from_share_code(
         &mut self,
         code: &launcher_core::content::share::ShareCode,
@@ -321,7 +419,7 @@ impl Instances {
             .kind()
             .zip(code.loader_version.clone())
             .map(|(kind, version)| LoaderChoice { kind, version });
-        self.create(&name, &code.game_version, loader.as_ref(), cx)
+        self.create_unrecorded(&name, &code.game_version, loader.as_ref(), cx)
     }
 
     /// Makes an instance from a share code. A code based on a modpack is imported like
@@ -358,17 +456,22 @@ impl Instances {
         let instance = self.create_from_share_code(&code, name, cx)?;
         let id = instance.id.clone();
         let name = instance.name.clone();
+        let created = labels::created(&name);
         if code.items.is_empty() {
+            self.record_created(&id, created, cx);
             return Ok(Some(id));
         }
         let Some(api) = self.modrinth.clone() else {
+            self.record_created(&id, created, cx);
             cx.emit(InstancesEvent::LaunchFailed {
                 title: t(M::ShareCodeContentFailed).into(),
                 message: t(M::ShareCodeOffline).into(),
+                about: About::Instance(id.clone()),
             });
             return Ok(Some(id));
         };
         let (Some(target), dirs) = (self.content_target(&id), self.content_dirs(&id)) else {
+            self.record_created(&id, created, cx);
             return Ok(Some(id));
         };
         self.next_import += 1;
@@ -376,14 +479,27 @@ impl Instances {
         let progress = Arc::new(InstallProgress::default());
         let cancel = CancelToken::new();
         let downloader = self.content_downloader.clone();
+        let images = self.images();
+        let image_id = id.clone();
+        // Play waits while the code's content is installed.
+        let busy = self.mark_files_busy(&id);
         let work = {
             let progress = progress.clone();
             let cancel = cancel.clone();
             cx.background_spawn(async move {
-                share::install(&api, &downloader, &dirs, &target, &code, &progress, &cancel).await
+                let _busy = busy;
+                // The empty instance's image first: none of the code's content is in it.
+                super::record_created(&images, &image_id, &created);
+                let operation = images.begin(&image_id, labels::SHARE_CODE);
+                let outcome =
+                    share::install(&api, &downloader, &dirs, &target, &code, &progress, &cancel)
+                        .await;
+                operation.finish_partly(&outcome);
+                outcome
             })
         };
         let instance_name = name.clone();
+        let about = About::Instance(id.clone());
         let task = cx.spawn(async move |this, cx| {
             let result = work.await;
             this.update(cx, |this, cx| {
@@ -412,11 +528,13 @@ impl Instances {
                         cx.emit(InstancesEvent::Notice {
                             title: tr!(M::ShareCodeReady, name = instance_name).into(),
                             message: message.into(),
+                            about: about.clone(),
                         });
                     }
                     Err(err) => cx.emit(InstancesEvent::LaunchFailed {
                         title: t(M::ShareCodeContentFailed).into(),
                         message: err.to_string().into(),
+                        about: about.clone(),
                     }),
                 }
                 cx.notify();
@@ -453,6 +571,7 @@ impl Instances {
         let store = self.store.clone();
         let installer = self.installer.clone();
         let downloader = self.content_downloader.clone();
+        let images = self.images();
         let work = {
             let progress = progress.clone();
             let cancel = cancel.clone();
@@ -556,24 +675,38 @@ impl Instances {
                     let _ = std::fs::remove_file(&source.pack_path);
                 }
                 let (instance, pack, blocked) = result?;
+                let record = ModpackRecord::load(&store.dir(&instance.id)).unwrap_or_default();
+                let title = if record.title.is_empty() {
+                    instance.name.clone()
+                } else {
+                    record.title.clone()
+                };
+                // A share code changes the instance next: its first image comes first.
+                let label = labels::installed_pack(&title, &record.version_number);
+                if source.share.is_some() {
+                    super::record_created(&images, &instance.id, &label);
+                } else {
+                    super::record_created_later(&images, &instance.id, &label);
+                }
                 // A share code's changes, on top of the pack it is based on.
                 let shared = match &source.share {
                     Some(code) => {
                         let dirs = InstanceDirs::new(store.dir(&instance.id));
                         let target = Target::new(instance.game_version.clone(), instance.loader);
-                        Some(
-                            share::install(
-                                &api,
-                                &downloader,
-                                &dirs,
-                                &target,
-                                code,
-                                &progress,
-                                &cancel,
-                            )
-                            .await
-                            .map_err(|err| err.to_string()),
+                        let operation = images.begin(&instance.id, labels::SHARE_CODE);
+                        let outcome = share::install(
+                            &api,
+                            &downloader,
+                            &dirs,
+                            &target,
+                            code,
+                            &progress,
+                            &cancel,
                         )
+                        .await
+                        .map_err(|err| err.to_string());
+                        operation.finish_partly(&outcome);
+                        Some(outcome)
                     }
                     None => None,
                 };
@@ -620,14 +753,17 @@ impl Instances {
                             None => cx.emit(InstancesEvent::Notice {
                                 title: tr!(M::ModpackReady, name = instance.name).into(),
                                 message: message.into(),
+                                about: About::Import(id),
                             }),
                             Some(Ok(outcome)) => cx.emit(InstancesEvent::Notice {
                                 title: tr!(M::ShareCodeReady, name = instance.name).into(),
                                 message: share_message(message, &outcome).into(),
+                                about: About::Import(id),
                             }),
                             Some(Err(err)) => cx.emit(InstancesEvent::LaunchFailed {
                                 title: t(M::ShareCodeContentFailed).into(),
                                 message: err.into(),
+                                about: About::Import(id),
                             }),
                         }
                     }
@@ -635,6 +771,7 @@ impl Instances {
                     Err(err) => cx.emit(InstancesEvent::LaunchFailed {
                         title: t(M::CouldntImportModpack).into(),
                         message: err.to_string().into(),
+                        about: About::Import(id),
                     }),
                 }
                 cx.notify();
@@ -653,7 +790,7 @@ impl Instances {
     }
 
     /// Redraws while imports or updates run.
-    fn start_import_ticker(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn start_import_ticker(&mut self, cx: &mut Context<Self>) {
         if self.import_ticker.is_some() {
             return;
         }
@@ -711,6 +848,10 @@ impl Instances {
         if self.is_active(id) || self.modpack_updates.contains_key(id) {
             return None;
         }
+        // Applying would refuse (see apply_modpack_update): say so before the download.
+        if self.finder_saved(id) {
+            return Some(Task::ready(Err(t(M::FinishFinderFirst).to_string())));
+        }
         let api = self.modrinth.clone()?;
         let instance = self.store.get(id).ok()?;
         let current = self.modpack(id)?;
@@ -749,6 +890,8 @@ impl Instances {
                     plan: Arc::new(plan),
                     pack_path,
                     pack: Arc::new(pack),
+                    snapshot_failed: None,
+                    without_snapshot: false,
                 }),
                 Err(err) => {
                     let _ = std::fs::remove_file(&pack_path);
@@ -764,24 +907,44 @@ impl Instances {
     }
 
     /// Applies a planned update, in the background.
-    pub fn apply_modpack_update(
-        &mut self,
-        prompt: UpdatePrompt,
-        backup_worlds: bool,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn apply_modpack_update(&mut self, prompt: UpdatePrompt, cx: &mut Context<Self>) {
         let id = prompt.instance_id.clone();
         if self.is_active(&id) || self.modpack_updates.contains_key(&id) {
             self.discard_update(&prompt);
             cx.emit(InstancesEvent::LaunchFailed {
                 title: t(M::CouldntUpdateModpack).into(),
                 message: t(M::StopGameFirst).into(),
+                about: About::Instance(id.clone()),
+            });
+            return;
+        }
+        // A tab's job (a mod install, a restore) is writing the instance's files: the pack
+        // would be applied over files that are still changing.
+        if self.files_busy(&id) {
+            self.discard_update(&prompt);
+            cx.emit(InstancesEvent::LaunchFailed {
+                title: t(M::CouldntUpdateModpack).into(),
+                message: t(M::FilesBusy).into(),
+                about: About::Instance(id.clone()),
+            });
+            return;
+        }
+        // A saved search has mods turned off: the update would replace files it restores
+        // later, and the record before the update would take them as changed by hand.
+        if self.finder_saved(&id) {
+            self.discard_update(&prompt);
+            cx.emit(InstancesEvent::LaunchFailed {
+                title: t(M::CouldntUpdateModpack).into(),
+                message: t(M::FinishFinderFirst).into(),
+                about: About::Instance(id.clone()),
             });
             return;
         }
         let api = self.modrinth.clone();
         let dirs = self.content_dirs(&id);
         let downloader = self.content_downloader.clone();
+        let images = self.images();
+        let image_id = id.clone();
         let progress = Arc::new(InstallProgress::default());
         let cancel = CancelToken::new();
         let work = {
@@ -789,25 +952,81 @@ impl Instances {
             let cancel = cancel.clone();
             let prompt = prompt.clone();
             cx.background_spawn(async move {
+                // Every file the update replaces is in an image first: a snapshot of the
+                // worlds, linked to a content image of what the game wrote too. When it
+                // fails, nothing changes: the prompt comes back, offering to update
+                // without one, as the world backups before images did.
+                let record = &prompt.plan.record;
+                if !prompt.without_snapshot {
+                    let change = RiskyChange::ModpackUpdate {
+                        title: &record.title,
+                        version: &record.version_number,
+                    };
+                    progress.set_label(t(crate::i18n::InstanceSettingsMsg::TakingSnapshot));
+                    let snapshot_progress = |read: u64, total: u64| {
+                        progress.downloads.set(ProgressSnapshot {
+                            bytes_done: read,
+                            bytes_total: total,
+                            ..ProgressSnapshot::default()
+                        });
+                    };
+                    let stop = || cancel.is_cancelled();
+                    match images.before_risky_change_with(
+                        &image_id,
+                        change,
+                        &snapshot_progress,
+                        &stop,
+                    ) {
+                        Ok(_) => {}
+                        Err(launcher_core::images::ImageError::Cancelled) => {
+                            let _ = std::fs::remove_file(&prompt.pack_path);
+                            return Started::Cancelled;
+                        }
+                        Err(err) => {
+                            log::warn!(
+                                "Couldn't take a snapshot of {image_id} before the update: {err}"
+                            );
+                            return Started::NoSnapshot(err.to_string());
+                        }
+                    }
+                }
+                let operation = images.begin(
+                    &image_id,
+                    labels::pack_updated(&record.title, &record.version_number),
+                );
                 let result = update::apply(
                     api.as_deref(),
                     &downloader,
                     &dirs,
                     &prompt.plan,
                     &prompt.pack_path,
-                    backup_worlds,
                     &progress,
                     &cancel,
                 )
                 .await;
                 let _ = std::fs::remove_file(&prompt.pack_path);
-                result
+                Started::Applied(result, operation)
             })
         };
+        let job_id = prompt.instance_id.clone();
         let task = cx.spawn(async move |this, cx| {
-            let result = work.await;
+            let started = work.await;
             this.update(cx, |this, cx| {
                 this.modpack_updates.remove(&id);
+                let (result, operation) = match started {
+                    Started::Applied(result, operation) => (result, operation),
+                    Started::Cancelled => return cx.notify(),
+                    Started::NoSnapshot(error) => {
+                        cx.emit(InstancesEvent::ModpackUpdateNeedsSnapshot(Box::new(
+                            UpdatePrompt {
+                                snapshot_failed: Some(error),
+                                ..prompt.clone()
+                            },
+                        )));
+                        return cx.notify();
+                    }
+                };
+                this.content_changed(&id);
                 match result {
                     Ok(outcome) => {
                         let plan = &prompt.plan;
@@ -820,39 +1039,283 @@ impl Instances {
                             instance.recommended_memory = plan.recommended_memory;
                             instance
                         });
-                        let message = match saved
+                        let saved = saved
                             .map_err(|e| e.to_string())
-                            .and_then(|i| this.save(&i, cx))
-                        {
-                            Ok(()) => {
-                                let updated = tr!(
-                                    M::ModpackUpdatedMessage,
-                                    name = prompt.instance_name,
-                                    pack = plan.record.title,
-                                    version = plan.record.version_number,
-                                    path = outcome.snapshot.display(),
-                                );
-                                match outcome.world_backups.len() {
-                                    0 => updated,
-                                    n => tr!(
-                                        M::TwoSentences,
-                                        first = updated,
-                                        second = trn!(P::WorldsBackedUp, n)
-                                    ),
-                                }
-                            }
+                            .and_then(|i| this.save(&i, cx));
+                        // After the new loader version is saved, so the image has it. The
+                        // files changed either way: a failed save is still recorded.
+                        operation.succeed();
+                        let message = match saved {
+                            Ok(()) => tr!(
+                                M::ModpackUpdatedMessage,
+                                name = prompt.instance_name,
+                                pack = plan.record.title,
+                                version = plan.record.version_number,
+                                path = outcome.snapshot.display(),
+                            ),
                             Err(err) => tr!(M::UpdatedButNotSaved, error = err),
                         };
                         cx.emit(InstancesEvent::LoaderChanged(id.clone()));
                         cx.emit(InstancesEvent::Notice {
                             title: t(M::ModpackUpdated).into(),
                             message: message.into(),
+                            about: About::Instance(id.clone()),
+                        });
+                    }
+                    // What a failed or cancelled update changed is its own image.
+                    Err(ModpackError::Cancelled) => operation.succeed_part_way(),
+                    Err(err) => {
+                        operation.succeed_part_way();
+                        cx.emit(InstancesEvent::LaunchFailed {
+                            title: t(M::CouldntUpdateModpack).into(),
+                            message: err.to_string().into(),
+                            about: About::Instance(id.clone()),
+                        })
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        });
+        self.modpack_updates.insert(
+            job_id,
+            UpdateJob {
+                progress,
+                cancel,
+                _task: task,
+            },
+        );
+        self.start_import_ticker(cx);
+        cx.notify();
+    }
+
+    /// The packs added to the instance on top of its own.
+    pub fn added_modpacks(&self, id: &str) -> AddedPacks {
+        AddedPacks::load(&self.store.dir(id))
+    }
+
+    /// Downloads the pack `source` names and plans adding its files to the instance
+    /// `id`. Refused (an error saying why) when the pack is for another Minecraft
+    /// version or loader, or is added already.
+    pub fn plan_add_modpack(
+        &mut self,
+        id: &str,
+        source: AddSource,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<AddPrompt, String>> {
+        if self.is_active(id) || self.modpack_updates.contains_key(id) {
+            return Task::ready(Err(t(M::StopGameFirst).into()));
+        }
+        let instance = match self.store.get(id) {
+            Ok(instance) => instance,
+            Err(err) => return Task::ready(Err(err.to_string())),
+        };
+        let record = source.record();
+        if let Some(added) = self.added_modpacks(id).same_project(&record) {
+            return Task::ready(Err(tr!(M::ModpackAddedAlready, pack = added.record.title)));
+        }
+        let api = self.modrinth.clone();
+        let cf = self.curseforge.clone();
+        let dirs = self.content_dirs(id);
+        let server = launcher_core::cores::link::load_link(&dirs.instance).map(|l| l.server_name);
+        let downloader = self.content_downloader.clone();
+        cx.background_spawn(async move {
+            let progress = InstallProgress::default();
+            let cancel = CancelToken::new();
+            let pack_path = match &source {
+                AddSource::Modrinth(picked) => {
+                    let version = &picked.1;
+                    let api = api
+                        .as_deref()
+                        .ok_or_else(|| t(M::ModrinthUnreachable).to_string())?;
+                    import::download_pack(
+                        api,
+                        &downloader,
+                        version,
+                        &dirs.instance,
+                        &progress,
+                        &cancel,
+                    )
+                    .await
+                    .map_err(|e| e.to_string())?
+                }
+                AddSource::CurseForge(picked) => {
+                    let file = &picked.1;
+                    let cf = cf
+                        .as_deref()
+                        .ok_or_else(|| t(M::CurseForgeUnreachable).to_string())?;
+                    if !file.downloadable() {
+                        return Err(t(M::CurseForgePackOnWebsite).into());
+                    }
+                    modpack::curseforge::download(
+                        cf,
+                        &downloader,
+                        file,
+                        &dirs.instance,
+                        &progress,
+                        &cancel,
+                    )
+                    .await
+                    .map_err(|e| e.to_string())?
+                }
+                AddSource::File(path) => path.clone(),
+            };
+            let keep_pack = matches!(source, AddSource::File(_));
+            let planned = async {
+                let (pack, blocked) = if modpack::curseforge::is_curseforge_pack(&pack_path) {
+                    let cf = cf
+                        .as_deref()
+                        .ok_or_else(|| ModpackError::Invalid(t(M::CurseForgeUnreachable).into()))?;
+                    let read = modpack::curseforge::read_curseforge_pack(&pack_path)?;
+                    let resolved = modpack::curseforge::resolve(cf, api.as_deref(), &read).await?;
+                    (resolved.info, resolved.blocked)
+                } else {
+                    (modpack::read_pack(&pack_path)?, Vec::new())
+                };
+                if let Some(reason) = addon::incompatibility(&instance, &pack) {
+                    return Err(ModpackError::Invalid(reason));
+                }
+                let mut record = record;
+                if keep_pack
+                    && !modpack::curseforge::is_curseforge_pack(&pack_path)
+                    && let Some(api) = api.as_deref()
+                    && let Some((found, _)) = identify(api, &pack_path).await
+                {
+                    record = found;
+                }
+                if record.title.is_empty() {
+                    record.title = pack.name.clone();
+                }
+                if record.version_number.is_empty() {
+                    record.version_number = pack.version_number.clone().unwrap_or_default();
+                }
+                if let Some(added) = AddedPacks::load(&dirs.instance).same_project(&record) {
+                    return Err(ModpackError::Invalid(tr!(
+                        M::ModpackAddedAlready,
+                        pack = added.record.title
+                    )));
+                }
+                Ok((addon::plan(&dirs, &pack, record), blocked))
+            }
+            .await;
+            match planned {
+                Ok((plan, blocked)) => Ok(AddPrompt {
+                    instance_id: instance.id.clone(),
+                    instance_name: instance.name.clone(),
+                    server,
+                    plan: Arc::new(plan),
+                    pack_path,
+                    keep_pack,
+                    blocked,
+                }),
+                Err(err) => {
+                    if !keep_pack {
+                        let _ = std::fs::remove_file(&pack_path);
+                    }
+                    Err(err.to_string())
+                }
+            }
+        })
+    }
+
+    /// Forgets a planned add (its downloaded pack).
+    pub fn discard_add(&mut self, prompt: &AddPrompt) {
+        if !prompt.keep_pack {
+            let _ = std::fs::remove_file(&prompt.pack_path);
+        }
+    }
+
+    /// Adds a planned pack's files, in the background.
+    pub fn apply_add_modpack(&mut self, prompt: AddPrompt, cx: &mut Context<Self>) {
+        let id = prompt.instance_id.clone();
+        if self.is_active(&id) || self.modpack_updates.contains_key(&id) {
+            self.discard_add(&prompt);
+            cx.emit(InstancesEvent::LaunchFailed {
+                title: t(M::CouldntAddModpack).into(),
+                message: t(M::StopGameFirst).into(),
+                about: About::Instance(id.clone()),
+            });
+            return;
+        }
+        // A tab's job (a mod install, a restore) is writing the instance's files: the pack
+        // would be applied over files that are still changing.
+        if self.files_busy(&id) {
+            self.discard_add(&prompt);
+            cx.emit(InstancesEvent::LaunchFailed {
+                title: t(M::CouldntAddModpack).into(),
+                message: t(M::FilesBusy).into(),
+                about: About::Instance(id.clone()),
+            });
+            return;
+        }
+        let api = self.modrinth.clone();
+        let cf = self.curseforge.clone();
+        let dirs = self.content_dirs(&id);
+        let downloader = self.content_downloader.clone();
+        let operation = self
+            .images()
+            .begin(&id, labels::addon_added(&prompt.plan.pack.record.title));
+        let progress = Arc::new(InstallProgress::default());
+        let cancel = CancelToken::new();
+        let work = {
+            let progress = progress.clone();
+            let cancel = cancel.clone();
+            let prompt = prompt.clone();
+            cx.background_spawn(async move {
+                let result = addon::apply(
+                    Platforms::new(api.as_deref(), cf.as_deref()),
+                    &downloader,
+                    &dirs,
+                    &prompt.plan,
+                    &prompt.pack_path,
+                    &progress,
+                    &cancel,
+                )
+                .await;
+                operation.finish_partly(&result);
+                if !prompt.keep_pack {
+                    let _ = std::fs::remove_file(&prompt.pack_path);
+                }
+                result
+            })
+        };
+        let task = cx.spawn(async move |this, cx| {
+            let result = work.await;
+            this.update(cx, |this, cx| {
+                this.modpack_updates.remove(&id);
+                this.content_changed(&id);
+                match result {
+                    Ok(added) => {
+                        let to_download = prompt.blocked.len();
+                        if to_download > 0 {
+                            this.pending_downloads
+                                .entry(id.clone())
+                                .or_default()
+                                .extend(prompt.blocked.clone());
+                        }
+                        let mut message = tr!(
+                            M::ModpackAddedMessage,
+                            pack = added.record.title,
+                            name = prompt.instance_name,
+                        );
+                        if to_download > 0 {
+                            message = tr!(
+                                M::TwoSentences,
+                                first = message,
+                                second = trn!(P::PackFilesToDownload, to_download)
+                            );
+                        }
+                        cx.emit(InstancesEvent::Notice {
+                            title: t(M::ModpackAdded).into(),
+                            message: message.into(),
+                            about: About::Instance(id.clone()),
                         });
                     }
                     Err(ModpackError::Cancelled) => {}
                     Err(err) => cx.emit(InstancesEvent::LaunchFailed {
-                        title: t(M::CouldntUpdateModpack).into(),
+                        title: t(M::CouldntAddModpack).into(),
                         message: err.to_string().into(),
+                        about: About::Instance(id.clone()),
                     }),
                 }
                 cx.notify();
@@ -869,6 +1332,67 @@ impl Instances {
         );
         self.start_import_ticker(cx);
         cx.notify();
+    }
+
+    /// Removes the added pack `pack_id` from the instance `id`: its files that are as it
+    /// wrote them. The window is told how it went; so is the caller.
+    pub fn remove_added_modpack(
+        &mut self,
+        id: &str,
+        pack_id: &str,
+        cx: &mut Context<Self>,
+    ) -> Result<addon::RemoveOutcome, String> {
+        if self.is_active(id) || self.modpack_updates.contains_key(id) {
+            cx.emit(InstancesEvent::LaunchFailed {
+                title: t(M::CouldntRemoveModpack).into(),
+                message: t(M::StopGameFirst).into(),
+                about: About::Instance(id.to_string()),
+            });
+            return Err(t(M::StopGameFirst).into());
+        }
+        let dirs = self.content_dirs(id);
+        let title = self
+            .added_modpacks(id)
+            .get(pack_id)
+            .map(|p| p.record.title.clone())
+            .unwrap_or_default();
+        let operation = self.images().begin(id, labels::addon_removed(&title));
+        let removed = addon::remove(&dirs, pack_id);
+        operation.finish_partly(&removed);
+        self.content_changed(id);
+        let result = match &removed {
+            Ok(outcome) => Ok(outcome.clone()),
+            Err(err) => Err(err.to_string()),
+        };
+        match removed {
+            Ok(outcome) => {
+                let removed = trn!(
+                    P::AddedPackFilesRemoved,
+                    outcome.removed.len(),
+                    pack = title
+                );
+                let message = match outcome.kept_changed.len() {
+                    0 => removed,
+                    n => tr!(
+                        M::TwoSentences,
+                        first = removed,
+                        second = trn!(P::AddedPackFilesKept, n)
+                    ),
+                };
+                cx.emit(InstancesEvent::Notice {
+                    title: t(M::ModpackRemoved).into(),
+                    message: message.into(),
+                    about: About::Instance(id.to_string()),
+                });
+            }
+            Err(err) => cx.emit(InstancesEvent::LaunchFailed {
+                title: t(M::CouldntRemoveModpack).into(),
+                message: err.to_string().into(),
+                about: About::Instance(id.to_string()),
+            }),
+        }
+        cx.notify();
+        result
     }
 
     /// Shows an import in progress, for the offscreen screenshots.

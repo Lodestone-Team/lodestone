@@ -5,7 +5,7 @@
  */
 export type ModpackInfo = { name: string, version_number: string | null, summary: string | null, game_version: string, 
 /**
- * For example `fabric`.
+ * `fabric`, `forge` or `neoforge` for a supported pack.
  */
 loader: string, loader_version: string | null, server_file_count: number, server_download_size: number, 
 /**

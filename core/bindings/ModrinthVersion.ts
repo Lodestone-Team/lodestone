@@ -3,4 +3,9 @@ import type { ModrinthDependency } from "./ModrinthDependency";
 import type { ModrinthVersionFile } from "./ModrinthVersionFile";
 import type { ModrinthVersionType } from "./ModrinthVersionType";
 
-export type ModrinthVersion = { id: string, project_id: string, name: string, version_number: string, version_type: ModrinthVersionType, game_versions: Array<string>, loaders: Array<string>, date_published: string, downloads: number, files: Array<ModrinthVersionFile>, dependencies: Array<ModrinthDependency>, };
+export type ModrinthVersion = { id: string, project_id: string, name: string, version_number: string, version_type: ModrinthVersionType, game_versions: Array<string>, loaders: Array<string>, date_published: string, downloads: number, files: Array<ModrinthVersionFile>, dependencies: Array<ModrinthDependency>, 
+/**
+ * What the author wrote about the version (Markdown), at most
+ * [`MAX_CHANGELOG_BYTES`].
+ */
+changelog?: string, };

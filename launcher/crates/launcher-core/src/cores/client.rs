@@ -98,7 +98,13 @@ impl CoreError {
     }
 }
 
-fn is_loopback_host(host: &str) -> bool {
+/// What a 404 with an empty body is called: what a core answers for a route it doesn't
+/// have, where its own refusals say what wasn't found.
+pub(crate) const NOT_FOUND: &str = "Not found";
+
+/// Whether `host` (as a URL has it: `localhost`, `127.0.0.1`, `[::1]`) is this
+/// computer.
+pub fn is_loopback_host(host: &str) -> bool {
     let host = host.trim_start_matches('[').trim_end_matches(']');
     host.eq_ignore_ascii_case("localhost")
         || host
@@ -114,7 +120,7 @@ pub fn parse_address(input: &str) -> Result<Url, CoreError> {
     let input = input.trim();
     let invalid = |why: &str| CoreError::InvalidAddress(format!("{why}: {input:?}"));
     if input.is_empty() {
-        return Err(CoreError::InvalidAddress("Enter the core's address".into()));
+        return Err(CoreError::InvalidAddress("Enter the host's address".into()));
     }
     let (scheme, rest) = match input.split_once("://") {
         Some((_, rest)) if rest.trim_end_matches('/').is_empty() => {
@@ -162,7 +168,7 @@ pub fn parse_address(input: &str) -> Result<Url, CoreError> {
         ));
     }
     if url.query().is_some() || url.fragment().is_some() {
-        return Err(invalid("That isn't a core address"));
+        return Err(invalid("That isn't a host address"));
     }
     if !explicit_port && url.port().is_none() {
         url.set_port(Some(DEFAULT_PORT))
@@ -289,6 +295,47 @@ impl CoreClient {
         limit: u64,
         timeout: Duration,
     ) -> Result<RawResponse, CoreError> {
+        let body = || {
+            Ok(body
+                .clone()
+                .map(|(bytes, content_type)| (AsyncBody::from(bytes), content_type, None)))
+        };
+        self.send_body(method, path, auth, body, if_none_match, limit, timeout)
+            .await
+    }
+
+    /// Like `send_typed`, with a body streamed instead of held in memory (an upload):
+    /// `body` makes it, with its content type and length, afresh each time the request
+    /// is sent, since a request may be sent twice (see [`Self::send_checked`]).
+    #[allow(clippy::too_many_arguments)]
+    pub(super) async fn send_streamed(
+        &self,
+        method: Method,
+        path: &str,
+        auth: Auth<'_>,
+        body: impl Fn() -> Result<(AsyncBody, String, u64), CoreError>,
+        limit: u64,
+        timeout: Duration,
+    ) -> Result<RawResponse, CoreError> {
+        let body =
+            || body().map(|(body, content_type, length)| Some((body, content_type, Some(length))));
+        self.send_body(method, path, auth, body, None, limit, timeout)
+            .await
+    }
+
+    /// Sends a request with the body `body` makes (the body, its content type and,
+    /// when it is streamed, its length), and reads the reply, up to `limit` bytes.
+    #[allow(clippy::too_many_arguments)]
+    async fn send_body(
+        &self,
+        method: Method,
+        path: &str,
+        auth: Auth<'_>,
+        body: impl Fn() -> Result<Option<(AsyncBody, String, Option<u64>)>, CoreError>,
+        if_none_match: Option<&str>,
+        limit: u64,
+        timeout: Duration,
+    ) -> Result<RawResponse, CoreError> {
         let request = || {
             let mut builder = Request::builder()
                 .method(method.clone())
@@ -311,10 +358,16 @@ impl CoreClient {
             if let Some(etag) = if_none_match {
                 builder = builder.header("If-None-Match", etag);
             }
-            match body.clone() {
-                Some((body, content_type)) => builder
-                    .header("Content-Type", content_type)
-                    .body(AsyncBody::from(body)),
+            match body()? {
+                Some((body, content_type, length)) => {
+                    builder = builder.header("Content-Type", content_type);
+                    // a streamed body's length isn't known otherwise, and the core
+                    // reports an upload's progress against it
+                    if let Some(length) = length {
+                        builder = builder.header("Content-Length", length);
+                    }
+                    builder.body(body)
+                }
                 None => builder.body(AsyncBody::empty()),
             }
             .map_err(|err| CoreError::InvalidAddress(err.to_string()))
@@ -712,6 +765,36 @@ impl CoreClient {
             .await
     }
 
+    /// Stops a server and starts it again.
+    pub async fn restart(&self, key: &Secret, uuid: &str) -> Result<(), CoreError> {
+        self.put(key, &format!("instance/{}/restart", segment(uuid)?))
+            .await
+    }
+
+    /// Ends a server at once, while it starts or stops.
+    pub async fn kill(&self, key: &Secret, uuid: &str) -> Result<(), CoreError> {
+        self.put(key, &format!("instance/{}/kill", segment(uuid)?))
+            .await
+    }
+
+    /// Whether a server is shared with friends, and its invite link once known
+    /// (`GET /instance/{uuid}/share`). Only keys that may change the server's settings
+    /// get an answer, such as the owner key that claiming a core on this computer
+    /// gives; a launcher device's key gets [`CoreError::Forbidden`].
+    pub async fn share(
+        &self,
+        key: &Secret,
+        uuid: &str,
+    ) -> Result<super::admin::instances::InstanceShare, CoreError> {
+        self.json(
+            Method::GET,
+            &format!("instance/{}/share", segment(uuid)?),
+            Auth::Bearer(key),
+            None,
+        )
+        .await
+    }
+
     /// Whether the Minecraft EULA is accepted for a server: it can't start until it is.
     pub async fn eula_accepted(&self, key: &Secret, uuid: &str) -> Result<bool, CoreError> {
         let status: EulaStatus = self
@@ -838,7 +921,7 @@ pub(super) fn check(response: &RawResponse, auth: Auth<'_>) -> Result<(), CoreEr
             message
         }),
         404 => CoreError::NotFound(if message.is_empty() {
-            "Not found".into()
+            NOT_FOUND.into()
         } else {
             message
         }),

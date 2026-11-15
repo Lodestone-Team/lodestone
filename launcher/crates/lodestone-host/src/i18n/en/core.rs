@@ -26,13 +26,10 @@ crate::i18n::messages! {
         SafeModeOffBody = "Are you sure you want to turn off safe mode? This will allow you to give users other than yourself the ability to run potentially dangerous commands. Make sure you trust all the users you give these permissions to.",
         TurnOff = "Turn off",
         CodeExecution = "Code execution",
-        CodeExecutionHint = "Macros, atom servers, extensions, server scripts and custom Java commands.",
-        CodeExecutionHintJavaOnly = "Custom Java commands.",
+        CodeExecutionHint = "Custom Java commands.",
         CodeExecutionLocked = "Locked by this core’s administrator (LODESTONE_DISABLE_CODE_EXECUTION or --disable-code-execution).",
         CodeExecutionOffTitle = "Turn off code execution?",
-        CodeExecutionOffBody = "Running macros and atom servers will be stopped. Macros, atom servers, extensions, server scripts and custom Java commands will not run on this core until you turn code execution back on. Nothing is started again automatically.",
-        CodeExecutionOffBodyJavaOnly = "Custom Java commands will not run on this core until you turn code execution back on. Nothing is started again automatically.",
-        NoScripting = "This core was built without scripting support (Deno), so macros aren’t available.",
+        CodeExecutionOffBody = "Custom Java commands will not run on this core until you turn code execution back on. Nothing is started again automatically.",
         LanHttp = "Allow LAN access over plain HTTP",
         LanHttpHint = "Not encrypted. Others on your network can read passwords.",
         LanHttpConfirmTitle = "Allow plain HTTP from other devices?",
@@ -92,8 +89,6 @@ crate::i18n::messages! {
         PermissionsLead = "What {username} can do on this core.",
         UnsafePermissions = "Unsafe permissions",
         UnsafePermissionsLead = "Turn off safe mode to grant these to non-owners.",
-        OwnerOnly = "Macros, extensions and atom servers",
-        OwnerOnlyHint = "Owner only. Docker servers use the normal permissions.",
         UsersOwnerOnly = "Only the owner manages users.",
         You = "You",
         Admin = "Admin",
@@ -163,6 +158,11 @@ crate::i18n::messages! {
         Appearance = "Appearance",
         AppearanceLead = "Saved on this computer, not on the core.",
         ColoredConsole = "Colored console",
+        /// Settings › Profile › Startup: the Host opens when the user signs in to the computer. Off unless they turn it on.
+        Startup = "Startup",
+        StartAtLogin = "Open Lodestone Host when I sign in",
+        StartAtLoginHint = "It opens in the background when you sign in to this computer, and starts the servers set to start automatically.",
+        StartAtLoginFailed = "Couldn’t change the startup setting: {error}",
         Language = "Language",
         LanguageAuto = "System default ({language})",
         Theme = "Theme",
@@ -219,8 +219,6 @@ crate::i18n::messages! {
         NoServers = "There are no servers you can see.",
         KeyUnsafe = "Unsafe Settings",
         KeyUnsafeSafeMode = "Safe mode is on, so the core refuses these to keys with custom access until safe mode is turned off in core settings.",
-        KeyOwnerOnly = "Macros, Extensions and Atom Servers",
-        KeyOwnerOnlyHint = "Only full-access keys can use macros, extensions and atom servers.",
         NewKeyTitle = "API key \"{name}\" created",
         NewKeyCopyNow = "Copy this key now. You won’t be able to see it again.",
         NewKeyUseWithCli = "Use it with the Lodestone CLI:",
@@ -247,6 +245,7 @@ crate::i18n::messages! {
         EventStopped = "Server {name} stopped!",
         EventCrashed = "Server {name} encountered an error!",
         WarningToast = "Warning: A server has encountered a warning. This shouldn’t happen, please report this to the developers.",
+        EventModpackUpdate = "{pack} {version} is out for {name}",
         EventWarning = "Server {name} encountered a warning",
         EventError = "Server {name} encountered an error",
         PlayersJoined = "{players} Joined {name}",
@@ -255,11 +254,7 @@ crate::i18n::messages! {
         PlayerMessage = "{player} said {message} on {name}",
         EventApiKeyCreated = "API key “{name}” created",
         EventApiKeyRevoked = "API key “{name}” revoked",
-        MacroStarted = "Macro {pid} started on {server}",
-        MacroDetached = "Macro {pid} detached on {server}",
-        MacroStopped = "Macro {pid} stopped on {server} with status {status}",
         LoadFailed = "Failed to load notifications: {error}",
-        CoreFallback = "Core",
         CoreFailedNotice = "Lodestone Core couldn’t start: {error}",
         UpdatesTitle = "Updates",
         UpdatesLead = "Lodestone Host, on this computer. Lodestone Core updates with it.",
@@ -267,9 +262,9 @@ crate::i18n::messages! {
         UpdateAutomatically = "Update automatically",
         UpdateAutomaticallyHint = "Downloads new builds in the background.",
         BetaBuilds = "Beta builds",
-        BetaBuildsHint = "Get new features before everyone else. Beta builds can have bugs. Turning this off keeps your build until a stable one is newer.",
+        BetaBuildsHint = "Beta builds can have bugs.",
         DeveloperBuilds = "Developer builds",
-        DeveloperBuildsHint = "For Lodestone's developers: updates to builds of work in progress, which may not work. Turning this off keeps your build until a release is newer.",
+        DeveloperBuildsHint = "For Lodestone's developers: updates to dev builds, which can have bugs.",
         BuildNumber = "Build {build}",
         BuildNumberCommit = "Build {build} · {commit}",
         DevelopmentBuild = "Development build",
@@ -283,6 +278,26 @@ crate::i18n::messages! {
         RestartUpdateTitle = "Restart to update?",
         RestartUpdateBody = "Restarting Lodestone Host stops them first. Servers that start on their own start again after the restart.",
         RestartUpdateConfirm = "Stop servers and restart",
+        /// Settings › Updates: the section for developers' settings.
+        DeveloperSection = "Developer",
+        /// The Lodestone Connect introduction service the core shares through.
+        ConnectService = "Connect service (relay)",
+        ConnectServiceHint = "For testing. Invite links and the friend list use this service. Changing it restarts the core.",
+        /// While the service in use isn't connect.lodestone.cc: {service} is its address,
+        /// "connect-dev.lodestone.cc". Under the setting and on the Share card.
+        ConnectServiceInUse = "Dev relay: {service}",
+        /// While the environment variable {var} overrides the setting; {service} is its URL.
+        ConnectServiceEnv = "{var} is set, so the core uses {service}. The setting applies once it is unset.",
+        /// Errors for a typed service URL.
+        ConnectServiceScheme = "Start the address with https://.",
+        ConnectServiceInsecure = "Use https://. Only a service on this computer (127.0.0.1 or localhost) can use http://.",
+        ConnectServiceExtra = "Type only the address, without a path, query or user name.",
+        ConnectServiceAddress = "That isn't a valid address.",
+        /// The button that saves the service and restarts the core.
+        SaveAndRestartCore = "Save and restart core",
+        /// Asked before the change restarts the core while servers run.
+        RestartCoreTitle = "Restart the core?",
+        RestartCoreBody = "Changing the Connect service restarts Lodestone Core, which stops these servers first. Servers that start on their own start again after the restart.",
         UpdateFailed = "Couldn’t update: {error}",
         CheckForUpdates = "Check now",
         DownloadUpdate = "Download",
@@ -312,6 +327,33 @@ crate::i18n::messages! {
         SignIn = "Sign in",
         RemoveCore = "Remove",
         RemoteSignedOut = "You were signed out of {name}. Lodestone Host is back on this computer’s core.",
+        /// Settings › General: whether other devices may use the core.
+        RemoteAccess = "Allow access from other devices",
+        RemoteAccessHintOff = "Off: only apps on this computer can use this core (Lodestone Host, Lodestone Launcher and Lodestone CLI). Turn it on to use the web dashboard from other devices, add users or make API keys. Sharing servers works either way.",
+        RemoteAccessHintOn = "Other devices can sign in to this core with a username and password, over HTTPS.",
+        RemoteAccessOffTitle = "Turn off access from other devices?",
+        RemoteAccessOffBody = "Only apps on this computer will be able to use this core. Other devices, other users and API keys used elsewhere stop working until you turn it on again. Sharing servers keeps working.",
+        LocalClaimNeedsPassword = "Set up the owner account first: without a password, this is the only way to sign in.",
+        /// The dialog that sets up the owner's password, before the core is shared.
+        OwnerAccountTitle = "Set up an owner account to share this core",
+        OwnerAccountLead = "Other devices sign in with a username and password. Choose the ones you will use on the web dashboard and your other devices. Apps on this computer keep signing in without them.",
+        OwnerAccountButton = "Set up and allow access",
+        OwnerAccountDone = "Owner account set up. Other devices can now sign in to this core.",
+        PasswordTooShort = "The password must have at least 12 characters.",
+        /// Profile, for an owner without a password.
+        SetPassword = "Set a password",
+        NoPasswordYet = "No password yet. Only apps on this computer can use this core.",
+        /// More words a Settings search finds the row by (never shown).
+        ModpackChecks = "Check for modpack updates",
+        ModpackChecksHint = "Every few hours, look on Modrinth for newer versions of the modpacks servers were made from, and say when one is out. Check for an update on a server’s Mods tab still works when this is off.",
+        ModpackChecksKeywords = "modpack update notification Modrinth automatic",
+        RemoteAccessKeywords = "remote LAN network share",
+        /// More words a Settings search finds the row by (never shown).
+        DomainKeywords = "address hostname URL",
+        /// More words a Settings search finds the row by (never shown).
+        OpenPortKeywords = "port forwarding router UPnP firewall",
+        /// More words a Settings search finds the row by (never shown).
+        ThemeKeywords = "dark light mode appearance colors",
     }
 
     pub enum CorePlural {
