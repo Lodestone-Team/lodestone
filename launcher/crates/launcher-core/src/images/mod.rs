@@ -44,8 +44,11 @@ pub mod labels;
 pub mod recorder;
 pub mod retention;
 pub mod scope;
+pub mod snapshots;
 pub mod state;
 
+#[cfg(test)]
+mod snapshot_tests;
 #[cfg(test)]
 mod tests;
 
@@ -65,7 +68,8 @@ use crate::paths::DataDir;
 pub use check::Checked;
 pub use history::{History, HistoryEntry};
 pub use recorder::{Operation, Recorded};
-pub use retention::{KEEP_CONTENT, Keep};
+pub use retention::{DEFAULT_POLICY, KEEP_CONTENT, Keep, SnapshotPolicy};
+pub use snapshots::{RiskyChange, SnapshotKind, SnapshotRecord, Snapshots, Take};
 
 /// Successes this close together are one image.
 pub const MERGE_WINDOW: Duration = Duration::from_secs(3);
@@ -116,6 +120,12 @@ pub enum ImageError {
     Busy,
     #[error("the image store is paused while the data folder moves")]
     Suspended,
+    #[error("the game is running; close it first")]
+    Running,
+    #[error("there is no snapshot {0}")]
+    NoSnapshot(String),
+    #[error("cancelled")]
+    Cancelled,
     #[error("{0}")]
     Invalid(String),
 }

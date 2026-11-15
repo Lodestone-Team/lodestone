@@ -550,7 +550,7 @@ impl Images {
 
     /// [`Self::guarded_state`], with whether a state file is there (none after the guard
     /// deleted an earlier instance's images).
-    fn guarded(&self, ctx: &InstanceContext) -> Result<state::Loaded, ImageError> {
+    pub(crate) fn guarded(&self, ctx: &InstanceContext) -> Result<state::Loaded, ImageError> {
         let loaded = state::load_present(self.store(), &ctx.id)?;
         let has_manifests = !self.store().manifest_ids(&ctx.id)?.is_empty();
         if state::belongs_elsewhere(&loaded, has_manifests, ctx.instance.created) {

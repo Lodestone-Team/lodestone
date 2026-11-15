@@ -257,6 +257,14 @@ impl Images {
     /// the baseline again without recording (or, when the check before the launch couldn't
     /// run, runs it now), in the background, then lets merged records run. Never blocks.
     pub fn session_ended(self: &Arc<Self>, instance: &str) {
+        self.session_ended_with(instance, false);
+    }
+
+    /// [`Self::session_ended`], then, with `after_play` (the instance's "Take a snapshot
+    /// after each play session", off by default), a snapshot ("After playing") on the same
+    /// background thread, unless another session of the instance began meanwhile. Never
+    /// blocks.
+    pub fn session_ended_with(self: &Arc<Self>, instance: &str, after_play: bool) {
         if !self.accepts(instance) {
             return;
         }
@@ -264,7 +272,12 @@ impl Images {
         let id = instance.to_string();
         let spawned = std::thread::Builder::new()
             .name("lodestone-images-session".into())
-            .spawn(move || this.end_session(&id));
+            .spawn(move || {
+                this.end_session(&id);
+                if after_play {
+                    this.after_play(&id);
+                }
+            });
         if spawned.is_err() {
             self.end_session(instance);
         }
@@ -420,8 +433,19 @@ impl Images {
         let slot = self.slot(instance);
         let _record = slot.lock_record();
         let _writing = self.enter()?;
+        self.record_before_change_locked(&slot, instance, label)
+    }
+
+    /// [`Self::record_before_change`], for a caller holding the record lock inside a
+    /// counted write.
+    pub(crate) fn record_before_change_locked(
+        &self,
+        slot: &Slot,
+        instance: &str,
+        label: &str,
+    ) -> Result<Option<Recorded>, ImageError> {
         if !slot.pending().is_empty()
-            && let Some(recorded) = self.record_held(&slot, instance, None)?
+            && let Some(recorded) = self.record_held(slot, instance, None)?
         {
             return Ok(Some(recorded));
         }
@@ -431,7 +455,34 @@ impl Images {
             Some("") | None => label,
             Some(changed) => changed,
         };
-        self.record_held(&slot, instance, Some(label))
+        self.record_held(slot, instance, Some(label))
+    }
+
+    /// Brings the instance's current content image up to what is on disk before a
+    /// snapshot links to it, for a caller holding the record lock inside a counted write:
+    /// [`Self::record_before_change_locked`] with `before_change` (so the image holds what
+    /// the game wrote, for a change about to replace files), else the quick check
+    /// ([`Self::check_now`]'s, recording an instance's first image too). False when it
+    /// couldn't be brought up to date: a "Find it for me" search is saved (its mods are
+    /// renamed on purpose), so the pointer may not be what is on disk.
+    pub(crate) fn content_step_locked(
+        &self,
+        slot: &Slot,
+        instance: &str,
+        before_change: Option<&str>,
+    ) -> Result<bool, ImageError> {
+        if self.finder_running(instance) {
+            return Ok(false);
+        }
+        match before_change {
+            Some(label) => {
+                self.record_before_change_locked(slot, instance, label)?;
+            }
+            None => {
+                self.check_held(slot, instance, false)?;
+            }
+        }
+        Ok(true)
     }
 
     /// Takes the baseline again and forgets `running_since`, recording nothing. The game
