@@ -737,8 +737,12 @@ impl ModsPage {
         let name = m.name().to_string();
         let id = |part: &str| SharedString::from(format!("mod-{index}-{part}"));
         let (toggled, updated, deleted, marked) = (m.clone(), m.clone(), m.clone(), m.clone());
-        // client packs are Fabric's: there, the owner can mark a mod for players
-        let marks = target.loader == InstalledModLoader::Fabric && !target.is_plugin();
+        // players install the server's image on every mod loader (Quilt servers list as
+        // Fabric), so the owner can mark a mod for players on each; plugins never go
+        let marks = matches!(
+            target.loader,
+            InstalledModLoader::Fabric | InstalledModLoader::Forge | InstalledModLoader::NeoForge
+        ) && !target.is_plugin();
         // players get it whatever the box says, except an optional mod the owner can leave out
         let for_players = m.client_requirement == ClientRequirement::Required;
         let required_anyway = for_players && !m.client_marked && !m.client_optional;

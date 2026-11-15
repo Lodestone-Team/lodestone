@@ -133,9 +133,10 @@ pub struct FriendServer {
     /// Empty for one joined with an invite link.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub friend_key: String,
-    /// For a server joined from the friend list: the client pack (its ETag) the user
-    /// trusted its mods with. Trust holds for that pack only: a changed pack is asked
-    /// about again (launcher/docs/friends.md, "Mods").
+    /// For a server joined from the friend list: what the user trusted its mods with,
+    /// the server's client view (its id, `cores::image_sync`), or for a core older than
+    /// milestone 3 its client pack's ETag. Trust holds for that one only: changed files
+    /// are asked about again (launcher/docs/friends.md, "Mods").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trusted_pack: Option<String>,
     /// The local game port Minecraft joins this server on (`127.0.0.1:<port>`), the
@@ -285,9 +286,9 @@ impl FriendServer {
         }
     }
 
-    /// Whether the user trusts this server's mods for the client pack with `etag`: as
-    /// [`FriendServer::is_trusted`], and for a server from the friend list, only for
-    /// the very pack trusted (a pack without an ETag is never trusted).
+    /// Whether the user trusts this server's mods for the view (or client pack) `etag`
+    /// names: as [`FriendServer::is_trusted`], and for a server from the friend list,
+    /// only for the very view trusted (none named is never trusted).
     pub fn trusts_pack(&self, etag: Option<&str>) -> bool {
         if !self.is_trusted() {
             return false;
@@ -298,8 +299,8 @@ impl FriendServer {
         matches!((etag, self.trusted_pack.as_deref()), (Some(etag), Some(trusted)) if !etag.is_empty() && etag == trusted)
     }
 
-    /// Trusts this server's mods, with the client pack `etag` for one from the friend
-    /// list.
+    /// Trusts this server's mods, with the view (or client pack) `etag` names for one
+    /// from the friend list.
     pub fn trust_pack(&mut self, etag: Option<&str>) {
         self.set_trusted(true);
         self.trusted_pack = etag.filter(|e| !e.is_empty()).map(str::to_string);

@@ -619,8 +619,10 @@ outside Lodestone and the backup excludes didn't change).
   manual and pinned never deleted; safety images before a restore kept 30 days), never
   the content lineage's. The Launcher offers the same, per instance.
 - A player whose views were all pruned gets the whole view for a `have` the core no longer
-  knows, and diffs it against the view it applied itself (`lodestone_image::diff`), which
-  gives the same delta the server would ("Server to player").
+  knows, and places the difference between what the view it applied placed and what the
+  whole view places (the Launcher compares the two placed file sets in full, "M4b
+  decisions"; a client could also diff the views, `lodestone_image::diff`, which gives
+  the same delta the server would).
 
 ## Server to player
 
@@ -753,10 +755,13 @@ delay has passed).
 
 **A player whose views were all pruned** (retention keeps the newest 30 content images)
 names views the core no longer knows, so it gets the whole view (200,
-`X-Lodestone-Answer: view`). It diffs that against the view it last applied
-(`lodestone_image::diff(applied, received)`), which gives exactly the delta the server
-would have sent, and goes on as with a delta. So a player keeps the view it last applied,
-and every view it names in `have` (a delta may come from any of them).
+`X-Lodestone-Answer: view`). It then goes on as with a delta: what changes on disk is the
+difference between the files the view it last applied places and the files the whole view
+places ("From one view to the next on disk"), which needs only the view itself and what it
+recorded placing (the Launcher keeps both: "M4b decisions"). A client that wants the delta
+can diff the two views (`lodestone_image::diff(applied, received)`), which gives exactly
+the delta the server would have sent. So a player keeps the view it last applied, and
+every view it names in `have` (a delta may come from any of them).
 
 **What a view places.** A view's files are its base's share for the side, less `removed`,
 with the view's entries over them by path:
@@ -976,8 +981,8 @@ names anything by it.
   only on Unix (mode 0700) and in the default data folder on Windows (its user profile's
   permissions); a data folder moved elsewhere (another drive, an exFAT disk) has whatever
   protection its new place gives, like the rest of the data folder (`accounts.json`
-  included). Any image that leaves the computer (milestone 4's second half, and milestone
-  6) must strip or withhold such files. Pack files never include the files the game
+  included). Any image that leaves the computer (milestone 6; milestone 4's second half
+  only receives images) must strip or withhold such files. Pack files never include the files the game
   writes, `command_history.txt` (commands typed, a server's `/login` password among them)
   and `hotbar.nbt` included, and an image that leaves the computer must never carry those
   either.
@@ -995,7 +1000,8 @@ names anything by it.
 4. Launcher: build and update instances from a server image, replacing the client pack sync;
    content images on actions and before launch. Done in two parts: first the Launcher's
    image store, with content images on its actions and before launch (see "Launcher store
-   decisions"); then server images in place of the client pack sync.
+   decisions"); then server images in place of the client pack sync (done: "M4b
+   decisions").
 5. Launcher: snapshots become images (exports drop downloadable jars), `LDS2:` as an
    encoding; world snapshots on demand and before risky operations, after sessions
    optional; restore with linked content. No `.lodesnap` import and no conversion of the
@@ -1513,7 +1519,10 @@ same, it does the same. The code is `launcher/crates/launcher-core/src/images/`.
   (`ModpackRecord::pack_sha512`, set from Modrinth's version listing when the record is made
   and checked as 128 lowercase hex characters; an optional field, so `modpack.json` keeps
   version 1), `loader` with no `modpack.json`, and none for a pack the image can't name (a
-  local `.mrpack`, a server's pack). The client settings are the recommended memory
+  local `.mrpack`). An instance made from a server's image names its server's base the same
+  way (`modrinth_pack`, from `modpack.json`, whose `from_server` keeps the instance from
+  offering a Modrinth update of its own: `ModpackRecord::modrinth_ids` gives the base,
+  `on_modrinth` the update), so its content images say which pack it is built on. The client settings are the recommended memory
   (`instance.json`) and the resource pack order (`options.txt`'s `resourcePacks`, at most
   1,000 entries). Not the shader: Iris and Oculus keep it in `config/*.properties`, which is
   content already. OptiFine keeps it in `optionsshaders.txt`, a file the game writes, so
@@ -1665,8 +1674,7 @@ same, it does the same. The code is `launcher/crates/launcher-core/src/images/`.
   image). A failure is logged and the change goes on. Neither update starts while a "Find
   it for me" search is saved (the app and the CLI say to finish it first, as they say to
   stop the game): the search has mods turned off, the record before the update would take
-  them as changed by hand, and the search's end would restore files the update replaced. Milestone 4's second half keeps this hook when server images replace the client pack
-  sync (`servers/mod.rs`, `apply_sync`).
+  them as changed by hand, and the search's end would restore files the update replaced. Since milestone 4's second half the hook is `cores::image_sync::apply::before_server_update`, the one place a server's update (from its image, or a `.mrpack` client pack for a core older than milestone 3) records first.
 - **Triggers and labels.** Each begins its operation right before files change and
   succeeds once they did. An action that changes nothing when it fails (one file renamed,
   added or moved to the Trash) records nothing on failure. A removal whose file went to the
@@ -1716,8 +1724,8 @@ same, it does the same. The code is `launcher/crates/launcher-core/src/images/`.
   A modpack update is refused while a search is saved, before its pack is downloaded. Known: Verify game files on a Forge instance that uses
   `minecraftArguments` creates `config/splash.properties` outside a session when it is
   missing, and the next launch's check records it as "Changed by hand". Applying a
-  server's update is milestone 4's second half; its hook is `apply_sync`'s
-  `record_before_change` and operation.
+  server's update records "Before a server update" through
+  `image_sync::apply::before_server_update` and is the operation "Updated from <server>".
 - **English labels.** Labels are data that travel inside images, so they are plain English
   as the core's are, never translated; `join_labels` turns control characters into spaces
   and cuts the whole to 1,000 characters, and the Launcher shows them through `display_text`.
@@ -1812,7 +1820,8 @@ player" has the protocol itself).
   and hashes) is about as large as the view, so uploading it to get a delta back would move
   more bytes than downloading the view, and would give the public routes a request body to
   buffer and parse. `lodestone_image::diff(applied, received)` gives the player the same
-  delta the server would, since the player keeps the view it applied. No route takes a
+  delta the server would, since the player keeps the view it applied (the Launcher needs
+  no delta: it compares the two views' placed files in full, "M4b decisions"). No route takes a
   body.
 - **Pack files the server took out are the image's `removed`.** A player installs the base
   pack's client share and places the view's entries over it ("What a view places"), so a
@@ -1986,9 +1995,10 @@ player" has the protocol itself).
   to them. Unlike the client pack, the view doesn't follow mod dependencies: a mod left out
   this way that a mod players need depends on stays out of the view (the Mods tab shows it
   as needed by the other); the owner unmarks it. The Host's and the dashboard's Mods tabs
-  offer the mark only on Fabric servers today (the only ones with a client pack), though the
-  API takes it for any mod loader: M4, which makes the client view what players install,
-  shows it for every mod loader. What Modrinth says about a jar later (a Mods-tab
+  offered the mark only on Fabric servers (the only ones with a client pack), though the
+  API takes it for any mod loader: since M4, which makes the client view what players
+  install, the GPUI Host offers it for every mod loader (Fabric, Quilt, Forge, NeoForge;
+  never plugins; the dashboard still only on Fabric). What Modrinth says about a jar later (a Mods-tab
   listing) takes effect at the next record, without an image of its own. `jar_environment`
   now also reads Forge's and NeoForge's `mods.toml`: top-level `clientSideOnly = true` is
   client only; `displayTest = "IGNORE_SERVER_VERSION"` on every `[[mods]]` entry (clients
@@ -2073,3 +2083,140 @@ player" has the protocol itself).
   keeps the connections open (the `.mrpack` route has the same exposure). A write timeout
   on the listeners would close them; it isn't there yet. Ranges of small files are
   answered whole, so a range costs what it sends.
+
+### M4b decisions
+
+Decisions the second half of milestone 4 made where this document left the Launcher's
+side of "Server to player" open. The code is `launcher/crates/launcher-core/src/cores/`
+(`player_image.rs`, `image_sync/`) and the Servers page (`lodestone-launcher/src/servers/`).
+
+- **One client for both routes** (`cores::player_image::ServerImage`), on whichever
+  `CoreClient` reaches the server: `/launcher/instances/{uuid}/` with this device's key
+  (or a claimed core's owner key) when the Launcher has one, else
+  `/public/instances/{uuid}/` (the public list, a Connect invite's info port, a friend's
+  tunnel through its forwarded port). Requests go through the core's pinned certificate
+  like every other, never follow redirects, and log only the path without its query. No
+  deadline for a whole request: each wait has its own (`Limits`): 120 s for `…/image`'s
+  headers and between two reads of its body, 300 s for an object's (a download pauses
+  while the server's store is collected). A view or delta past `MAX_MANIFEST_BYTES` is
+  refused (a `Content-Length` past it before reading). `X-Lodestone-Rules` is read first
+  on every answer: digits only, a number past 32 bits counts as newer, anything else says
+  nothing; newer than `RULES` is "update Lodestone" whatever the status. A view of an
+  unknown schema, or rules the view check doesn't know, is the same.
+- **Waiting and giving up.** Every `Retry-After` is clamped to 30 s (5 s when missing or
+  odd), and waits are counted, not timed, so a test's instant sleep ends them too.
+  `…/image` asks again through `Conflict` until its waits add up to 10 minutes (the first
+  record of a big server), then says the server is still preparing; `Internal` stops at
+  once ("couldn't prepare its files", with the seconds left). An object: `TooManyRequests`
+  is waited out, uncounted, for up to 10 minutes of waits; `Conflict` for up to 2 minutes;
+  a body cut short, a stall, a body past the size its view gives, a wrong hash, a 5xx, a
+  transport error and `Internal` each count as a failure, and the third gives up on the
+  file (the spec's "3 times in a row" and "3 `Internal` answers"). A 404 is "the view
+  changed" (Play again asks for the image), a 400 is refused. At most 4 objects download
+  at once. A large file (over 1 MiB) resumes with `Range: bytes=<have>-`; a 206 must say
+  exactly that range, a 200 starts over, a 416 deletes and starts over. Every object's
+  SHA-256 is checked whole (ring, through `lodestone_image::hex`).
+- **What a view must be.** Besides `check_received` and the id the server named
+  (`image_sync::received`), a view must be a `content` image without worlds, on no base,
+  a `loader` base or a `modrinth_pack` base (a `curseforge_pack` base is refused with its
+  own message), of at most 100,000 entries. A delta is applied only to the kept view its
+  `from` names; one the instance doesn't keep (or a 204 naming a view it doesn't keep)
+  asks once more with `have` empty, for the whole view.
+- **What a server may place** (`image_sync::placed`). The client view's rules let through
+  files a server must never write on a player's machine (`options.txt`, `servers.dat`,
+  `optionsof.txt`, screenshots), so an entry's path must be in a content folder (`mods/`,
+  `config/`, `defaultconfigs/`, `kubejs/`, `resourcepacks/`, `shaderpacks/`, the Launcher's
+  content scope) or at a path the base pack's own client share places (not one the content
+  scope never takes from a pack); anything else refuses the whole view. Placed paths that
+  differ only in letter case, and a placed total past 64 GB (the import bound), refuse it
+  too. Writes go to a staging folder inside the instance, every parent checked against
+  links (`ParentCheck`), then are renamed in.
+- **Kept views.** An instance keeps the views it applied in `<instance>/server-views/<id>.json`
+  (outside the game folder, so never content): the applied one and the 3 newest others.
+  `have` is the applied view first, then the others newest first, at most 16. A kept view
+  is checked as a received one when read; a damaged one is deleted. Unlinking an instance
+  deletes them. The link (`lodestone_server.json`) gains `view`, the applied view's id;
+  `pack_etag` is kept only for a core older than milestone 3. No old link or record is
+  converted: an instance from the old client pack sync has no `view`, gets the whole view
+  at its next Play and converges through the merge below against its `modpack.json`.
+- **Placing the difference without a diff.** What a view places is worked out in full each
+  time (the base pack's client share, less `removed`, the entries over it), and compared
+  with what `modpack.json` says the last applied view placed and with the disk, through
+  the modpack updater's three-way merge (`modpack::merge`, which modpack updates use
+  unchanged). So the Launcher needs no delta file list, no old base pack and no
+  `lodestone_image::diff`: a whole view after pruning, a 204 naming another kept view, a
+  base update, a `removed` change and `base` entries following the base all come out of
+  the same comparison. `modpack.json` records each placed file's SHA-1 (empty when the
+  view gives none) and, for files from the view's entries, its SHA-256 (`PackFile::sha256`),
+  which the merge compares by when set; it records what the view placed, never the disk's
+  hashes, so a change the player kept is still theirs at the next update.
+- **Merge rules for a server's files.** `mods/` is authoritative (a server's mod the player
+  changed is replaced, so they can join), as the client pack sync had it. Entries in a
+  config folder (`config/`, `defaultconfigs/`, `kubejs/`) are placed as a pack's overrides
+  are: never over the player's own file, and left on disk when a later view drops them;
+  other entries as a pack's index files (removed when unchanged). The player's own mods,
+  their edited configs and a pack config the server deleted stay. A mod an added pack has
+  that the view now has too is removed (`addon::superseded_by`).
+- **Where files come from.** Modrinth entries from Modrinth's CDN (the URL the entry names,
+  through the Modrinth client's host check), checked by SHA-1 when given (else SHA-256 as
+  they download), SHA-512 and SHA-256; `object` entries from the server; `base` entries are
+  the pack's file at that path, whose SHA-1, SHA-512 and size must be the entry's when it
+  gives them (a missing one is refused: the pack must have it), checked by SHA-256 too;
+  downloadable CurseForge entries through the CurseForge client (one request for all,
+  `files_by_id`), checked by CurseForge's SHA-1 and the entry's SHA-256; the others are
+  listed for the player to download by hand and not placed. CurseForge entries never come
+  from a real core yet, so that path is tested against mocks only.
+- **The base pack.** A `modrinth_pack` base is taken only from Modrinth: the version must be
+  the base's project, Modrinth's listing of its `.mrpack` must have the base's SHA-512, and
+  the download (from the CDN) is checked against it. Packs are cached in
+  `<data>/cache/server-packs/<sha512>.mrpack`, hashed again when used (a damaged one is
+  downloaded again), the newest 8 kept. A version Modrinth no longer has refuses the
+  install with a message saying so (M3's "`base` entries need the pack"). The pack's
+  client share is what any Modrinth launcher installs (`modpack::read_pack`).
+- **The game is fixed.** The view's game becomes a new instance's (Forge's loader version
+  as a full Maven version, `<minecraft>-<version>`; Quilt and NeoForge as they are). For an
+  existing instance a view of another Minecraft version or loader is refused, telling the
+  player to make a new instance; only the loader version follows, saved after the files
+  and before the link names the view. The `.mrpack` fallback follows the same rule (the old
+  sync changed the Minecraft version in place). A view whose loader version differs from
+  the instance's is placed again even when the server answers 204 (an update whose loader
+  version wasn't saved).
+- **Not applied from a server:** launch settings, Java, and the view's client settings
+  (recommended memory, resource pack order, icon, background): a new instance starts with
+  the Launcher's defaults.
+- **Showing what will be installed.** "Create matching instance" always shows what the new
+  instance gets (base pack, Minecraft and loader, mods the server added, files only the
+  server has, files it couldn't share and CurseForge files to download by hand) before
+  anything is installed, unless the view places nothing (a vanilla server): from a core
+  trusted for mods with Install and Cancel, otherwise inside the trust advisory. Play's
+  update prompt lists the changes, a new loader version and the files the server
+  couldn't share. The advisory takes a server's own files (no SHA-1 to ask Modrinth by)
+  for uploaded ones, and a Modrinth file without a SHA-1 for Modrinth's (its CDN and
+  SHA-512). Missing files are `lodestone_image::view::needed_withheld` (the shared crate
+  gained it: the rule "Files a view can't give" states), shown through `display_text`.
+- **Friend trust** for a server from the friend list is tied to the view's id
+  (`FriendServer::trusted_pack` holds it; a client pack's ETag for an older core).
+- **The fallback.** A 404 on `…/image` means a core older than milestone 3: creating an
+  instance imports its `.mrpack` when its listing says `has_client_pack: true`, else makes
+  a plain instance; Play keeps an instance from it in step through the `.mrpack` when its
+  link has a `pack_etag` or the listing says it has a pack, else joins (`cores::sync`,
+  kept only for this). A server listed publicly without the client-pack scope
+  (`has_client_pack` missing) shares no files: a plain instance, as before.
+- **Records and crash safety.** A new instance is staged whole beside the instances (files,
+  `content.json`, `modpack.json`, the link with its view, the kept view) and renamed into
+  place, then recorded "Created from <server>"; nothing is left when it fails. An update
+  records first through `image_sync::apply::before_server_update` (the one call site;
+  the snapshot before a server update joins it there), runs as the operation "Updated
+  from <server>" while Play is held (refused while the game runs or a "Find it for me"
+  search is saved), and writes in this order: files (staged, a rollback copy, swapped in),
+  `content.json`, `modpack.json`, the loader version, the kept view, the link's view. A
+  crash before the link leaves the old view named, and the next Play finds the files in
+  place (no changes) and only records the view.
+- **The control API and CLI.** The advisory's data gains `summary` (base, game, mods,
+  files only the server has, `missing` with each path and reason, CurseForge files); the
+  update prompt's gains `missing`, `curseforge` and `loader`. A trusted core's install
+  prompt is answered Install. A server that needs a newer Lodestone fails with the new
+  code `update_required` (exit 1).
+- **The Host** offers the "For players" mark for every mod loader (see "M3 decisions").
+- **Open: "Not for players" on a pack's own file** still reaches players through the base's
+  client share (M3 decisions); the fix needs a change to `Image::validate`, not made here.
