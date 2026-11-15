@@ -50,7 +50,7 @@ struct Player<'a> {
 /// An answer to `GET …/image`.
 enum Answer {
     Current(String),
-    View(Image),
+    View(Box<Image>),
     Delta(Delta, String),
 }
 
@@ -125,7 +125,7 @@ impl<'a> Player<'a> {
                     view.id
                 );
                 assert_eq!(view.id, current);
-                Answer::View(view)
+                Answer::View(Box::new(view))
             }
             "delta" => Answer::Delta(Delta::from_json(&body).unwrap(), current),
             other => panic!("unknown answer {other}"),
@@ -347,7 +347,7 @@ async fn a_player_downloads_the_client_view_and_keeps_up_with_deltas() {
     // in step
     assert!(matches!(
         player.image(&[&first.id]).await,
-        Answer::Current(_)
+        Answer::Current(id) if id == first.id
     ));
 
     // the server changes: a mod uploaded, one removed
@@ -403,7 +403,7 @@ async fn a_player_downloads_the_client_view_and_keeps_up_with_deltas() {
     // in step again; a view the core doesn't know gets the whole view
     assert!(matches!(
         player.image(&[&second.id]).await,
-        Answer::Current(_)
+        Answer::Current(id) if id == second.id
     ));
     let Answer::View(whole) = player.image(&["e".repeat(64).as_str()]).await else {
         panic!("the whole view");
