@@ -23,6 +23,7 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
 
@@ -114,12 +115,93 @@ pub fn load(store_root: &Path, uuid: &InstanceUuid) -> ContentState {
     }
 }
 
+/// Only the pointer of a state file ([`current_pointer`]): the baseline and hints are
+/// skipped unbuilt.
+#[derive(Deserialize)]
+struct Pointer {
+    #[serde(default)]
+    current: Option<String>,
+}
+
+/// The instance's current content image, read without building the rest of the state:
+/// what serving players reads on every request. `None` when there is none: no state file,
+/// or one that is too large, damaged or names no image, like [`load`]. Unlike [`load`],
+/// any other failure to read it (too many open files, say) is an error: it says nothing
+/// about whether there is an image, so it must not start a record. Blocking.
+pub fn current_pointer(store_root: &Path, uuid: &InstanceUuid) -> Result<Option<String>, Error> {
+    let path = path(store_root, uuid)?;
+    let failed = |e: std::io::Error| -> Result<Option<String>, Error> {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            Ok(None)
+        } else {
+            Err(color_eyre::Report::new(e)
+                .wrap_err("Failed to read the server's content state")
+                .into())
+        }
+    };
+    let meta = match std::fs::metadata(&path) {
+        Ok(meta) => meta,
+        Err(e) => return failed(e),
+    };
+    if meta.len() > MAX_BYTES {
+        return Ok(None);
+    }
+    let bytes = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(e) => return failed(e),
+    };
+    Ok(serde_json::from_slice::<Pointer>(&bytes)
+        .ok()
+        .and_then(|pointer| pointer.current)
+        .filter(|id| lodestone_image::hex::is_sha256(id)))
+}
+
+/// One version of an instance's state file, told apart without reading it: how many saves
+/// this process made (of any instance's state) and the file's size, time and (on Unix)
+/// inode. Only this process saves the file, so the count alone tells its own saves apart
+/// even where the file system reuses inodes at once and keeps coarse times (ext4 with a
+/// timer-tick clock, three saves of the same size within one tick); the file's metadata
+/// tells a file someone else put there. Serving players reads the pointer again only when
+/// this changes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StateStamp {
+    saves: u64,
+    len: u64,
+    modified: Option<std::time::SystemTime>,
+    inode: u64,
+}
+
+/// How many states [`save`] has written, counted once each is in place.
+static SAVES: AtomicU64 = AtomicU64::new(0);
+
+/// The state file's [`StateStamp`], or `None` when it isn't there. Blocking.
+pub fn stamp(store_root: &Path, uuid: &InstanceUuid) -> Option<StateStamp> {
+    // Read before the metadata: a save between the two then counts as unseen, and the
+    // next stamp differs.
+    let saves = SAVES.load(Ordering::SeqCst);
+    let meta = std::fs::metadata(path(store_root, uuid).ok()?).ok()?;
+    #[cfg(unix)]
+    let inode = std::os::unix::fs::MetadataExt::ino(&meta);
+    #[cfg(not(unix))]
+    let inode = 0;
+    Some(StateStamp {
+        saves,
+        len: meta.len(),
+        modified: meta.modified().ok(),
+        inode,
+    })
+}
+
 /// Replaces the instance's state, crash-safely (temp file, flushed, renamed). Blocking.
 pub fn save(store_root: &Path, uuid: &InstanceUuid, state: &ContentState) -> Result<(), Error> {
     let path = path(store_root, uuid)?;
     let bytes = serde_json::to_vec(state)
         .map_err(|e| color_eyre::eyre::eyre!("Failed to write the content state: {e}"))?;
-    super::write_small_atomic(&path, &bytes)
+    let saved = super::write_small_atomic(&path, &bytes);
+    // Counted after the rename, so a stamp with the new count is always of a read made
+    // after it. A failed write may have replaced the file too.
+    SAVES.fetch_add(1, Ordering::SeqCst);
+    saved
 }
 
 #[cfg(test)]
@@ -149,6 +231,19 @@ mod tests {
         // Fields a newer core adds are ignored, and missing ones default.
         std::fs::write(path(dir.path(), &uuid).unwrap(), br#"{"later":1}"#).unwrap();
         assert_eq!(load(dir.path(), &uuid), ContentState::default());
+        // The pointer alone reads the same.
+        std::fs::write(path(dir.path(), &uuid).unwrap(), b"{oops").unwrap();
+        assert_eq!(current_pointer(dir.path(), &uuid).unwrap(), None);
+        save(dir.path(), &uuid, &state).unwrap();
+        assert_eq!(current_pointer(dir.path(), &uuid).unwrap(), state.current);
+        std::fs::write(path(dir.path(), &uuid).unwrap(), br#"{"current":"../x"}"#).unwrap();
+        assert_eq!(current_pointer(dir.path(), &uuid).unwrap(), None);
+        // Each save is a new version of the file.
+        let before = stamp(dir.path(), &uuid).unwrap();
+        save(dir.path(), &uuid, &state).unwrap();
+        let after = stamp(dir.path(), &uuid).unwrap();
+        assert_ne!(before, after);
+        assert_eq!(stamp(dir.path(), &uuid), Some(after));
         // A baseline taken under other scope rules isn't trusted.
         let old = ContentState {
             scope_rules: 0,

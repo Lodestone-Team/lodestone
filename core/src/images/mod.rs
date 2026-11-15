@@ -14,6 +14,8 @@
 //! - [`state`]: the current content image and the baseline. [`base`]: the modpack a
 //!   server is built on. [`env`]: which sides a file is for.
 //! - [`retention`]: which manifests to keep. [`gc`]: the collector.
+//! - [`serve`]: what a server serves its players (its current content image's client view,
+//!   deltas to it, which objects they may fetch). [`objects`]: streaming an object to them.
 //!
 //! Locks, outermost first: an instance's mods lock (`ModsState::lock_for`), its content
 //! gate (operations share it, a record has it alone), then the instance's lock
@@ -30,9 +32,11 @@ pub mod env;
 pub mod excludes;
 pub mod gc;
 pub mod layout;
+pub mod objects;
 pub mod recorder;
 pub mod retention;
 pub mod scope;
+pub mod serve;
 pub mod state;
 
 use std::collections::HashMap;
@@ -192,6 +196,10 @@ pub struct ImageService {
     pub(crate) clock: Arc<dyn Clock>,
     source: StdRwLock<Option<Arc<dyn InstanceSource>>>,
     gc: Arc<gc::GcState>,
+    /// What players are served, cached ([`serve`]).
+    pub(crate) views: Arc<serve::ViewCache>,
+    /// Which object downloads may start ([`objects::Downloads`]).
+    pub(crate) downloads: objects::Downloads,
 }
 
 static GLOBAL: OnceLock<Arc<ImageService>> = OnceLock::new();
@@ -229,6 +237,8 @@ impl ImageService {
             clock,
             source: Default::default(),
             gc: Default::default(),
+            views: Default::default(),
+            downloads: Default::default(),
         }
     }
 
@@ -410,6 +420,8 @@ impl ImageService {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .remove(uuid);
+        self.views.forget(uuid);
+        self.downloads.forget(uuid);
         Ok(())
     }
 
@@ -535,5 +547,7 @@ where
 
 #[cfg(test)]
 mod end_to_end_tests;
+#[cfg(test)]
+mod player_tests;
 #[cfg(test)]
 pub(crate) mod tests;

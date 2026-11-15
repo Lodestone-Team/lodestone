@@ -184,7 +184,7 @@ fn assert_one_layout(dir: &Path) {
 }
 
 /// Sets every object, list and chunk of the store two hours back, past a collection's grace.
-fn age_store(root: &Path) {
+pub(crate) fn age_store(root: &Path) {
     for area in ["objects", "lists", "chunks"] {
         for entry in walkdir::WalkDir::new(root.join(area))
             .min_depth(2)

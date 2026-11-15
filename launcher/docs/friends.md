@@ -259,7 +259,11 @@ Friend info routes, for the instances shared with this friend only:
 
 - `GET /api/v1/friend/servers`: their `SharedServer`s;
 - `GET /api/v1/public/instances`: those instances, as the public list shows them;
-- `GET /api/v1/public/instances/{uuid}/client-pack`: a shared instance's client pack.
+- `GET /api/v1/public/instances/{uuid}/client-pack`: a shared instance's client pack;
+- `GET /api/v1/public/instances/{uuid}/image` and
+  `GET`/`HEAD /api/v1/public/instances/{uuid}/objects/{sha256}`: a shared instance's client view,
+  deltas to it and the files only the server has (`docs/instance-images.md`, "Server to
+  player").
 
 In the launcher, a server joined this way is a `FriendServer` with the id
 `friend:<core fingerprint>/<instance uuid>`.

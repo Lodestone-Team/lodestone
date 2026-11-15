@@ -198,6 +198,22 @@ impl Store {
         Ok(CollectionHold { _file: file })
     }
 
+    /// [`Store::hold_off_collection`] without waiting: `None` while a collection runs. For a
+    /// caller that would rather answer "try again" than wait for a collection to end (a
+    /// server answering a player).
+    pub fn try_hold_off_collection(&self) -> Result<Option<CollectionHold>, StoreError> {
+        let file = self
+            .open_collection_lock()
+            .map_err(super::io_err("Failed to open the store's collection lock"))?;
+        match file.try_lock_shared() {
+            Ok(()) => Ok(Some(CollectionHold { _file: file })),
+            Err(fs::TryLockError::WouldBlock) => Ok(None),
+            Err(fs::TryLockError::Error(e)) => Err(super::io_err(
+                "Failed to take the store's collection lock",
+            )(e)),
+        }
+    }
+
     fn open_collection_lock(&self) -> io::Result<fs::File> {
         let dir = self.images_dir();
         fs::create_dir_all(&dir)?;

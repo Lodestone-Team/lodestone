@@ -177,6 +177,29 @@ async fn info_get(tx: &mpsc::Sender<tokio::io::DuplexStream>, path: &str) -> (u1
     lodestone_connect::info::parse_response(&answer).unwrap()
 }
 
+/// The client view of `uuid` through a tunnel's `get`, once its first content image is
+/// recorded (503 until then), checked as a player checks it.
+async fn image_through<F, Fut>(get: F, uuid: &InstanceUuid) -> lodestone_image::Image
+where
+    F: Fn(String) -> Fut,
+    Fut: std::future::Future<Output = (u16, Vec<u8>)>,
+{
+    let path = format!("/api/v1/public/instances/{uuid}/image?side=client");
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        let (status, body) = get(path.clone()).await;
+        if status == 200 {
+            let view = lodestone_image::Image::from_json(&body).unwrap();
+            view.verify().unwrap();
+            assert_eq!(view.side, Some(lodestone_image::Side::Client));
+            return view;
+        }
+        assert_eq!(status, 503);
+        assert!(std::time::Instant::now() < deadline, "no content image");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
 #[tokio::test]
 async fn info_streams_reach_only_the_shared_instances_routes() {
     let core = core().await;
@@ -214,9 +237,47 @@ async fn info_streams_reach_only_the_shared_instances_routes() {
     .await;
     assert_eq!(status, 200);
 
+    // its client view and objects, as players fetch them
+    let view = image_through(
+        |path| {
+            let tx = &tx;
+            async move { info_get(tx, &path).await }
+        },
+        &core.fabric,
+    )
+    .await;
+    let jar = &view.entries[0];
+    let (status, bytes) = info_get(
+        &tx,
+        &format!(
+            "/api/v1/public/instances/{}/objects/{}",
+            core.fabric, jar.sha256
+        ),
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert_eq!(lodestone_image::hex::sha256_hex(&bytes), jar.sha256);
+
     // nothing about the other instance, and nothing else of the API
     for path in [
         format!("/api/v1/public/instances/{}/client-pack", core.vanilla),
+        format!(
+            "/api/v1/public/instances/{}/image?side=client",
+            core.vanilla
+        ),
+        format!(
+            "/api/v1/public/instances/{}/objects/{}",
+            core.vanilla, jar.sha256
+        ),
+        format!(
+            "/api/v1/launcher/instances/{}/image?side=client",
+            core.fabric
+        ),
+        format!(
+            "/api/v1/public/instances/{}/objects/{}",
+            core.fabric,
+            "f".repeat(64)
+        ),
         "/api/v1/info".to_string(),
         "/api/v1/user/info".to_string(),
         "/api/v1/instance/list".to_string(),
@@ -721,16 +782,45 @@ async fn friends_reach_only_what_is_shared_with_them() {
 
     let pack = format!("/api/v1/public/instances/{}/client-pack", core.fabric);
     assert_eq!(friend_get(&tx, ben, &pack).await.0, 200);
+    let view = image_through(
+        |path| {
+            let tx = &tx;
+            async move { friend_get(tx, ben, &path).await }
+        },
+        &core.fabric,
+    )
+    .await;
+    let object = format!(
+        "/api/v1/public/instances/{}/objects/{}",
+        core.fabric, view.entries[0].sha256
+    );
+    let (status, bytes) = friend_get(&tx, ben, &object).await;
+    assert_eq!(status, 200);
+    assert_eq!(
+        lodestone_image::hex::sha256_hex(&bytes),
+        view.entries[0].sha256
+    );
+    let image = format!("/api/v1/public/instances/{}/image?side=client", core.fabric);
 
     // Carl has nothing shared with him
     let (status, body) = friend_get(&tx, carl, "/api/v1/friend/servers").await;
     assert_eq!(status, 200);
     assert_eq!(body, b"[]");
     assert_eq!(friend_get(&tx, carl, &pack).await.0, 404);
+    assert_eq!(friend_get(&tx, carl, &image).await.0, 404);
+    assert_eq!(friend_get(&tx, carl, &object).await.0, 404);
 
     // nothing unshared, and nothing else of the API
     for path in [
         format!("/api/v1/public/instances/{}/client-pack", core.vanilla),
+        format!(
+            "/api/v1/public/instances/{}/image?side=client",
+            core.vanilla
+        ),
+        format!(
+            "/api/v1/launcher/instances/{}/image?side=client",
+            core.fabric
+        ),
         "/api/v1/connect/info".to_string(),
         "/api/v1/info".to_string(),
         "/api/v1/connect/friends".to_string(),
@@ -742,6 +832,146 @@ async fn friends_reach_only_what_is_shared_with_them() {
     // unsharing takes effect on the next request
     access.write().unwrap().clear();
     assert_eq!(friend_get(&tx, ben, &pack).await.0, 404);
+    assert_eq!(friend_get(&tx, ben, &image).await.0, 404);
+    assert_eq!(friend_get(&tx, ben, &object).await.0, 404);
+}
+
+/// Sends `request` (a whole HTTP/1.1 request) over `stream` and reads the whole answer.
+async fn exchange(mut stream: tokio::io::DuplexStream, request: &str) -> Vec<u8> {
+    stream.write_all(request.as_bytes()).await.unwrap();
+    let mut answer = Vec::new();
+    tokio::time::timeout(Duration::from_secs(30), stream.read_to_end(&mut answer))
+        .await
+        .unwrap()
+        .unwrap();
+    answer
+}
+
+/// An answer's status, header lines (lowercase names) and body.
+fn read_answer(answer: &[u8]) -> (u16, Vec<String>, Vec<u8>) {
+    let (status, body) = lodestone_connect::info::parse_response(answer).unwrap();
+    let end = answer.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+    let head = String::from_utf8_lossy(&answer[..end])
+        .lines()
+        .skip(1)
+        .map(|line| {
+            let (name, value) = line.split_once(':').unwrap();
+            format!("{}: {}", name.to_ascii_lowercase(), value.trim())
+        })
+        .collect();
+    (status, head, body)
+}
+
+/// Bytes FastCDC cuts into several chunks.
+fn noise(len: usize) -> Vec<u8> {
+    let mut state = 0x9e37_79b9_7f4a_7c15_u64;
+    (0..len)
+        .map(|_| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state as u8
+        })
+        .collect()
+}
+
+/// Fetches the object `sha256` of `uuid` (`bytes`, over 1 MiB, so a chunk list in the
+/// store) through a tunnel's `send`: whole, one range across chunks, and HEAD.
+async fn large_object_through<F, Fut>(send: F, uuid: &InstanceUuid, sha256: &str, bytes: &[u8])
+where
+    F: Fn(String) -> Fut,
+    Fut: std::future::Future<Output = Vec<u8>>,
+{
+    let path = format!("/api/v1/public/instances/{uuid}/objects/{sha256}");
+    let request = |method: &str, extra: &str| {
+        format!("{method} {path} HTTP/1.1\r\nHost: x\r\n{extra}Connection: close\r\n\r\n")
+    };
+    let length = format!("content-length: {}", bytes.len());
+
+    let (status, head, body) = read_answer(&send(request("GET", "")).await);
+    assert_eq!(status, 200);
+    assert!(head.contains(&length), "{head:?}");
+    assert_eq!(body.len(), bytes.len());
+    assert_eq!(lodestone_image::hex::sha256_hex(&body), sha256);
+
+    let (start, end) = (1_000_000, 2_200_000);
+    let (status, head, body) =
+        read_answer(&send(request("GET", &format!("Range: bytes={start}-{end}\r\n"))).await);
+    assert_eq!(status, 206);
+    assert!(
+        head.contains(&format!(
+            "content-range: bytes {start}-{end}/{}",
+            bytes.len()
+        )),
+        "{head:?}"
+    );
+    assert_eq!(body, &bytes[start..=end]);
+
+    let (status, head, body) = read_answer(&send(request("HEAD", "")).await);
+    assert_eq!(status, 200);
+    assert!(head.contains(&length), "{head:?}");
+    assert!(body.is_empty());
+}
+
+#[tokio::test]
+async fn large_objects_cross_info_streams_and_friend_tunnels() {
+    let core = core().await;
+    let bytes = noise(3 << 20);
+    std::fs::write(
+        core.dir.path().join("instances/fabric/mods/big.jar"),
+        &bytes,
+    )
+    .unwrap();
+    let sha256 = lodestone_image::hex::sha256_hex(&bytes);
+
+    let (info, rx) = mpsc::channel(4);
+    tokio::spawn(serve_info(core.state.clone(), core.fabric.clone(), rx));
+    let view = image_through(
+        |path| {
+            let info = &info;
+            async move { info_get(info, &path).await }
+        },
+        &core.fabric,
+    )
+    .await;
+    assert!(view.entries.iter().any(|e| e.sha256 == sha256));
+    large_object_through(
+        |request| {
+            let info = info.clone();
+            async move {
+                let (near, far) = tokio::io::duplex(1 << 20);
+                info.send(far).await.unwrap();
+                exchange(near, &request).await
+            }
+        },
+        &core.fabric,
+        &sha256,
+        &bytes,
+    )
+    .await;
+
+    let ben = lodestone_connect::friend::PublicKey([1; 32]);
+    let access: friends::Access = Default::default();
+    access
+        .write()
+        .unwrap()
+        .insert(ben, [core.fabric.clone()].into_iter().collect());
+    let (friend, rx) = mpsc::channel(4);
+    tokio::spawn(friends::serve_friend_info(core.state.clone(), access, rx));
+    large_object_through(
+        |request| {
+            let friend = friend.clone();
+            async move {
+                let (near, far) = tokio::io::duplex(1 << 20);
+                friend.send((far, ben)).await.unwrap();
+                exchange(near, &request).await
+            }
+        },
+        &core.fabric,
+        &sha256,
+        &bytes,
+    )
+    .await;
 }
 
 #[tokio::test]

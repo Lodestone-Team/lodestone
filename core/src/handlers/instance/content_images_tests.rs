@@ -43,6 +43,7 @@ pub(crate) fn write(root: &FsPath, relative: &str, bytes: &[u8]) {
 pub(crate) enum Kind {
     Fabric,
     Paper,
+    Forge,
 }
 
 pub(crate) struct Core {
@@ -73,6 +74,7 @@ pub(crate) fn server_files(root: &FsPath, kind: Kind) -> InstanceUuid {
     let flavour = match kind {
         Kind::Fabric => json!({"fabric": {"loader_version": "0.16.10", "installer_version": null}}),
         Kind::Paper => json!({"paper": {"build_version": 196}}),
+        Kind::Forge => json!({"forge": {"build_version": "1.20.1-47.2.0"}}),
     };
     write(
         root,
@@ -93,7 +95,7 @@ pub(crate) fn server_files(root: &FsPath, kind: Kind) -> InstanceUuid {
     write(root, "world/region/r.0.0.mca", b"overworld region");
     write(root, "logs/latest.log", b"log");
     match kind {
-        Kind::Fabric => {
+        Kind::Fabric | Kind::Forge => {
             write(root, "mods/base.jar", b"base mod");
             write(root, "config/base.toml", b"a = 1");
         }

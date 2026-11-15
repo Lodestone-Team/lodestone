@@ -17,7 +17,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 
-use lodestone_image::{Base, Env, EnvValue};
+use lodestone_image::{Base, CanonicalPath, Env, EnvValue, Image};
 use lodestone_minecraft::mrpack::{for_each_override, open_pack, read_index, OverrideItem, Side};
 use tracing::warn;
 
@@ -42,8 +42,9 @@ pub fn pack_sha512(path: &Path) -> Option<String> {
 /// What the pack at `path` says about each file it writes into a server: an index file's
 /// `env` as written, an override's from its folder. `overrides/` is for both sides,
 /// `server-overrides/` for the server only (it replaces an `overrides/` file of the same
-/// path there), and an `overrides/` file that `client-overrides/` replaces on clients isn't
-/// what clients get, so it is unsupported on their side. Blocking.
+/// path there), and a file that `client-overrides/` replaces on clients (an `overrides/`
+/// file or an index download) isn't what clients get, so it is unsupported on their side.
+/// Blocking.
 fn pack_envs(path: &Path) -> Result<HashMap<String, Env>, Error> {
     let mut archive = open_pack(path)?;
     let index = read_index(&mut archive)?;
@@ -87,6 +88,14 @@ fn pack_envs(path: &Path) -> Result<HashMap<String, Env>, Error> {
             Ok::<_, Error>(())
         },
     )?;
+    // An index file is replaced on clients the same way: Modrinth launchers place
+    // `client-overrides/` after the downloads, so what clients get at that path is the
+    // client-overrides file, never the server's download.
+    for (path, env) in envs.iter_mut() {
+        if client_only.contains(path) {
+            env.client = EnvValue::Unsupported;
+        }
+    }
     Ok(envs)
 }
 
@@ -142,7 +151,7 @@ pub fn base_info(
     };
     let mut info = BaseInfo {
         base,
-        files: BTreeMap::new(),
+        ..BaseInfo::default()
     };
     for (path, recorded) in &record.files {
         let download = files
@@ -210,12 +219,15 @@ pub async fn save(images: &Arc<ImageService>, uuid: &InstanceUuid, info: BaseInf
     }
 }
 
-/// After a restore that put back an image's content, which was built on `base`: makes the
-/// server's `pack.json` name that base, without the pack's file list (an image doesn't keep
-/// it), so the next update falls back to the files of the origin's pack version. A
-/// `pack.json` with that base already is left as it is. Call it inside the restore's
-/// content operation, before its image is recorded.
-pub async fn follow_base(images: &Arc<ImageService>, uuid: &InstanceUuid, base: Option<Base>) {
+/// After a restore that put back the content of the image `content`: makes the server's
+/// `pack.json` name the image's base, without the pack's file list (an image doesn't keep
+/// it), so the next update falls back to the files of the origin's pack version, and with
+/// the image's `removed` and paths, so the next content images still take out the pack
+/// files the server had taken out, or takes out later ([`BaseInfo::removed`],
+/// [`BaseInfo::paths`]). A `pack.json` with that base already is
+/// left as it is (its file list gives `removed`). Call it inside the restore's content
+/// operation, before its image is recorded.
+pub async fn follow_base(images: &Arc<ImageService>, uuid: &InstanceUuid, content: &Image) {
     if !ImageService::accepts(uuid) {
         return;
     }
@@ -226,14 +238,37 @@ pub async fn follow_base(images: &Arc<ImageService>, uuid: &InstanceUuid, base: 
             .ok()
             .flatten()
     };
-    if current.as_ref().and_then(|info| info.base.as_ref()) == base.as_ref() {
+    if current.as_ref().and_then(|info| info.base.as_ref()) == content.base.as_ref() {
         return;
     }
-    let info = BaseInfo {
+    let paths = content
+        .entries
+        .iter()
+        .map(|entry| entry.path.clone())
+        .collect();
+    save(
+        images,
+        uuid,
+        without_files(content.base.clone(), &content.removed, paths),
+    )
+    .await;
+}
+
+/// A `pack.json` naming `base` without its file list, keeping what an image built on it
+/// had `removed` and the `paths` it carried ([`BaseInfo::removed`], [`BaseInfo::paths`];
+/// neither without a base).
+pub fn without_files(
+    base: Option<Base>,
+    removed: &[CanonicalPath],
+    paths: Vec<CanonicalPath>,
+) -> BaseInfo {
+    let based = base.is_some();
+    BaseInfo {
+        removed: if based { removed.to_vec() } else { Vec::new() },
+        paths: if based { paths } else { Vec::new() },
         base,
         files: BTreeMap::new(),
-    };
-    save(images, uuid, info).await;
+    }
 }
 
 #[cfg(test)]
@@ -300,5 +335,46 @@ mod tests {
         assert!(!info.files.contains_key("mods/a.jar.disabled"));
         assert_eq!(info.files["mods/a.jar"].size, Some(3));
         assert_eq!(record_of_base(&info), record);
+    }
+
+    /// Each file's sides as the pack gives them; a file `client-overrides/` replaces on
+    /// clients (an override or an index download) is client-unsupported, since clients get
+    /// the client-overrides file there instead.
+    #[test]
+    fn pack_envs_follow_the_override_folders() {
+        use crate::modpack::tests::{fabric, file_entry, index, pack, Entry};
+        let files = vec![
+            file_entry(
+                "mods/a.jar",
+                b"a",
+                Some("required"),
+                "https://cdn.modrinth.com/a.jar",
+            ),
+            file_entry(
+                "mods/x.jar",
+                b"x",
+                Some("required"),
+                "https://cdn.modrinth.com/x.jar",
+            ),
+        ];
+        let p = pack(
+            index(files, fabric()),
+            &[
+                Entry::File("overrides/config/a.json", b"both"),
+                Entry::File("overrides/config/b.json", b"both, replaced on clients"),
+                Entry::File("client-overrides/config/b.json", b"client"),
+                Entry::File("client-overrides/mods/x.jar", b"the client's x"),
+                Entry::File("server-overrides/config/s.json", b"server"),
+            ],
+        );
+        let envs = pack_envs(&p.path).unwrap();
+        let both = Env::new(EnvValue::Required, EnvValue::Required);
+        let server_only = Env::new(EnvValue::Unsupported, EnvValue::Required);
+        assert_eq!(envs["mods/a.jar"], both);
+        assert_eq!(envs["mods/x.jar"], server_only);
+        assert_eq!(envs["config/a.json"], both);
+        assert_eq!(envs["config/b.json"], server_only);
+        assert_eq!(envs["config/s.json"], server_only);
+        assert!(!envs.contains_key("options.txt"));
     }
 }

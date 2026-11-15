@@ -718,3 +718,20 @@ fn one_hash_named_with_many_sizes_marks_quickly() {
     assert_eq!(report.objects_removed, 0);
     assert_eq!(store.read_object_bytes(&small.sha256, 5).unwrap(), b"small");
 }
+
+/// Trying to hold collections off gives `None` while one runs, and a hold once none does.
+#[test]
+fn trying_to_hold_off_never_waits() {
+    let (_dir, store) = store(Encoding::Raw);
+    let running = store.open_collection_lock().unwrap();
+    running.lock().unwrap();
+    assert!(store.try_hold_off_collection().unwrap().is_none());
+    drop(running);
+    let first = store.try_hold_off_collection().unwrap().unwrap();
+    let second = store.try_hold_off_collection().unwrap().unwrap();
+    // A collection waits for the holds.
+    let collector = store.open_collection_lock().unwrap();
+    assert!(collector.try_lock().is_err());
+    drop((first, second));
+    assert!(collector.try_lock().is_ok());
+}

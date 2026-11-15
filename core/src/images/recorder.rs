@@ -15,8 +15,10 @@
 //! content ([`super::scope`], the policy's excludes as canonical patterns, the "content"
 //! stat cache so only changed files are read, one thread while the server runs), builds
 //! the image (base, sources and `env` from what is known: [`super::base`],
-//! [`super::env`]), and seals it. The same contents give the same id: then nothing is
-//! written but the baseline. Otherwise the manifest is saved (the store makes its objects
+//! [`super::env`]; the pack's files the server no longer has are the image's `removed`,
+//! see [`removed_pack_files`]), and seals it. The same contents give the same id: then
+//! nothing is written but the baseline (unless its manifest can't be read, which is then
+//! saved again). Otherwise the manifest is saved (the store makes its objects
 //! durable first, then writes it to a temporary file and renames it), then the pointer
 //! and baseline ([`super::state`]), then the stat cache, then old manifests are pruned. A
 //! failure before the manifest is saved writes nothing and keeps the labels queued for the
@@ -33,9 +35,10 @@ use std::time::{Duration, Instant};
 
 use lodestone_image::lineage::join_labels;
 use lodestone_image::manifest::App;
+use lodestone_image::store::excludes::Excludes;
 use lodestone_image::store::snapshot::{self, Snapshot, SnapshotOptions};
 use lodestone_image::store::{Store, StoreError};
-use lodestone_image::{DiskLayout, Entry, Image, Kind, Producer, Source};
+use lodestone_image::{CanonicalPath, DiskLayout, Entry, EnvValue, Image, Kind, Producer, Source};
 use sha1::Digest;
 use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard};
 use tracing::warn;
@@ -47,7 +50,9 @@ use super::base::{BaseFile, BaseInfo};
 use super::env::{self, JarFacts, ModrinthHint};
 use super::excludes::canonical_excludes_where;
 use super::layout::{game_of, server_layout, server_settings, InstanceContext};
-use super::scope::{content_filter, exclude_reaches_content, SCOPE_RULES};
+use super::scope::{
+    exclude_reaches_content, exclude_reaches_mods, is_content, ContentFilter, SCOPE_RULES,
+};
 use super::state::ContentState;
 use super::{blocking, ImageService, Slot};
 
@@ -614,12 +619,9 @@ impl ImageService {
             let store = self.store();
             let id = ctx.uuid.clone();
             let image_id = image.id.clone();
-            let have = blocking(move || {
-                Ok(store
-                    .manifest_path(id.as_ref(), &image_id)
-                    .is_ok_and(|path| path.is_file()))
-            })
-            .await?;
+            // A manifest that can't be read (damaged) is saved again, as if it weren't there.
+            let have =
+                blocking(move || Ok(store.load_manifest(id.as_ref(), &image_id).is_ok())).await?;
             if have && state.current.as_deref() == Some(image.id.as_str()) {
                 // Nothing changed: keep the image's time, take the baseline again.
                 next.recorded = state.recorded;
@@ -808,9 +810,21 @@ impl ImageService {
             }
         }
 
+        let removed = match base {
+            Some(base) if base.base.is_some() => removed_pack_files(
+                &layout,
+                &excludes,
+                &baseline,
+                &snapshot.withheld,
+                base,
+                &entries,
+            ),
+            _ => Vec::new(),
+        };
         let mut image = Image::new(Kind::Content, game_of(&ctx.game_version, &ctx.flavour));
         snapshot.fill(&mut image);
         image.entries = entries;
+        image.removed = removed;
         image.settings = server_settings(&ctx.flavour);
         image.base = base.and_then(|b| b.base.clone());
         image.excludes = excludes;
@@ -956,16 +970,24 @@ struct Built {
 /// The server's disk layout and canonical excludes, for its content: blocking. Only the
 /// excludes that can reach a content file ([`exclude_reaches_content`]), chosen before the
 /// patterns are cut to an image's budgets: a world's, say, change neither what a content
-/// image holds nor its id, nor which content patterns fit. They are sorted and without
-/// duplicates, as an image keeps them, so they compare equal to the ones a record saved
-/// with its baseline.
+/// image holds nor its id, nor which content patterns fit. Never one that could reach
+/// `mods/` ([`exclude_reaches_mods`]): players get the client view of the content image,
+/// and backup excludes are there to keep backups small, not to take the server's mods
+/// from its players (`*.jar` to leave jars out of backups would otherwise leave players
+/// with no mods). A translation may leave out less than the policy did, never more, so
+/// content images then hold what such a pattern names; backups still leave it out. They
+/// are sorted and without duplicates, as an image keeps them, so they compare equal to the
+/// ones a record saved with its baseline.
 pub(crate) fn content_scope(ctx: &InstanceContext) -> Result<(DiskLayout, Vec<String>), Error> {
     let (layout, _) = server_layout(&ctx.root, &ctx.level_name, &ctx.flavour)?;
     // Left out before the patterns are cut to an image's budgets, so a world's patterns
     // never push out one that reaches content.
     let mut excludes = match &layout {
         DiskLayout::Server(server) => {
-            canonical_excludes_where(&ctx.policy_exclude, server, exclude_reaches_content).canonical
+            canonical_excludes_where(&ctx.policy_exclude, server, |pattern| {
+                exclude_reaches_content(pattern) && !exclude_reaches_mods(pattern)
+            })
+            .canonical
         }
         DiskLayout::Client => Vec::new(),
     };
@@ -993,11 +1015,12 @@ async fn take_snapshot(
     blocking(move || {
         let (layout, excludes) = content_scope(&ctx)?;
         let cache = store.load_stat_cache_named(ctx.uuid.as_ref(), CONTENT_STAT_CACHE);
+        let filter = ContentFilter::new(&ctx.level_name);
         let options = SnapshotOptions {
             excludes: &excludes,
             cache: Some(&cache),
             threads,
-            filter: Some(&content_filter),
+            filter: Some(&|candidate| filter.accepts(candidate)),
             ..SnapshotOptions::default()
         };
         let plan = snapshot::plan(&store, &ctx.root, &layout, &options)
@@ -1088,6 +1111,61 @@ async fn matching_base_files(
     .await
 }
 
+/// The pack's files the server no longer has where the pack put them, as canonical paths:
+/// the image's `removed`. A player installs the image's base and takes these out before
+/// placing the entries ("Server to player"), so a pack file the owner deleted, disabled
+/// (`x.jar` became `x.jar.disabled`) or replaced under another name (an update to
+/// `fabric-api-0.92.2.jar`) doesn't come back on players' machines. A pack file is
+/// removed when the walk didn't find it (`found`: every content file it found, by disk
+/// path, readable or not) and it is content the image would carry (in the content scope,
+/// not left out by `excludes`); files outside that scope say nothing either way. Never a
+/// path the image lists, which an image can't both remove and carry, nor one it withholds
+/// (`withheld`: a symbolic link, a file that kept changing, or one in a folder whose name
+/// the layout can't map), which the server has though the image holds no copy. A `pack.json` without
+/// the pack's file list (after a restore across pack versions) has the restored image's
+/// `removed` and every path it carried instead ([`BaseInfo::removed`], [`BaseInfo::paths`]),
+/// and each of those the walk didn't find is removed by the same rules: any of them may be
+/// a pack file, and taking out one the base doesn't have changes nothing for players.
+fn removed_pack_files(
+    layout: &DiskLayout,
+    excludes: &[String],
+    found: &BTreeMap<String, (u64, i64)>,
+    withheld: &[lodestone_image::Withheld],
+    base: &BaseInfo,
+    entries: &[Entry],
+) -> Vec<CanonicalPath> {
+    let listed: HashSet<&str> = entries.iter().map(|e| e.path.as_str()).collect();
+    // A withheld path is a file, or a folder whose files weren't looked at one by one.
+    let is_withheld = |path: &str| {
+        withheld.iter().any(|w| {
+            path.strip_prefix(w.path.as_str())
+                .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+        })
+    };
+    let excludes = Excludes::new(excludes);
+    let carried = base.removed.iter().chain(&base.paths).filter(|path| {
+        layout
+            .to_disk(path)
+            .is_ok_and(|disk| !found.contains_key(disk.as_str()))
+    });
+    let mut removed: Vec<CanonicalPath> = base
+        .files
+        .keys()
+        .filter(|disk| !found.contains_key(disk.as_str()))
+        .filter_map(|disk| layout.from_disk(disk).ok().flatten())
+        .chain(carried.cloned())
+        .filter(|path| {
+            is_content(path, false)
+                && !excludes.excludes(path.as_str(), false)
+                && !listed.contains(path.as_str())
+                && !is_withheld(path.as_str())
+        })
+        .collect();
+    removed.sort();
+    removed.dedup();
+    removed
+}
+
 /// Writes the SHA-256 and size of pack files a record matched by SHA-1 (`learned`: the
 /// `pack.json` key, SHA-256, size) into the instance's `pack.json`, when it still names the
 /// same pack and the file has no SHA-256 yet. The same SHA-1 is the same bytes, so this
@@ -1139,7 +1217,10 @@ fn sha1_of(path: &Path) -> Option<String> {
     )
 }
 
-/// An entry with its source and `env` from what is known of the file.
+/// An entry with its source and `env` from what is known of the file: `modrinth` for a
+/// file Modrinth's CDN has (the pack's download, or one Lodestone matched), `base` for
+/// another unchanged pack file players get from the pack, `object` otherwise, including a
+/// pack file outside the pack's client share that goes to players anyway.
 fn describe(
     mut entry: Entry,
     facts: Option<&JarFacts>,
@@ -1173,12 +1254,67 @@ fn describe(
     let (resolved, from) = lodestone_image::env::resolve(&inputs);
     entry.env = resolved;
     entry.env_from = from;
+    // A `base` entry's bytes come from the pack, and players install only the pack's
+    // client share: a pack file outside it (`server-overrides/`, or an index file the
+    // pack keeps off clients) that still goes to players (the owner marked it for them)
+    // is one only the server can give them.
+    let outside_client_share = pack_file
+        .and_then(|f| f.env)
+        .is_some_and(|env| env.client == EnvValue::Unsupported);
+    if entry.source == (Source::Base {})
+        && outside_client_share
+        && entry.env.client != EnvValue::Unsupported
+    {
+        entry.source = Source::Object {};
+    }
     entry
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A pack file outside the pack's client share (`server-overrides/`) is `base` while
+    /// it stays off players; marked for players, only the server can give it to them, so
+    /// it is an `object`.
+    #[test]
+    fn a_server_only_pack_file_for_players_is_an_object() {
+        use lodestone_image::env::OwnerMark;
+        let entry = Entry::new(
+            CanonicalPath::new("mods/x.jar").unwrap(),
+            3,
+            "a".repeat(64),
+            Source::Object {},
+        );
+        let server_only = BaseFile {
+            sha1: "1".repeat(40),
+            env: Some(lodestone_image::Env::new(
+                EnvValue::Unsupported,
+                EnvValue::Required,
+            )),
+            ..BaseFile::default()
+        };
+        let described = describe(entry.clone(), None, Some(&server_only), true, None);
+        assert_eq!(described.source, Source::Base {});
+        assert_eq!(described.env.client, EnvValue::Unsupported);
+        let marked = JarFacts {
+            mark: Some(OwnerMark::ForPlayers),
+            ..JarFacts::default()
+        };
+        let described = describe(entry.clone(), Some(&marked), Some(&server_only), true, None);
+        assert_eq!(described.source, Source::Object {});
+        assert_eq!(described.env.client, EnvValue::Required);
+        // a pack file in the client share stays `base`, marked or not
+        let both = BaseFile {
+            env: Some(lodestone_image::Env::new(
+                EnvValue::Required,
+                EnvValue::Required,
+            )),
+            ..server_only
+        };
+        let described = describe(entry, Some(&marked), Some(&both), true, None);
+        assert_eq!(described.source, Source::Base {});
+    }
 
     #[test]
     fn pending_merges_within_the_window_and_caps() {
