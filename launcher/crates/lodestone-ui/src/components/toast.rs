@@ -8,7 +8,7 @@
 //! - goes away by itself after its duration, but not while the pointer is on it;
 //! - closes when clicked, or with its close button;
 //! - may have up to [`MAX_ACTIONS`] action buttons ("Undo", "Open folder"), which
-//!   close it too;
+//!   close it too: one beside the message, more in a row under it;
 //! - may have a key: a new toast with the same key replaces the old one, so a
 //!   repeated "Saved" doesn't stack up.
 //!
@@ -335,6 +335,33 @@ impl Render for Toasts {
                                 (action.handler)(window, cx);
                                 this.update(cx, |this, cx| this.dismiss(id, cx)).ok();
                             })
+                    })
+                    .collect::<Vec<_>>();
+                // One action fits beside the message; with more, the message gets the
+                // full width and the actions a row of their own under it, at the end.
+                let stacked = actions.len() > 1;
+                let (beside, under) = if stacked {
+                    (Vec::new(), actions)
+                } else {
+                    (actions, Vec::new())
+                };
+                let message = div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .gap(px(6.))
+                    .child(toast.text.clone())
+                    .when(stacked, |message| {
+                        message.child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .flex_wrap()
+                                .justify_end()
+                                .gap(px(4.))
+                                .children(under),
+                        )
                     });
                 div()
                     .id(("toast", id))
@@ -382,8 +409,8 @@ impl Render for Toasts {
                             .pt(px(2.))
                             .child(toast.level.icon().render(px(16.), color)),
                     )
-                    .child(div().flex_1().min_w_0().child(toast.text.clone()))
-                    .children(actions)
+                    .child(message)
+                    .children(beside)
                     .child(
                         div()
                             .id(("toast-close", id))
