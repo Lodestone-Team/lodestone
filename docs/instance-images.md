@@ -175,7 +175,8 @@ version `environment` (`modrinth_environment`), Modrinth's project
 `[[mods]]` entry, server only). Each side is decided on its own: the first input that says something
 other than `unknown` for that side wins, and `env_from` lists the inputs that decided a
 side, sorted. The owner's mark only decides the client side: "For players" is `required`,
-"Not for players" is `unsupported`. Modrinth's version `environment` maps as:
+"Not for players" is `unsupported` (the core passes it only where the other inputs don't
+make the client side `required`: "M3 decisions"). Modrinth's version `environment` maps as:
 `client_and_server` required/required, `client_only` and `singleplayer_only`
 required/unsupported, `client_only_server_optional` required/optional, `server_only` and
 `dedicated_server_only` unsupported/required, `server_only_client_optional`
@@ -627,13 +628,22 @@ GET  …/image?side=client[&have=<view id>,<view id>…]     (HEAD: the same, wi
 GET  …/objects/{sha256}                                   (and HEAD)
 ```
 
-No route takes a request body; any other method is 405. `have` is one comma-separated
-parameter: a repeated or malformed query parameter (`have=a&have=b`, `side` twice) is
-refused before anything else, even before the 404 for a server that isn't listed, with
-400 and a plain-text body, not the JSON error body. An error that isn't the player's (an
+On the main port (both prefixes) the core's remote-access check comes first: while the
+core serves only this computer, another device gets 403 `{"kind": "LocalOnly"}` on every
+route. No route takes a request body; any other method is 405. `have` is one
+comma-separated parameter: a repeated or malformed query parameter (`have=a&have=b`,
+`side` twice) is refused before anything else but that check, even before the sign-in on
+`/launcher/…` and the 404 for a server that isn't listed, with 400 and a plain-text body,
+not the JSON error body. An error that isn't the player's (an
 image or file the store can't read) is 500 with the JSON error body
 `{"kind": "Internal", "causes": ["<message>"]}`, whose message never names the store's
 folders.
+
+Every 503 has `Retry-After` (seconds) and the JSON error body, whose `kind` says why:
+`Conflict` (the first content image, or a file the store lost, is being recorded: ask
+again after the delay), `Internal` (that record failed or ran a moment ago: none starts
+again before the delay) or `TooManyRequests` (too many downloads at once, objects only).
+Each is described below.
 
 Answers can be large: a 300-mod pack's view is about 160 KiB of JSON and one of 450 mods
 passes 256 KiB, and an object is a whole file. Read every route as a stream (through a
@@ -696,8 +706,19 @@ sources), so on a server built on a pack the base only adds what a server never 
 the view leaves out (its configs, unless marked shared with players: the player gets the
 pack's version, not the server's). Two limits follow from installing the pack: the owner's
 "Not for players" mark on one of the pack's own files doesn't keep it from players (the
-pack's index decides those, as on Modrinth), and a pack file the server changed in place
-reaches players as the server has it only when the view carries it.
+pack's index decides those, as on Modrinth; the `.mrpack` client pack, made from the
+server's mods folder, does honour it; see "M3 decisions"), and a pack file the server
+changed in place reaches players as the server has it only when the view carries it. A
+pack file outside the client share that the view carries anyway (a `server-overrides/` mod
+the owner marked for players) has source `object`: only the server can give it.
+
+Files a view can't give: its `withheld` paths (a mod jar that is a symbolic link, a file
+that kept changing or couldn't be read when the image was recorded; names only) are files
+the server has that the image holds no copy of, so a player can't get them from the
+server. A player must say so before it plays, for those a client view would carry as files
+(in `mods/`, say; not configs, the server's own files or disabled ones), listing them with
+the reason, and not install silently without them. A view's `excludes` never reach `mods/` ("M3 decisions"), so they
+only name files players don't need.
 
 **`GET …/objects/{sha256}`.** The bytes of a file the current client view names with
 source `object`, or of its client settings' icon or background. Nothing else in the store
@@ -712,24 +733,28 @@ from its chunks: chunk lists never reach players.
 - 200: `Content-Type: application/octet-stream`, `Content-Length`, `ETag: "<sha256>"`,
   `Accept-Ranges: bytes`, `Cache-Control: private, max-age=31536000, immutable`.
 - One byte range of a file over 1 MiB (`Range: bytes=a-b`, `bytes=a-`, `bytes=-n`): 206 with
-  `Content-Range: bytes a-b/<size>`; a range starting past the end: 416 with
-  `Content-Range: bytes */<size>`. A file of at most 1 MiB is always sent whole (200, the
+  `Content-Range: bytes a-b/<size>`; a range starting past the end, or the empty suffix
+  `bytes=-0`: 416 with `Content-Range: bytes */<size>`. A file of at most 1 MiB is always sent whole (200, the
   `Range` ignored: the core reads and checks it whole to send any of it), and so are
   several ranges, another unit or a malformed header, as HTTP allows.
 - HEAD: the same status and headers, no body; it checks the file is in the store (reading
-  at most a large file's chunk list), as GET does before it answers, and counts as a
-  download while it looks.
+  at most a large file's chunk list, so a large file that lost a chunk is only found by a
+  GET that reaches it), as GET does before it answers, and counts as a download while it
+  looks.
 - 503 with `Retry-After: 1` and `{"kind": "TooManyRequests", …}` while 64 downloads run
   over every server and route, 16 of this server's, or 8 of this player's (by address, an
   IPv6 address's /64, or by friend; a Connect invite's info port can't tell its players
   apart and has only the first two limits). A player should run at most 4 at once.
 - 503 with `Retry-After: 5` and `{"kind": "Conflict", …}` when the store lost a file the
-  view names (found damaged and deleted): the core records the server's content in the
-  background, which stores the file again from the server's disk, and the player fetches
-  again after the delay. After such a record, none starts again for a minute (whether it
-  helped or not, doubling while they fail); meanwhile the answer is 503 with
-  `{"kind": "Internal", …}` and `Retry-After` the seconds left. A player gives up on a file
-  after 3 such answers in a row and says the server couldn't send it.
+  view names (found damaged and deleted, or a large file that lost a chunk: the download
+  that found it ended short and took the file's chunk list away): the core records the
+  server's content in the background, which stores the file again from the server's disk,
+  and the player fetches again after the delay. After such a record, none starts again for
+  a minute (whether it helped or not, doubling while they fail); meanwhile the answer is
+  503 with `{"kind": "Internal", …}` and `Retry-After` the seconds left. A player keeps
+  asking through `Conflict` answers (the record may wait for an owner's long operation, a
+  modpack update, say) for up to 2 minutes in all, and gives up on a file after that or
+  after 3 `Internal` answers in a row, and says the server couldn't send it.
 - A download whose player takes nothing for 60 seconds ends, cut short (a player must
   read at least about 4 KiB/s: the core hands the connection 256 KiB at a time).
 - Every byte is checked against the store before it is sent, but a check that fails can
@@ -938,8 +963,8 @@ of M2 adds its own subsection.
   time (`flush_within`, `record_now_within`); once a record has the gate it runs to its
   end, so it never loses the labels it took. Successes are merged until 3 s pass without one, or 30 s after the first at the
   latest; a failed operation (dropped without `succeed`) records nothing. A record snapshots
-  the content scope with the policy's translated excludes that can reach content (written
-  into the image's `excludes`; a pattern anchored under a path where nothing is content, a
+  the content scope with the policy's translated excludes that can reach content (since M3
+  none that could reach `mods/`, see "M3 decisions"; written into the image's `excludes`; a pattern anchored under a path where nothing is content, a
   world's `saves/<level>/…` or `/logs/`, is left out before the patterns are cut to an
   image's budgets, so editing it changes no content image, nor which content patterns fit) and the `content` stat cache, on one thread while the server runs; the image's
   game is the server's (Paper and Spigot: `vanilla`), its settings only the flavour for now,
@@ -955,7 +980,8 @@ of M2 adds its own subsection.
   the core can't tell a plain server from a pack server whose pack wasn't recorded yet.
   Since M3 its `removed` lists the pack's files the server no longer has ("M3 decisions").
 - **`env` without the network.** The inputs are the owner's mark (marked for players:
-  client `required`; left out of the client pack: client `unsupported`), the pack index's
+  client `required`; left out of the client pack: client `unsupported`, since M3 only where
+  the other inputs don't make it `required`), the pack index's
   `env` from `pack.json` for files that still have the pack's bytes, what Modrinth said
   about the file's version when Lodestone fetched it anyway (kept with the content state by
   SHA-512, so ids don't change across restarts), and the jar's own metadata
@@ -1328,9 +1354,37 @@ player" has the protocol itself).
   there and that is content the image would carry (in the content scope, not left out by
   the excludes), never a path the image lists; only with a base (an uploaded pack, with
   none, removes nothing). The same rule then holds for every image, the Launcher's too:
-  base share less `removed`, entries over it. An image can't both list and remove a path,
-  so the owner's "Not for players" mark on one of the pack's own files can't take it off
-  players who install the pack; the pack's index decides those.
+  base share less `removed`, entries over it. A restore that puts back an image built on
+  another pack version (a backup, restored in place or as a new server, or the modpack
+  history when that version's `.mrpack` can't be read) writes a `pack.json` with that base
+  but without the pack's file list, which only the `.mrpack` has; it keeps the restored
+  image's `removed` instead (`BaseInfo::removed`), and the recorder keeps those paths in
+  `removed` by the same rules while they are still gone, until an install or update
+  writes the pack's files again.
+- **Open, for the developer before M4: "Not for players" on a pack's own file.** An image
+  can't both list and remove a path (`lodestone_image` refuses such a manifest), so the
+  mark on one of the pack's own files (`env.client` `unsupported` from `owner_mark`) drops
+  its entry from the view but can't take it out of the base's client share: a player who
+  installs with images gets it anyway, while the `.mrpack` client pack, made from the
+  server's mods folder, leaves it out (owners use the mark to keep a mod that crashes
+  clients off players). Nothing released depends on it yet (M4 is the first client). The
+  smallest fix that keeps the format is to let `removed` name a path the image also lists
+  ("not from the base": the server view places the entry over it anyway, the client view
+  leaves it out), with the recorder adding pack files whose entry is client-`unsupported`;
+  that changes `Image::validate` in the shared crate, so it waits until the Launcher's
+  store (built in parallel) has merged. Until then this limit stands.
+- **Backup excludes never take mods from players.** Content images take the backup
+  policy's excludes that can reach content (an M2 decision), and the client view is a
+  projection of the content image, so `*.jar` or `mods/` (an owner keeping backups small)
+  would leave players with no mods while the `.mrpack` still had them. So content images
+  also leave out every pattern that could match `mods/` or anything in it
+  (`scope::exclude_reaches_mods`: a name at any depth, or a pattern from the game folder
+  whose first part is or may be `mods`). A translation may leave out less than the policy
+  did, never more, so content images hold what such a pattern names; backups, which take
+  the policy's patterns themselves, still leave it out. A server that had such a pattern
+  records "Changed the backup excludes" once at its next check before a start. A view's
+  `excludes` therefore only name files players don't need; its `withheld` files are ones
+  no image could hold, and a player lists those it would need ("What a view places").
 - **Only `side=client`.** A server view carries configs and secrets; `side=server` is 400.
 - **Which objects are served.** Only `object` entries of the current client view, plus
   its client settings' icon and background (the core records no client settings in its
@@ -1370,8 +1424,12 @@ player" has the protocol itself).
 - **Damaged and lost objects.** A whole object is checked before any byte goes; a large
   file's chunks one by one, and on a full download the whole file's SHA-256 at the end. A
   check that fails ends the response short (the player sees a truncated body and must check
-  SHA-256 itself) and deletes the damaged object or chunk. Before it answers, a download
-  checks the object is there (a large file's chunk list read and checked, under a hold on
+  SHA-256 itself) and deletes the damaged object or chunk. A large file that lost a chunk
+  (found damaged and deleted, or missing) also loses its chunk list
+  (`Store::remove_incomplete`): the list can't give the file whole, and while it is there the
+  object looks present, so nothing would ever store the file again. Before it answers, a
+  download checks the object is there (a large file's chunk list read and checked, not its
+  chunks, which would cost an open per chunk on every request, under a hold on
   collections); when it isn't, the answer is 503 rather than a 200 whose body ends at once,
   so a player can tell a passing failure from a file the server lacks, and the core records
   the server's content in the background (`ImageService::record_again`, labelled "Changed
@@ -1390,8 +1448,10 @@ player" has the protocol itself).
   on the public route, and each record holds the owner's operations off while it scans,
   so a server whose first record keeps failing must not be rescanned on every request. Unlike the startup sweep this also records a running server,
   and leaves `running_since` as it is, so the next stop takes the baseline again as usual.
-  A pointer whose manifest went missing or can't be read counts as no image (the record
-  saves it again). The record's task settles its state however it ends: one that panics
+  A pointer whose manifest went missing or is damaged counts as no image (the record saves
+  it again); a read that fails otherwise (too many open files) is a 500, which a record
+  wouldn't mend. An older view the core learnt whose manifest is gone, damaged or can't be
+  read now is forgotten, and the player gets the whole view instead of a delta. The record's task settles its state however it ends: one that panics
   counts as failed, so a server is never left "being recorded" for good; a deleted server's
   state is forgotten. These 503s aren't logged per request (players poll them every few
   seconds); the record logs its failure once.
@@ -1406,7 +1466,18 @@ player" has the protocol itself).
   players, so `optional` mods (JEI) and mods with no known sides go (this fixes the client
   pack's dropping of optional mods, LS-143), and players can always join. The price is
   that a server-only jar with no metadata and no Modrinth hint reaches players; the owner's
-  "Not for players" mark takes it out. What Modrinth says about a jar later (a Mods-tab
+  "Not for players" mark takes it out. That mark is the marks file's `excluded`, which in
+  the marks' own model (the client pack and the Mods tab: `mods::client::base_requirement`)
+  only decides a mod whose sides leave players free, so it counts only where the other
+  inputs (the pack's index, Modrinth, the jar) don't make the client side `required`
+  (`images::env::inputs`): unmarking a mod once marked "For players" leaves it `excluded`,
+  and must not take a mod both sides need from players while the Mods tab shows it going
+  to them. Unlike the client pack, the view doesn't follow mod dependencies: a mod left out
+  this way that a mod players need depends on stays out of the view (the Mods tab shows it
+  as needed by the other); the owner unmarks it. The Host's and the dashboard's Mods tabs
+  offer the mark only on Fabric servers today (the only ones with a client pack), though the
+  API takes it for any mod loader: M4, which makes the client view what players install,
+  shows it for every mod loader. What Modrinth says about a jar later (a Mods-tab
   listing) takes effect at the next record, without an image of its own. `jar_environment`
   now also reads Forge's and NeoForge's `mods.toml`: top-level `clientSideOnly = true` is
   client only; `displayTest = "IGNORE_SERVER_VERSION"` on every `[[mods]]` entry (clients
@@ -1425,8 +1496,13 @@ player" has the protocol itself).
   hasn't seen makes it read the manifests it hasn't read yet, each once while the core
   runs, one scan per server at a time; players asking at once for a view not cached yet
   wait for one computation. A request then costs a look at the state file's size, time and
-  inode (the pointer, `content-state.json`'s `current`, is read again only when they
-  change; every save renames a new file into place) and cache hits. A 300-mod view takes
+  inode, and how many saves this process made (the pointer, `content-state.json`'s
+  `current`, is read again only when any changes; every save renames a new file into place,
+  and the count tells this process's own saves apart where a file system reuses inodes at
+  once and keeps coarse times) and cache hits. Players asking at once for a delta not
+  cached yet (all the players of the older view, after a modpack update) wait for one diff,
+  as for a view; a computation whose request ends early (its player went away) gives its
+  turn up. A 300-mod view takes
   about 30 ms and its delta about 60 ms the first time in a debug build, and a cached answer
   well under a millisecond.
 - **What the view leaks, by the rules (rules 1).** Every file in `mods/` that isn't

@@ -14,7 +14,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use lodestone_image::{Base, Env};
+use lodestone_image::{Base, CanonicalPath, Env};
 use serde::{Deserialize, Serialize};
 
 use crate::error::Error;
@@ -33,6 +33,14 @@ pub struct BaseInfo {
     /// The files the pack wrote, by disk path relative to the server folder.
     #[serde(default)]
     pub files: BTreeMap<String, BaseFile>,
+    /// The pack's files the server had taken out (an image's `removed`: canonical paths),
+    /// kept when the pack's file list isn't known: after a restore of an image built on
+    /// another pack version (`crate::modpack::pack_info::follow_base`), whose files are
+    /// only in its `.mrpack`. The recorder keeps them in the next images' `removed` while
+    /// they are still gone, so players don't get back a pack file the server had deleted or
+    /// replaced. Empty once the pack's files are written again (an install or update).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub removed: Vec<CanonicalPath>,
 }
 
 /// One file a pack wrote.
@@ -104,6 +112,7 @@ mod tests {
                 sha512: "0".repeat(128),
             }),
             files: BTreeMap::new(),
+            removed: vec![CanonicalPath::new("mods/gone.jar").unwrap()],
         };
         info.files.insert(
             "mods/a.jar".into(),

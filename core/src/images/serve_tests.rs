@@ -361,6 +361,55 @@ async fn a_view_whose_image_is_gone_is_unknown() {
     assert!(!fx.service.views.knows(&fx.uuid, &view_of(&old).id));
 }
 
+/// A view the core learnt whose image's manifest was damaged since (and isn't cached) gets
+/// the whole view, not an error on every request, and is forgotten.
+#[tokio::test]
+async fn a_view_whose_image_is_damaged_gets_the_whole_view() {
+    let fx = fixture();
+    let content = server_content(&fx);
+    let old = fx.save(content.clone(), "Initial");
+    let mut newer = content;
+    newer.push(fx.object("mods/new.jar", b"new mod", EnvInputs::default()));
+    let current = fx.save(newer, "Added");
+    fx.set_current(&current.id);
+    // learns the old view's id without caching the view
+    assert!(matches!(
+        fx.answer(&["f".repeat(64).as_str()]).await,
+        ClientAnswer::View(_)
+    ));
+    assert!(fx.service.views.knows(&fx.uuid, &view_of(&old).id));
+    let path = fx.store().manifest_path(fx.uuid.as_ref(), &old.id).unwrap();
+    let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+    #[allow(clippy::permissions_set_readonly_false)]
+    permissions.set_readonly(false);
+    std::fs::set_permissions(&path, permissions).unwrap();
+    std::fs::write(&path, b"{ not a manifest").unwrap();
+    assert!(matches!(
+        fx.answer(&[&view_of(&old).id]).await,
+        ClientAnswer::View(_)
+    ));
+    assert!(!fx.service.views.knows(&fx.uuid, &view_of(&old).id));
+}
+
+/// A turn to compute a key leaves the map however it ends, and never takes out a newer
+/// turn's entry.
+#[test]
+fn turns_leave_no_entry_behind() {
+    let turns: Turns<String> = Default::default();
+    let first = Turn::take(&turns, "a".to_string());
+    let waiter = Turn::take(&turns, "a".to_string());
+    assert!(Arc::ptr_eq(&first.mutex, &waiter.mutex));
+    drop(first);
+    assert!(locked(&turns).is_empty());
+    let newer = Turn::take(&turns, "a".to_string());
+    assert!(!Arc::ptr_eq(&newer.mutex, &waiter.mutex));
+    // the waiter of the old turn leaves the newer one in place
+    drop(waiter);
+    assert_eq!(locked(&turns).len(), 1);
+    drop(newer);
+    assert!(locked(&turns).is_empty());
+}
+
 /// Many content images share one client view (a change only the server sees). Pruning the
 /// one the core happened to learn the view from must not make it forget the view while
 /// another image still has it.

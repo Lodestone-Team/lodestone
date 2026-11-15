@@ -17,7 +17,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 
-use lodestone_image::{Base, Env, EnvValue};
+use lodestone_image::{Base, CanonicalPath, Env, EnvValue, Image};
 use lodestone_minecraft::mrpack::{for_each_override, open_pack, read_index, OverrideItem, Side};
 use tracing::warn;
 
@@ -142,7 +142,7 @@ pub fn base_info(
     };
     let mut info = BaseInfo {
         base,
-        files: BTreeMap::new(),
+        ..BaseInfo::default()
     };
     for (path, recorded) in &record.files {
         let download = files
@@ -210,12 +210,14 @@ pub async fn save(images: &Arc<ImageService>, uuid: &InstanceUuid, info: BaseInf
     }
 }
 
-/// After a restore that put back an image's content, which was built on `base`: makes the
-/// server's `pack.json` name that base, without the pack's file list (an image doesn't keep
-/// it), so the next update falls back to the files of the origin's pack version. A
-/// `pack.json` with that base already is left as it is. Call it inside the restore's
-/// content operation, before its image is recorded.
-pub async fn follow_base(images: &Arc<ImageService>, uuid: &InstanceUuid, base: Option<Base>) {
+/// After a restore that put back the content of the image `content`: makes the server's
+/// `pack.json` name the image's base, without the pack's file list (an image doesn't keep
+/// it), so the next update falls back to the files of the origin's pack version, and with
+/// the image's `removed`, so the next content images still take out the pack files the
+/// server had taken out ([`BaseInfo::removed`]). A `pack.json` with that base already is
+/// left as it is (its file list gives `removed`). Call it inside the restore's content
+/// operation, before its image is recorded.
+pub async fn follow_base(images: &Arc<ImageService>, uuid: &InstanceUuid, content: &Image) {
     if !ImageService::accepts(uuid) {
         return;
     }
@@ -226,14 +228,29 @@ pub async fn follow_base(images: &Arc<ImageService>, uuid: &InstanceUuid, base: 
             .ok()
             .flatten()
     };
-    if current.as_ref().and_then(|info| info.base.as_ref()) == base.as_ref() {
+    if current.as_ref().and_then(|info| info.base.as_ref()) == content.base.as_ref() {
         return;
     }
-    let info = BaseInfo {
+    save(
+        images,
+        uuid,
+        without_files(content.base.clone(), &content.removed),
+    )
+    .await;
+}
+
+/// A `pack.json` naming `base` without its file list, keeping what an image built on it
+/// had `removed` ([`BaseInfo::removed`]; none without a base).
+pub fn without_files(base: Option<Base>, removed: &[CanonicalPath]) -> BaseInfo {
+    BaseInfo {
+        removed: if base.is_some() {
+            removed.to_vec()
+        } else {
+            Vec::new()
+        },
         base,
         files: BTreeMap::new(),
-    };
-    save(images, uuid, info).await;
+    }
 }
 
 #[cfg(test)]

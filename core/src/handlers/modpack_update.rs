@@ -727,10 +727,7 @@ async fn restored_pack(
             origin: None,
         };
     }
-    let without_files = BaseInfo {
-        base: target.base.clone(),
-        files: BTreeMap::new(),
-    };
+    let without_files = pack_info::without_files(target.base.clone(), &target.removed);
     let Some(Base::ModrinthPack {
         project,
         version,

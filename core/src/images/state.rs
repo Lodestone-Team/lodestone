@@ -23,6 +23,7 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
 
@@ -137,25 +138,36 @@ pub fn current_pointer(store_root: &Path, uuid: &InstanceUuid) -> Option<String>
         .filter(|id| lodestone_image::hex::is_sha256(id))
 }
 
-/// One version of an instance's state file, told apart without reading it: its size, time
-/// and (on Unix) inode. [`save`] replaces the file by a rename, so every save makes a new
-/// inode, and two saves that look the same by all three are next to impossible. Serving
-/// players reads the pointer again only when this changes.
+/// One version of an instance's state file, told apart without reading it: how many saves
+/// this process made (of any instance's state) and the file's size, time and (on Unix)
+/// inode. Only this process saves the file, so the count alone tells its own saves apart
+/// even where the file system reuses inodes at once and keeps coarse times (ext4 with a
+/// timer-tick clock, three saves of the same size within one tick); the file's metadata
+/// tells a file someone else put there. Serving players reads the pointer again only when
+/// this changes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StateStamp {
+    saves: u64,
     len: u64,
     modified: Option<std::time::SystemTime>,
     inode: u64,
 }
 
+/// How many states [`save`] has written, counted once each is in place.
+static SAVES: AtomicU64 = AtomicU64::new(0);
+
 /// The state file's [`StateStamp`], or `None` when it isn't there. Blocking.
 pub fn stamp(store_root: &Path, uuid: &InstanceUuid) -> Option<StateStamp> {
+    // Read before the metadata: a save between the two then counts as unseen, and the
+    // next stamp differs.
+    let saves = SAVES.load(Ordering::SeqCst);
     let meta = std::fs::metadata(path(store_root, uuid).ok()?).ok()?;
     #[cfg(unix)]
     let inode = std::os::unix::fs::MetadataExt::ino(&meta);
     #[cfg(not(unix))]
     let inode = 0;
     Some(StateStamp {
+        saves,
         len: meta.len(),
         modified: meta.modified().ok(),
         inode,
@@ -167,7 +179,11 @@ pub fn save(store_root: &Path, uuid: &InstanceUuid, state: &ContentState) -> Res
     let path = path(store_root, uuid)?;
     let bytes = serde_json::to_vec(state)
         .map_err(|e| color_eyre::eyre::eyre!("Failed to write the content state: {e}"))?;
-    super::write_small_atomic(&path, &bytes)
+    let saved = super::write_small_atomic(&path, &bytes);
+    // Counted after the rename, so a stamp with the new count is always of a read made
+    // after it. A failed write may have replaced the file too.
+    SAVES.fetch_add(1, Ordering::SeqCst);
+    saved
 }
 
 #[cfg(test)]

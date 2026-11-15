@@ -696,6 +696,7 @@ async fn a_player_of_a_pack_server_installs_the_pack_less_what_the_server_took_o
                 ),
             ),
         ]),
+        removed: Vec::new(),
     };
     save_base(core.state.images().root(), &core.uuid, &info).unwrap();
     // the server's folder: the owner updated Fabric API (a new file name), deleted one pack
@@ -778,9 +779,51 @@ async fn a_player_of_a_pack_server_installs_the_pack_less_what_the_server_took_o
     };
     assert!(next.removed.iter().any(|p| p.as_str() == "mods/pack.jar"));
     assert!(player.fetch(&next).await);
-    let mut expected = expected;
-    expected.remove("minecraft/mods/pack.jar");
-    assert_eq!(player.install(&next, &share), expected);
+    let mut after_removal = expected.clone();
+    after_removal.remove("minecraft/mods/pack.jar");
+    assert_eq!(player.install(&next, &share), after_removal);
+
+    // The pack is updated to another version, then the first image is restored (a backup,
+    // or the modpack history when the old version's `.mrpack` can't be read): `pack.json`
+    // names the old base without its file list, and keeps what that image took out, so
+    // players still don't get those pack files back.
+    let first = core
+        .state
+        .images()
+        .store()
+        .load_manifest(core.uuid.as_ref(), view.projected_from.as_deref().unwrap())
+        .unwrap();
+    let updated = BaseInfo {
+        base: Some(lodestone_image::Base::ModrinthPack {
+            project: "pack".into(),
+            version: "2.0.0".into(),
+            sha512: "d".repeat(128),
+        }),
+        files: BTreeMap::from([("mods/pack.jar".into(), pack_file(b"pack mod", both, true))]),
+        removed: Vec::new(),
+    };
+    save_base(core.state.images().root(), &core.uuid, &updated).unwrap();
+    write(&core.root, "mods/pack.jar", b"pack mod");
+    crate::modpack::pack_info::follow_base(core.state.images(), &core.uuid, &first).await;
+    let followed = crate::images::base::load_base(core.state.images().root(), &core.uuid).unwrap();
+    assert_eq!(followed.base, info.base);
+    assert!(followed.files.is_empty());
+    assert_eq!(followed.removed, first.removed);
+    let ctx = crate::images::context_of(&core.state, &core.uuid)
+        .await
+        .unwrap();
+    core.state
+        .images
+        .record_now(ctx, "Restored".into())
+        .await
+        .unwrap();
+    let Answer::View(restored) = player.image(&[]).await else {
+        panic!("the whole view");
+    };
+    assert_eq!(restored.base, info.base);
+    assert_eq!(restored.removed, view.removed);
+    assert!(player.fetch(&restored).await);
+    assert_eq!(player.install(&restored, &share), expected);
 }
 
 /// An object the current view names that the store lost (deleted when found damaged): the
@@ -997,4 +1040,179 @@ async fn forge_jars_give_their_sides() {
             "minecraft/mods/clientonly.jar",
         ])
     );
+}
+
+/// Bytes that don't repeat, so a file of them is cut into many chunks.
+fn noise(len: usize) -> Vec<u8> {
+    let mut state = 0x9e37_79b9_7f4a_7c15_u64;
+    (0..len)
+        .map(|_| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state as u8
+        })
+        .collect()
+}
+
+/// A large file (a chunk list in the store) the current view names loses a chunk, found
+/// damaged as it is sent or gone some other way. The download that finds it ends short;
+/// the next request gets the 503 that stores the file again from the server's disk, and
+/// the player then gets the whole file.
+async fn a_lost_chunk_comes_back(damaged: bool) {
+    let core = content::core(Kind::Fabric).await;
+    let bytes = noise(3 << 20);
+    write(&core.root, "mods/big.jar", &bytes);
+    let recorded = core.record_initial().await;
+    let player = Player::new(&core, Vec::new());
+    let Answer::View(view) = player.image(&[]).await else {
+        panic!("the whole view");
+    };
+    let big = view
+        .entries
+        .iter()
+        .find(|e| e.path.as_str() == "mods/big.jar")
+        .unwrap()
+        .clone();
+    let store = core.state.images().store();
+    let lodestone_image::store::ObjectForm::Chunked(list) =
+        store.object_form(&big.sha256, big.size).unwrap()
+    else {
+        panic!("a large file is a chunk list");
+    };
+    let chunk = list.chunks[list.chunks.len() / 2].clone();
+    let path = store.chunk_path(&chunk.sha256).unwrap();
+    let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+    #[allow(clippy::permissions_set_readonly_false)]
+    permissions.set_readonly(false);
+    std::fs::set_permissions(&path, permissions).unwrap();
+    if damaged {
+        std::fs::write(&path, b"not this chunk").unwrap();
+    } else {
+        std::fs::remove_file(&path).unwrap();
+    }
+    let get = || {
+        player
+            .http
+            .get(player.url(&format!("objects/{}", big.sha256)))
+            .bearer_auth(&core.owner)
+            .send()
+    };
+
+    // the chunk list still looks sound: the answer promises the file and ends short
+    let response = get().await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response.bytes().await.map(|b| b.len()).unwrap_or(0);
+    assert!((body as u64) < big.size, "a body cut short");
+    // the download took the incomplete list away: now the server says it lacks the file,
+    // and stores it again
+    let response = get().await.unwrap();
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(body["kind"], "Conflict");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    loop {
+        let (status, got) = player.object(&big.sha256).await;
+        if status == StatusCode::OK {
+            assert!(got == bytes);
+            break;
+        }
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert!(std::time::Instant::now() < deadline);
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert!(store.object_complete(&big.sha256, big.size));
+    assert_eq!(core.current().await.id, recorded.id);
+}
+
+#[tokio::test]
+async fn a_large_file_with_a_damaged_chunk_is_stored_again_for_the_player() {
+    a_lost_chunk_comes_back(true).await;
+}
+
+#[tokio::test]
+async fn a_large_file_that_lost_a_chunk_is_stored_again_for_the_player() {
+    a_lost_chunk_comes_back(false).await;
+}
+
+/// Backup excludes keep backups small; they never take the server's mods from its players.
+/// A pattern that could reach `mods/` (`*.jar`, `mods/`) is left out of content images, so
+/// the client view still has every mod; one that can't (a config folder) still applies.
+#[tokio::test]
+async fn backup_excludes_never_take_mods_from_players() {
+    let core = content::core(Kind::Fabric).await;
+    write(&core.root, "mods/own.jar", b"the server's own mod");
+    write(&core.root, "config/secret/a.toml", b"token = 1");
+    write(&core.root, "config/b.toml", b"b = 1");
+    let path = format!("/instance/{}/backups/policy", core.uuid);
+    let (status, mut policy) = core.call(Method::GET, &path, &core.owner, None).await;
+    assert_eq!(status, StatusCode::OK, "{policy}");
+    policy["exclude"] = json!(["*.jar", "mods/", "config/secret/"]);
+    let (status, body) = core
+        .call(Method::PUT, &path, &core.owner, Some(policy))
+        .await;
+    assert!(status.is_success(), "{body}");
+    let recorded = core.record_initial().await;
+    let content = core.current().await;
+    assert_eq!(content.id, recorded.id);
+    assert_eq!(content.excludes, ["config/secret/"]);
+    let paths: BTreeSet<&str> = content.entries.iter().map(|e| e.path.as_str()).collect();
+    assert!(paths.contains("mods/own.jar"));
+    assert!(paths.contains("config/b.toml"));
+    assert!(!paths.contains("config/secret/a.toml"));
+
+    let player = Player::new(&core, Vec::new());
+    let Answer::View(view) = player.image(&[]).await else {
+        panic!("the whole view");
+    };
+    assert_eq!(view.excludes, ["config/secret/"]);
+    assert!(player.fetch(&view).await);
+    assert!(player.place(&view).contains("minecraft/mods/own.jar"));
+}
+
+/// "Not for players" decides only a mod whose sides leave players free: one Modrinth says
+/// players need, marked for players and then unmarked (which leaves it `excluded` in the
+/// marks file), stays in the client view, as the Mods tab shows it going to players.
+#[tokio::test]
+async fn unmarking_a_mod_players_need_keeps_it_in_the_view() {
+    let core = content::core(Kind::Fabric).await;
+    let mods = core.root.join("mods");
+    fabric_jar(&mods.join("needed.jar"), "needed", "*");
+    fabric_jar(&mods.join("free.jar"), "free", "*");
+    let hint = |path: &Path, client: &str| {
+        let bytes = std::fs::read(path).unwrap();
+        core.state.images().note_modrinth(
+            &format!("{:x}", sha2::Sha512::digest(&bytes)),
+            ModrinthHint {
+                client_side: Some(client.into()),
+                server_side: Some("required".into()),
+                ..ModrinthHint::default()
+            },
+        );
+    };
+    hint(&mods.join("needed.jar"), "required");
+    hint(&mods.join("free.jar"), "optional");
+    for name in ["needed.jar", "free.jar"] {
+        for required in [true, false] {
+            let (status, body) = core
+                .call(
+                    Method::PUT,
+                    &format!("/instance/{}/mods/{name}/client", core.uuid),
+                    &core.owner,
+                    Some(json!({ "required": required })),
+                )
+                .await;
+            assert!(status.is_success(), "{body}");
+        }
+    }
+    let marks = std::fs::read_to_string(mods.join(".lodestone_client_mods.json")).unwrap();
+    assert!(marks.contains("needed.jar") && marks.contains("free.jar"));
+
+    let player = Player::new(&core, Vec::new());
+    let Answer::View(view) = player.image(&[]).await else {
+        panic!("the whole view");
+    };
+    let paths: BTreeSet<&str> = view.entries.iter().map(|e| e.path.as_str()).collect();
+    assert!(paths.contains("mods/needed.jar"), "{paths:?}");
+    assert!(!paths.contains("mods/free.jar"), "{paths:?}");
 }

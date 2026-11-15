@@ -37,7 +37,7 @@ use lodestone_image::manifest::{App, MAX_TEXT_LEN};
 use lodestone_image::store::excludes::Excludes;
 use lodestone_image::store::snapshot::{self, Snapshot, SnapshotOptions};
 use lodestone_image::store::{Store, StoreError};
-use lodestone_image::{CanonicalPath, DiskLayout, Entry, Image, Kind, Producer, Source};
+use lodestone_image::{CanonicalPath, DiskLayout, Entry, EnvValue, Image, Kind, Producer, Source};
 use sha1::Digest;
 use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard};
 use tracing::warn;
@@ -49,7 +49,9 @@ use super::base::{BaseFile, BaseInfo};
 use super::env::{self, JarFacts, ModrinthHint};
 use super::excludes::canonical_excludes_where;
 use super::layout::{game_of, server_layout, server_settings, InstanceContext};
-use super::scope::{exclude_reaches_content, is_content, ContentFilter, SCOPE_RULES};
+use super::scope::{
+    exclude_reaches_content, exclude_reaches_mods, is_content, ContentFilter, SCOPE_RULES,
+};
 use super::state::ContentState;
 use super::{blocking, ImageService, Slot};
 
@@ -903,16 +905,24 @@ struct Built {
 /// The server's disk layout and canonical excludes, for its content: blocking. Only the
 /// excludes that can reach a content file ([`exclude_reaches_content`]), chosen before the
 /// patterns are cut to an image's budgets: a world's, say, change neither what a content
-/// image holds nor its id, nor which content patterns fit. They are sorted and without
-/// duplicates, as an image keeps them, so they compare equal to the ones a record saved
-/// with its baseline.
+/// image holds nor its id, nor which content patterns fit. Never one that could reach
+/// `mods/` ([`exclude_reaches_mods`]): players get the client view of the content image,
+/// and backup excludes are there to keep backups small, not to take the server's mods
+/// from its players (`*.jar` to leave jars out of backups would otherwise leave players
+/// with no mods). A translation may leave out less than the policy did, never more, so
+/// content images then hold what such a pattern names; backups still leave it out. They
+/// are sorted and without duplicates, as an image keeps them, so they compare equal to the
+/// ones a record saved with its baseline.
 pub(crate) fn content_scope(ctx: &InstanceContext) -> Result<(DiskLayout, Vec<String>), Error> {
     let (layout, _) = server_layout(&ctx.root, &ctx.level_name, &ctx.flavour)?;
     // Left out before the patterns are cut to an image's budgets, so a world's patterns
     // never push out one that reaches content.
     let mut excludes = match &layout {
         DiskLayout::Server(server) => {
-            canonical_excludes_where(&ctx.policy_exclude, server, exclude_reaches_content).canonical
+            canonical_excludes_where(&ctx.policy_exclude, server, |pattern| {
+                exclude_reaches_content(pattern) && !exclude_reaches_mods(pattern)
+            })
+            .canonical
         }
         DiskLayout::Client => Vec::new(),
     };
@@ -1044,7 +1054,9 @@ async fn matching_base_files(
 /// removed when the walk didn't find it (`found`: every content file it found, by disk
 /// path, readable or not) and it is content the image would carry (in the content scope,
 /// not left out by `excludes`); files outside that scope say nothing either way. Never a
-/// path the image lists, which an image can't both remove and carry.
+/// path the image lists, which an image can't both remove and carry. A `pack.json` without
+/// the pack's file list (after a restore across pack versions) carries the restored image's
+/// `removed` instead ([`BaseInfo::removed`]), and those stay removed by the same rules.
 fn removed_pack_files(
     layout: &DiskLayout,
     excludes: &[String],
@@ -1054,11 +1066,17 @@ fn removed_pack_files(
 ) -> Vec<CanonicalPath> {
     let listed: HashSet<&str> = entries.iter().map(|e| e.path.as_str()).collect();
     let excludes = Excludes::new(excludes);
+    let carried = base.removed.iter().filter(|path| {
+        layout
+            .to_disk(path)
+            .is_ok_and(|disk| !found.contains_key(disk.as_str()))
+    });
     let mut removed: Vec<CanonicalPath> = base
         .files
         .keys()
         .filter(|disk| !found.contains_key(disk.as_str()))
         .filter_map(|disk| layout.from_disk(disk).ok().flatten())
+        .chain(carried.cloned())
         .filter(|path| {
             is_content(path, false)
                 && !excludes.excludes(path.as_str(), false)
@@ -1121,7 +1139,10 @@ fn sha1_of(path: &Path) -> Option<String> {
     )
 }
 
-/// An entry with its source and `env` from what is known of the file.
+/// An entry with its source and `env` from what is known of the file: `modrinth` for a
+/// file Modrinth's CDN has (the pack's download, or one Lodestone matched), `base` for
+/// another unchanged pack file players get from the pack, `object` otherwise, including a
+/// pack file outside the pack's client share that goes to players anyway.
 fn describe(
     mut entry: Entry,
     facts: Option<&JarFacts>,
@@ -1155,6 +1176,19 @@ fn describe(
     let (resolved, from) = lodestone_image::env::resolve(&inputs);
     entry.env = resolved;
     entry.env_from = from;
+    // A `base` entry's bytes come from the pack, and players install only the pack's
+    // client share: a pack file outside it (`server-overrides/`, or an index file the
+    // pack keeps off clients) that still goes to players (the owner marked it for them)
+    // is one only the server can give them.
+    let outside_client_share = pack_file
+        .and_then(|f| f.env)
+        .is_some_and(|env| env.client == EnvValue::Unsupported);
+    if entry.source == (Source::Base {})
+        && outside_client_share
+        && entry.env.client != EnvValue::Unsupported
+    {
+        entry.source = Source::Object {};
+    }
     entry
 }
 
@@ -1187,6 +1221,48 @@ pub(crate) fn join_labels(labels: &[String]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A pack file outside the pack's client share (`server-overrides/`) is `base` while
+    /// it stays off players; marked for players, only the server can give it to them, so
+    /// it is an `object`.
+    #[test]
+    fn a_server_only_pack_file_for_players_is_an_object() {
+        use lodestone_image::env::OwnerMark;
+        let entry = Entry::new(
+            CanonicalPath::new("mods/x.jar").unwrap(),
+            3,
+            "a".repeat(64),
+            Source::Object {},
+        );
+        let server_only = BaseFile {
+            sha1: "1".repeat(40),
+            env: Some(lodestone_image::Env::new(
+                EnvValue::Unsupported,
+                EnvValue::Required,
+            )),
+            ..BaseFile::default()
+        };
+        let described = describe(entry.clone(), None, Some(&server_only), true, None);
+        assert_eq!(described.source, Source::Base {});
+        assert_eq!(described.env.client, EnvValue::Unsupported);
+        let marked = JarFacts {
+            mark: Some(OwnerMark::ForPlayers),
+            ..JarFacts::default()
+        };
+        let described = describe(entry.clone(), Some(&marked), Some(&server_only), true, None);
+        assert_eq!(described.source, Source::Object {});
+        assert_eq!(described.env.client, EnvValue::Required);
+        // a pack file in the client share stays `base`, marked or not
+        let both = BaseFile {
+            env: Some(lodestone_image::Env::new(
+                EnvValue::Required,
+                EnvValue::Required,
+            )),
+            ..server_only
+        };
+        let described = describe(entry, Some(&marked), Some(&both), true, None);
+        assert_eq!(described.source, Source::Base {});
+    }
 
     #[test]
     fn labels_join_and_fit() {

@@ -132,7 +132,7 @@ async fn a_large_object_is_put_together_from_its_chunks() {
 }
 
 #[tokio::test]
-async fn a_damaged_chunk_ends_the_stream_and_is_deleted() {
+async fn a_damaged_chunk_ends_the_stream_and_is_deleted_with_its_list() {
     let (_dir, store) = store();
     let bytes = noise(2 << 20, 11);
     let stored = store.put_bytes(&bytes).unwrap();
@@ -151,13 +151,10 @@ async fn a_damaged_chunk_ends_the_stream_and_is_deleted() {
         .await
         .is_err());
     assert!(!path.exists(), "the damaged chunk is deleted");
-    // a range before the damage still reads
-    assert_eq!(
-        collect(&store, &stored.sha256, stored.size, range(0, 99))
-            .await
-            .unwrap(),
-        &bytes[..100]
-    );
+    // and the file's chunk list, which can't give the file whole any more: the object is
+    // missing, so a download answers 503 and a record stores it again
+    assert!(!store.has_object(&stored.sha256, stored.size));
+    assert!(!object_there(&store, &stored.sha256, stored.size).unwrap());
     // storing the file again brings the chunk back
     store.put_bytes(&bytes).unwrap();
     assert_eq!(
@@ -166,6 +163,30 @@ async fn a_damaged_chunk_ends_the_stream_and_is_deleted() {
             .unwrap(),
         bytes
     );
+}
+
+/// A chunk gone some other way ends the stream the same, and takes the list with it.
+#[tokio::test]
+async fn a_missing_chunk_ends_the_stream_and_its_list_is_deleted() {
+    let (_dir, store) = store();
+    let bytes = noise(2 << 20, 12);
+    let stored = store.put_bytes(&bytes).unwrap();
+    let ObjectForm::Chunked(list) = store.object_form(&stored.sha256, stored.size).unwrap() else {
+        panic!("a chunk list");
+    };
+    let path = store.chunk_path(&list.chunks[1].sha256).unwrap();
+    let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+    #[allow(clippy::permissions_set_readonly_false)]
+    permissions.set_readonly(false);
+    std::fs::set_permissions(&path, permissions).unwrap();
+    std::fs::remove_file(&path).unwrap();
+    assert!(object_there(&store, &stored.sha256, stored.size).unwrap());
+    assert!(collect(&store, &stored.sha256, stored.size, None)
+        .await
+        .is_err());
+    assert!(!object_there(&store, &stored.sha256, stored.size).unwrap());
+    store.put_bytes(&bytes).unwrap();
+    assert!(store.object_complete(&stored.sha256, stored.size));
 }
 
 #[tokio::test]

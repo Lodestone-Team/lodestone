@@ -11,8 +11,9 @@
 //! a whole object as it is read, a chunk against its own hash, and on a full download of a
 //! large file the whole file's SHA-256 at the end. A check that fails ends the stream with
 //! an error, which aborts the response (the player sees a body cut short and fetches it
-//! again), and the damaged object or chunk is deleted, so the next record of the server's
-//! content stores the file again from its disk.
+//! again), and the damaged object is deleted (for a large file, the damaged or missing
+//! chunk and the file's chunk list), so the next request for it gets a 503 and starts a
+//! record of the server's content, which stores the file again from its disk.
 //!
 //! Downloads are limited ([`Downloads`]): at most [`MAX_OBJECT_STREAMS`] at once over every
 //! server and route, at most [`MAX_OBJECT_STREAMS_PER_SERVER`] of one server, at most
@@ -341,7 +342,7 @@ impl Progress {
             let bytes = self
                 .store
                 .read_chunk(chunk)
-                .inspect_err(|e| remove_damaged_chunk(&self.store, chunk, e))?;
+                .inspect_err(|e| lost_chunk(&self.store, &self.sha256, self.size, chunk, e))?;
             if self.full {
                 self.hasher.update(&bytes);
             }
@@ -381,8 +382,11 @@ impl Progress {
 
 /// Whether the store holds the object `sha256` for a file of `size` bytes, whole or as a
 /// sound chunk list: what a download needs before it promises a body. Reads at most the
-/// chunk list (a damaged whole object is only found as it is sent). A damaged one is
-/// deleted, so a record stores it again. Blocking.
+/// chunk list, not its chunks: a damaged whole object, or a large file that lost a chunk,
+/// is only found as it is sent, which then deletes it ([`lost_chunk`]), so the next request
+/// gets here `false`. Checking every chunk here would cost an open per chunk on every
+/// request (tens of thousands for a file of a few GiB). A damaged one is deleted, so a
+/// record stores it again. Blocking.
 pub(crate) fn object_there(store: &Store, sha256: &str, size: u64) -> Result<bool, StoreError> {
     let _hold = store.hold_off_collection()?;
     match store.object_form(sha256, size) {
@@ -399,17 +403,33 @@ pub(crate) fn object_there(store: &Store, sha256: &str, size: u64) -> Result<boo
     }
 }
 
-/// Deletes a chunk found damaged (a missing one is left to the next record).
-fn remove_damaged_chunk(
+/// After a chunk of the large file `sha256` (of `size` bytes) couldn't be read: deletes it
+/// when it was damaged, and then the file's chunk list, which can no longer give the file
+/// whole (`Store::remove_incomplete`). So the object counts as missing: the next request
+/// for it gets the 503 that starts a record ([`object_there`]), and that record, which
+/// can't claim it, stores the file again from the server's disk with the lost chunk. A
+/// chunk lost some other way (missing) goes the same way.
+fn lost_chunk(
     store: &Store,
+    sha256: &str,
+    size: u64,
     chunk: &lodestone_image::store::chunklist::ChunkRef,
     e: &StoreError,
 ) {
-    if matches!(e, StoreError::Damaged(_)) {
-        warn!("The stored chunk {} is damaged; deleting it", chunk.sha256);
-        if let Err(e) = store.remove_damaged_chunk(chunk) {
-            warn!("Failed to delete the damaged chunk {}: {e}", chunk.sha256);
+    match e {
+        StoreError::Damaged(_) => {
+            warn!("The stored chunk {} is damaged; deleting it", chunk.sha256);
+            if let Err(e) = store.remove_damaged_chunk(chunk) {
+                warn!("Failed to delete the damaged chunk {}: {e}", chunk.sha256);
+            }
         }
+        StoreError::Missing(_) => {}
+        _ => return,
+    }
+    match store.remove_incomplete(sha256, size) {
+        Ok(true) => warn!("The stored object {sha256} lost a chunk; it will be stored again"),
+        Ok(false) => {}
+        Err(e) => warn!("Failed to delete the incomplete object {sha256}: {e}"),
     }
 }
 

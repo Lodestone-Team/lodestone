@@ -106,11 +106,14 @@ the friend accepts no streams from the host.
   - `GET /api/v1/public/instances/<uuid>/image?side=client[&have=<view id>,…]`: the
     client view of the instance's current content image as JSON, or a delta to it from a
     view the friend has; `204` when the friend is in step, `503` with `Retry-After`
-    while the first content image is recorded.
+    while the first content image is recorded (`Conflict`) or after that record failed
+    (`Internal`).
   - `GET` and `HEAD /api/v1/public/instances/<uuid>/objects/<sha256>`: a file only the
     server has that the current client view names, whole (a large file put together
-    from its chunks) or one byte range (`Range`, `206`); `404` for anything else, `503`
-    with `Retry-After: 1` while too many downloads run.
+    from its chunks) or one byte range (`Range`, `206`, or `416` past the end and for
+    `bytes=-0`); `404` for anything else; `503` with `Retry-After` while too many
+    downloads run (`TooManyRequests`), while a file the store lost is stored again
+    (`Conflict`), or for a while after that (`Internal`).
 
   The core's `docs/instance-images.md` ("Server to player") has every detail of the last
   two. Nothing else of the core's API answers, and no route takes a request body. So the

@@ -402,8 +402,9 @@ async fn get_public_object(
 async fn get_launcher_image(
     State(state): State<AppState>,
     Path(uuid): Path<InstanceUuid>,
-    requester: AuthedUser,
+    // Before the sign-in: a bad query is refused before anything else, as on every route.
     Query(query): Query<ImageQuery>,
+    requester: AuthedUser,
 ) -> Result<Response, Error> {
     launcher_allows(&state, &requester, &uuid).await?;
     image_response(&state, &uuid, query).await

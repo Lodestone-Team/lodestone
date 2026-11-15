@@ -229,6 +229,23 @@ pub fn exclude_reaches_content(pattern: &str) -> bool {
     is_content_parts(prefix, true)
 }
 
+/// Whether the canonical exclude `pattern` could match the `mods/` folder or anything in
+/// it: a name at any depth (`*.jar`, `cache/`), or a pattern from the game folder whose
+/// first part is or may be `mods` (`mods/`, `/*/x.jar`, `**/x`). Content images leave such
+/// patterns out (see [`super::recorder::content_scope`]): the client view players get is a
+/// projection of the content image, so a backup exclude that reached `mods/` would take the
+/// server's mods away from players. Ignores letter case, so it errs only towards true.
+pub fn exclude_reaches_mods(pattern: &str) -> bool {
+    let body = pattern.trim_start_matches('/').trim_end_matches('/');
+    let anchored = pattern.starts_with('/') || body.contains('/');
+    if !anchored {
+        return true;
+    }
+    let first = body.split('/').next().unwrap_or_default();
+    first == "**"
+        || lodestone_image::store::excludes::glob_matches(&first.to_ascii_lowercase(), "mods")
+}
+
 fn is_content_parts(parts: &[&str], is_dir: bool) -> bool {
     if parts.is_empty() || parts.iter().any(|part| is_lodestone_name(part)) {
         return false;
@@ -395,6 +412,38 @@ mod tests {
             "/eula.txt",
         ] {
             assert!(!exclude_reaches_content(no), "{no}");
+        }
+    }
+
+    #[test]
+    fn excludes_that_can_reach_mods() {
+        for yes in [
+            "*.jar",
+            "dynmap",
+            "cache/",
+            "**",
+            "mods",
+            "/mods/",
+            "mods/*.disabled",
+            "MODS/x.jar",
+            "/m*/x.jar",
+            "*/x.jar",
+            "**/x.jar",
+        ] {
+            assert!(exclude_reaches_mods(yes), "{yes}");
+        }
+        for no in [
+            "config/dynmap/",
+            "/config",
+            "config/*.txt",
+            "/server.jar",
+            "plugins/*.jar",
+            "world/playerdata/",
+            "/logs/",
+            "/modsx/",
+            "/c*/x",
+        ] {
+            assert!(!exclude_reaches_mods(no), "{no}");
         }
     }
 

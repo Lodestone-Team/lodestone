@@ -142,8 +142,9 @@ async fn recording(state: &AppState, uuid: &InstanceUuid) -> Response {
     }
 }
 
-/// The answer for an object the current view names that the store lacks (gone, or found
-/// damaged and deleted): a record stores the server's file again in the background, and
+/// The answer for an object the current view names that the store lacks (gone, found
+/// damaged and deleted, or a large file whose chunk list a download took away when it found
+/// a chunk lost): a record stores the server's file again in the background, and
 /// the player fetches again after it.
 async fn missing(state: &AppState, uuid: &InstanceUuid) -> Response {
     let again = match crate::images::context_of(state, uuid).await {
