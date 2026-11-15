@@ -26,7 +26,7 @@
 //! name; saving then fails as missing (the store never names what it lost), and the record
 //! is taken again once.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -221,9 +221,11 @@ impl Operation {
     /// before). Its label is added to an image another record took its files in with only
     /// when the entries under these differ ([`Queued::job`]). Not said, or `None`: any
     /// content file.
+    /// Over [`MAX_WROTE`] paths (an unzip of a flat archive places one per top-level
+    /// entry) stand for their folders instead.
     pub fn wrote(&mut self, paths: impl Into<Option<Vec<String>>>) {
         if let Some(job) = &mut self.job {
-            job.wrote = paths.into();
+            job.wrote = bounded_wrote(paths.into());
         }
     }
 
@@ -848,6 +850,64 @@ struct FinishedJob {
     before: Option<String>,
 }
 
+/// The most paths a job's [`JobLabel::wrote`] keeps: more stand for the folders they are in,
+/// and when those are still more, for any content file. It is queued, and every record
+/// that takes the job's label in checks image entries against it.
+const MAX_WROTE: usize = 1024;
+
+/// `paths` for [`JobLabel::wrote`], at most [`MAX_WROTE`] of them (see there).
+fn bounded_wrote(paths: Option<Vec<String>>) -> Option<Vec<String>> {
+    let paths = paths?;
+    if paths.len() <= MAX_WROTE {
+        return Some(paths);
+    }
+    let folders: Vec<String> = paths
+        .iter()
+        .map(|path| {
+            let path = path.trim_matches('/');
+            path.rsplit_once('/').map_or("", |(folder, _)| folder)
+        })
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .map(str::to_string)
+        .collect();
+    (folders.len() <= MAX_WROTE).then_some(folders)
+}
+
+/// What a job wrote (disk paths, a folder standing for everything in it), to look up whether
+/// it is or holds a disk path by the path and its folders: as many lookups as the path is
+/// deep, however many it wrote.
+struct WroteSet<'a> {
+    /// A path is the server folder itself: it covers everything.
+    all: bool,
+    paths: HashSet<&'a str>,
+}
+
+impl<'a> WroteSet<'a> {
+    fn new(wrote: &'a [String]) -> Self {
+        let paths: HashSet<&str> = wrote.iter().map(|path| path.trim_matches('/')).collect();
+        Self {
+            all: paths.contains(""),
+            paths,
+        }
+    }
+
+    /// Whether one of the paths is or holds `disk`.
+    fn covers(&self, disk: &str) -> bool {
+        if self.all || self.paths.contains(disk) {
+            return true;
+        }
+        let mut folder = disk;
+        while let Some((parent, _)) = folder.rsplit_once('/') {
+            if self.paths.contains(parent) {
+                return true;
+            }
+            folder = parent;
+        }
+        false
+    }
+}
+
 /// Whether the entries under `wrote` (disk paths, a folder standing for everything in it;
 /// `None`: all) differ between `before` (`None`: no image) and `now`.
 fn wrote_differs(
@@ -856,10 +916,11 @@ fn wrote_differs(
     layout: &DiskLayout,
     wrote: Option<&[String]>,
 ) -> bool {
-    let under = |entry: &Entry| match wrote {
+    let wrote = wrote.map(WroteSet::new);
+    let under = |entry: &Entry| match &wrote {
         None => true,
         Some(paths) => match layout.to_disk(&entry.path) {
-            Ok(disk) => paths.iter().any(|path| covers(path, &disk)),
+            Ok(disk) => paths.covers(&disk),
             // Can't tell where it is: count it.
             Err(_) => true,
         },
@@ -873,17 +934,6 @@ fn wrote_differs(
             .collect()
     };
     side(before) != side(Some(now))
-}
-
-/// Whether the disk path `path` (a folder standing for everything in it) is or holds
-/// `disk`.
-fn covers(path: &str, disk: &str) -> bool {
-    let path = path.trim_matches('/');
-    path.is_empty()
-        || disk == path
-        || disk
-            .strip_prefix(path)
-            .is_some_and(|rest| rest.starts_with('/'))
 }
 
 struct Built {
@@ -1202,13 +1252,86 @@ mod tests {
         JobLabel { id, wrote: None }
     }
 
+    fn covers(path: &str, disk: &str) -> bool {
+        WroteSet::new(&[path.to_string()]).covers(disk)
+    }
+
     #[test]
     fn a_folder_a_job_wrote_covers_what_is_in_it() {
         assert!(covers("", "server.properties"));
+        assert!(covers("/", "server.properties"));
         assert!(covers("world", "world/region/r.0.0.mca"));
         assert!(covers("world/", "world/level.dat"));
         assert!(covers("mods/a.jar", "mods/a.jar"));
         assert!(!covers("world", "world_nether/level.dat"));
         assert!(!covers("mods/a.jar", "mods/a.jar.disabled"));
+        assert!(!covers("mods/a.jar", "mods"));
+        assert!(!covers("config/x", "config/xy/z.toml"));
+        let set = ["mods/a.jar".to_string(), "config/sub".to_string()];
+        let set = WroteSet::new(&set);
+        assert!(set.covers("config/sub/deep/c.toml"));
+        assert!(set.covers("mods/a.jar"));
+        assert!(!set.covers("config/other.toml"));
+        assert!(!set.covers("mods/b.jar"));
+    }
+
+    #[test]
+    fn many_paths_a_job_wrote_stand_for_their_folders() {
+        let few: Vec<String> = (0..MAX_WROTE).map(|i| format!("config/{i}.toml")).collect();
+        assert_eq!(bounded_wrote(Some(few.clone())), Some(few));
+        assert_eq!(bounded_wrote(None), None);
+        // a flat archive unzipped into config/ and the server folder
+        let flat: Vec<String> = (0..=MAX_WROTE)
+            .map(|i| format!("config/{i}.toml"))
+            .collect();
+        assert_eq!(bounded_wrote(Some(flat)), Some(vec!["config".to_string()]));
+        let flat: Vec<String> = (0..=MAX_WROTE).map(|i| format!("{i}.txt")).collect();
+        assert_eq!(bounded_wrote(Some(flat)), Some(vec![String::new()]));
+        // too many folders: any content file
+        let spread: Vec<String> = (0..=MAX_WROTE).map(|i| format!("d{i}/f")).collect();
+        assert_eq!(bounded_wrote(Some(spread)), None);
+    }
+
+    /// Comparing an image under many paths a job wrote looks each entry up by its folders,
+    /// rather than against every path: a record holds the content gate while it does.
+    #[test]
+    fn what_many_paths_a_job_wrote_hold_is_found_quickly() {
+        let layout =
+            DiskLayout::Server(lodestone_image::ServerLayout::new("world", [], true).unwrap());
+        let game = lodestone_image::Game {
+            minecraft: "1.21.1".into(),
+            loader: lodestone_image::Loader::Fabric,
+            loader_version: Some("0.16.10".into()),
+        };
+        let image = |n: usize, changed: Option<usize>| {
+            let mut image = Image::new(Kind::Content, game.clone());
+            image.entries = (0..n)
+                .map(|i| {
+                    let text = format!("config/f{i}.toml");
+                    let sha = if Some(i) == changed { "b" } else { "a" }.repeat(64);
+                    Entry::new(
+                        lodestone_image::CanonicalPath::new(text).unwrap(),
+                        1,
+                        sha,
+                        Source::Object {},
+                    )
+                })
+                .collect();
+            image
+        };
+        let before = image(5_000, None);
+        let now = image(5_000, Some(4_999));
+        // what an unzip of a flat archive placed in the server folder, none of it content
+        let wrote: Vec<String> = (0..200_000).map(|i| format!(".lodestone-x{i}")).collect();
+        let start = Instant::now();
+        assert!(!wrote_differs(Some(&before), &now, &layout, Some(&wrote)));
+        let mut wrote = wrote;
+        wrote.push("config/f4999.toml".into());
+        assert!(wrote_differs(Some(&before), &now, &layout, Some(&wrote)));
+        assert!(
+            start.elapsed() < Duration::from_secs(2),
+            "took {:?}",
+            start.elapsed()
+        );
     }
 }

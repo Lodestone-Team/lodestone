@@ -786,8 +786,11 @@ of M2 adds its own subsection.
   meanwhile. A job says what it wrote (`Operation::wrote`) once it is done, as it actually
   wrote it: a copy the paths it placed and a zip its archive, each at the free name it took
   when the one asked for was taken (`a.toml` copied into its own folder is `a_1.toml`), an
-  unzip what it placed in the destination, an install the mods or plugins folder; when that
-  image was pruned meanwhile, the label is kept). A
+  unzip what it placed in the destination, an install the mods or plugins folder; over 1,024
+  paths (an unzip of a flat archive) stand for the folders they are in, and when those are
+  still more, for any content file, and each entry is looked up by its path and its folders,
+  so the comparison, done with the content gate held, takes as long however much a job wrote;
+  when that image was pruned meanwhile, the label is kept). A
   modpack update or restore begins with `ImageService::begin_exclusive`, which waits for
   every Files API operation (not the jobs, which hold no gate) and keeps new ones out, so
   none lands between its last check of the files and their placement; placing a new file
