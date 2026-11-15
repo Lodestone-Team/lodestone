@@ -6,7 +6,7 @@
 //! may hold any character, and [`lodestone_image::lineage::join_labels`] turns control
 //! characters into spaces and cuts the whole to what an image may hold.
 
-use crate::content::ContentKind;
+use crate::content::{ContentKind, enabled_name};
 use crate::content::install::InstallOutcome;
 use crate::instances::Loader;
 
@@ -14,6 +14,10 @@ use crate::instances::Loader;
 pub const INITIAL_LABEL: &str = "Content when the Launcher began recording";
 /// An image the check before a launch records: content changed outside the Launcher.
 pub const OUTSIDE_LABEL: &str = "Changed by hand";
+/// An image the check before a launch records after a session no end was seen of (the
+/// Launcher quit or died while the game ran): what the game wrote and what changed by hand
+/// can't be told apart.
+pub const WHILE_RUNNING_LABEL: &str = "Changed while the game ran or by hand";
 /// The record before a modpack update, of what the update is about to change.
 pub const BEFORE_MODPACK_UPDATE: &str = "Before a modpack update";
 /// The record before a server's update is applied, of what it is about to change.
@@ -68,6 +72,16 @@ pub fn installed(outcome: &InstallOutcome, kind: ContentKind) -> Option<String> 
     }
 }
 
+/// An install that failed or was cancelled after placing some of its files.
+pub fn partly_installed(title: &str) -> String {
+    let title = title.trim();
+    if title.is_empty() {
+        "Partly installed content".into()
+    } else {
+        format!("Partly installed {title}")
+    }
+}
+
 /// One file added.
 pub fn added(name: &str) -> String {
     format!("Added {name}")
@@ -95,9 +109,10 @@ pub fn count(verb: &str, n: usize, kind: ContentKind) -> String {
     format!("{verb} {n} {noun}")
 }
 
-/// A file removed from the instance.
+/// A file removed from the instance, by its name when on (a disabled mod's `.disabled`
+/// left off).
 pub fn removed(file: &str) -> String {
-    format!("Removed {file}")
+    format!("Removed {}", enabled_name(file))
 }
 
 /// Several files removed at once.
@@ -109,9 +124,13 @@ pub fn removed_many(files: &[String], kind: ContentKind) -> Option<String> {
     }
 }
 
-/// A file turned on or off.
+/// A file turned on or off, by its name when on, whichever name it has on disk.
 pub fn enabled(file: &str, on: bool) -> String {
-    format!("{} {file}", if on { "Enabled" } else { "Disabled" })
+    format!(
+        "{} {}",
+        if on { "Enabled" } else { "Disabled" },
+        enabled_name(file)
+    )
 }
 
 /// The resource pack list or order changed.
@@ -126,11 +145,14 @@ pub fn shader(file: Option<&str>) -> String {
 }
 
 /// The game the instance plays changed in place: `minecraft` is the new Minecraft
-/// version when it changed, `loader` the new loader and its version when either changed.
-/// `None` when neither did.
+/// version when it changed, `loader` the new loader and its version when either changed,
+/// and `other_loader` whether the loader itself changed (not only its version): "Changed
+/// Fabric to 0.16.10" is a new Fabric, "Changed to Quilt 0.16.10" another loader. `None`
+/// when nothing did.
 pub fn game_changed(
     minecraft: Option<&str>,
     loader: Option<(Loader, Option<&str>)>,
+    other_loader: bool,
 ) -> Option<String> {
     let loader_text = |loader: Loader, version: Option<&str>| match version {
         Some(version) if loader != Loader::None => format!("{} {version}", loader.label()),
@@ -143,7 +165,7 @@ pub fn game_changed(
             "Changed Minecraft to {minecraft} with {}",
             loader_text(loader, version)
         ),
-        (None, Some((loader, Some(version)))) if loader != Loader::None => {
+        (None, Some((loader, Some(version)))) if loader != Loader::None && !other_loader => {
             format!("Changed {} to {version}", loader.label())
         }
         (None, Some((loader, version))) => format!("Changed to {}", loader_text(loader, version)),
@@ -256,10 +278,24 @@ mod tests {
     #[test]
     fn other_labels() {
         assert_eq!(enabled("a.jar", false), "Disabled a.jar");
-        let game = |minecraft, loader| game_changed(minecraft, loader).unwrap_or_default();
+        // A disabled file is named as it is when on.
+        assert_eq!(enabled("a.jar.disabled", true), "Enabled a.jar");
+        assert_eq!(removed("a.jar.disabled"), "Removed a.jar");
+        assert_eq!(
+            removed_many(&["a.jar.disabled".into()], ContentKind::Mod).as_deref(),
+            Some("Removed a.jar")
+        );
+        assert_eq!(partly_installed("JEI"), "Partly installed JEI");
+        assert_eq!(partly_installed(" "), "Partly installed content");
+        let game = |minecraft, loader| game_changed(minecraft, loader, false).unwrap_or_default();
         assert_eq!(
             game(None, Some((Loader::Fabric, Some("0.16.10")))),
             "Changed Fabric to 0.16.10"
+        );
+        // Another loader with the same version string isn't a new version of it.
+        assert_eq!(
+            game_changed(None, Some((Loader::Quilt, Some("0.16.10"))), true).as_deref(),
+            Some("Changed to Quilt 0.16.10")
         );
         assert_eq!(game(None, Some((Loader::None, None))), "Changed to Vanilla");
         assert_eq!(game(None, Some((Loader::Quilt, None))), "Changed to Quilt");
@@ -272,7 +308,7 @@ mod tests {
             game(Some("1.21.1"), Some((Loader::None, None))),
             "Changed Minecraft to 1.21.1 with Vanilla"
         );
-        assert_eq!(game_changed(None, None), None);
+        assert_eq!(game_changed(None, None, false), None);
         assert_eq!(pack_updated("FO", "6.4.0"), "Updated FO to 6.4.0");
         assert_eq!(pack_updated("FO", ""), "Updated FO");
         assert_eq!(installed_pack("FO", ""), "Installed FO");

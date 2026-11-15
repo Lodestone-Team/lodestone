@@ -51,7 +51,7 @@ mod tests;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
 use std::time::{Duration, Instant};
 
@@ -138,9 +138,12 @@ pub(crate) struct Slot {
     /// Goes up by one each time a new image of the instance is written; an operation
     /// notes it when it begins ([`recorder::Queued::generation`]).
     pub(crate) generation: AtomicU64,
-    /// Set from the check before a launch until the session ends: the game writes files
-    /// of its own meanwhile, so nothing is recorded.
-    pub(crate) session: AtomicBool,
+    /// How many game sessions of the instance run: one from each check before a launch
+    /// until that session ends. The game writes files of its own meanwhile, so nothing is
+    /// recorded. A count, not a flag: Play pressed again just as the last run's end is
+    /// handled begins a session before the old one is over, and the old end must not take
+    /// the baseline again under the new game ([`check`]).
+    pub(crate) session: AtomicUsize,
     /// The check before this session's launch couldn't run (a record held the instance
     /// past the wait, or the store was suspended), so the session's end runs it instead of
     /// taking the baseline again ([`check`]).
@@ -154,6 +157,27 @@ impl Slot {
 
     pub(crate) fn pending(&self) -> MutexGuard<'_, recorder::Pending> {
         self.pending.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Whether a game session of the instance runs.
+    pub(crate) fn in_session(&self) -> bool {
+        self.session.load(Ordering::SeqCst) > 0
+    }
+
+    /// One session fewer (never below none).
+    pub(crate) fn session_over(&self) {
+        let mut now = self.session.load(Ordering::SeqCst);
+        while now > 0 {
+            match self.session.compare_exchange_weak(
+                now,
+                now - 1,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            ) {
+                Ok(_) => return,
+                Err(actual) => now = actual,
+            }
+        }
     }
 }
 
@@ -267,6 +291,17 @@ pub struct Images {
     refused: Mutex<std::collections::HashSet<String>>,
     /// The writes running, and whether the store is suspended.
     activity: Arc<Activity>,
+    /// Whether the store's folder was made private ([`Images::enter`]).
+    root_private: AtomicBool,
+}
+
+impl Drop for Images {
+    /// Wakes the merged records' thread, which then finds the images gone and ends: it
+    /// sleeps without a timeout while nothing is queued.
+    fn drop(&mut self) {
+        *self.worker.wake.lock().unwrap_or_else(|e| e.into_inner()) = true;
+        self.worker.signal.notify_all();
+    }
 }
 
 impl Images {
@@ -290,6 +325,7 @@ impl Images {
             gc: Arc::default(),
             refused: Mutex::default(),
             activity: Arc::default(),
+            root_private: AtomicBool::new(false),
         })
     }
 
@@ -344,7 +380,34 @@ impl Images {
     /// Counts a write to the store until the guard is dropped, or refuses while the store
     /// is suspended. Callers holding a record lock take it after that lock.
     pub(crate) fn enter(&self) -> Result<Writing, ImageError> {
-        self.activity.enter().ok_or(ImageError::Suspended)
+        let writing = self.activity.enter().ok_or(ImageError::Suspended)?;
+        if !self.root_private.swap(true, Ordering::SeqCst) {
+            self.make_root_private();
+        }
+        Ok(writing)
+    }
+
+    /// Makes the store's folder readable by its owner only, before the first write. The
+    /// Launcher writes its own files that way (they hold account names), and an image takes
+    /// a mod's config whatever its mode, as an object anyone may read: where the data
+    /// folder's parents are readable by others (a Linux home folder), the folder keeps them
+    /// out. Only the store's own folder; what fails is only slower to keep private.
+    fn make_root_private(&self) {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+            let root = self.store.root();
+            let made = std::fs::DirBuilder::new()
+                .recursive(true)
+                .mode(0o700)
+                .create(root)
+                .and_then(|()| {
+                    std::fs::set_permissions(root, std::fs::Permissions::from_mode(0o700))
+                });
+            if let Err(e) = made {
+                warn("images.store", "", &e.to_string());
+            }
+        }
     }
 
     /// Stops every write to the store and waits for the running ones to end: a record (however
@@ -355,18 +418,31 @@ impl Images {
     /// drop the guard if the move fails or is cancelled, [`Suspension::keep`] it once the
     /// data is at its new place. Blocking.
     pub fn suspend(self: &Arc<Self>) -> Suspension {
+        self.suspend_unless(&|| false)
+            .expect("a suspension that can't be cancelled")
+    }
+
+    /// [`Self::suspend`], given up when `cancelled` turns true while it waits for a write
+    /// (the data move's Cancel): then the store resumes and this returns `None`.
+    pub fn suspend_unless(self: &Arc<Self>, cancelled: &dyn Fn() -> bool) -> Option<Suspension> {
         let mut state = self.activity.lock();
         state.suspended = true;
         while state.writers > 0 {
+            if cancelled() {
+                drop(state);
+                self.resume();
+                return None;
+            }
             state = self
                 .activity
                 .idle
-                .wait(state)
-                .unwrap_or_else(|e| e.into_inner());
+                .wait_timeout(state, Duration::from_millis(100))
+                .unwrap_or_else(|e| e.into_inner())
+                .0;
         }
-        Suspension {
+        Some(Suspension {
             images: Some(self.clone()),
-        }
+        })
     }
 
     /// Lets writes run again, with the collection and merged records that waited.
@@ -422,8 +498,7 @@ impl Images {
 
     /// [`Self::forget_deleted`] without asking for a collection, inside a counted write.
     /// Nothing is forgotten while the instances folder itself is missing (a drive that
-    /// isn't there), and only an instance folder without `instance.json` counts as gone:
-    /// an `instance.json` that can't be read is no deletion.
+    /// isn't there). See [`instance_gone`] for when one instance counts as gone.
     fn forget_deleted_held(&self) -> usize {
         if !self.instances.root().is_dir() {
             return 0;
@@ -431,12 +506,7 @@ impl Images {
         let Ok(entries) = std::fs::read_dir(self.store.images_dir()) else {
             return 0;
         };
-        let gone = |id: &str| {
-            matches!(
-                std::fs::symlink_metadata(self.instances.dir(id).join("instance.json")),
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound
-            )
-        };
+        let gone = |id: &str| instance_gone(&self.instances.dir(id));
         let mut forgotten = 0;
         for entry in entries.flatten() {
             let Some(id) = entry.file_name().to_str().map(str::to_string) else {
@@ -556,10 +626,15 @@ impl Images {
     }
 }
 
-/// Waits on the worker's signal until woken or `until`, whichever comes first.
-pub(crate) fn wait_for_wake(worker: &Worker, until: Instant) {
+/// Waits on the worker's signal until woken or `until`, whichever comes first; with no
+/// `until`, until woken.
+pub(crate) fn wait_for_wake(worker: &Worker, until: Option<Instant>) {
     let mut woken = worker.wake.lock().unwrap_or_else(|e| e.into_inner());
     while !*woken {
+        let Some(until) = until else {
+            woken = worker.signal.wait(woken).unwrap_or_else(|e| e.into_inner());
+            continue;
+        };
         let now = Instant::now();
         if now >= until {
             return;
@@ -571,6 +646,24 @@ pub(crate) fn wait_for_wake(worker: &Worker, until: Instant) {
             .0;
     }
     *woken = false;
+}
+
+/// Whether the instance whose folder is `dir` is gone, so its images may be forgotten:
+/// nothing at all is at `dir`, or `dir` is a real folder without `instance.json`. A link
+/// there (a pack kept on another drive, linked into the instances folder) whose target
+/// can't be reached is no deletion: the drive may only be unplugged, and the instance comes
+/// back with it. Nor is anything that can't be looked at.
+fn instance_gone(dir: &Path) -> bool {
+    let not_found = |e: &std::io::Error| e.kind() == std::io::ErrorKind::NotFound;
+    match std::fs::symlink_metadata(dir) {
+        Err(e) => not_found(&e),
+        // A symbolic link, or on Windows a junction (std reports both as links).
+        Ok(meta) if meta.file_type().is_symlink() || !meta.is_dir() => false,
+        Ok(_) => matches!(
+            std::fs::symlink_metadata(dir.join("instance.json")),
+            Err(e) if not_found(&e)
+        ),
+    }
 }
 
 /// For the merged records' thread, which holds the images only while it works.
@@ -633,10 +726,19 @@ fn remove_tree(dir: &Path) -> std::io::Result<()> {
             return;
         };
         for entry in entries.flatten() {
-            let Ok(meta) = entry.metadata() else { continue };
-            if meta.is_dir() {
+            // Never through a link or junction: only the store's own files.
+            let Ok(kind) = entry.file_type() else { continue };
+            if kind.is_symlink() {
+                continue;
+            }
+            if kind.is_dir() {
                 writable(&entry.path());
-            } else if meta.permissions().readonly() {
+                continue;
+            }
+            let Ok(meta) = std::fs::symlink_metadata(entry.path()) else {
+                continue;
+            };
+            if meta.permissions().readonly() {
                 let mut permissions = meta.permissions();
                 #[allow(clippy::permissions_set_readonly_false)]
                 permissions.set_readonly(false);

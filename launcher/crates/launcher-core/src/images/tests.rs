@@ -8,7 +8,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use lodestone_image::{Kind, Loader as ImageLoader, Source, WithheldReason};
 
-use super::labels::{INITIAL_LABEL, OUTSIDE_LABEL};
+use super::labels::{INITIAL_LABEL, OUTSIDE_LABEL, WHILE_RUNNING_LABEL};
 use super::*;
 use crate::game::loaders::{LoaderChoice, LoaderKind};
 use crate::instances::{Instance, InstanceStore};
@@ -275,12 +275,16 @@ fn what_the_game_writes_joins_the_next_operation() {
 fn the_check_before_a_launch() {
     let s = Setup::new();
     s.write("mods/a.jar", b"a");
-    // No image yet: the first.
-    let Checked::Recorded(first) = s.images.before_launch(s.id()) else {
-        panic!("no first image")
-    };
-    assert_eq!(s.labels(), [INITIAL_LABEL]);
+    // No image yet: the check leaves the first to the session's end, off the launch.
+    assert!(matches!(
+        s.images.before_launch(s.id()),
+        Checked::Skipped(_)
+    ));
+    assert!(s.history().images.is_empty());
     s.images.end_session(s.id());
+    assert_eq!(s.labels(), [INITIAL_LABEL]);
+    let first = s.history().images[0].id.clone();
+    assert_eq!(s.state().running_since, None);
     assert_eq!(s.images.before_launch(s.id()), Checked::Unchanged);
     s.images.end_session(s.id());
 
@@ -289,7 +293,7 @@ fn the_check_before_a_launch() {
     let Checked::Recorded(by_hand) = s.images.before_launch(s.id()) else {
         panic!("no change found")
     };
-    assert_eq!(by_hand.parent.as_deref(), Some(first.id.as_str()));
+    assert_eq!(by_hand.parent.as_deref(), Some(first.as_str()));
     assert_eq!(s.labels()[0], OUTSIDE_LABEL);
     s.images.end_session(s.id());
 
@@ -309,12 +313,22 @@ fn the_check_before_a_launch() {
     s.images.end_session(s.id());
     assert_eq!(s.images.before_launch(s.id()), Checked::Unchanged);
 
-    // The Launcher died while the game ran: the next launch takes the baseline again.
+    // The Launcher quit after the launch (or died while the game ran): the next launch
+    // can't tell what the game wrote from a change by hand, and records both.
     s.write("config/rewritten.json", b"by the game");
     assert!(s.state().running_since.is_some());
-    assert_eq!(s.images.before_launch(s.id()), Checked::Unchanged);
-    assert_eq!(s.labels().len(), 2, "no image of what the game wrote");
-    s.images.end_session(s.id());
+    let images = Images::with_timing(&s.data, s.images.timing());
+    let Checked::Recorded(after) = images.before_launch(s.id()) else {
+        panic!("a change after a session no end was seen of")
+    };
+    assert!(after.changed);
+    assert_eq!(s.labels()[0], WHILE_RUNNING_LABEL);
+    images.end_session(s.id());
+    assert_eq!(s.state().running_since, None);
+    assert_eq!(images.before_launch(s.id()), Checked::Unchanged);
+    images.end_session(s.id());
+    // The Launcher that quit is gone with its session.
+    s.images.slot(s.id()).session_over();
 
     // A loader version edited into instance.json by hand.
     let mut instance = s.store.get(s.id()).unwrap();
@@ -926,16 +940,16 @@ fn a_crash_after_the_first_manifest_keeps_its_image() {
         },
     )
     .unwrap();
-    // The next record (here the check before a launch) takes the image up, label and all,
-    // rather than taking it for an earlier instance's.
-    let Checked::Recorded(adopted) = s.images.before_launch(s.id()) else {
-        panic!("the pointer wasn't moved")
-    };
-    assert_eq!(adopted.id, first.id);
-    assert!(!adopted.changed);
+    // The next record (here the session's end after a check that left the first image to
+    // it) takes the image up, label and all, rather than taking it for an earlier
+    // instance's.
+    assert!(matches!(
+        s.images.before_launch(s.id()),
+        Checked::Skipped(_)
+    ));
+    s.images.end_session(s.id());
     assert_eq!(s.state().current.as_deref(), Some(first.id.as_str()));
     assert_eq!(s.labels(), ["Created Pack"]);
-    s.images.end_session(s.id());
 
     // The first record writes that state before anything else: here its objects can't be
     // written (a file is where their folder goes), and the state is there all the same.
@@ -977,7 +991,7 @@ fn a_check_that_couldnt_run_still_holds_merged_records_and_runs_at_the_end() {
     ));
     drop(held);
     // The session is marked all the same: nothing is recorded while the game writes.
-    assert!(slot.session.load(Ordering::SeqCst));
+    assert!(slot.in_session());
     s.write("config/written-by-the-game.json", b"{}");
     let op = s.images.begin(s.id(), "Added queued.jar");
     s.write("mods/queued.jar", b"q");
@@ -987,7 +1001,7 @@ fn a_check_that_couldnt_run_still_holds_merged_records_and_runs_at_the_end() {
     // The session's end runs the check that couldn't run: what is queued, then what
     // changed by hand, is recorded instead of folded into the baseline.
     s.images.end_session(s.id());
-    assert!(!slot.session.load(Ordering::SeqCst));
+    assert!(!slot.in_session());
     assert_eq!(s.labels(), ["Added queued.jar", "Created Pack"]);
     let newest = s.history().images[0].id.clone();
     assert!(s.paths(&newest).contains(&"mods/by-hand.jar".to_string()));
@@ -1172,4 +1186,259 @@ fn files_a_pack_wrote_outside_the_content_folders_are_content() {
         Checked::Recorded(Recorded { changed: true, .. })
     ));
     assert_eq!(s.labels()[0], OUTSIDE_LABEL);
+}
+
+#[test]
+fn a_session_no_end_was_seen_of_is_over_once_a_record_runs() {
+    let s = Setup::new();
+    s.images.record_now(s.id(), "Created Pack").unwrap();
+    // The Launcher quit after the launch: no session end.
+    s.images.before_launch(s.id());
+    assert!(s.state().running_since.is_some());
+    let images = Images::with_timing(&s.data, s.images.timing());
+    let op = images.begin(s.id(), "Added b.jar");
+    s.write("mods/b.jar", b"b");
+    op.succeed();
+    images.flush(s.id()).unwrap();
+    // The record took the content again, so the next check is an ordinary one.
+    assert_eq!(s.state().running_since, None);
+    s.write("mods/hand.jar", b"hand");
+    assert!(matches!(
+        images.before_launch(s.id()),
+        Checked::Recorded(Recorded { changed: true, .. })
+    ));
+    assert_eq!(s.labels(), [OUTSIDE_LABEL, "Added b.jar", "Created Pack"]);
+    images.end_session(s.id());
+}
+
+#[test]
+fn a_game_changed_during_a_session_is_still_found() {
+    let s = Setup::new();
+    s.images.record_now(s.id(), "Created Pack").unwrap();
+    assert_eq!(s.images.before_launch(s.id()), Checked::Unchanged);
+    // The loader version edited into instance.json while the game ran: the session's end
+    // takes the files again, not the game.
+    let mut instance = s.store.get(s.id()).unwrap();
+    instance.loader_version = Some("0.16.99".into());
+    s.store.save(&instance).unwrap();
+    s.images.end_session(s.id());
+    assert_eq!(
+        s.state().game.and_then(|game| game.loader_version).as_deref(),
+        Some("0.16.10")
+    );
+    assert!(matches!(
+        s.images.before_launch(s.id()),
+        Checked::Recorded(Recorded { changed: true, .. })
+    ));
+    assert_eq!(s.labels()[0], OUTSIDE_LABEL);
+    let current = s.history().images[0].id.clone();
+    assert_eq!(
+        s.image(&current).game.loader_version.as_deref(),
+        Some("0.16.99")
+    );
+    s.images.end_session(s.id());
+}
+
+/// Makes `dir` and every folder in it read-only (or writable again).
+#[cfg(unix)]
+fn set_folders_writable(dir: &Path, writable: bool) {
+    use std::os::unix::fs::PermissionsExt;
+    let mode = if writable { 0o755 } else { 0o555 };
+    if writable {
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(mode)).unwrap();
+    }
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let entry = entry.unwrap();
+        if entry.file_type().unwrap().is_dir() {
+            set_folders_writable(&entry.path(), writable);
+        }
+    }
+    if !writable {
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(mode)).unwrap();
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_check_that_failed_to_record_runs_again_at_the_sessions_end() {
+    let s = Setup::new();
+    s.write("mods/a.jar", b"a");
+    s.images.record_now(s.id(), "Created").unwrap();
+    s.write("mods/by-hand.jar", b"a mod dropped in by hand");
+    let objects = s.images.store().root().join("objects");
+    set_folders_writable(&objects, false);
+    let checked = s.images.before_launch(s.id());
+    set_folders_writable(&objects, true);
+    assert!(matches!(checked, Checked::Failed(_)), "{checked:?}");
+    // Not folded into the baseline: the session's end records it.
+    s.images.end_session(s.id());
+    assert_eq!(s.labels(), [OUTSIDE_LABEL, "Created"]);
+    let newest = s.history().images[0].id.clone();
+    assert!(s.paths(&newest).contains(&"mods/by-hand.jar".to_string()));
+    assert_eq!(s.state().running_since, None);
+}
+
+#[cfg(unix)]
+#[test]
+fn the_check_before_a_launch_reads_no_file() {
+    use std::os::unix::fs::PermissionsExt;
+    let s = Setup::new();
+    s.write("mods/a.jar", b"a");
+    s.images.record_now(s.id(), "Created").unwrap();
+    // A file nobody may read: the check only looks at sizes and times.
+    let path = s.game("mods/a.jar");
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let checked = s.images.before_launch(s.id());
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert_eq!(checked, Checked::Unchanged);
+    s.images.end_session(s.id());
+}
+
+#[test]
+fn an_old_sessions_end_leaves_a_new_session_alone() {
+    let s = Setup::new();
+    s.images.record_now(s.id(), "Created").unwrap();
+    let slot = s.images.slot(s.id());
+    // Play pressed again just as the last run's end is handled.
+    assert_eq!(s.images.before_launch(s.id()), Checked::Unchanged);
+    assert_eq!(s.images.before_launch(s.id()), Checked::Unchanged);
+    s.images.end_session(s.id());
+    assert!(slot.in_session(), "the new run still plays");
+    assert!(s.state().running_since.is_some());
+    // What the new game writes waits for its own end.
+    s.write("config/written-by-the-game.json", b"{}");
+    s.images.end_session(s.id());
+    assert!(!slot.in_session());
+    assert_eq!(s.state().running_since, None);
+    assert_eq!(s.images.before_launch(s.id()), Checked::Unchanged);
+    s.images.end_session(s.id());
+    assert_eq!(s.labels(), ["Created"]);
+}
+
+#[test]
+fn settling_skips_a_saved_search() {
+    let s = Setup::new();
+    s.images.record_now(s.id(), "Created").unwrap();
+    let op = s.images.begin(s.id(), "Added a.jar");
+    s.write("mods/a.jar", b"a");
+    op.succeed();
+    let finder = s
+        .store
+        .dir(s.id())
+        .join(crate::content::mod_finder::FILE_NAME);
+    std::fs::write(&finder, b"{}").unwrap();
+    s.images.settle(Duration::from_secs(10));
+    assert_eq!(s.labels(), ["Created"]);
+    std::fs::remove_file(&finder).unwrap();
+    s.images.settle(Duration::from_secs(10));
+    assert_eq!(s.labels(), ["Added a.jar", "Created"]);
+}
+
+#[test]
+fn first_images_of_instances_from_before_recording() {
+    let s = Setup::new();
+    s.write("mods/a.jar", b"a");
+    let other = s.store.create("Other", "1.21.1", None).unwrap();
+    let playing = s.store.create("Playing", "1.21.1", None).unwrap();
+    s.images.record_now(&other.id, "Created Other").unwrap();
+    // A game session runs: its end records that instance's first image instead.
+    s.images.slot(&playing.id).session.fetch_add(1, Ordering::SeqCst);
+    assert_eq!(s.images.record_first_images(), 1);
+    assert_eq!(s.labels(), [INITIAL_LABEL]);
+    assert_eq!(
+        s.images.history(&other.id).unwrap().images.len(),
+        1,
+        "an instance with images keeps them"
+    );
+    assert!(s.images.history(&playing.id).unwrap().images.is_empty());
+    // The first operation on it then has a parent holding what it replaces.
+    let first = s.history().images[0].id.clone();
+    let updated = s.change("mods/a.jar", b"a, updated", "Updated a");
+    assert_eq!(updated.parent.as_deref(), Some(first.as_str()));
+    assert_eq!(s.images.record_first_images(), 0);
+}
+
+#[test]
+fn a_job_is_one_operation_with_each_steps_label() {
+    let s = Setup::new();
+    s.images.record_now(s.id(), "Created").unwrap();
+    let mut job = s.images.begin(s.id(), "");
+    s.write("mods/a.jar", b"a");
+    job.note("Updated A");
+    s.write("mods/b.jar", b"b");
+    job.note("Updated B");
+    job.succeed();
+    s.images.flush(s.id()).unwrap();
+    assert_eq!(s.labels(), ["Updated A; Updated B", "Created"]);
+    // A job that changed nothing records nothing.
+    let mut idle = s.images.begin(s.id(), "");
+    idle.note("Partly installed C");
+    idle.succeed();
+    let recorded = s.images.flush(s.id()).unwrap().unwrap();
+    assert!(!recorded.changed);
+    assert_eq!(s.labels().len(), 2);
+}
+
+#[test]
+fn a_suspension_waiting_for_a_write_can_be_cancelled() {
+    let s = Setup::new();
+    let writing = s.images.enter().unwrap();
+    assert!(s.images.suspend_unless(&|| true).is_none());
+    assert!(!s.images.suspended());
+    drop(writing);
+    let suspension = s.images.suspend_unless(&|| false).expect("nothing to wait for");
+    assert!(s.images.suspended());
+    drop(suspension);
+    assert!(!s.images.suspended());
+}
+
+#[cfg(unix)]
+#[test]
+fn linked_instances_on_a_missing_drive_are_not_forgotten() {
+    let s = Setup::new();
+    s.images.record_now(s.id(), "Created").unwrap();
+    // The instance kept on another drive, linked into the instances folder.
+    let drive = s._temp.path().join("drive");
+    std::fs::create_dir_all(&drive).unwrap();
+    let dir = s.store.dir(s.id());
+    std::fs::rename(&dir, drive.join("pack")).unwrap();
+    std::os::unix::fs::symlink(drive.join("pack"), &dir).unwrap();
+    assert_eq!(s.history().images.len(), 1);
+    // The drive unplugged: the link dangles, and the images stay.
+    let away = s._temp.path().join("away");
+    std::fs::rename(&drive, &away).unwrap();
+    assert_eq!(s.images.forget_deleted().unwrap(), 0);
+    std::fs::rename(&away, &drive).unwrap();
+    assert_eq!(s.history().images.len(), 1);
+    // A real folder without instance.json, or nothing at all, is a deletion.
+    std::fs::remove_file(&dir).unwrap();
+    assert_eq!(s.images.forget_deleted().unwrap(), 1);
+}
+
+#[cfg(unix)]
+#[test]
+fn the_store_folder_is_private() {
+    use std::os::unix::fs::PermissionsExt;
+    let s = Setup::new();
+    s.images.record_now(s.id(), "Created").unwrap();
+    let mode = std::fs::metadata(s.images.store().root())
+        .unwrap()
+        .permissions()
+        .mode();
+    assert_eq!(mode & 0o777, 0o700);
+}
+
+#[test]
+fn an_empty_label_queued_still_lets_the_check_look() {
+    let s = Setup::new();
+    s.images.record_now(s.id(), "Created").unwrap();
+    // An operation that succeeded saying nothing (an install that installed nothing).
+    s.images.begin(s.id(), "").succeed();
+    s.write("mods/by-hand.jar", b"hand");
+    assert!(matches!(
+        s.images.before_launch(s.id()),
+        Checked::Recorded(Recorded { changed: true, .. })
+    ));
+    assert_eq!(s.labels(), [OUTSIDE_LABEL, "Created"]);
+    s.images.end_session(s.id());
 }

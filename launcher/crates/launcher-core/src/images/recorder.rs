@@ -3,11 +3,16 @@
 //! A Launcher action that changes an instance's content begins an [`Operation`]
 //! ([`Images::begin`]) right before it changes files, in its background task, and ends it
 //! with [`Operation::finish`] (or [`Operation::succeed`]) once it did. Success queues its
-//! label; dropping it without succeeding records nothing (what a failed operation left is
-//! found by the check before the next launch). Queued labels are recorded together once
-//! nothing more has succeeded for [`super::MERGE_WINDOW`], or at the latest
-//! [`super::MAX_DEFER`] after the first: a job (Update all) and the changes made within a
-//! few seconds of it are one image, labelled with what each did. A new instance is
+//! label; dropping it without succeeding records nothing. An action that can fail part way
+//! after changing files (an install that placed a dependency, then failed or was
+//! cancelled) succeeds all the same, with a label saying what it did: the record runs only
+//! once the action has ended, and when it changed nothing, the label is dropped (below). A
+//! job is one operation: Update all begins one before its first update, notes each
+//! update's label ([`Operation::note`]) and succeeds once at its end, however long it ran.
+//! Queued labels are recorded together once nothing more has succeeded for
+//! [`super::MERGE_WINDOW`], or at the latest [`super::MAX_DEFER`] after the first: the
+//! changes made within a few seconds of each other are one image, labelled with what each
+//! did. A new instance is
 //! recorded at once ([`Images::record_now`]), and so is anything a caller needs the id of
 //! ([`Operation::succeed_and_record`], [`Images::flush`]).
 //!
@@ -41,7 +46,8 @@
 //! The merged records run on one thread ("lodestone-images"). It leaves an instance alone
 //! while its game session lasts ([`super::Slot::session`]: the game rewrites configs) and
 //! while a "Find it for me" search is saved (it renames mods on purpose), and records it
-//! once that ends.
+//! once that ends. It sleeps until woken while nothing is queued, so an idle Launcher has
+//! no timer of its own.
 
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -64,9 +70,9 @@ pub const CONTENT_STAT_CACHE: &str = "content";
 pub const RETRY_AFTER: Duration = Duration::from_secs(60);
 /// Room a record leaves on the disk beyond what it will store.
 const SPARE_BYTES: u64 = 256 << 20;
-/// The longest the merged records' thread sleeps without being woken: it checks whether a
-/// "Find it for me" search ended this often, and whether the Launcher dropped its images.
-const IDLE_CHECK: Duration = Duration::from_secs(5);
+/// How often the merged records' thread looks whether a "Find it for me" search ended,
+/// while labels wait for one (nothing wakes it when the search's file goes).
+const FINDER_CHECK: Duration = Duration::from_secs(5);
 
 /// What a record did.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -133,7 +139,12 @@ impl Pending {
     }
 
     /// Puts labels a failed record took back in front, due again after [`RETRY_AFTER`].
+    /// Without any, nothing: an empty queue would hold the check before a launch to what
+    /// is queued, and the change it should find would be folded into the baseline.
     pub(crate) fn restore(&mut self, mut labels: Vec<Queued>, now: Instant) {
+        if labels.is_empty() {
+            return;
+        }
         labels.append(&mut self.labels);
         self.labels = labels;
         self.first.get_or_insert(now);
@@ -149,20 +160,32 @@ pub struct Operation {
     images: Option<Arc<Images>>,
     instance: String,
     label: String,
+    /// What each step of a job did ([`Self::note`]), after `label`.
+    notes: Vec<String>,
     generation: u64,
 }
 
 impl Operation {
-    /// The operation succeeded: its label is recorded with whatever else succeeds within
-    /// the merge window.
+    /// The operation succeeded: its label (with its notes) is recorded with whatever else
+    /// succeeds within the merge window.
     pub fn succeed(mut self) {
         if let Some(images) = self.images.take() {
-            images.queue(
-                &self.instance,
-                std::mem::take(&mut self.label),
-                self.generation,
-            );
+            let label = self.take_label();
+            images.queue(&self.instance, label, self.generation);
         }
+    }
+
+    /// Notes what one step of a job did (one update of Update all), for the label the job
+    /// succeeds with: the label and the notes, joined.
+    pub fn note(&mut self, label: impl Into<String>) {
+        self.notes.push(label.into());
+    }
+
+    fn take_label(&mut self) -> String {
+        let texts: Vec<String> = std::iter::once(std::mem::take(&mut self.label))
+            .chain(std::mem::take(&mut self.notes))
+            .collect();
+        join_labels(&texts).unwrap_or_default()
     }
 
     /// [`Self::succeed`] with a label known only once the operation is done (an install
@@ -185,11 +208,11 @@ impl Operation {
         let Some(images) = self.images.take() else {
             return Ok(None);
         };
-        images.slot(&self.instance).pending().push(
-            std::mem::take(&mut self.label),
-            self.generation,
-            Instant::now(),
-        );
+        let label = self.take_label();
+        images
+            .slot(&self.instance)
+            .pending()
+            .push(label, self.generation, Instant::now());
         images.flush(&self.instance)
     }
 
@@ -210,6 +233,7 @@ impl Images {
                 images: None,
                 instance: instance.to_string(),
                 label,
+                notes: Vec::new(),
                 generation: 0,
             };
         }
@@ -218,6 +242,7 @@ impl Images {
             images: Some(self.clone()),
             instance: instance.to_string(),
             label,
+            notes: Vec::new(),
             generation,
         }
     }
@@ -244,6 +269,22 @@ impl Images {
         self.record_held(&slot, instance, None)
     }
 
+    /// [`Self::flush`], unless a record of the instance is running: then nothing (its
+    /// labels stay queued).
+    fn flush_unless_busy(&self, instance: &str) -> Result<Option<Recorded>, ImageError> {
+        let slot = self.slot(instance);
+        if slot.pending().is_empty() {
+            return Ok(None);
+        }
+        let _record = match slot.record.try_lock() {
+            Ok(guard) => guard,
+            Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => return Err(ImageError::Busy),
+        };
+        let _writing = self.enter()?;
+        self.record_held(&slot, instance, None)
+    }
+
     /// Records the instance's content now, labelled `label` (with anything queued): for a
     /// new instance, once its files are in place. Blocking.
     pub fn record_now(&self, instance: &str, label: &str) -> Result<Option<Recorded>, ImageError> {
@@ -258,8 +299,11 @@ impl Images {
 
     /// Records what is queued for every instance whose game isn't running, waiting at most
     /// `max`: before the Launcher quits or moves its data folder, which would otherwise lose
-    /// the labels of the last few seconds. A record still running at `max` goes on in the
-    /// background; cut off by the process ending, it is like a crash (see the module).
+    /// the labels of the last few seconds. Skips an instance whose "Find it for me" search
+    /// is saved (its mods are renamed on purpose) or whose record is running (the first
+    /// record of a big pack can take minutes): their changes are found by the check before
+    /// the next launch. A record still running at `max` goes on in the background; cut off
+    /// by the process ending, it is like a crash (see the module).
     pub fn settle(self: &Arc<Self>, max: Duration) {
         let (done, wait) = std::sync::mpsc::channel();
         let this = self.clone();
@@ -267,11 +311,12 @@ impl Images {
             .name("lodestone-images-settle".into())
             .spawn(move || {
                 for (id, slot) in this.slots() {
-                    if slot.session.load(Ordering::SeqCst) || this.suspended() {
+                    if slot.in_session() || this.suspended() || this.finder_running(&id) {
                         continue;
                     }
-                    if let Err(e) = this.flush(&id) {
-                        super::warn("images.record", &id, &e.to_string());
+                    match this.flush_unless_busy(&id) {
+                        Ok(_) | Err(ImageError::Busy) => {}
+                        Err(e) => super::warn("images.record", &id, &e.to_string()),
                     }
                 }
                 let _ = done.send(());
@@ -339,7 +384,9 @@ impl Images {
                 baseline,
                 scope_rules: SCOPE_RULES,
                 game: Some(image.game.clone()),
-                running_since: state.running_since,
+                // Only a session that runs now keeps it: one no end was seen of is over
+                // once a record has taken the content again.
+                running_since: state.running_since.filter(|_| slot.in_session()),
                 instance_created: Some(ctx.instance.created),
             };
             let have = self
@@ -556,7 +603,9 @@ pub(crate) fn run_worker(images: WeakImages, worker: Arc<Worker>) {
         };
         let timing = this.timing();
         let now = Instant::now();
-        let mut next = now + IDLE_CHECK;
+        // Without labels due later or a search to look at, it sleeps until woken.
+        let mut next: Option<Instant> = None;
+        let mut wake_at = |at: Instant| next = Some(next.map_or(at, |next| next.min(at)));
         // Suspended, nothing is recorded; resuming wakes this thread.
         let slots = if this.suspended() {
             Vec::new()
@@ -567,19 +616,23 @@ pub(crate) fn run_worker(images: WeakImages, worker: Arc<Worker>) {
             let Some(deadline) = slot.pending().deadline(timing) else {
                 continue;
             };
-            if slot.session.load(Ordering::SeqCst) || this.finder_running(&id) {
-                // Woken when the session ends; the search is looked at again soon.
+            if slot.in_session() {
+                // Woken when the session ends.
+                continue;
+            }
+            if this.finder_running(&id) {
+                wake_at(now + FINDER_CHECK);
                 continue;
             }
             if deadline > now {
-                next = next.min(deadline);
+                wake_at(deadline);
                 continue;
             }
             if let Err(e) = this.flush(&id) {
                 super::warn("images.record", &id, &e.to_string());
             }
             // Recording took a while: look at every instance again before sleeping.
-            next = Instant::now();
+            wake_at(Instant::now());
         }
         drop(this);
         super::wait_for_wake(&worker, next);

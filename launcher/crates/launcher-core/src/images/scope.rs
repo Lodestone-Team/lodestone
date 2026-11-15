@@ -32,7 +32,7 @@
 //! `.lodestone` prefix is folded fully, so `.LodeſTone…` is Lodestone's too (NTFS
 //! upper-cases `ſ` to `S`).
 
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 
 use lodestone_image::CanonicalPath;
 use lodestone_image::layout::CLIENT_GAME_FOLDER;
@@ -46,6 +46,9 @@ pub const SCOPE_RULES: u32 = 2;
 /// The most pack files a scope takes ([`ContentScope::new`]): far more than any pack
 /// writes, and a bound on what a hostile `modpack.json` can make it hold.
 pub const MAX_PACK_FILES: usize = 100_000;
+/// The most bytes of paths a scope holds, whatever their number: a bound on memory when a
+/// pack lists long paths.
+pub const MAX_PACK_PATH_BYTES: usize = 16 << 20;
 
 /// Top-level folders of the game folder never taken from a pack's file list: worlds, what
 /// the game and the Launcher keep, and the spec's always-left-out folders.
@@ -145,21 +148,24 @@ pub fn never_pack_content(parts: &[&str]) -> bool {
 #[derive(Debug, Clone, Default)]
 pub struct ContentScope {
     /// Pack files outside the content folders, by path in the game folder with ASCII
-    /// letters folded to lower case.
-    files: HashSet<String>,
-    /// Every folder holding one of `files`, folded the same way.
-    folders: HashSet<String>,
+    /// letters folded to lower case. Ordered, so a folder holding one is found without a
+    /// set of every folder (a deep path would add a string per level).
+    files: BTreeSet<String>,
+    /// The bytes of `files`' paths.
+    bytes: usize,
 }
 
 impl ContentScope {
     /// The scope with the pack files at `paths` (relative to the game folder, as
-    /// `modpack.json` keys them), at most [`MAX_PACK_FILES`]. Paths that are content
-    /// already, that [`never_pack_content`] keeps out, or that aren't plain relative paths
-    /// are left out.
+    /// `modpack.json` keys them), at most [`MAX_PACK_FILES`] of them and
+    /// [`MAX_PACK_PATH_BYTES`] of paths. Paths that are content already, that
+    /// [`never_pack_content`] keeps out, or that aren't plain relative paths are left out.
     pub fn new<'a>(paths: impl IntoIterator<Item = &'a str>) -> Self {
         let mut scope = ContentScope::default();
         for path in paths {
-            if scope.files.len() >= MAX_PACK_FILES {
+            if scope.files.len() >= MAX_PACK_FILES
+                || scope.bytes.saturating_add(path.len()) > MAX_PACK_PATH_BYTES
+            {
                 break;
             }
             if path.contains('\\') {
@@ -174,13 +180,9 @@ impl ContentScope {
             {
                 continue;
             }
-            let folded = path.to_ascii_lowercase();
-            let mut at = 0;
-            while let Some(slash) = folded[at..].find('/') {
-                scope.folders.insert(folded[..at + slash].to_string());
-                at += slash + 1;
+            if scope.files.insert(path.to_ascii_lowercase()) {
+                scope.bytes += path.len();
             }
-            scope.files.insert(folded);
         }
         scope
     }
@@ -214,7 +216,12 @@ impl ContentScope {
         }
         let folded = relative.to_ascii_lowercase();
         if candidate.is_dir {
-            self.folders.contains(&folded)
+            // A folder holding a pack file: the first file at or after `folder/` is in it.
+            let prefix = format!("{folded}/");
+            self.files
+                .range::<str, _>((std::ops::Bound::Included(prefix.as_str()), std::ops::Bound::Unbounded))
+                .next()
+                .is_some_and(|file| file.starts_with(&prefix))
         } else {
             self.files.contains(&folded)
         }
@@ -372,6 +379,21 @@ mod tests {
             .collect();
         let big = ContentScope::new(many.iter().map(String::as_str));
         assert_eq!(big.files.len(), MAX_PACK_FILES);
+        // Deep paths hold only themselves (no string per folder level), and the bytes of
+        // paths are bounded too.
+        let deep_tail = "/a".repeat(250);
+        let deep: Vec<String> = (0..40_000).map(|i| format!("x{i:05}{deep_tail}/f")).collect();
+        let deep_scope = ContentScope::new(deep.iter().map(String::as_str));
+        assert!(deep_scope.bytes <= MAX_PACK_PATH_BYTES);
+        let held: usize = deep_scope.files.iter().map(String::len).sum();
+        assert_eq!(held, deep_scope.bytes);
+        assert!(deep_scope.files.len() < deep.len(), "the byte bound cut the list");
+        let folder = format!("x00000{}", "/a".repeat(100));
+        assert!(deep_scope.accepts(&Candidate {
+            disk: "",
+            path: Some(&p(&folder)),
+            is_dir: true,
+        }));
     }
 
     #[test]
