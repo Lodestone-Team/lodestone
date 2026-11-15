@@ -17,7 +17,11 @@ use launcher_core::cores::admin::images::{
 use launcher_core::cores::admin::models::CorePermission;
 use launcher_core::game::download::{CancelToken, Progress};
 use lodestone_ui::{
-    components::{Button, ButtonVariant, Checkbox, ListRow, TextInput, Toast},
+    components::{
+        Button, ButtonVariant, Checkbox, Dropdown, ListRow, TextInput, Toast,
+        a11y::Accessible as _,
+        settings::{popover_panel, select_button},
+    },
     file_dialog::{Pick, ShowsError},
     theme::{colors, ink, px, text},
 };
@@ -39,6 +43,13 @@ pub enum ImageEvent {
     Back,
     /// The server is being made: close the dialog.
     Done,
+}
+
+/// The summary's pickers, one open at a time.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Menu {
+    World,
+    Server,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -70,6 +81,8 @@ pub struct ImageFlow {
     world: Option<String>,
     /// The server software picked, one of the summary's choices.
     server: Option<String>,
+    /// The picker whose list is open.
+    menu: Option<Menu>,
     keep_operators: bool,
     eula: bool,
     errors: std::collections::HashMap<&'static str, String>,
@@ -208,6 +221,7 @@ impl ImageFlow {
             error: None,
             upload: None,
             world: None,
+            menu: None,
             server: None,
             keep_operators: false,
             eula: false,
@@ -456,6 +470,12 @@ impl ImageFlow {
         cx.notify();
     }
 
+    /// Opens the world list, for the development screenshots' `--create image-launcher-world`.
+    #[cfg(feature = "screenshot")]
+    pub fn open_world_menu_for_screenshot(&mut self) {
+        self.menu = Some(Menu::World);
+    }
+
     /// The flow on a sample file's summary, for the development screenshots' `--create
     /// image` (a Host's backup) and `--create image-launcher` (a Launcher's snapshot).
     #[cfg(feature = "screenshot")]
@@ -611,6 +631,83 @@ impl ImageFlow {
             .into_any_element()
     }
 
+    /// A button showing the current choice, which opens the list of choices.
+    #[allow(clippy::too_many_arguments)]
+    fn picker(
+        &self,
+        menu: Menu,
+        id: &'static str,
+        label: SharedString,
+        options: Vec<(Option<String>, SharedString, Option<SharedString>)>,
+        current: Option<String>,
+        apply: fn(&mut Self, Option<String>),
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let open = self.menu == Some(menu) && !self.submitting;
+        let shown = options
+            .iter()
+            .find(|(value, _, _)| *value == current)
+            .map(|(_, name, _)| name.clone())
+            .unwrap_or_default();
+        let page = cx.entity().downgrade();
+        let mut button = select_button(
+            SharedString::from(format!("{id}-select")),
+            div().truncate().child(shown.clone()),
+        )
+        .aria_label(label)
+        .aria_value(shown)
+        .w_full()
+        .justify_between();
+        if !self.submitting {
+            button = button
+                .expandable(open, move |_, cx| {
+                    page.update(cx, |this, cx| this.toggle_menu(menu, cx)).ok();
+                })
+                .on_press(cx.listener(move |this, _, _, cx| this.toggle_menu(menu, cx)));
+        }
+        Dropdown::new(button)
+            .when(open, |this| {
+                let mut panel =
+                    popover_panel(SharedString::from(format!("{id}-list"))).min_w(px(240.));
+                for (index, (value, name, detail)) in options.into_iter().enumerate() {
+                    let selected = value == current;
+                    let mut row =
+                        ListRow::new(SharedString::from(format!("{id}-option-{index}")), name)
+                            .selected(selected);
+                    if let Some(detail) = detail {
+                        row = row.detail(detail);
+                    }
+                    panel = panel.child(row.on_click(cx.listener(move |this, _, _, cx| {
+                        apply(this, value.clone());
+                        this.menu = None;
+                        cx.notify();
+                    })));
+                }
+                let page = cx.entity().downgrade();
+                this.popover(
+                    SharedString::from(format!("{id}-menu")),
+                    panel,
+                    move |_, cx| {
+                        page.update(cx, |this, cx| {
+                            this.menu = None;
+                            cx.notify();
+                        })
+                        .ok();
+                    },
+                )
+            })
+            .into_any_element()
+    }
+
+    fn toggle_menu(&mut self, menu: Menu, cx: &mut Context<Self>) {
+        self.menu = if self.menu == Some(menu) {
+            None
+        } else {
+            Some(menu)
+        };
+        cx.notify();
+    }
+
     fn render_summary(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let Some((upload, settings)) = &self.upload else {
             return div().into_any_element();
@@ -727,73 +824,69 @@ impl ImageFlow {
 
         // the world: a Launcher's file gives only the one picked, or none
         let world = (!summary.worlds.is_empty()).then(|| {
-            let mut rows: Vec<AnyElement> = summary
+            let mut options: Vec<(Option<String>, SharedString, Option<SharedString>)> = summary
                 .worlds
                 .iter()
-                .enumerate()
-                .map(|(i, world)| {
-                    let folder = world.folder.clone();
+                .map(|world| {
                     let label = match &world.name {
                         Some(_) => format!("{} ({})", world.shown_name(), world.shown_folder()),
                         None => world.shown_folder().to_string(),
                     };
-                    ListRow::new(SharedString::from(format!("image-world-{i}")), label)
-                        .detail(format::bytes(world.size))
-                        .selected(self.world.as_deref() == Some(folder.as_str()))
-                        .disabled(self.submitting)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.world = Some(folder.clone());
-                            cx.notify();
-                        }))
-                        .into_any_element()
+                    (
+                        Some(world.folder.clone()),
+                        label.into(),
+                        Some(format::bytes(world.size).into()),
+                    )
                 })
                 .collect();
             if summary.made_by != ImageMaker::Host {
-                rows.push(
-                    ListRow::new("image-world-none", t(M::ImageNoWorld))
-                        .selected(self.world.is_none())
-                        .disabled(self.submitting)
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.world = None;
-                            cx.notify();
-                        }))
-                        .into_any_element(),
-                );
+                options.push((None, t(M::ImageNoWorld).into(), None));
             }
+            let current = self.world.clone();
             fields::row(
                 t(M::ImageWorld),
                 t(M::ImageWorldHint),
                 false,
-                div().flex().flex_col().children(rows).into_any_element(),
+                self.picker(
+                    Menu::World,
+                    "image-world",
+                    t(M::ImageWorld).into(),
+                    options,
+                    current,
+                    |this, value| this.world = value,
+                    cx,
+                ),
                 None,
             )
         });
 
         // the server software, when the file's game allows a choice (vanilla or Paper)
         let software = (summary.server_choices.len() > 1).then(|| {
-            let rows: Vec<AnyElement> = summary
+            let options = summary
                 .server_choices
                 .iter()
                 .map(|choice| {
-                    let picked = choice.clone();
-                    ListRow::new(
-                        SharedString::from(format!("image-server-{}", choice.to_lowercase())),
-                        choice.clone(),
+                    (
+                        Some(choice.clone()),
+                        SharedString::from(choice.clone()),
+                        None,
                     )
-                    .selected(self.server.as_deref() == Some(choice.as_str()))
-                    .disabled(self.submitting)
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.server = Some(picked.clone());
-                        cx.notify();
-                    }))
-                    .into_any_element()
                 })
                 .collect();
+            let current = self.server.clone();
             fields::row(
                 t(M::ImageServerSoftware),
                 t(M::ImageServerSoftwareHint),
                 false,
-                div().flex().flex_col().children(rows).into_any_element(),
+                self.picker(
+                    Menu::Server,
+                    "image-server",
+                    t(M::ImageServerSoftware).into(),
+                    options,
+                    current,
+                    |this, value| this.server = value,
+                    cx,
+                ),
                 None,
             )
         });
