@@ -2785,3 +2785,99 @@ mod page_tests {
         assert_eq!(show_kind(&mut s, ContentKind::ShaderPack, None).0, 0);
     }
 }
+
+/// The Content tab's changes, and the instance's own, as content images, with the sample
+/// instances of the offscreen screenshots (in a temporary data folder, off the network).
+#[cfg(all(test, feature = "screenshot"))]
+mod image_tests {
+    use gpui::TestAppContext;
+
+    use super::*;
+
+    #[test]
+    fn changes_are_recorded_as_operations() {
+        let mut cx = TestAppContext::single();
+        let instances = cx.update(|cx| {
+            let accounts = crate::preview::accounts("signed-out", cx);
+            crate::preview::instances("worlds", &accounts, cx)
+        });
+        let id = instances.update(&mut cx, |instances, cx| {
+            instances.preview_offline();
+            let id = instances.list()[0].id.clone();
+            instances.select(&id, cx);
+            id
+        });
+        let view = cx.new(|cx| ContentView::new(instances.clone(), cx));
+        cx.run_until_parked();
+        let (images, game) = instances.read_with(&cx, |instances, _| {
+            (instances.images(), instances.game_dir(&id))
+        });
+        std::fs::create_dir_all(game.join("mods")).unwrap();
+        std::fs::write(game.join("mods/sodium.jar"), b"not really a mod").unwrap();
+        images.record_now(&id, "Created").unwrap();
+
+        // A resource pack added from the computer, and a mod turned off.
+        let picked = std::env::temp_dir().join(format!(
+            "lodestone-image-hooks-test-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&picked);
+        let pack = picked.join("MyPack");
+        std::fs::create_dir_all(&pack).unwrap();
+        std::fs::write(
+            pack.join("pack.mcmeta"),
+            br#"{"pack":{"pack_format":15,"description":"x"}}"#,
+        )
+        .unwrap();
+        view.update(&mut cx, |view, cx| {
+            view.add_files(ContentKind::ResourcePack, vec![pack], cx)
+        });
+        cx.run_until_parked();
+        let _ = std::fs::remove_dir_all(&picked);
+        view.update(&mut cx, |view, cx| {
+            view.set_mods_enabled(&id, &["sodium.jar".to_string()], false, cx)
+        });
+        cx.run_until_parked();
+        let recorded = images.flush(&id).unwrap().expect("queued labels");
+        assert!(recorded.changed);
+        let history = images.history(&id).unwrap();
+        assert_eq!(
+            history.images[0].label.as_deref(),
+            Some("Added MyPack; Disabled sodium.jar")
+        );
+
+        // A loader version saved from Settings, Undo or an update.
+        instances.update(&mut cx, |instances, cx| {
+            let mut instance = instances.store().get(&id).unwrap();
+            instance.loader_version = Some("0.16.99".into());
+            instances.save(&instance, cx).unwrap();
+        });
+        images.flush(&id).unwrap();
+        let history = images.history(&id).unwrap();
+        let label = history.images[0].label.clone().unwrap_or_default();
+        assert!(
+            label.starts_with("Changed ") && label.ends_with(" to 0.16.99"),
+            "{label}"
+        );
+        assert_eq!(
+            history.images[0].game.loader_version.as_deref(),
+            Some("0.16.99")
+        );
+
+        // A new instance gets its first image as it is made.
+        let made = instances.update(&mut cx, |instances, cx| {
+            instances.create("Fresh", "1.21.1", None, cx).unwrap()
+        });
+        cx.run_until_parked();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while images.history(&made.id).unwrap().images.is_empty()
+            && std::time::Instant::now() < deadline
+        {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            cx.run_until_parked();
+        }
+        let history = images.history(&made.id).unwrap();
+        assert_eq!(history.images.len(), 1);
+        assert_eq!(history.images[0].label.as_deref(), Some("Created Fresh"));
+    }
+}
