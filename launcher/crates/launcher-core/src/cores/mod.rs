@@ -27,6 +27,7 @@ pub mod connect_service;
 pub mod download;
 pub mod friends;
 pub mod hosting;
+pub mod image_sync;
 pub mod join;
 pub mod lan;
 pub mod lan_open;
