@@ -482,16 +482,23 @@ impl CreateInstance {
 
     /// For screenshots: moves the dialog on to `step` (`games`, `basic`, `server`,
     /// `auto`, `modpack`, `import`, `import:<folder>` to read a folder, or a sample
-    /// file's summary, `image` or `image-launcher`) as soon as what it needs has loaded.
+    /// file's summary, `image`, `image-launcher` or `image-launcher-world`, its world list open) as soon as what it needs has loaded.
     pub fn advance_for_screenshot(&mut self, step: &str, cx: &mut Context<Self>) {
         #[cfg(feature = "screenshot")]
-        if let Some(launcher) = match step {
-            "image" => Some(false),
-            "image-launcher" => Some(true),
+        if let Some((launcher, world_open)) = match step {
+            "image" => Some((false, false)),
+            "image-launcher" => Some((true, false)),
+            "image-launcher-world" => Some((true, true)),
             _ => None,
         } {
             let state = self.state.clone();
-            let flow = cx.new(|cx| ImageFlow::with_sample(state, launcher, cx));
+            let flow = cx.new(|cx| {
+                let mut flow = ImageFlow::with_sample(state, launcher, cx);
+                if world_open {
+                    flow.open_world_menu_for_screenshot();
+                }
+                flow
+            });
             return self.watch_image(flow, cx);
         }
         if step == "modpack" {
