@@ -86,6 +86,25 @@ impl ParentCheck {
         }
         Ok(())
     }
+
+    /// Whether `target`'s folder stays inside the root once links are resolved, without
+    /// creating it: a file to remove through a folder the player turned into a link out
+    /// of the instance (a shared `resourcepacks/`, say) isn't, and is left alone.
+    pub(crate) fn stays_inside(&mut self, target: &Path) -> bool {
+        let Some(parent) = target.parent() else {
+            return false;
+        };
+        if self.checked.contains(parent) {
+            return true;
+        }
+        match fs::canonicalize(parent) {
+            Ok(canonical) if canonical.starts_with(&self.root) => {
+                self.checked.insert(parent.to_path_buf());
+                true
+            }
+            _ => false,
+        }
+    }
 }
 
 /// The URL to fetch a pack file from: CurseForge's CDN through the CurseForge client,
@@ -339,9 +358,11 @@ pub(crate) async fn content_entries(
         };
         candidates.push((kind, name.to_string(), metadata, *download));
     }
+    // a server's file may have no SHA-1 to ask Modrinth by
     let hashes: Vec<String> = candidates
         .iter()
         .map(|(_, _, _, d)| d.sha1.clone())
+        .filter(|sha1| !sha1.is_empty())
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect();
@@ -352,7 +373,10 @@ pub(crate) async fn content_entries(
     candidates
         .into_iter()
         .map(|(kind, name, metadata, download)| {
-            let looked_up = found.as_ref().and_then(|f| f.get(&download.sha1));
+            let looked_up = found
+                .as_ref()
+                .filter(|_| !download.sha1.is_empty())
+                .and_then(|f| f.get(&download.sha1));
             let modrinth = match looked_up {
                 Some((version, project)) => Some(ModrinthSource::new(
                     version,

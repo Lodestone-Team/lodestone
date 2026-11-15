@@ -305,6 +305,7 @@ pub fn text(message: M) -> &'static str {
         M::SummaryBase => "Modpack : {pack} {version}",
         M::SummaryAddedMods => "Mods ajoutés par le serveur ({count})",
         M::SummaryServerOnly => "Fichiers que seul le serveur possède ({count})",
+        M::SummaryDownload => "Téléchargement : {size}",
         M::MissingTitle => "Fichiers que le serveur n’a pas pu partager ({count})",
         M::MissingNote => {
             "Vous ne les aurez pas, et vous ne pourrez peut-être pas rejoindre sans eux. Demandez au propriétaire du serveur."
@@ -358,6 +359,13 @@ pub fn text(message: M) -> &'static str {
             "L’hôte utilise un Lodestone plus ancien, qui ne partage pas les fichiers de ses serveurs de cette façon."
         }
         M::ErrInstallFiles => "Impossible d’installer les fichiers du serveur : {detail}",
+        M::ErrStoppedSharing => {
+            "Le serveur ne partage plus ses fichiers, ils n’ont donc pas pu être vérifiés. Demandez au propriétaire du serveur."
+        }
+        M::ErrNotEnoughSpace => {
+            "Il n’y a pas assez d’espace libre pour les fichiers du serveur : il faut {needed}, et {free} sont libres."
+        }
+        M::ErrNotLinked => "Cette instance n’est plus liée au serveur, rien n’a donc été installé.",
 
         M::KeyDays90 => "90\u{a0}jours",
         M::KeyYear => "1\u{a0}an",

@@ -1594,3 +1594,187 @@ fn a_204_reads_only_the_mods_whose_size_or_time_changed() {
     world.play(&id).unwrap().expect("the server's mod put back");
     assert_eq!(read(&own), "the server's own mod");
 }
+
+/// A pack file outside the content folders (CraftTweaker's `scripts/`) is the server's as
+/// any other: it goes when the view's `removed` names it, and when the pack's next
+/// version drops it, unless the player changed it; a pack config the server dropped
+/// stays ("From one view to the next on disk").
+#[test]
+fn a_pack_script_the_server_drops_goes() {
+    let world = World::new();
+    let pack_with = |id: &str, version: &str, date: &str, scripts: &[(&str, &[u8])]| {
+        let mut overrides: Vec<(&str, &[u8])> = vec![
+            ("overrides/mods/bundled.jar", b"bundled 1"),
+            ("overrides/config/pack.toml", b"pack config 1"),
+        ];
+        overrides.extend_from_slice(scripts);
+        let bytes = make_pack(
+            version,
+            json!([
+                index_file(&world.sodium1, "mods/sodium.jar", "required"),
+                index_file(&world.zoomify, "mods/zoomify.jar", "required"),
+            ]),
+            &overrides,
+        );
+        let pack = FakeVersion::new(id, PACK, version, &["fabric"], &["1.21.1"], date)
+            .file(&format!("cozy-{version}.mrpack"), &bytes);
+        world.modrinth.version(pack.clone());
+        pack
+    };
+    let pack3 = pack_with(
+        "pv3",
+        "3.0",
+        "2026-03-01",
+        &[
+            ("overrides/scripts/recipes.zs", b"recipes"),
+            ("overrides/scripts/kept.zs", b"kept"),
+            ("overrides/scripts/edited.zs", b"the pack's"),
+            ("overrides/config/extra.toml", b"extra config"),
+        ],
+    );
+    let mut first = world.content(&pack3, &world.sodium1);
+    for (path, bytes) in [
+        ("scripts/recipes.zs", &b"recipes"[..]),
+        ("scripts/kept.zs", b"kept"),
+        ("scripts/edited.zs", b"the pack's"),
+    ] {
+        first.entries.push(base_entry(path, bytes));
+    }
+    world.core.publish(&first, &[("", b"the server's own mod")]);
+    let (instance, _) = world.create();
+    let id = instance.id;
+    let game = world.game(&id);
+    let dirs = InstanceDirs::new(world.store.dir(&id));
+    assert_eq!(read(&game.join("scripts/recipes.zs")), "recipes");
+    assert_eq!(read(&game.join("config/extra.toml")), "extra config");
+    std::fs::write(game.join("scripts/edited.zs"), b"the player's").unwrap();
+
+    // the owner deletes the script: the view drops its entry and names it in `removed`
+    let mut second = first.clone();
+    second
+        .entries
+        .retain(|e| e.path.as_str() != "scripts/recipes.zs");
+    second
+        .removed
+        .push(CanonicalPath::new("scripts/recipes.zs").unwrap());
+    world
+        .core
+        .publish(&second, &[("", b"the server's own mod")]);
+    let ready = world.play(&id).unwrap().expect("another view");
+    assert_eq!(ready.plan.summary.changes.removed, ["scripts/recipes.zs"]);
+    assert!(!game.join("scripts/recipes.zs").exists());
+    let record = ModpackRecord::load(&dirs.instance).unwrap();
+    assert!(!record.files.contains_key("scripts/recipes.zs"));
+
+    // the pack's next version drops the other scripts and a config: the unchanged script
+    // goes, the one the player changed and the config stay
+    let pack4 = pack_with("pv4", "4.0", "2026-04-01", &[]);
+    let mut third = world.content(&pack4, &world.sodium1);
+    third
+        .entries
+        .retain(|e| !e.path.as_str().starts_with("scripts/"));
+    world.core.publish(&third, &[("", b"the server's own mod")]);
+    world.play(&id).unwrap().expect("another view");
+    assert!(!game.join("scripts/kept.zs").exists());
+    assert_eq!(read(&game.join("scripts/edited.zs")), "the player's");
+    assert_eq!(read(&game.join("config/extra.toml")), "extra config");
+}
+
+/// An update that stopped part way and a server that went back to the applied view: its
+/// 204 doesn't leave the files the stopped update added, which the applied view is placed
+/// again to remove.
+#[test]
+fn a_204_after_a_stopped_update_removes_what_it_added() {
+    let world = World::new();
+    let first = world.content(&world.pack1, &world.sodium1);
+    world.core.publish(&first, &[("", b"the server's own mod")]);
+    let (instance, ready) = world.create();
+    let id = instance.id;
+    let first_view = ready.plan.view.id.clone();
+    let game = world.game(&id);
+    let dirs = InstanceDirs::new(world.store.dir(&id));
+
+    let mut second = first.clone();
+    second
+        .entries
+        .push(object_entry("mods/new.jar", b"a new mod"));
+    world.core.publish(
+        &second,
+        &[("", b"the server's own mod"), ("", b"a new mod")],
+    );
+    let instance = world.store.get(&id).unwrap();
+    let Prepared::Ready(ready) = world
+        .prepare(Some((&dirs, &instance)), Some(&first_view))
+        .unwrap()
+    else {
+        panic!("expected a plan");
+    };
+    KeptViews::open(&dirs.instance)
+        .begin_placing(&ready.plan.view)
+        .unwrap();
+    block_on(http::in_http_runtime(update_instance(
+        &world.sources(&ready),
+        &dirs,
+        &ready.plan,
+        &InstallProgress::default(),
+        &CancelToken::new(),
+    )))
+    .unwrap();
+    // as if `modpack.json` hadn't been saved
+    let mut record = ModpackRecord::load(&dirs.instance).unwrap();
+    record.files.remove("mods/new.jar");
+    record.save(&dirs.instance).unwrap();
+    assert!(game.join("mods/new.jar").exists());
+
+    // the server goes back to the first view: a 204 for the applied view
+    world.core.publish(&first, &[("", b"the server's own mod")]);
+    let ready = world.play(&id).unwrap().expect("placed again");
+    assert_eq!(ready.plan.view.id, first_view);
+    assert_eq!(ready.plan.summary.changes.removed, ["mods/new.jar"]);
+    assert!(!game.join("mods/new.jar").exists());
+    assert!(KeptViews::open(&dirs.instance).placing().is_none());
+    // and the next Play joins at once
+    assert!(world.play(&id).unwrap().is_none());
+}
+
+/// A delta this Launcher can't read (a newer core's change of a kind it doesn't know, say)
+/// isn't refused outright: the whole view is asked for, which installs, or says the server
+/// needs a newer Lodestone.
+#[test]
+fn an_unreadable_delta_asks_for_the_whole_view() {
+    let world = World::new();
+    let first = world.content(&world.pack1, &world.sodium1);
+    world.core.publish(&first, &[("", b"the server's own mod")]);
+    let (instance, _) = world.create();
+    let id = instance.id;
+    let mut second = first.clone();
+    second
+        .entries
+        .push(object_entry("mods/new.jar", b"a new mod"));
+    world.core.publish(
+        &second,
+        &[("", b"the server's own mod"), ("", b"a new mod")],
+    );
+    let current = world.core.current_view().id;
+    world.core.fault(image_core::Fault::Raw {
+        status: 200,
+        headers: vec![
+            ("X-Lodestone-View".into(), current.clone()),
+            ("X-Lodestone-Answer".into(), "delta".into()),
+            ("Content-Type".into(), "application/json".into()),
+        ],
+        body: br#"{"schema": 1, "from": "x", "changes": [{"kind": "new"}]}"#.to_vec(),
+    });
+    let asked = world.core.requests().len();
+    let ready = world.play(&id).unwrap().expect("the whole view");
+    assert_eq!(ready.plan.view.id, current);
+    assert_eq!(read(&world.game(&id).join("mods/new.jar")), "a new mod");
+    let images: Vec<String> = world.core.requests()[asked..]
+        .iter()
+        .map(|r| r.path.clone())
+        .filter(|path| path.contains("/image?"))
+        .collect();
+    assert_eq!(images.len(), 2, "{images:?}");
+    assert!(images[0].contains("have="));
+    assert!(!images[1].contains("have="));
+}

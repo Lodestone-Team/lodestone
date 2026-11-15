@@ -15,7 +15,8 @@
 //! store's garbage collection runs.
 //!
 //! Nothing here trusts the server: bodies are bounded (a view or delta by
-//! [`MAX_MANIFEST_BYTES`], an object by the size its view gives), every `Retry-After` is
+//! [`MAX_VIEW_BYTES`], under the spec's [`MAX_MANIFEST_BYTES`], an object by the size its
+//! view gives), every `Retry-After` is
 //! clamped and every wait counted against a limit, and an object's SHA-256 is checked
 //! before it is used. What a view or delta *says* is checked by
 //! [`super::image_sync::received`].
@@ -75,6 +76,12 @@ const MAX_REPORTED_WAIT: u64 = 24 * 60 * 60;
 const MAX_ERROR_BYTES: u64 = 64 * 1024;
 /// The wait after a failed fetch of a file, before the next.
 const RETRY_PAUSE: Duration = Duration::from_secs(1);
+/// The largest view or delta this Launcher reads: [`MAX_MANIFEST_BYTES`] (512 MiB) is the
+/// spec's ceiling, but a view it installs has at most
+/// [`crate::images::scope::MAX_PACK_FILES`] entries, under 100 MiB of JSON however long
+/// their paths and URLs, so a larger answer is refused before it is held and parsed
+/// (parsing a body of tiny records costs a few times its size in memory).
+pub const MAX_VIEW_BYTES: u64 = 128 << 20;
 
 /// How long each wait may take, and how large a view may be. The defaults are the
 /// spec's; tests shorten them.
@@ -95,7 +102,8 @@ pub struct Limits {
     /// An object asks again through `TooManyRequests` answers until its waits add up to
     /// this.
     pub busy: Duration,
-    /// A view or delta larger than this is refused: [`MAX_MANIFEST_BYTES`].
+    /// A view or delta larger than this is refused: [`MAX_VIEW_BYTES`], under the spec's
+    /// [`MAX_MANIFEST_BYTES`].
     pub max_answer: u64,
 }
 
@@ -107,7 +115,7 @@ impl Default for Limits {
             preparing: Duration::from_secs(600),
             conflict: Duration::from_secs(120),
             busy: Duration::from_secs(600),
-            max_answer: MAX_MANIFEST_BYTES,
+            max_answer: MAX_VIEW_BYTES.min(MAX_MANIFEST_BYTES),
         }
     }
 }
@@ -122,6 +130,11 @@ pub enum ImageAnswer {
     View { image: Box<Image>, view: String },
     /// 200 with a delta from the `have` view its `from` names to the view `view`.
     Delta { delta: Box<Delta>, view: String },
+    /// 200 with a delta this Launcher can't read (`problem` says why, shown through
+    /// `display_text`): a newer core's change of a kind it doesn't know, say. The caller
+    /// asks again for the whole view, which says whether the server needs a newer
+    /// Lodestone.
+    UnreadableDelta { problem: String, view: String },
 }
 
 impl ImageAnswer {
@@ -130,7 +143,8 @@ impl ImageAnswer {
         match self {
             ImageAnswer::Current { view }
             | ImageAnswer::View { view, .. }
-            | ImageAnswer::Delta { view, .. } => view,
+            | ImageAnswer::Delta { view, .. }
+            | ImageAnswer::UnreadableDelta { view, .. } => view,
         }
     }
 }
@@ -375,7 +389,11 @@ impl ServerImage {
                                 delta: Box::new(delta),
                                 view,
                             }),
-                            Err(err) => Err(invalid(err)),
+                            Err(err) => Ok(ImageAnswer::UnreadableDelta {
+                                problem: lodestone_image::display_text(&err.to_string())
+                                    .into_owned(),
+                                view,
+                            }),
                         },
                         _ => Err(ImageError::Invalid(
                             "it doesn't say whether it sent a view or a delta".into(),
@@ -879,8 +897,34 @@ async fn error_status(
         },
         auth,
     ) {
-        Err(err) => ImageError::Core(err),
+        Err(err) => ImageError::Core(tidy(err)),
         Ok(()) => ImageError::Invalid(format!("it answered {status}")),
+    }
+}
+
+/// The most of a server's own error message that is shown.
+const MAX_SHOWN_MESSAGE: usize = 300;
+
+/// `err` with the server's own message (a hostile server or friend chooses it, up to
+/// [`MAX_ERROR_BYTES`]) cut to [`MAX_SHOWN_MESSAGE`] characters and shown through
+/// `display_text`, so it can't fill a notice or span lines.
+fn tidy(err: CoreError) -> CoreError {
+    let shown = |message: String| {
+        let text = lodestone_image::display_text(&message);
+        match text.char_indices().nth(MAX_SHOWN_MESSAGE) {
+            Some((end, _)) => format!("{}…", &text[..end]),
+            None => text.into_owned(),
+        }
+    };
+    match err {
+        CoreError::Forbidden(message) => CoreError::Forbidden(shown(message)),
+        CoreError::NotFound(message) => CoreError::NotFound(shown(message)),
+        CoreError::TooManyRequests(message) => CoreError::TooManyRequests(shown(message)),
+        CoreError::Server { status, message } => CoreError::Server {
+            status,
+            message: shown(message),
+        },
+        other => other,
     }
 }
 
@@ -970,6 +1014,21 @@ pub(crate) fn sha256_of_file(path: &Path) -> std::io::Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A server's own error message is cut short and can't span lines.
+    #[test]
+    fn server_messages_are_tidied() {
+        let long = format!("line one\nline two {}", "x".repeat(1000));
+        let CoreError::Forbidden(shown) = tidy(CoreError::Forbidden(long)) else {
+            panic!("not Forbidden");
+        };
+        assert!(!shown.contains('\n'));
+        assert!(shown.starts_with("line one\\u{000A}line two"));
+        assert_eq!(shown.chars().count(), MAX_SHOWN_MESSAGE + 1);
+        // the texts launcher-core gives these errors itself are short and plain: unchanged
+        let plain = CoreError::NotFound("Not found".into());
+        assert_eq!(tidy(plain.clone()), plain);
+    }
 
     #[test]
     fn newer_rules_are_told_apart() {

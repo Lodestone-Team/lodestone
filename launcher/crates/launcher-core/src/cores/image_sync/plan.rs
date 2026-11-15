@@ -64,6 +64,9 @@ pub struct Summary {
     pub curseforge_listed: Vec<String>,
     /// What changes on disk.
     pub changes: PackChanges,
+    /// The bytes downloaded (from the server, Modrinth and CurseForge; not the base
+    /// pack's own files, copied out of the pack), shown before anything is installed.
+    pub download_bytes: u64,
 }
 
 /// The loader a view's game needs, as the instance names it. Forge's versions are full
@@ -120,9 +123,9 @@ fn loader_label(loader: Option<&LoaderChoice>) -> String {
 /// The plan to bring an instance to `view`, which places `placed` over its base pack
 /// `base`: the instance at `existing` (its folders, and its `instance.json`), whose
 /// `modpack.json` is `current`, or a new one (`None`). `name` names the server, for a
-/// server without a base pack. With `trust_recorded`, a file whose recorded hash is the
-/// view's and whose size is right isn't read (`merge::Rules::trust_recorded`); without,
-/// every file is (the mods were found changed on disk).
+/// server without a base pack. A file whose recorded hash is the view's and whose size is
+/// right isn't read (`merge::Rules::trust_recorded`), but those at `untrusted` (mods the
+/// check on a 204 found missing or changed) are.
 pub fn plan(
     existing: Option<(&InstanceDirs, &Instance)>,
     current: &ModpackRecord,
@@ -130,7 +133,7 @@ pub fn plan(
     placed: Placed,
     base: Option<&BasePack>,
     name: &str,
-    trust_recorded: bool,
+    untrusted: &BTreeSet<String>,
 ) -> Result<ServerPlan, SyncError> {
     let loader = loader_of(&view)?;
     if let Some((_, instance)) = existing {
@@ -152,10 +155,23 @@ pub fn plan(
             });
         }
     }
+    // The base pack's name and version come from its index, which the server chose: shown
+    // (the summary, the progress, the instance's page) without characters that could span
+    // lines or reverse text.
+    let shown = |text: &str| display_text(text).into_owned();
+    let base_name = base.map(|b| {
+        (
+            shown(&b.pack.name),
+            shown(b.pack.version_number.as_deref().unwrap_or_default()),
+        )
+    });
     let record = ModpackRecord {
-        title: base.map_or_else(|| name.to_string(), |b| b.pack.name.clone()),
-        version_number: base
-            .and_then(|b| b.pack.version_number.clone())
+        title: base_name
+            .as_ref()
+            .map_or_else(|| name.to_string(), |(pack, _)| pack.clone()),
+        version_number: base_name
+            .as_ref()
+            .map(|(_, version)| version.clone())
             .unwrap_or_default(),
         project_id: base.map(|b| b.project.clone()).unwrap_or_default(),
         version_id: base.map(|b| b.version.clone()).unwrap_or_default(),
@@ -171,7 +187,9 @@ pub fn plan(
         record,
         merge::Rules {
             authoritative: &AUTHORITATIVE,
-            trust_recorded,
+            trust_recorded: true,
+            untrusted: Some(untrusted),
+            dropped_overrides_go: true,
         },
     );
     update.game_version = view.game.minecraft.clone();
@@ -232,12 +250,7 @@ pub fn plan(
     }
 
     let summary = Summary {
-        base: base.map(|b| {
-            (
-                b.pack.name.clone(),
-                b.pack.version_number.clone().unwrap_or_default(),
-            )
-        }),
+        base: base_name,
         minecraft: view.game.minecraft.clone(),
         loader: loader_label(loader.as_ref()),
         added_mods: view
@@ -261,6 +274,7 @@ pub fn plan(
             .collect(),
         curseforge_listed,
         changes: PackChanges::from_plan(&update),
+        download_bytes: update.download_size(),
     };
     Ok(ServerPlan {
         view,

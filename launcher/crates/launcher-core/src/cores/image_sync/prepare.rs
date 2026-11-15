@@ -102,14 +102,22 @@ pub async fn prepare(
         .as_ref()
         .map(|v| v.have(target.applied))
         .unwrap_or_default();
+    // the view an update was placing when it stopped part way, when it isn't the
+    // applied one: the files it placed count as the server's (`with_interrupted`)
+    let interrupted = views
+        .as_ref()
+        .and_then(|v| v.placing())
+        .filter(|placing| Some(placing.id.as_str()) != target.applied);
     progress.set_label("Asking the server for its files");
     let mut answer = server.image(&have, on_preparing, cancel).await?;
     let mut asked_again = false;
-    // the server says the instance is in step, but its mods aren't all on disk: every
-    // file is read when planning, not taken as unchanged by its record
-    let mut mods_changed = false;
+    // the server says the instance is in step, but these of its mods aren't on disk as
+    // placed: they are read when planning, not taken as unchanged by their record
+    let mut untrusted = BTreeSet::new();
     let view = loop {
         let kept = |id: &str| views.as_ref().and_then(|v| v.load(id));
+        // why the answer couldn't be used, if asking again for the whole view can't help
+        let mut problem = None;
         let found = match answer {
             ImageAnswer::Current { view } => {
                 if Some(view.as_str()) == target.applied
@@ -117,10 +125,12 @@ pub async fn prepare(
                     && let Some(applied) = kept(&view)
                     && game_matches(instance, &applied)
                 {
-                    if server_mods_on_disk(dirs, &cant_give(&applied)) {
+                    untrusted = server_mods_changed(dirs, &cant_give(&applied));
+                    // an update that stopped part way placed files the applied view
+                    // doesn't have: it is placed again, which removes them
+                    if untrusted.is_empty() && interrupted.is_none() {
                         return Ok(Prepared::Current);
                     }
-                    mods_changed = true;
                 }
                 // another view it keeps is current: switch to it; or the applied one, whose
                 // mods aren't all on disk any more, placed again
@@ -131,21 +141,39 @@ pub async fn prepare(
                 Some(*image)
             }
             ImageAnswer::Delta { delta, view } => match kept(&delta.from) {
-                Some(from) => Some(apply_delta(&from, &delta, &view)?),
+                Some(from) => match apply_delta(&from, &delta, &view) {
+                    Ok(view) => Some(view),
+                    Err(err @ SyncError::UpdateLodestone) => return Err(err),
+                    // a delta that doesn't apply or makes something else than the
+                    // server's view: the whole view is checked on its own
+                    Err(err) => {
+                        problem = Some(err);
+                        None
+                    }
+                },
                 None => None,
             },
+            // a delta this Launcher can't read (a newer core's, say): the whole view says
+            // whether the server needs a newer Lodestone
+            ImageAnswer::UnreadableDelta { problem: why, .. } => {
+                problem = Some(SyncError::Refused(why));
+                None
+            }
         };
         match found {
             Some(view) => break view,
-            // it named a view this instance doesn't keep after all: the whole view
+            // it named a view this instance doesn't keep after all, or sent a delta that
+            // can't be used: the whole view
             None if !asked_again => {
                 asked_again = true;
                 answer = server.image(&[], on_preparing, cancel).await?;
             }
             None => {
-                return Err(SyncError::Refused(
-                    "it answered with a view this Launcher didn't ask about".into(),
-                ));
+                return Err(problem.unwrap_or_else(|| {
+                    SyncError::Refused(
+                        "it answered with a view this Launcher didn't ask about".into(),
+                    )
+                }));
             }
         }
     };
@@ -172,11 +200,8 @@ pub async fn prepare(
         .existing
         .and_then(|(dirs, _)| ModpackRecord::load(&dirs.instance))
         .unwrap_or_default();
-    if let (Some(views), Some((dirs, _))) = (&views, target.existing)
-        && let Some(placing) = views.placing()
-        && Some(placing.id.as_str()) != target.applied
-    {
-        with_interrupted(&mut current, &placing, &dirs.game);
+    if let (Some(placing), Some((dirs, _))) = (&interrupted, target.existing) {
+        with_interrupted(&mut current, placing, &dirs.game);
     }
     let plan = plan(
         target.existing,
@@ -185,7 +210,7 @@ pub async fn prepare(
         placed,
         base.as_ref(),
         target.name,
-        !mods_changed,
+        &untrusted,
     )?;
     let newly_lacking = match &views {
         Some(views) => {
@@ -273,7 +298,7 @@ fn cant_give(view: &Image) -> BTreeSet<String> {
 }
 
 /// The file in the kept views' folder that remembers the size and modification time of
-/// each server mod the last check found as placed ([`server_mods_on_disk`]).
+/// each server mod the last check found as placed ([`server_mods_changed`]).
 const CHECKED_FILE: &str = "mods-checked.json";
 /// The most of it that is read.
 const MAX_CHECKED_BYTES: u64 = 16 << 20;
@@ -303,20 +328,21 @@ fn stat_of(meta: &fs::Metadata) -> Option<(u64, u64)> {
     Some((meta.len(), u64::try_from(nanos).ok()?))
 }
 
-/// Whether every mod the instance's `modpack.json` says the applied view placed is on
-/// disk as placed (a mod the player turned off counts), but those at `skip` (files the
-/// view can't give, which the player may keep as they like): when one is missing or
-/// changed, the server's answer that the instance is in step isn't taken, and the
-/// applied view is placed again, so the server's `mods/` stays authoritative and the
-/// player can join. Without a record, the view placed nothing to check.
+/// The mods the instance's `modpack.json` says the applied view placed that aren't on
+/// disk as placed (a mod the player turned off counts as placed), but those at `skip`
+/// (files the view can't give, which the player may keep as they like), by their
+/// `modpack.json` paths: when there are any, the server's answer that the instance is in
+/// step isn't taken, and the applied view is placed again with those read rather than
+/// taken as unchanged by their record, so the server's `mods/` stays authoritative and
+/// the player can join. Without a record, the view placed nothing to check.
 ///
 /// A 204 is the common Play, so this mustn't read every mod each time: a mod whose size
 /// and modification time are those the last check remembered (`mods-checked.json`, with
 /// the hash it was placed with) isn't read again, as the image store's stat cache does
 /// for snapshots.
-fn server_mods_on_disk(dirs: &InstanceDirs, skip: &BTreeSet<String>) -> bool {
+fn server_mods_changed(dirs: &InstanceDirs, skip: &BTreeSet<String>) -> BTreeSet<String> {
     let Some(record) = ModpackRecord::load(&dirs.instance) else {
-        return true;
+        return BTreeSet::new();
     };
     let checked_path = dirs
         .instance
@@ -335,7 +361,7 @@ fn server_mods_on_disk(dirs: &InstanceDirs, skip: &BTreeSet<String>) -> bool {
         })
         .unwrap_or_default();
     let mut found: BTreeMap<String, CheckedStat> = BTreeMap::new();
-    let all = record
+    let changed: BTreeSet<String> = record
         .files
         .iter()
         .filter(|(path, _)| {
@@ -344,7 +370,7 @@ fn server_mods_on_disk(dirs: &InstanceDirs, skip: &BTreeSet<String>) -> bool {
                 .any(|dir| path.starts_with(&format!("{dir}/")))
                 && !skip.contains(*path)
         })
-        .all(|(path, file)| {
+        .filter(|&(path, file)| {
             let digest = file.digest();
             let tag = match &digest {
                 Digest::Sha256(hex) => format!("sha256:{}", hex.to_ascii_lowercase()),
@@ -354,7 +380,7 @@ fn server_mods_on_disk(dirs: &InstanceDirs, skip: &BTreeSet<String>) -> bool {
             if !is_disabled_name(path) {
                 candidates.push(disabled_name(path));
             }
-            candidates.into_iter().any(|candidate| {
+            !candidates.into_iter().any(|candidate| {
                 let on_disk = dirs.game.join(&candidate);
                 let Ok(meta) = fs::symlink_metadata(&on_disk) else {
                     return false;
@@ -380,15 +406,17 @@ fn server_mods_on_disk(dirs: &InstanceDirs, skip: &BTreeSet<String>) -> bool {
                 }
                 placed
             })
-        });
-    if all && found != remembered {
+        })
+        .map(|(path, _)| path.clone())
+        .collect();
+    if changed.is_empty() && found != remembered {
         // only a cache: a failure to save it only means reading the mods next time
         if let Ok(json) = serde_json::to_vec(&found) {
             let _ = fs::create_dir_all(checked_path.parent().unwrap_or(&dirs.instance));
             let _ = crate::storage::write_atomic(&checked_path, &json);
         }
     }
-    all
+    changed
 }
 
 /// Adds to `current` (what `modpack.json` says the applied view placed) the files of

@@ -1455,11 +1455,12 @@ async fn recorded(response: reqwest::Response) -> (serde_json::Value, Vec<u8>) {
     (json!({ "status": status, "headers": headers }), body)
 }
 
-/// The real routes' answers to what a player asks (the whole view, in step, a delta, an
-/// object), checked as a player checks them. With `LODESTONE_RECORD_PLAYER_FIXTURES` set to
-/// a folder, they are written there for the Launcher's tests to replay through its own
-/// client (`launcher/crates/launcher-core/tests/fixtures/player_image/`), so the two
-/// programs are tested against the same bytes.
+/// The real routes' answers to what a player asks (the server still preparing its files,
+/// for the image and for an object; the whole view, in step, a delta, an object; a query
+/// it refuses), checked as a player checks them. With `LODESTONE_RECORD_PLAYER_FIXTURES`
+/// set to a folder, they are written there for the Launcher's tests to replay through its
+/// own client (`launcher/crates/launcher-core/tests/fixtures/player_image/`), so the two
+/// programs are tested against the same bytes, errors included.
 #[tokio::test]
 async fn records_the_answers_a_player_gets() {
     let core = content::core(Kind::Fabric).await;
@@ -1467,10 +1468,6 @@ async fn records_the_answers_a_player_gets() {
     fabric_jar(&mods.join("own.jar"), "own", "*");
     write(&core.root, "config/secret.toml", b"password = 1");
     let player = Player::new(&core, Vec::new());
-    // the first content image is recorded on the first ask
-    let Answer::View(first) = player.image(&[]).await else {
-        panic!("the whole view");
-    };
     let get = |rest: String| {
         let url = player.url(&rest);
         let http = player.http.clone();
@@ -1479,6 +1476,41 @@ async fn records_the_answers_a_player_gets() {
     };
     let rules = lodestone_image::RULES;
     let mut answers: Vec<(&str, serde_json::Value, Vec<u8>)> = Vec::new();
+
+    // the first ask, before the server has a content image: 503 `Conflict`, and the first
+    // record starts
+    let (meta, body) = recorded(get(format!("image?side=client&rules={rules}")).await).await;
+    assert_eq!(meta["status"], 503);
+    assert_eq!(meta["headers"]["retry-after"], "5");
+    assert_eq!(meta["headers"]["x-lodestone-rules"], rules.to_string());
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&body).unwrap()["kind"],
+        "Conflict"
+    );
+    answers.push(("image_preparing", meta, body));
+    // the same for an object, on another server that has no content image yet
+    let fresh = content::core(Kind::Fabric).await;
+    write(&fresh.root, "mods/own.jar", b"the server's own mod");
+    let fresh_player = Player::new(&fresh, Vec::new());
+    let own = sha256_hex(b"the server's own mod");
+    let (meta, body) = recorded(
+        fresh_player
+            .http
+            .get(fresh_player.url(&format!("objects/{own}")))
+            .bearer_auth(&fresh.owner)
+            .send()
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(meta["status"], 503);
+    assert_eq!(meta["headers"]["retry-after"], "5");
+    answers.push(("object_preparing", meta, body));
+
+    // then the whole view, once recorded
+    let Answer::View(first) = player.image(&[]).await else {
+        panic!("the whole view");
+    };
 
     let (meta, body) = recorded(get(format!("image?side=client&rules={rules}")).await).await;
     assert_eq!(meta["headers"]["x-lodestone-answer"], "view");
@@ -1518,6 +1550,13 @@ async fn records_the_answers_a_player_gets() {
     assert_eq!(meta["status"], 200);
     assert_eq!(sha256_hex(&body), object);
     answers.push(("object", meta, body));
+
+    // a value the core refuses: 400 `BadRequest`, with its rules
+    let (meta, body) =
+        recorded(get(format!("image?side=client&rules={rules}&have=nothex")).await).await;
+    assert_eq!(meta["status"], 400);
+    assert_eq!(meta["headers"]["x-lodestone-rules"], rules.to_string());
+    answers.push(("bad_request", meta, body));
 
     if let Some(dir) = std::env::var_os("LODESTONE_RECORD_PLAYER_FIXTURES") {
         let dir = std::path::PathBuf::from(dir);

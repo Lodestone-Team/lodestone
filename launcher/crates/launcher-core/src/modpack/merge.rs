@@ -23,6 +23,18 @@ use crate::content::{disabled_name, is_disabled_name};
 /// The folders whose files a pack's dropped overrides are removed from.
 const CONTENT_DIRS: [&str; 3] = ["mods", "resourcepacks", "shaderpacks"];
 
+/// Whether `path` is a config (in `config/`, `defaultconfigs/` or `kubejs/`, whatever
+/// their letter case), or a file the game writes itself (`options.txt`, say): a dropped
+/// override there stays whatever [`Rules::dropped_overrides_go`] says. A path that isn't a
+/// plain relative path counts, so it stays too.
+fn kept_when_dropped(path: &str) -> bool {
+    lodestone_image::CanonicalPath::new(path).map_or(true, |canonical| {
+        let parts: Vec<&str> = canonical.components().collect();
+        lodestone_image::paths::is_config(&canonical)
+            || crate::images::scope::never_pack_content(&parts)
+    })
+}
+
 /// A file's hash, as the version that places it gives it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Digest {
@@ -41,6 +53,13 @@ impl Digest {
     fn hex(&self) -> &str {
         match self {
             Digest::Sha1(hex) | Digest::Sha256(hex) => hex,
+        }
+    }
+
+    fn of(kind: HashKind, hex: String) -> Self {
+        match kind {
+            HashKind::Sha1 => Digest::Sha1(hex),
+            HashKind::Sha256 => Digest::Sha256(hex),
         }
     }
 
@@ -146,7 +165,11 @@ impl Wanted {
 pub enum Expect {
     /// Not there: a file the update adds, which would go over the player's own.
     Absent,
-    /// The last version's file, unchanged (as read, or as its record and size said).
+    /// As the plan found it: the last version's file, unchanged (as read, or as its
+    /// record and size said), or, for a file the update replaces whatever it holds (a
+    /// server's mod the player changed, the player's own file at a path the version now
+    /// uses), the bytes it held then, so a change made after the plan (while its files
+    /// download, say) isn't overwritten unseen.
     Unchanged(Digest),
 }
 
@@ -163,9 +186,7 @@ pub struct Merged {
     pub writes: Vec<(Fetch, String)>,
     pub removals: Vec<String>,
     /// What each file to overwrite or remove (by its path on disk) must still be when the
-    /// update is applied: see [`Expect`]. A file replaced whatever it holds (a server's
-    /// mod the player changed, the player's own file at a path the version now uses) has
-    /// none.
+    /// update is applied: see [`Expect`]. Only a file that couldn't be read has none.
     pub expected: BTreeMap<String, Expect>,
 }
 
@@ -183,18 +204,20 @@ impl Disk<'_> {
             return found.clone();
         }
         let path = self.game?.join(relative);
-        let found = match kind {
-            HashKind::Sha1 => sha1_on_disk(&path),
-            HashKind::Sha256 => std::fs::symlink_metadata(&path)
-                .ok()
-                .filter(|m| m.is_file())
-                .and_then(|_| crate::cores::player_image::sha256_of_file(&path).ok()),
-        };
+        // only a file has a hash: a link at the path is the player's, whatever it names
+        let found = std::fs::symlink_metadata(&path)
+            .ok()
+            .filter(|m| m.is_file())
+            .and_then(|_| match kind {
+                HashKind::Sha1 => sha1_on_disk(&path),
+                HashKind::Sha256 => crate::cores::player_image::sha256_of_file(&path).ok(),
+            });
         self.hashes.borrow_mut().insert(key, found.clone());
         found
     }
 
-    /// The file at `relative` (or, for a mod, its `.disabled` name), as it is on disk.
+    /// What is at `relative` (or, for a mod, its `.disabled` name) on disk: a file, or
+    /// anything else there (a link, a folder), which [`Disk::is_file`] tells apart.
     fn find(&self, relative: &str) -> Option<String> {
         let game = self.game?;
         let mut candidates = vec![relative.to_string()];
@@ -203,7 +226,24 @@ impl Disk<'_> {
         }
         candidates
             .into_iter()
-            .find(|path| std::fs::symlink_metadata(game.join(path)).is_ok_and(|m| m.is_file()))
+            .find(|path| std::fs::symlink_metadata(game.join(path)).is_ok())
+    }
+
+    /// Whether `actual` is a plain file, not a link or a folder: only a file is ever
+    /// overwritten or removed. Anything else at a path the version places is the
+    /// player's (a config they linked to a shared copy, say) and is left as it is.
+    fn is_file(&self, actual: &str) -> bool {
+        self.game.is_some_and(|game| {
+            std::fs::symlink_metadata(game.join(actual)).is_ok_and(|m| m.is_file())
+        })
+    }
+
+    /// What the file at `actual` must still be for a plan that replaces it whatever it
+    /// holds: the bytes it holds now (hashed already by the comparison that found it
+    /// changed). `None` when it can't be read.
+    fn as_found(&self, actual: &str, kind: HashKind) -> Option<Expect> {
+        self.hash(actual, kind)
+            .map(|hex| Expect::Unchanged(Digest::of(kind, hex)))
     }
 
     /// The size of the file at `actual`.
@@ -250,6 +290,17 @@ pub(crate) struct Rules<'a> {
     /// entry next changes, or by the check on a server's answer that the instance is in
     /// step, which reads the mods.)
     pub trust_recorded: bool,
+    /// Paths (as the new version names them) that are read whatever `trust_recorded`
+    /// says: the mods a server's answer that the instance is in step found missing or
+    /// changed on disk.
+    pub untrusted: Option<&'a BTreeSet<String>>,
+    /// A dropped override that is unchanged is removed wherever it is but in a config
+    /// folder or a file the game writes ([`kept_when_dropped`]), not only in `mods/`,
+    /// `resourcepacks/` and `shaderpacks/`: a server's view, whose base pack's files
+    /// (CraftTweaker's `scripts/`, say) go when the view's `removed` names them or the
+    /// pack's next version drops them ("From one view to the next on disk"). A modpack
+    /// update keeps them, as before.
+    pub dropped_overrides_go: bool,
 }
 
 /// Plans the move from the files `current` records to the files `new` places, for the
@@ -272,8 +323,9 @@ pub(crate) fn plan(
     };
     let mut merged = Merged::default();
     // Unchanged by its record and size, without reading it (see `Rules::trust_recorded`).
-    let unchanged = |old: Option<&PackFile>, actual: &str, wanted: &Wanted| {
+    let unchanged = |path: &str, old: Option<&PackFile>, actual: &str, wanted: &Wanted| {
         rules.trust_recorded
+            && !rules.untrusted.is_some_and(|paths| paths.contains(path))
             && old.is_some_and(|old| old.digest().same(&wanted.digest))
             && disk.len(actual) == Some(wanted.fetch.size())
     };
@@ -295,9 +347,12 @@ pub(crate) fn plan(
         }
         let removable = match old.source {
             FileSource::Index => true,
-            FileSource::Override => CONTENT_DIRS
-                .iter()
-                .any(|dir| path.starts_with(&format!("{dir}/"))),
+            FileSource::Override => {
+                CONTENT_DIRS
+                    .iter()
+                    .any(|dir| path.starts_with(&format!("{dir}/")))
+                    || (rules.dropped_overrides_go && !kept_when_dropped(path))
+            }
         };
         if !removable {
             continue;
@@ -336,7 +391,8 @@ pub(crate) fn plan(
         };
         let actual = disk.find(path);
         match (current.get(path), actual) {
-            (old, Some(actual)) if unchanged(old, &actual, wanted) => {}
+            (_, Some(actual)) if !disk.is_file(&actual) => merged.kept_changed.push(actual),
+            (old, Some(actual)) if unchanged(path, old, &actual, wanted) => {}
             (_, Some(actual)) if disk.matches(&actual, &wanted.digest) => {}
             (Some(old), Some(actual)) if disk.matches(&actual, &old.digest()) => {
                 merged.updated.push((actual.clone(), actual.clone()));
@@ -347,11 +403,17 @@ pub(crate) fn plan(
             }
             (Some(_), Some(actual)) if replaces(path) => {
                 merged.updated.push((actual.clone(), actual.clone()));
+                if let Some(expect) = disk.as_found(&actual, wanted.digest.kind()) {
+                    merged.expected.insert(actual.clone(), expect);
+                }
                 write(&mut merged, actual);
             }
             (Some(_), Some(actual)) => merged.kept_changed.push(actual),
             (None, Some(actual)) => {
                 merged.replaced_own.push(actual.clone());
+                if let Some(expect) = disk.as_found(&actual, wanted.digest.kind()) {
+                    merged.expected.insert(actual.clone(), expect);
+                }
                 write(&mut merged, actual);
             }
             (_, None) => {
@@ -393,7 +455,8 @@ pub(crate) fn plan(
                 merged.expected.insert(path.clone(), Expect::Absent);
                 merged.writes.push((wanted.fetch.clone(), path.clone()));
             }
-            (old, Some(actual)) if unchanged(old, &actual, wanted) => {}
+            (_, Some(actual)) if !disk.is_file(&actual) => merged.overrides_kept.push(actual),
+            (old, Some(actual)) if unchanged(path, old, &actual, wanted) => {}
             (_, Some(actual)) if disk.matches(&actual, &wanted.digest) => {}
             (Some(old), Some(actual)) if disk.matches(&actual, &old.digest()) => {
                 merged.overrides_written.push(actual.clone());
@@ -404,6 +467,9 @@ pub(crate) fn plan(
             }
             (_, Some(actual)) if replaces(path) => {
                 merged.overrides_written.push(actual.clone());
+                if let Some(expect) = disk.as_found(&actual, wanted.digest.kind()) {
+                    merged.expected.insert(actual.clone(), expect);
+                }
                 merged.writes.push((wanted.fetch.clone(), actual));
             }
             (_, Some(actual)) => merged.overrides_kept.push(actual),
@@ -519,8 +585,8 @@ mod tests {
 
     /// What each file a plan changes must still be when it is applied: the last version's
     /// file, unchanged, for one it overwrites or removes as unchanged; nothing there for
-    /// one it adds; and nothing asked of one it replaces whatever it holds (a server's mod
-    /// the player changed).
+    /// one it adds; and the bytes it found for one it replaces whatever it holds (a
+    /// server's mod the player changed), so a change made after the plan stops it.
     #[test]
     fn the_plan_says_what_each_file_it_changes_must_still_be() {
         let game = game_with(&[
@@ -549,7 +615,7 @@ mod tests {
             &new,
             Rules {
                 authoritative: &["mods"],
-                trust_recorded: false,
+                ..Rules::default()
             },
         );
         let sha = |bytes: &[u8]| Expect::Unchanged(Digest::Sha256(sha256_hex(bytes)));
@@ -557,6 +623,8 @@ mod tests {
             ("mods/old.jar".to_string(), sha(b"old")),
             ("mods/up.jar".to_string(), sha(b"up 1")),
             ("mods/added.jar".to_string(), Expect::Absent),
+            // replaced whatever it holds, but only as the plan found it
+            ("mods/changed.jar".to_string(), sha(b"the player's")),
         ]
         .into();
         assert_eq!(merged.expected, expected);
@@ -590,5 +658,115 @@ mod tests {
             assert_eq!(merged.removals, ["mods/Sodium.jar"]);
             assert_eq!(merged.added, ["mods/sodium.jar"]);
         }
+    }
+
+    /// A server's dropped pack override goes when unchanged wherever it is but in a config
+    /// folder or a file the game writes; a modpack update keeps it outside the content
+    /// folders, as before.
+    #[test]
+    fn dropped_overrides_go_for_a_server_but_configs_stay() {
+        let game = game_with(&[
+            ("scripts/recipes.zs", b"recipes"),
+            ("config/a.toml", b"a"),
+            ("options.txt", b"options"),
+            ("scripts/edited.zs", b"the player's"),
+        ]);
+        let current: BTreeMap<String, PackFile> = [
+            ("scripts/recipes.zs", &b"recipes"[..]),
+            ("config/a.toml", b"a"),
+            ("options.txt", b"options"),
+            ("scripts/edited.zs", b"the pack's"),
+        ]
+        .into_iter()
+        .map(|(path, bytes)| {
+            let mut record = object(bytes).record;
+            record.source = FileSource::Override;
+            (path.to_string(), record)
+        })
+        .collect();
+        let new = BTreeMap::new();
+        let modpack = plan(Some(game.path()), &current, &new, Rules::default());
+        assert!(modpack.removals.is_empty());
+        let server = plan(
+            Some(game.path()),
+            &current,
+            &new,
+            Rules {
+                dropped_overrides_go: true,
+                ..Rules::default()
+            },
+        );
+        assert_eq!(server.removals, ["scripts/recipes.zs"]);
+        assert_eq!(server.kept_changed, ["scripts/edited.zs"]);
+    }
+
+    /// A link (or a folder) at a path the version places is the player's: kept, never
+    /// written over, and never taken for a file that appeared after the plan.
+    #[cfg(unix)]
+    #[test]
+    fn a_link_at_a_placed_path_is_kept() {
+        let game = game_with(&[("shared/xaero.cfg", b"shared")]);
+        std::fs::create_dir_all(game.path().join("config")).unwrap();
+        std::fs::create_dir_all(game.path().join("mods")).unwrap();
+        std::os::unix::fs::symlink(
+            game.path().join("shared/xaero.cfg"),
+            game.path().join("config/xaero.cfg"),
+        )
+        .unwrap();
+        std::os::unix::fs::symlink(
+            game.path().join("shared/xaero.cfg"),
+            game.path().join("mods/linked.jar"),
+        )
+        .unwrap();
+        let mut config = object(b"server's");
+        config.record.source = FileSource::Override;
+        let new: BTreeMap<String, Wanted> = [
+            ("config/xaero.cfg".to_string(), config),
+            ("mods/linked.jar".to_string(), object(b"server's mod")),
+        ]
+        .into();
+        let merged = plan(
+            Some(game.path()),
+            &BTreeMap::new(),
+            &new,
+            Rules {
+                authoritative: &["mods"],
+                ..Rules::default()
+            },
+        );
+        assert!(merged.writes.is_empty());
+        assert_eq!(merged.overrides_kept, ["config/xaero.cfg"]);
+        assert_eq!(merged.kept_changed, ["mods/linked.jar"]);
+        assert!(merged.expected.is_empty());
+    }
+
+    /// Paths a 204's check found changed are read though their records would be trusted.
+    #[test]
+    fn untrusted_paths_are_read() {
+        let game = game_with(&[("mods/a.jar", b"AAAA"), ("mods/b.jar", b"BBBB")]);
+        let current: BTreeMap<String, PackFile> = [
+            ("mods/a.jar".to_string(), object(b"aaaa").record),
+            ("mods/b.jar".to_string(), object(b"bbbb").record),
+        ]
+        .into();
+        let new: BTreeMap<String, Wanted> = [
+            ("mods/a.jar".to_string(), object(b"aaaa")),
+            ("mods/b.jar".to_string(), object(b"bbbb")),
+        ]
+        .into();
+        let untrusted: BTreeSet<String> = ["mods/b.jar".to_string()].into();
+        let merged = plan(
+            Some(game.path()),
+            &current,
+            &new,
+            Rules {
+                authoritative: &["mods"],
+                trust_recorded: true,
+                untrusted: Some(&untrusted),
+                ..Rules::default()
+            },
+        );
+        let written: Vec<&str> = merged.writes.iter().map(|(_, p)| p.as_str()).collect();
+        assert_eq!(written, ["mods/b.jar"]);
     }
 }

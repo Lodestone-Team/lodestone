@@ -1,10 +1,10 @@
 {
   "status": 200,
   "headers": {
-    "x-lodestone-view": "3a6885e8d91d9d2dba333c6e4a915878e0baf7664f4e97f3b34c7fa8d106bb23",
+    "x-lodestone-view": "78050feeb27380656ef81ec5fc6568e38026175013f4aaf2c46a59285ec342a9",
     "x-lodestone-answer": "view",
     "x-lodestone-rules": "1",
     "content-type": "application/json",
-    "etag": "\"3a6885e8d91d9d2dba333c6e4a915878e0baf7664f4e97f3b34c7fa8d106bb23\""
+    "etag": "\"78050feeb27380656ef81ec5fc6568e38026175013f4aaf2c46a59285ec342a9\""
   }
 }

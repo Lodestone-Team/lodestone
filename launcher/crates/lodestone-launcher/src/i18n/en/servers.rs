@@ -257,6 +257,8 @@ crate::i18n::messages! {
         SummaryAddedMods = "Mods the server added ({count})",
         /// Files the server uploaded or changed, which only it can send.
         SummaryServerOnly = "Files only the server has ({count})",
+        /// What installing downloads, like "Download: 24.5 MiB".
+        SummaryDownload = "Download: {size}",
         MissingTitle = "Files the server couldn't share ({count})",
         MissingNote = "You won't have these, and may not be able to join without them. Ask the server's owner.",
         /// A file the server couldn't share, and why: "mods/a.jar (it is a link)".
@@ -293,6 +295,12 @@ crate::i18n::messages! {
         ErrOlderCore = "The host runs an older Lodestone, which doesn't share its servers' files this way.",
         /// {detail} says what went wrong, in English.
         ErrInstallFiles = "Couldn't install the server's files: {detail}",
+        /// An instance that has the server's files, whose server stopped sharing them.
+        ErrStoppedSharing = "The server stopped sharing its files, so they couldn't be checked. Ask the server's owner.",
+        /// {needed} and {free} are sizes, like "24.5 GiB".
+        ErrNotEnoughSpace = "There isn't enough free space for the server's files: they need {needed}, and {free} is free.",
+        /// The instance was unlinked while the update waited for an answer.
+        ErrNotLinked = "This instance isn't linked to the server any more, so nothing was installed.",
 
         // ===== "Add host" and signing in =====
         /// How long the device's key lasts.

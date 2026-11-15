@@ -273,7 +273,8 @@ fn hostile_and_broken_answers_are_refused() {
         body: b"{}".to_vec(),
     });
     invalid(ask(&image, &[]));
-    // a delta that isn't one
+    // a delta that isn't one: said so, for the caller to ask for the whole view (which
+    // says whether the server needs a newer Lodestone), never used
     core.fault(Fault::Raw {
         status: 200,
         headers: vec![
@@ -283,7 +284,10 @@ fn hostile_and_broken_answers_are_refused() {
         ],
         body: b"[1,2,3]".to_vec(),
     });
-    invalid(ask(&image, &[]));
+    assert!(matches!(
+        ask(&image, &[]),
+        Ok(ImageAnswer::UnreadableDelta { view, .. }) if view == "b".repeat(64)
+    ));
     // a sign-in the core refuses
     let client = CoreClient::new(http::default_client().unwrap(), core.base.clone());
     let wrong = ServerImage::new(client, Some(Secret::new("lsk_wrong")), SERVER).unwrap();

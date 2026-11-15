@@ -214,7 +214,7 @@ pub fn plan_with(
     }
     let rules = merge::Rules {
         authoritative,
-        trust_recorded: false,
+        ..merge::Rules::default()
     };
     let plan = plan_files(Some(&dirs.game), current, &new, record, rules);
     UpdatePlan {
@@ -414,27 +414,39 @@ async fn apply_staged(
         let _ = fs::remove_dir_all(&snapshot);
         return Err(err);
     }
-    let mut world_backups = Vec::new();
-    if backup_worlds {
-        for world in worlds::list(dirs) {
-            if cancel.is_cancelled() {
-                return Err(ModpackError::Cancelled);
+    let backed_up = (|| -> Result<Vec<PathBuf>, ModpackError> {
+        let mut world_backups = Vec::new();
+        if backup_worlds {
+            for world in worlds::list(dirs) {
+                if cancel.is_cancelled() {
+                    return Err(ModpackError::Cancelled);
+                }
+                progress.set_label(format!("Backing up {}", world.name()));
+                let backup = worlds::backup(dirs, &world.folder, &progress.downloads, cancel)
+                    .map_err(|err| match err {
+                        worlds::WorldError::Cancelled => ModpackError::Cancelled,
+                        other => ModpackError::Invalid(format!(
+                            "Couldn't back up {}: {other}",
+                            world.name()
+                        )),
+                    })?;
+                world_backups.push(backup.path);
             }
-            progress.set_label(format!("Backing up {}", world.name()));
-            let backup = worlds::backup(dirs, &world.folder, &progress.downloads, cancel).map_err(
-                |err| match err {
-                    worlds::WorldError::Cancelled => ModpackError::Cancelled,
-                    other => {
-                        ModpackError::Invalid(format!("Couldn't back up {}: {other}", world.name()))
-                    }
-                },
-            )?;
-            world_backups.push(backup.path);
         }
-    }
-    if cancel.is_cancelled() {
-        return Err(ModpackError::Cancelled);
-    }
+        if cancel.is_cancelled() {
+            return Err(ModpackError::Cancelled);
+        }
+        Ok(world_backups)
+    })();
+    let world_backups = match backed_up {
+        Ok(world_backups) => world_backups,
+        Err(err) => {
+            // stopped before anything changed: the copy holds nothing the instance
+            // doesn't, and nothing else would ever delete it
+            let _ = fs::remove_dir_all(&snapshot);
+            return Err(err);
+        }
+    };
 
     // 3. The game folder. If a file can't be changed (another program has it open, say),
     // what was changed so far is put back from the snapshot.
@@ -498,8 +510,14 @@ fn swap_in(
     plan: &UpdatePlan,
     changed: &mut BTreeSet<String>,
 ) -> Result<(), ModpackError> {
+    let mut parents = super::import::ParentCheck::new(game)?;
     for path in &plan.removals {
         let target = game.join(path);
+        // a file reached through a folder that links out of the instance isn't the
+        // instance's to remove (the same bytes in a shared folder, say): it stays
+        if !parents.stays_inside(&target) {
+            continue;
+        }
         match fs::remove_file(&target) {
             Ok(()) => {
                 changed.insert(path.clone());
@@ -509,7 +527,6 @@ fn swap_in(
         }
     }
     let staged = plan.writes.iter().map(|(_, p)| p);
-    let mut parents = super::import::ParentCheck::new(game)?;
     for path in staged {
         let from = staging.join(path);
         let to = game.join(path);
@@ -546,6 +563,18 @@ fn undo(
             Ok(())
         }
     };
+    // The instance's records are put back whole or not at all: a `modpack.json` cut
+    // short by a full disk would read as none, and the next plan would lose what the
+    // last version placed.
+    let restore_record = |saved: &Path, target: &Path| -> std::io::Result<()> {
+        if saved.is_file() {
+            crate::storage::write_atomic(target, &fs::read(saved)?)
+        } else if target.is_file() {
+            fs::remove_file(target)
+        } else {
+            Ok(())
+        }
+    };
     let mut failed = Vec::new();
     for path in changed {
         let saved = snapshot.join("minecraft").join(path);
@@ -558,7 +587,7 @@ fn undo(
         super::RECORD_FILE,
         super::addon::ADDED_FILE,
     ] {
-        if restore(&snapshot.join(file), &dirs.instance.join(file)).is_err() {
+        if restore_record(&snapshot.join(file), &dirs.instance.join(file)).is_err() {
             failed.push(file.to_string());
         }
     }
@@ -575,5 +604,52 @@ fn undo(
             failed.join(", "),
             snapshot.display()
         ))
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use crate::modpack::{FileSource, PackFile};
+
+    /// A file to remove that is reached through a folder the player linked out of the
+    /// instance (a shared `resourcepacks/` holding the same bytes) is left alone.
+    #[test]
+    fn a_removal_through_a_linked_folder_is_skipped() {
+        let temp = tempfile::tempdir().unwrap();
+        let game = temp.path().join("game");
+        let shared = temp.path().join("shared");
+        fs::create_dir_all(&game).unwrap();
+        fs::create_dir_all(&shared).unwrap();
+        fs::write(shared.join("pack.zip"), b"pack").unwrap();
+        std::os::unix::fs::symlink(&shared, game.join("resourcepacks")).unwrap();
+        let sha1 = super::super::import::sha1_on_disk(&shared.join("pack.zip")).unwrap();
+        let current = ModpackRecord {
+            files: [(
+                "resourcepacks/pack.zip".to_string(),
+                PackFile {
+                    sha1,
+                    source: FileSource::Index,
+                    project: None,
+                    sha256: None,
+                },
+            )]
+            .into(),
+            ..ModpackRecord::default()
+        };
+        let plan = plan_files(
+            Some(&game),
+            &current,
+            &BTreeMap::new(),
+            ModpackRecord::default(),
+            merge::Rules::default(),
+        );
+        assert_eq!(plan.removals, ["resourcepacks/pack.zip"]);
+        let staging = temp.path().join("staging");
+        fs::create_dir_all(&staging).unwrap();
+        let mut changed = BTreeSet::new();
+        swap_in(&game, &staging, &plan, &mut changed).unwrap();
+        assert!(shared.join("pack.zip").is_file());
+        assert!(changed.is_empty());
     }
 }

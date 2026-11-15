@@ -392,6 +392,7 @@ fn apply_servers(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) 
                     "survival-smp-tweaks.jar".into(),
                 ],
                 server_only: vec!["mods/survival-smp-tweaks.jar".into()],
+                download_bytes: 187_400_000,
                 ..Summary::default()
             };
             if scene == "servers-install-missing" {

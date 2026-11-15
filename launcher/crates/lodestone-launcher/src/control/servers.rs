@@ -522,6 +522,7 @@ fn summary_json(summary: &launcher_core::cores::image_sync::plan::Summary) -> Va
         "server_only": summary.server_only,
         "missing": missing_json(&summary.missing),
         "curseforge": summary.curseforge_listed,
+        "download_bytes": summary.download_bytes,
     })
 }
 
@@ -575,6 +576,7 @@ fn changes_json(prompt: &crate::servers::UpdatePrompt) -> Value {
         "curseforge": prompt.curseforge,
         "loader": prompt.loader,
         "only_lacking": prompt.only_lacking,
+        "download_bytes": prompt.download_bytes,
     })
 }
 

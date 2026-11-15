@@ -54,6 +54,18 @@ pub fn before_server_update(images: &Images, instance: &str, server: &str) -> bo
     }
 }
 
+/// Refuses `plan` when the data folder's disk lacks room for the files it writes
+/// (staged first, then renamed in): a view may place up to 64 GB, and a hostile server
+/// could otherwise fill the player's disk once they accept. Unknown free space (the
+/// system wouldn't say) doesn't refuse.
+pub fn check_free_space(images: &Images, plan: &ServerPlan) -> Result<(), SyncError> {
+    let needed: u64 = plan.update.writes().map(|(fetch, _)| fetch.size()).sum();
+    match images.free_space() {
+        Some(free) if free < needed => Err(SyncError::NotEnoughSpace { needed, free }),
+        _ => Ok(()),
+    }
+}
+
 /// How old a staging folder an update left (`.lodestone-update-*`: a crash part way) is
 /// before the next server update deletes it.
 const STALE_STAGING: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
@@ -243,6 +255,7 @@ impl ServerUpdate {
             });
         }
         remove_stale_staging(&self.dirs);
+        check_free_space(&self.images, &self.ready.plan)?;
         let views = KeptViews::open(&self.dirs.instance);
         views
             .begin_placing(&self.ready.plan.view)
@@ -377,4 +390,77 @@ pub fn mark_applied(dirs: &InstanceDirs, view: &Image) -> Result<(), SyncError> 
     views.done_placing();
     views.prune(&view.id);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use lodestone_image::{Game, Kind, Loader as ImageLoader};
+
+    use super::*;
+    use crate::{
+        images::Timing,
+        modpack::{
+            FileSource, PackFile,
+            merge::{self, Digest, Fetch, Wanted},
+        },
+        paths::DataDir,
+    };
+
+    /// A view whose files need more room than the disk has is refused before anything
+    /// is downloaded.
+    #[test]
+    fn a_plan_larger_than_the_free_space_is_refused() {
+        let temp = tempfile::tempdir().unwrap();
+        let images = Images::with_timing(&DataDir::at(temp.path().join("data")), Timing::default());
+        let sha256 = "ab".repeat(32);
+        let new: BTreeMap<String, Wanted> = [(
+            "mods/big.jar".to_string(),
+            Wanted {
+                digest: Digest::Sha256(sha256.clone()),
+                record: PackFile {
+                    sha1: String::new(),
+                    source: FileSource::Index,
+                    project: None,
+                    sha256: Some(sha256.clone()),
+                },
+                fetch: Fetch::Object {
+                    sha256,
+                    size: 10_000,
+                },
+            },
+        )]
+        .into();
+        let update = update::plan_files(
+            None,
+            &ModpackRecord::default(),
+            &new,
+            ModpackRecord::default(),
+            merge::Rules::default(),
+        );
+        let plan = ServerPlan {
+            view: Image::new(
+                Kind::Content,
+                Game {
+                    minecraft: "1.21.1".into(),
+                    loader: ImageLoader::Vanilla,
+                    loader_version: None,
+                },
+            ),
+            update,
+            summary: Default::default(),
+            loader: None,
+        };
+        *images.fake_free.lock().unwrap() = Some(5_000);
+        assert!(matches!(
+            check_free_space(&images, &plan),
+            Err(SyncError::NotEnoughSpace {
+                needed: 10_000,
+                free: 5_000
+            })
+        ));
+        *images.fake_free.lock().unwrap() = Some(20_000);
+        assert!(check_free_space(&images, &plan).is_ok());
+    }
 }

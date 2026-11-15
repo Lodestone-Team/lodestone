@@ -251,6 +251,7 @@ pub fn text(message: M) -> &'static str {
         M::SummaryBase => "整合包：{pack} {version}",
         M::SummaryAddedMods => "服务器添加的模组（{count}）",
         M::SummaryServerOnly => "只有服务器才有的文件（{count}）",
+        M::SummaryDownload => "下载：{size}",
         M::MissingTitle => "服务器无法共享的文件（{count}）",
         M::MissingNote => "你将没有这些文件，缺少它们可能无法加入。请询问服务器的所有者。",
         M::MissingLine => "{name}（{reason}）",
@@ -292,6 +293,11 @@ pub fn text(message: M) -> &'static str {
         }
         M::ErrOlderCore => "该主机运行的是较旧版本的 Lodestone，无法以这种方式共享其服务器的文件。",
         M::ErrInstallFiles => "无法安装服务器的文件：{detail}",
+        M::ErrStoppedSharing => {
+            "服务器已停止共享其文件，因此无法检查这些文件。请询问服务器的所有者。"
+        }
+        M::ErrNotEnoughSpace => "可用空间不足以存放服务器的文件：需要 {needed}，可用 {free}。",
+        M::ErrNotLinked => "该实例已不再关联到此服务器，因此没有安装任何内容。",
 
         M::KeyDays90 => "90 天",
         M::KeyYear => "1 年",

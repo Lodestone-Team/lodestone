@@ -535,6 +535,8 @@ pub struct UpdatePrompt {
     /// Nothing changes on disk: the server's view only lacks files the player didn't lack
     /// before (`missing`, `curseforge`). Playing records the view; nothing is installed.
     pub only_lacking: bool,
+    /// What the update downloads, in bytes.
+    pub download_bytes: u64,
     pending: Option<PendingPull>,
     pub focus: FocusHandle,
 }
@@ -2364,6 +2366,7 @@ impl Servers {
         let ready = pending.ready.clone();
         let image = pending.image.clone();
         let work = cx.background_spawn(async move {
+            launcher_core::cores::image_sync::apply::check_free_space(&images, &ready.plan)?;
             let sources = lookup.sources(&ready, &image);
             let result = build_instance(
                 &store,
@@ -2627,6 +2630,7 @@ impl Servers {
                                 curseforge: summary.curseforge_listed.clone(),
                                 loader,
                                 only_lacking,
+                                download_bytes: summary.download_bytes,
                                 pending: Some(PendingPull::SyncImage(PendingImage {
                                     core: core_uuid.clone(),
                                     server,
@@ -2640,11 +2644,19 @@ impl Servers {
                         );
                     }
                     Err(SyncError::Image(ImageError::OlderCore)) => {
-                        let had_pack = this
-                            .instance_links
-                            .get(&instance_id)
-                            .is_some_and(|link| link.pack_etag.is_some());
-                        if had_pack || server.has_pack() {
+                        let link = this.instance_links.get(&instance_id);
+                        let had_pack = link.is_some_and(|link| link.pack_etag.is_some());
+                        // An instance that applied a view from this server isn't moved back
+                        // to the `.mrpack`, whose overrides may land where a view can't: a
+                        // core that served images and now answers 404 stopped sharing.
+                        if link.is_some_and(|link| link.view.is_some()) {
+                            this.fail_core(
+                                &core_uuid,
+                                || t(M::CheckModsFailed).into(),
+                                SyncError::StoppedSharing,
+                                cx,
+                            );
+                        } else if had_pack || server.has_pack() {
                             this.play_with_pack(&core_uuid, server, cx)
                         } else {
                             this.join(&core_uuid, &server, &instance_id, cx)
@@ -2745,6 +2757,7 @@ impl Servers {
                     Ok(Check::Changed(boxed)) => {
                         let (pack_path, plan, etag) = *boxed;
                         let changes = PackChanges::from_plan(&plan);
+                        let download_bytes = plan.download_size();
                         let focus = cx.focus_handle();
                         this.prompt.open(
                             UpdatePrompt {
@@ -2756,6 +2769,7 @@ impl Servers {
                                 curseforge: Vec::new(),
                                 loader: None,
                                 only_lacking: false,
+                                download_bytes,
                                 pending: Some(PendingPull::Sync(PendingSync {
                                     core: core_uuid.clone(),
                                     server,
@@ -2946,6 +2960,16 @@ impl Servers {
         let Some(instance_id) = pending.instance_id.clone() else {
             return;
         };
+        // the instance may have been unlinked while the prompt waited for the player
+        let linked = self.instance_links.get(&instance_id).is_some_and(|link| {
+            link.core_uuid == pending.core && link.server_uuid == pending.server.uuid
+        });
+        if !linked {
+            return self.fail(
+                move || (t(M::UpdateModsFailed).into(), t(M::ErrNotLinked).into()),
+                cx,
+            );
+        }
         let row: RowKey = (pending.core.clone(), pending.server.uuid.clone());
         // another job of the row (another update, asking the server again) is under way
         if self.busy.contains_key(&row) {
@@ -3569,6 +3593,7 @@ impl Servers {
             curseforge: Vec::new(),
             only_lacking,
             loader,
+            download_bytes: 0,
             pending: None,
             focus: cx.focus_handle(),
         };
@@ -3847,6 +3872,12 @@ pub fn sync_error(err: &SyncError) -> String {
         SyncError::Image(ImageError::Invalid(detail)) => tr!(M::ErrRefused, detail = detail),
         SyncError::BaseFileMissing(path) => tr!(M::ErrBaseFileMissing, path = path),
         SyncError::Image(ImageError::OlderCore) => t(M::ErrOlderCore).into(),
+        SyncError::StoppedSharing => t(M::ErrStoppedSharing).into(),
+        SyncError::NotEnoughSpace { needed, free } => tr!(
+            M::ErrNotEnoughSpace,
+            needed = format::bytes_binary(*needed),
+            free = format::bytes_binary(*free)
+        ),
         SyncError::Cancelled | SyncError::Image(ImageError::Cancelled) => t(M::Cancelled).into(),
         SyncError::Modpack(ModpackError::Cancelled) => t(M::Cancelled).into(),
         SyncError::Modpack(ModpackError::Image(err)) => sync_error(&SyncError::Image(err.clone())),

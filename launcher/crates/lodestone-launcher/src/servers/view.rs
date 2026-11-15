@@ -1534,6 +1534,12 @@ fn update_dialog(servers: &Entity<Servers>, prompt: &UpdatePrompt) -> AnyElement
     if let Some(loader) = &prompt.loader {
         lines.push(tr!(M::ChangeLoader, loader = loader));
     }
+    if prompt.download_bytes > 0 {
+        lines.push(tr!(
+            M::SummaryDownload,
+            size = format::bytes_binary(prompt.download_bytes)
+        ));
+    }
     let update = servers.clone();
     let play = servers.clone();
     let cancel = servers.clone();
@@ -1726,6 +1732,13 @@ fn summary_block(summary: &Summary) -> gpui::Div {
         .children(summary.base.as_ref().map(|(pack, version)| {
             small(tr!(M::SummaryBase, pack = pack, version = version))
                 .text_color(crate::theme::ink::text())
+        }))
+        .children((summary.download_bytes > 0).then(|| {
+            small(tr!(
+                M::SummaryDownload,
+                size = format::bytes_binary(summary.download_bytes)
+            ))
+            .text_color(crate::theme::ink::text())
         }))
         .children(section(
             tr!(

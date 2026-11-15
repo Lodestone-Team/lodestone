@@ -77,6 +77,18 @@ pub enum SyncError {
         "The server now runs {game}, and this instance is for {instance}. Make a new instance for the server."
     )]
     GameChanged { game: String, instance: String },
+    /// The instance applied a view from this server, which now answers 404 on
+    /// `…/image`: not taken for an older core, whose `.mrpack` fallback may place files
+    /// where a view can't ("M4b decisions", "The fallback").
+    #[error(
+        "The server stopped sharing its files, so they couldn't be checked. Ask the server's owner."
+    )]
+    StoppedSharing,
+    /// The disk lacks the room the files need, before anything is downloaded.
+    #[error(
+        "There isn't enough free space for the server's files: {needed} bytes are needed and {free} are free."
+    )]
+    NotEnoughSpace { needed: u64, free: u64 },
     #[error(transparent)]
     Modpack(#[from] ModpackError),
     #[error("{0}")]
