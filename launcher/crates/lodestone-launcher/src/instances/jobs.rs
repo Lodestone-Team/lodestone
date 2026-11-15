@@ -69,6 +69,13 @@ impl Instances {
     pub fn files_busy(&self, id: &str) -> bool {
         self.busy_files.is_busy(id)
     }
+
+    /// Whether another job is writing the instance's files: a tab's job
+    /// ([`Self::files_busy`]) or a modpack update or add-on pack being applied. A restore
+    /// waits for both, so it never swaps files a job is still writing.
+    pub fn files_or_pack_busy(&self, id: &str) -> bool {
+        self.files_busy(id) || self.modpack_updates.contains_key(id)
+    }
 }
 
 /// The jobs of a tab that shows one instance at a time, for the instances it isn't
@@ -199,6 +206,37 @@ mod play_tests {
         assert!(!played(&instances, &mut cx), "Play waits for the install");
 
         drop(busy);
+        instances.update(&mut cx, |instances, cx| instances.play(&id, cx));
+        cx.run_until_parked();
+        assert!(played(&instances, &mut cx), "then it plays");
+    }
+
+    #[test]
+    fn play_waits_for_a_restore_that_couldnt_be_undone() {
+        let mut cx = TestAppContext::single();
+        let instances = cx.update(|cx| {
+            let accounts = crate::preview::accounts("signed-out", cx);
+            crate::preview::instances("worlds", &accounts, cx)
+        });
+        cx.run_until_parked();
+        let id = instances.read_with(&cx, |instances, _| instances.list()[0].id.clone());
+        let played = |instances: &gpui::Entity<Instances>, cx: &mut TestAppContext| {
+            instances.read_with(cx, |instances, _| {
+                instances.log(&id).is_some_and(|log| !log.rows().is_empty())
+            })
+        };
+        // A journal the retry can't undo (it can't even be read): worlds or mods may be
+        // renamed aside.
+        let images = instances.read_with(&cx, |instances, _| instances.images());
+        let dir = images.store().instance_dir(&id).unwrap();
+        std::fs::create_dir_all(&dir).unwrap();
+        let journal = dir.join(launcher_core::images::swap::JOURNAL_FILE);
+        std::fs::write(&journal, b"not a journal").unwrap();
+        instances.update(&mut cx, |instances, cx| instances.play(&id, cx));
+        cx.run_until_parked();
+        assert!(!played(&instances, &mut cx), "Play waits for the restore");
+
+        std::fs::remove_file(&journal).unwrap();
         instances.update(&mut cx, |instances, cx| instances.play(&id, cx));
         cx.run_until_parked();
         assert!(played(&instances, &mut cx), "then it plays");

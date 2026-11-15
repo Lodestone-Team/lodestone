@@ -4,6 +4,10 @@
 //!   instances and their client modpacks, without signing in, while the owner allows it;
 //! - `GET /launcher/instances` and `GET /launcher/instances/{uuid}/client-pack`: the same
 //!   for the instances a signed-in user (or launcher key) can view;
+//! - `GET …/instances/{uuid}/image` and `GET …/instances/{uuid}/objects/{sha256}`
+//!   under both prefixes: what a player needs to join as an instance image (the client view
+//!   of the server's content image, deltas to it and the bytes only the server has, see
+//!   [`super::player_image`]), with the client pack's access rules;
 //! - `GET`/`PUT /instance/{uuid}/public_listing`: whether an instance is listed, and
 //!   what it shows (its [`PublicScope`]); only the owner changes it;
 //! - `GET /public_listing`: the scope of every instance, for the owner.
@@ -12,29 +16,33 @@
 //! allows (see [`PublicInstance`]), are cached, and answer "not found" alike for
 //! missing, unlisted and hidden instances.
 
+use std::net::SocketAddr;
+
 use axum::{
     body::Body,
-    extract::{Path, State},
+    extract::{ConnectInfo, Path, Query, State},
     http::{
         header::{
             CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_TYPE, ETAG, IF_NONE_MATCH,
         },
-        HeaderMap, StatusCode,
+        HeaderMap, Method, StatusCode,
     },
     response::Response,
     routing::get,
-    Json, Router,
+    Extension, Json, Router,
 };
 use color_eyre::eyre::{eyre, Context};
 use tokio_util::io::ReaderStream;
 
 use super::instance::sanitize_instance_dir_name;
 use super::instance_mods::{fabric_loader_version, mod_folder};
+use super::player_image::{image_response, object_response, ImageQuery};
 use super::util::{all_instances, get_instance, AuthedUser};
 use crate::{
     auth::user::{User, UserAction},
     error::{Error, ErrorKind},
     events::{Event, EventInner, InstanceEvent, InstanceEventInner},
+    images::objects::ClientKey,
     mods::{bad_request, client::build_client_pack, InstalledModLoader},
     prelude::GameInstance,
     public_listing::{
@@ -319,17 +327,39 @@ pub(crate) async fn pack_response(
         .context("Failed to build the response")?)
 }
 
+/// Whether anyone may fetch what players need of the instance (its client pack and image):
+/// listed with the client-pack scope while the switch is on, and there. "Not found" alike
+/// otherwise.
+async fn public_allows(state: &AppState, uuid: &InstanceUuid) -> Result<(), Error> {
+    let shared = public_scope(state, uuid)
+        .await
+        .is_some_and(|scope| scope.client_pack);
+    if !shared || !state.instances.contains_key(uuid) {
+        return Err(not_found());
+    }
+    Ok(())
+}
+
+/// Whether `requester` may fetch what players need of the instance: they can view it.
+async fn launcher_allows(
+    state: &AppState,
+    requester: &AuthedUser,
+    uuid: &InstanceUuid,
+) -> Result<(), Error> {
+    // checked first, so the reply does not show whether the instance exists
+    requester
+        .require(state, UserAction::ViewInstance(uuid.clone()))
+        .await?;
+    get_instance(state, uuid)?;
+    Ok(())
+}
+
 async fn get_public_client_pack(
     State(state): State<AppState>,
     Path(uuid): Path<InstanceUuid>,
     headers: HeaderMap,
 ) -> Result<Response, Error> {
-    let shared = public_scope(&state, &uuid)
-        .await
-        .is_some_and(|scope| scope.client_pack);
-    if !shared || !state.instances.contains_key(&uuid) {
-        return Err(not_found());
-    }
+    public_allows(&state, &uuid).await?;
     pack_response(&state, &uuid, &headers).await
 }
 
@@ -339,12 +369,57 @@ async fn get_launcher_client_pack(
     requester: AuthedUser,
     headers: HeaderMap,
 ) -> Result<Response, Error> {
-    // checked first, so the reply does not show whether the instance exists
-    requester
-        .require(&state, UserAction::ViewInstance(uuid.clone()))
-        .await?;
-    get_instance(&state, &uuid)?;
+    launcher_allows(&state, &requester, &uuid).await?;
     pack_response(&state, &uuid, &headers).await
+}
+
+async fn get_public_image(
+    State(state): State<AppState>,
+    Path(uuid): Path<InstanceUuid>,
+    Query(query): Query<ImageQuery>,
+) -> Result<Response, Error> {
+    public_allows(&state, &uuid).await?;
+    image_response(&state, &uuid, query).await
+}
+
+/// Who asks for an object, for the per-client download limit: the peer's address, which
+/// the main port's server gives every request (see `crate::images::objects::ClientKey`).
+fn client_of(peer: Option<Extension<ConnectInfo<SocketAddr>>>) -> Option<ClientKey> {
+    peer.map(|Extension(ConnectInfo(addr))| ClientKey::of_address(addr.ip()))
+}
+
+async fn get_public_object(
+    State(state): State<AppState>,
+    Path((uuid, sha256)): Path<(InstanceUuid, String)>,
+    method: Method,
+    headers: HeaderMap,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
+) -> Result<Response, Error> {
+    public_allows(&state, &uuid).await?;
+    object_response(&state, &uuid, &sha256, &method, &headers, client_of(peer)).await
+}
+
+async fn get_launcher_image(
+    State(state): State<AppState>,
+    Path(uuid): Path<InstanceUuid>,
+    // Before the sign-in: a bad query is refused before anything else, as on every route.
+    Query(query): Query<ImageQuery>,
+    requester: AuthedUser,
+) -> Result<Response, Error> {
+    launcher_allows(&state, &requester, &uuid).await?;
+    image_response(&state, &uuid, query).await
+}
+
+async fn get_launcher_object(
+    State(state): State<AppState>,
+    Path((uuid, sha256)): Path<(InstanceUuid, String)>,
+    requester: AuthedUser,
+    method: Method,
+    headers: HeaderMap,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
+) -> Result<Response, Error> {
+    launcher_allows(&state, &requester, &uuid).await?;
+    object_response(&state, &uuid, &sha256, &method, &headers, client_of(peer)).await
 }
 
 async fn get_public_listing(
@@ -521,6 +596,16 @@ pub fn get_public_instance_routes(state: AppState) -> Router {
         .route(
             "/launcher/instances/{uuid}/client-pack",
             get(get_launcher_client_pack),
+        )
+        .route("/public/instances/{uuid}/image", get(get_public_image))
+        .route(
+            "/public/instances/{uuid}/objects/{sha256}",
+            get(get_public_object),
+        )
+        .route("/launcher/instances/{uuid}/image", get(get_launcher_image))
+        .route(
+            "/launcher/instances/{uuid}/objects/{sha256}",
+            get(get_launcher_object),
         )
         .route(
             "/instance/{uuid}/public_listing",

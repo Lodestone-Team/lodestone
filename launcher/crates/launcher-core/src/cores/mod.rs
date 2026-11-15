@@ -27,6 +27,7 @@ pub mod connect_service;
 pub mod download;
 pub mod friends;
 pub mod hosting;
+pub mod image_sync;
 pub mod join;
 pub mod lan;
 pub mod lan_open;
@@ -34,6 +35,7 @@ pub mod link;
 pub mod live;
 pub mod local_claim;
 pub mod models;
+pub mod player_image;
 pub mod server_list;
 pub mod store;
 pub mod sync;
@@ -97,6 +99,7 @@ mod tests {
             max_player_count: None,
             has_client_pack: Some(false),
             listed: false,
+            public_only: false,
         }
     }
 

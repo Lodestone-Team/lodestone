@@ -98,6 +98,7 @@ mod event_broadcaster;
 mod events;
 pub mod global_settings;
 mod handlers;
+pub mod images;
 pub mod implementations;
 mod listen;
 pub mod local_claim;
@@ -106,6 +107,7 @@ mod minecraft_links;
 mod modpack;
 mod modrinth;
 mod mods;
+mod open_files;
 mod output_types;
 mod persist;
 mod port_manager;
@@ -173,13 +175,16 @@ pub(crate) mod test_util {
         );
         let code_execution = global_settings.code_execution_switch();
         let remote_access = global_settings.remote_access();
+        // each test core its own store, so parallel tests never share one
+        let images = Arc::new(crate::images::ImageService::new(dir.join("backups")));
+        let backups = Arc::new(crate::backups::BackupService::new(
+            images.clone(),
+            dir.join("instances"),
+        ));
         crate::AppState {
             remote_access,
-            // each test core its own store, so parallel tests never share one
-            backups: Arc::new(crate::backups::BackupService::new(
-                dir.join("backups"),
-                dir.join("instances"),
-            )),
+            images,
+            backups,
             instances: Arc::new(dashmap::DashMap::new()),
             users_manager: Arc::new(RwLock::new(users_manager)),
             events_buffer: Arc::new(Mutex::new(ringbuffer::AllocRingBuffer::new(512))),
@@ -340,9 +345,16 @@ pub struct AppState {
     remote_access: Arc<remote_access::RemoteAccess>,
     /// Server backups: the store, its locks and the running backups and restores.
     backups: Arc<backups::BackupService>,
+    /// Instance images: content images, and the collector of the backup folder they share.
+    images: Arc<images::ImageService>,
 }
 
 impl AppState {
+    /// Instance images: content images and the collector of the backup folder.
+    pub fn images(&self) -> &Arc<images::ImageService> {
+        &self.images
+    }
+
     /// Whether safe mode is on. Unlike `global_settings.lock().await.safe_mode()`, this
     /// takes no lock.
     pub fn safe_mode(&self) -> bool {
@@ -680,6 +692,12 @@ async fn kill_servers(instances: &DashMap<InstanceUuid, GameInstance>, states: &
 /// wait 60 s (`STOP_TIMEOUT` in lodestone-host's core_process.rs, `CORE_SHUTDOWN_TIMEOUT`
 /// in dashboard/src-tauri), and core/docker-compose.yml gives Docker a minute.
 const SHUTDOWN_STOP_TIMEOUT: Duration = Duration::from_secs(45);
+
+/// How long the core waits on shutdown, once its servers stopped, for their content work
+/// ([`images::ImageService::settle`]). With the 5 s backups get, [`SHUTDOWN_STOP_TIMEOUT`]
+/// and the 2 s a killed server gets to show as stopped, this stays under the 60 s the
+/// Hosts wait for the core.
+const SHUTDOWN_SETTLE_TIMEOUT: Duration = Duration::from_secs(6);
 
 /// Stops every server for the core's shutdown, all at once, and returns when they have
 /// stopped. A running server is asked to stop, which saves its world, and is killed if it
@@ -1180,6 +1198,9 @@ pub async fn run_with(
     ),
     Error,
 > {
+    // Before anything opens files: player downloads and records need more than the 256
+    // macOS gives a program by default.
+    open_files::raise_limit();
     // first, so a stop asked for while the core starts is not lost
     let (stop_requests, mut stop_signal) = listen_for_stop_signals();
     // Stdin closing asks the core to stop like a signal does: reading it from the start
@@ -1345,8 +1366,9 @@ pub async fn run_with(
 
     // Interrupted restores are undone before the servers are read, so each is read as it
     // was before the restore.
+    let images = Arc::new(images::ImageService::new(path_to_backups()));
     let backups = Arc::new(backups::BackupService::new(
-        path_to_backups(),
+        images.clone(),
         path_to_instances.clone(),
     ));
     {
@@ -1374,6 +1396,7 @@ pub async fn run_with(
     local_claims.clean_up().await;
     let shared_state = AppState {
         backups: backups.clone(),
+        images: images.clone(),
         remote_access: remote_access.clone(),
         local_claims: Arc::new(local_claims),
         connect: Arc::new(connect::ConnectShares::new(
@@ -1451,6 +1474,28 @@ pub async fn run_with(
     tokio::spawn(crate::modpack::updates::watch(shared_state.clone()));
     // scheduled backups; ends when the backup service is cancelled at shutdown
     tokio::spawn(backups::scheduler::run(shared_state.clone()));
+
+    // Instance images: where merged records find their servers.
+    images.set_instances(Arc::new(images::AppInstances {
+        instances: shared_state.instances.clone(),
+        root: images.root().to_path_buf(),
+    }));
+    images::set_global(images.clone());
+    // temporary files a crash left, and the first content image of each stopped server
+    {
+        let instances = snapshot_instances(&shared_state.instances);
+        let uuids: Vec<InstanceUuid> = instances.iter().map(|(uuid, _)| uuid.clone()).collect();
+        tokio::spawn(images.clone().startup_sweep(uuids));
+        let mut roots = Vec::with_capacity(instances.len());
+        for (_, instance) in &instances {
+            roots.push(instance.path().await);
+        }
+        tokio::task::spawn_blocking(move || {
+            for root in roots {
+                handlers::instance_fs::sweep_upload_leftovers(&root);
+            }
+        });
+    }
 
     // Asked to stop while starting: start no server only to stop it again. The shutdown
     // below runs as soon as the caller runs the core.
@@ -1744,6 +1789,16 @@ pub async fn run_with(
                 // Servers refuse to start once the shutdown has begun, so this should find
                 // none; but one that got past that would run on without the core: kill it.
                 kill_servers(&shared_state.instances, &[State::Starting, State::Running]).await;
+                // Each stop takes its content baseline again in the background, and edits
+                // may still be queued to record; the process exits right after this future.
+                let uuids = snapshot_instances(&shared_state.instances)
+                    .into_iter()
+                    .map(|(uuid, _)| uuid)
+                    .collect();
+                shared_state
+                    .images
+                    .settle(uuids, SHUTDOWN_SETTLE_TIMEOUT)
+                    .await;
                 // only now: servers may use temporary files until they stop
                 let tmp = path_to_tmp();
                 if tokio::fs::try_exists(tmp).await.unwrap_or(true) {

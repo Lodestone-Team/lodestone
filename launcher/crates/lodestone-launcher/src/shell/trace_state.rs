@@ -38,7 +38,6 @@ impl Modal {
             Modal::Offline { .. } => "offline_account",
             Modal::Skin { .. } => "change_skin",
             Modal::RemoveAccount { .. } => "remove_account",
-            Modal::LoaderChange { .. } => "loader_change",
             Modal::DeleteWorld { .. } => "delete_world",
             Modal::ReplaceWorld { .. } => "replace_world",
             Modal::ModpackUpdate { .. } => "modpack_update",

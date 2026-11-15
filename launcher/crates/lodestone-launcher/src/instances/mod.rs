@@ -6,6 +6,7 @@ pub mod appearance;
 mod auto_config;
 pub mod console;
 pub mod content;
+mod copy_as;
 pub mod fields;
 mod files;
 pub mod import;
@@ -54,6 +55,7 @@ use launcher_core::{
         platform::{self, Arch, Os, Platform},
         process::{GameEvent, GameProcess},
     },
+    images::{Checked, Images, labels},
     instances::{Instance, InstanceStore},
     paths::DataDir,
     settings::{self as launcher_settings, InstanceDefaults, Settings},
@@ -300,6 +302,9 @@ struct Run {
     /// The game, prepared, waiting for the player to agree to run it under Rosetta 2
     /// ([`InstancesEvent::ConfirmRosetta`]); the run stays preparing meanwhile.
     pending: Option<PendingStart>,
+    /// The check before the launch ran ([`Images::before_launch`]), so the instance's
+    /// content images wait for this run to end ([`Images::session_ended`]).
+    image_session: bool,
 }
 
 /// One of [`Instances::rosetta_note`]'s answers from a version file: the answer,
@@ -329,6 +334,7 @@ impl Default for Run {
             window_opened: false,
             window_wait: None,
             pending: None,
+            image_session: false,
         }
     }
 }
@@ -419,10 +425,16 @@ pub enum InstancesEvent {
         message: SharedString,
         about: About,
     },
-    /// The instance's loader was changed outside its Settings tab.
+    /// The instance's loader or Minecraft version was changed outside its Settings tab:
+    /// by a modpack update, to match its linked server's pack, or by restoring a
+    /// snapshot's mods. The user never changes them in place; a copy with another
+    /// version or loader is a new instance.
     LoaderChanged(String),
-    /// A `.lodesnap` file was dropped or picked: offer to make an instance from it.
+    /// An image file (`.lodeimg`) was dropped or picked: offer to make an instance from it.
     ImportSnapshot(std::path::PathBuf),
+    /// The snapshot before a modpack update failed, so nothing changed: ask again, saying
+    /// why, and offer to update without one.
+    ModpackUpdateNeedsSnapshot(Box<modpacks::UpdatePrompt>),
     /// A game's window opened: the log said so, or it has run for
     /// [`WINDOW_WAIT`] without saying. Sent once per run.
     GameWindowOpened(String),
@@ -480,6 +492,10 @@ pub struct Instances {
     /// Instances whose files a job of their Content or Worlds tab, or a snapshot, is
     /// writing (see `jobs.rs`).
     busy_files: jobs::BusyCount,
+    /// Instances whose game change waits for its snapshot before `instance.json` is saved
+    /// ([`Instances::save_after_snapshot`]), with the settings saved meanwhile: they are
+    /// saved once that save is done, rather than taken for a change made elsewhere.
+    saves_after_snapshot: HashMap<String, Option<Instance>>,
     /// Instance images read for Undo, with the file's modification time and size when
     /// read: a change that leaves an image alone doesn't read it again.
     undo_images: HashMap<PathBuf, (SystemTime, u64, Arc<Vec<u8>>)>,
@@ -543,16 +559,21 @@ pub struct Instances {
     curseforge: Option<Arc<CurseForge>>,
     /// The downloader for content files.
     content_downloader: Downloader,
-    /// "Switch to Fabric" in progress.
-    loader_switch: Option<Task<()>>,
     /// Modpacks being made into instances.
     imports: Vec<modpacks::ImportJob>,
     next_import: u64,
+    /// The instance each finished "Copy with another version or loader" job made, by
+    /// job id.
+    copies: HashMap<u64, String>,
+    /// Each instance's snapshots, newest first, once read (see snapshots.rs).
+    snapshot_rows: HashMap<String, snapshots::SnapshotList>,
+    snapshot_tasks: HashMap<String, Task<()>>,
+    /// How many times each instance's snapshot list changed (taken, pinned, deleted, pruned:
+    /// `Images::watch_snapshots`), so views that show snapshots (the Worlds tab's backups)
+    /// read them again.
+    snapshot_revisions: HashMap<String, u64>,
     /// Files of an imported CurseForge pack the user downloads from curseforge.com, by
     /// instance; the Content tab takes them when it shows that instance.
-    /// Each instance's snapshots, newest first, once read (see snapshots.rs).
-    snapshot_rows: HashMap<String, Vec<snapshots::SnapshotRow>>,
-    snapshot_tasks: HashMap<String, Task<()>>,
     pending_downloads:
         HashMap<String, Vec<launcher_core::content::curseforge_install::CfPlannedFile>>,
     /// Modpack updates in progress, by instance.
@@ -562,6 +583,9 @@ pub struct Instances {
     content_revisions: HashMap<String, u64>,
     /// Redraws while imports and updates run.
     import_ticker: Option<Task<()>>,
+    /// The instances' content images: every action that changes an instance's content
+    /// begins an operation here ([`Images::begin`]) in its background task.
+    images: Arc<Images>,
     /// Counts changes to the shared game settings made in the launcher's Settings, so
     /// an instance's Settings tab shows the new values.
     shared_revision: u64,
@@ -616,6 +640,41 @@ impl Instances {
             data_dir.clone(),
         );
         let store = InstanceStore::new(data_dir.instances_dir());
+        let images = Images::open(&data_dir);
+        // A restore a crash interrupted is finished or undone before anything can be
+        // played: on this thread, since it only renames folders (back, or to the trash
+        // that the task below empties).
+        let recovery = images.recover_restores();
+        if !recovery.broken.is_empty() {
+            log::warn!(
+                "Interrupted restores of {:?} couldn't be undone; Play tries again and waits until they are",
+                recovery.broken
+            );
+        }
+        // Instances deleted outside the Launcher (in Finder or Explorer) since it last ran:
+        // their images would keep their files from every collection. And the snapshot
+        // store of Launchers from before images, which nothing reads any more (their world
+        // backup zips are the user's files and stay where they are).
+        let forgetting = images.clone();
+        let old_store = data_dir.clone();
+        cx.background_spawn(async move {
+            forgetting.empty_restore_trash(None);
+            if let Err(err) = forgetting.forget_deleted() {
+                log::warn!("Couldn't forget the images of deleted instances: {err}");
+            }
+            launcher_core::disk::remove_old_snapshot_store(&old_store);
+        })
+        .detach();
+        // What succeeded in the last few seconds is recorded before the process ends,
+        // rather than found as "Changed by hand" at the next launch. On the window's
+        // thread: GPUI waits only 200 ms for a quit handler's future. Returns at once when
+        // nothing is queued.
+        let settling = images.clone();
+        cx.on_app_quit(move |_, _| {
+            settling.settle(Duration::from_secs(6));
+            async {}
+        })
+        .detach();
         // Copies of images that are gone, and the oldest past the limit.
         let hero_cache = launcher_core::hero_cache::HeroCache::new(&data_dir);
         let pruning = hero_cache.clone();
@@ -653,6 +712,7 @@ impl Instances {
             icon_task: None,
             file_ops: HashMap::new(),
             busy_files: jobs::BusyCount::default(),
+            saves_after_snapshot: HashMap::new(),
             undo_images: HashMap::new(),
             backgrounds: HashMap::new(),
             background_tasks: HashMap::new(),
@@ -677,17 +737,31 @@ impl Instances {
             modrinth: Some(modrinth),
             curseforge,
             content_downloader,
-            loader_switch: None,
             imports: Vec::new(),
             next_import: 0,
+            copies: HashMap::new(),
             pending_downloads: HashMap::new(),
             snapshot_rows: HashMap::new(),
             snapshot_tasks: HashMap::new(),
+            snapshot_revisions: HashMap::new(),
             modpack_updates: HashMap::new(),
             content_revisions: HashMap::new(),
             import_ticker: None,
+            images,
         };
         this.reload(cx);
+        this.follow_snapshot_changes(cx);
+        // Exports left from an earlier run were made to be shared then: the dialog that
+        // offered them is gone. Renamed away at once, so an export started now never
+        // writes into a folder being deleted, then deleted in the background.
+        let exports = this.snapshot_exports_dir();
+        let old = exports.with_file_name(format!("snapshot-exports-old-{}", std::process::id()));
+        if std::fs::rename(&exports, &old).is_ok() {
+            cx.background_spawn(async move {
+                let _ = std::fs::remove_dir_all(old);
+            })
+            .detach();
+        }
         if settings_notice.is_some() {
             this.notice = settings_notice;
         }
@@ -724,6 +798,16 @@ impl Instances {
 
     pub fn defaults(&self) -> &InstanceDefaults {
         &self.settings.instance_defaults
+    }
+
+    /// Whether a snapshot is taken after each play session of the instance `id`: its own
+    /// setting, else Settings › Instance defaults' (off by default).
+    pub fn snapshot_after_play(&self, id: &str) -> bool {
+        self.list()
+            .iter()
+            .find(|instance| instance.id == id)
+            .and_then(|instance| instance.snapshots.and_then(|s| s.after_play))
+            .unwrap_or(self.settings.instance_defaults.snapshot_after_play)
     }
 
     /// The Lodestone Host page's offer to download Lodestone Host was dismissed: it
@@ -846,14 +930,13 @@ impl Instances {
     }
 
     /// Whether the launcher is busy with work that quitting would stop half way: a
-    /// modpack being imported or updated, an export, files being copied or moved to
-    /// the Trash, a loader being switched.
+    /// modpack being imported or updated, an instance being copied (also with another
+    /// version or loader), an export, files moved to the Trash.
     pub fn background_jobs(&self) -> bool {
         !self.imports.is_empty()
             || !self.modpack_updates.is_empty()
             || !self.file_ops.is_empty()
             || self.exporting > 0
-            || self.loader_switch.is_some()
     }
 
     /// Whether any game is running.
@@ -1231,6 +1314,13 @@ impl Instances {
         *self.content_revisions.entry(id.to_string()).or_default() += 1;
     }
 
+    /// Whether a "Find it for me" search of the instance is saved: it has some of the mods
+    /// turned off until it ends, so an update that replaces files waits for it. One look at
+    /// the disk.
+    pub fn finder_saved(&self, id: &str) -> bool {
+        launcher_core::content::mod_finder::is_saved(&self.content_dirs(id).instance)
+    }
+
     pub fn is_active(&self, id: &str) -> bool {
         self.runs
             .get(id)
@@ -1300,6 +1390,21 @@ impl Instances {
     }
 
     pub fn create(
+        &mut self,
+        name: &str,
+        version: &str,
+        loader: Option<&LoaderChoice>,
+        cx: &mut Context<Self>,
+    ) -> Result<Instance, String> {
+        let instance = self.create_unrecorded(name, version, loader, cx)?;
+        self.record_created(&instance.id, labels::created(&instance.name), cx);
+        Ok(instance)
+    }
+
+    /// [`Self::create`] without recording the first content image: for a caller that
+    /// changes the instance next and records it first ([`record_created`]) in the task
+    /// that then changes it, so nothing it adds is in "Created".
+    pub(crate) fn create_unrecorded(
         &mut self,
         name: &str,
         version: &str,
@@ -1395,8 +1500,145 @@ impl Instances {
     }
 
     pub fn save(&mut self, instance: &Instance, cx: &mut Context<Self>) -> Result<(), String> {
+        self.save_now(instance, cx)
+    }
+
+    /// [`Self::save`] for a change the user makes to the instance's settings (the
+    /// Settings tab, Undo, the CLI): a change of its game ([`game_change`]: a new version
+    /// of its loader) takes a snapshot first ([`Self::save_after_snapshot`]) and returns
+    /// the save that waits for it; anything else is saved at once (`None`). A modpack's or
+    /// server's update saves with [`Self::save`]: it took its own snapshot before it
+    /// changed files.
+    pub fn save_settings(
+        &mut self,
+        instance: &Instance,
+        cx: &mut Context<Self>,
+    ) -> Result<Option<PendingSave>, String> {
+        // A game change still waits for its snapshot: this save follows it (compared then
+        // with what it saved), so neither is dropped for the other.
+        if let Some(queued) = self.saves_after_snapshot.get_mut(&instance.id) {
+            *queued = Some(instance.clone());
+            self.update_listed(instance.clone(), cx);
+            return Ok(None);
+        }
         let before = self.store.get(&instance.id).ok();
+        if let Some((before, change)) =
+            before.and_then(|before| game_change(&before, instance).map(|c| (before, c)))
+        {
+            return Ok(Some(self.save_after_snapshot(
+                before,
+                instance.clone(),
+                change,
+                cx,
+            )));
+        }
+        self.save_now(instance, cx).map(|()| None)
+    }
+
+    /// A change of the instance's game is a risky change (the next launch may change the
+    /// worlds and configs): a snapshot is taken first, in the background, and
+    /// `instance.json` saved once it is done. Meanwhile the list shows the new version,
+    /// and Play waits (the instance's files are busy). When something else saved the
+    /// instance meanwhile, this change is dropped rather than undo that one. A snapshot
+    /// that fails doesn't stop the save (as for every risky change); it, a dropped change
+    /// and a save that fails are each said in a notice, and the returned task says them
+    /// to a caller that waits (the control API).
+    pub(crate) fn save_after_snapshot(
+        &mut self,
+        before: Instance,
+        instance: Instance,
+        change: GameChange,
+        cx: &mut Context<Self>,
+    ) -> PendingSave {
+        let busy = self.mark_files_busy(&instance.id);
+        self.saves_after_snapshot.insert(instance.id.clone(), None);
+        self.update_listed(instance.clone(), cx);
+        let images = self.images.clone();
+        let id = instance.id.clone();
+        let game = instance.game_version.clone();
+        let loader = instance.loader;
+        let version = instance.loader_version.clone();
+        let taken = cx.background_spawn(async move {
+            let change = match change {
+                GameChange::LoaderVersion => launcher_core::images::RiskyChange::LoaderChange {
+                    loader,
+                    version: version.as_deref().unwrap_or_default(),
+                },
+                GameChange::Game => launcher_core::images::RiskyChange::GameChange {
+                    game_version: &game,
+                    loader,
+                    loader_version: version.as_deref(),
+                },
+            };
+            images.before_risky_change(&id, change)
+        });
+        let (tx, rx) = futures::channel::oneshot::channel();
+        cx.spawn(async move |this, cx| {
+            let snapshot_failed = taken.await.err().map(|err| err.to_string());
+            let result = this.update(cx, |this, cx| {
+                let _busy = busy;
+                let about = About::Instance(instance.id.clone());
+                if let Some(err) = &snapshot_failed {
+                    log::warn!(
+                        "Couldn't take a snapshot of {} before its loader changed: {err}",
+                        instance.id
+                    );
+                    cx.emit(InstancesEvent::Notice {
+                        title: t(M::NoSnapshotBeforeGameChange).into(),
+                        message: err.clone().into(),
+                        about: about.clone(),
+                    });
+                }
+                let saved = if this.store.get(&instance.id).ok().as_ref() != Some(&before) {
+                    log::warn!(
+                        "{} was saved while its snapshot was taken; the loader change is dropped",
+                        instance.id
+                    );
+                    Err(t(M::LoaderChangeDropped).to_string())
+                } else {
+                    this.save_now(&instance, cx)
+                };
+                if let Err(err) = &saved {
+                    log::warn!("Couldn't save {}: {err}", instance.id);
+                    this.reload(cx);
+                    cx.emit(InstancesEvent::Notice {
+                        title: t(M::LoaderChangeNotSaved).into(),
+                        message: err.clone().into(),
+                        about,
+                    });
+                }
+                // Settings saved while the snapshot was taken follow, compared with what
+                // was just saved (another game change takes its own snapshot).
+                if let Some(Some(queued)) = this.saves_after_snapshot.remove(&instance.id)
+                    && let Err(err) = this.save_settings(&queued, cx)
+                {
+                    log::warn!("Couldn't save {}: {err}", instance.id);
+                    cx.emit(InstancesEvent::Notice {
+                        title: t(M::LoaderChangeNotSaved).into(),
+                        message: err.into(),
+                        about: About::Instance(instance.id.clone()),
+                    });
+                }
+                saved.map(|()| snapshot_failed)
+            });
+            if let Ok(result) = result {
+                tx.send(result).ok();
+            }
+        })
+        .detach();
+        files::answer(rx, cx)
+    }
+
+    /// Saves `instance.json` at once, recording the change of content it makes.
+    fn save_now(&mut self, instance: &Instance, cx: &mut Context<Self>) -> Result<(), String> {
+        let before = self.store.get(&instance.id).ok();
+        let operation = before
+            .as_ref()
+            .and_then(|before| self.settings_operation(before, instance));
         self.store.save(instance).map_err(|err| err.to_string())?;
+        if let Some(operation) = operation {
+            operation.succeed();
+        }
         if let Some(before) = before {
             launcher_core::trace::settings_changed(
                 "instance",
@@ -1507,6 +1749,45 @@ impl Instances {
         self.store.clone()
     }
 
+    /// The instances' content images, for actions that change content in the background.
+    pub fn images(&self) -> Arc<Images> {
+        self.images.clone()
+    }
+
+    /// The operation saving `after` over `before` is in the instance's content images, if
+    /// any: the game (Minecraft version, loader and loader version) and the recommended
+    /// memory are in them, so a change from Settings, Undo, a revert, a modpack's or a
+    /// server's update, or the CLI is an operation (merged with the update's own when it is
+    /// one), and the check before the next launch doesn't take it for a change by hand.
+    /// Succeed it once the instance is saved.
+    pub(crate) fn settings_operation(
+        &self,
+        before: &Instance,
+        after: &Instance,
+    ) -> Option<launcher_core::images::Operation> {
+        let minecraft =
+            (before.game_version != after.game_version).then_some(after.game_version.as_str());
+        let loader = (before.loader != after.loader
+            || before.loader_version != after.loader_version)
+            .then_some((after.loader, after.loader_version.as_deref()));
+        let label = match labels::game_changed(minecraft, loader, before.loader != after.loader) {
+            Some(label) => label,
+            None if before.recommended_memory != after.recommended_memory => {
+                labels::MEMORY_CHANGED.to_string()
+            }
+            None => return None,
+        };
+        Some(self.images.begin(&after.id, label))
+    }
+
+    /// Records the first content image of the new instance `id`, in the background.
+    pub(crate) fn record_created(&self, id: &str, label: String, cx: &mut Context<Self>) {
+        let images = self.images.clone();
+        let id = id.to_string();
+        cx.background_spawn(async move { record_created(&images, &id, &label) })
+            .detach();
+    }
+
     /// Keeps the Content tab off the network, for the offscreen screenshots.
     pub fn preview_offline(&mut self) {
         self.modrinth = None;
@@ -1524,6 +1805,12 @@ impl Instances {
         )));
     }
 
+    /// Where the base packs of servers' images are cached
+    /// (`launcher_core::cores::image_sync::base`).
+    pub fn server_pack_cache(&self) -> std::path::PathBuf {
+        self.data_dir.server_pack_cache_dir()
+    }
+
     pub fn content_downloader(&self) -> Downloader {
         self.content_downloader.clone()
     }
@@ -1538,13 +1825,9 @@ impl Instances {
         Some(Target::new(instance.game_version.clone(), instance.loader))
     }
 
-    pub fn is_switching_loader(&self) -> bool {
-        self.loader_switch.is_some()
-    }
-
-    /// The mod loader to offer a vanilla instance on `game_version`: Fabric, or Forge
-    /// where Fabric doesn't run (Fabric starts at Minecraft 1.14), with the version to
-    /// use. `None` when neither has a build for it.
+    /// The mod loader to offer a vanilla instance on `game_version` (for a copy with
+    /// it): Fabric, or Forge where Fabric doesn't run (Fabric starts at Minecraft 1.14),
+    /// with the version to use. `None` when neither has a build for it.
     pub fn mod_loader_for(
         &self,
         game_version: &str,
@@ -1567,64 +1850,6 @@ impl Instances {
             }
             Ok(None)
         })
-    }
-
-    /// Makes a vanilla instance a modded one, with the loader [`Self::mod_loader_for`]
-    /// offers: the same change as picking that loader in its Settings tab. The loader
-    /// installs the next time the game starts.
-    pub fn switch_to_mod_loader(&mut self, id: &str, cx: &mut Context<Self>) {
-        if self.is_active(id) || self.loader_switch.is_some() {
-            return;
-        }
-        let Ok(instance) = self.store.get(id) else {
-            return;
-        };
-        let fetch = self.mod_loader_for(&instance.game_version, cx);
-        let id = id.to_string();
-        self.loader_switch = Some(cx.spawn(async move |this, cx| {
-            let result = fetch.await;
-            this.update(cx, |this, cx| {
-                this.loader_switch = None;
-                let failed = |message: String, cx: &mut Context<Self>| {
-                    cx.emit(InstancesEvent::LaunchFailed {
-                        title: t(M::CouldntSwitchLoader).into(),
-                        message: message.into(),
-                        about: About::Instance(id.clone()),
-                    });
-                    cx.notify();
-                };
-                let (kind, version) = match result {
-                    Ok(Some(pick)) => pick,
-                    Ok(None) => {
-                        return failed(tr!(M::NoModLoaderFor, version = instance.game_version), cx);
-                    }
-                    Err(err) => return failed(err.to_string(), cx),
-                };
-                let mut changed = instance.clone();
-                changed.loader = launcher_core::instances::Loader::from_kind(Some(kind));
-                changed.loader_version = Some(version.id.clone());
-                match this.save(&changed, cx) {
-                    Ok(()) => {
-                        cx.emit(InstancesEvent::LoaderChanged(id.clone()));
-                        cx.emit(InstancesEvent::Notice {
-                            title: tr!(M::SwitchedTo, loader = kind.label()).into(),
-                            message: tr!(
-                                M::SwitchedToMessage,
-                                name = changed.name,
-                                loader = kind.label(),
-                                version = version.display
-                            )
-                            .into(),
-                            about: About::Instance(id.clone()),
-                        });
-                    }
-                    Err(err) => failed(err, cx),
-                }
-                cx.notify();
-            })
-            .ok();
-        }));
-        cx.notify();
     }
 
     /// The Play button's state for the selected instance.
@@ -1785,6 +2010,28 @@ impl Instances {
             });
             return;
         }
+        // A restore whose rollback failed (at startup, or while it ran) may have left
+        // worlds or mods renamed aside: the game would start without them and write fresh
+        // ones. Undone now if it can be (renames only, so on this thread, with the work
+        // folders deleted in the background); Play waits until it is.
+        if self.images.restore_unfinished(id) {
+            if let Err(err) = self
+                .images
+                .retry_unfinished_restore(id, Duration::from_millis(300))
+            {
+                log::warn!("Play of {id} waits for an unfinished restore: {err}");
+                cx.emit(InstancesEvent::LaunchFailed {
+                    title: t(M::CouldntStartMinecraft).into(),
+                    message: t(M::RestoreUnfinished).into(),
+                    about: About::Instance(id.to_string()),
+                });
+                return;
+            }
+            let images = self.images.clone();
+            let instance = id.to_string();
+            cx.background_spawn(async move { images.empty_restore_trash(Some(&instance)) })
+                .detach();
+        }
         let Ok(mut instance) = self.store.get(id) else {
             return;
         };
@@ -1827,6 +2074,7 @@ impl Instances {
             .accounts
             .update(cx, |accounts, cx| accounts.launch_account(cx));
         let installer = self.installer.clone();
+        let images = self.images.clone();
         let data = self.data_dir.clone();
         let machine = self.machine.clone();
         let game_dir = self.store.game_dir(id);
@@ -1853,6 +2101,29 @@ impl Instances {
                     return;
                 }
             };
+            // Content changed by hand since the last record is recorded before the game
+            // can change anything (see `Images::before_launch`); it never stops a launch.
+            let checked = cx
+                .background_spawn({
+                    let images = images.clone();
+                    let id = id.clone();
+                    async move { images.before_launch(&id) }
+                })
+                .await;
+            this.update(cx, |this, _| {
+                let note = content_check_note(&checked);
+                match this.runs.get_mut(&id) {
+                    Some(run) if !matches!(run.state, RunState::Idle) => {
+                        run.image_session = true;
+                        if let Some((level, note)) = note {
+                            run.log.note(level, note);
+                        }
+                    }
+                    // The run ended while the check ran.
+                    _ => images.session_ended(&id),
+                }
+            })
+            .ok();
             let java = match &instance.java_override {
                 Some(path) => JavaChoice::Override(path.clone()),
                 None => JavaChoice::Mojang,
@@ -2051,10 +2322,21 @@ impl Instances {
             || serde_json::json!({ "instance": id, "state": "idle" }),
         );
         self.take_notes(id);
+        let after_play = self.snapshot_after_play(id);
         if let Some(run) = self.runs.get_mut(id) {
+            // Only a run whose game started is a play session to take a snapshot after:
+            // not a launch that failed or was cancelled while it was prepared.
+            let played = matches!(run.state, RunState::Running { .. });
+            let after_play = after_play && played;
             run.state = RunState::Idle;
             run.task = None;
             run.ticker = None;
+            // However the run ended (the game exited or crashed, or it never started):
+            // what the game wrote joins the next content image, not one of its own; and a
+            // snapshot follows when the instance asks for one after each session.
+            if std::mem::take(&mut run.image_session) {
+                self.images.session_ended_with(id, after_play);
+            }
         }
         cx.notify();
     }
@@ -2549,12 +2831,57 @@ fn ticker(id: String, cx: &mut Context<Instances>) -> Task<()> {
     })
 }
 
+/// Records the first content image of the new instance `id` (blocking: for a background
+/// task that just made it and changes it next). A failure is only logged: the check before
+/// its first launch records it then.
+pub(crate) fn record_created(images: &Images, id: &str, label: &str) {
+    if let Err(err) = images.record_now(id, label) {
+        log::warn!("Couldn't record the content of {id}: {err}");
+    }
+}
+
+/// [`record_created`] on a thread of its own, for an action that is done once the instance
+/// is made (Duplicate, an import): hashing a big pack's every file would hold its spinner.
+pub(crate) fn record_created_later(images: &Arc<Images>, id: &str, label: &str) {
+    let (images, id, label) = (images.clone(), id.to_string(), label.to_string());
+    let spawned = std::thread::Builder::new()
+        .name("lodestone-images-created".into())
+        .spawn(move || record_created(&images, &id, &label));
+    if let Err(err) = spawned {
+        log::warn!("Couldn't record the content of a new instance: {err}");
+    }
+}
+
+/// What the check before a launch did, as a note for the run's log: only a recorded
+/// change, or a failure.
+fn content_check_note(checked: &Checked) -> Option<(Level, String)> {
+    match checked {
+        Checked::Recorded(recorded) if recorded.changed => {
+            Some((Level::Info, t(M::ContentRecordedNote).to_string()))
+        }
+        Checked::Failed(err) => Some((Level::Warn, tr!(M::ContentCheckFailedNote, error = err))),
+        _ => None,
+    }
+}
+
 /// Creates the instances entity for the app, in the same data directory as the
 /// accounts.
 pub fn create(accounts: &Entity<Accounts>, cx: &mut App) -> Entity<Instances> {
     let data_dir = accounts.read(cx).data_dir().clone();
     let accounts = accounts.clone();
-    cx.new(|cx| Instances::new(data_dir, accounts, cx))
+    let instances = cx.new(|cx| Instances::new(data_dir, accounts, cx));
+    // The first content image of each instance from before the Launcher recorded them,
+    // so the first change to one has an image holding what it replaces. Only in the app:
+    // the offscreen scenes and tests make their own.
+    let images = instances.read(cx).images();
+    cx.background_spawn(async move {
+        let recorded = images.record_first_images();
+        if recorded > 0 {
+            log::info!("Recorded the first content image of {recorded} instances");
+        }
+    })
+    .detach();
+    instances
 }
 
 /// The progress label: "Downloading assets 1,234/4,567 · 210 MB/380 MB".
@@ -2766,6 +3093,40 @@ impl Ago {
     }
 }
 
+/// A save of an instance's settings that waits for the snapshot before it
+/// ([`Instances::save_after_snapshot`]): `Ok` with the snapshot's error when it failed and
+/// the save went on, `Err` when the change was dropped or couldn't be saved.
+pub type PendingSave = Task<Result<Option<String>, String>>;
+
+/// What a save of an instance's settings changes of its game, when it does: the changes a
+/// snapshot comes before in [`Instances::save_settings`]. Other fields (memory, name)
+/// changing in the same save don't matter.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum GameChange {
+    /// A new version of its loader (the Settings tab, Undo, `instances
+    /// set-loader-version`).
+    LoaderVersion,
+    /// Another Minecraft version or loader. The Launcher never makes this change in
+    /// place (a copy with another version or loader is a new instance; a pack's or
+    /// server's update takes its own snapshot), but a save that did would upgrade the
+    /// worlds at the next launch, so it is snapshotted too.
+    Game,
+}
+
+/// See [`GameChange`].
+pub(crate) fn game_change(before: &Instance, after: &Instance) -> Option<GameChange> {
+    if before.game_version != after.game_version || before.loader != after.loader {
+        Some(GameChange::Game)
+    } else if before.loader != launcher_core::instances::Loader::None
+        && before.loader_version != after.loader_version
+        && after.loader_version.is_some()
+    {
+        Some(GameChange::LoaderVersion)
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2969,5 +3330,204 @@ mod tests {
         }
         assert_eq!(log.run_recent().len(), 500);
         assert_eq!(log.latest_game_line().as_deref(), Some("line 599"));
+    }
+}
+
+#[cfg(test)]
+mod game_change_tests {
+    use super::*;
+    use launcher_core::instances::Loader;
+
+    fn fabric() -> Instance {
+        Instance {
+            game_version: "1.21.1".into(),
+            loader: Loader::Fabric,
+            loader_version: Some("0.16.9".into()),
+            ..Instance::default()
+        }
+    }
+
+    #[test]
+    fn a_new_loader_version_is_a_game_change_whatever_else_changes() {
+        let before = fabric();
+        let mut after = before.clone();
+        after.loader_version = Some("0.16.14".into());
+        assert_eq!(
+            game_change(&before, &after),
+            Some(GameChange::LoaderVersion)
+        );
+        // memory and the name saved with it don't hide it
+        after.memory = Some(launcher_core::instances::Memory {
+            min: 1024,
+            max: 4096,
+        });
+        after.name = "Renamed".into();
+        assert_eq!(
+            game_change(&before, &after),
+            Some(GameChange::LoaderVersion)
+        );
+    }
+
+    #[test]
+    fn another_minecraft_version_or_loader_is_a_game_change() {
+        let before = fabric();
+        let mut game = before.clone();
+        game.game_version = "1.21.4".into();
+        assert_eq!(game_change(&before, &game), Some(GameChange::Game));
+        let mut loader = before.clone();
+        loader.loader = Loader::Quilt;
+        loader.loader_version = Some("0.27.1".into());
+        assert_eq!(game_change(&before, &loader), Some(GameChange::Game));
+        let mut vanilla = before.clone();
+        vanilla.loader = Loader::None;
+        vanilla.loader_version = None;
+        assert_eq!(game_change(&before, &vanilla), Some(GameChange::Game));
+    }
+
+    #[test]
+    fn other_settings_arent_a_game_change() {
+        let before = fabric();
+        let mut after = before.clone();
+        after.name = "Renamed".into();
+        after.memory = Some(launcher_core::instances::Memory {
+            min: 1024,
+            max: 4096,
+        });
+        assert_eq!(game_change(&before, &after), None);
+        // a loader version for no loader, or none at all, isn't one either
+        let mut vanilla = before.clone();
+        vanilla.loader = Loader::None;
+        vanilla.loader_version = None;
+        let mut odd = vanilla.clone();
+        odd.loader_version = Some("1".into());
+        assert_eq!(game_change(&vanilla, &odd), None);
+        let mut cleared = before.clone();
+        cleared.loader_version = None;
+        assert_eq!(game_change(&before, &cleared), None);
+    }
+}
+
+/// Saving a new loader version from Settings, with the sample instances of the offscreen
+/// screenshots: the snapshot first, then the save, or the change dropped when the instance
+/// was saved meanwhile.
+#[cfg(all(test, feature = "screenshot"))]
+mod save_tests {
+    use gpui::TestAppContext;
+    use launcher_core::images::SnapshotKind;
+    use launcher_core::instances::Loader;
+
+    use super::*;
+
+    fn setup(cx: &mut TestAppContext) -> (Entity<Instances>, String) {
+        let instances = cx.update(|cx| {
+            let accounts = crate::preview::accounts("signed-out", cx);
+            crate::preview::instances("worlds", &accounts, cx)
+        });
+        cx.run_until_parked();
+        let id = instances.read_with(cx, |instances, _| instances.list()[0].id.clone());
+        // a Fabric instance, saved as a modpack update would (no snapshot)
+        instances.update(cx, |this, cx| {
+            let mut instance = this.store.get(&id).unwrap();
+            instance.loader = Loader::Fabric;
+            instance.loader_version = Some("0.16.9".into());
+            this.save(&instance, cx).unwrap();
+        });
+        (instances, id)
+    }
+
+    fn new_loader_version(
+        instances: &Entity<Instances>,
+        id: &str,
+        cx: &mut TestAppContext,
+    ) -> PendingSave {
+        instances.update(cx, |this, cx| {
+            let mut instance = this.store.get(id).unwrap();
+            instance.loader_version = Some("0.16.14".into());
+            instance.name = "Renamed too".into();
+            this.save_settings(&instance, cx)
+                .unwrap()
+                .expect("a new loader version waits for a snapshot")
+        })
+    }
+
+    #[gpui::test]
+    fn a_restore_waits_for_a_modpack_update_and_an_install(cx: &mut TestAppContext) {
+        let (instances, id) = setup(cx);
+        let busy = |cx: &mut TestAppContext| {
+            instances.read_with(cx, |this, _| this.files_or_pack_busy(&id))
+        };
+        assert!(!busy(cx));
+        // a modpack update being applied: it marks no files busy, but restores wait for it
+        instances.update(cx, |this, _| {
+            this.modpack_updates.insert(
+                id.clone(),
+                modpacks::UpdateJob {
+                    progress: Default::default(),
+                    cancel: CancelToken::new(),
+                    _task: gpui::Task::ready(()),
+                },
+            );
+        });
+        assert!(busy(cx));
+        instances.update(cx, |this, _| {
+            this.modpack_updates.remove(&id);
+        });
+        assert!(!busy(cx));
+        // a tab's install
+        let install = instances.read_with(cx, |this, _| this.mark_files_busy(&id));
+        assert!(busy(cx));
+        drop(install);
+        assert!(!busy(cx));
+    }
+
+    #[gpui::test]
+    fn a_new_loader_version_is_saved_after_a_snapshot(cx: &mut TestAppContext) {
+        let (instances, id) = setup(cx);
+        let pending = new_loader_version(&instances, &id, cx);
+        assert!(
+            instances.read_with(cx, |this, _| this.files_busy(&id)),
+            "Play waits for the snapshot"
+        );
+        cx.run_until_parked();
+        assert_eq!(futures::executor::block_on(pending), Ok(None));
+        let saved = instances.read_with(cx, |this, _| this.store.get(&id).unwrap());
+        assert_eq!(saved.loader_version.as_deref(), Some("0.16.14"));
+        assert_eq!(saved.name, "Renamed too");
+        let images = instances.read_with(cx, |this, _| this.images());
+        let records = images.snapshots(&id).unwrap().records;
+        assert_eq!(records[0].kind, SnapshotKind::BeforeChange);
+        assert_eq!(records[0].name, "Before changing Fabric to 0.16.14");
+    }
+
+    #[gpui::test]
+    fn a_save_meanwhile_wins_and_the_loader_change_says_it_was_dropped(cx: &mut TestAppContext) {
+        let (instances, id) = setup(cx);
+        let pending = new_loader_version(&instances, &id, cx);
+        // the CLI renames it while the snapshot is taken
+        instances.read_with(cx, |this, _| {
+            let mut instance = this.store.get(&id).unwrap();
+            instance.name = "Meanwhile".into();
+            this.store.save(&instance).unwrap();
+        });
+        cx.run_until_parked();
+        let result = futures::executor::block_on(pending);
+        assert_eq!(
+            result,
+            Err(crate::i18n::t(crate::i18n::InstancesMsg::LoaderChangeDropped).to_string())
+        );
+        let saved = instances.read_with(cx, |this, _| this.store.get(&id).unwrap());
+        assert_eq!(saved.name, "Meanwhile");
+        assert_eq!(saved.loader_version.as_deref(), Some("0.16.9"));
+        let listed = instances.read_with(cx, |this, _| {
+            this.list()
+                .iter()
+                .find(|i| i.id == id)
+                .map(|i| i.loader_version.clone())
+        });
+        assert_eq!(
+            listed,
+            Some(Some("0.16.9".into())),
+            "the list shows the saved one"
+        );
     }
 }

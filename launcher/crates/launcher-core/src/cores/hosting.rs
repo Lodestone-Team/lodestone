@@ -221,6 +221,7 @@ pub fn host_link(
         server_uuid: server_uuid.to_string(),
         server_name: server_name.to_string(),
         pack_etag: None,
+        view: None,
     }
 }
 

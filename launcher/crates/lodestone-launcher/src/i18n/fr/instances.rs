@@ -25,6 +25,10 @@ pub fn text(message: M) -> &'static str {
 
         M::PreparingNote => "Préparation de Minecraft {version} ({loader})",
         M::JoiningNote => "Connexion à {address} dès que le jeu aura démarré",
+        M::ContentRecordedNote => "Mods et configurations actuels de l’instance enregistrés",
+        M::ContentCheckFailedNote => {
+            "Impossible d’enregistrer les mods et configurations de l’instance\u{a0}: {error}"
+        }
         M::VerifyingNote => "Vérification des fichiers du jeu de Minecraft {version} ({loader})",
         M::RosettaNote => "Le jeu s’exécute dans un Java Intel (x86_64) via Rosetta 2.",
         M::StartingJavaNote => "Démarrage de Java\u{a0}: {command}",
@@ -91,18 +95,18 @@ pub fn text(message: M) -> &'static str {
         M::FilesBusy => {
             "Attendez que les fichiers de l’instance aient fini de changer, puis réessayez."
         }
+        M::NoSnapshotBeforeGameChange => "Aucun instantané n’a été pris avant le changement du jeu",
+        M::LoaderChangeNotSaved => "La nouvelle version du chargeur n’a pas été enregistrée",
+        M::LoaderChangeDropped => {
+            "L’instance a été modifiée pendant la prise de son instantané. Choisissez de nouveau la version du chargeur."
+        }
+        M::RestoreUnfinished => {
+            "Une restauration de cette instance n’a pas abouti et n’a pas pu être annulée\u{202F}: certains de ses mondes ou mods sont mis de côté. Fermez tout programme qui utilise ses fichiers et appuyez de nouveau sur Jouer, ou redémarrez Lodestone Launcher."
+        }
         M::CouldntSavePlayed => "Impossible d’enregistrer la date de la partie\u{a0}: {error}",
         M::CouldntSavePlayTime => "Impossible d’enregistrer le temps de jeu\u{a0}: {error}",
         M::ModpackExported => "Modpack exporté",
         M::CouldntExportModpack => "Impossible d’exporter le modpack",
-        M::CouldntSwitchLoader => "Impossible de passer à un chargeur de mods",
-        M::NoModLoaderFor => {
-            "Aucun chargeur de mods pris en charge par Lodestone Launcher ne fonctionne avec Minecraft {version}\u{a0}: Fabric commence à la 1.14, et Forge n’a pas de version pour celle-ci."
-        }
-        M::SwitchedTo => "Passage à {loader} effectué",
-        M::SwitchedToMessage => {
-            "{name} utilise maintenant {loader} {version}. Il sera installé la prochaine fois que vous cliquerez sur Jouer."
-        }
 
         M::SearchLog => "Rechercher dans le journal",
         M::LevelDebug => "Débogage",
@@ -155,7 +159,7 @@ pub fn text(message: M) -> &'static str {
 
         M::NotAModpack => "Ce n’est pas un modpack",
         M::NotMrpack => {
-            "{name} n’est pas un modpack. Les modpacks Modrinth se terminent par .mrpack, et ceux de CurseForge sont des fichiers .zip contenant un manifest.json."
+            "{name} n’est pas un modpack. Les modpacks Modrinth se terminent par .mrpack, et ceux de CurseForge sont des fichiers .zip contenant un manifest.json. Les instantanés partagés depuis Lodestone se terminent par .lodeimg."
         }
         M::CurseForgeUnreachable => {
             "C’est un modpack CurseForge, et cette copie de Lodestone Launcher ne peut pas joindre CurseForge."
@@ -172,6 +176,9 @@ pub fn text(message: M) -> &'static str {
         M::CouldntImportModpack => "Impossible d’importer le modpack",
         M::CouldntUpdateModpack => "Impossible de mettre à jour le modpack",
         M::StopGameFirst => "Arrêtez d’abord le jeu.",
+        M::FinishFinderFirst => {
+            "Terminez d’abord la recherche Le trouver pour moi\u{a0}: elle a désactivé une partie des mods."
+        }
         M::ModpackUpdated => "Modpack mis à jour",
         M::ModpackUpdatedMessage => {
             "{name} utilise maintenant {pack} {version}. Les fichiers remplacés sont conservés dans {path}."
@@ -181,6 +188,11 @@ pub fn text(message: M) -> &'static str {
         }
         M::DownloadingName => "Téléchargement de {name}",
         M::InstallingName => "Installation de {name}",
+        M::CopyReady => "L’instance {name} est prête",
+        M::CouldntCopy => "Impossible de faire la copie",
+        M::CopyingWorlds => "Copie des mondes",
+        M::CopyingPacksAndOptions => "Copie des packs de ressources, des shaders et des options",
+        M::InstallingMods => "Installation des mods",
         M::CopyingConfigs => "Copie des configurations du pack",
         M::RecordingFiles => "Enregistrement des fichiers du pack",
         M::SavingSnapshot => "Sauvegarde des fichiers de l’instance",
@@ -331,13 +343,17 @@ pub fn plural(message: P) -> [&'static str; 2] {
             "{count} fichier du pack a été ignoré\u{a0}: {path}.",
             "{count} fichiers du pack ont été ignorés, par exemple {path}.",
         ],
-        P::WorldsBackedUp => [
-            "{count} monde a d’abord été sauvegardé.",
-            "{count} mondes ont d’abord été sauvegardés.",
-        ],
         P::DownloadingFiles => [
             "Téléchargement de {count} fichier",
             "Téléchargement de {count} fichiers",
+        ],
+        P::CopyModsLeftBehind => [
+            "{count}\u{a0}mod n’a pas été copié\u{a0}: {names}.",
+            "{count}\u{a0}mods n’ont pas été copiés\u{a0}: {names}.",
+        ],
+        P::CopyDependenciesMissing => [
+            "{count}\u{a0}mod dont ils ont besoin n’a pas pu être installé\u{a0}: {names}.",
+            "{count}\u{a0}mods dont ils ont besoin n’ont pas pu être installés\u{a0}: {names}.",
         ],
         P::FinderModsLeft => [
             "{count} mod reste à vérifier",

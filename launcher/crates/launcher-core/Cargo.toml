@@ -20,6 +20,7 @@ image.workspace = true
 launcher-control.workspace = true
 libc.workspace = true
 lodestone_connect.workspace = true
+lodestone_image.workspace = true
 lodestone_minecraft.workspace = true
 lodestone_trace.workspace = true
 md-5.workspace = true

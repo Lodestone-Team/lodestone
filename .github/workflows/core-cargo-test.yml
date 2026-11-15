@@ -50,3 +50,9 @@ jobs:
 
     - name: Cargo Test Backend
       run: cargo test --locked --no-fail-fast
+
+    # Nothing in the workspace turns on the image crate's zstd feature yet (the core will,
+    # when its backups become images), so its zstd tests (reading the core's objects in
+    # place) run here on their own.
+    - name: Cargo Test Images with zstd
+      run: cargo test --locked --no-fail-fast -p lodestone_image --features zstd

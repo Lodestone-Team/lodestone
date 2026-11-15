@@ -97,9 +97,10 @@ const ModRow = ({
   };
 
   // players get it whatever the box says: Modrinth or the jar says so, or a
-  // mod they get depends on it
+  // mod they get depends on it; an optional mod the owner can leave out
+  const forPlayers = mod.client_requirement === 'required';
   const requiredAnyway =
-    mod.client_requirement === 'required' && !mod.client_marked;
+    forPlayers && !mod.client_marked && !mod.client_optional;
   const markTooltip = !canWrite
     ? t('mods.noWritePermission')
     : requiredAnyway && mod.required_by.length > 0
@@ -108,7 +109,9 @@ const ModRow = ({
         })
       : requiredAnyway
         ? t('mods.forPlayers.already')
-        : t('mods.forPlayers.hint');
+        : mod.client_optional
+          ? t('mods.forPlayers.optional')
+          : t('mods.forPlayers.hint');
 
   const mark = async (required: boolean) => {
     setMarking(true);
@@ -237,7 +240,7 @@ const ModRow = ({
             <Checkbox
               label={t('mods.forPlayers.label')}
               className="mr-2 text-small whitespace-nowrap"
-              checked={mod.client_marked || requiredAnyway}
+              checked={forPlayers}
               onChange={mark}
               disabled={!canWrite || marking || requiredAnyway}
             />

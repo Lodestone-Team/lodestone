@@ -1,0 +1,7 @@
+{
+  "status": 400,
+  "headers": {
+    "x-lodestone-rules": "1",
+    "content-type": "application/json"
+  }
+}

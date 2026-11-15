@@ -174,6 +174,12 @@ pub fn text(message: M) -> &'static str {
         }
         M::UpdateModsFailed => "Impossible de mettre à jour les mods",
         M::StopGameFirst => "Quittez d’abord le jeu.",
+        M::FilesBusy => {
+            "Attendez que les fichiers de l’instance aient fini de changer, puis réessayez."
+        }
+        M::FinishFinderFirst => {
+            "Terminez d’abord la recherche Le trouver pour moi\u{a0}: elle a désactivé une partie des mods."
+        }
         M::UpdateInstanceFailed => "Impossible de mettre à jour l’instance",
         M::InstanceNotSaved => {
             "Les mods ont été mis à jour, mais l’instance n’a pas pu être enregistrée\u{a0}: {error}"
@@ -286,6 +292,80 @@ pub fn text(message: M) -> &'static str {
         }
         M::InstallThisTime => "Installer cette fois",
         M::TrustAndInstall => "Faire confiance à {core} et installer",
+        M::BusyPreparing => "Le serveur prépare ses fichiers…",
+        M::BusyBasePack => "Téléchargement du modpack du serveur, {done} sur {total}…",
+        M::LacksFiles => "{name} a des fichiers que vous n’aurez pas",
+        M::LacksFilesBody => {
+            "Votre instance a les fichiers du serveur, mais le serveur en a qu’il ne peut pas partager. Vous ne pourrez peut-être pas le rejoindre sans eux."
+        }
+        M::InstallTitle => "Installer les fichiers de {name} ?",
+        M::InstallIntro => {
+            "La nouvelle instance pour {server} sur {core} reçoit Minecraft {version} avec {loader}, et ces fichiers du serveur."
+        }
+        M::SummaryBase => "Modpack : {pack} {version}",
+        M::SummaryAddedMods => "Mods ajoutés par le serveur ({count})",
+        M::SummaryServerOnly => "Fichiers que seul le serveur possède ({count})",
+        M::SummaryDownload => "Téléchargement : {size}",
+        M::MissingTitle => "Fichiers que le serveur n’a pas pu partager ({count})",
+        M::MissingNote => {
+            "Vous ne les aurez pas, et vous ne pourrez peut-être pas rejoindre sans eux. Demandez au propriétaire du serveur."
+        }
+        M::MissingLine => "{name} ({reason})",
+        M::WithheldSymlink => "c’est un lien",
+        M::WithheldUnreadable => "il n’a pas pu être lu",
+        M::WithheldBadName => "son nom ne peut pas être partagé",
+        M::WithheldKeptChanging => "il changeait sans cesse",
+        M::WithheldCurseForge => "CurseForge ne le permet pas",
+        M::WithheldOther => "non partagé",
+        M::CurseForgeTitle => "À télécharger vous-même sur CurseForge ({count})",
+        M::CurseForgeNote => "Leurs auteurs ne laissent pas d’autres applications les télécharger.",
+        M::Install => "Installer",
+        M::ChangeLoader => "Chargeur : {loader}",
+        M::ErrUpdateLodestone => {
+            "Ce serveur utilise un Lodestone plus récent. Mettez Lodestone Launcher à jour pour le rejoindre."
+        }
+        M::ErrPrepareFailed => {
+            "Le serveur n’a pas pu préparer ses fichiers. Réessayez dans quelques minutes."
+        }
+        M::ErrStillPreparing => {
+            "Le serveur prépare encore ses fichiers. Réessayez dans quelques minutes."
+        }
+        M::ErrFileFailed => "Le serveur n’a pas pu envoyer {path}. Réessayez plus tard.",
+        M::ErrViewChanged => {
+            "Les fichiers du serveur ont changé pendant le téléchargement. Réessayez."
+        }
+        M::ErrFilesChangedSince => {
+            "{path} a changé après la préparation de la mise à jour, donc rien n’a été modifié. Appuyez à nouveau sur Jouer."
+        }
+        M::ErrBasePackGone => {
+            "Le modpack du serveur n’est plus sur Modrinth, ses fichiers ne peuvent donc pas être téléchargés. Demandez au propriétaire du serveur de mettre le modpack à jour."
+        }
+        M::ErrGameChanged => {
+            "Le serveur utilise maintenant {game}, et cette instance est pour {instance}. Créez une nouvelle instance pour le serveur."
+        }
+        M::ErrCurseForgeUnreachable => {
+            "CurseForge est injoignable, et le serveur a des fichiers qui en viennent. Vérifiez votre connexion, puis réessayez."
+        }
+        M::ErrCurseForgeBase => {
+            "Le serveur repose sur un modpack CurseForge, que Lodestone Launcher ne peut pas encore installer depuis un serveur."
+        }
+        M::ErrRefused => {
+            "Le serveur a envoyé des fichiers que Lodestone Launcher n’installera pas : {detail}"
+        }
+        M::ErrBaseFileMissing => {
+            "Le modpack du serveur n’a pas de fichier {path}, alors que le serveur dit qu’il en vient. Demandez au propriétaire du serveur de mettre le modpack à jour."
+        }
+        M::ErrOlderCore => {
+            "L’hôte utilise un Lodestone plus ancien, qui ne partage pas les fichiers de ses serveurs de cette façon."
+        }
+        M::ErrInstallFiles => "Impossible d’installer les fichiers du serveur : {detail}",
+        M::ErrStoppedSharing => {
+            "Le serveur ne partage plus ses fichiers, ils n’ont donc pas pu être vérifiés. Demandez au propriétaire du serveur."
+        }
+        M::ErrNotEnoughSpace => {
+            "Il n’y a pas assez d’espace libre pour les fichiers du serveur : il faut {needed}, et {free} sont libres."
+        }
+        M::ErrNotLinked => "Cette instance n’est plus liée au serveur, rien n’a donc été installé.",
 
         M::KeyDays90 => "90\u{a0}jours",
         M::KeyYear => "1\u{a0}an",
@@ -547,6 +627,10 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::ReadyBodySkipped => [
             "Minecraft {version} avec {loader}, et les mods et configurations du serveur. {count} fichier du pack a été laissé de côté. Appuyez sur Jouer pour le rejoindre.",
             "Minecraft {version} avec {loader}, et les mods et configurations du serveur. {count} fichiers du pack ont été laissés de côté. Appuyez sur Jouer pour le rejoindre.",
+        ],
+        P::ReadyBodyMissing => [
+            "Minecraft {version} avec {loader}, et les fichiers du serveur. {count} fichier que le serveur n’a pas pu partager manque. Appuyez sur Jouer pour rejoindre.",
+            "Minecraft {version} avec {loader}, et les fichiers du serveur. {count} fichiers que le serveur n’a pas pu partager manquent. Appuyez sur Jouer pour rejoindre.",
         ],
         P::ModsAdded => ["{count} ajouté", "{count} ajoutés"],
         P::ModsUpdated => ["{count} mis à jour", "{count} mis à jour"],

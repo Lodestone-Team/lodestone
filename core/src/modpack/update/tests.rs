@@ -43,7 +43,6 @@ fn download(path: &str, content: &[u8], project: &str) -> PackFile {
         }),
         from_overrides: false,
         project_id: Some(project.to_string()),
-        stored: None,
     }
 }
 
@@ -53,7 +52,6 @@ fn override_file(content: &[u8]) -> PackFile {
         download: None,
         from_overrides: true,
         project_id: None,
-        stored: None,
     }
 }
 
@@ -220,7 +218,7 @@ fn record_paths_stay_in_the_server() {
         "eula.txt",
         "user_jvm_args.txt",
         "USER_J~1.TXT",
-        ".Lodestone_Modpack/history.json",
+        ".Lodestone_Modpack/notes.json",
     ] {
         assert!(record_path(bad).is_none(), "{bad}");
     }
@@ -280,13 +278,25 @@ async fn another_copy_of_an_added_mod_is_replaced() {
         others,
         [OtherCopy {
             target: "mods/sodium-2.jar".into(),
-            sha1: sha1_hex(&std::fs::read(root.join("mods/sodium-2.jar")).unwrap()),
             project_id: "sodium".into(),
+            sha512: crate::modrinth::fake::sha512_hex(
+                &std::fs::read(root.join("mods/sodium-2.jar")).unwrap()
+            ),
         }]
     );
     remove_other_copies(&mut plan, &new, &others);
     assert_eq!(change(&plan, "mods/sodium-3.jar"), Some(FileAction::Add));
     assert_eq!(change(&plan, "mods/sodium-2.jar"), Some(FileAction::Remove));
+    // the copy it removes is checked by its SHA-512 before placement
+    check_as_planned(root, &plan).unwrap();
+    write(root, "mods/sodium-2.jar", b"changed since");
+    assert!(check_as_planned(root, &plan).is_err());
+    write(
+        root,
+        "mods/sodium-2.jar",
+        &FakeVersion::new("sodium", "s2", "sodium-2.jar").content,
+    );
+    check_as_planned(root, &plan).unwrap();
     // other projects and the user's own mods stay
     assert_eq!(change(&plan, "mods/lithium.jar"), None);
     assert_eq!(change(&plan, "mods/not-on-modrinth.jar"), None);
@@ -446,15 +456,14 @@ fn assert_as_before(root: &Path) {
 }
 
 /// An update the core stopped in the middle of (during the server software's reinstall,
-/// after its files were placed but before its record was saved) is undone on the next
-/// start, and the next update doesn't delete the snapshot with the only copies of the
-/// old files meanwhile (LS-19).
+/// after its files were placed but before it committed) is undone on the next start, and
+/// the next update doesn't delete the snapshot with the only copies of the old files
+/// meanwhile (LS-19).
 #[tokio::test]
 async fn an_interrupted_update_is_undone() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let (old, plan) = interrupted_setup(root);
-    old.save(root).await.unwrap();
     begin_update(root, &plan).unwrap();
     place_files(root, &plan).unwrap();
     // the core stops here; the update task's cleanup, or the next update's staging,
@@ -467,7 +476,6 @@ async fn an_interrupted_update_is_undone() {
 
     assert!(recover_interrupted(root));
     assert_as_before(root);
-    assert_eq!(PackRecord::load(root).await, Some(old.clone()));
     assert!(!root.join(JOURNAL_FILE).exists());
     assert!(!root.join(SNAPSHOT_DIR).exists());
     assert!(!root.join(STAGING_DIR).exists());
@@ -513,16 +521,16 @@ async fn an_update_stopped_while_moving_files_is_undone() {
     assert!(!root.join(SNAPSHOT_DIR).exists());
 }
 
-/// An update stopped after saving its record keeps its files, and what is left in its
+/// An update stopped after it committed keeps its files, and what is left in its
 /// snapshot is kept rather than deleted (LS-19).
 #[tokio::test]
-async fn an_update_stopped_after_saving_its_record_keeps_its_files() {
+async fn an_update_stopped_after_it_committed_keeps_its_files() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let (_, plan) = interrupted_setup(root);
     begin_update(root, &plan).unwrap();
     place_files(root, &plan).unwrap();
-    plan.record.save(root).await.unwrap();
+    commit_update(root).unwrap();
 
     assert!(recover_interrupted(root));
     assert_eq!(
@@ -556,7 +564,7 @@ async fn a_finished_update_leaves_nothing_to_undo() {
     let (_, plan) = interrupted_setup(root);
     begin_update(root, &plan).unwrap();
     place_files(root, &plan).unwrap();
-    plan.record.save(root).await.unwrap();
+    commit_update(root).unwrap();
     end_update(root).unwrap();
     remove_work_dirs(root).await;
     assert!(!root.join(SNAPSHOT_DIR).exists());
@@ -625,13 +633,13 @@ async fn updates_a_server_and_undoes_a_failed_update() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
 
-    // version 1 as a new server: its files are recorded
+    // version 1 as a new server: its files are what pack.json keeps
     let (v1, fake1) = test_pack(1);
     let parsed = read_pack(&v1.path, false).unwrap();
-    install_pack_contents(&fake1, &parsed, &v1.path, root, false, &|_, _| {})
+    let report = install_pack_contents(&fake1, &parsed, &v1.path, root, false, &|_, _| {})
         .await
         .unwrap();
-    let record = PackRecord::load(root).await.unwrap();
+    let record = record_of(&report.files);
     assert!(record.files.contains_key("mods/a-1.jar"));
     assert!(record.files["config/pack.toml"].from_overrides);
 
@@ -650,9 +658,19 @@ async fn updates_a_server_and_undoes_a_failed_update() {
     assert_eq!(plan.kept, ["config/edited.toml"]);
 
     // a failed placement (a staged file is missing) changes nothing
-    stage_files(&fake2, Some(&v2.path), &new, &plan, root, false, &|_| {})
-        .await
-        .unwrap();
+    let sources = sources_of(&new);
+    stage_files(
+        &fake2,
+        Some(&v2.path),
+        &sources,
+        &plan,
+        root,
+        false,
+        None,
+        &|_| {},
+    )
+    .await
+    .unwrap();
     std::fs::remove_file(root.join(STAGING_DIR).join("mods/new.jar")).unwrap();
     assert!(place_files(root, &plan).is_err());
     assert_eq!(
@@ -668,11 +686,19 @@ async fn updates_a_server_and_undoes_a_failed_update() {
     remove_work_dirs(root).await;
 
     // the update
-    stage_files(&fake2, Some(&v2.path), &new, &plan, root, false, &|_| {})
-        .await
-        .unwrap();
+    stage_files(
+        &fake2,
+        Some(&v2.path),
+        &sources,
+        &plan,
+        root,
+        false,
+        None,
+        &|_| {},
+    )
+    .await
+    .unwrap();
     place_files(root, &plan).unwrap();
-    plan.record.save(root).await.unwrap();
     remove_work_dirs(root).await;
 
     assert_eq!(
@@ -705,7 +731,7 @@ async fn updates_a_server_and_undoes_a_failed_update() {
     assert!(!root.join(SNAPSHOT_DIR).exists());
 
     // later, undoing placed files puts the old ones back
-    let record = PackRecord::load(root).await.unwrap();
+    let record = plan.record.clone();
     assert!(record.files.contains_key("mods/new.jar"));
     let (v1_again, fake1_again) = test_pack(1);
     let back = files_of(&v1_again.path).await;
@@ -713,10 +739,11 @@ async fn updates_a_server_and_undoes_a_failed_update() {
     stage_files(
         &fake1_again,
         Some(&v1_again.path),
-        &back,
+        &sources_of(&back),
         &plan,
         root,
         false,
+        None,
         &|_| {},
     )
     .await
@@ -751,4 +778,98 @@ fn files_behind_a_linked_folder_are_not_moved() {
     assert_eq!(change(&plan, "mods/a.jar"), Some(FileAction::Remove));
     assert!(place_files(&root, &plan).is_err());
     assert!(outside.join("a.jar").is_file());
+}
+
+/// What an update planned is checked again right before placement: a file it replaces or
+/// removes that changed since, or a file where it adds one, refuses it; and placing a new
+/// file never replaces one that appeared after the check.
+#[test]
+fn changes_since_the_plan_refuse_the_placement() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    write(root, "mods/a.jar", b"a1");
+    write(root, "mods/gone.jar", b"gone");
+    let old = PackRecord {
+        files: BTreeMap::from([
+            ("mods/a.jar".into(), recorded(b"a1", false, Some("a"))),
+            ("mods/gone.jar".into(), recorded(b"gone", false, Some("g"))),
+        ]),
+    };
+    let new = BTreeMap::from([
+        ("mods/a.jar".to_string(), download("mods/a.jar", b"a2", "a")),
+        (
+            "mods/new.jar".to_string(),
+            download("mods/new.jar", b"new", "n"),
+        ),
+    ]);
+    let plan = plan_files(root, &old, &new);
+    assert_eq!(change(&plan, "mods/a.jar"), Some(FileAction::Replace));
+    assert_eq!(change(&plan, "mods/gone.jar"), Some(FileAction::Remove));
+    assert_eq!(change(&plan, "mods/new.jar"), Some(FileAction::Add));
+    check_as_planned(root, &plan).unwrap();
+
+    for (path, bytes) in [
+        ("mods/a.jar", &b"edited"[..]),
+        ("mods/gone.jar", b"edited"),
+        ("mods/new.jar", b"uploaded meanwhile"),
+    ] {
+        let before = std::fs::read(root.join(path)).ok();
+        write(root, path, bytes);
+        let error = check_as_planned(root, &plan).unwrap_err();
+        assert!(matches!(error.kind, ErrorKind::Conflict), "{path}");
+        assert!(error.source.to_string().contains(path), "{}", error.source);
+        match before {
+            Some(before) => write(root, path, &before),
+            None => std::fs::remove_file(root.join(path)).unwrap(),
+        }
+    }
+    check_as_planned(root, &plan).unwrap();
+
+    // a file that appears after the check is never replaced by the placement
+    write(root, &format!("{STAGING_DIR}/mods/new.jar"), b"new");
+    write(root, &format!("{STAGING_DIR}/mods/a.jar"), b"a2");
+    write(root, "mods/new.jar", b"uploaded after the check");
+    let error = place_files(root, &plan).unwrap_err();
+    assert!(matches!(error.kind, ErrorKind::Conflict));
+    assert_eq!(
+        std::fs::read(root.join("mods/new.jar")).unwrap(),
+        b"uploaded after the check"
+    );
+    // and everything it moved is back
+    assert_eq!(std::fs::read(root.join("mods/a.jar")).unwrap(), b"a1");
+    assert_eq!(std::fs::read(root.join("mods/gone.jar")).unwrap(), b"gone");
+}
+
+/// Undoing a placement never replaces a file that appeared where an old one goes back (a
+/// copy or unzip job, which no operation keeps out): that file stays, and the old copy is
+/// kept in an `interrupted-*` folder rather than deleted with the snapshot.
+#[test]
+fn undoing_never_replaces_what_appeared_meanwhile() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    write(root, &format!("{SNAPSHOT_DIR}/mods/a.jar"), b"a1");
+    write(root, &format!("{SNAPSHOT_DIR}/mods/b.jar"), b"b1");
+    write(root, "mods/a.jar", b"written by a job meanwhile");
+    Moves {
+        saved: vec!["mods/a.jar".into(), "mods/b.jar".into()],
+        placed: Vec::new(),
+    }
+    .undo(root);
+    assert_eq!(
+        read_file(root, "mods/a.jar").as_deref(),
+        Some(&b"written by a job meanwhile"[..])
+    );
+    assert_eq!(read_file(root, "mods/b.jar").as_deref(), Some(&b"b1"[..]));
+    assert!(!root.join(SNAPSHOT_DIR).exists());
+    let kept: Vec<PathBuf> = std::fs::read_dir(root.join(MODPACK_DIR))
+        .unwrap()
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .is_some_and(|name| name.to_string_lossy().starts_with("interrupted-"))
+        })
+        .collect();
+    assert_eq!(kept.len(), 1, "{kept:?}");
+    assert_eq!(std::fs::read(kept[0].join("mods/a.jar")).unwrap(), b"a1");
 }

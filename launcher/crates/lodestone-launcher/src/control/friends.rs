@@ -385,6 +385,10 @@ fn answer_questions(
     if let Some(prompt) = servers.prompt.current()
         && prompt.server.name == server_name
     {
+        if let Some(err) = super::servers::snapshot_failed(prompt) {
+            servers.cancel_prompt(cx);
+            return Some(Err(err));
+        }
         return Some(match params.update_mods {
             Some(update) => {
                 servers.answer_prompt(update, cx);
@@ -403,21 +407,13 @@ fn answer_questions(
     if prompt.server_name != server_name {
         return None;
     }
-    if params.accept_advisory {
+    // from a trusted server, only what a new instance gets is shown: install it
+    if params.accept_advisory || prompt.advisory.is_none() {
         servers.answer_advisory(AdvisoryAnswer::InstallOnce, cx);
         return Some(Ok(()));
     }
     let core = prompt.core_name.clone();
-    let data = json!({
-        "core_name": prompt.core_name,
-        "server_name": prompt.server_name,
-        "on_modrinth": prompt.advisory.on_modrinth.iter().map(|m| json!({ "path": m.path, "project": m.project, "version": m.version })).collect::<Vec<_>>(),
-        "uploaded": prompt.advisory.uploaded,
-        "scripts": prompt.advisory.scripts,
-        "configs": prompt.advisory.configs,
-        "other": prompt.advisory.other,
-        "unchecked": prompt.advisory.unchecked,
-    });
+    let data = super::servers::advisory_json(prompt);
     servers.answer_advisory(AdvisoryAnswer::Cancel, cx);
     Some(Err(api_error(
         codes::UNTRUSTED_CORE,

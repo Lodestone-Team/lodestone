@@ -1164,3 +1164,351 @@ async fn listing_changes_are_told_only_to_those_who_see_the_server() {
     assert!(viewer.can_view_event(&event));
     assert!(!stranger.can_view_event(&event));
 }
+
+impl Core {
+    /// `GET …/image?side=client` until the first content image is recorded: the first
+    /// answers are 503 with `Retry-After` while it is.
+    async fn first_view(&self, prefix: &str, token: Option<&str>) -> reqwest::Response {
+        let url = format!(
+            "{}/{prefix}/instances/{}/image?side=client",
+            self.base, self.fabric
+        );
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        loop {
+            let mut request = self.client.get(&url);
+            if let Some(token) = token {
+                request = request.bearer_auth(token);
+            }
+            let response = request.send().await.unwrap();
+            if response.status() != StatusCode::SERVICE_UNAVAILABLE {
+                return response;
+            }
+            assert_eq!(response.headers()["retry-after"], "5");
+            let body: Value = response.json().await.unwrap();
+            assert_eq!(body["kind"], "Conflict");
+            assert!(std::time::Instant::now() < deadline, "no content image");
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    }
+}
+
+#[tokio::test]
+async fn the_image_routes_follow_the_client_pack_scope() {
+    let core = core().await;
+    core.set_switch(true).await;
+    let image = format!(
+        "{}/public/instances/{}/image?side=client",
+        core.base, core.fabric
+    );
+    let get = |url: String| {
+        let client = core.client.clone();
+        async move { client.get(url).send().await.unwrap() }
+    };
+    let (not_listed, nope) = (
+        get(image.clone()).await,
+        get(format!(
+            "{}/public/instances/nope/image?side=client",
+            core.base
+        ))
+        .await,
+    );
+    assert_eq!(not_listed.status(), StatusCode::NOT_FOUND);
+    assert_eq!(nope.status(), StatusCode::NOT_FOUND);
+    assert_eq!(not_listed.text().await.unwrap(), nope.text().await.unwrap());
+    // listed without the client pack: the same 404
+    core.set_listed(&core.fabric, true).await;
+    assert_eq!(get(image.clone()).await.status(), StatusCode::NOT_FOUND);
+    core.set_scope(&core.fabric, json!({ "client_pack": true }))
+        .await;
+
+    // the first view comes once the first content image is recorded
+    let response = core.first_view("public", None).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["x-lodestone-answer"], "view");
+    assert_eq!(response.headers()[CACHE_CONTROL], "no-cache");
+    assert_eq!(response.headers()[CONTENT_TYPE], "application/json");
+    let view_id = response.headers()["x-lodestone-view"]
+        .to_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(
+        response.headers()[ETAG].to_str().unwrap(),
+        format!("\"{view_id}\"")
+    );
+    let bytes = response.bytes().await.unwrap();
+    let view = lodestone_image::Image::from_json(&bytes).unwrap();
+    view.verify().unwrap();
+    assert_eq!(view.id, view_id);
+    assert_eq!(
+        lodestone_image::view(&view, lodestone_image::Side::Client, view.rules)
+            .unwrap()
+            .id,
+        view.id
+    );
+    let paths: Vec<&str> = view.entries.iter().map(|e| e.path.as_str()).collect();
+    assert_eq!(paths, ["mods/client-thing.jar"]);
+    let jar = &view.entries[0];
+    let jar_bytes = std::fs::read(
+        core._dir
+            .path()
+            .join("instances/fabric/mods/client-thing.jar"),
+    )
+    .unwrap();
+
+    // in step: 204, with the view's id
+    let current = get(format!("{image}&have={view_id}")).await;
+    assert_eq!(current.status(), StatusCode::NO_CONTENT);
+    assert_eq!(current.headers()["x-lodestone-view"], view_id.as_str());
+    // a view the core doesn't know: the whole view
+    let unknown = get(format!("{image}&have={}", "f".repeat(64))).await;
+    assert_eq!(unknown.headers()["x-lodestone-answer"], "view");
+
+    // what isn't asked right is refused
+    let base = format!("{}/public/instances/{}/image", core.base, core.fabric);
+    let too_many = vec![view_id.as_str(); 17].join(",");
+    for query in [
+        String::new(),
+        "?side=server".to_string(),
+        "?side=Client".to_string(),
+        "?side=client&have=nothex".to_string(),
+        format!("?side=client&have={view_id},"),
+        format!("?side=client&have={too_many}"),
+    ] {
+        let response = get(format!("{base}{query}")).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{query}");
+    }
+    // a repeated parameter is refused before anything else, with a plain-text body
+    let unlisted = format!("{}/public/instances/{}/image", core.base, "INSTANCE_nope");
+    for url in [&base, &unlisted] {
+        let response = get(format!("{url}?side=client&have={view_id}&have={view_id}")).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert!(response.headers()[CONTENT_TYPE]
+            .to_str()
+            .unwrap()
+            .starts_with("text/plain"));
+    }
+    // HEAD answers as GET does, without the body
+    let head = core.client.head(&image).send().await.unwrap();
+    assert_eq!(head.status(), StatusCode::OK);
+    assert_eq!(head.headers()["x-lodestone-view"], view_id.as_str());
+    assert!(head.bytes().await.unwrap().is_empty());
+
+    // a player whose views were pruned gets the whole view and diffs it itself: nothing
+    // takes a body
+    let response = core
+        .client
+        .post(&image)
+        .body(bytes.to_vec())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
+
+    // the objects the view names
+    let object = format!(
+        "{}/public/instances/{}/objects/{}",
+        core.base, core.fabric, jar.sha256
+    );
+    let response = get(object.clone()).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()[CONTENT_TYPE], "application/octet-stream");
+    assert_eq!(response.headers()["accept-ranges"], "bytes");
+    assert_eq!(
+        response.headers()[CACHE_CONTROL],
+        "private, max-age=31536000, immutable"
+    );
+    assert_eq!(
+        response.headers()[ETAG].to_str().unwrap(),
+        format!("\"{}\"", jar.sha256)
+    );
+    assert_eq!(
+        response.headers()[CONTENT_LENGTH],
+        jar_bytes.len().to_string().as_str()
+    );
+    assert_eq!(response.bytes().await.unwrap(), jar_bytes);
+    // HEAD: the headers alone
+    let head = core.client.head(&object).send().await.unwrap();
+    assert_eq!(head.status(), StatusCode::OK);
+    assert_eq!(
+        head.headers()[CONTENT_LENGTH],
+        jar_bytes.len().to_string().as_str()
+    );
+    assert!(head.bytes().await.unwrap().is_empty());
+    // a small file is read whole to send any of it, so a range gets the whole file
+    for range in [
+        "bytes=2-9".to_string(),
+        format!("bytes={}-", jar_bytes.len()),
+    ] {
+        let part = core
+            .client
+            .get(&object)
+            .header("range", range)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(part.status(), StatusCode::OK);
+        assert_eq!(part.bytes().await.unwrap(), jar_bytes);
+    }
+    // never anything the view doesn't name: server.properties is in the content image
+    let content = core
+        .state
+        .images()
+        .current_content(&core.fabric)
+        .await
+        .unwrap();
+    let image_of_content = core
+        .state
+        .images()
+        .store()
+        .load_manifest(core.fabric.as_ref(), &content)
+        .unwrap();
+    let properties = image_of_content
+        .entries
+        .iter()
+        .find(|e| e.path.as_str() == "server.properties")
+        .expect("server.properties is content");
+    for (sha256, status) in [
+        (properties.sha256.clone(), StatusCode::NOT_FOUND),
+        ("f".repeat(64), StatusCode::NOT_FOUND),
+        ("F".repeat(64), StatusCode::BAD_REQUEST),
+        ("%2E%2E%2Fworld".to_string(), StatusCode::BAD_REQUEST),
+        (format!("{}x", jar.sha256), StatusCode::BAD_REQUEST),
+    ] {
+        let url = format!(
+            "{}/public/instances/{}/objects/{sha256}",
+            core.base, core.fabric
+        );
+        assert_eq!(get(url).await.status(), status, "{sha256}");
+    }
+    // nor another server's objects
+    let other = format!(
+        "{}/public/instances/{}/objects/{}",
+        core.base, core.vanilla, jar.sha256
+    );
+    assert_eq!(get(other).await.status(), StatusCode::NOT_FOUND);
+
+    // unshared again: gone, the objects too
+    core.set_scope(&core.fabric, json!({ "client_pack": false }))
+        .await;
+    assert_eq!(get(image.clone()).await.status(), StatusCode::NOT_FOUND);
+    assert_eq!(get(object.clone()).await.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn the_launcher_image_routes_need_view_instance() {
+    let core = core().await;
+    let image = format!(
+        "{}/launcher/instances/{}/image?side=client",
+        core.base, core.fabric
+    );
+    // no one signed in (no bearer token is a bad request, as for every signed-in route),
+    // or a token that isn't one
+    let response = core.client.get(&image).send().await.unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let response = core
+        .client
+        .get(&image)
+        .bearer_auth("nope")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    // a member who can't view the server
+    let stranger = add_user(&core.state, "stranger", false, false, Default::default())
+        .await
+        .create_jwt()
+        .unwrap()
+        .to_string();
+    for url in [
+        image.clone(),
+        format!(
+            "{}/launcher/instances/{}/objects/{}",
+            core.base,
+            core.fabric,
+            "a".repeat(64)
+        ),
+    ] {
+        let response = core
+            .client
+            .get(&url)
+            .bearer_auth(&stranger)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN, "{url}");
+    }
+    // the owner's launcher key, unlisted: the view
+    let key = core
+        .create_key(&core.owner_jwt, json!({ "type": "launcher" }))
+        .await;
+    let response = core.first_view("launcher", Some(&key)).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let view = lodestone_image::Image::from_json(&response.bytes().await.unwrap()).unwrap();
+    let jar = &view.entries[0];
+    let object = format!(
+        "{}/launcher/instances/{}/objects/{}",
+        core.base, core.fabric, jar.sha256
+    );
+    let response = core
+        .client
+        .get(&object)
+        .bearer_auth(&key)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.bytes().await.unwrap().len() as u64, jar.size);
+    // the public route stays shut: the instance isn't listed
+    let public = format!(
+        "{}/public/instances/{}/objects/{}",
+        core.base, core.fabric, jar.sha256
+    );
+    assert_eq!(
+        core.client.get(&public).send().await.unwrap().status(),
+        StatusCode::NOT_FOUND
+    );
+
+    // a member who can view it, with their own launcher key
+    let member = add_user(
+        &core.state,
+        "member",
+        false,
+        false,
+        UserPermission {
+            can_view_instance: [core.fabric.clone()].into(),
+            ..Default::default()
+        },
+    )
+    .await;
+    let jwt = member.create_jwt().unwrap().to_string();
+    let member_key = core.create_key(&jwt, json!({ "type": "launcher" })).await;
+    let response = core
+        .client
+        .get(&image)
+        .bearer_auth(&member_key)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let response = core
+        .client
+        .get(&object)
+        .bearer_auth(&member_key)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    // but not another server
+    let other = format!(
+        "{}/launcher/instances/{}/image?side=client",
+        core.base, core.vanilla
+    );
+    let response = core
+        .client
+        .get(&other)
+        .bearer_auth(&member_key)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}

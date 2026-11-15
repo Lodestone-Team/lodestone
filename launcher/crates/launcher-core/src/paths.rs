@@ -53,6 +53,12 @@ impl DataDir {
         self.root.join("cache")
     }
 
+    /// The base packs (`.mrpack`) of servers' images, by their SHA-512
+    /// ([`crate::cores::image_sync::base`]).
+    pub fn server_pack_cache_dir(&self) -> PathBuf {
+        self.cache_dir().join("server-packs")
+    }
+
     /// One folder per instance, each with `instance.json` and the game's `minecraft/`.
     pub fn instances_dir(&self) -> PathBuf {
         self.root.join("instances")
@@ -77,6 +83,12 @@ impl DataDir {
     pub fn runtimes_dir(&self) -> PathBuf {
         self.root.join("runtimes")
     }
+
+    /// The image store every instance's content images and snapshots are kept in
+    /// ([`crate::images`]): `objects/`, `lists/`, `chunks/` and `images/<instance>/`.
+    pub fn image_store_dir(&self) -> PathBuf {
+        self.root.join("image-store")
+    }
 }
 
 #[cfg(test)]
@@ -94,6 +106,13 @@ mod tests {
             dir.settings_file(),
             Path::new("/Users/me/Library/Application Support/Lodestone Launcher/settings.json")
         );
+    }
+
+    #[test]
+    fn the_image_store_is_in_the_data_folder_beside_the_instances() {
+        let dir = DataDir::at("/data");
+        assert_eq!(dir.image_store_dir(), Path::new("/data/image-store"));
+        assert!(!dir.image_store_dir().starts_with(dir.instances_dir()));
     }
 
     #[cfg(target_os = "macos")]

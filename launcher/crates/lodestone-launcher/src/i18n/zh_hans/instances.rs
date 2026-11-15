@@ -23,6 +23,8 @@ pub fn text(message: M) -> &'static str {
 
         M::PreparingNote => "正在准备 Minecraft {version}（{loader}）",
         M::JoiningNote => "游戏启动后将加入 {address}",
+        M::ContentRecordedNote => "已记录实例当前的模组和配置",
+        M::ContentCheckFailedNote => "无法记录实例的模组和配置：{error}",
         M::VerifyingNote => "正在校验 Minecraft {version}（{loader}）的游戏文件",
         M::RosettaNote => "游戏通过 Rosetta 2 在 Intel（x86_64）Java 中运行。",
         M::StartingJavaNote => "正在启动 Java：{command}",
@@ -77,18 +79,16 @@ pub fn text(message: M) -> &'static str {
         M::WaitForUpdate => "请等待更新完成，然后点击“开始游戏”。",
         M::StopBeforeDeleting => "请先停止游戏，再删除该实例。",
         M::FilesBusy => "请等待该实例的文件处理完成，然后重试。",
+        M::NoSnapshotBeforeGameChange => "更改游戏前未能拍摄快照",
+        M::LoaderChangeNotSaved => "新的加载器版本未保存",
+        M::LoaderChangeDropped => "拍摄快照期间该实例被修改了。请重新选择加载器版本。",
+        M::RestoreUnfinished => {
+            "该实例的一次恢复没有完成，也无法撤销，因此它的部分世界或模组被暂时移到了一旁。请关闭正在使用其文件的程序，然后再次点击“开始游戏”，或重新启动 Lodestone Launcher。"
+        }
         M::CouldntSavePlayed => "无法保存上次游玩时间：{error}",
         M::CouldntSavePlayTime => "无法保存游戏时长：{error}",
         M::ModpackExported => "整合包已导出",
         M::CouldntExportModpack => "无法导出整合包",
-        M::CouldntSwitchLoader => "无法切换到模组加载器",
-        M::NoModLoaderFor => {
-            "Lodestone Launcher 支持的模组加载器都无法在 Minecraft {version} 上运行：Fabric 从 1.14 起才支持，而 Forge 没有适用于该版本的构建。"
-        }
-        M::SwitchedTo => "已切换到 {loader}",
-        M::SwitchedToMessage => {
-            "{name} 现在使用 {loader} {version}。下次点击“开始游戏”时会自动安装。"
-        }
 
         M::SearchLog => "搜索日志",
         M::LevelDebug => "调试",
@@ -137,7 +137,7 @@ pub fn text(message: M) -> &'static str {
 
         M::NotAModpack => "不是整合包",
         M::NotMrpack => {
-            "{name} 不是整合包。Modrinth 整合包的扩展名为 .mrpack，CurseForge 整合包是包含 manifest.json 的 .zip 文件。"
+            "{name} 不是整合包。Modrinth 整合包的扩展名为 .mrpack，CurseForge 整合包是包含 manifest.json 的 .zip 文件。从 Lodestone 分享的快照扩展名为 .lodeimg。"
         }
         M::CurseForgeUnreachable => {
             "这是 CurseForge 整合包，而此 Lodestone Launcher 无法连接 CurseForge。"
@@ -154,6 +154,7 @@ pub fn text(message: M) -> &'static str {
         M::CouldntImportModpack => "无法导入整合包",
         M::CouldntUpdateModpack => "无法更新整合包",
         M::StopGameFirst => "请先停止游戏。",
+        M::FinishFinderFirst => "请先完成“帮我找出来”的查找：它关闭了部分模组。",
         M::ModpackUpdated => "整合包已更新",
         M::ModpackUpdatedMessage => {
             "{name} 现在运行 {pack} {version}。被替换的文件已保存在 {path}。"
@@ -161,6 +162,11 @@ pub fn text(message: M) -> &'static str {
         M::UpdatedButNotSaved => "文件已更新，但无法保存实例：{error}",
         M::DownloadingName => "正在下载 {name}",
         M::InstallingName => "正在安装 {name}",
+        M::CopyReady => "{name} 已就绪",
+        M::CouldntCopy => "无法创建副本",
+        M::CopyingWorlds => "正在复制世界",
+        M::CopyingPacksAndOptions => "正在复制资源包、光影和选项",
+        M::InstallingMods => "正在安装模组",
         M::CopyingConfigs => "正在复制整合包的配置文件",
         M::RecordingFiles => "正在记录整合包的文件",
         M::SavingSnapshot => "正在保存实例文件的快照",
@@ -270,8 +276,9 @@ pub fn plural(message: P) -> [&'static str; 2] {
             ["有 {count} 个文件需要从 CurseForge 网站下载：实例的“内容”标签页会列出它们。"; 2]
         }
         P::PackFilesLeftOut => ["整合包中有 {count} 个文件被跳过，例如 {path}。"; 2],
-        P::WorldsBackedUp => ["已先备份 {count} 个世界。"; 2],
         P::DownloadingFiles => ["正在下载 {count} 个文件"; 2],
+        P::CopyModsLeftBehind => ["{count} 个模组未复制：{names}。"; 2],
+        P::CopyDependenciesMissing => ["{count} 个所需的前置模组无法安装：{names}。"; 2],
         P::FinderModsLeft => ["还有 {count} 个模组待检查"; 2],
         P::FinderModsOff => ["已禁用 {count} 个模组"; 2],
         P::FinderTriesLeft => ["大约还需 {count} 次尝试"; 2],

@@ -33,6 +33,7 @@ use launcher_core::{
         shaders::{self, ShaderModOffer},
     },
     game::{download::CancelToken, loaders::LoaderKind},
+    images::{Images, labels},
 };
 use lodestone_minecraft::modrinth::{
     ClientSearchParams, ModrinthProject, ModrinthSearchIndex, ModrinthSearchResponse, RawVersion,
@@ -286,6 +287,9 @@ pub enum RemoteIcon {
 pub enum ContentEvent {
     /// Open "New instance" with Fabric chosen.
     NewFabricInstance,
+    /// Open "Copy with another version or loader" for the instance, with the loader
+    /// chosen: a vanilla instance's way to mods and shaders.
+    CopyWithLoader(String, LoaderKind),
     /// Open "Add a modpack" for the instance.
     AddModpack(String),
     /// A mod being turned off has enabled mods that can't load without it, or one being
@@ -320,8 +324,8 @@ pub struct ContentView {
     pub shaders: ShaderState,
     pub shader_offer: Load<ShaderModOffer>,
     shader_offer_task: Option<Task<()>>,
-    /// For a vanilla instance: the mod loader "Switch to …" would use (Fabric, or Forge
-    /// where Fabric doesn't run), or `None` when no loader supports its version.
+    /// For a vanilla instance: the mod loader "Copy with …" would give a copy (Fabric, or
+    /// Forge where Fabric doesn't run), or `None` when no loader supports its version.
     pub mod_loader_offer: Load<Option<LoaderKind>>,
     mod_loader_offer_task: Option<Task<()>>,
     /// The shown instance's install.
@@ -463,9 +467,10 @@ impl ContentView {
             .is_some_and(|(loader, _)| loader.kind().is_some())
     }
 
-    /// Follows the selected instance: a new one, or a new loader for the same one ("Switch
-    /// to Fabric", or a change in Settings), starts over; a game that stopped may have
-    /// changed its options, so the lists are read again.
+    /// Follows the selected instance: a new one, or a new loader for the same one (a
+    /// modpack update, a linked server's pack, or another loader version in Settings),
+    /// starts over; a game that stopped may have changed its options, so the lists are
+    /// read again.
     fn sync(&mut self, cx: &mut Context<Self>) {
         let (selected, loader, active, prerelease, revision) = {
             let instances = self.instances.read(cx);
@@ -619,6 +624,11 @@ impl ContentView {
             .insert(id.to_string(), Finished { message, queued_cf });
     }
 
+    /// The instances' content images: each change here is an operation.
+    fn images(&self, cx: &gpui::App) -> Arc<Images> {
+        self.instances.read(cx).images()
+    }
+
     /// The instance's folders and what it accepts, with its shader mod.
     pub fn context(&self, cx: &gpui::App) -> Option<(String, InstanceDirs, Target)> {
         let id = self.instance_id.clone()?;
@@ -658,6 +668,16 @@ impl ContentView {
         }
         if self.job.is_some() {
             self.set_message(t(M::WaitForInstall), true, cx);
+            return false;
+        }
+        // another job writes its files (a server's update, a restore): it may put back
+        // `content.json` as it was before it, dropping this change
+        if self
+            .instance_id
+            .as_deref()
+            .is_some_and(|id| self.instances.read(cx).files_busy(id))
+        {
+            self.set_message(t(crate::i18n::InstancesMsg::FilesBusy), true, cx);
             return false;
         }
         true
@@ -981,14 +1001,16 @@ impl ContentView {
 
     /// Installs `requests` one after the other in the background, with progress.
     pub fn install(&mut self, requests: Vec<InstallRequest>, cx: &mut Context<Self>) {
-        self.install_then(requests, Vec::new(), cx);
+        self.install_then(requests, Vec::new(), None, cx);
     }
 
     /// Like [`Self::install`], then the CurseForge requests `queued_cf` once they are in.
+    /// An update (`updating`, the titles it updates) takes a snapshot first.
     fn install_then(
         &mut self,
         requests: Vec<InstallRequest>,
         queued_cf: Vec<CfInstallRequest>,
+        updating: Option<Vec<String>>,
         cx: &mut Context<Self>,
     ) {
         if requests.is_empty() || !self.can_change(cx) {
@@ -999,6 +1021,8 @@ impl ContentView {
         };
         let downloader = self.instances.read(cx).content_downloader();
         let busy = self.instances.read(cx).mark_files_busy(&id);
+        let images = self.images(cx);
+        let image_id = id.clone();
         let progress = Arc::new(InstallProgress::default());
         let cancel = CancelToken::new();
         let kinds: Vec<ContentKind> = requests.iter().map(|r| r.kind).collect();
@@ -1006,38 +1030,68 @@ impl ContentView {
             let progress = progress.clone();
             let cancel = cancel.clone();
             cx.background_spawn(async move {
+                let no_snapshot = match &updating {
+                    Some(titles) => {
+                        match snapshot_before_update(&images, &image_id, titles, &progress, &cancel)
+                        {
+                            Ok(no_snapshot) => no_snapshot,
+                            Err(err) => return (Err(err), None),
+                        }
+                    }
+                    None => None,
+                };
+                // The whole job (Update all) is one operation: what each install did, and
+                // what one that failed part way placed, is one image once it ends.
+                let mut operation = images.begin(&image_id, "");
                 let mut total = InstallOutcome::default();
                 let mut target = target;
-                for request in requests {
-                    let kind = request.kind;
-                    progress.set_label(match &request.project {
-                        Some(project) => tr!(M::CheckingProject, name = project.title),
-                        None => t(M::CheckingDependencies).to_string(),
-                    });
-                    let plan = install::plan(&api, &dirs, &target, request).await?;
-                    let outcome = install::execute(
-                        &api,
-                        &downloader,
-                        &dirs,
-                        &target,
-                        plan,
-                        &progress,
-                        &cancel,
-                    )
-                    .await?;
-                    total.installed.extend(outcome.installed);
-                    total.removed.extend(outcome.removed);
-                    total.skipped.extend(outcome.skipped);
-                    if kind == ContentKind::Mod {
-                        // A shader mod installed first changes what fits next.
-                        target.shader_loader = listing::shader_state(&dirs)?.loader;
+                let result = async {
+                    for request in requests {
+                        let kind = request.kind;
+                        progress.set_label(match &request.project {
+                            Some(project) => tr!(M::CheckingProject, name = project.title),
+                            None => t(M::CheckingDependencies).to_string(),
+                        });
+                        let plan = install::plan(&api, &dirs, &target, request).await?;
+                        let title = plan.files.first().map(|f| f.title()).unwrap_or_default();
+                        let executed = install::execute(
+                            &api,
+                            &downloader,
+                            &dirs,
+                            &target,
+                            plan,
+                            &progress,
+                            &cancel,
+                        )
+                        .await;
+                        let outcome = match executed {
+                            Ok(outcome) => outcome,
+                            Err(err) => {
+                                operation.note(labels::partly_installed(&title));
+                                return Err(err);
+                            }
+                        };
+                        if let Some(label) = labels::installed(&outcome, kind) {
+                            operation.note(label);
+                        }
+                        total.installed.extend(outcome.installed);
+                        total.removed.extend(outcome.removed);
+                        total.skipped.extend(outcome.skipped);
+                        if kind == ContentKind::Mod {
+                            // A shader mod installed first changes what fits next.
+                            target.shader_loader = listing::shader_state(&dirs)?.loader;
+                        }
                     }
+                    Ok::<_, launcher_core::content::ContentError>(())
                 }
-                Ok::<_, launcher_core::content::ContentError>(total)
+                .await;
+                operation.succeed();
+                (result.map(|()| total), no_snapshot)
             })
         };
         let task = cx.spawn(async move |this, cx| {
-            let result = work.await;
+            let (result, no_snapshot) = work.await;
+            let no_snapshot = no_snapshot.as_deref();
             this.update(cx, |this, cx| {
                 let Some((job, shown)) = this.finish_job(&id) else {
                     return;
@@ -1047,7 +1101,10 @@ impl ContentView {
                 let queued = if succeeded { job.queued_cf } else { Vec::new() };
                 if !shown {
                     let message = match &result {
-                        Ok(outcome) => (outcome_message(outcome).into(), false),
+                        Ok(outcome) => (
+                            with_snapshot_note(outcome_message(outcome), no_snapshot).into(),
+                            false,
+                        ),
                         Err(err) => (err.to_string().into(), true),
                     };
                     let message = Some(message);
@@ -1056,7 +1113,7 @@ impl ContentView {
                 }
                 match result {
                     Ok(outcome) => {
-                        let message = outcome_message(&outcome);
+                        let message = with_snapshot_note(outcome_message(&outcome), no_snapshot);
                         this.set_message(message, false, cx);
                         for kind in &kinds {
                             this.section_mut(*kind).updates.clear();
@@ -1160,8 +1217,16 @@ impl ContentView {
     pub fn update_all(&mut self, kind: ContentKind, cx: &mut Context<Self>) {
         // Modrinth's first, then CurseForge's: one install runs at a time.
         let cf_requests = self.cf_update_requests(kind);
+        let mut titles: Vec<String> = self
+            .section(kind)
+            .updates
+            .keys()
+            .map(|name| launcher_core::content::enabled_name(name))
+            .collect();
+        titles.sort();
+        titles.extend(self.cf_update_titles(kind));
         if self.section(kind).updates.is_empty() {
-            self.cf_install(cf_requests, cx);
+            self.cf_install_with(cf_requests, Some(titles), cx);
             return;
         }
         let mut versions: Vec<RawVersion> = self.section(kind).updates.values().cloned().collect();
@@ -1176,7 +1241,7 @@ impl ContentView {
                 force: false,
             })
             .collect();
-        self.install_then(requests, cf_requests, cx);
+        self.install_then(requests, cf_requests, Some(titles), cx);
     }
 
     pub fn update_one(&mut self, kind: ContentKind, file_name: &str, cx: &mut Context<Self>) {
@@ -1185,7 +1250,8 @@ impl ContentView {
             return;
         }
         if let Some(version) = self.section(kind).updates.get(file_name).cloned() {
-            self.install(
+            let title = vec![launcher_core::content::enabled_name(file_name)];
+            self.install_then(
                 vec![InstallRequest {
                     kind,
                     version,
@@ -1193,6 +1259,8 @@ impl ContentView {
                     install_dependencies: true,
                     force: false,
                 }],
+                Vec::new(),
+                Some(title),
                 cx,
             );
         }
@@ -1203,17 +1271,20 @@ impl ContentView {
     fn change(
         &mut self,
         kind: ContentKind,
+        label: String,
         change: impl FnOnce(&InstanceDirs, &Target) -> Result<(), launcher_core::content::ContentError>,
         cx: &mut Context<Self>,
     ) -> bool {
         if !self.can_change(cx) {
             return false;
         }
-        let Some((_, dirs, target)) = self.context(cx) else {
+        let Some((id, dirs, target)) = self.context(cx) else {
             return false;
         };
+        let operation = self.images(cx).begin(&id, label);
         let changed = match change(&dirs, &target) {
             Ok(()) => {
+                operation.succeed();
                 self.message = None;
                 true
             }
@@ -1300,14 +1371,17 @@ impl ContentView {
         if !self.can_change(cx) {
             return;
         }
-        let Some((_, dirs, _)) = self.context(cx) else {
+        let Some((id, dirs, _)) = self.context(cx) else {
             return;
         };
+        let images = self.images(cx);
         self.message = None;
         let mut errors = Vec::new();
         for file_name in file_names {
+            let operation = images.begin(&id, labels::enabled(file_name, enabled));
             match files::set_mod_enabled(&dirs, file_name, enabled) {
                 Ok(new_name) => {
+                    operation.succeed();
                     // Show it at once: reading a large folder again takes a moment, and
                     // until then the row would show the old state and the old name.
                     if let Load::Ready(listing) = &mut self.section_mut(ContentKind::Mod).listing
@@ -1343,6 +1417,7 @@ impl ContentView {
         // either can land on another page, which is turned to.
         let changed = self.change(
             ContentKind::ResourcePack,
+            labels::enabled(&file_name, enabled),
             |dirs, target| {
                 files::set_pack_enabled(dirs, target, &file_name, enabled, compatibility)
                     .map(|_| ())
@@ -1359,6 +1434,7 @@ impl ContentView {
     pub fn move_pack(&mut self, file_name: String, up: bool, cx: &mut Context<Self>) {
         let moved = self.change(
             ContentKind::ResourcePack,
+            labels::RESOURCE_PACKS_CHANGED.to_string(),
             |dirs, target| {
                 let name = file_name.clone();
                 let change = if up {
@@ -1381,6 +1457,7 @@ impl ContentView {
         };
         self.change(
             ContentKind::ShaderPack,
+            labels::shader(file_name.as_deref()),
             |dirs, _| files::select_shader(dirs, loader, file_name.as_deref()),
             cx,
         );
@@ -1401,8 +1478,13 @@ impl ContentView {
         };
         // The Trash can take a while (on Windows it walks a folder's every file).
         self.deleting = Some((id.clone(), kind, file_name.clone()));
+        let operation = self.images(cx).begin(&id, labels::removed(&file_name));
         let work = cx.background_spawn(async move {
-            files::delete(&dirs, &target, kind, &file_name).map_err(|err| err.to_string())
+            let result =
+                files::delete(&dirs, &target, kind, &file_name).map_err(|err| err.to_string());
+            // The file may be in the Trash even when forgetting it afterwards failed.
+            operation.finish_if(result.is_ok() || files::is_gone(&dirs, kind, &file_name));
+            result
         });
         self._delete = Some(cx.spawn(async move |this, cx| {
             let result = work.await;
@@ -1440,8 +1522,12 @@ impl ContentView {
         let Some((id, dirs, target)) = self.context(cx) else {
             return;
         };
+        // Play waits while the files are copied in.
+        let busy = self.instances.read(cx).mark_files_busy(&id);
+        let operation = self.images(cx).begin(&id, "");
         let work = cx.background_spawn(async move {
-            paths
+            let _busy = busy;
+            let results = paths
                 .into_iter()
                 .map(|path| {
                     let name = path
@@ -1450,7 +1536,15 @@ impl ContentView {
                         .unwrap_or_default();
                     (name, files::add(&dirs, &target, kind, &path))
                 })
-                .collect::<Vec<_>>()
+                .collect::<Vec<_>>();
+            let added: Vec<String> = results
+                .iter()
+                .filter_map(|(_, r)| r.as_ref().ok().cloned())
+                .collect();
+            if let Some(label) = labels::added_files(&added, kind) {
+                operation.succeed_as(label);
+            }
+            results
         });
         self._prompt = Some(cx.spawn(async move |this, cx| {
             let results = work.await;
@@ -1520,17 +1614,14 @@ impl ContentView {
         }
     }
 
-    pub fn switch_to_mod_loader(&mut self, cx: &mut Context<Self>) {
-        if !self.can_change(cx) {
-            return;
-        }
+    /// "Copy with Fabric…": a vanilla instance keeps its loader, so a copy gets one.
+    pub fn copy_with_loader(&mut self, kind: LoaderKind, cx: &mut Context<Self>) {
         if let Some(id) = self.instance_id.clone() {
-            self.instances
-                .update(cx, |instances, cx| instances.switch_to_mod_loader(&id, cx));
+            cx.emit(ContentEvent::CopyWithLoader(id, kind));
         }
     }
 
-    /// Finds which mod loader a vanilla instance can switch to, once.
+    /// Finds which mod loader a copy of a vanilla instance can have, once.
     pub fn ensure_mod_loader_offer(&mut self, cx: &mut Context<Self>) {
         if !matches!(self.mod_loader_offer, Load::NotLoaded) {
             return;
@@ -1560,10 +1651,6 @@ impl ContentView {
 
     pub fn new_fabric_instance(&mut self, cx: &mut Context<Self>) {
         cx.emit(ContentEvent::NewFabricInstance);
-    }
-
-    pub fn is_switching_loader(&self, cx: &gpui::App) -> bool {
-        self.instances.read(cx).is_switching_loader()
     }
 
     // ---- Browse ----
@@ -2179,6 +2266,46 @@ pub(crate) fn outcome_message(outcome: &InstallOutcome) -> String {
     message
 }
 
+/// The snapshot before content updates (`titles` are what updates), in the update's
+/// background task, shown in its progress and stopped by its Cancel (which cancels the
+/// update too: `Err`). A snapshot that fails doesn't stop the update: `Ok(Some(why))`, for
+/// the update's message to say no snapshot was taken.
+pub(crate) fn snapshot_before_update(
+    images: &launcher_core::images::Images,
+    instance: &str,
+    titles: &[String],
+    progress: &InstallProgress,
+    cancel: &CancelToken,
+) -> Result<Option<String>, launcher_core::content::ContentError> {
+    use launcher_core::game::download::{DownloadError, ProgressSnapshot};
+    progress.set_label(t(crate::i18n::InstanceSettingsMsg::TakingSnapshot));
+    let shown = |read: u64, total: u64| {
+        progress.downloads.set(ProgressSnapshot {
+            bytes_done: read,
+            bytes_total: total,
+            ..ProgressSnapshot::default()
+        })
+    };
+    let stop = || cancel.is_cancelled();
+    let change = launcher_core::images::RiskyChange::ContentUpdate { titles };
+    match images.before_risky_change_with(instance, change, &shown, &stop) {
+        Ok(_) => Ok(None),
+        Err(launcher_core::images::ImageError::Cancelled) => Err(DownloadError::Cancelled.into()),
+        Err(err) => {
+            log::warn!("Couldn't take a snapshot of {instance} before the update: {err}");
+            Ok(Some(err.to_string()))
+        }
+    }
+}
+
+/// `message`, then that no snapshot was taken first when `no_snapshot` says why.
+pub(crate) fn with_snapshot_note(message: String, no_snapshot: Option<&str>) -> String {
+    match no_snapshot {
+        Some(error) => format!("{message} {}", tr!(M::NoSnapshotFirst, error = error)),
+        None => message,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2750,5 +2877,408 @@ mod page_tests {
             view.reload(ContentKind::ShaderPack, cx)
         });
         assert_eq!(show_kind(&mut s, ContentKind::ShaderPack, None).0, 0);
+    }
+}
+
+/// The Content tab's changes, and the instance's own, as content images, with the sample
+/// instances of the offscreen screenshots (in a temporary data folder, off the network).
+#[cfg(all(test, feature = "screenshot"))]
+mod image_tests {
+    use gpui::TestAppContext;
+
+    use super::*;
+
+    #[test]
+    fn changes_are_recorded_as_operations() {
+        let mut cx = TestAppContext::single();
+        let instances = cx.update(|cx| {
+            let accounts = crate::preview::accounts("signed-out", cx);
+            crate::preview::instances("worlds", &accounts, cx)
+        });
+        let id = instances.update(&mut cx, |instances, cx| {
+            instances.preview_offline();
+            let id = fabric_sample(instances);
+            instances.select(&id, cx);
+            id
+        });
+        let view = cx.new(|cx| ContentView::new(instances.clone(), cx));
+        cx.run_until_parked();
+        let (images, game) = instances.read_with(&cx, |instances, _| {
+            (instances.images(), instances.game_dir(&id))
+        });
+        std::fs::create_dir_all(game.join("mods")).unwrap();
+        std::fs::write(game.join("mods/sodium.jar"), b"not really a mod").unwrap();
+        images.record_now(&id, "Created").unwrap();
+
+        // A resource pack added from the computer, and a mod turned off.
+        let picked =
+            std::env::temp_dir().join(format!("lodestone-image-hooks-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&picked);
+        let pack = picked.join("MyPack");
+        std::fs::create_dir_all(&pack).unwrap();
+        std::fs::write(
+            pack.join("pack.mcmeta"),
+            br#"{"pack":{"pack_format":15,"description":"x"}}"#,
+        )
+        .unwrap();
+        view.update(&mut cx, |view, cx| {
+            view.add_files(ContentKind::ResourcePack, vec![pack], cx)
+        });
+        cx.run_until_parked();
+        let _ = std::fs::remove_dir_all(&picked);
+        view.update(&mut cx, |view, cx| {
+            view.set_mods_enabled(&id, &["sodium.jar".to_string()], false, cx)
+        });
+        cx.run_until_parked();
+        let recorded = images.flush(&id).unwrap().expect("queued labels");
+        assert!(recorded.changed);
+        let history = images.history(&id).unwrap();
+        assert_eq!(
+            history.images[0].label.as_deref(),
+            Some("Added MyPack; Disabled sodium.jar")
+        );
+        // Turned on again: named as it is when on, not by its disabled file's name.
+        view.update(&mut cx, |view, cx| {
+            view.set_mods_enabled(&id, &["sodium.jar.disabled".to_string()], true, cx)
+        });
+        cx.run_until_parked();
+        images.flush(&id).unwrap().expect("queued label");
+        let history = images.history(&id).unwrap();
+        assert_eq!(
+            history.images[0].label.as_deref(),
+            Some("Enabled sodium.jar")
+        );
+
+        // A loader version saved from Settings, Undo or an update.
+        instances.update(&mut cx, |instances, cx| {
+            let mut instance = instances.store().get(&id).unwrap();
+            instance.loader_version = Some("0.16.99".into());
+            instances.save(&instance, cx).unwrap();
+        });
+        images.flush(&id).unwrap();
+        let history = images.history(&id).unwrap();
+        let label = history.images[0].label.clone().unwrap_or_default();
+        assert!(
+            label.starts_with("Changed ") && label.ends_with(" to 0.16.99"),
+            "{label}"
+        );
+        assert_eq!(
+            history.images[0].game.loader_version.as_deref(),
+            Some("0.16.99")
+        );
+
+        // Another Minecraft version or loader with the same loader version is an operation
+        // too, so the next launch doesn't take it for a change by hand.
+        instances.update(&mut cx, |instances, cx| {
+            let mut instance = instances.store().get(&id).unwrap();
+            instance.game_version = "1.20.4".into();
+            instances.save(&instance, cx).unwrap();
+        });
+        images.flush(&id).unwrap();
+        instances.update(&mut cx, |instances, cx| {
+            let mut instance = instances.store().get(&id).unwrap();
+            instance.loader = launcher_core::instances::Loader::Quilt;
+            instances.save(&instance, cx).unwrap();
+        });
+        images.flush(&id).unwrap();
+        let history = images.history(&id).unwrap();
+        assert_eq!(
+            history.images[0].label.as_deref(),
+            Some("Changed to Quilt 0.16.99")
+        );
+        assert_eq!(
+            history.images[1].label.as_deref(),
+            Some("Changed Minecraft to 1.20.4")
+        );
+        assert_eq!(history.images[0].game.minecraft, "1.20.4");
+        assert_eq!(
+            images.before_launch(&id),
+            launcher_core::images::Checked::Unchanged
+        );
+        images.end_session(&id);
+
+        // A new instance gets its first image as it is made.
+        let made = instances.update(&mut cx, |instances, cx| {
+            instances.create("Fresh", "1.21.1", None, cx).unwrap()
+        });
+        cx.run_until_parked();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while images.history(&made.id).unwrap().images.is_empty()
+            && std::time::Instant::now() < deadline
+        {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            cx.run_until_parked();
+        }
+        let history = images.history(&made.id).unwrap();
+        assert_eq!(history.images.len(), 1);
+        assert_eq!(history.images[0].label.as_deref(), Some("Created Fresh"));
+    }
+
+    /// The Fabric sample instance ("Survival 1.20.1"), whatever order the list is in: the
+    /// tests change its loader version, which a vanilla instance has none of.
+    fn fabric_sample(instances: &Instances) -> String {
+        instances
+            .list()
+            .iter()
+            .find(|instance| instance.loader == launcher_core::instances::Loader::Fabric)
+            .map(|instance| instance.id.clone())
+            .expect("a Fabric sample instance")
+    }
+
+    /// The sample instances, off the network, with the Fabric one's id and the images. The
+    /// instance settings scene's: the worlds scene's comes with snapshots and their history.
+    fn sample(cx: &mut TestAppContext) -> (Entity<Instances>, String, Arc<Images>) {
+        let instances = cx.update(|cx| {
+            let accounts = crate::preview::accounts("signed-out", cx);
+            crate::preview::instances("instance-settings", &accounts, cx)
+        });
+        let (id, images) = instances.update(cx, |instances, _| {
+            instances.preview_offline();
+            (fabric_sample(instances), instances.images())
+        });
+        cx.run_until_parked();
+        (instances, id, images)
+    }
+
+    /// Runs the app until `done`, for at most ten seconds.
+    fn wait_until(cx: &mut TestAppContext, mut done: impl FnMut(&mut TestAppContext) -> bool) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !done(cx) && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            cx.run_until_parked();
+        }
+    }
+
+    fn labels(images: &Images, id: &str) -> Vec<String> {
+        images
+            .history(id)
+            .unwrap()
+            .images
+            .into_iter()
+            .map(|image| image.label.unwrap_or_default())
+            .collect()
+    }
+
+    /// Writes a `.mrpack` with no downloads: its index, for Fabric `loader`, and the
+    /// override files `overrides`.
+    fn write_mrpack(path: &std::path::Path, loader: &str, overrides: &[(&str, &[u8])]) {
+        use std::io::Write as _;
+        let index = serde_json::json!({
+            "formatVersion": 1,
+            "game": "minecraft",
+            "versionId": "2.0",
+            "name": "Pack",
+            "files": [],
+            "dependencies": {"minecraft": "1.20.1", "fabric-loader": loader},
+        });
+        let mut zip = zip::ZipWriter::new(std::fs::File::create(path).unwrap());
+        let options = zip::write::SimpleFileOptions::default();
+        zip.start_file("modrinth.index.json", options).unwrap();
+        zip.write_all(index.to_string().as_bytes()).unwrap();
+        for (name, bytes) in overrides {
+            zip.start_file(format!("overrides/{name}"), options)
+                .unwrap();
+            zip.write_all(bytes).unwrap();
+        }
+        zip.finish().unwrap();
+    }
+
+    #[test]
+    fn a_modpack_update_is_recorded_before_and_after() {
+        use launcher_core::game::loaders::{LoaderChoice, LoaderKind};
+        use launcher_core::modpack::{self, FileSource, ModpackRecord, PackFile, update};
+
+        let mut cx = TestAppContext::single();
+        let (instances, id, images) = sample(&mut cx);
+        let (dirs, loader_before) = instances.read_with(&cx, |instances, _| {
+            let instance = instances.store().get(&id).unwrap();
+            (instances.content_dirs(&id), instance.loader_version)
+        });
+        std::fs::create_dir_all(dirs.game.join("mods")).unwrap();
+        let old_mod = dirs.game.join("mods/old.jar");
+        std::fs::write(&old_mod, b"the pack's old mod").unwrap();
+        let current = ModpackRecord {
+            title: "Pack".into(),
+            version_number: "1.0".into(),
+            files: [(
+                "mods/old.jar".to_string(),
+                PackFile {
+                    sha1: lodestone_minecraft::hash::sha1_of(&old_mod).unwrap(),
+                    source: FileSource::Index,
+                    project: None,
+                    sha256: None,
+                },
+            )]
+            .into_iter()
+            .collect(),
+            ..ModpackRecord::default()
+        };
+        current.save(&dirs.instance).unwrap();
+        images.record_now(&id, "Installed Pack 1.0").unwrap();
+        // A play session: the game rewrote a config, which joins no image of its own.
+        images.before_launch(&id);
+        std::fs::create_dir_all(dirs.game.join("config")).unwrap();
+        std::fs::write(dirs.game.join("config/rewritten.json"), b"{}").unwrap();
+        images.end_session(&id);
+        assert_eq!(labels(&images, &id), ["Installed Pack 1.0"]);
+
+        // Version 2.0: the old mod dropped, a script added, another loader version.
+        let pack_path = dirs.instance.join(".lodestone-test-pack.mrpack");
+        write_mrpack(
+            &pack_path,
+            "0.16.99",
+            &[("scripts/recipes.zs", b"recipes" as &[u8])],
+        );
+        let pack = modpack::read_pack(&pack_path).unwrap();
+        let next = ModpackRecord {
+            title: "Pack".into(),
+            version_number: "2.0".into(),
+            ..ModpackRecord::default()
+        };
+        let plan = update::plan(
+            &dirs,
+            &current,
+            &pack,
+            next,
+            Some(LoaderChoice {
+                kind: LoaderKind::Fabric,
+                version: "0.16.99".into(),
+            }),
+        );
+        let prompt = super::super::modpacks::UpdatePrompt {
+            instance_id: id.clone(),
+            instance_name: "Survival 1.20.1".into(),
+            from_version: "1.0".into(),
+            plan: Arc::new(plan),
+            pack_path,
+            pack: Arc::new(pack),
+            snapshot_failed: None,
+            without_snapshot: false,
+        };
+        instances.update(&mut cx, |instances, cx| {
+            instances.apply_modpack_update(prompt, cx)
+        });
+        wait_until(&mut cx, |cx| {
+            instances.read_with(cx, |instances, _| {
+                !instances.modpack_updates.contains_key(&id)
+            })
+        });
+        images.flush(&id).unwrap();
+
+        let history = images.history(&id).unwrap();
+        let labels: Vec<_> = history
+            .images
+            .iter()
+            .map(|image| image.label.clone().unwrap_or_default())
+            .collect();
+        assert_eq!(labels.len(), 3, "{labels:?}");
+        // After: the update's label (with the loader change its save made), the new loader
+        // and the new files, the pack's script among them.
+        assert!(labels[0].ends_with("Updated Pack to 2.0"), "{}", labels[0]);
+        assert_eq!(
+            history.images[0].game.loader_version.as_deref(),
+            Some("0.16.99")
+        );
+        let after = images
+            .store()
+            .load_manifest(&id, &history.images[0].id)
+            .unwrap();
+        let paths: Vec<String> = after.entries.iter().map(|e| e.path.to_string()).collect();
+        assert!(
+            paths.contains(&"scripts/recipes.zs".to_string()),
+            "{paths:?}"
+        );
+        assert!(!paths.contains(&"mods/old.jar".to_string()), "{paths:?}");
+        // Before: every file the update replaced, with what the game wrote.
+        assert_eq!(labels[1], "Before a modpack update");
+        assert_eq!(history.images[1].game.loader_version, loader_before);
+        let before = images
+            .store()
+            .load_manifest(&id, &history.images[1].id)
+            .unwrap();
+        let paths: Vec<String> = before.entries.iter().map(|e| e.path.to_string()).collect();
+        assert!(paths.contains(&"mods/old.jar".to_string()), "{paths:?}");
+        assert!(
+            paths.contains(&"config/rewritten.json".to_string()),
+            "{paths:?}"
+        );
+    }
+
+    #[test]
+    fn deleting_copying_and_ending_a_run_reach_the_images() {
+        let mut cx = TestAppContext::single();
+        let (instances, id, images) = sample(&mut cx);
+        let game = instances.read_with(&cx, |instances, _| instances.game_dir(&id));
+        std::fs::create_dir_all(game.join("mods")).unwrap();
+        std::fs::write(game.join("mods/a.jar"), b"a").unwrap();
+        images.record_now(&id, "Created").unwrap();
+
+        // A run that ended, however it ended, takes the baseline again: what the game wrote
+        // joins the next image, and the next launch finds nothing changed by hand.
+        assert_eq!(
+            images.before_launch(&id),
+            launcher_core::images::Checked::Unchanged
+        );
+        instances.update(&mut cx, |instances, cx| {
+            instances.runs.entry(id.clone()).or_default().image_session = true;
+            std::fs::create_dir_all(game.join("config")).unwrap();
+            std::fs::write(game.join("config/rewritten.json"), b"{}").unwrap();
+            instances.set_idle(&id, cx);
+            assert!(!instances.runs[&id].image_session, "ended once");
+        });
+        let store = images.store().clone();
+        wait_until(&mut cx, |_| {
+            let state = launcher_core::images::state::load(&store, &id);
+            state.running_since.is_none()
+                && state
+                    .baseline
+                    .contains_key("minecraft/config/rewritten.json")
+        });
+        assert_eq!(
+            images.before_launch(&id),
+            launcher_core::images::Checked::Unchanged
+        );
+        images.end_session(&id);
+        assert_eq!(labels(&images, &id), ["Created"]);
+
+        // Duplicate: the copy's first image says where it came from.
+        let name = instances.read_with(&cx, |instances, _| {
+            instances
+                .list()
+                .iter()
+                .find(|instance| instance.id == id)
+                .map(|instance| instance.name.clone())
+                .unwrap()
+        });
+        let copied = instances.update(&mut cx, |instances, cx| instances.duplicate(&id, cx));
+        wait_until(&mut cx, |cx| {
+            instances.read_with(cx, |instances, _| instances.list().len() == 5)
+        });
+        drop(copied);
+        let copy = instances.read_with(&cx, |instances, _| {
+            instances
+                .list()
+                .iter()
+                .find(|instance| instance.id != id && instance.name.starts_with(&name))
+                .map(|instance| instance.id.clone())
+                .expect("the copy")
+        });
+        wait_until(&mut cx, |_| !labels(&images, &copy).is_empty());
+        assert_eq!(labels(&images, &copy), [format!("Copied from {name}")]);
+
+        // Deleting the instance (to a stand-in for the Trash) forgets its images.
+        let theirs = images.store().instance_dir(&id).unwrap();
+        assert!(theirs.is_dir());
+        let deleted = instances.update(&mut cx, |instances, cx| {
+            instances.delete_with(
+                &id,
+                Some(|path| std::fs::remove_dir_all(path).map_err(|e| e.to_string())),
+                cx,
+            )
+        });
+        wait_until(&mut cx, |_| !theirs.exists());
+        drop(deleted);
+        assert!(!theirs.exists());
+        assert!(images.store().instance_dir(&copy).unwrap().is_dir());
     }
 }

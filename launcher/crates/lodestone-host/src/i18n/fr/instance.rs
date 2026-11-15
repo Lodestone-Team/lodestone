@@ -125,10 +125,13 @@ pub fn text(message: M) -> &'static str {
         M::ModsForPlayersAlready => {
             "Les joueurs reçoivent déjà ce mod : Modrinth ou le mod indique qu'ils en ont besoin."
         }
+        M::ModsForPlayersOptional => {
+            "Modrinth indique que les joueurs peuvent rejoindre sans ce mod, mais sur Fabric, les mods de ce genre les en empêchent souvent : les joueurs le reçoivent donc. Décochez-le pour le retirer."
+        }
         M::ModsMarkedForPlayers => {
             "Les joueurs recevront {name} la prochaine fois qu'ils rejoindront"
         }
-        M::ModsUnmarkedForPlayers => "{name} n'est plus marqué pour les joueurs",
+        M::ModsUnmarkedForPlayers => "Les joueurs ne reçoivent plus {name} en rejoignant",
         M::ModsMarkFailed => "Impossible de modifier {name} : {error}",
         M::ModsRelease => "stable",
         M::ModsBeta => "bêta",
@@ -212,6 +215,9 @@ pub fn text(message: M) -> &'static str {
         M::ModpackPlanFailed => "Impossible de préparer la mise à jour : {error}",
         M::ModpackDialogTitle => "Mettre à jour le modpack ?",
         M::ModpackDialogIntro => "{pack} passe de {from} à {to}.",
+        M::ModpackDialogRestoreIntro => {
+            "Les mods et les configurations reviennent à leur état après « {change} »."
+        }
         M::ModpackDialogReinstall => "Le serveur passe à {software}, qui est réinstallé.",
         M::ModpackDialogKept => "Les fichiers que vous avez modifiés restent tels quels : {files}",
         M::ModpackDialogNothing => "Aucun fichier ne change.",
@@ -228,23 +234,16 @@ pub fn text(message: M) -> &'static str {
         M::ModpackHistory => "Historique",
         M::ModpackHistoryFailed => "Impossible de charger l’historique du modpack : {error}",
         M::ModpackHistoryEmpty => {
-            "Rien n’est encore enregistré. Les prochaines mises à jour pourront être annulées."
+            "Rien n’est encore enregistré. Les prochaines modifications pourront être annulées."
         }
-        M::ModpackKindInstall => "Installé",
-        M::ModpackKindBaseline => "Premier enregistrement",
-        M::ModpackKindUpdate => "Mis à jour",
-        M::ModpackKindRestore => "{version} restauré",
         M::ModpackCurrent => "Actuelle",
         M::ModpackRestore => "Restaurer",
         M::ModpackRestoreMissing => "Lodestone n’a plus certains fichiers de cette version.",
         M::ModpackRestoreTitle => "Restaurer cette version ?",
-        M::ModpackRestored => "{pack} {version} restauré.",
-        M::ModpackRestoreFailed => "Impossible de restaurer le modpack : {error}",
-        M::ModpackStoreSize => {
-            "Pour annuler les mises à jour, Lodestone conserve {size} de fichiers qui ne peuvent pas être retéléchargés."
-        }
-        M::ModpackSince => "depuis {version}",
-        M::ModpackSinceTooltip => "Ce fichier est arrivé avec la version {version} du modpack.",
+        M::ModpackRestored => "« {change} » restauré.",
+        M::ModpackRestoreFailed => "Impossible de restaurer cette version : {error}",
+        M::ModpackSince => "depuis le {date}",
+        M::ModpackSinceTooltip => "Ce fichier est tel qu’il était après « {change} ».",
         M::ModsProjectFailed => "Impossible de charger le projet : {error}",
         M::ModsSource => "Code source",
         M::ModsIssues => "Tickets",
@@ -378,10 +377,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::ModpackAdded => ["{count} fichier ajouté", "{count} fichiers ajoutés"],
         P::ModpackReplaced => ["{count} fichier remplacé", "{count} fichiers remplacés"],
         P::ModpackRemoved => ["{count} fichier supprimé", "{count} fichiers supprimés"],
-        P::ModpackKeptCount => [
-            "{count} fichier modifié conservé",
-            "{count} fichiers modifiés conservés",
-        ],
         P::ModpackMoreChanges => ["et {count} autre", "et {count} autres"],
         P::FriendsConnectedCount => ["{count} ami connecté", "{count} amis connectés"],
     }

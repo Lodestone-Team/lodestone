@@ -23,6 +23,8 @@ pub fn text(message: M) -> &'static str {
 
         M::PreparingNote => "正在準備 Minecraft {version}（{loader}）",
         M::JoiningNote => "遊戲啟動後將加入 {address}",
+        M::ContentRecordedNote => "已記錄實例目前的模組和設定",
+        M::ContentCheckFailedNote => "無法記錄實例的模組和設定：{error}",
         M::VerifyingNote => "正在驗證 Minecraft {version}（{loader}）的遊戲檔案",
         M::RosettaNote => "遊戲透過 Rosetta 2 在 Intel（x86_64）Java 中執行。",
         M::StartingJavaNote => "正在啟動 Java：{command}",
@@ -77,18 +79,16 @@ pub fn text(message: M) -> &'static str {
         M::WaitForUpdate => "請等待更新完成，再按「開始遊戲」。",
         M::StopBeforeDeleting => "請先停止遊戲，再刪除該實例。",
         M::FilesBusy => "請等待該實例的檔案處理完成，然後再試一次。",
+        M::NoSnapshotBeforeGameChange => "變更遊戲前未能拍攝快照",
+        M::LoaderChangeNotSaved => "新的載入器版本未儲存",
+        M::LoaderChangeDropped => "拍攝快照期間這個實例被修改了。請重新選擇載入器版本。",
+        M::RestoreUnfinished => {
+            "這個實例的一次還原沒有完成，也無法復原，因此它的部分世界或模組被暫時移到一旁。請關閉正在使用其檔案的程式，然後再按一次「開始遊戲」，或重新啟動 Lodestone Launcher。"
+        }
         M::CouldntSavePlayed => "無法儲存上次遊玩時間：{error}",
         M::CouldntSavePlayTime => "無法儲存遊戲時數：{error}",
         M::ModpackExported => "模組包已匯出",
         M::CouldntExportModpack => "無法匯出模組包",
-        M::CouldntSwitchLoader => "無法切換至模組載入器",
-        M::NoModLoaderFor => {
-            "Lodestone Launcher 支援的模組載入器都無法在 Minecraft {version} 上執行：Fabric 從 1.14 起才支援，而 Forge 沒有適用於該版本的組建。"
-        }
-        M::SwitchedTo => "已切換至 {loader}",
-        M::SwitchedToMessage => {
-            "{name} 現在使用 {loader} {version}。下次按「開始遊戲」時會自動安裝。"
-        }
 
         M::SearchLog => "搜尋日誌",
         M::LevelDebug => "偵錯",
@@ -137,7 +137,7 @@ pub fn text(message: M) -> &'static str {
 
         M::NotAModpack => "不是模組包",
         M::NotMrpack => {
-            "{name} 不是模組包。Modrinth 模組包的副檔名為 .mrpack，CurseForge 模組包是含有 manifest.json 的 .zip 檔案。"
+            "{name} 不是模組包。Modrinth 模組包的副檔名為 .mrpack，CurseForge 模組包是含有 manifest.json 的 .zip 檔案。從 Lodestone 分享的快照副檔名為 .lodeimg。"
         }
         M::CurseForgeUnreachable => {
             "這是 CurseForge 模組包，而此 Lodestone Launcher 無法連線至 CurseForge。"
@@ -154,6 +154,7 @@ pub fn text(message: M) -> &'static str {
         M::CouldntImportModpack => "無法匯入模組包",
         M::CouldntUpdateModpack => "無法更新模組包",
         M::StopGameFirst => "請先停止遊戲。",
+        M::FinishFinderFirst => "請先完成「幫我找出來」的尋找：它關閉了部分模組。",
         M::ModpackUpdated => "模組包已更新",
         M::ModpackUpdatedMessage => {
             "{name} 現在執行 {pack} {version}。被取代的檔案已儲存在 {path}。"
@@ -161,6 +162,11 @@ pub fn text(message: M) -> &'static str {
         M::UpdatedButNotSaved => "檔案已更新，但無法儲存實例：{error}",
         M::DownloadingName => "正在下載 {name}",
         M::InstallingName => "正在安裝 {name}",
+        M::CopyReady => "{name} 已準備就緒",
+        M::CouldntCopy => "無法製作副本",
+        M::CopyingWorlds => "正在複製世界",
+        M::CopyingPacksAndOptions => "正在複製資源包、光影和選項",
+        M::InstallingMods => "正在安裝模組",
         M::CopyingConfigs => "正在複製模組包的設定檔",
         M::RecordingFiles => "正在記錄模組包的檔案",
         M::SavingSnapshot => "正在儲存實例檔案的快照",
@@ -272,8 +278,9 @@ pub fn plural(message: P) -> [&'static str; 2] {
             ["有 {count} 個檔案需要從 CurseForge 網站下載：實例的「內容」分頁會列出它們。"; 2]
         }
         P::PackFilesLeftOut => ["模組包中有 {count} 個檔案被略過，例如 {path}。"; 2],
-        P::WorldsBackedUp => ["已先備份 {count} 個世界。"; 2],
         P::DownloadingFiles => ["正在下載 {count} 個檔案"; 2],
+        P::CopyModsLeftBehind => ["{count} 個模組未複製：{names}。"; 2],
+        P::CopyDependenciesMissing => ["{count} 個所需的前置模組無法安裝：{names}。"; 2],
         P::FinderModsLeft => ["還有 {count} 個模組待檢查"; 2],
         P::FinderModsOff => ["已停用 {count} 個模組"; 2],
         P::FinderTriesLeft => ["大約還需 {count} 次嘗試"; 2],

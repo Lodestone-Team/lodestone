@@ -1256,8 +1256,6 @@ impl ContentView {
     /// The card for vanilla instances: content that needs a mod loader.
     fn render_needs_loader(&mut self, what: NeedsLoader, cx: &mut Context<Self>) -> AnyElement {
         self.ensure_mod_loader_offer(cx);
-        let switching = self.is_switching_loader(cx);
-        let busy = self.locked(cx) || self.job.is_some();
         let game_version = self
             .context(cx)
             .map(|(_, _, target)| target.game_version)
@@ -1268,10 +1266,10 @@ impl ContentView {
             .on_click(cx.listener(|this, _, _, cx| this.new_fabric_instance(cx)));
         let (text, buttons): (String, Option<AnyElement>) = match &self.mod_loader_offer {
             Load::Ready(Some(kind)) => {
-                let label = kind.label();
+                let (kind, label) = (*kind, kind.label());
                 (
                     tr!(
-                        what.pick(M::VanillaSwitchMods, M::VanillaSwitchShaders),
+                        what.pick(M::VanillaCopyMods, M::VanillaCopyShaders),
                         loader = label
                     ),
                     Some(
@@ -1282,15 +1280,13 @@ impl ContentView {
                             .gap_2()
                             .child(
                                 Button::new(
-                                    "switch-to-mod-loader",
-                                    tr!(M::SwitchTo, loader = label),
+                                    "copy-with-mod-loader",
+                                    tr!(M::CopyWith, loader = label),
                                 )
                                 .variant(ButtonVariant::Primary)
-                                .loading(switching)
-                                .disabled(busy)
-                                .on_click(
-                                    cx.listener(|this, _, _, cx| this.switch_to_mod_loader(cx)),
-                                ),
+                                .on_click(cx.listener(
+                                    move |this, _, _, cx| this.copy_with_loader(kind, cx),
+                                )),
                             )
                             .child(new_instance)
                             .into_any_element(),

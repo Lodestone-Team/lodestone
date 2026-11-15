@@ -9,12 +9,7 @@ use std::{
 };
 
 use gpui::Context;
-use launcher_core::{
-    content::InstanceDirs,
-    datapacks,
-    game::download::{CancelToken, Progress},
-    worlds,
-};
+use launcher_core::{content::InstanceDirs, datapacks, worlds};
 use lodestone_minecraft::nbt::{self, Tag};
 
 use crate::instances::worlds::{PackHit, Section, WorldsView};
@@ -220,14 +215,6 @@ pub fn fill(instance_dir: &Path) {
         }
     }
     fill_datapacks(&dirs, "New World");
-    // Two backups of the first world, a day apart.
-    let progress = Progress::default();
-    let cancel = CancelToken::new();
-    for age in [26, 2] {
-        if let Ok(backup) = worlds::backup(&dirs, "New World", &progress, &cancel) {
-            set_time(&backup.path, hours(age));
-        }
-    }
 
     let shots = dirs.game.join("screenshots");
     let _ = fs::create_dir_all(&shots);

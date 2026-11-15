@@ -1,104 +1,89 @@
 //! The backups' stored and API types.
 //!
-//! [`Manifest`], [`FileEntry`] and [`SkippedFile`] are only stored (one manifest per
-//! backup, in `backups/servers/<uuid>/<id>.json`); the rest is what the HTTP API sends and
-//! receives, exported to TypeScript.
+//! [`BackupRecord`] and [`Records`] are only stored (`images/<uuid>/backups.json`, see
+//! [`super::store`]); the rest is what the HTTP API sends and receives, exported to
+//! TypeScript.
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::types::InstanceUuid;
-
 use super::pattern;
-
-/// The manifest schema this version writes and reads. Manifests with a newer schema are
-/// refused (and garbage collection deletes nothing while one exists).
-pub const MANIFEST_SCHEMA: u32 = 1;
 
 /// A backup's names are at most this many characters.
 pub const MAX_NAME_LEN: usize = 100;
 
-/// One backup: every file it holds, by content hash, so it restores on its own.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Manifest {
-    pub schema: u32,
-    /// Must equal the file name (without `.json`).
+/// One backup: a data image of the server and what the list says about it.
+///
+/// A backup isn't its image. Images are named by their contents, so two backups of a
+/// server that didn't change between them (a named manual backup right after a scheduled
+/// one, say) are one image; each backup still has its own name, kind, pin and time, so
+/// those are kept here, and an image is deleted only once no backup names it. The figures
+/// are kept too, so listing the backups reads this one file, never the manifests.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BackupRecord {
+    /// `YYYYMMDD-HHMMSS-xxxx` ([`super::store::new_backup_id`]).
     pub id: String,
-    /// Must equal the folder the manifest is in.
-    pub instance_uuid: InstanceUuid,
-    pub instance_name: String,
-    pub game_version: String,
-    pub flavour: String,
+    /// The data image's id: its manifest is `images/<uuid>/<image>.json`.
+    pub image: String,
     /// Given by the user; at most [`MAX_NAME_LEN`] characters.
     pub name: Option<String>,
     pub kind: BackupKind,
     /// Unix seconds.
     pub created: i64,
-    /// Unix nanoseconds when the walk began. A later backup doesn't trust this manifest's
-    /// hash of a file modified within 2 s before it (the file may have changed again in the
-    /// same timestamp tick).
-    pub scan_started_ns: i128,
     pub pinned: bool,
     /// Taken while the server ran.
     pub live: bool,
     /// For a live backup, whether the server confirmed it had saved and kept running while
-    /// its files were copied (false when the wait for "Saved the game" timed out, or the
-    /// server stopped or restarted during the copy: the copy may be inconsistent). True when
-    /// not live.
+    /// its files were read (false when the wait for "Saved the game" timed out, or the
+    /// server stopped or restarted meanwhile: the copy may be inconsistent). True when not
+    /// live.
     pub quiesced: bool,
-    /// `level-name` from server.properties when it is a valid world folder.
-    pub level_name: Option<String>,
-    /// Every file was read and hashed (no stat cache).
-    pub full_scan: bool,
-    /// Sorted by path.
-    pub files: Vec<FileEntry>,
-    #[serde(default)]
-    pub skipped: Vec<SkippedFile>,
+    /// The server's level (`level-name`) when the image has that world: what "only the
+    /// world" restores, and the world a Paper server splits.
+    pub level: Option<String>,
+    /// The server's name and Minecraft version when it was backed up.
+    pub instance_name: String,
+    pub game_version: String,
+    pub file_count: u64,
+    /// Files the image couldn't carry ([`lodestone_image::Withheld`]).
+    pub withheld_count: u64,
     pub total_bytes: u64,
-    /// Uncompressed bytes of the objects no earlier backup of this server used.
+    /// Bytes of the files that the previous backup didn't have as they are now.
     pub new_bytes: u64,
-    /// Compressed size of those objects.
+    /// Bytes the backup added to the store (compressed).
     pub stored_bytes: u64,
     pub duration_ms: u64,
-    pub core_version: String,
 }
 
-/// One file of a backup.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FileEntry {
-    /// Relative to the server folder, `/`-separated.
-    pub path: String,
-    pub size: u64,
-    /// SHA-256 of the contents, 64 lowercase hex characters; the object's name.
-    pub sha256: String,
-    /// Unix nanoseconds, full precision.
-    pub modified_ns: i128,
-    /// The owner's execute bit (unix); always false on Windows.
+/// A server's backups (`images/<uuid>/backups.json`).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Records {
+    /// In no particular order; [`Records::newest_first`] sorts them.
     #[serde(default)]
-    pub executable: bool,
-}
-
-/// A file a backup left out or couldn't read.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SkippedFile {
-    pub path: String,
-    pub reason: SkipReason,
-    /// The previous backup's copy of the file was kept in this one.
+    pub backups: Vec<BackupRecord>,
+    /// Scheduled backups saved since the last backup that read every file. Kept here
+    /// rather than worked out from the backups, since retention may delete the backup that
+    /// was a full scan, and a full scan that found nothing changed saves no backup at all.
     #[serde(default)]
-    pub carried_over: bool,
+    pub scheduled_since_full: usize,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SkipReason {
-    /// A symbolic link or junction: never followed.
-    Symlink,
-    /// Couldn't be opened or read (locked, in use, permission denied, not a regular file).
-    Unreadable,
-    /// Changed while being read, every try.
-    KeptChanging,
-    /// The name can't be stored (not UTF-8, or has `\`, `:` or control characters).
-    BadName,
+impl Records {
+    /// The backups, newest first (ties by id, which starts with the time).
+    pub fn newest_first(&self) -> Vec<&BackupRecord> {
+        let mut sorted: Vec<&BackupRecord> = self.backups.iter().collect();
+        sorted.sort_by(|a, b| b.created.cmp(&a.created).then_with(|| b.id.cmp(&a.id)));
+        sorted
+    }
+
+    pub fn get(&self, id: &str) -> Option<&BackupRecord> {
+        self.backups.iter().find(|b| b.id == id)
+    }
+
+    /// Whether any backup names the image `image`.
+    pub fn names_image(&self, image: &str) -> bool {
+        self.backups.iter().any(|b| b.image == image)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
@@ -111,7 +96,7 @@ pub enum BackupKind {
     BeforeRestore,
 }
 
-/// A server's schedule, retention and exclusions, in `backups/servers/<uuid>/policy.json`.
+/// A server's schedule, retention and exclusions, in `backups/images/<uuid>/backup-policy.json`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(default)]
 #[ts(export)]
@@ -189,39 +174,43 @@ pub struct BackupInfo {
     pub quiesced: bool,
     #[ts(type = "number")]
     pub file_count: u64,
+    /// Files the backup couldn't carry (unreadable, changing while read, links, names an
+    /// image can't hold), listed in its image as withheld.
     #[ts(type = "number")]
     pub skipped_count: u64,
     #[ts(type = "number")]
     pub total_bytes: u64,
+    /// Bytes of the files the previous backup didn't have as they are now.
     #[ts(type = "number")]
     pub new_bytes: u64,
+    /// Bytes the backup added to the store (compressed).
     #[ts(type = "number")]
     pub stored_bytes: u64,
     #[ts(type = "number")]
     pub duration_ms: u64,
     pub game_version: String,
-    /// The backup knows its world folder, so "only the world" can be restored.
+    /// The backup has the server's level, so "only the world" can be restored.
     pub has_world: bool,
 }
 
-impl From<&Manifest> for BackupInfo {
-    fn from(m: &Manifest) -> Self {
+impl From<&BackupRecord> for BackupInfo {
+    fn from(r: &BackupRecord) -> Self {
         BackupInfo {
-            id: m.id.clone(),
-            name: m.name.clone(),
-            kind: m.kind,
-            created: m.created,
-            pinned: m.pinned,
-            live: m.live,
-            quiesced: m.quiesced,
-            file_count: m.files.len() as u64,
-            skipped_count: m.skipped.len() as u64,
-            total_bytes: m.total_bytes,
-            new_bytes: m.new_bytes,
-            stored_bytes: m.stored_bytes,
-            duration_ms: m.duration_ms,
-            game_version: m.game_version.clone(),
-            has_world: m.level_name.is_some(),
+            id: r.id.clone(),
+            name: r.name.clone(),
+            kind: r.kind,
+            created: r.created,
+            pinned: r.pinned,
+            live: r.live,
+            quiesced: r.quiesced,
+            file_count: r.file_count,
+            skipped_count: r.withheld_count,
+            total_bytes: r.total_bytes,
+            new_bytes: r.new_bytes,
+            stored_bytes: r.stored_bytes,
+            duration_ms: r.duration_ms,
+            game_version: r.game_version.clone(),
+            has_world: r.level.is_some(),
         }
     }
 }
@@ -271,7 +260,7 @@ pub struct BackupUsage {
     /// The sum of the backups' `total_bytes`.
     #[ts(type = "number")]
     pub total_bytes: u64,
-    /// The compressed size of the objects this server's backups use.
+    /// The compressed size of the files this server's backups use (shared ones once).
     #[ts(type = "number")]
     pub stored_bytes: u64,
     /// Free space on the disk that holds the backups.
@@ -303,10 +292,16 @@ pub struct RestoreRequest {
 #[serde(rename_all = "snake_case")]
 #[ts(export)]
 pub enum RestoreScope {
-    /// The whole server folder, except what is never backed up or the policy excludes.
+    /// Every file a backup takes, as the backup has them: what is never backed up, what
+    /// the policy excludes and what the backup couldn't carry stay as they are.
     Everything,
-    /// The world folder and its `_nether` and `_the_end` siblings.
+    /// The server's level (its `_nether` and `_the_end` folders too on Paper and Spigot).
     World,
+    /// The level, and the server's content (mods, configs, plugins, server software) as
+    /// the backup's own image has it, except `server.properties`, `ops.json` and
+    /// `whitelist.json`. Needs the backup's content link. Can change the server's Minecraft
+    /// and loader version to the backup's, as Everything can.
+    WorldAndMods,
 }
 
 #[cfg(test)]
@@ -431,6 +426,7 @@ mod tests {
     #[test]
     fn progressions_are_the_json_the_host_reads() {
         use crate::events::{ProgressionEndValue, ProgressionStartValue};
+        use crate::types::InstanceUuid;
         let uuid = InstanceUuid::from("i1".to_string());
         assert_eq!(
             serde_json::to_value(ProgressionStartValue::Restore {
@@ -459,8 +455,8 @@ mod tests {
             r#""before_restore""#
         );
         assert_eq!(
-            serde_json::to_string(&SkipReason::KeptChanging).unwrap(),
-            r#""kept_changing""#
+            serde_json::to_string(&RestoreScope::WorldAndMods).unwrap(),
+            r#""world_and_mods""#
         );
         assert_eq!(
             serde_json::to_string(&JobKind::Restore).unwrap(),

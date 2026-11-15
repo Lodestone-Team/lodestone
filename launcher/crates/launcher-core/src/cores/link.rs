@@ -1,8 +1,9 @@
 //! Which server a launcher instance was made for: `<instance>/lodestone_server.json`.
-//! The pack's files themselves are recorded by the modpack import, in `modpack.json`
-//! (see [`crate::modpack`]); the link names the core and server, and the ETag of the
-//! client pack the instance has, so "keep mods in step" can ask the core whether it
-//! changed.
+//! The files the server's view placed are recorded in `modpack.json` (see
+//! [`super::image_sync`]); the link names the core and server, and the client view the
+//! instance applied last, which Play names first in `have` so the server answers 204 when
+//! nothing changed. For a core older than milestone 3, which serves only the `.mrpack`
+//! client pack ([`super::sync`]), it keeps that pack's ETag instead.
 
 use std::{
     fs,
@@ -23,9 +24,14 @@ pub struct ServerLink {
     pub core_url: String,
     pub server_uuid: String,
     pub server_name: String,
-    /// The ETag of the client pack the instance's mods came from.
+    /// The ETag of the client pack the instance's mods came from, for a core older than
+    /// milestone 3 only.
     #[serde(default)]
     pub pack_etag: Option<String>,
+    /// The id of the server's client view the instance applied last
+    /// ([`super::image_sync::apply::mark_applied`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub view: Option<String>,
 }
 
 impl Document for ServerLink {
@@ -108,6 +114,7 @@ mod tests {
             server_uuid: server.into(),
             server_name: "SMP".into(),
             pack_etag: Some("\"e\"".into()),
+            view: None,
         };
         for (id, core) in [("a", "old"), ("b", "other"), ("c", "old")] {
             let instance = dir.path().join(id);
@@ -145,6 +152,7 @@ mod tests {
             server_uuid: "s".into(),
             server_name: "SMP".into(),
             pack_etag: Some("\"e\"".into()),
+            view: None,
         };
         save_link(&instance, &link).unwrap();
         assert_eq!(load_link(&instance), Some(link.clone()));

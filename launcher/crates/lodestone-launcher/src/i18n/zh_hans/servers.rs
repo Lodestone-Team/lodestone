@@ -142,6 +142,8 @@ pub fn text(message: M) -> &'static str {
         M::AskOwnerToStart => "请让其所有者启动它，或在“Lodestone Host”页面登录主机后自行启动。",
         M::UpdateModsFailed => "无法更新模组",
         M::StopGameFirst => "请先退出游戏。",
+        M::FilesBusy => "请等待该实例的文件处理完成，然后重试。",
+        M::FinishFinderFirst => "请先完成“帮我找出来”的查找：它关闭了部分模组。",
         M::UpdateInstanceFailed => "无法更新实例",
         M::InstanceNotSaved => "模组已更新，但无法保存实例：{error}",
         M::BadJoinAddress => "Minecraft 无法加入此服务器的地址或端口。",
@@ -236,6 +238,66 @@ pub fn text(message: M) -> &'static str {
         M::AdvisoryTrustNote => "“{button}”还会让此后来自它的模组直接安装，不再询问。{explanation}",
         M::InstallThisTime => "仅本次安装",
         M::TrustAndInstall => "信任 {core} 并安装",
+        M::BusyPreparing => "正在等待服务器准备文件…",
+        M::BusyBasePack => "正在获取服务器的整合包（{done} / {total}）…",
+        M::LacksFiles => "{name} 有你无法获得的文件",
+        M::LacksFilesBody => {
+            "你的实例已有服务器的文件，但服务器还有一些无法共享的文件。没有它们你可能无法加入。"
+        }
+        M::InstallTitle => "安装 {name} 的文件？",
+        M::InstallIntro => {
+            "{core} 上 {server} 的新实例将获得 Minecraft {version}（{loader}），以及来自服务器的这些文件。"
+        }
+        M::SummaryBase => "整合包：{pack} {version}",
+        M::SummaryAddedMods => "服务器添加的模组（{count}）",
+        M::SummaryServerOnly => "只有服务器才有的文件（{count}）",
+        M::SummaryDownload => "下载：{size}",
+        M::MissingTitle => "服务器无法共享的文件（{count}）",
+        M::MissingNote => "你将没有这些文件，缺少它们可能无法加入。请询问服务器的所有者。",
+        M::MissingLine => "{name}（{reason}）",
+        M::WithheldSymlink => "它是一个链接",
+        M::WithheldUnreadable => "无法读取",
+        M::WithheldBadName => "其名称无法共享",
+        M::WithheldKeptChanging => "它一直在变化",
+        M::WithheldCurseForge => "CurseForge 不允许",
+        M::WithheldOther => "未共享",
+        M::CurseForgeTitle => "请自行从 CurseForge 下载（{count}）",
+        M::CurseForgeNote => "它们的作者不允许其他应用下载。",
+        M::Install => "安装",
+        M::ChangeLoader => "加载器：{loader}",
+        M::ErrUpdateLodestone => {
+            "此服务器运行的是更新版本的 Lodestone。请更新 Lodestone Launcher 后再加入。"
+        }
+        M::ErrPrepareFailed => "服务器无法准备其文件。请几分钟后再试。",
+        M::ErrStillPreparing => "服务器仍在准备其文件。请几分钟后再试。",
+        M::ErrFileFailed => "服务器无法发送 {path}。请稍后再试。",
+        M::ErrViewChanged => "下载期间服务器的文件发生了变化。请重试。",
+        M::ErrFilesChangedSince => {
+            "{path} 在更新准备好之后发生了变化，因此没有做任何更改。请再按一次“开始游戏”。"
+        }
+        M::ErrBasePackGone => {
+            "服务器的整合包已不在 Modrinth 上，因此无法下载其文件。请让服务器的所有者更新整合包。"
+        }
+        M::ErrGameChanged => {
+            "服务器现在运行 {game}，而此实例适用于 {instance}。请为该服务器新建一个实例。"
+        }
+        M::ErrCurseForgeUnreachable => {
+            "无法连接 CurseForge，而服务器有来自它的文件。请检查网络连接，然后重试。"
+        }
+        M::ErrCurseForgeBase => {
+            "服务器基于 CurseForge 整合包，Lodestone Launcher 暂时无法从服务器安装。"
+        }
+        M::ErrRefused => "服务器发送了 Lodestone Launcher 不会安装的文件：{detail}",
+        M::ErrBaseFileMissing => {
+            "服务器的整合包中没有文件 {path}，但服务器说它来自整合包。请让服务器的所有者更新整合包。"
+        }
+        M::ErrOlderCore => "该主机运行的是较旧版本的 Lodestone，无法以这种方式共享其服务器的文件。",
+        M::ErrInstallFiles => "无法安装服务器的文件：{detail}",
+        M::ErrStoppedSharing => {
+            "服务器已停止共享其文件，因此无法检查这些文件。请询问服务器的所有者。"
+        }
+        M::ErrNotEnoughSpace => "可用空间不足以存放服务器的文件：需要 {needed}，可用 {free}。",
+        M::ErrNotLinked => "该实例已不再关联到此服务器，因此没有安装任何内容。",
 
         M::KeyDays90 => "90 天",
         M::KeyYear => "1 年",
@@ -450,6 +512,10 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::Players => ["{count} 名玩家"; 2],
         P::ReadyBodySkipped => {
             ["Minecraft {version}，使用 {loader}，并带有服务器的模组和配置文件。整合包中有 {count} 个文件被略过。点击“开始游戏”即可加入。";
+                2]
+        }
+        P::ReadyBodyMissing => {
+            ["Minecraft {version}（{loader}），以及服务器的文件。缺少 {count} 个服务器无法共享的文件。按“开始游戏”即可加入。";
                 2]
         }
         P::ModsAdded => ["新增 {count} 个"; 2],

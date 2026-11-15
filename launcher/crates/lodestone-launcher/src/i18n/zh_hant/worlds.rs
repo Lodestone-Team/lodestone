@@ -14,15 +14,14 @@ pub fn text(message: M) -> &'static str {
         M::RestoringBackup => "正在還原備份",
         M::ReplacingWorld => "正在以備份取代世界",
         M::MovingToTrash => "正在將 {name} 移到{trash}",
-        M::MovingBackupToTrash => "正在將備份移到{trash}",
         M::Renaming => "正在重新命名",
         M::Exporting => "正在匯出 {name}",
         M::ImportingWorlds => "正在匯入世界",
 
-        M::BackedUp => "已備份 {name}（{size}）。",
+        M::BackedUp => "已備份 {name}。",
         M::RestoredAsCopy => "已還原為新世界 {folder}。",
         M::Restored => "已還原 {folder}。",
-        M::RestoredWithSafety => "已還原 {folder}。原本的世界已備份為 {backup}，並已移到{trash}。",
+        M::RestoredWithSafety => "已還原 {folder}。原本的世界保存在快照「{snapshot}」中。",
         M::InTrash => "{name} 已移到{trash}。",
         M::RenamedTo => "已重新命名為 {name}。",
         M::RenamedToFolder => "已重新命名為 {name}（資料夾 {folder}）。",
@@ -47,7 +46,7 @@ pub fn text(message: M) -> &'static str {
         M::Export => "匯出…",
         M::DeleteWorld => "刪除…",
         M::NoBackupsYet => {
-            "還沒有備份。「建立備份」會將世界儲存為 zip 檔，放在實例的 backups 資料夾中。"
+            "這個世界還沒有快照。點選「備份」拍攝一個；設定 › 快照中列出了全部快照。"
         }
         M::RestoreAsCopy => "還原為副本",
         M::ReplaceWorld => "取代世界…",
@@ -97,5 +96,6 @@ pub fn text(message: M) -> &'static str {
 pub fn plural(message: P) -> [&'static str; 2] {
     match message {
         P::ScreenshotsSummary => ["{count} 張截圖 · 在遊戲中按 F2 即可截圖"; 2],
+        P::WithOtherWorlds => ["另含 {count} 個世界"; 2],
     }
 }

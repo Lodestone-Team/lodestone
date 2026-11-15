@@ -158,6 +158,11 @@ pub struct ServerInstance {
     pub has_client_pack: Option<bool>,
     #[serde(default)]
     pub listed: bool,
+    /// Listed only by the public list though this device is signed in: the key can't view
+    /// it, so its image and pack are asked for through `/public/…` (the signed-in route
+    /// would refuse). Set by the Launcher when it merges the lists, never by a core.
+    #[serde(skip)]
+    pub public_only: bool,
 }
 
 impl ServerInstance {

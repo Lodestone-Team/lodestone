@@ -82,24 +82,13 @@ pub fn text(message: M) -> &'static str {
         M::DeleteNamed => "刪除「{name}」？",
         M::DeleteWorldBody => "這個世界的資料夾會移到{trash}，你可以從那裡還原。它的備份會保留。",
         M::DeleteInstanceBody => {
-            "這個實例的資料夾（包括其中的世界、模組和設定）會移到{trash}。你可以從那裡還原。"
+            "這個實例的資料夾（包括其中的世界、模組和設定）會移到{trash}。你可以從那裡還原。它的快照會一直保留，直到你在「設定 › 儲存空間」中移除；還原實例時快照也會一起回來。"
         }
         M::ReplaceWorldTitle => "用這個備份取代「{name}」？",
         M::ReplaceWorldBody => {
-            "「{name}」會回到{when} 時的狀態。之後的所有變更都會從世界中遺失，但會先備份，目前的資料夾會移到{trash}。"
+            "「{name}」會回到{when} 時的狀態。會先為現在的世界拍攝快照，並保留 30 天。"
         }
         M::BackUpAndReplace => "備份並取代",
-        M::SwitchToLoader => "切換到 {loader}？",
-        M::SwitchToVanilla => "切換到原版？",
-        M::ModsWontLoadOn => "以下已啟用的模組是為其他載入器製作的，在 {loader} 上無法載入：",
-        M::ModsWontLoadVanilla => "原版 Minecraft 不會載入任何模組，因此以下已啟用的模組無法載入：",
-        M::ModMadeFor => "{loader} 模組",
-        M::TurningOffRenames => {
-            "停用後，它們會被重新命名為 .disabled，之後你可以在「內容」中重新啟用。"
-        }
-        M::WorldsAtRisk => "使用過這些模組中的方塊或物品的世界可能會失去它們。請先備份你的世界。",
-        M::TurnOffAndSave => "停用並儲存",
-        M::SaveAndKeep => "儲存並保留",
         M::RemoveAccountTitle => "移除「{name}」？",
         M::RemoveAccountBody => {
             "Lodestone Launcher 會忘記這個帳號，並從你的{keychain}中刪除它儲存的登入資訊。之後你可以再次新增。"
@@ -153,9 +142,8 @@ pub fn text(message: M) -> &'static str {
         M::KeptFiles => "保留你的變更（{count}）",
         M::WrittenFiles => "寫入的設定檔和其他檔案（{count}）",
         M::ModpackUpdateSafety => {
-            "你自己的模組、世界和變更過的設定檔不會受到影響。每個被取代或移除的檔案都會先儲存到實例的備份資料夾。"
+            "你自己的模組、世界和修改過的設定不會被更動。會先為實例拍攝快照，被取代或刪除的每個檔案都會保存在實例的備份資料夾中。"
         }
-        M::BackUpEveryWorld => "先備份所有世界",
 
         M::SaveChangesTitle => "要儲存變更嗎？",
         M::UnsavedDefaultsBody => "你變更了實例預設設定。要儲存還是捨棄？",
@@ -744,11 +732,7 @@ pub fn text(message: M) -> &'static str {
         M::StorageRuntimes => "Java 執行環境",
         M::StorageCache => "快取",
         M::StorageSnapshots => "快照",
-        M::StorageSnapshotsHint => "{count} 個快照 · 可釋放 {size}",
-        M::StorageCleanSnapshotsTitle => "移除自動快照？",
-        M::StorageCleanSnapshotsBody => {
-            "這會釋放 {size}。將移除回復前自動拍攝的快照、已刪除實例的快照以及為分享而產生的檔案。"
-        }
+        M::StorageCleanSnapshotsTitle => "刪除啟動器自動拍攝的快照？",
         M::StorageLeftovers => "未完成的下載和匯入",
         M::StorageCleanLeftoversTitle => "移除未完成的下載？",
         M::StorageCleanLeftoversBody => {
@@ -829,6 +813,13 @@ pub fn text(message: M) -> &'static str {
         }
         M::ZoomKeywords => "比例 大小 放大 縮小 文字",
         M::WhenAGameStartsKeywords => "啟動後 最小化 隱藏 關閉 結束",
+        M::ModpackUpdateNoSnapshot => {
+            "無法先拍攝快照，因此沒有做任何變更。你可以不拍攝快照直接更新，或解決問題後重試。\n{error}"
+        }
+        M::UpdateWithoutSnapshot => "不拍攝快照直接更新",
+        M::ReplaceWorldModsNote => {
+            "只有世界會還原；實例的模組保持不變。要同時還原它當時使用的模組，請在「設定 › 快照」中還原該快照。"
+        }
     }
 }
 
@@ -840,5 +831,12 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::LauncherAccounts => ["有 {count} 個帳號正以 Minecraft Launcher 身分登入：{names}。"; 2],
         P::Subscriptions => ["{count} 個訂閱"; 2],
         P::PerfEntries => ["{count} 個項目"; 2],
+        P::StorageSnapshotsHint => {
+            ["{count} 個快照和每個實例的內容歷史 · 可刪除 {removable} 個"; 2]
+        }
+        P::StorageCleanSnapshotsBody => {
+            ["將刪除 {count} 個快照：啟動器自動拍攝的快照，以及已刪除實例的所有快照（包括已釘選的）。你的實例中你自己拍攝的和已釘選的快照會保留。最近一小時內的檔案會在下次清理時釋放。";
+                2]
+        }
     }
 }

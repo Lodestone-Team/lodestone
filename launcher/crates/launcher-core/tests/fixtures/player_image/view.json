@@ -1,0 +1,10 @@
+{
+  "status": 200,
+  "headers": {
+    "x-lodestone-view": "78050feeb27380656ef81ec5fc6568e38026175013f4aaf2c46a59285ec342a9",
+    "x-lodestone-answer": "view",
+    "x-lodestone-rules": "1",
+    "content-type": "application/json",
+    "etag": "\"78050feeb27380656ef81ec5fc6568e38026175013f4aaf2c46a59285ec342a9\""
+  }
+}

@@ -213,6 +213,39 @@ pub struct Instance {
     /// first prepared on one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rosetta: Option<RosettaState>,
+    /// The instance's own snapshot settings, over the global ones; `None` follows them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snapshots: Option<SnapshotSettings>,
+}
+
+/// An instance's snapshot settings (`images::snapshots`). Each `None` follows the
+/// Launcher's: Settings › Instance defaults for `after_play` (off by default), and the retention
+/// defaults ([`crate::images::retention::DEFAULT_POLICY`]) for the counts.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SnapshotSettings {
+    /// Take a snapshot after each play session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after_play: Option<bool>,
+    /// How many of the newest automatic snapshots are kept.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keep_last: Option<u32>,
+    /// For how many of the most recent days the newest automatic snapshot is kept.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keep_daily: Option<u32>,
+    /// For how many of the most recent weeks the newest automatic snapshot is kept.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keep_weekly: Option<u32>,
+}
+
+impl SnapshotSettings {
+    /// The most any count may be: far more than anyone keeps, and a bound on what a
+    /// hand-edited `instance.json` asks retention to walk.
+    pub const MAX_KEEP: u32 = 1000;
+
+    /// Whether every field follows the Launcher's (the settings say nothing).
+    pub fn is_empty(&self) -> bool {
+        *self == SnapshotSettings::default()
+    }
 }
 
 /// Rosetta 2 and an instance, on an Apple silicon Mac. Versions before 1.14 run in an
@@ -302,6 +335,7 @@ impl Default for Instance {
             recommended_memory: None,
             auto_config: None,
             rosetta: None,
+            snapshots: None,
         }
     }
 }
@@ -867,18 +901,32 @@ impl InstanceStore {
     }
 
     /// Makes the folder from [`InstanceStore::new_staging`] the instance `instance`, under
-    /// an unused id from its name, by renaming it into place.
+    /// an unused id from its name, by renaming it into place. Commits wait for each
+    /// other, so two jobs finishing at once (copies of one instance with the same name)
+    /// don't pick the same id; one that still finds its id taken (another launcher on
+    /// the data folder) takes the next.
     pub fn commit_staged(
         &self,
         staging: &Path,
         mut instance: Instance,
     ) -> Result<Instance, InstanceError> {
-        instance.name = self.unique_name(&clean_name(&instance.name)?);
-        instance.id = self.unused_id(&instance.name);
-        storage::save(&staging.join("instance.json"), &instance)?;
-        let dir = self.dir(&instance.id);
-        crate::fsx::rename(staging, &dir).map_err(io_error(staging))?;
-        Ok(instance)
+        static COMMITS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _commits = COMMITS
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let name = clean_name(&instance.name)?;
+        let mut tries = 0;
+        loop {
+            instance.name = self.unique_name(&name);
+            instance.id = self.unused_id(&instance.name);
+            storage::save(&staging.join("instance.json"), &instance)?;
+            let dir = self.dir(&instance.id);
+            match crate::fsx::rename(staging, &dir) {
+                Ok(()) => return Ok(instance),
+                Err(_) if dir.exists() && tries < 3 => tries += 1,
+                Err(err) => return Err(io_error(staging)(err)),
+            }
+        }
     }
 
     /// The instance's own icon, if it has one.
@@ -1334,7 +1382,11 @@ pub fn icon_png(bytes: &[u8]) -> Result<Vec<u8>, String> {
 
 /// Copies the folder `from` to `to` (which must not exist), skipping what `skip`
 /// says (by path relative to `from`) and symbolic links.
-fn copy_tree(from: &Path, to: &Path, skip: &dyn Fn(&Path) -> bool) -> Result<(), InstanceError> {
+pub(crate) fn copy_tree(
+    from: &Path,
+    to: &Path,
+    skip: &dyn Fn(&Path) -> bool,
+) -> Result<(), InstanceError> {
     fn walk(
         root: &Path,
         dir: &Path,
@@ -1401,6 +1453,32 @@ pub fn now() -> u64 {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn snapshot_settings_are_optional_and_round_trip() {
+        // An instance.json from before the setting reads, and writes nothing for it.
+        let old = r#"{"id":"a","name":"A","game_version":"1.21.1","created":1}"#;
+        let instance: Instance = serde_json::from_str(old).unwrap();
+        assert_eq!(instance.snapshots, None);
+        let raw = serde_json::to_value(&instance).unwrap();
+        assert!(raw.get("snapshots").is_none());
+        let with = Instance {
+            snapshots: Some(SnapshotSettings {
+                after_play: Some(true),
+                keep_last: Some(3),
+                ..SnapshotSettings::default()
+            }),
+            ..instance
+        };
+        let raw = serde_json::to_value(&with).unwrap();
+        assert_eq!(
+            raw["snapshots"],
+            serde_json::json!({"after_play": true, "keep_last": 3})
+        );
+        let back: Instance = serde_json::from_value(raw).unwrap();
+        assert_eq!(back.snapshots, with.snapshots);
+        assert!(SnapshotSettings::default().is_empty());
+    }
 
     #[test]
     fn icon_names_are_library_icons_or_emoji() {
@@ -2137,6 +2215,7 @@ mod tests {
                 server_uuid: "smp".into(),
                 server_name: "Survival SMP".into(),
                 pack_etag: None,
+                view: None,
             };
             link::save_link(&instance_dir, &server).unwrap();
         };

@@ -580,6 +580,7 @@ pub fn server_instance(server: &SharedServer) -> ServerInstance {
         max_player_count: server.max_player_count,
         has_client_pack: Some(server.modpack),
         listed: false,
+        public_only: false,
     }
 }
 

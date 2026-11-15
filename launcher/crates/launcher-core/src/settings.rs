@@ -377,6 +377,10 @@ pub struct InstanceDefaults {
     pub fullscreen: bool,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub env: BTreeMap<String, String>,
+    /// Take a snapshot of an instance after each play session, unless the instance says
+    /// otherwise. Off by default: each one copies the worlds into the image store.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub snapshot_after_play: bool,
     #[serde(flatten)]
     pub other: Map<String, Value>,
 }
@@ -446,6 +450,21 @@ mod tests {
                 "future_key": [1, 2],
                 "instance_defaults": {"max_ram": 3072, "later": true, "jvm_args": "", "game_args": "", "fullscreen": false},
             })
+        );
+    }
+
+    #[test]
+    fn snapshot_after_play_is_off_by_default_and_written_only_when_on() {
+        let defaults: InstanceDefaults = serde_json::from_value(json!({})).unwrap();
+        assert!(!defaults.snapshot_after_play);
+        let raw = serde_json::to_value(&defaults).unwrap();
+        assert!(raw.get("snapshot_after_play").is_none());
+        let on: InstanceDefaults =
+            serde_json::from_value(json!({"snapshot_after_play": true})).unwrap();
+        assert!(on.snapshot_after_play);
+        assert_eq!(
+            serde_json::to_value(&on).unwrap()["snapshot_after_play"],
+            json!(true)
         );
     }
 

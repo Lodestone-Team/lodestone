@@ -91,16 +91,16 @@ crate::i18n::messages! {
         AutoGroupImported = "Imported",
 
         // Game & loader.
+        /// Under the Minecraft version and the mod loader, which never change.
         GameVersionHint = "Set when the instance was made.",
+        /// The same, for an instance a modpack's updates can move to another version.
+        GameVersionFollowsModpack = "Follows its modpack's updates.",
+        /// The same, for an instance a linked server's pack can move to another version.
+        GameVersionFollowsServer = "Follows the linked server's pack.",
         /// {loader} is a loader and its version, "Fabric 0.16.9".
         LoaderInstallsNextStart = "{loader} installs the next time the game starts.",
         LoaderInstallsNextPlay = "{loader} installs the next time you press Play.",
         SavedNextStart = "Saved. It applies the next time the game starts.",
-        /// {error} is the problem, in English.
-        CouldntTurnModsOff = "Couldn't turn the mods off: {error}",
-        /// A modpack update changed the Minecraft version while the loader change
-        /// dialog was open; nothing was saved.
-        GameVersionChangedMeanwhile = "The Minecraft version changed meanwhile. Choose the loader again, then save.",
 
         // The loader picker.
         /// No mod loader: the game as Mojang ships it.
@@ -193,46 +193,87 @@ crate::i18n::messages! {
         TakeSnapshotTitle = "Take a snapshot",
         TakeSnapshot = "Take snapshot",
         SnapshotName = "Name",
-        WhatToInclude = "What to include",
-        WhatToRestore = "What to put back",
-        PartMods = "Mods",
-        PartResourcePacks = "Resource packs",
-        PartShaderPacks = "Shader packs",
-        PartConfigs = "Configs and options",
-        PartWorlds = "Worlds",
-        PartScreenshots = "Screenshots",
-        PartSettings = "Instance settings",
-        PartOther = "Other files",
         NoSnapshots = "No snapshots yet.",
         SnapshotSizes = "{total}, {new} new",
-        BeforeGoingBack = "Before going back to “{name}”",
-        RevertEllipsis = "Revert…",
-        RevertTitle = "Go back to {name}?",
-        RevertBody = "The chosen parts are replaced by the snapshot’s. A snapshot of them is taken first, so you can come back.",
-        Revert = "Revert",
-        ShareEllipsis = "Share…",
-        ShareSnapshotTitle = "Share {name}",
+        SnapshotNothingNew = "{total}, nothing new",
+        /// A snapshot's details: it holds the mods and configs, not only the worlds.
+        SnapshotWithMods = "With mods",
         PreparingFile = "Preparing the file…",
         DragToShare = "Drag the file into another app, or:",
         SaveAsEllipsis = "Save as…",
         ShowInFolder = "Show in folder",
         DeleteSnapshotTitle = "Delete {name}?",
-        DeleteSnapshotBody = "Files no other snapshot uses are removed. This can’t be undone.",
+        DeleteSnapshotBody = "The snapshot is deleted. Its files go at the next clean-up, unless another snapshot uses them. This can’t be undone.",
         TakingSnapshot = "Taking the snapshot…",
-        RevertingSnapshot = "Putting the snapshot back…",
         ImportingSnapshot = "Creating the instance…",
         ReadingSnapshot = "Reading the snapshot…",
         ImportSnapshotTitle = "New instance from a snapshot",
-        SnapshotFrom = "{name} · Minecraft {version}",
-        SnapshotModsWarning = "It has {count} mods: programs that run when the game starts. Only use snapshots from people you trust.",
-        /// "Instance settings" is the part to choose below it.
-        SnapshotLaunchSettingsWarning = "Its instance settings change how the game starts: Java, its arguments, environment variables or memory. These can run programs too, so they are only used with Instance settings chosen. Choose it only for snapshots from people you trust.",
         CreateInstanceButton = "Create instance",
         SnapshotGameRunning = "Stop the game first.",
-        ChooseSomething = "Choose at least one part.",
-        SnapshotTaken = "Snapshot taken.",
-        SnapshotReverted = "Snapshot put back.",
-        SnapshotsHint = "Copies of this instance to go back to or share.",
+        SnapshotsHint = "Copies of this instance's worlds and files to go back to or share.",
+        /// Take a snapshot: a full image rather than worlds linked to the mods.
+        SnapshotIncludeEverything = "Include mods and configs",
+        SnapshotIncludeEverythingHint = "Without it, the snapshot keeps the worlds and other files, and remembers the mods they ran with.",
+        /// The Settings tab's toggle; also Settings › Instance defaults' default.
+        SnapshotAfterPlay = "Take a snapshot after each play session",
+        SnapshotAfterPlayHint = "Copies the worlds after you play. Follows Settings › Instance defaults, where it is off unless you turn it on.",
+        /// Settings › Instance defaults' toggle.
+        SnapshotAfterPlayDefaultHint = "Copies the worlds after each play session, for instances that don't set it themselves. Off unless you turn it on.",
+        /// {last}, {days} and {weeks} are numbers.
+        SnapshotKeepHint = "Snapshots the Launcher takes on its own are kept for a while: the last {last}, one a day for {days} days and one a week for {weeks} weeks. Yours stay until you delete them.",
+        /// Badges on a snapshot's row.
+        BadgeAutomatic = "Automatic",
+        BadgeAfterPlaying = "After playing",
+        BadgeImported = "Imported",
+        BadgePinned = "Pinned",
+        /// A snapshot row's buttons.
+        RestoreEllipsis = "Restore…",
+        ExportEllipsis = "Export…",
+        PinSnapshot = "Pin",
+        UnpinSnapshot = "Unpin",
+        UnreadableImagesHint = "Old content history isn't cleaned up while one can't be read.",
+        DeleteUnreadable = "Delete them",
+        /// The restore dialog's title; {name} is the snapshot.
+        RestoreTitle = "Restore {name}",
+        /// The restore dialog's choices.
+        RestoreWorldsOnly = "Only the worlds",
+        RestoreWorldsAndMods = "The worlds and their mods",
+        RestoreEverything = "Everything",
+        RestoreAsNew = "As a new instance",
+        RestoreAsNewName = "New instance's name",
+        RestoreEverythingHint = "The whole game folder goes back to the snapshot: worlds, mods, configs and options. Worlds made since are removed.",
+        /// A world in the snapshot that the instance no longer has; {size} is "120 MB".
+        WorldGoneNow = "{size} · not in the instance now",
+        ModsDiffer = "These worlds last ran with other mods.",
+        /// Like ModsDiffer, when only configs and other files differ, not mods.
+        FilesDiffer = "These worlds last ran with other files.",
+        RestoreModsToo = "Put their mods back too",
+        /// Before the list of what "Put their mods back too" changes, when it is off.
+        RestoreModsTooChanges = "Putting their mods back too:",
+        /// {version} is a loader version.
+        RestoreLoaderChange = "The loader goes back to {version}.",
+        RestoreSafety = "A snapshot of what is replaced is taken first and kept for 30 days.",
+        RestoreOtherGame = "This snapshot is of another Minecraft version or loader, so it can only become a new instance.",
+        RestoreButton = "Restore",
+        RestoringSnapshot = "Restoring the snapshot…",
+        DeletingSnapshot = "Deleting the snapshot…",
+        ChooseWorld = "Choose at least one world.",
+        /// The export dialog's title; {name} is the snapshot.
+        ExportTitle = "Export {name}",
+        ExportNote = "Mods and packs from Modrinth and CurseForge are listed, not copied: they download again when the file is imported, where their authors allow it.",
+        /// {files} is a list of files.
+        ExportLeftOut = "Left out, as they can hold passwords and sign-ins: {files}.",
+        /// {name} is the snapshot, {version} a Minecraft version, {loader} "Fabric 0.16.10".
+        ImportFrom = "{name} · Minecraft {version} · {loader}",
+        /// {worlds} is a list of worlds.
+        ImportWorlds = "Worlds: {worlds}",
+        /// {size} is "38 MB".
+        ImportDownloads = "{size} to download from Modrinth and CurseForge.",
+        /// {files} is a list of files.
+        ImportNotDownloadable = "Their authors don't allow downloads, so these are left out: {files}.",
+        /// {size} is "1.2 GB".
+        ImportSpace = "Needs {size} of disk space, 1 GB of it to spare.",
+        ImportNeedsModrinth = "Modrinth can't be reached, so the file's mods can't be downloaded.",
 
         // Maintenance.
         VerifyGameFiles = "Verify game files",
@@ -252,6 +293,54 @@ crate::i18n::messages! {
         Duplicate = "Duplicate",
         /// The Duplicate button while the copy is being made.
         Duplicating = "Duplicating…",
+        /// The Game & loader row that leads to a copy: an instance's version and loader
+        /// never change.
+        ChangeVersionOrLoader = "Another version or loader",
+        ChangeVersionOrLoaderHint = "An instance keeps the version and loader it was made with. A copy can have others.",
+        /// The Maintenance row that opens "Copy with another version or loader".
+        CopyAs = "Copy with another version or loader",
+        /// Opens "Copy with another version or loader".
+        CopyAsButton = "Copy…",
+        /// Search words for the copy rows (Settings search), comma-free.
+        CopyAsKeywords = "change switch update upgrade downgrade version loader Fabric Forge NeoForge Quilt",
+
+        // "Copy with another version or loader": a new instance from this one.
+        /// The dialog's title.
+        CopyAsTitle = "Copy with another version or loader",
+        /// {name} is the instance copied; {version} is its version, "1.20.1 · Fabric 0.16.9".
+        CopyFrom = "A new instance from {name} ({version}), which stays as it is.",
+        /// The heading over the choices of what goes into the copy.
+        CopyWhat = "What to copy",
+        CopyWorlds = "Worlds",
+        CopyNoWorlds = "This instance has no worlds.",
+        CopyWorldsOlder = "Worlds can't go to an older version of Minecraft: it can't open them.",
+        /// {version} is the Minecraft version chosen.
+        CopyWorldsUnknown = "Worlds stay: Lodestone Launcher can't tell whether {version} is newer.",
+        /// {version} is the Minecraft version chosen; {name} is the instance copied.
+        CopyWorldsUpgraded = "Minecraft {version} upgrades the worlds when it opens them, and they can't go back. The originals stay in {name}.",
+        /// Under Worlds, for another loader; {name} is the instance copied.
+        CopyWorldsModsGone = "Blocks and items from mods that don't come along are removed when the copy opens the worlds. The originals stay in {name}.",
+        CopyPacks = "Resource packs, shaders and options",
+        CopyMods = "Mods",
+        /// While the instance's mods are read.
+        CopyReading = "Reading the instance's mods…",
+        CopyNoMods = "This instance has no mods.",
+        CopyModsVanilla = "Vanilla Minecraft runs no mods.",
+        CopyModsOffline = "Modrinth can't be reached, so no mods can be copied.",
+        /// {error} is the problem, in English.
+        CopyModsFailed = "Couldn't check the mods: {error}",
+        /// {target} is "1.21.1 Fabric"; {names} is a list of mods.
+        CopyModsNoBuild = "No build for {target}, so these stay behind: {names}.",
+        /// {names} is a list of mods.
+        CopyModsNotOnModrinth = "Not on Modrinth, so these stay behind: {names}.",
+        /// {names} is a list of mods whose Modrinth lookup failed.
+        CopyModsUnchecked = "Couldn't check these on Modrinth, so they stay behind: {names}.",
+        /// After "Try again", when the mods couldn't be checked.
+        CopyOrUncheckMods = "or uncheck Mods to copy without them.",
+        /// While the version and loader chosen are the instance's own.
+        CopySameTarget = "Choose another Minecraft version or loader. Duplicate, in Maintenance, copies the instance as it is.",
+        /// Starts the copy.
+        CopyAsStart = "Make the copy",
         HostOnCore = "Host on Lodestone",
         HostHint = "Creates a server with this instance's mods.",
         HostButton = "Host…",
@@ -422,6 +511,19 @@ crate::i18n::messages! {
         AddModpackServerHint = "Add a modpack's mods, such as client optimizations, next to {server}'s. The server's mods stay as they are.",
         AddModpackEllipsis = "Add a modpack…",
         RemoveAddedModpackNote = "Removes the files the pack added. Files you changed stay.",
+        SnapshotsNotChanged = "The snapshots couldn't be changed",
+        RestoreKeptAsideTitle = "Some files were in the restore's way",
+        /// {name} is the snapshot's name.
+        SnapshotRestored = "Restored “{name}”.",
+        ImportLeftOutTitle = "Some files weren't imported",
+        /// {files} is a list of files.
+        ImportLeftOut = "They couldn't be downloaded, so the new instance doesn't have them: {files}.",
+        RestoreKeptAside = "Files written while the restore ran are kept in {folder}.",
+        ImportNoRoom = "The disk doesn't have room for it: it needs {size}, 1 GB of it to spare, and {free} is free.",
+        ImportSpaceFree = "Needs {size} of disk space, 1 GB of it to spare; {free} is free.",
+        ExportNotDownloadable = "These can't be downloaded, so whoever imports the file won't get them: {files}.",
+        SnapshotAfterPlayOwnHint = "Copies the worlds after you play. Set for this instance.",
+        DeleteUnreadableNote = "They are deleted for good.",
     }
 
     pub enum InstanceSettingsPlural {
@@ -431,18 +533,21 @@ crate::i18n::messages! {
         ShareAddedCount = ("{count} added", "{count} added"),
         ShareRemovedCount = ("{count} removed", "{count} removed"),
         ShareChangedCount = ("{count} changed", "{count} changed"),
+        /// The Snapshots list: images of the instance that can't be read.
+        UnreadableImages = ("{count} image can't be read", "{count} images can't be read"),
+        /// The restore dialog: files the image store lost.
+        RestoreMissing = (
+            "The image store lost {count} of its files, so it can't be put back whole.",
+            "The image store lost {count} of its files, so it can't be put back whole."
+        ),
+        /// The import dialog's warning.
+        ImportModsWarning = (
+            "It has {count} mod: a program that runs when the game starts. Only import files from people you trust.",
+            "It has {count} mods: programs that run when the game starts. Only import files from people you trust."
+        ),
         ShareToggledCount = ("{count} turned off or on", "{count} turned off or on"),
         /// After "Gaycraft 5.0 from Modrinth" in the New instance dialog.
         CodePackChanges = ("+ {count} change", "+ {count} changes"),
-        /// After a loader change; {loader} is "Fabric 0.16.9".
-        LoaderNextStartModsOff = (
-            "{loader} installs the next time the game starts. {count} mod was turned off.",
-            "{loader} installs the next time the game starts. {count} mods were turned off."
-        ),
-        LoaderNextPlayModsOff = (
-            "{loader} installs the next time you press Play. {count} mod was turned off.",
-            "{loader} installs the next time you press Play. {count} mods were turned off."
-        ),
         /// How many of a category's settings are shared.
         SharedCount = ("{count} shared", "{count} shared"),
         /// How many of a category's settings this instance sets itself.
@@ -478,5 +583,17 @@ crate::i18n::messages! {
         AndMoreFiles = ("and {count} more", "and {count} more"),
         /// An added modpack's files in the instance.
         AddedModpackFiles = ("{count} file added", "{count} files added"),
+        /// Beside the worlds' box in "Copy with another version or loader".
+        CopyWorldsCount = ("{count} world", "{count} worlds"),
+        CopyCheckingMods = ("Checking {count} mod on Modrinth…", "Checking {count} mods on Modrinth…"),
+        /// {found} of the {count} mods have a build; {target} is "1.21.1 Fabric".
+        CopyModsFound = (
+            "{found} of {count} mod has a build for {target}.",
+            "{found} of {count} mods have a build for {target}."
+        ),
+        RestorePutsBack = ("Puts back {count} file: {names}", "Puts back {count} files: {names}"),
+        RestoreRemoves = ("Removes {count} file: {names}", "Removes {count} files: {names}"),
+        RestoreChanges = ("Changes {count} file: {names}", "Changes {count} files: {names}"),
+        ImportCarriedMods = ("{count} of them is in the file itself, not downloaded from Modrinth or CurseForge: {names}", "{count} of them are in the file itself, not downloaded from Modrinth or CurseForge: {names}"),
     }
 }

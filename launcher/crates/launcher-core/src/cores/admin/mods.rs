@@ -536,21 +536,6 @@ pub struct AvailableUpdate {
     pub changelog: Option<String>,
 }
 
-/// What a history entry was (`HistoryKind`).
-#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum HistoryKind {
-    Install,
-    Baseline,
-    #[default]
-    Update,
-    Restore {
-        to: u32,
-    },
-    #[serde(other)]
-    Unknown,
-}
-
 /// What a change did to a file (`ChangeKind`). An updated file is a mod whose file
 /// changed name (another version of the same Modrinth project).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
@@ -588,18 +573,18 @@ impl ChangeInfo {
     }
 }
 
-/// An install, update or restore of a server's modpack (`HistoryEntryInfo`).
+/// One entry of a server's history (`HistoryEntryInfo`): a content image, recorded by
+/// a modpack install, update or restore or by any other change to its mods and configs.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
 pub struct HistoryEntryInfo {
-    pub id: u32,
+    /// The content image's id, which a restore names.
+    pub id: String,
     /// Unix milliseconds.
     #[serde(default)]
     pub time: i64,
-    pub kind: HistoryKind,
+    /// What made it ("Updated Test Pack to 2", "Added JEI").
     #[serde(default)]
-    pub name: String,
-    #[serde(default)]
-    pub version_number: Option<String>,
+    pub label: String,
     #[serde(default)]
     pub game_version: String,
     #[serde(default)]
@@ -609,18 +594,13 @@ pub struct HistoryEntryInfo {
     #[serde(default)]
     pub changes: Vec<ChangeInfo>,
     #[serde(default)]
-    pub kept: Vec<String>,
-    #[serde(default)]
     pub file_count: u32,
-    /// The server is at this entry.
+    /// The server's content is this image.
     #[serde(default)]
     pub current: bool,
     /// Files Lodestone can't get back; it can only be restored when this is 0.
     #[serde(default)]
     pub missing: u32,
-    /// What the modpack's author wrote about this version (Markdown).
-    #[serde(default)]
-    pub changelog: Option<String>,
 }
 
 impl HistoryEntryInfo {
@@ -630,26 +610,23 @@ impl HistoryEntryInfo {
     }
 }
 
-/// A server's modpack history (`ModpackHistory`).
+/// A server's history (`ModpackHistory`).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
 pub struct ModpackHistory {
     /// Newest first.
     #[serde(default)]
     pub entries: Vec<HistoryEntryInfo>,
-    /// For each file of the current pack (its path in the pack), the id of the entry its
-    /// current version came with.
+    /// For each mod and config of the current content (a mod by its enabled name), the id
+    /// of the entry its current version came with.
     #[serde(default)]
-    pub blame: std::collections::BTreeMap<String, u32>,
-    /// The bytes Lodestone keeps to undo updates.
-    #[serde(default)]
-    pub stored_bytes: u64,
+    pub blame: std::collections::BTreeMap<String, String>,
     /// A newer version on Modrinth, when the core's last check found one.
     #[serde(default)]
     pub update: Option<AvailableUpdate>,
 }
 
 impl ModpackHistory {
-    pub fn entry(&self, id: u32) -> Option<&HistoryEntryInfo> {
+    pub fn entry(&self, id: &str) -> Option<&HistoryEntryInfo> {
         self.entries.iter().find(|e| e.id == id)
     }
 
@@ -659,7 +636,7 @@ impl ModpackHistory {
             .strip_suffix(".disabled")
             .filter(|p| p.to_lowercase().ends_with(".jar"))
             .unwrap_or(path);
-        self.entry(*self.blame.get(enabled)?)
+        self.entry(self.blame.get(enabled)?)
     }
 }
 
@@ -865,6 +842,13 @@ pub struct InstalledMod {
     /// The owner marked it as needed by players ([`AdminClient::set_client_mark`]).
     #[serde(default)]
     pub client_marked: bool,
+    /// The owner left it out of the client pack.
+    #[serde(default)]
+    pub client_excluded: bool,
+    /// The owner can leave it out although players get it: Modrinth says players can
+    /// join without it, and no mod they get needs it. Older cores never say so.
+    #[serde(default)]
+    pub client_optional: bool,
 }
 
 impl InstalledMod {
@@ -1104,7 +1088,8 @@ impl AdminClient {
     }
 
     /// `PUT /instance/{uuid}/mods/{file}/client`: marks a mod as needed by players, so the
-    /// client pack gives it to them with what it needs, or takes the mark off.
+    /// client pack gives it to them with what it needs, or takes the mark off and leaves it
+    /// out of the pack (where Modrinth says players can join without it).
     pub async fn set_client_mark(
         &self,
         uuid: &str,
@@ -1165,6 +1150,38 @@ impl AdminClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The core's history lists content images by id; a mod's entry is found by its
+    /// enabled name.
+    #[test]
+    fn history_entries_are_content_images() {
+        let image = "c".repeat(64);
+        let history: ModpackHistory = serde_json::from_value(serde_json::json!({
+            "entries": [{
+                "id": image, "time": 1_000, "label": "Added JEI",
+                "game_version": "1.21.1", "loader": "fabric", "loader_version": "0.16.10",
+                "changes": [{ "kind": "added", "path": "mods/jei.jar",
+                              "old_path": null, "project_id": "jei" }],
+                "file_count": 3, "current": true, "missing": 0
+            }],
+            "blame": { "mods/jei.jar": image },
+            "update": null
+        }))
+        .unwrap();
+        let entry = history.blame_of("mods/jei.jar.disabled").unwrap();
+        assert_eq!(entry.label, "Added JEI");
+        assert_eq!(entry.count(ChangeKind::Added), 1);
+        assert!(history.entry(&image).unwrap().current);
+        assert!(history.blame_of("mods/other.jar").is_none());
+        let source = serde_json::to_value(super::super::instances::ModpackSource::History {
+            entry_id: image.clone(),
+        })
+        .unwrap();
+        assert_eq!(
+            source,
+            serde_json::json!({ "type": "history", "entry_id": image })
+        );
+    }
 
     #[test]
     fn search_paths() {

@@ -22,6 +22,7 @@
 
 mod accounts;
 mod content;
+mod copy_as;
 mod events;
 mod friend_list;
 mod friends;
@@ -229,6 +230,16 @@ pub const METHODS: &[Method] = &[
         "Copies an instance.",
         instances::duplicate,
     ),
+    method(
+        "instances.copy_as",
+        "Makes a new instance from one for another Minecraft version or loader (a job): its Modrinth mods' builds for them, and its packs, options and worlds as asked. An instance's own version and loader never change. Needs confirm when mods stay behind or worlds are upgraded; the refusal carries the plan.",
+        copy_as::copy_as,
+    ),
+    method(
+        "instances.set_loader_version",
+        "Changes the version of an instance's mod loader (the loader itself never changes).",
+        copy_as::set_loader_version,
+    ),
     destructive(
         "instances.delete",
         "Moves an instance to the Trash.",
@@ -414,6 +425,11 @@ pub const METHODS: &[Method] = &[
         content::list,
     ),
     method(
+        "content.history",
+        "An instance's content images, newest first: label, time, game, pack and file count.",
+        content::history,
+    ),
+    method(
         "content.search",
         "Searches Modrinth for content that fits the instance.",
         content::search,
@@ -458,11 +474,6 @@ pub const METHODS: &[Method] = &[
         "Updates installed content (some or all).",
         content::update,
     ),
-    method(
-        "content.switch_loader",
-        "Changes an instance's mod loader.",
-        content::switch_loader,
-    ),
     // modpacks
     method(
         "modpacks.search",
@@ -502,52 +513,65 @@ pub const METHODS: &[Method] = &[
     // snapshots
     method(
         "snapshots.list",
-        "An instance's snapshots, newest first: name, date, sizes (total and new), parts.",
+        "An instance's snapshots, newest first (name, kind, date, worlds, sizes, pin), the images that can't be read, and its snapshot settings; deleted: true lists deleted instances' snapshots.",
         snapshots::list,
     ),
     method(
         "snapshots.create",
-        "Takes a snapshot of an instance (include: part ids; default all but screenshots and other; worlds: folder names).",
+        "Takes a snapshot of an instance: its worlds and other files linked to its mods (name; everything: true for mods and configs too).",
         snapshots::create,
     ),
     destructive(
-        "snapshots.revert",
-        "Puts back the chosen parts of a snapshot (default: all it has), after an automatic snapshot of them.",
-        snapshots::revert,
+        "snapshots.restore",
+        "Restores a snapshot: scope worlds (worlds: folders), worlds_and_mods, everything, or new (name). A safety snapshot is taken first; preview: true only says what it would do.",
+        snapshots::restore,
     ),
     method(
         "snapshots.export",
-        "Writes a snapshot to a .lodesnap file (absolute path; a folder names it).",
+        "Writes a snapshot as an image file, .lodeimg (absolute path; a folder names it). Modrinth and CurseForge files are listed, not copied.",
         snapshots::export,
     ),
     method(
         "snapshots.import",
-        "Makes a new instance from a .lodesnap file (absolute path); preview: true only reads it. With mods, needs confirm.",
+        "Makes a new instance from a .lodeimg file (absolute path; name); preview: true only reads it. With mods, needs confirm.",
         snapshots::import,
     ),
     destructive(
         "snapshots.delete",
-        "Deletes a snapshot and the files no other snapshot uses.",
+        "Deletes a snapshot, and its image when no other snapshot uses it.",
         snapshots::delete,
+    ),
+    method(
+        "snapshots.pin",
+        "Pins a snapshot (pinned: false unpins it): retention and Storage's clean-up never delete a pinned one.",
+        snapshots::pin,
+    ),
+    method(
+        "snapshots.policy",
+        "An instance's snapshot settings, changing those given: after_play (null follows the global setting), keep_last, keep_daily, keep_weekly (null: the default).",
+        snapshots::policy,
     ),
     // worlds
     method("worlds.list", "An instance's worlds.", worlds::list),
-    method("worlds.backups", "A world's backups.", worlds::backups),
-    method("worlds.backup", "Backs up a world.", worlds::backup),
+    method(
+        "worlds.backups",
+        "The snapshots that hold a world.",
+        worlds::backups,
+    ),
+    method(
+        "worlds.backup",
+        "Backs up a world: a snapshot named after it.",
+        worlds::backup,
+    ),
     method(
         "worlds.restore",
-        "Restores a backup as a copy, or replaces the world with it.",
+        "Restores a world from a snapshot (snapshot: id, name or latest) as a copy, or in its place after a safety snapshot (mode: replace).",
         worlds::restore,
     ),
     destructive(
         "worlds.delete",
         "Moves a world to the Trash.",
         worlds::delete,
-    ),
-    destructive(
-        "worlds.delete_backup",
-        "Moves a backup to the Trash.",
-        worlds::delete_backup,
     ),
     method(
         "worlds.datapacks",
@@ -1639,6 +1663,7 @@ pub const READ_METHODS: &[&str] = &[
     "shared.get",
     "shared.instance.get",
     "content.list",
+    "content.history",
     "content.search",
     "content.versions",
     "content.updates",
@@ -1779,7 +1804,7 @@ mod tests {
             "accounts.remove",
             "cores.remove",
             "shared.clear",
-            "snapshots.revert",
+            "snapshots.restore",
             "snapshots.delete",
             // only the user can say they compared safety codes
             "friend_list.verify",
@@ -1802,6 +1827,8 @@ mod tests {
         "instances.set_icon",
         "instances.set_background",
         "instances.duplicate",
+        "instances.copy_as",
+        "instances.set_loader_version",
         "instances.delete",
         "instances.export",
         "instances.import_code",
@@ -1832,20 +1859,20 @@ mod tests {
         "content.enable",
         "content.disable",
         "content.update",
-        "content.switch_loader",
         "modpacks.install",
         "modpacks.update",
         "modpacks.add",
         "modpacks.remove",
         "snapshots.create",
-        "snapshots.revert",
+        "snapshots.restore",
         "snapshots.export",
         "snapshots.import",
         "snapshots.delete",
+        "snapshots.pin",
+        "snapshots.policy",
         "worlds.backup",
         "worlds.restore",
         "worlds.delete",
-        "worlds.delete_backup",
         "worlds.datapack_add",
         "worlds.datapack_install",
         "worlds.datapack_enable",

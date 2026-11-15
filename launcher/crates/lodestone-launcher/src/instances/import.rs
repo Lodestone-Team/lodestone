@@ -21,6 +21,7 @@ use gpui::{
 };
 use launcher_core::{
     game::download::CancelToken,
+    images::labels,
     import::{
         self, CopyOptions, Found, IconSource, ImportProgress, ImportRequest, Launcher, Locations,
         Stage, WantedVersion, detect,
@@ -419,12 +420,13 @@ impl ImportDialog {
         let options = item.options;
         let progress = item.progress.clone();
         let cancel = item.cancel.clone();
-        let (installer, store, api) = {
+        let (installer, store, api, images) = {
             let instances = self.instances.read(cx);
             (
                 instances.installer(),
                 instances.store(),
                 instances.modrinth(),
+                instances.images(),
             )
         };
         let work = cx.background_spawn({
@@ -434,12 +436,17 @@ impl ImportDialog {
                 if cancel.is_cancelled() {
                     return Err(import::ImportError::Cancelled);
                 }
+                let label = labels::imported(request_found.source.label());
                 let request = ImportRequest {
                     found: request_found,
                     resolved,
                     options,
                 };
-                import::import(&store, &request, api.as_deref(), &this_progress, &cancel).await
+                let imported =
+                    import::import(&store, &request, api.as_deref(), &this_progress, &cancel)
+                        .await?;
+                crate::instances::record_created_later(&images, &imported.instance.id, &label);
+                Ok(imported)
             }
         });
         self.runner = Some(cx.spawn(async move |this, cx| {

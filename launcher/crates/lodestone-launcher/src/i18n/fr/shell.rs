@@ -90,30 +90,13 @@ pub fn text(message: M) -> &'static str {
             "Le dossier du monde est placé dans {trash}, d’où vous pouvez le récupérer. Ses sauvegardes sont conservées."
         }
         M::DeleteInstanceBody => {
-            "Le dossier de l’instance, avec ses mondes, ses mods et ses paramètres, est placé dans {trash}. Vous pouvez le récupérer depuis cet endroit."
+            "Le dossier de l’instance, avec ses mondes, ses mods et ses paramètres, est placé dans {trash}. Vous pouvez le récupérer depuis cet endroit. Ses instantanés sont conservés jusqu’à ce que vous les supprimiez dans Paramètres › Stockage, et reviennent avec elle."
         }
         M::ReplaceWorldTitle => "Remplacer {name} par cette sauvegarde\u{202F}?",
         M::ReplaceWorldBody => {
-            "{name} revient à son état de la sauvegarde ({when}). Tout ce qui a changé depuis est perdu dans le monde, mais il est d’abord sauvegardé et le dossier actuel est placé dans {trash}."
+            "{name} revient à son état de la sauvegarde ({when}). Un instantané du monde tel qu’il est maintenant est pris d’abord et gardé 30\u{a0}jours."
         }
         M::BackUpAndReplace => "Sauvegarder et remplacer",
-        M::SwitchToLoader => "Passer à {loader}\u{202F}?",
-        M::SwitchToVanilla => "Passer à Vanilla\u{202F}?",
-        M::ModsWontLoadOn => {
-            "Ces mods activés sont faits pour un autre chargeur et ne se chargeront pas avec {loader}\u{a0}:"
-        }
-        M::ModsWontLoadVanilla => {
-            "Minecraft Vanilla ne charge aucun mod, donc ces mods activés ne se chargeront pas\u{a0}:"
-        }
-        M::ModMadeFor => "mod {loader}",
-        M::TurningOffRenames => {
-            "Les désactiver les renomme en .disabled, pour que vous puissiez les réactiver dans Contenu."
-        }
-        M::WorldsAtRisk => {
-            "Les mondes qui utilisaient des blocs ou des objets de ces mods peuvent les perdre. Sauvegardez d’abord vos mondes."
-        }
-        M::TurnOffAndSave => "Les désactiver et enregistrer",
-        M::SaveAndKeep => "Enregistrer et les garder",
         M::RemoveAccountTitle => "Retirer {name}\u{202F}?",
         M::RemoveAccountBody => {
             "Lodestone Launcher oublie ce compte et supprime sa connexion enregistrée de votre {keychain}. Vous pourrez l’ajouter de nouveau plus tard."
@@ -177,9 +160,8 @@ pub fn text(message: M) -> &'static str {
         M::KeptFiles => "Gardés tels que vous les avez modifiés ({count})",
         M::WrittenFiles => "Configurations et autres fichiers écrits ({count})",
         M::ModpackUpdateSafety => {
-            "Vos propres mods, vos mondes et vos configurations modifiées ne sont pas touchés. Chaque fichier remplacé ou supprimé est d’abord enregistré dans le dossier de sauvegardes de l’instance."
+            "Vos propres mods, mondes et configurations modifiées ne sont pas touchés. Un instantané de l’instance est pris d’abord, et chaque fichier remplacé ou supprimé est gardé dans le dossier de sauvegardes de l’instance."
         }
-        M::BackUpEveryWorld => "Sauvegarder d’abord tous les mondes",
 
         M::SaveChangesTitle => "Enregistrer vos modifications\u{202F}?",
         M::UnsavedDefaultsBody => {
@@ -878,11 +860,7 @@ pub fn text(message: M) -> &'static str {
         M::StorageRuntimes => "Environnements Java",
         M::StorageCache => "Cache",
         M::StorageSnapshots => "Instantanés",
-        M::StorageSnapshotsHint => "{count} instantanés · {size} récupérables",
-        M::StorageCleanSnapshotsTitle => "Supprimer les instantanés automatiques\u{a0}?",
-        M::StorageCleanSnapshotsBody => {
-            "Libère {size}. Supprime les instantanés pris avant un retour en arrière, ceux des instances supprimées et les fichiers créés pour le partage."
-        }
+        M::StorageCleanSnapshotsTitle => "Supprimer les instantanés pris par le Launcher\u{a0}?",
         M::StorageLeftovers => "Téléchargements et importations inachevés",
         M::StorageCleanLeftoversTitle => "Supprimer les téléchargements inachevés\u{a0}?",
         M::StorageCleanLeftoversBody => {
@@ -977,6 +955,13 @@ pub fn text(message: M) -> &'static str {
         }
         M::ZoomKeywords => "échelle taille agrandir réduire texte",
         M::WhenAGameStartsKeywords => "après le lancement réduire masquer fermer quitter",
+        M::ModpackUpdateNoSnapshot => {
+            "Aucun instantané n’a pu être pris avant, donc rien n’a changé. Vous pouvez mettre à jour sans instantané, ou régler le problème et réessayer.\n{error}"
+        }
+        M::UpdateWithoutSnapshot => "Mettre à jour sans instantané",
+        M::ReplaceWorldModsNote => {
+            "Seul le monde revient en arrière\u{a0}; les mods de l’instance restent tels quels. Pour remettre aussi les mods avec lesquels il tournait, restaurez l’instantané depuis Paramètres › Instantanés."
+        }
     }
 }
 
@@ -994,5 +979,13 @@ pub fn plural(message: P) -> [&'static str; 2] {
         ],
         P::Subscriptions => ["{count} abonnement", "{count} abonnements"],
         P::PerfEntries => ["{count} entrée", "{count} entrées"],
+        P::StorageSnapshotsHint => [
+            "{count}\u{a0}instantané et l’historique du contenu de chaque instance · {removable} peuvent être supprimés",
+            "{count}\u{a0}instantanés et l’historique du contenu de chaque instance · {removable} peuvent être supprimés",
+        ],
+        P::StorageCleanSnapshotsBody => [
+            "Cela supprime {count}\u{a0}instantané\u{a0}: ceux pris par le Launcher et tous ceux des instances supprimées, épinglés compris. Ceux de vos instances que vous avez pris ou épinglés restent. Les fichiers de la dernière heure sont libérés au prochain nettoyage.",
+            "Cela supprime {count}\u{a0}instantanés\u{a0}: ceux pris par le Launcher et tous ceux des instances supprimées, épinglés compris. Ceux de vos instances que vous avez pris ou épinglés restent. Les fichiers de la dernière heure sont libérés au prochain nettoyage.",
+        ],
     }
 }

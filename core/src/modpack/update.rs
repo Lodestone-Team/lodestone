@@ -1,7 +1,9 @@
-//! Updating a server to another version of its modpack.
+//! Updating a server to another version of its modpack, and the journaled placement that
+//! both updates and restores ([`super::lineage`]) change files with.
 //!
-//! [`RECORD_FILE`] records every file the pack wrote, with its SHA-1. Comparing that, the new pack and the files on disk gives the plan, which the
-//! dashboard shows before anything changes:
+//! The pack's files as it wrote them ([`PackRecord`]: path and SHA-1) are kept with the
+//! server's images in `pack.json` ([`super::pack_info`]). Comparing that, the new pack and
+//! the files on disk gives the plan, which the dashboard shows before anything changes:
 //!
 //! - **The pack's downloaded files** (mods): a file the new pack lists is added when
 //!   missing, and replaced when the old pack wrote it and it is unchanged, or when the old
@@ -19,23 +21,24 @@
 //! - **Everything else** (worlds, the user's own mods, server.properties) is never
 //!   touched.
 //!
-//! Applying it downloads and extracts every new file into a staging folder first, then
-//! moves what will be replaced or removed into a snapshot folder, and only then moves the
-//! new files into place. If that fails part way, the files are put back from the
-//! snapshot. Without a record (a server made before records were kept), the old pack's
-//! files are worked out from the old pack itself when it is on Modrinth.
+//! Applying a plan puts every new file into a staging folder first ([`stage_files`]: from
+//! a download, the pack's overrides, or the image store), writes a journal, moves what will
+//! be replaced or removed into a snapshot folder, and only then moves the new files into
+//! place ([`place_files`]). If that fails part way, the files are put back from the
+//! snapshot; if the core stops before the change is committed, the next start puts them
+//! back ([`recover_interrupted`]). Without a record (the server's pack files were never
+//! written down), the old pack's files are worked out from the old pack itself when it is
+//! on Modrinth.
 //!
-//! Every install, update and restore is kept in the history ([`super::history`]), which
-//! is what makes an update undoable: restoring an earlier entry is an update whose new
-//! files come from the history rather than from a pack.
-//!
-//! Lodestone's files are all in [`MODPACK_DIR`], which packs can't write (their paths
-//! may not start with `.lodestone`).
+//! Lodestone's working files are all in [`MODPACK_DIR`], which packs can't write (their
+//! paths may not start with `.lodestone`).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
 
 use color_eyre::eyre::{eyre, Context};
+use lodestone_image::store::Store;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 use ts_rs::TS;
@@ -44,66 +47,42 @@ use super::{
     download_one, extract_overrides, override_hashes, prepare_parent, slash_path, Pack,
     PackDownload, PARALLEL_DOWNLOADS,
 };
-use crate::error::Error;
+use crate::error::{Error, ErrorKind};
 use crate::modrinth::ModrinthApi;
 use crate::mods::{disabled_name, is_disabled_name};
 
-/// The folder, in the instance folder, of the modpack's record, history and stored files.
+/// The folder, in the instance folder, of an update's or restore's working files.
 pub const MODPACK_DIR: &str = ".lodestone_modpack";
-/// The record of the files the pack wrote.
-pub const RECORD_FILE: &str = ".lodestone_modpack/record.json";
-/// Where new files are downloaded while an update runs.
+/// Where new files are put while an update runs.
 pub(super) const STAGING_DIR: &str = ".lodestone_modpack/staging";
 /// Where replaced and removed files are kept while an update runs.
 pub(super) const SNAPSHOT_DIR: &str = ".lodestone_modpack/snapshot";
-/// The update being applied: written before it moves any file, and removed once its
-/// record is saved. See [`begin_update`].
+/// The update being applied: written before it moves any file, marked committed once the
+/// change is complete, and removed at the end. See [`begin_update`].
 pub(super) const JOURNAL_FILE: &str = ".lodestone_modpack/update.json";
 /// The folders a dropped override is removed from.
 const CONTENT_DIRS: [&str; 2] = ["mods/", "plugins/"];
 
-/// One file of a pack, as the record keeps it.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// One file a pack wrote, as an update compares it.
+#[derive(Debug, Clone, PartialEq)]
 pub struct RecordedFile {
     pub sha1: String,
     /// From the pack's overrides rather than its downloads.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub from_overrides: bool,
     /// The Modrinth project of a downloaded file, from its CDN URL.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project_id: Option<String>,
 }
 
-/// [`RECORD_FILE`]: the files a pack wrote, by path with `/` separators.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+/// The files a pack wrote, by path with `/` separators: what an update compares the server
+/// against. Worked out from `pack.json` ([`super::pack_info::record_of_base`]) or from the
+/// pack itself; never stored.
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct PackRecord {
     pub files: BTreeMap<String, RecordedFile>,
 }
 
-impl PackRecord {
-    /// The record in `root`, or `None` when there is none or it can't be read.
-    pub async fn load(root: &Path) -> Option<PackRecord> {
-        let bytes = tokio::fs::read(root.join(RECORD_FILE)).await.ok()?;
-        match serde_json::from_slice(&bytes) {
-            Ok(record) => Some(record),
-            Err(e) => {
-                warn!("Ignoring {RECORD_FILE}, which can't be read: {e}");
-                None
-            }
-        }
-    }
-
-    pub async fn save(&self, root: &Path) -> Result<(), Error> {
-        let json = serde_json::to_vec_pretty(self).context("Failed to write the modpack record")?;
-        tokio::fs::create_dir_all(root.join(MODPACK_DIR))
-            .await
-            .context("Failed to create the modpack folder")?;
-        crate::persist::write_atomic(&root.join(RECORD_FILE), json, None).await
-    }
-}
-
-/// A file a pack writes, with where its bytes come from: a stored copy in the history,
-/// a download, or else the pack's overrides.
+/// A file a pack writes, with its download, if it has one (else it is one of the pack's
+/// overrides).
 #[derive(Debug, Clone, PartialEq)]
 pub struct PackFile {
     pub sha1: String,
@@ -111,21 +90,46 @@ pub struct PackFile {
     /// From the pack's overrides rather than its downloads.
     pub from_overrides: bool,
     pub project_id: Option<String>,
-    /// A copy of the file in the history's store.
-    pub stored: Option<PathBuf>,
 }
 
-/// The Modrinth project of a `https://cdn.modrinth.com/data/<project>/versions/...` URL.
+/// A file of a content image: the object the image store keeps it as.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImageFile {
+    pub sha256: String,
+    pub size: u64,
+}
+
+/// Where staging gets a new file's bytes.
+#[derive(Debug, Clone, PartialEq)]
+pub enum FileSource {
+    /// Downloaded, and checked against its SHA-1 and SHA-512.
+    Download(PackDownload),
+    /// Extracted from the pack's overrides.
+    Override,
+    /// Copied out of the image store, which checks every byte against its SHA-256.
+    Image(ImageFile),
+}
+
+/// Where each of a pack's files comes from: its download, else its overrides.
+pub fn sources_of(files: &BTreeMap<String, PackFile>) -> BTreeMap<String, FileSource> {
+    files
+        .iter()
+        .map(|(path, file)| {
+            let source = match &file.download {
+                Some(download) => FileSource::Download(download.clone()),
+                None => FileSource::Override,
+            };
+            (path.clone(), source)
+        })
+        .collect()
+}
+
+/// The Modrinth project of a download from `https://cdn.modrinth.com/data/<project>/versions/...`.
 fn project_of(download: &PackDownload) -> Option<String> {
-    download.urls.iter().find_map(|url| {
-        if url.host_str() != Some(crate::modrinth::CDN_HOST) {
-            return None;
-        }
-        let mut segments = url.path_segments()?;
-        (segments.next()? == "data").then_some(())?;
-        let project = segments.next()?;
-        (segments.next()? == "versions").then(|| project.to_string())
-    })
+    download
+        .urls
+        .iter()
+        .find_map(|url| super::pack_info::project_of_url(url.as_str()))
 }
 
 /// Every file `pack` writes into a server, by path with `/` separators. Reads the pack's
@@ -144,7 +148,6 @@ pub fn pack_files(
                 download: Some(download.clone()),
                 from_overrides: false,
                 project_id: project_of(download),
-                stored: None,
             },
         );
     }
@@ -157,7 +160,6 @@ pub fn pack_files(
                 download: None,
                 from_overrides: true,
                 project_id: None,
-                stored: None,
             },
         );
     }
@@ -187,17 +189,14 @@ pub fn record_of(files: &BTreeMap<String, PackFile>) -> PackRecord {
 /// `..`, root or drive, not one of Lodestone's own files, and not one of the files at the
 /// root that no pack may write (such as `server.jar`). Names are compared the way Windows
 /// and macOS resolve them, and names that may point at another file there (an alternate
-/// data stream, an 8.3 short name) are refused. The record and the history are files in
-/// the instance folder, so an update must not trust them to name only pack files.
+/// data stream, an 8.3 short name) are refused. A path an update or restore changes must
+/// be one of these, whatever planned it.
 pub(super) fn record_path(path: &str) -> Option<PathBuf> {
     let relative = PathBuf::from(path);
     let names: Vec<String> = relative
         .components()
         .map(|c| {
-            c.as_os_str()
-                .to_string_lossy()
-                .trim_end_matches(['.', ' '])
-                .to_lowercase()
+            crate::util::fold_name(c.as_os_str().to_string_lossy().trim_end_matches(['.', ' ']))
         })
         .collect();
     let looks_like_short_name = |name: &str| {
@@ -228,15 +227,81 @@ pub enum FileAction {
     Remove,
 }
 
-/// One change of an update: the pack's path, and the path on disk it changes (the same,
-/// or the disabled name of a disabled mod), with the SHA-1 of the file it replaces or
-/// removes.
+/// One change of an update or restore: the path of the new file in the staging folder
+/// (the pack's path), and the path on disk it changes (the same, or the disabled name of a
+/// disabled mod).
 #[derive(Debug, Clone, PartialEq)]
 pub struct FileChange {
     pub path: String,
     pub target: String,
     pub action: FileAction,
-    pub old_sha1: Option<String>,
+    /// What was at `target` when the change was planned.
+    pub expected: Expected,
+}
+
+/// What a change expects at its target: what was there when it was planned. Staging and
+/// downloads run between planning and placement, and the Files API may change the server
+/// meanwhile, so [`check_as_planned`] looks again right before the files are placed: a
+/// file written since is never replaced or removed unseen.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Expected {
+    /// Nothing: the change adds a file there.
+    Nothing,
+    /// A regular file with this SHA-1, in lowercase hex (what an update compares).
+    Sha1(String),
+    /// A regular file with this SHA-256 (what a restore compares, from the images).
+    Sha256(String),
+    /// A regular file with this SHA-512 (another copy of a mod, as Modrinth knew it).
+    Sha512(String),
+}
+
+impl Expected {
+    /// Whether `path` is as expected. Links are not followed: a link is never a file.
+    fn holds(&self, path: &Path) -> bool {
+        let meta = std::fs::symlink_metadata(path);
+        let hash = match self {
+            Expected::Nothing => return meta.is_err(),
+            _ if !meta.is_ok_and(|m| m.is_file()) => return false,
+            Expected::Sha1(sha1) => (sha1, lodestone_minecraft::hash::sha1_of(path).ok()),
+            Expected::Sha256(sha256) => (sha256, sha256_of(path).ok()),
+            Expected::Sha512(sha512) => (sha512, lodestone_minecraft::hash::sha512_of(path).ok()),
+        };
+        hash.1
+            .is_some_and(|found| found.eq_ignore_ascii_case(hash.0))
+    }
+}
+
+/// The SHA-256 of the file at `path`, in lowercase hex.
+fn sha256_of(path: &Path) -> std::io::Result<String> {
+    use sha2::Digest;
+    let mut hasher = sha2::Sha256::new();
+    std::io::copy(&mut std::fs::File::open(path)?, &mut hasher)?;
+    Ok(hex::encode(hasher.finalize()))
+}
+
+/// Fails with a conflict unless every change's target is still as it was planned
+/// ([`Expected`]). Called with the server's content to itself
+/// (`ImageService::begin_exclusive`), right before [`begin_update`]: from there to the
+/// placement no Files API operation runs. Reads the files, so call it on a blocking thread.
+pub fn check_as_planned(root: &Path, plan: &FilePlan) -> Result<(), Error> {
+    let changed: Vec<&str> = plan
+        .changes
+        .iter()
+        .filter(|c| !c.expected.holds(&root.join(&c.target)))
+        .map(|c| c.target.as_str())
+        .collect();
+    if changed.is_empty() {
+        return Ok(());
+    }
+    let first: Vec<&str> = changed.iter().take(5).copied().collect();
+    Err(Error {
+        kind: ErrorKind::Conflict,
+        source: eyre!(
+            "{} file(s) changed since the change was planned ({}); try again",
+            changed.len(),
+            first.join(", ")
+        ),
+    })
 }
 
 /// What an update will do to the files.
@@ -359,7 +424,7 @@ pub fn plan_files(root: &Path, old: &PackRecord, new: &BTreeMap<String, PackFile
             path: path.clone(),
             target,
             action: FileAction::Remove,
-            old_sha1: Some(sha1),
+            expected: Expected::Sha1(sha1),
         });
     }
     for (path, file) in new {
@@ -378,7 +443,7 @@ pub fn plan_files(root: &Path, old: &PackRecord, new: &BTreeMap<String, PackFile
                         path.clone()
                     },
                     action: FileAction::Add,
-                    old_sha1: None,
+                    expected: Expected::Nothing,
                 });
             }
             Some((_, sha1)) if sha1 == file.sha1 => {}
@@ -399,7 +464,7 @@ pub fn plan_files(root: &Path, old: &PackRecord, new: &BTreeMap<String, PackFile
                         path: path.clone(),
                         target,
                         action: FileAction::Replace,
-                        old_sha1: Some(sha1),
+                        expected: Expected::Sha1(sha1),
                     });
                 } else {
                     plan.kept.push(target);
@@ -442,19 +507,20 @@ pub fn keep_unwritten_scripts(
 pub struct OtherCopy {
     /// Its path on disk, with `/` separators: `mods/x.jar` or `mods/x.jar.disabled`.
     pub target: String,
-    pub sha1: String,
     pub project_id: String,
+    /// Its SHA-512, as it was when it was looked up.
+    pub sha512: String,
 }
 
 /// The jars in the folders `plan` adds jars to that neither `old` nor `new` lists and
-/// `plan` doesn't change, with their SHA-1 and SHA-512. Links are not followed. Reads
-/// files, so call it on a blocking thread.
+/// `plan` doesn't change, with their SHA-512. Links are not followed. Reads files, so call
+/// it on a blocking thread.
 fn unlisted_jars(
     root: &Path,
     old: &PackRecord,
     new: &BTreeMap<String, PackFile>,
     plan: &FilePlan,
-) -> Vec<(String, String, String)> {
+) -> Vec<(String, String)> {
     let listed = |target: &str| {
         let path = crate::mods::enabled_name(target);
         [path.as_str(), target].iter().any(|p| {
@@ -483,14 +549,10 @@ fn unlisted_jars(
             if !is_file || !crate::mods::is_mod_file_name(&name) || listed(&target) {
                 continue;
             }
-            let path = entry.path();
-            let (Ok(sha1), Ok(sha512)) = (
-                lodestone_minecraft::hash::sha1_of(&path),
-                lodestone_minecraft::hash::sha512_of(&path),
-            ) else {
+            let Ok(sha512) = lodestone_minecraft::hash::sha512_of(&entry.path()) else {
                 continue;
             };
-            jars.push((target, sha1, sha512));
+            jars.push((target, sha512));
         }
     }
     jars
@@ -528,7 +590,7 @@ pub async fn other_copies(
     if jars.is_empty() {
         return Vec::new();
     }
-    let hashes: Vec<String> = jars.iter().map(|(_, _, sha512)| sha512.clone()).collect();
+    let hashes: Vec<String> = jars.iter().map(|(_, sha512)| sha512.clone()).collect();
     let versions = match api.versions_by_hash(&hashes).await {
         Ok(versions) => versions,
         Err(e) => {
@@ -540,12 +602,12 @@ pub async fn other_copies(
         }
     };
     jars.into_iter()
-        .filter_map(|(target, sha1, sha512)| {
+        .filter_map(|(target, sha512)| {
             let project_id = versions.get(&sha512)?.project_id.clone();
             added.contains(&project_id).then_some(OtherCopy {
                 target,
-                sha1,
                 project_id,
+                sha512,
             })
         })
         .collect()
@@ -588,7 +650,7 @@ pub fn remove_other_copies(
             path: crate::mods::enabled_name(&other.target),
             target: other.target,
             action: FileAction::Remove,
-            old_sha1: Some(other.sha1),
+            expected: Expected::Sha512(other.sha512),
         });
     }
 }
@@ -605,6 +667,17 @@ fn parent_inside(root: &Path, path: &Path) -> bool {
 /// links are resolved (a linked `mods/` could lead elsewhere), and neither file may be a
 /// link.
 fn move_file(root: &Path, from: &Path, to: &Path) -> Result<(), Error> {
+    move_checked(root, from, to, false)
+}
+
+/// [`move_file`] for a new file going into place, which never replaces what is at `to`:
+/// [`check_as_planned`] found nothing there, and this keeps it so should anything write
+/// there since.
+fn place_file(root: &Path, from: &Path, to: &Path) -> Result<(), Error> {
+    move_checked(root, from, to, true)
+}
+
+fn move_checked(root: &Path, from: &Path, to: &Path, no_replace: bool) -> Result<(), Error> {
     let is_link =
         |path: &Path| std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink());
     if !parent_inside(root, from) || is_link(from) {
@@ -614,9 +687,28 @@ fn move_file(root: &Path, from: &Path, to: &Path) -> Result<(), Error> {
     if is_link(to) {
         return Err(super::unsafe_pack("a path leaves the server folder"));
     }
-    std::fs::rename(from, to)
-        .with_context(|| format!("Failed to move {} to {}", from.display(), to.display()))?;
-    Ok(())
+    let moved = if no_replace {
+        crate::util::fs::move_no_replace(from, to)
+    } else {
+        std::fs::rename(from, to)
+    };
+    match moved {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Err(Error {
+            kind: ErrorKind::Conflict,
+            source: eyre!(
+                "{} appeared while the files were placed; try again",
+                to.display()
+            ),
+        }),
+        Err(e) => Err(eyre!(e)
+            .wrap_err(format!(
+                "Failed to move {} to {}",
+                from.display(),
+                to.display()
+            ))
+            .into()),
+    }
 }
 
 /// The file moves done so far, to undo them.
@@ -629,7 +721,11 @@ struct Moves {
 }
 
 impl Moves {
-    /// Puts the server's files back as they were.
+    /// Puts the server's files back as they were. A file is put back without replacing
+    /// anything: what appeared at its path meanwhile (a copy or unzip job, which no
+    /// operation keeps out) stays, and the old copy is kept, as is any that can't be put
+    /// back, in an `interrupted-*` folder ([`keep_leftover_snapshot`]) rather than deleted
+    /// with the snapshot.
     fn undo(&self, root: &Path) {
         let snapshot = root.join(SNAPSHOT_DIR);
         for target in self.placed.iter().rev() {
@@ -638,10 +734,14 @@ impl Moves {
             }
         }
         for target in self.saved.iter().rev() {
-            if let Err(e) = move_file(root, &snapshot.join(target), &root.join(target)) {
-                warn!("Could not put back {target} while undoing a modpack update: {e}");
+            if let Err(e) = place_file(root, &snapshot.join(target), &root.join(target)) {
+                warn!(
+                    "Could not put back {target} while undoing a modpack update, so the old copy is kept: {}",
+                    e.source
+                );
             }
         }
+        keep_leftover_snapshot(root);
     }
 }
 
@@ -674,30 +774,47 @@ pub async fn remove_work_dirs(root: &Path) {
     }
 }
 
-/// Copies `stored` to `path` in the staging folder, checking that it is still the file
-/// with `sha1`.
-fn copy_stored(staging: &Path, path: &str, stored: &Path, sha1: &str) -> Result<(), Error> {
+/// Copies the file `image` stands for out of the image store to `path` in the staging
+/// folder. The store checks every byte against the object's SHA-256, and fails rather than
+/// write a file that isn't it.
+fn copy_from_image(
+    images: &Store,
+    staging: &Path,
+    path: &str,
+    image: &ImageFile,
+) -> Result<(), Error> {
     let target = staging.join(path);
     prepare_parent(staging, &target)?;
-    std::fs::copy(stored, &target)
-        .with_context(|| format!("Failed to copy the stored copy of {path}"))?;
-    let copied = lodestone_minecraft::hash::sha1_of(&target)
-        .with_context(|| format!("Failed to read the stored copy of {path}"))?;
-    if !copied.eq_ignore_ascii_case(sha1) {
-        return Err(eyre!("The stored copy of {path} is damaged").into());
+    let mut file = std::fs::File::create(&target)
+        .with_context(|| format!("Failed to write the saved copy of {path}"))?;
+    let read = images.read_object(
+        &image.sha256,
+        image.size,
+        &mut file,
+        lodestone_image::store::NEVER,
+    );
+    drop(file);
+    if let Err(e) = read {
+        let _ = std::fs::remove_file(&target);
+        return Err(eyre!("Failed to read the saved copy of {path}: {e}").into());
     }
     Ok(())
 }
 
-/// Puts the new files of `plan` into the staging folder: stored copies from the history,
-/// then downloads, then the overrides of the pack at `pack_path` (when there is one).
+/// Puts the new files of `plan` into the staging folder, each from its source in
+/// `sources` (by the change's `path`): copies out of `images` (the image store), downloads,
+/// then the overrides of the pack at `pack_path`. A caller copying from the image store
+/// holds collections off while this runs (`Store::hold_off_collection`), unless something
+/// it holds keeps the images it reads.
+#[allow(clippy::too_many_arguments)]
 pub async fn stage_files(
     api: &dyn ModrinthApi,
     pack_path: Option<&Path>,
-    new: &BTreeMap<String, PackFile>,
+    sources: &BTreeMap<String, FileSource>,
     plan: &FilePlan,
     root: &Path,
     allow_scripts: bool,
+    images: Option<Arc<Store>>,
     progress: &(dyn Fn(String) + Send + Sync),
 ) -> Result<(), Error> {
     use futures::TryStreamExt;
@@ -706,31 +823,47 @@ pub async fn stage_files(
     tokio::fs::create_dir_all(&staging)
         .await
         .context("Failed to create the modpack update folder")?;
-    let wanted: Vec<(&String, &PackFile)> = plan
+    let wanted: Vec<(&String, &FileSource)> = plan
         .changes
         .iter()
         .filter(|c| c.action != FileAction::Remove)
-        .filter_map(|c| Some((&c.path, new.get(&c.path)?)))
+        .filter_map(|c| Some((&c.path, sources.get(&c.path)?)))
         .collect();
-    let stored: Vec<(String, PathBuf, String)> = wanted
+    if wanted.len()
+        < plan
+            .changes
+            .iter()
+            .filter(|c| c.action != FileAction::Remove)
+            .count()
+    {
+        return Err(eyre!("Some files of this version are no longer available").into());
+    }
+    let from_images: Vec<(String, ImageFile)> = wanted
         .iter()
-        .filter_map(|(path, file)| Some(((*path).clone(), file.stored.clone()?, file.sha1.clone())))
+        .filter_map(|(path, source)| match source {
+            FileSource::Image(file) => Some(((*path).clone(), file.clone())),
+            _ => None,
+        })
         .collect();
-    if !stored.is_empty() {
-        progress("Copying stored modpack files".to_string());
+    if !from_images.is_empty() {
+        let images =
+            images.ok_or_else(|| eyre!("Some files of this version are no longer available"))?;
+        progress("Copying saved files".to_string());
         let staging = staging.clone();
         tokio::task::spawn_blocking(move || {
-            stored
+            from_images
                 .iter()
-                .try_for_each(|(path, from, sha1)| copy_stored(&staging, path, from, sha1))
+                .try_for_each(|(path, image)| copy_from_image(&images, &staging, path, image))
         })
         .await
         .map_err(|e| eyre!("The modpack task failed: {e}"))??;
     }
     let downloads: Vec<&PackDownload> = wanted
         .iter()
-        .filter(|(_, file)| file.stored.is_none())
-        .filter_map(|(_, file)| file.download.as_ref())
+        .filter_map(|(_, source)| match source {
+            FileSource::Download(download) => Some(download),
+            _ => None,
+        })
         .collect();
     let total = downloads.len();
     let done = std::sync::atomic::AtomicUsize::new(0);
@@ -747,7 +880,7 @@ pub async fn stage_files(
         .await?;
     let needs_overrides = wanted
         .iter()
-        .any(|(_, file)| file.stored.is_none() && file.download.is_none());
+        .any(|(_, source)| matches!(source, FileSource::Override));
     if needs_overrides {
         let pack_path =
             pack_path.ok_or_else(|| eyre!("Some files of this version are no longer available"))?;
@@ -787,7 +920,7 @@ pub fn place_files(root: &Path, plan: &FilePlan) -> Result<(), Error> {
             if !staged.is_file() {
                 return Err(eyre!("{} was not downloaded", change.path).into());
             }
-            move_file(root, &staged, &root.join(&change.target))?;
+            place_file(root, &staged, &root.join(&change.target))?;
             moves.placed.push(change.target.clone());
         }
         Ok::<_, Error>(())
@@ -823,45 +956,72 @@ pub fn undo_placed_files(root: &Path, plan: &FilePlan) {
 struct JournalChange {
     target: String,
     action: FileAction,
-    /// The SHA-1 of the file the update puts at `target` (an add or a replace).
+    /// The SHA-1 of the file the update puts at `target` (an add or a replace), from the
+    /// staged copy.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     new_sha1: Option<String>,
 }
 
-/// [`JOURNAL_FILE`]: what an update changes, and the record it saves when it is done.
+/// [`JOURNAL_FILE`]: what an update changes, and whether it got as far as committing.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 struct Journal {
     changes: Vec<JournalChange>,
-    record: PackRecord,
+    /// The change is complete ([`commit_update`]): its files stay.
+    #[serde(default)]
+    committed: bool,
 }
 
-/// Writes [`JOURNAL_FILE`] for `plan`, before [`place_files`] moves anything. An update
-/// moves the files it replaces into the snapshot folder, then may reinstall the server
-/// software for minutes before it saves the record and the history. If the core stops in
-/// between (quit, a restart to update, a crash), the journal is how the next start knows
-/// to put the old files back ([`recover_interrupted`]); without it the next update would
-/// take the new files for the user's changes and delete the snapshot with the old ones.
-/// Writes a file, so call it on a blocking thread.
-pub fn begin_update(root: &Path, plan: &FilePlan) -> Result<(), Error> {
-    let journal = Journal {
-        changes: plan
-            .changes
-            .iter()
-            .map(|c| JournalChange {
-                target: c.target.clone(),
-                action: c.action,
-                new_sha1: match c.action {
-                    FileAction::Remove => None,
-                    _ => plan.record.files.get(&c.path).map(|f| f.sha1.clone()),
-                },
-            })
-            .collect(),
-        record: plan.record.clone(),
-    };
-    let json = serde_json::to_vec_pretty(&journal).context("Failed to write the update journal")?;
+fn write_journal(root: &Path, journal: &Journal) -> Result<(), Error> {
+    let json = serde_json::to_vec_pretty(journal).context("Failed to write the update journal")?;
     std::fs::create_dir_all(root.join(MODPACK_DIR))
         .context("Failed to create the modpack folder")?;
     crate::persist::write_atomic_blocking(&root.join(JOURNAL_FILE), &json, None)
+}
+
+/// Writes [`JOURNAL_FILE`] for `plan`, once its files are staged and before [`place_files`]
+/// moves anything. An update moves the files it replaces into the snapshot folder, then may
+/// reinstall the server software for minutes before it is complete. If the core stops in
+/// between (quit, a restart to update, a crash), the journal is how the next start knows
+/// to put the old files back ([`recover_interrupted`]); without it the old files would stay
+/// in the snapshot and the server would run half of each version. Each new file is named by
+/// the SHA-1 of its staged copy, so a rollback removes only what the update placed. Reads
+/// the staged files and writes a file, so call it on a blocking thread.
+pub fn begin_update(root: &Path, plan: &FilePlan) -> Result<(), Error> {
+    let staging = root.join(STAGING_DIR);
+    let mut changes = Vec::with_capacity(plan.changes.len());
+    for change in &plan.changes {
+        let new_sha1 = match change.action {
+            FileAction::Remove => None,
+            _ => Some(
+                lodestone_minecraft::hash::sha1_of(&staging.join(&change.path))
+                    .map_err(|e| eyre!("{} was not staged: {e}", change.path))?,
+            ),
+        };
+        changes.push(JournalChange {
+            target: change.target.clone(),
+            action: change.action,
+            new_sha1,
+        });
+    }
+    write_journal(
+        root,
+        &Journal {
+            changes,
+            committed: false,
+        },
+    )
+}
+
+/// Marks the update in [`JOURNAL_FILE`] complete: from now on an interrupted run keeps its
+/// files. Call it once the files are placed and the server software installed, before the
+/// bookkeeping that follows (the pack's files, the server's origin). Blocking.
+pub fn commit_update(root: &Path) -> Result<(), Error> {
+    let bytes = std::fs::read(root.join(JOURNAL_FILE))
+        .with_context(|| format!("Failed to read {JOURNAL_FILE}"))?;
+    let mut journal: Journal =
+        serde_json::from_slice(&bytes).map_err(|e| eyre!("{JOURNAL_FILE} can't be read: {e}"))?;
+    journal.committed = true;
+    write_journal(root, &journal)
 }
 
 /// Removes [`JOURNAL_FILE`]: the update is done, or its files are back as they were.
@@ -874,35 +1034,33 @@ pub fn end_update(root: &Path) -> Result<(), Error> {
 }
 
 /// Finishes with an update that was stopped before it removed [`JOURNAL_FILE`]. When it
-/// hadn't saved its record, the files it placed are removed and the ones it moved into
-/// the snapshot are put back, so the server's files match the record again (as when an
-/// update fails). Files left in the snapshot after that (an update that saved its record
-/// but stopped before it finished, or a file that couldn't be put back) are moved to an
+/// hadn't committed, the files it placed are removed and the ones it moved into the
+/// snapshot are put back, so the server's files are as they were before it (as when an
+/// update fails). Files left in the snapshot after that (an update that committed but
+/// stopped before it finished, or a file that couldn't be put back) are moved to an
 /// `interrupted-*` folder next to it rather than deleted. Call it before anything starts
 /// the server or another update; returns whether there was such an update. Moves files,
 /// so call it on a blocking thread.
+///
+/// An update that committed but stopped before its bookkeeping keeps the pack's files and
+/// origin from before it: the next update then takes the files this one changed for the
+/// user's and leaves them, never deleting one.
 pub fn recover_interrupted(root: &Path) -> bool {
     let journal_path = root.join(JOURNAL_FILE);
     let Ok(bytes) = std::fs::read(&journal_path) else {
         return false;
     };
     match serde_json::from_slice::<Journal>(&bytes) {
+        Ok(journal) if journal.committed => warn!(
+            "A modpack update of {} stopped after it was complete; keeping its files",
+            root.display()
+        ),
         Ok(journal) => {
-            let saved = std::fs::read(root.join(RECORD_FILE))
-                .ok()
-                .and_then(|bytes| serde_json::from_slice::<PackRecord>(&bytes).ok());
-            if saved.as_ref() == Some(&journal.record) {
-                warn!(
-                    "A modpack update of {} stopped after saving its record; keeping its files",
-                    root.display()
-                );
-            } else {
-                warn!(
-                    "A modpack update of {} was interrupted; putting the server's files back",
-                    root.display()
-                );
-                roll_back(root, &journal);
-            }
+            warn!(
+                "A modpack update of {} was interrupted; putting the server's files back",
+                root.display()
+            );
+            roll_back(root, &journal);
         }
         Err(e) => warn!(
             "{} can't be read ({e}); the interrupted modpack update's files are left as they are",

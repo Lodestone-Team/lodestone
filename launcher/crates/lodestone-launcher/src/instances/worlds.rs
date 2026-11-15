@@ -27,9 +27,10 @@ use gpui::{
 use launcher_core::{
     content::{InstanceDirs, packs::Compatibility},
     datapacks::{self, PackState, WorldDataPacks},
-    game::download::{CancelToken, Progress},
+    game::download::{CancelToken, Progress, ProgressSnapshot},
+    images::{ImageError, Images, RestoreScope, SnapshotKind, SnapshotRecord, Take, labels},
     screenshots::{self, Screenshot},
-    worlds::{self, Backup, RestoreMode, World, WorldError},
+    worlds::{self, World, WorldError},
 };
 use lodestone_minecraft::{
     level::GameMode,
@@ -117,6 +118,57 @@ pub enum Section {
 }
 
 /// What the Worlds tab asks the window to confirm.
+/// A snapshot that holds a world, as its backups panel lists it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Backup {
+    /// The snapshot's id.
+    pub snapshot: String,
+    /// Its name, written visibly.
+    pub name: String,
+    /// Unix seconds.
+    pub created: i64,
+    /// The bytes of this world in the snapshot (the snapshot's whole size when unknown).
+    pub bytes: u64,
+    /// How many other worlds the snapshot holds: "Back up" takes all of them.
+    pub others: usize,
+}
+
+/// The snapshots of `records` that hold each world of `list`, by world folder.
+fn backups_of(list: &[World], records: &[SnapshotRecord]) -> HashMap<String, Vec<Backup>> {
+    list.iter()
+        .map(|world| {
+            let held = records
+                .iter()
+                .filter(|r| r.worlds.contains(&world.folder))
+                .map(|r| Backup {
+                    snapshot: r.id.clone(),
+                    name: r.name_shown(),
+                    created: r.created,
+                    bytes: r.world_size(&world.folder).unwrap_or(r.bytes),
+                    others: r.worlds.len().saturating_sub(1),
+                })
+                .collect();
+            (world.folder.clone(), held)
+        })
+        .collect()
+}
+
+/// The instance id of the instance folder `dirs` is.
+fn id_of(dirs: &InstanceDirs) -> String {
+    dirs.instance
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
+/// A snapshot's failure, as a world job's.
+fn world_error(err: ImageError) -> WorldError {
+    match err {
+        ImageError::Cancelled => WorldError::Cancelled,
+        other => WorldError::Invalid(other.to_string()),
+    }
+}
+
 pub enum WorldsEvent {
     Delete {
         folder: String,
@@ -136,7 +188,6 @@ pub enum JobLabel {
     Restoring,
     Replacing,
     MovingToTrash(String),
-    MovingBackupToTrash,
     Renaming,
     Exporting(String),
     Importing,
@@ -153,7 +204,6 @@ impl JobLabel {
             JobLabel::Restoring => t(M::RestoringBackup).to_string(),
             JobLabel::Replacing => t(M::ReplacingWorld).to_string(),
             JobLabel::MovingToTrash(name) => tr!(M::MovingToTrash, name = name, trash = trash),
-            JobLabel::MovingBackupToTrash => tr!(M::MovingBackupToTrash, trash = trash),
             JobLabel::Renaming => t(M::Renaming).to_string(),
             JobLabel::Exporting(name) => tr!(M::Exporting, name = name),
             JobLabel::Importing => t(M::ImportingWorlds).to_string(),
@@ -223,7 +273,12 @@ pub struct WorldsView {
     large: Option<(PathBuf, Load<Arc<RenderImage>>)>,
     confirm_delete_shot: Option<String>,
     was_active: bool,
+    /// The instance's snapshot revision the backups were read at
+    /// ([`Instances::snapshot_revision`]).
+    snapshot_revision: u64,
     load_task: Option<Task<()>>,
+    /// Re-reads the backups alone after a snapshot change ([`Self::reload_backups`]).
+    backups_task: Option<Task<()>>,
     shots_task: Option<Task<()>>,
     large_task: Option<Task<()>>,
     _prompt: Option<Task<()>>,
@@ -295,7 +350,9 @@ impl WorldsView {
             large: None,
             confirm_delete_shot: None,
             was_active: false,
+            snapshot_revision: 0,
             load_task: None,
+            backups_task: None,
             shots_task: None,
             large_task: None,
             _prompt: None,
@@ -307,7 +364,7 @@ impl WorldsView {
 
     /// Follows the selected instance, and reads the lists again when its game stops.
     fn sync(&mut self, cx: &mut Context<Self>) {
-        let (selected, active) = {
+        let (selected, active, snapshots) = {
             let instances = self.instances.read(cx);
             // how a job went goes with its instance, not to a new one given its id
             if !self.finished.is_empty() {
@@ -319,7 +376,10 @@ impl WorldsView {
             let active = selected
                 .as_deref()
                 .is_some_and(|id| instances.is_active(id));
-            (selected, active)
+            let snapshots = selected
+                .as_deref()
+                .map_or(0, |id| instances.snapshot_revision(id));
+            (selected, active, snapshots)
         };
         if selected != self.instance_id {
             let from = std::mem::replace(&mut self.instance_id, selected);
@@ -348,7 +408,12 @@ impl WorldsView {
         } else if self.was_active && !active {
             self.reload(cx);
             self.reload_screenshots(cx);
+        } else if snapshots != self.snapshot_revision && !matches!(self.worlds, Load::NotLoaded) {
+            // a snapshot was taken or deleted elsewhere: the backups listed changed, not the
+            // worlds
+            self.reload_backups(cx);
         }
+        self.snapshot_revision = snapshots;
         self.was_active = active;
         cx.notify();
     }
@@ -364,6 +429,19 @@ impl WorldsView {
         self.instance_id
             .as_deref()
             .is_some_and(|id| self.instances.read(cx).is_active(id))
+    }
+
+    /// Says to wait when another job (a mod install, a modpack update) is writing the
+    /// instance's files, which a restore must not swap meanwhile.
+    fn other_job_writes(&mut self, cx: &mut Context<Self>) -> bool {
+        let busy = self
+            .instance_id
+            .as_deref()
+            .is_some_and(|id| self.instances.read(cx).files_or_pack_busy(id));
+        if busy && self.job.is_none() {
+            self.set_message(t(M::WaitForTask), true, cx);
+        }
+        busy && self.job.is_none()
     }
 
     fn can_change(&mut self, cx: &mut Context<Self>) -> bool {
@@ -402,6 +480,7 @@ impl WorldsView {
         if !matches!(self.worlds, Load::Ready(_)) {
             self.worlds = Load::Loading;
         }
+        let images = self.instances.read(cx).images();
         let work = cx.background_spawn(async move {
             let list = worlds::list(&dirs);
             let icons: Vec<(String, image::RgbaImage)> = list
@@ -411,10 +490,11 @@ impl WorldsView {
                     Some((w.folder.clone(), icon))
                 })
                 .collect();
-            let backups: HashMap<String, Vec<Backup>> = list
-                .iter()
-                .map(|w| (w.folder.clone(), worlds::backups(&dirs, &w.folder)))
-                .collect();
+            let records = images
+                .snapshots(&id_of(&dirs))
+                .map(|found| found.records)
+                .unwrap_or_default();
+            let backups = backups_of(&list, &records);
             (list, icons, backups)
         });
         self.load_task = Some(cx.spawn(async move |this, cx| {
@@ -437,6 +517,38 @@ impl WorldsView {
             self.load_datapacks(folder, cx);
         }
         cx.notify();
+    }
+
+    /// Reads the snapshots again for the backups each world lists, against the worlds
+    /// already listed: no level.dat or icon is read again. A full [`Self::reload`] when
+    /// the worlds aren't listed yet.
+    fn reload_backups(&mut self, cx: &mut Context<Self>) {
+        let Load::Ready(list) = &self.worlds else {
+            return self.reload(cx);
+        };
+        let Some((id, dirs)) = self.dirs(cx) else {
+            return;
+        };
+        let list = list.clone();
+        let images = self.instances.read(cx).images();
+        let work = cx.background_spawn(async move {
+            let records = images
+                .snapshots(&id_of(&dirs))
+                .map(|found| found.records)
+                .unwrap_or_default();
+            backups_of(&list, &records)
+        });
+        self.backups_task = Some(cx.spawn(async move |this, cx| {
+            let backups = work.await;
+            this.update(cx, |this, cx| {
+                if this.instance_id.as_deref() != Some(id.as_str()) {
+                    return;
+                }
+                this.backups = backups;
+                cx.notify();
+            })
+            .ok();
+        }));
     }
 
     pub fn ensure_loaded(&mut self, cx: &mut Context<Self>) {
@@ -546,66 +658,94 @@ impl WorldsView {
         cx.notify();
     }
 
+    /// Backs the world up: a manual snapshot named after it, with the bytes it reads as
+    /// the job's progress, and stopped by its Cancel.
     pub fn back_up(&mut self, folder: String, name: String, cx: &mut Context<Self>) {
         self.expanded = Some(folder.clone());
+        let (images, instance) = self.images_of(cx);
         self.run(
             JobLabel::BackingUp(name.clone()),
-            move |dirs, progress, cancel| {
-                let backup = worlds::backup(dirs, &folder, progress, cancel)?;
-                Ok(tr!(
-                    M::BackedUp,
-                    name = name,
-                    size = format::bytes(backup.size)
-                ))
+            move |_, progress, cancel| {
+                images
+                    .take_snapshot(
+                        &instance,
+                        Take {
+                            kind: SnapshotKind::Manual,
+                            name: Some(labels::backed_up(&name)),
+                            full: false,
+                            progress: &|done, total| {
+                                progress.set(ProgressSnapshot {
+                                    bytes_done: done,
+                                    bytes_total: total,
+                                    ..ProgressSnapshot::default()
+                                })
+                            },
+                            cancel: &|| cancel.is_cancelled(),
+                        },
+                    )
+                    .map_err(world_error)?;
+                Ok(tr!(M::BackedUp, name = name))
             },
             cx,
         );
     }
 
     pub fn restore_copy(&mut self, folder: String, backup: Backup, cx: &mut Context<Self>) {
+        if self.other_job_writes(cx) {
+            return;
+        }
+        let (images, instance) = self.images_of(cx);
         self.run(
             JobLabel::Restoring,
-            move |dirs, progress, cancel| {
-                let restored = worlds::restore_with(
-                    dirs,
-                    &folder,
-                    &backup.path,
-                    RestoreMode::Copy,
-                    |_| Ok(()),
-                    progress,
-                    cancel,
-                )?;
-                Ok(tr!(M::RestoredAsCopy, folder = restored.folder))
+            move |_, _, cancel| {
+                let copy = images
+                    .restore_world_copy(&instance, &backup.snapshot, &folder, &|| {
+                        cancel.is_cancelled()
+                    })
+                    .map_err(world_error)?;
+                Ok(tr!(M::RestoredAsCopy, folder = copy))
             },
             cx,
         );
     }
 
-    /// Replaces the world with a backup (after the window's confirmation).
+    /// Puts the world back from a snapshot, in its place (after the window's
+    /// confirmation), after a safety snapshot.
     pub fn restore_replace(&mut self, folder: String, backup: Backup, cx: &mut Context<Self>) {
+        if self.other_job_writes(cx) {
+            return;
+        }
+        let (images, instance) = self.images_of(cx);
         self.run(
             JobLabel::Replacing,
-            move |dirs, progress, cancel| {
-                let restored = worlds::restore(
-                    dirs,
-                    &folder,
-                    &backup.path,
-                    RestoreMode::Replace,
-                    progress,
-                    cancel,
-                )?;
-                Ok(match restored.safety_backup {
+            move |_, _, cancel| {
+                let restored = images
+                    .restore(
+                        &instance,
+                        &backup.snapshot,
+                        &RestoreScope::Worlds(vec![folder.clone()]),
+                        &|| cancel.is_cancelled(),
+                    )
+                    .map_err(world_error)?;
+                Ok(match restored.safety {
                     Some(safety) => tr!(
                         M::RestoredWithSafety,
-                        folder = restored.folder,
-                        backup = safety.file_name,
-                        trash = t(CommonMsg::TheTrash)
+                        folder = folder,
+                        snapshot = safety.name_shown()
                     ),
-                    None => tr!(M::Restored, folder = restored.folder),
+                    None => tr!(M::Restored, folder = folder),
                 })
             },
             cx,
         );
+    }
+
+    /// The image store and the shown instance, for a job.
+    fn images_of(&self, cx: &gpui::App) -> (Arc<Images>, String) {
+        (
+            self.instances.read(cx).images(),
+            self.instance_id.clone().unwrap_or_default(),
+        )
     }
 
     /// Moves the world to the Trash (after the window's confirmation).
@@ -615,21 +755,6 @@ impl WorldsView {
             move |dirs, _, _| {
                 worlds::delete(dirs, &folder)?;
                 Ok(tr!(M::InTrash, name = name, trash = t(CommonMsg::TheTrash)))
-            },
-            cx,
-        );
-    }
-
-    pub fn delete_backup(&mut self, backup: Backup, cx: &mut Context<Self>) {
-        self.run(
-            JobLabel::MovingBackupToTrash,
-            move |dirs, _, _| {
-                worlds::delete_backup(dirs, &backup.path)?;
-                Ok(tr!(
-                    M::InTrash,
-                    name = backup.file_name,
-                    trash = t(CommonMsg::TheTrash)
-                ))
             },
             cx,
         );
@@ -1264,10 +1389,14 @@ impl WorldsView {
                 Some((w.folder.clone(), crate::images::render_image(icon)))
             })
             .collect();
-        self.backups = list
-            .iter()
-            .map(|w| (w.folder.clone(), worlds::backups(&dirs, &w.folder)))
-            .collect();
+        let records = self
+            .instances
+            .read(cx)
+            .images()
+            .snapshots(&id_of(&dirs))
+            .map(|found| found.records)
+            .unwrap_or_default();
+        self.backups = backups_of(&list, &records);
         self.worlds = Load::Ready(list);
         let shots = screenshots::list(&dirs);
         for shot in &shots {
@@ -2135,16 +2264,13 @@ impl WorldsView {
         }
         for (index, backup) in backups.iter().enumerate() {
             let id = world_index * 1000 + index;
-            let date = backup
-                .created
-                .map(when)
-                .unwrap_or_else(|| backup.file_name.clone());
+            let date = super::snapshots::when(backup.created);
             list = list.child(
                 div()
                     .id(("backup-row", id))
                     .accessible(
                         Role::Group,
-                        format!("backup-{}", backup.file_name),
+                        format!("backup-{}", backup.snapshot),
                         date.clone(),
                     )
                     .flex()
@@ -2166,11 +2292,18 @@ impl WorldsView {
                                     .child(date),
                             )
                             .child(
-                                small(format!(
-                                    "{} · {}",
-                                    backup.file_name,
-                                    format::bytes(backup.size)
-                                ))
+                                small({
+                                    let mut line = format!(
+                                        "{} · {}",
+                                        backup.name,
+                                        format::bytes(backup.bytes)
+                                    );
+                                    if backup.others > 0 {
+                                        line.push_str(" · ");
+                                        line.push_str(&trn!(P::WithOtherWorlds, backup.others));
+                                    }
+                                    line
+                                })
                                 .truncate()
                                 .text_color(crate::theme::ink::muted()),
                             ),
@@ -2203,27 +2336,6 @@ impl WorldsView {
                                             backup: backup.clone(),
                                         });
                                     }
-                                })
-                            }),
-                    )
-                    .child(
-                        Button::new(("reveal-backup", id), t(CommonMsg::ShowInFileManager))
-                            .variant(ButtonVariant::Ghost)
-                            .size(ButtonSize::Slim)
-                            .on_click({
-                                let path = backup.path.clone();
-                                move |_, _, cx| cx.reveal_path(&path)
-                            }),
-                    )
-                    .child(
-                        Button::new(("delete-backup", id), t(CommonMsg::Delete))
-                            .variant(ButtonVariant::Danger)
-                            .size(ButtonSize::Slim)
-                            .disabled(busy)
-                            .on_click({
-                                let backup = backup.clone();
-                                cx.listener(move |this, _, _, cx| {
-                                    this.delete_backup(backup.clone(), cx)
                                 })
                             }),
                     ),

@@ -82,13 +82,11 @@ pub fn text(message: M) -> &'static str {
         M::AutoGroupImported => "已导入",
 
         M::GameVersionHint => "在创建实例时设置。",
+        M::GameVersionFollowsModpack => "随整合包更新而变化。",
+        M::GameVersionFollowsServer => "随关联服务器的整合包而变化。",
         M::LoaderInstallsNextStart => "{loader} 将在游戏下次启动时安装。",
         M::LoaderInstallsNextPlay => "{loader} 将在你下次点击“开始游戏”时安装。",
         M::SavedNextStart => "已保存。将在游戏下次启动时生效。",
-        M::CouldntTurnModsOff => "无法禁用模组：{error}",
-        M::GameVersionChangedMeanwhile => {
-            "Minecraft 版本已在此期间更改。请重新选择加载器，然后保存。"
-        }
 
         M::Vanilla => "原版",
         M::ModLoader => "模组加载器",
@@ -158,49 +156,81 @@ pub fn text(message: M) -> &'static str {
         M::TakeSnapshotTitle => "创建快照",
         M::TakeSnapshot => "创建快照",
         M::SnapshotName => "名称",
-        M::WhatToInclude => "包含的内容",
-        M::WhatToRestore => "要恢复的内容",
-        M::PartMods => "模组",
-        M::PartResourcePacks => "资源包",
-        M::PartShaderPacks => "光影包",
-        M::PartConfigs => "配置和选项",
-        M::PartWorlds => "世界",
-        M::PartScreenshots => "截图",
-        M::PartSettings => "实例设置",
-        M::PartOther => "其他文件",
         M::NoSnapshots => "还没有快照。",
         M::SnapshotSizes => "{total}，其中新增 {new}",
-        M::BeforeGoingBack => "回退到“{name}”之前",
-        M::RevertEllipsis => "恢复…",
-        M::RevertTitle => "恢复到 {name}？",
-        M::RevertBody => "所选部分会被快照中的内容替换。替换前会先为它们创建快照，以便恢复。",
-        M::Revert => "恢复",
-        M::ShareEllipsis => "分享…",
-        M::ShareSnapshotTitle => "分享 {name}",
+        M::SnapshotNothingNew => "{total}，无新增",
+        M::SnapshotWithMods => "含模组",
         M::PreparingFile => "正在准备文件…",
         M::DragToShare => "将文件拖到其他应用中，或：",
         M::SaveAsEllipsis => "另存为…",
         M::ShowInFolder => "在文件夹中显示",
         M::DeleteSnapshotTitle => "删除 {name}？",
-        M::DeleteSnapshotBody => "没有其他快照使用的文件会被删除。此操作无法撤销。",
+        M::DeleteSnapshotBody => {
+            "快照会被删除。它的文件会在下次清理时删除，除非其他快照也在使用。此操作无法撤销。"
+        }
         M::TakingSnapshot => "正在创建快照…",
-        M::RevertingSnapshot => "正在恢复快照…",
         M::ImportingSnapshot => "正在创建实例…",
         M::ReadingSnapshot => "正在读取快照…",
         M::ImportSnapshotTitle => "从快照新建实例",
-        M::SnapshotFrom => "{name} · Minecraft {version}",
-        M::SnapshotModsWarning => {
-            "其中包含 {count} 个模组：它们是游戏启动时会运行的程序。只使用来自你信任的人的快照。"
-        }
-        M::SnapshotLaunchSettingsWarning => {
-            "它的实例设置会改变游戏的启动方式：Java、Java 参数、环境变量或内存。这些设置也能运行程序，所以只有选择了“实例设置”才会使用它们。只为来自你信任的人的快照选择它。"
-        }
         M::CreateInstanceButton => "创建实例",
         M::SnapshotGameRunning => "请先停止游戏。",
-        M::ChooseSomething => "请至少选择一项。",
-        M::SnapshotTaken => "快照已创建。",
-        M::SnapshotReverted => "快照已恢复。",
-        M::SnapshotsHint => "此实例的副本，可用于恢复或分享。",
+        M::SnapshotsHint => "此实例的世界和文件的副本，可用于恢复或分享。",
+        M::SnapshotIncludeEverything => "包含模组和配置",
+        M::SnapshotIncludeEverythingHint => {
+            "不勾选时，快照保留世界和其他文件，并记住它们运行时使用的模组。"
+        }
+        M::SnapshotAfterPlay => "每次游戏结束后拍摄快照",
+        M::SnapshotAfterPlayHint => {
+            "游玩后复制世界。跟随“设置 › 实例默认设置”，默认关闭，除非你开启。"
+        }
+        M::SnapshotAfterPlayDefaultHint => {
+            "每次游戏结束后复制世界，适用于未自行设置的实例。默认关闭，除非你开启。"
+        }
+        M::SnapshotKeepHint => {
+            "启动器自动拍摄的快照会保留一段时间：最近 {last} 个、{days} 天内每天一个、{weeks} 周内每周一个。你自己拍摄的快照会一直保留，直到你删除。"
+        }
+        M::BadgeAutomatic => "自动",
+        M::BadgeAfterPlaying => "游戏后",
+        M::BadgeImported => "已导入",
+        M::BadgePinned => "已固定",
+        M::RestoreEllipsis => "恢复…",
+        M::ExportEllipsis => "导出…",
+        M::PinSnapshot => "固定",
+        M::UnpinSnapshot => "取消固定",
+        M::UnreadableImagesHint => "有无法读取的镜像时，旧的内容历史不会被清理。",
+        M::DeleteUnreadable => "删除它们",
+        M::RestoreTitle => "恢复 {name}",
+        M::RestoreWorldsOnly => "仅世界",
+        M::RestoreWorldsAndMods => "世界及其模组",
+        M::RestoreEverything => "全部",
+        M::RestoreAsNew => "作为新实例",
+        M::RestoreAsNewName => "新实例名称",
+        M::RestoreEverythingHint => {
+            "整个游戏文件夹恢复到快照时的状态：世界、模组、配置和选项。之后创建的世界会被删除。"
+        }
+        M::WorldGoneNow => "{size} · 实例中已没有",
+        M::ModsDiffer => "这些世界上次运行时使用的是其他模组。",
+        M::FilesDiffer => "这些世界上次运行时使用的是其他文件。",
+        M::RestoreModsToo => "同时恢复它们的模组",
+        M::RestoreModsTooChanges => "同时恢复它们的模组将会：",
+        M::RestoreLoaderChange => "加载器将恢复为 {version}。",
+        M::RestoreSafety => "会先为被替换的内容拍摄快照，并保留 30 天。",
+        M::RestoreOtherGame => "此快照属于其他 Minecraft 版本或加载器，只能作为新实例恢复。",
+        M::RestoreButton => "恢复",
+        M::RestoringSnapshot => "正在恢复快照…",
+        M::DeletingSnapshot => "正在删除快照…",
+        M::ChooseWorld => "请至少选择一个世界。",
+        M::ExportTitle => "导出 {name}",
+        M::ExportNote => {
+            "来自 Modrinth 和 CurseForge 的模组和资源包只会列出而不会复制：导入文件时会在作者允许的情况下重新下载。"
+        }
+        M::ExportLeftOut => "以下文件可能包含密码和登录信息，已排除：{files}。",
+        M::ImportFrom => "{name} · Minecraft {version} · {loader}",
+        M::ImportWorlds => "世界：{worlds}",
+        M::ImportDownloads => "需要从 Modrinth 和 CurseForge 下载 {size}。",
+        M::ImportNotDownloadable => "作者不允许下载，因此已排除：{files}。",
+        M::ImportSpace => "需要 {size} 磁盘空间（含 1 GB 余量）。",
+        M::ImportNeedsModrinth => "无法连接 Modrinth，无法下载文件中的模组。",
         M::VerifyGameFiles => "校验游戏文件",
         M::VerifyHint => "重新下载缺失或损坏的文件。",
         M::Verify => "校验",
@@ -215,6 +245,41 @@ pub fn text(message: M) -> &'static str {
         M::Exporting => "正在导出…",
         M::Duplicate => "创建副本",
         M::Duplicating => "正在创建副本…",
+        M::ChangeVersionOrLoader => "其他版本或加载器",
+        M::ChangeVersionOrLoaderHint => {
+            "实例会保留创建时的版本和加载器。副本可以使用其他版本或加载器。"
+        }
+        M::CopyAs => "以其他版本或加载器复制",
+        M::CopyAsButton => "换版本复制…",
+        M::CopyAsKeywords => "更改 切换 更新 升级 降级 版本 加载器 Fabric Forge NeoForge Quilt",
+        M::CopyAsTitle => "以其他版本或加载器复制",
+        M::CopyFrom => "基于 {name}（{version}）新建一个实例，原实例保持不变。",
+        M::CopyWhat => "要复制的内容",
+        M::CopyWorlds => "世界",
+        M::CopyNoWorlds => "此实例没有世界。",
+        M::CopyWorldsOlder => "世界无法复制到较旧的 Minecraft 版本：旧版本无法打开它们。",
+        M::CopyWorldsUnknown => "世界不会复制：Lodestone Launcher 无法判断 {version} 是否更新。",
+        M::CopyWorldsUpgraded => {
+            "Minecraft {version} 打开世界时会将其升级，且无法还原。原世界仍保留在 {name} 中。"
+        }
+        M::CopyWorldsModsGone => {
+            "副本打开世界时，未一同复制的模组中的方块和物品会被移除。原世界仍保留在 {name} 中。"
+        }
+        M::CopyPacks => "资源包、光影和选项",
+        M::CopyMods => "模组",
+        M::CopyReading => "正在读取实例的模组…",
+        M::CopyNoMods => "此实例没有模组。",
+        M::CopyModsVanilla => "原版 Minecraft 不运行模组。",
+        M::CopyModsOffline => "无法连接到 Modrinth，因此无法复制模组。",
+        M::CopyModsFailed => "无法检查模组：{error}",
+        M::CopyModsNoBuild => "没有适用于 {target} 的构建，以下模组不会复制：{names}。",
+        M::CopyModsNotOnModrinth => "不在 Modrinth 上，以下模组不会复制：{names}。",
+        M::CopyModsUnchecked => "无法在 Modrinth 上检查以下模组，因此不会复制：{names}。",
+        M::CopyOrUncheckMods => "或取消勾选“模组”，不带模组复制。",
+        M::CopySameTarget => {
+            "请选择其他 Minecraft 版本或加载器。若要原样复制此实例，请使用“维护”中的“创建副本”。"
+        }
+        M::CopyAsStart => "开始复制",
         M::HostOnCore => "在 Lodestone 上托管",
         M::HostHint => "用此实例的模组创建服务器。",
         M::HostButton => "托管…",
@@ -347,6 +412,17 @@ pub fn text(message: M) -> &'static str {
         }
         M::AddModpackEllipsis => "添加整合包…",
         M::RemoveAddedModpackNote => "移除该整合包添加的文件。你修改过的文件会保留。",
+        M::SnapshotsNotChanged => "无法更改快照",
+        M::RestoreKeptAsideTitle => "有些文件妨碍了恢复",
+        M::SnapshotRestored => "已恢复“{name}”。",
+        M::ImportLeftOutTitle => "部分文件未导入",
+        M::ImportLeftOut => "这些文件无法下载，因此新实例中没有它们：{files}。",
+        M::RestoreKeptAside => "恢复期间写入的文件保存在 {folder}。",
+        M::ImportNoRoom => "磁盘空间不足：需要 {size}（含 1 GB 余量），可用 {free}。",
+        M::ImportSpaceFree => "需要 {size} 磁盘空间（含 1 GB 余量）；可用 {free}。",
+        M::ExportNotDownloadable => "这些无法下载，因此导入该文件的人不会得到它们：{files}。",
+        M::SnapshotAfterPlayOwnHint => "游玩后复制世界。仅为此实例设置。",
+        M::DeleteUnreadableNote => "它们将被永久删除。",
     }
 }
 
@@ -356,14 +432,13 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::ShareAddedCount => ["添加 {count} 项"; 2],
         P::ShareRemovedCount => ["移除 {count} 项"; 2],
         P::ShareChangedCount => ["更改 {count} 项"; 2],
+        P::UnreadableImages => ["{count} 个镜像无法读取"; 2],
+        P::RestoreMissing => ["镜像存储丢失了其中 {count} 个文件，无法完整恢复。"; 2],
+        P::ImportModsWarning => {
+            ["包含 {count} 个模组：它们是游戏启动时运行的程序。只导入你信任的人发送的文件。"; 2]
+        }
         P::ShareToggledCount => ["启用或禁用 {count} 项"; 2],
         P::CodePackChanges => ["+ {count} 项更改"; 2],
-        P::LoaderNextStartModsOff => {
-            ["{loader} 将在游戏下次启动时安装。已禁用 {count} 个模组。"; 2]
-        }
-        P::LoaderNextPlayModsOff => {
-            ["{loader} 将在你下次点击“开始游戏”时安装。已禁用 {count} 个模组。"; 2]
-        }
         P::SharedCount => ["{count} 项共享"; 2],
         P::OverriddenCount => ["{count} 项覆盖"; 2],
         P::AndMore => ["{names}及另外 {count} 项"; 2],
@@ -379,5 +454,14 @@ pub fn plural(message: P) -> [&'static str; 2] {
 
         P::AndMoreFiles => ["以及另外 {count} 个"; 2],
         P::AddedModpackFiles => ["已添加 {count} 个文件"; 2],
+        P::CopyWorldsCount => ["{count} 个世界"; 2],
+        P::CopyCheckingMods => ["正在 Modrinth 上检查 {count} 个模组…"; 2],
+        P::CopyModsFound => ["{count} 个模组中有 {found} 个有适用于 {target} 的构建。"; 2],
+        P::RestorePutsBack => ["恢复 {count} 个文件：{names}"; 2],
+        P::RestoreRemoves => ["删除 {count} 个文件：{names}"; 2],
+        P::RestoreChanges => ["更改 {count} 个文件：{names}"; 2],
+        P::ImportCarriedMods => {
+            ["其中 {count} 个包含在文件本身中，而不是从 Modrinth 或 CurseForge 下载的：{names}"; 2]
+        }
     }
 }

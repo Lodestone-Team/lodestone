@@ -40,6 +40,14 @@ impl Backend for Fake {
                 "This moves the instance \"Survival\" to the Trash. Ask the user first, then pass --yes.",
             )),
             "instances.delete" => Ok(json!({ "deleted": "a1", "trash": true })),
+            "instances.copy_as" if p["confirm"] != true => Err(ErrorObject::new(
+                codes::CONFIRMATION_REQUIRED,
+                "The copy leaves 1 mod(s) behind (no build for Minecraft 1.21.1 fabric, or not on Modrinth). Show the user the plan, then pass --yes.",
+            )
+            .with_data(json!({ "plan": { "no_build": [{ "title": "Iris" }], "mods": [{ "title": "Sodium" }] } }))),
+            "instances.copy_as" => Ok(
+                json!({ "instance": { "id": "survival-1-21-1-fabric", "name": "Survival (1.21.1 Fabric)" }, "job": 2 }),
+            ),
             "instances.show" => Err(ErrorObject::new(
                 codes::NOT_FOUND,
                 "No instance is called \"x\".",
@@ -86,6 +94,53 @@ impl Backend for Fake {
                 }
                 return;
             }
+            "content.history" if p["instance"] == "Survival" => Ok(json!({
+                "instance": "survival",
+                "current": "b".repeat(64),
+                "images": [
+                    {
+                        "id": "b".repeat(64), "created": 1_794_645_624, "label": "Added JEI\u{202e}gpj.exe",
+                        "label_shown": "Added JEI\\u{202E}gpj.exe",
+                        "game_shown": "fabric 0.16.10 on 1.21.1",
+                        "parent": "a".repeat(64), "current": true, "minecraft": "1.21.1",
+                        "loader": "fabric", "loader_version": "0.16.10",
+                        "base": { "loader": {} }, "files": 42, "withheld": 0
+                    },
+                    {
+                        "id": "a".repeat(64), "created": 1_794_645_000, "label": "Created Survival",
+                        "label_shown": "Created Survival", "game_shown": "vanilla 1.21.1",
+                        "parent": null, "current": false, "minecraft": "1.21.1",
+                        "loader": "vanilla", "loader_version": null,
+                        "base": { "loader": {} }, "files": 1, "withheld": 0
+                    }
+                ]
+            })),
+            "content.history" => Err(ErrorObject::new(
+                codes::NOT_FOUND,
+                "No instance is called \"x\".",
+            )),
+            // a server whose Lodestone is newer than this launcher's
+            "servers.join" => Err(ErrorObject::new(
+                codes::UPDATE_REQUIRED,
+                "Couldn't check the server's mods: This server runs a newer Lodestone. Update Lodestone Launcher to join it.",
+            )),
+            "servers.create_instance" if p["accept_advisory"] != true => Err(ErrorObject::new(
+                codes::UNTRUSTED_CORE,
+                "Home core isn't trusted for mods, so its mods need the user's decision. Nothing was installed.",
+            )
+            .with_data(json!({ "advisory": {
+                "core_name": "Home core", "server_name": "Smp", "update": false,
+                "uploaded": ["mods/own.jar"], "on_modrinth": [], "scripts": 0, "configs": 2,
+                "other": 0, "unchecked": false,
+                "summary": {
+                    "base": { "name": "Cozy Pack", "version": "1.0" }, "minecraft": "1.21.1",
+                    "loader": "Fabric 0.16.10", "added_mods": ["own.jar"],
+                    "server_only": ["mods/own.jar"],
+                    "missing": [{ "path": "mods/linked.jar", "reason": "symlink" }],
+                    "curseforge": []
+                }
+            } }))),
+            "servers.create_instance" => Ok(json!({ "instance": "smp", "notice": null })),
             "cores.add" => {
                 Ok(json!({ "core": { "id": "c1" }, "got_password": p["password"] == "s3cret" }))
             }
@@ -198,6 +253,37 @@ fn destructive_commands_need_yes() {
     assert_eq!(stdout_json(&output)["trash"], true);
     let requests = launcher.fake.requests.lock().unwrap();
     assert_eq!(requests.last().unwrap().params["confirm"], true);
+}
+
+#[test]
+fn a_copy_that_leaves_mods_behind_needs_yes_and_shows_the_plan() {
+    let launcher = launcher();
+    let args = ["instances", "copy-as", "Survival", "--version", "1.21.1"];
+    let output = cli(&launcher.socket, &args, None);
+    assert_eq!(output.status.code(), Some(5));
+    let error = stderr_error(&output);
+    assert_eq!(error.code, codes::CONFIRMATION_REQUIRED);
+    assert_eq!(error.data.unwrap()["plan"]["no_build"][0]["title"], "Iris");
+
+    let mut confirmed = args.to_vec();
+    confirmed.push("--yes");
+    let output = cli(&launcher.socket, &confirmed, None);
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(
+        stdout_json(&output)["instance"]["name"],
+        "Survival (1.21.1 Fabric)"
+    );
+    let requests = launcher.fake.requests.lock().unwrap();
+    let last = &requests.last().unwrap().params;
+    assert_eq!(
+        (
+            &last["confirm"],
+            &last["wait"],
+            &last["version"],
+            &last["mods"]
+        ),
+        (&json!(true), &json!(true), &json!("1.21.1"), &json!(true))
+    );
 }
 
 #[test]
@@ -347,6 +433,28 @@ fn passwords_are_read_from_stdin() {
 }
 
 #[test]
+fn server_image_answers_reach_the_caller() {
+    let launcher = launcher();
+    // the server runs a newer Lodestone: its own code, nothing installed
+    let output = cli(&launcher.socket, &["servers", "join", "Smp"], None);
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(stderr_error(&output).code, codes::UPDATE_REQUIRED);
+    // what a server's image installs comes with the advisory, missing files too
+    let output = cli(
+        &launcher.socket,
+        &["servers", "create-instance", "Smp"],
+        None,
+    );
+    assert_eq!(output.status.code(), Some(6));
+    let error = stderr_error(&output);
+    assert_eq!(error.code, codes::UNTRUSTED_CORE);
+    let summary = &error.data.unwrap()["advisory"]["summary"];
+    assert_eq!(summary["missing"][0]["path"], "mods/linked.jar");
+    assert_eq!(summary["missing"][0]["reason"], "symlink");
+    assert_eq!(summary["base"]["name"], "Cozy Pack");
+}
+
+#[test]
 fn schema_needs_no_launcher() {
     let dir = tempfile::tempdir().unwrap();
     let output = cli(&dir.path().join("nothing.sock"), &["schema"], None);
@@ -360,4 +468,48 @@ fn schema_needs_no_launcher() {
             .iter()
             .any(|c| c["code"] == 5)
     );
+    assert!(
+        schema["error_codes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|c| c["code"] == codes::UPDATE_REQUIRED && c["exit"] == 1)
+    );
+}
+
+#[test]
+fn content_history_lists_images_newest_first() {
+    let launcher = launcher();
+    let output = cli(&launcher.socket, &["content", "history", "Survival"], None);
+    assert_eq!(output.status.code(), Some(0));
+    let value = stdout_json(&output);
+    assert_eq!(value["images"][0]["label"], "Added JEI\u{202e}gpj.exe");
+    assert_eq!(value["images"][0]["files"], 42);
+    {
+        let requests = launcher.fake.requests.lock().unwrap();
+        let request = requests.last().unwrap();
+        assert_eq!(request.method, "content.history");
+        assert_eq!(request.params["instance"], "Survival");
+    }
+
+    // For people: one line each, as the Launcher writes them to be shown (the direction
+    // override written visibly).
+    let output = cli(
+        &launcher.socket,
+        &["--human", "content", "history", "Survival"],
+        None,
+    );
+    let text = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(
+        lines,
+        [
+            "2026-11-14 08:40  Added JEI\\u{202E}gpj.exe  (42 files, fabric 0.16.10 on 1.21.1)  current",
+            "2026-11-14 08:30  Created Survival  (1 file, vanilla 1.21.1)",
+        ],
+        "{text}"
+    );
+
+    let output = cli(&launcher.socket, &["content", "history", "x"], None);
+    assert_eq!(stderr_error(&output).code, codes::NOT_FOUND);
 }

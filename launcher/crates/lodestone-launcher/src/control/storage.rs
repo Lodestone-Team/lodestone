@@ -33,7 +33,7 @@ pub fn show(call: Call, cx: &mut App) -> Reply {
                     "unused_runtimes": report.unused_runtimes(),
                     "cache": report.cache,
                     "leftovers": report.leftovers.bytes,
-                    "snapshots": report.snapshots.bytes,
+                    "images": report.images.bytes,
                     "logs": report.logs.bytes,
                     "other": report.other,
                 }),
@@ -76,7 +76,7 @@ pub fn clean(call: Call, cx: &mut App) -> Reply {
         Clean::OldLogs => "deletes the logs and crash reports older than 30 days, for good",
         Clean::AllLogs => "deletes every log and crash report, for good",
         Clean::Snapshots => {
-            "deletes automatic snapshots, snapshots of deleted instances and shared snapshot files, for good"
+            "deletes the snapshots the Launcher took on its own (not pinned) and every deleted instance's snapshots, for good"
         }
     }));
     let instances = call.control.instances.read(cx);
@@ -94,8 +94,15 @@ pub fn clean(call: Call, cx: &mut App) -> Reply {
     }
     let data = instances.data_dir().clone();
     let list = instances.list().to_vec();
+    let images = instances.images();
     cx.background_spawn(async move {
-        let result = disk::clean(&data, &list, &running, what, &Cancel::new());
+        let result = match what {
+            Clean::Snapshots => {
+                let live: Vec<String> = list.iter().map(|i| i.id.clone()).collect();
+                disk::clean_snapshots(&data, &images, &live)
+            }
+            _ => disk::clean(&data, &list, &running, what, &Cancel::new()),
+        };
         launcher_core::trace::emit("storage.clean", || match &result {
             Ok(cleaned) => json!({
                 "what": what.name(),

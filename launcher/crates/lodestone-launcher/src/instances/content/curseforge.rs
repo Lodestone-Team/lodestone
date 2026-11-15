@@ -18,6 +18,7 @@ use launcher_core::content::{
     install::{InstallOutcome, InstallProgress, Placed},
     listing,
 };
+use launcher_core::images::labels;
 
 use super::{
     ContentView, Job, Load, PAGE_SIZE,
@@ -286,6 +287,17 @@ impl ContentView {
     /// Installs `requests` one after the other in the background, with progress. Files
     /// the user has to download themselves end up in the blocked card.
     pub fn cf_install(&mut self, requests: Vec<CfInstallRequest>, cx: &mut Context<Self>) {
+        self.cf_install_with(requests, None, cx);
+    }
+
+    /// [`Self::cf_install`], first taking a snapshot named after the `updating` titles when
+    /// it updates content (a risky change: [`launcher_core::images::RiskyChange`]).
+    pub(super) fn cf_install_with(
+        &mut self,
+        requests: Vec<CfInstallRequest>,
+        updating: Option<Vec<String>>,
+        cx: &mut Context<Self>,
+    ) {
         if requests.is_empty() || !self.can_change(cx) {
             return;
         }
@@ -295,6 +307,8 @@ impl ContentView {
         let modrinth = self.modrinth(cx);
         let downloader = self.instances.read(cx).content_downloader();
         let busy = self.instances.read(cx).mark_files_busy(&id);
+        let images = self.images(cx);
+        let image_id = id.clone();
         let progress = Arc::new(InstallProgress::default());
         let cancel = launcher_core::game::download::CancelToken::new();
         let kinds: Vec<ContentKind> = requests.iter().map(|r| r.kind).collect();
@@ -308,40 +322,65 @@ impl ContentView {
                 // The tab may not have read the instance's shader mod yet: "Update all"
                 // goes on here when its instance is shown again, as the tab starts over.
                 target.shader_loader = listing::shader_state(&dirs)?.loader;
-                for request in requests {
-                    let kind = request.kind;
-                    progress.set_label(match &request.project {
-                        Some(project) => tr!(M::CheckingProject, name = project.name),
-                        None => t(M::CheckingDependencies).to_string(),
-                    });
-                    let plan: CfInstallPlan = curseforge_install::plan(
-                        &cf,
-                        Platforms::new(modrinth.as_deref(), Some(&cf)),
-                        &dirs,
-                        &target,
-                        request,
-                    )
-                    .await?;
-                    let outcome = curseforge_install::execute(
-                        &cf,
-                        modrinth.as_deref(),
-                        &downloader,
-                        &dirs,
-                        &target,
-                        &plan,
-                        &progress,
-                        &cancel,
-                    )
-                    .await?;
-                    total.installed.extend(outcome.installed);
-                    total.removed.extend(outcome.removed);
-                    total.skipped.extend(outcome.skipped);
-                    blocked.extend(plan.blocked);
-                    if kind == ContentKind::Mod {
-                        target.shader_loader = listing::shader_state(&dirs)?.loader;
+                let no_snapshot = match &updating {
+                    Some(titles) => super::snapshot_before_update(
+                        &images, &image_id, titles, &progress, &cancel,
+                    )?,
+                    None => None,
+                };
+                // The whole job is one operation, as for Modrinth's.
+                let mut operation = images.begin(&image_id, "");
+                let result = async {
+                    for request in requests {
+                        let kind = request.kind;
+                        progress.set_label(match &request.project {
+                            Some(project) => tr!(M::CheckingProject, name = project.name),
+                            None => t(M::CheckingDependencies).to_string(),
+                        });
+                        let plan: CfInstallPlan = curseforge_install::plan(
+                            &cf,
+                            Platforms::new(modrinth.as_deref(), Some(&cf)),
+                            &dirs,
+                            &target,
+                            request,
+                        )
+                        .await?;
+                        let executed = curseforge_install::execute(
+                            &cf,
+                            modrinth.as_deref(),
+                            &downloader,
+                            &dirs,
+                            &target,
+                            &plan,
+                            &progress,
+                            &cancel,
+                        )
+                        .await;
+                        let outcome = match executed {
+                            Ok(outcome) => outcome,
+                            Err(err) => {
+                                let title =
+                                    plan.files.first().map(|f| f.title()).unwrap_or_default();
+                                operation.note(labels::partly_installed(&title));
+                                return Err(err);
+                            }
+                        };
+                        if let Some(label) = labels::installed(&outcome, kind) {
+                            operation.note(label);
+                        }
+                        total.installed.extend(outcome.installed);
+                        total.removed.extend(outcome.removed);
+                        total.skipped.extend(outcome.skipped);
+                        blocked.extend(plan.blocked);
+                        if kind == ContentKind::Mod {
+                            target.shader_loader = listing::shader_state(&dirs)?.loader;
+                        }
                     }
+                    Ok::<_, ContentError>(())
                 }
-                Ok::<_, ContentError>((total, blocked))
+                .await;
+                operation.succeed();
+                result.map(|()| (total, blocked, no_snapshot))
             })
         };
         let task = cx.spawn(async move |this, cx| {
@@ -352,13 +391,18 @@ impl ContentView {
                 };
                 if !shown {
                     let message = match result {
-                        Ok((outcome, blocked)) => {
+                        Ok((outcome, blocked, no_snapshot)) => {
                             let said = !outcome.installed.is_empty() || blocked.is_empty();
                             // the card shows them when the instance is shown again
                             this.instances.update(cx, |instances, _| {
                                 instances.put_back_pending_downloads(&id, blocked)
                             });
-                            said.then(|| (super::outcome_message(&outcome).into(), false))
+                            said.then(|| {
+                                let message = super::outcome_message(&outcome);
+                                let message =
+                                    super::with_snapshot_note(message, no_snapshot.as_deref());
+                                (message.into(), false)
+                            })
                         }
                         Err(err) => Some((err.to_string().into(), true)),
                     };
@@ -366,9 +410,12 @@ impl ContentView {
                     return;
                 }
                 match result {
-                    Ok((outcome, blocked)) => {
+                    Ok((outcome, blocked, no_snapshot)) => {
                         if !outcome.installed.is_empty() || blocked.is_empty() {
-                            this.set_message(super::outcome_message(&outcome), false, cx);
+                            let message = super::outcome_message(&outcome);
+                            let message =
+                                super::with_snapshot_note(message, no_snapshot.as_deref());
+                            this.set_message(message, false, cx);
                         }
                         for kind in &kinds {
                             this.section_mut(*kind).updates.clear();
@@ -416,7 +463,8 @@ impl ContentView {
     /// allows it, else through the blocked card.
     pub fn cf_update_one(&mut self, kind: ContentKind, file_name: &str, cx: &mut Context<Self>) {
         if let Some(update) = self.section(kind).cf_updates.get(file_name).cloned() {
-            self.cf_install(
+            let title = vec![launcher_core::content::enabled_name(file_name)];
+            self.cf_install_with(
                 vec![CfInstallRequest {
                     kind,
                     file: update.file,
@@ -424,9 +472,22 @@ impl ContentView {
                     install_dependencies: true,
                     force: false,
                 }],
+                Some(title),
                 cx,
             );
         }
+    }
+
+    /// The files the last check found CurseForge updates for, by their names when on.
+    pub(super) fn cf_update_titles(&self, kind: ContentKind) -> Vec<String> {
+        let mut titles: Vec<String> = self
+            .section(kind)
+            .cf_updates
+            .keys()
+            .map(|name| launcher_core::content::enabled_name(name))
+            .collect();
+        titles.sort();
+        titles
     }
 
     /// The CurseForge requests for every CurseForge update the last check found.
@@ -465,19 +526,27 @@ impl ContentView {
         let task = cx.spawn(async move |this, cx| {
             loop {
                 cx.background_executor().timer(WATCH_EVERY).await;
-                let Ok(Some((folder, waiting, dirs, target))) = this.update(cx, |this, cx| {
-                    let blocked = this.blocked.as_ref()?;
-                    let folder = blocked.folder.clone()?;
-                    let waiting: Vec<(usize, CfPlannedFile)> = blocked
-                        .files
-                        .iter()
-                        .enumerate()
-                        .filter(|(i, _)| !blocked.added[*i])
-                        .map(|(i, f)| (i, f.clone()))
-                        .collect();
-                    let (_, dirs, target) = this.context(cx)?;
-                    Some((folder, waiting, dirs, target))
-                }) else {
+                let Ok(Some((folder, waiting, dirs, target, id, images))) =
+                    this.update(cx, |this, cx| {
+                        let blocked = this.blocked.as_ref()?;
+                        let folder = blocked.folder.clone()?;
+                        let waiting: Vec<(usize, CfPlannedFile)> = blocked
+                            .files
+                            .iter()
+                            .enumerate()
+                            .filter(|(i, _)| !blocked.added[*i])
+                            .map(|(i, f)| (i, f.clone()))
+                            .collect();
+                        // Content never changes while the game runs: the file waits in the
+                        // folder until it ends.
+                        if this.locked(cx) {
+                            return None;
+                        }
+                        let (id, dirs, target) = this.context(cx)?;
+                        let images = this.images(cx);
+                        Some((folder, waiting, dirs, target, id, images))
+                    })
+                else {
                     // The card was closed, or there is nothing to watch.
                     if this
                         .update(cx, |this, _| this.blocked.is_none())
@@ -498,9 +567,11 @@ impl ContentView {
                             .into_iter()
                             .map(|(at, path)| {
                                 let (index, planned) = &waiting[at];
+                                let operation = images.begin(&id, labels::added(&planned.title()));
                                 let result = curseforge_install::install_downloaded(
                                     &dirs, &target, planned, &path,
                                 );
+                                operation.finish(&result);
                                 (*index, planned.title(), result)
                             })
                             .collect::<Vec<_>>()

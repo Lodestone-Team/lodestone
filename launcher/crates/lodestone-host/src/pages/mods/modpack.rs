@@ -1,9 +1,10 @@
 //! The modpack panel of the Installed view, for a server made from a modpack: which
 //! version it runs, whether a newer one is out (the core checks on its own, and on
 //! "Check for an update"), an update from Modrinth or from an `.mrpack` file, and the
-//! history: a timeline of every install, update and restore, with what each changed, and
-//! a button to go back to any of them. Each mod row says which version its file came
-//! with ([`ModsPage::blame_label`]).
+//! history: a timeline of the server's content images (every install, update and restore,
+//! and every other change to its mods and configs), with what each changed, and a button
+//! to go back to any of them. Each mod row says since when its file is as it is
+//! ([`ModsPage::blame_label`]).
 //!
 //! The core works out what an update or restore changes first; the dialog shows that,
 //! and it runs once the user confirms, with the server stopped.
@@ -16,8 +17,7 @@ use launcher_core::cores::admin::{
     instances::ModpackSource,
     models::{InstanceState, ModpackOrigin},
     mods::{
-        AvailableUpdate, ChangeInfo, ChangeKind, HistoryEntryInfo, HistoryKind, ModpackHistory,
-        ModpackUpdatePlan, loader_title,
+        AvailableUpdate, ChangeInfo, ChangeKind, HistoryEntryInfo, ModpackUpdatePlan, loader_title,
     },
 };
 use lodestone_ui::{
@@ -68,13 +68,6 @@ fn change_mark(kind: ChangeKind) -> (&'static str, Color) {
         ChangeKind::Replaced => ("~", colors::YELLOW),
         ChangeKind::Removed | ChangeKind::Unknown => ("−", colors::RED_200),
     }
-}
-
-fn entry_version(entry: &HistoryEntryInfo) -> String {
-    entry
-        .version_number
-        .clone()
-        .unwrap_or_else(|| t(M::ModpackUnknownVersion).to_string())
 }
 
 /// A changelog (Markdown from Modrinth), in a box that scrolls when it is long.
@@ -337,9 +330,10 @@ impl ModsPage {
                             .version_number
                             .clone()
                             .unwrap_or_else(|| t(M::ModpackUnknownVersion).to_string());
+                        // a restore's target is named by the entry it goes back to
                         let pack = plan.target.name.clone();
                         let mut lines = vec![if restore {
-                            tr!(M::ModpackRestored, pack = pack, version = version)
+                            tr!(M::ModpackRestored, change = pack)
                         } else {
                             tr!(M::ModpackUpdated, pack = pack, version = version)
                         }];
@@ -373,8 +367,8 @@ impl ModsPage {
         self.push(task);
     }
 
-    /// "since 6.4.0" for a file of the mods folder that came with the pack: the version
-    /// its current file came with. With the tooltip's text.
+    /// "since 3 Mar" for a file of the mods folder: when the entry its current file came
+    /// with was recorded. With the tooltip's text, which names that entry.
     pub(super) fn blame_label(&self, file_name: &str) -> Option<(String, String)> {
         let history = self.modpack_history.as_ref()?;
         // a server that never changed its pack has nothing to tell apart
@@ -383,10 +377,9 @@ impl ModsPage {
         }
         let directory = self.list.as_ref().map_or("mods", |l| l.directory.as_str());
         let entry = history.blame_of(&format!("{directory}/{file_name}"))?;
-        let version = entry_version(entry);
         Some((
-            tr!(M::ModpackSince, version = version),
-            tr!(M::ModpackSinceTooltip, version = version),
+            tr!(M::ModpackSince, date = entry_time(entry.time)?),
+            tr!(M::ModpackSinceTooltip, change = entry.label),
         ))
     }
 
@@ -571,7 +564,7 @@ impl ModsPage {
             .entries
             .iter()
             .enumerate()
-            .map(|(index, entry)| self.history_row(history, entry, index == last, can_write, cx))
+            .map(|(index, entry)| self.history_row(entry, index == last, can_write, cx))
             .collect();
         div()
             .id("modpack-history-list")
@@ -581,30 +574,17 @@ impl ModsPage {
             .border_t_1()
             .border_color(ink::border())
             .children(rows)
-            .when(history.stored_bytes > 0, |this| {
-                this.child(
-                    div()
-                        .pt(px(8.))
-                        .text_size(text::SMALL)
-                        .text_color(ink::faint())
-                        .child(tr!(
-                            M::ModpackStoreSize,
-                            size = format::bytes(history.stored_bytes)
-                        )),
-                )
-            })
             .into_any_element()
     }
 
     fn history_row(
         &self,
-        history: &ModpackHistory,
         entry: &HistoryEntryInfo,
         last: bool,
         can_write: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let id = entry.id;
+        let id = entry.id.clone();
         let open = self.history_expanded.contains(&id);
         let dot_color = if entry.current {
             colors::GREEN
@@ -630,18 +610,6 @@ impl ModsPage {
             .when(!last, |this| {
                 this.child(div().flex_1().w(px(2.)).bg(ink::border()))
             });
-        let kind = match &entry.kind {
-            HistoryKind::Install => t(M::ModpackKindInstall).to_string(),
-            HistoryKind::Baseline => t(M::ModpackKindBaseline).to_string(),
-            HistoryKind::Restore { to } => tr!(
-                M::ModpackKindRestore,
-                version = history
-                    .entry(*to)
-                    .map(entry_version)
-                    .unwrap_or_else(|| t(M::ModpackUnknownVersion).to_string())
-            ),
-            HistoryKind::Update | HistoryKind::Unknown => t(M::ModpackKindUpdate).to_string(),
-        };
         let counts: Vec<AnyElement> = [
             ChangeKind::Added,
             ChangeKind::Updated,
@@ -672,9 +640,17 @@ impl ModsPage {
             )
             .icon(Icon::ArrowsRotate)
             .disabled(!can_write || missing || self.modpack_busy)
-            .on_click(cx.listener(move |this, _, _, cx| {
-                this.plan_modpack(ModpackSource::History { entry_id: id }, cx)
-            }));
+            .on_click({
+                let id = id.clone();
+                cx.listener(move |this, _, _, cx| {
+                    this.plan_modpack(
+                        ModpackSource::History {
+                            entry_id: id.clone(),
+                        },
+                        cx,
+                    )
+                })
+            });
             if missing {
                 div()
                     .id(SharedString::from(format!("modpack-restore-why-{id}")))
@@ -685,8 +661,7 @@ impl ModsPage {
                 why_not(format!("modpack-restore-why-{id}"), can_write, button)
             }
         });
-        let has_changes =
-            !entry.changes.is_empty() || !entry.kept.is_empty() || entry.changelog.is_some();
+        let has_changes = !entry.changes.is_empty();
         let header = div()
             .id(SharedString::from(format!("modpack-entry-{id}")))
             .flex()
@@ -704,20 +679,22 @@ impl ModsPage {
                         }
                         .render(px(10.), ink::muted()),
                     )
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        if !this.history_expanded.remove(&id) {
-                            this.history_expanded.insert(id);
-                        }
-                        cx.notify();
-                    }))
+                    .on_click({
+                        let id = id.clone();
+                        cx.listener(move |this, _, _, cx| {
+                            if !this.history_expanded.remove(&id) {
+                                this.history_expanded.insert(id.clone());
+                            }
+                            cx.notify();
+                        })
+                    })
             })
             .child(
                 div()
                     .font_weight(weights::BOLD.face())
                     .text_color(ink::text())
-                    .child(entry_version(entry)),
+                    .child(entry.label.clone()),
             )
-            .child(div().text_color(ink::secondary()).child(kind))
             .when(entry.current, |this| {
                 this.child(lodestone_ui::components::settings::tag(
                     t(M::ModpackCurrent),
@@ -733,37 +710,8 @@ impl ModsPage {
             .text_size(text::SMALL)
             .text_color(ink::faint())
             .children(entry_time(entry.time))
-            .child(software)
-            .when(!entry.kept.is_empty(), |this| {
-                this.child(trn!(P::ModpackKeptCount, entry.kept.len()))
-            });
+            .child(software);
         let changes = open.then(|| self.change_list(entry));
-        // the version's changelog, behind its own toggle in the opened entry
-        let changelog = entry.changelog.as_ref().filter(|_| open).map(|changelog| {
-            let shown = self.changelog_expanded.contains(&id);
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(4.))
-                .mt(px(4.))
-                .child(
-                    whats_new_toggle(format!("modpack-changelog-{id}"), shown).on_click(
-                        cx.listener(move |this, _, _, cx| {
-                            if !this.changelog_expanded.remove(&id) {
-                                this.changelog_expanded.insert(id);
-                            }
-                            cx.notify();
-                        }),
-                    ),
-                )
-                .when(shown, |this| {
-                    this.child(changelog_box(
-                        format!("modpack-changelog-text-{id}"),
-                        changelog,
-                    ))
-                })
-                .into_any_element()
-        });
         div()
             .flex()
             .flex_row()
@@ -794,8 +742,7 @@ impl ModsPage {
                             )
                             .children(restore),
                     )
-                    .children(changes)
-                    .children(changelog),
+                    .children(changes),
             )
             .into_any_element()
     }
@@ -837,12 +784,6 @@ impl ModsPage {
                 entry.changes.len() - CHANGES_SHOWN
             )));
         }
-        if !entry.kept.is_empty() {
-            lines.push(muted(tr!(
-                M::ModpackDialogKept,
-                files = short_list(&entry.kept, 8)
-            )));
-        }
         div()
             .flex()
             .flex_col()
@@ -862,6 +803,7 @@ impl ModsPage {
     pub(super) fn modpack_dialog_body(
         &self,
         plan: &ModpackUpdatePlan,
+        restore: bool,
         cx: &Context<Self>,
     ) -> (AnyElement, bool) {
         let unknown = || t(M::ModpackUnknownVersion).to_string();
@@ -870,16 +812,18 @@ impl ModsPage {
             .and_then(|o| o.version_number)
             .unwrap_or_else(unknown);
         let target = &plan.target;
-        let mut lines: Vec<AnyElement> = vec![
-            div()
-                .child(tr!(
-                    M::ModpackDialogIntro,
-                    pack = target.name,
-                    from = current,
-                    to = target.version_number.clone().unwrap_or_else(unknown)
-                ))
-                .into_any_element(),
-        ];
+        // a restore's target is named by the entry it goes back to
+        let intro = if restore {
+            tr!(M::ModpackDialogRestoreIntro, change = target.name)
+        } else {
+            tr!(
+                M::ModpackDialogIntro,
+                pack = target.name,
+                from = current,
+                to = target.version_number.clone().unwrap_or_else(unknown)
+            )
+        };
+        let mut lines: Vec<AnyElement> = vec![div().child(intro).into_any_element()];
         if let Some(reason) = &target.unsupported_reason {
             lines.push(
                 div()
@@ -957,15 +901,13 @@ impl ModsPage {
     pub fn demo(&mut self, cx: &mut Context<Self>) {
         let day = 24 * 60 * 60 * 1000_i64;
         let now = chrono::Utc::now().timestamp_millis();
-        let history: ModpackHistory = serde_json::from_value(serde_json::json!({
+        let history: launcher_core::cores::admin::mods::ModpackHistory = serde_json::from_value(serde_json::json!({
             "entries": [
                 {
-                    "id": 3, "time": now - 2 * 60 * 60 * 1000, "kind": { "type": "update" },
-                    "name": "Fabulously Optimized", "version_number": "6.4.0",
+                    "id": "c".repeat(64), "time": now - 2 * 60 * 60 * 1000,
+                    "label": "Updated Fabulously Optimized to 6.4.0",
                     "game_version": "1.21.4", "loader": "fabric", "loader_version": "0.16.10",
                     "current": true, "file_count": 64, "missing": 0,
-                    "kept": ["config/sodium-options.json"],
-                    "changelog": "## 6.4.0\n\n- Updated **Sodium** to 0.6.9\n- Added Entity Culling\n- Removed Starlight, which Sodium no longer needs",
                     "changes": [
                         { "kind": "added", "path": "mods/entityculling-1.7.3.jar" },
                         { "kind": "updated", "path": "mods/sodium-0.6.9.jar", "old_path": "mods/sodium-0.6.6.jar" },
@@ -975,8 +917,8 @@ impl ModsPage {
                     ]
                 },
                 {
-                    "id": 2, "time": now - 9 * day, "kind": { "type": "update" },
-                    "name": "Fabulously Optimized", "version_number": "6.3.1",
+                    "id": "b".repeat(64), "time": now - 9 * day,
+                    "label": "Added Starlight; Updated Sodium",
                     "game_version": "1.21.4", "loader": "fabric", "loader_version": "0.16.9",
                     "file_count": 63, "missing": 0,
                     "changes": [
@@ -985,20 +927,19 @@ impl ModsPage {
                     ]
                 },
                 {
-                    "id": 1, "time": now - 30 * day, "kind": { "type": "install" },
-                    "name": "Fabulously Optimized", "version_number": "6.2.0",
+                    "id": "a".repeat(64), "time": now - 30 * day,
+                    "label": "Installed Fabulously Optimized 6.2.0",
                     "game_version": "1.21.3", "loader": "fabric", "loader_version": "0.16.7",
                     "file_count": 61, "missing": 2, "changes": []
                 }
             ],
             "blame": {
-                "mods/sodium-0.6.9.jar": 3,
-                "mods/lithium-0.15.0.jar": 3,
-                "mods/entityculling-1.7.3.jar": 3,
-                "mods/fabric-api-0.110.5.jar": 1,
-                "mods/modmenu-13.0.0.jar": 2
+                "mods/sodium-0.6.9.jar": "c".repeat(64),
+                "mods/lithium-0.15.0.jar": "c".repeat(64),
+                "mods/entityculling-1.7.3.jar": "c".repeat(64),
+                "mods/fabric-api-0.110.5.jar": "a".repeat(64),
+                "mods/modmenu-13.0.0.jar": "b".repeat(64)
             },
-            "stored_bytes": 48_213,
             "update": {
                 "version_id": "fo-650", "version_number": "6.5.0", "name": "6.5.0",
                 "game_versions": ["1.21.4"], "date_published": "2026-11-10T00:00:00Z",
@@ -1024,8 +965,7 @@ impl ModsPage {
         self.modpack_history = Some(history);
         self.modpack_history_error = None;
         self.history_open = true;
-        self.history_expanded.insert(3);
-        self.changelog_expanded.insert(3);
+        self.history_expanded.insert("c".repeat(64));
         // fetches still under way are for a server the core doesn't have
         self.history_serial += 1;
         self.list_serial += 1;

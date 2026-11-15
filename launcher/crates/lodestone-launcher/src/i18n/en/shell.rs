@@ -123,22 +123,11 @@ crate::i18n::messages! {
         /// The title of a dialog that deletes an instance or a world.
         DeleteNamed = "Delete {name}?",
         DeleteWorldBody = "The world's folder moves to {trash}, so you can put it back from there. Its backups stay.",
-        DeleteInstanceBody = "The instance's folder, with its worlds, mods and settings, moves to {trash}. You can put it back from there.",
+        DeleteInstanceBody = "The instance's folder, with its worlds, mods and settings, moves to {trash}. You can put it back from there. Its snapshots are kept until you remove them in Settings › Storage, and come back with it.",
         ReplaceWorldTitle = "Replace {name} with this backup?",
         /// {when} is when the backup was made: "today, 14:05".
-        ReplaceWorldBody = "{name} goes back to how it was {when}. Everything since is lost from the world, but it is backed up first and the current folder goes to {trash}.",
+        ReplaceWorldBody = "{name} goes back to how it was {when}. A snapshot of the world as it is now is taken first and kept for 30 days.",
         BackUpAndReplace = "Back up and replace",
-        /// {loader} is a mod loader's name.
-        SwitchToLoader = "Switch to {loader}?",
-        SwitchToVanilla = "Switch to vanilla?",
-        ModsWontLoadOn = "These enabled mods are made for another loader and won't load on {loader}:",
-        ModsWontLoadVanilla = "Vanilla Minecraft loads no mods, so these enabled mods won't load:",
-        /// What a mod is made for: "Forge mod".
-        ModMadeFor = "{loader} mod",
-        TurningOffRenames = "Turning them off renames them to .disabled, so you can turn them back on in Content.",
-        WorldsAtRisk = "Worlds that used blocks or items from these mods can lose them. Back up your worlds first.",
-        TurnOffAndSave = "Turn them off and save",
-        SaveAndKeep = "Save and keep them",
         RemoveAccountTitle = "Remove {name}?",
         RemoveAccountBody = "Lodestone Launcher forgets this account and deletes its saved sign-in from your {keychain}. You can add it again later.",
         RemoveAccount = "Remove account",
@@ -189,8 +178,7 @@ crate::i18n::messages! {
         ReplacedOwnFiles = "Your files the pack now provides ({count})",
         KeptFiles = "Kept as you changed them ({count})",
         WrittenFiles = "Configs and other files written ({count})",
-        ModpackUpdateSafety = "Your own mods, worlds and changed configs aren't touched. Every file that is replaced or removed is saved in the instance's backups folder first.",
-        BackUpEveryWorld = "Back up every world first",
+        ModpackUpdateSafety = "Your own mods, worlds and changed configs aren't touched. A snapshot of the instance is taken first, and every file that is replaced or removed is saved in the instance's backups folder.",
 
         // Unsaved settings.
         SaveChangesTitle = "Save your changes?",
@@ -832,9 +820,7 @@ crate::i18n::messages! {
         StorageCleanLeftoversTitle = "Remove unfinished downloads?",
         StorageCleanLeftoversBody = "This frees {size}. These are files of modpack downloads and imports that didn't finish.",
         StorageSnapshots = "Snapshots",
-        StorageSnapshotsHint = "{count} snapshots · {size} can be freed",
-        StorageCleanSnapshotsTitle = "Remove automatic snapshots?",
-        StorageCleanSnapshotsBody = "This frees {size}. It removes the snapshots taken before going back, those of deleted instances, and files made to share.",
+        StorageCleanSnapshotsTitle = "Remove the Launcher's own snapshots?",
         StorageOther = "Settings and other files",
         StorageCacheAndLogs = "Cache and logs",
         /// Settings > Storage: the section with the data folder's path.
@@ -910,6 +896,9 @@ crate::i18n::messages! {
         /// Words a search of the settings finds "When a game starts" by, besides its name; never
         /// shown.
         WhenAGameStartsKeywords = "after launch minimize hide close quit",
+        ModpackUpdateNoSnapshot = "No snapshot could be taken first, so nothing has changed. You can update without one, or fix the problem and try again.\n{error}",
+        UpdateWithoutSnapshot = "Update without a snapshot",
+        ReplaceWorldModsNote = "Only the world goes back; the instance's mods stay as they are. To put back the mods it ran with too, restore the snapshot from Settings › Snapshots.",
     }
 
     pub enum ShellPlural {
@@ -926,5 +915,9 @@ crate::i18n::messages! {
         /// Event and trace subscriptions a connected program has.
         Subscriptions = ("{count} subscription", "{count} subscriptions"),
         PerfEntries = ("{count} entry", "{count} entries"),
+        /// {count} is how many snapshots there are, {removable} how many the clean-up removes.
+        StorageSnapshotsHint = ("{count} snapshot and each instance's content history · {removable} can be removed", "{count} snapshots and each instance's content history · {removable} can be removed"),
+        /// {count} is how many snapshots go.
+        StorageCleanSnapshotsBody = ("This removes {count} snapshot: the ones the Launcher took on its own, and every snapshot of deleted instances, pinned ones too. Your instances' own and pinned snapshots stay. Files from the last hour are freed at the next clean-up.", "This removes {count} snapshots: the ones the Launcher took on its own, and every snapshot of deleted instances, pinned ones too. Your instances' own and pinned snapshots stay. Files from the last hour are freed at the next clean-up."),
     }
 }

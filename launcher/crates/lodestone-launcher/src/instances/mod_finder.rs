@@ -302,7 +302,16 @@ impl ModFinder {
                 self.state = State::Applying;
                 let mut search = search.clone();
                 let dirs = self.dirs.clone();
+                let images = self.instances.read(cx).images();
+                let id = self.id.clone();
                 let work = cx.background_spawn(async move {
+                    // Before the search first turns a mod off, a change made by hand is
+                    // recorded as one: the tries' launches check nothing.
+                    if !mod_finder::is_saved(&dirs.instance)
+                        && let Err(err) = images.check_now(&id)
+                    {
+                        log::warn!("Couldn't check the content of {id}: {err}");
+                    }
                     let result = mod_finder::apply(&dirs, &mut search, &off);
                     (search, result)
                 });
@@ -517,11 +526,30 @@ impl ModFinder {
         cx.notify();
         let search = self.search.clone();
         let dirs = self.dirs.clone();
+        // The search's end is one operation: no image was recorded while it renamed mods,
+        // and nothing at all when it puts every mod back as it was (what the game wrote
+        // during the tries then joins the next operation's image).
+        let kept_off: Vec<String> = keep_off.iter().cloned().collect();
+        let images = self.instances.read(cx).images();
+        let id = self.id.clone();
+        let operation = images.begin(
+            &self.id,
+            launcher_core::images::labels::mod_finder_ended(&kept_off),
+        );
         let work = cx.background_spawn(async move {
-            match &search {
+            let result = match &search {
                 Some(search) => mod_finder::restore(&dirs, search, &keep_off),
                 None => mod_finder::forget(&dirs),
+            };
+            if result.is_ok() && keep_off.is_empty() {
+                drop(operation);
+                if let Err(err) = images.search_put_back(&id) {
+                    log::warn!("Couldn't take the content of {id} in again: {err}");
+                }
+            } else {
+                operation.finish_partly(&result);
             }
+            result
         });
         self.task = Some(cx.spawn(async move |this, cx| {
             let result = work.await;
@@ -571,6 +599,8 @@ impl ModFinder {
             // Nothing is off yet: there is nothing to put back.
             State::Reading => cx.emit(ModFinderClosed),
             State::Ready if !self.resumed => {
+                // No mod was turned off yet: forgetting the search changes no content, so
+                // it is no operation of the instance's content images.
                 let dirs = self.dirs.clone();
                 cx.background_spawn(async move { mod_finder::forget(&dirs) })
                     .detach();

@@ -23,7 +23,6 @@ use launcher_core::{
         import::{self, ImportOptions},
         update,
     },
-    worlds,
 };
 use modrinth::{FakeVersion, ModrinthMock};
 use serde_json::{Value, json};
@@ -662,7 +661,6 @@ fn an_update_keeps_the_users_files() {
         &dirs,
         &plan,
         &versions.v2,
-        true,
         &InstallProgress::default(),
         &CancelToken::new(),
     ))
@@ -702,8 +700,8 @@ fn an_update_keeps_the_users_files() {
         );
     }
     assert!(!snapshot.contains(&"minecraft/mods/mine.jar".to_string()));
-    assert_eq!(outcome.world_backups.len(), 1);
-    assert_eq!(worlds::backups(&dirs, "World").len(), 1);
+    // Worlds are left to the snapshot taken before the update (images), not copied here.
+    assert!(!snapshot.iter().any(|path| path.contains("saves")));
 
     let provenance = Provenance::load(&dirs.instance);
     assert!(provenance.get(ContentKind::Mod, "a-1.jar").is_none());
@@ -759,48 +757,75 @@ fn an_update_that_stops_part_way_is_undone() {
         ]
     );
     let provenance_before = fs::read(dirs.instance.join("content.json")).unwrap();
-
-    // The last file can't be moved in: a folder is in its place since the plan was made
-    // (as when another program holds a file). Mods were removed and replaced by then.
-    fs::create_dir_all(game.join("config/z.toml/inside")).unwrap();
     let api = fixture.mock.client();
-    let err = block_on(update::apply(
-        Some(&api),
-        &downloader(),
-        &dirs,
-        &plan,
-        &versions.v2,
-        false,
-        &InstallProgress::default(),
-        &CancelToken::new(),
-    ))
-    .unwrap_err();
-    assert!(err.to_string().contains("were put back"), "{err}");
-
+    let apply = || {
+        block_on(update::apply(
+            Some(&api),
+            &downloader(),
+            &dirs,
+            &plan,
+            &versions.v2,
+            &InstallProgress::default(),
+            &CancelToken::new(),
+        ))
+    };
     let read = |p: &str| fs::read_to_string(game.join(p)).unwrap();
-    assert_eq!(read("mods/a-1.jar"), "a one");
-    assert_eq!(read("mods/b-1.jar"), "b one");
-    assert_eq!(read("mods/c.jar"), "c one");
-    assert_eq!(read("mods/bundled.jar"), "bundled v1");
-    assert_eq!(read("config/x.toml"), "x v1");
-    assert_eq!(read("config/y.toml"), "y v1");
-    for added in [
-        "mods/a-2.jar",
-        "mods/b-2.jar",
-        "mods/d.jar",
-        "config/mine.toml",
-    ] {
-        assert!(!game.join(added).exists(), "{added} is left");
-    }
+    let rollback_copies = || {
+        fs::read_dir(dirs.instance.join("backups").join(update::BACKUPS_FOLDER))
+            .map(|entries| entries.count())
+            .unwrap_or(0)
+    };
+    let unchanged = || {
+        assert_eq!(read("mods/a-1.jar"), "a one");
+        assert_eq!(read("mods/b-1.jar"), "b one");
+        assert_eq!(read("mods/c.jar"), "c one");
+        assert_eq!(read("mods/bundled.jar"), "bundled v1");
+        assert_eq!(read("config/x.toml"), "x v1");
+        assert_eq!(read("config/y.toml"), "y v1");
+        for added in [
+            "mods/a-2.jar",
+            "mods/b-2.jar",
+            "mods/d.jar",
+            "config/mine.toml",
+        ] {
+            assert!(!game.join(added).exists(), "{added} is left");
+        }
+        assert_eq!(
+            ModpackRecord::load(&dirs.instance).unwrap().version_id,
+            "v1"
+        );
+        assert_eq!(
+            fs::read(dirs.instance.join("content.json")).unwrap(),
+            provenance_before
+        );
+        // nothing of the update's is kept: the instance is as it was
+        assert_eq!(rollback_copies(), 0);
+    };
+
+    // Something is at a path the plan writes since it was made (a folder, as when the
+    // player made a config there): the update stops before anything changes.
+    fs::create_dir_all(game.join("config/z.toml/inside")).unwrap();
+    let err = apply().unwrap_err();
+    assert!(
+        matches!(&err, ModpackError::ChangedSincePlanned { path } if path == "config/z.toml"),
+        "{err}"
+    );
+    unchanged();
     assert!(game.join("config/z.toml/inside").is_dir());
-    assert_eq!(
-        ModpackRecord::load(&dirs.instance).unwrap().version_id,
-        "v1"
-    );
-    assert_eq!(
-        fs::read(dirs.instance.join("content.json")).unwrap(),
-        provenance_before
-    );
+    fs::remove_dir_all(game.join("config/z.toml")).unwrap();
+
+    // A config can't be moved in (its folder refuses writes, as when another program holds
+    // a file): mods were removed and replaced by then, and are put back.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let config = game.join("config");
+        fs::set_permissions(&config, fs::Permissions::from_mode(0o555)).unwrap();
+        let err = apply().unwrap_err();
+        fs::set_permissions(&config, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(err.to_string().contains("were put back"), "{err}");
+        unchanged();
+    }
 }
 
 #[test]
@@ -1126,6 +1151,115 @@ fn a_share_code_based_on_the_pack_recreates_the_instance() {
         b"bundled, to be changed"
     );
     assert_eq!(enabled(&to), enabled(&from));
+
+    // In terms of images ("M5 decisions", LDS codes): the code encodes the sender's
+    // content image less what the plan lists as left out. Both instances recorded, the
+    // images have the same game and base, the same files with the same sources and
+    // hashes, the same pack files gone and the same resource pack order; they differ only
+    // in the files left out.
+    let images = launcher_core::images::Images::open(&launcher_core::paths::DataDir::at(
+        fixture.store.root().parent().unwrap(),
+    ));
+    let image_of = |dirs: &InstanceDirs| {
+        let id = dirs
+            .instance
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
+        let recorded = images.record_now(&id, "Shared").unwrap().unwrap();
+        images.store().load_manifest(&id, &recorded.id).unwrap()
+    };
+    let (sent, got) = (image_of(&from), image_of(&to));
+    assert_eq!(got.game, sent.game);
+    assert!(
+        matches!(&sent.base, Some(lodestone_image::Base::ModrinthPack { project, version, .. })
+            if project == "PACK1" && version == "pv1"),
+        "{:?}",
+        sent.base
+    );
+    assert_eq!(got.base, sent.base);
+    // The pack's file the sender removed is absent from both: the Launcher records what is
+    // on disk, so a removed base file is a missing entry (its `removed` stays empty).
+    assert_eq!(got.removed, sent.removed);
+    for image in [&sent, &got] {
+        assert!(
+            image
+                .entries
+                .iter()
+                .all(|e| e.path.as_str() != "mods/gone.jar"),
+            "the removed pack file is gone"
+        );
+    }
+    let client = |image: &lodestone_image::Image| {
+        image
+            .settings
+            .client
+            .as_ref()
+            .map(|c| c.resource_packs.clone())
+    };
+    assert_eq!(client(&got), client(&sent));
+    let content = |image: &lodestone_image::Image| {
+        image
+            .entries
+            .iter()
+            .filter(|e| {
+                let path = e.path.as_str();
+                (path.starts_with("mods/") || path.starts_with("resourcepacks/"))
+                    && !path.ends_with("homemade.jar")
+                    && !path.ends_with("tweaked.jar")
+            })
+            .map(|e| {
+                (
+                    e.path.as_str().to_string(),
+                    e.sha256.clone(),
+                    e.source.clone(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(content(&got), content(&sent));
+    let modrinth: Vec<(String, String)> = sent
+        .entries
+        .iter()
+        .filter_map(|e| match &e.source {
+            lodestone_image::Source::Modrinth {
+                project, version, ..
+            } if project != SODIUM => Some((project.clone(), version.clone())),
+            _ => None,
+        })
+        .collect();
+    let mut from_code: Vec<(String, String)> = decoded
+        .items
+        .iter()
+        .map(|item| (item.project.clone(), item.version.clone()))
+        .collect();
+    from_code.sort();
+    let mut modrinth = modrinth;
+    modrinth.sort();
+    assert_eq!(
+        modrinth, from_code,
+        "the code's items are the added Modrinth entries"
+    );
+    let tweaked = |image: &lodestone_image::Image| {
+        image
+            .entries
+            .iter()
+            .find(|e| e.path.as_str() == "mods/tweaked.jar")
+            .map(|e| e.sha256.clone())
+    };
+    assert_ne!(
+        tweaked(&got),
+        tweaked(&sent),
+        "left out: arrives as the pack's"
+    );
+    assert!(
+        got.entries
+            .iter()
+            .all(|e| !e.path.as_str().ends_with("homemade.jar")),
+        "left out: added by hand"
+    );
 
     // A code for another pack isn't applied to this instance.
     let mut other = decoded.clone();

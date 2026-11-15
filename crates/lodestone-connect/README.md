@@ -103,10 +103,27 @@ the friend accepts no streams from the host.
     instance (no address: the friend plays through the tunnel).
   - `GET /api/v1/public/instances/<uuid>/client-pack`: the instance's client modpack
     (`.mrpack`), with `ETag` and `If-None-Match`; `400` when it has none.
+  - `GET /api/v1/public/instances/<uuid>/image?side=client[&have=<view id>,…]`: the
+    client view of the instance's current content image as JSON, or a delta to it from a
+    view the friend has; `204` when the friend is in step, `503` with `Retry-After`
+    while the first content image is recorded (`Conflict`) or after that record failed
+    (`Internal`).
+  - `GET` and `HEAD /api/v1/public/instances/<uuid>/objects/<sha256>`: a file only the
+    server has that the current client view names, whole (a large file put together
+    from its chunks) or one byte range (`Range`, `206`, or `416` past the end and for
+    `bytes=-0`); `404` for anything else; `503` with `Retry-After` while too many
+    downloads run (`TooManyRequests`), while a file the store lost is stored again
+    (`Conflict`), or for a while after that (`Internal`).
 
-  Nothing else of the core's API answers. So the launcher's core client, pointed at a
-  forwarded info port as `http://127.0.0.1:<port>`, reads these as it reads a core
-  whose servers are listed publicly.
+  The core's `docs/instance-images.md` ("Server to player") has every detail of the last
+  two. Nothing else of the core's API answers, and no route takes a request body. So the
+  launcher's core client, pointed at a forwarded info port as `http://127.0.0.1:<port>`,
+  reads these as it reads a core whose servers are listed publicly. `info::get` reads at
+  most 256 KiB of an answer and silently stops there, and these answers can be larger: an
+  object is a whole file, and the client view of a big pack (about 450 Modrinth mods) or a
+  delta to it passes 256 KiB too. Read the image and object routes through the forwarded
+  port (`Joined::forward`) with an ordinary HTTP client that streams; `info::get` is only
+  for `/api/v1/connect/info` and the instance list.
 - **Hello (2)**: the host answers one byte, `0x4c`, and closes the stream. `join` sends
   one right after connecting, to prove it has the token and to check the host accepts
   it.

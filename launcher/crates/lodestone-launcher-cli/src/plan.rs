@@ -291,6 +291,38 @@ pub fn plan(
             Instances::Duplicate(i) => {
                 call("instances.duplicate", vec![("instance", json!(i.instance))])
             }
+            Instances::CopyAs {
+                instance,
+                version,
+                loader,
+                loader_version,
+                name,
+                worlds,
+                no_packs,
+                no_mods,
+            } => long(
+                "instances.copy_as",
+                vec![
+                    ("instance", json!(instance)),
+                    ("version", json!(version)),
+                    ("loader", json!(loader)),
+                    ("loader_version", json!(loader_version)),
+                    ("name", json!(name)),
+                    ("worlds", json!(worlds)),
+                    ("packs", json!(!no_packs)),
+                    ("mods", json!(!no_mods)),
+                ],
+            ),
+            Instances::SetLoaderVersion {
+                instance,
+                loader_version,
+            } => call(
+                "instances.set_loader_version",
+                vec![
+                    ("instance", json!(instance)),
+                    ("loader_version", json!(loader_version)),
+                ],
+            ),
             Instances::Delete(i) => call("instances.delete", vec![("instance", json!(i.instance))]),
             Instances::Export { instance, path } => long(
                 "instances.export",
@@ -474,6 +506,9 @@ pub fn plan(
                 "content.list",
                 vec![("instance", json!(instance)), ("kind", json!(kind))],
             ),
+            Content::History { instance } => {
+                call("content.history", vec![("instance", json!(instance))])
+            }
             Content::Search {
                 query,
                 instance,
@@ -556,20 +591,6 @@ pub fn plan(
                     ("kind", json!(kind)),
                 ],
             ),
-            Content::SwitchLoader {
-                instance,
-                loader,
-                loader_version,
-                disable_mismatched,
-            } => call(
-                "content.switch_loader",
-                vec![
-                    ("instance", json!(instance)),
-                    ("loader", json!(loader)),
-                    ("loader_version", json!(loader_version)),
-                    ("disable_mismatched", json!(disable_mismatched)),
-                ],
-            ),
         },
         Command::Modpacks(c) => match c {
             Modpacks::Search {
@@ -601,17 +622,9 @@ pub fn plan(
                 ],
             ),
             Modpacks::Check(i) => call("modpacks.check", vec![("instance", json!(i.instance))]),
-            Modpacks::Update {
-                instance,
-                version,
-                no_backup_worlds,
-            } => long(
+            Modpacks::Update { instance, version } => long(
                 "modpacks.update",
-                vec![
-                    ("instance", json!(instance)),
-                    ("version", json!(version)),
-                    ("backup_worlds", json!(!no_backup_worlds)),
-                ],
+                vec![("instance", json!(instance)), ("version", json!(version))],
             ),
             Modpacks::Add {
                 instance,
@@ -639,20 +652,15 @@ pub fn plan(
             Worlds::Backup(w) => long("worlds.backup", world(w)),
             Worlds::Restore {
                 world: w,
-                backup,
+                snapshot,
                 replace,
             } => {
                 let mut pairs = world(w);
-                pairs.push(("backup", json!(backup)));
+                pairs.push(("snapshot", json!(snapshot)));
                 pairs.push(("mode", json!(if *replace { "replace" } else { "copy" })));
                 long("worlds.restore", pairs)
             }
             Worlds::Delete(w) => call("worlds.delete", world(w)),
-            Worlds::DeleteBackup { world: w, backup } => {
-                let mut pairs = world(w);
-                pairs.push(("backup", json!(backup)));
-                call("worlds.delete_backup", pairs)
-            }
             Worlds::Datapacks(w) => call("worlds.datapacks", world(w)),
             Worlds::DatapackSearch {
                 instance,
@@ -974,46 +982,59 @@ pub fn plan(
             ),
         },
         Command::Snapshots(c) => {
-            let parts = |p: &crate::cli::PartsArgs| {
-                vec![
-                    (
-                        "include",
-                        if p.include.is_empty() {
-                            Value::Null
-                        } else {
-                            json!(p.include)
-                        },
-                    ),
-                    (
-                        "worlds",
-                        if p.worlds.is_empty() {
-                            Value::Null
-                        } else {
-                            json!(p.worlds)
-                        },
-                    ),
-                ]
+            // "default" goes as it is: back to the Launcher's (a null would be left out).
+            let count = |value: &Option<String>| -> Result<Option<Value>, ErrorObject> {
+                match value.as_deref() {
+                    None => Ok(None),
+                    Some("default") => Ok(Some(json!("default"))),
+                    Some(n) => n
+                        .parse::<u32>()
+                        .map(|n| Some(json!(n)))
+                        .map_err(|_| usage(format!("{n:?} isn't a number or default"))),
+                }
             };
             match c {
-                Snapshots::List(i) => call("snapshots.list", vec![("instance", json!(i.instance))]),
+                Snapshots::List { instance, deleted } => {
+                    if *deleted {
+                        call("snapshots.list", vec![("deleted", json!(true))])
+                    } else {
+                        call("snapshots.list", vec![("instance", json!(instance))])
+                    }
+                }
                 Snapshots::Create {
                     instance,
                     name,
-                    parts: p,
+                    everything,
                 } => {
                     let mut pairs = vec![("instance", json!(instance)), ("name", json!(name))];
-                    pairs.extend(parts(p));
+                    if *everything {
+                        pairs.push(("everything", json!(true)));
+                    }
                     long("snapshots.create", pairs)
                 }
-                Snapshots::Revert {
+                Snapshots::Restore {
                     instance,
                     snapshot,
-                    parts: p,
+                    scope,
+                    worlds,
+                    name,
+                    preview,
                 } => {
-                    let mut pairs =
-                        vec![("instance", json!(instance)), ("snapshot", json!(snapshot))];
-                    pairs.extend(parts(p));
-                    long("snapshots.revert", pairs)
+                    let mut pairs = vec![
+                        ("instance", json!(instance)),
+                        ("snapshot", json!(snapshot)),
+                        ("scope", json!(scope)),
+                    ];
+                    if !worlds.is_empty() {
+                        pairs.push(("worlds", json!(worlds)));
+                    }
+                    pairs.push(("name", json!(name)));
+                    if *preview {
+                        pairs.push(("preview", json!(true)));
+                        call("snapshots.restore", pairs)
+                    } else {
+                        long("snapshots.restore", pairs)
+                    }
                 }
                 Snapshots::Export {
                     instance,
@@ -1030,14 +1051,14 @@ pub fn plan(
                 Snapshots::Import {
                     path,
                     preview,
-                    parts: p,
+                    name,
                 } => {
                     let mut pairs = vec![("path", json!(absolute(path)?))];
                     if *preview {
                         pairs.push(("preview", json!(true)));
                         call("snapshots.import", pairs)
                     } else {
-                        pairs.extend(parts(p));
+                        pairs.push(("name", json!(name)));
                         long("snapshots.import", pairs)
                     }
                 }
@@ -1045,6 +1066,47 @@ pub fn plan(
                     "snapshots.delete",
                     vec![("instance", json!(instance)), ("snapshot", json!(snapshot))],
                 ),
+                Snapshots::Pin { instance, snapshot } => call(
+                    "snapshots.pin",
+                    vec![
+                        ("instance", json!(instance)),
+                        ("snapshot", json!(snapshot)),
+                        ("pinned", json!(true)),
+                    ],
+                ),
+                Snapshots::Unpin { instance, snapshot } => call(
+                    "snapshots.pin",
+                    vec![
+                        ("instance", json!(instance)),
+                        ("snapshot", json!(snapshot)),
+                        ("pinned", json!(false)),
+                    ],
+                ),
+                Snapshots::Policy {
+                    instance,
+                    after_play,
+                    keep_last,
+                    keep_daily,
+                    keep_weekly,
+                } => {
+                    let mut pairs = vec![("instance", json!(instance))];
+                    match after_play.as_deref() {
+                        Some("on") => pairs.push(("after_play", json!(true))),
+                        Some("off") => pairs.push(("after_play", json!(false))),
+                        Some(_) => pairs.push(("after_play", json!("default"))),
+                        None => {}
+                    }
+                    for (key, value) in [
+                        ("keep_last", keep_last),
+                        ("keep_daily", keep_daily),
+                        ("keep_weekly", keep_weekly),
+                    ] {
+                        if let Some(value) = count(value)? {
+                            pairs.push((key, value));
+                        }
+                    }
+                    call("snapshots.policy", pairs)
+                }
             }
         }
         Command::Storage(c) => match c {
@@ -1172,6 +1234,50 @@ mod tests {
                 true
             )
         );
+        assert_eq!(
+            call_of(&[
+                "instances",
+                "copy-as",
+                "Survival",
+                "--version",
+                "1.21.1",
+                "--worlds"
+            ]),
+            (
+                "instances.copy_as",
+                json!({ "instance": "Survival", "version": "1.21.1", "worlds": true, "packs": true, "mods": true }),
+                true
+            )
+        );
+        let (_, params, _) = call_of(&[
+            "instances",
+            "copy-as",
+            "Survival",
+            "--loader",
+            "neoforge",
+            "--loader-version",
+            "21.1.77",
+            "--name",
+            "Survival NeoForge",
+            "--no-packs",
+            "--no-mods",
+        ]);
+        assert_eq!(
+            params,
+            json!({ "instance": "Survival", "loader": "neoforge", "loader_version": "21.1.77", "name": "Survival NeoForge", "worlds": false, "packs": false, "mods": false })
+        );
+        assert_eq!(
+            call_of(&["instances", "set-loader-version", "Survival", "0.16.14"]),
+            (
+                "instances.set_loader_version",
+                json!({ "instance": "Survival", "loader_version": "0.16.14" }),
+                false
+            )
+        );
+        assert_eq!(
+            call_of(&["instances", "set-loader-version", "Survival"]).1,
+            json!({ "instance": "Survival" })
+        );
         let (method, params, _) = call_of(&["instances", "group", "Survival", "--none"]);
         assert_eq!(method, "instances.set_group");
         assert_eq!(params, json!({ "instance": "Survival" }));
@@ -1204,37 +1310,61 @@ mod tests {
                 "S",
                 "--name",
                 "Before",
-                "--include",
-                "worlds",
-                "--world",
-                "New World"
+                "--everything"
             ]),
             (
                 "snapshots.create",
-                json!({ "instance": "S", "name": "Before", "include": ["worlds"], "worlds": ["New World"] }),
+                json!({ "instance": "S", "name": "Before", "everything": true }),
                 true
             )
         );
         assert_eq!(
-            call_of(&["snapshots", "revert", "S", "latest"]),
+            call_of(&["snapshots", "restore", "S", "latest", "--world", "W"]),
             (
-                "snapshots.revert",
-                json!({ "instance": "S", "snapshot": "latest" }),
+                "snapshots.restore",
+                json!({ "instance": "S", "snapshot": "latest", "scope": "worlds", "worlds": ["W"] }),
                 true
             )
         );
+        assert!(
+            !call_of(&["snapshots", "restore", "S", "latest", "--preview"]).2,
+            "a preview reads, so it is no long job"
+        );
         assert_eq!(
-            call_of(&["snapshots", "import", "/tmp/a.lodesnap", "--preview"]),
+            call_of(&["snapshots", "import", "/tmp/a.lodeimg", "--preview"]),
             (
                 "snapshots.import",
-                json!({ "path": abs("/tmp/a.lodesnap"), "preview": true }),
+                json!({ "path": abs("/tmp/a.lodeimg"), "preview": true }),
                 false
             )
+        );
+        assert_eq!(
+            call_of(&["snapshots", "unpin", "S", "x"]).1,
+            json!({ "instance": "S", "snapshot": "x", "pinned": false })
+        );
+        assert_eq!(
+            call_of(&[
+                "snapshots",
+                "policy",
+                "S",
+                "--after-play",
+                "default",
+                "--keep-last",
+                "10",
+                "--keep-weekly",
+                "default"
+            ])
+            .1,
+            json!({ "instance": "S", "after_play": "default", "keep_last": 10, "keep_weekly": "default" })
+        );
+        assert_eq!(
+            call_of(&["snapshots", "list", "--deleted"]).1,
+            json!({ "deleted": true })
         );
         let (_, params, _) = call_of(&["worlds", "restore", "S", "World", "--replace"]);
         assert_eq!(
             params,
-            json!({ "instance": "S", "world": "World", "backup": "latest", "mode": "replace" })
+            json!({ "instance": "S", "world": "World", "snapshot": "latest", "mode": "replace" })
         );
         let (_, params, _) = call_of(&[
             "shared",

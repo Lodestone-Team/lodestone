@@ -36,6 +36,11 @@ crate::i18n::messages! {
         // Lines the launcher writes in the console.
         PreparingNote = "Preparing Minecraft {version} ({loader})",
         JoiningNote = "Joining {address} once the game starts",
+        /// Before a launch, the instance's content changed since it was last recorded (by
+        /// the launcher, or by hand), so it was recorded again.
+        ContentRecordedNote = "Recorded the instance's current mods and configs",
+        /// Recording the instance's content before a launch failed; the game starts anyway.
+        ContentCheckFailedNote = "Couldn't record the instance's mods and configs: {error}",
         VerifyingNote = "Verifying the game files of Minecraft {version} ({loader})",
         RosettaNote = "The game runs in an Intel (x86_64) Java under Rosetta 2.",
         /// Followed by the Java command line.
@@ -94,15 +99,19 @@ crate::i18n::messages! {
         /// Another change of the instance's files (a copy, a move to the Trash, an image
         /// being imported) is still running.
         FilesBusy = "Wait for the instance's files to finish changing, then try again.",
+        /// A notice's title: the snapshot before a new loader version (or another game
+        /// version or loader) failed; the change was saved anyway.
+        NoSnapshotBeforeGameChange = "No snapshot was taken before the game changed",
+        /// A notice's title: the new loader version chosen in Settings wasn't saved.
+        LoaderChangeNotSaved = "The new loader version wasn't saved",
+        LoaderChangeDropped = "The instance was changed while its snapshot was taken. Choose the loader version again.",
+        /// A restore from a snapshot failed and couldn't be undone, so some worlds or mods
+        /// may be set aside in the instance's folder.
+        RestoreUnfinished = "A restore of this instance didn't finish and couldn't be undone, so some of its worlds or mods are set aside. Close any program using its files and press Play again, or restart Lodestone Launcher.",
         CouldntSavePlayed = "Couldn't save when it was played: {error}",
         CouldntSavePlayTime = "Couldn't save the play time: {error}",
         ModpackExported = "Modpack exported",
         CouldntExportModpack = "Couldn't export the modpack",
-        CouldntSwitchLoader = "Couldn't switch to a mod loader",
-        NoModLoaderFor = "No mod loader Lodestone Launcher supports runs on Minecraft {version}: Fabric starts at 1.14, and Forge has no build for it.",
-        /// After "Switch to Fabric": the dialog's title.
-        SwitchedTo = "Switched to {loader}",
-        SwitchedToMessage = "{name} now uses {loader} {version}. It installs the next time you press Play.",
 
         // The Logs tab.
         SearchLog = "Search the log",
@@ -161,7 +170,7 @@ crate::i18n::messages! {
 
         // Modpacks.
         NotAModpack = "Not a modpack",
-        NotMrpack = "{name} isn't a modpack. Modrinth modpacks end in .mrpack, and CurseForge modpacks are .zip files with a manifest.json in them.",
+        NotMrpack = "{name} isn't a modpack. Modrinth modpacks end in .mrpack, and CurseForge modpacks are .zip files with a manifest.json in them. Snapshots shared from Lodestone end in .lodeimg.",
         /// A CurseForge modpack while this build can't reach CurseForge (no API key).
         CurseForgeUnreachable = "This is a CurseForge modpack, and this copy of Lodestone Launcher can't reach CurseForge.",
         CurseForgePackOnWebsite = "This modpack can only be downloaded from CurseForge's website. Download it there, then drop the .zip on Lodestone Launcher.",
@@ -174,6 +183,7 @@ crate::i18n::messages! {
         CouldntImportModpack = "Couldn't import the modpack",
         CouldntUpdateModpack = "Couldn't update the modpack",
         StopGameFirst = "Stop the game first.",
+        FinishFinderFirst = "Finish the Find it for me search first: it has some of the mods turned off.",
         ModpackUpdated = "Modpack updated",
         /// "Survival now runs Fabulously Optimized 6.1.0. The files it replaced are saved in …".
         ModpackUpdatedMessage = "{name} now runs {pack} {version}. The files it replaced are saved in {path}.",
@@ -182,6 +192,13 @@ crate::i18n::messages! {
         DownloadingName = "Downloading {name}",
         InstallingName = "Installing {name}",
         CopyingConfigs = "Copying the pack's configs",
+        /// A copy with another version or loader: the notice when it is made.
+        CopyReady = "{name} is ready",
+        CouldntCopy = "Couldn't make the copy",
+        /// What a copy with another version or loader is doing.
+        CopyingWorlds = "Copying the worlds",
+        CopyingPacksAndOptions = "Copying the resource packs, shaders and options",
+        InstallingMods = "Installing the mods",
         RecordingFiles = "Recording the pack's files",
         SavingSnapshot = "Saving a snapshot of the instance's files",
         /// Backing up a world before an update.
@@ -323,9 +340,12 @@ crate::i18n::messages! {
             "{count} file of the pack was left out: {path}.",
             "{count} files of the pack were left out, such as {path}."
         ),
-        WorldsBackedUp = ("{count} world was backed up first.", "{count} worlds were backed up first."),
         /// A modpack's progress.
         DownloadingFiles = ("Downloading {count} file", "Downloading {count} files"),
+        /// After a copy's "ready" message; {names} is a list of mods.
+        CopyModsLeftBehind = ("{count} mod stayed behind: {names}.", "{count} mods stayed behind: {names}."),
+        /// Mods the copied mods require that couldn't be installed.
+        CopyDependenciesMissing = ("{count} mod they need couldn't be installed: {names}.", "{count} mods they need couldn't be installed: {names}."),
         /// The mod finder's progress.
         FinderModsLeft = ("{count} mod left to check", "{count} mods left to check"),
         FinderModsOff = ("{count} mod turned off", "{count} mods turned off"),

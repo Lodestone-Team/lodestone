@@ -236,7 +236,10 @@ mod connected {
                 .map_err(|err| err.to_error())?;
             match result {
                 Ok(value) => {
-                    output::result(mode, &value);
+                    match (mode, method) {
+                        (Mode::Human, "content.history") => output::history(&value),
+                        _ => output::result(mode, &value),
+                    }
                     return Ok(());
                 }
                 Err(error)

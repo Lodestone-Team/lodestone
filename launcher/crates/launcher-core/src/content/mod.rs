@@ -13,6 +13,8 @@
 //! has the same id, and the game refuses two mods with one id, so installing one replaces
 //! the other, and a dependency already installed from either platform isn't installed
 //! again.
+//! - [`copy_as`] makes a new instance from one for another Minecraft version or loader
+//!   (an instance's own never change);
 //! - [`page_images`] says which hosts a project page's images load from, and fetches them;
 //! - [`options`] edits the resource packs in `options.txt`, [`packs`] reads `pack.mcmeta`,
 //!   and [`shaders`] finds the shader mod and edits its selected pack.
@@ -20,6 +22,7 @@
 //! Nothing here checks whether the game is running; the app refuses changes then, since
 //! the game rewrites `options.txt` and the shader configs when it exits.
 
+pub mod copy_as;
 pub mod curseforge;
 pub mod curseforge_install;
 pub mod files;
