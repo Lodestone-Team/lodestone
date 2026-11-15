@@ -447,7 +447,8 @@ impl Worker {
             if self.retry_at.is_some_and(|at| now < at) {
                 return;
             }
-            match Connection::open(&self.client_id) {
+            // the official app over Legcord's or Vesktop's arRPC when both run
+            match Connection::open_preferred(&self.client_id) {
                 Ok(connection) => {
                     launcher_core::trace::emit("discord.connected", || serde_json::json!({}));
                     self.connection = Some(connection);

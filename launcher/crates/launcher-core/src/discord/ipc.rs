@@ -345,12 +345,44 @@ impl Connection {
         events: &[&str],
         wait: Duration,
     ) -> Result<(Self, bool), IpcError> {
+        let streams = candidates()
+            .into_iter()
+            .filter_map(|path| open_stream(&path));
+        Connection::first_confirmed(streams, client_id, events, wait)
+    }
+
+    /// Connects for statuses as `client_id`, preferring the Discord app that confirms
+    /// a subscription within [`PREFER_WAIT`] (the official app) over one that only
+    /// says hello (Legcord's or Vesktop's arRPC, which shows statuses in that app):
+    /// with both open, the status goes where the person's profile is. Falls back to
+    /// the first app that said hello. The subscription is to `ACTIVITY_SPECTATE`,
+    /// which Lodestone never offers, so nothing arrives from it.
+    pub fn open_preferred(client_id: &str) -> Result<Self, IpcError> {
+        Connection::open_subscribed(client_id, PROBE_EVENTS, PREFER_WAIT).map(|(c, _)| c)
+    }
+}
+
+/// What [`Connection::open_preferred`] subscribes to: an event that never comes.
+const PROBE_EVENTS: &[&str] = &["ACTIVITY_SPECTATE"];
+/// How long [`Connection::open_preferred`] waits for each app to confirm.
+pub const PREFER_WAIT: Duration = Duration::from_secs(1);
+/// The most events kept unread: a connection whose events nobody reads keeps the
+/// newest.
+const MAX_EVENTS: usize = 64;
+
+impl<S: Pipe> Connection<S> {
+    /// The first of `streams` whose app confirms the first of `events` within
+    /// `wait`, said hello to as `client_id`; else the first that said hello. Whether
+    /// it confirmed.
+    fn first_confirmed(
+        streams: impl IntoIterator<Item = S>,
+        client_id: &str,
+        events: &[&str],
+        wait: Duration,
+    ) -> Result<(Self, bool), IpcError> {
         let mut fallback = None;
         let mut last_error = IpcError::NotRunning;
-        for path in candidates() {
-            let Some(stream) = open_stream(&path) else {
-                continue;
-            };
+        for stream in streams {
             let mut connection = Connection::new(stream);
             let confirmed = connection
                 .handshake(client_id)
@@ -365,9 +397,7 @@ impl Connection {
         }
         fallback.map(|c| (c, false)).ok_or(last_error)
     }
-}
 
-impl<S: Pipe> Connection<S> {
     fn new(stream: S) -> Self {
         Connection {
             stream,
@@ -399,7 +429,7 @@ impl<S: Pipe> Connection<S> {
                             Ok(true)
                         };
                     }
-                    OP_FRAME => self.events.extend(Event::from_frame(&body)),
+                    OP_FRAME => self.keep_event(&body),
                     OP_PING => self.write(OP_PONG, &body)?,
                     OP_CLOSE => return Err(IpcError::Refused(message(&body))),
                     _ => {}
@@ -482,11 +512,21 @@ impl<S: Pipe> Connection<S> {
         Ok(self.stream.wait_without_limit()?)
     }
 
+    /// Keeps the event in `body`, if it is one; the oldest goes past [`MAX_EVENTS`].
+    fn keep_event(&mut self, body: &Value) {
+        if let Some(event) = Event::from_frame(body) {
+            if self.events.len() >= MAX_EVENTS {
+                self.events.pop_front();
+            }
+            self.events.push_back(event);
+        }
+    }
+
     /// Reads one frame, keeping the event in it.
     fn read_one(&mut self) -> Result<(), IpcError> {
         let (op, body) = self.read()?;
         match op {
-            OP_FRAME => self.events.extend(Event::from_frame(&body)),
+            OP_FRAME => self.keep_event(&body),
             OP_PING => self.write(OP_PONG, &body)?,
             OP_CLOSE => return Err(IpcError::Refused(message(&body))),
             _ => {}
@@ -514,7 +554,7 @@ impl<S: Pipe> Connection<S> {
                     };
                 }
                 // Events, and answers to earlier commands.
-                OP_FRAME => self.events.extend(Event::from_frame(&body)),
+                OP_FRAME => self.keep_event(&body),
                 OP_PING => self.write(OP_PONG, &body)?,
                 OP_CLOSE => return Err(IpcError::Refused(message(&body))),
                 _ => {}
@@ -599,6 +639,11 @@ pub(crate) mod fake {
     impl Listener {
         pub fn new() -> Self {
             Listener(TcpListener::bind("127.0.0.1:0").expect("a local port"))
+        }
+
+        /// A stream to it, before the hello.
+        pub fn stream(&self) -> TcpStream {
+            TcpStream::connect(self.0.local_addr().expect("an address")).expect("a stream")
         }
 
         /// Connects and says hello (Discord's side answers in `accept`).
@@ -911,6 +956,95 @@ mod tests {
             .unwrap_err();
         assert!(err.to_string().contains("buttons"), "{err}");
         drop(server.join());
+    }
+
+    /// Legcord's arRPC on the first pipe and the official app on the second: the
+    /// status goes to the official app; with arRPC alone, to arRPC.
+    #[test]
+    fn the_app_that_confirms_gets_the_status() {
+        let arrpc = fake::Listener::new();
+        let official = fake::Listener::new();
+        std::thread::scope(|scope| {
+            let arrpc_side = scope.spawn(|| {
+                let mut fake = arrpc.accept();
+                let (_, subscribe) = fake.read();
+                assert_eq!(subscribe["cmd"], "SUBSCRIBE");
+                // never answers; keeps the connection until the client lets it go
+                let (op, _) = fake.read();
+                assert_eq!(op, OP_CLOSE, "let go once another app confirmed");
+            });
+            let official_side = scope.spawn(|| {
+                let mut fake = official.accept();
+                let (_, subscribe) = fake.read();
+                assert_eq!(subscribe["evt"], "ACTIVITY_SPECTATE");
+                fake.answer(&subscribe, json!({ "evt": "ACTIVITY_SPECTATE" }));
+                let set = fake.command();
+                assert_eq!(set["cmd"], "SET_ACTIVITY");
+                assert_eq!(set["args"]["activity"]["details"], "Playing");
+                fake.answer(&set, Value::Null);
+            });
+            let streams = [arrpc.stream(), official.stream()];
+            let (mut connection, confirmed) = Connection::first_confirmed(
+                streams,
+                "42",
+                PROBE_EVENTS,
+                Duration::from_millis(200),
+            )
+            .unwrap();
+            assert!(confirmed);
+            let activity = Activity {
+                details: Some("Playing".into()),
+                ..Default::default()
+            };
+            connection.set_activity(1, Some(&activity)).unwrap();
+            official_side.join().unwrap();
+            arrpc_side.join().unwrap();
+        });
+        // only arRPC: the status goes there
+        let arrpc = fake::Listener::new();
+        std::thread::scope(|scope| {
+            let side = scope.spawn(|| {
+                let mut fake = arrpc.accept();
+                let _subscribe = fake.read();
+                let set = fake.command();
+                assert_eq!(set["cmd"], "SET_ACTIVITY");
+                fake.answer(&set, Value::Null);
+            });
+            let (mut connection, confirmed) = Connection::first_confirmed(
+                [arrpc.stream()],
+                "42",
+                PROBE_EVENTS,
+                Duration::from_millis(50),
+            )
+            .unwrap();
+            assert!(!confirmed);
+            connection.set_activity(1, None).unwrap();
+            side.join().unwrap();
+        });
+    }
+
+    #[test]
+    fn unread_events_are_capped() {
+        let (mut client, mut discord) = fake::pair();
+        let server = std::thread::spawn(move || {
+            for n in 0..MAX_EVENTS + 10 {
+                discord.send(json!({
+                    "cmd": "DISPATCH", "evt": "ACTIVITY_JOIN", "data": { "secret": n.to_string() },
+                }));
+            }
+            let set = discord.command();
+            discord.answer(&set, Value::Null);
+            discord
+        });
+        client.set_activity(1, None).unwrap();
+        let _discord = server.join().unwrap();
+        assert_eq!(client.events.len(), MAX_EVENTS);
+        assert_eq!(
+            client.events.front(),
+            Some(&Event::Join {
+                secret: "10".into()
+            })
+        );
     }
 
     #[test]

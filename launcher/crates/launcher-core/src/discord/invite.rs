@@ -553,6 +553,10 @@ mod tests {
                 Connection::open_subscribed(id, events, CONFIRM_WAIT).expect("Discord is open");
             assert!(confirmed, "no Discord app confirmed {events:?}");
         }
+        // and the launcher's status connection's probe
+        let (_connection, confirmed) =
+            Connection::open_subscribed(id, &["ACTIVITY_SPECTATE"], CONFIRM_WAIT).unwrap();
+        assert!(confirmed, "no Discord app confirmed the status probe");
     }
 
     #[test]
