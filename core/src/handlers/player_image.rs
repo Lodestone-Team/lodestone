@@ -42,6 +42,10 @@ use crate::AppState;
 pub const ANSWER_HEADER: &str = "x-lodestone-answer";
 /// The current client view's id, on every 200 and 204 from `…/image`.
 pub const VIEW_HEADER: &str = "x-lodestone-view";
+/// The core's view rules (`lodestone_image::RULES`), on every answer of `…/image` past the
+/// access checks: a client whose own rules are older tells the player to update Lodestone,
+/// whatever the status (the 400 it gets then is otherwise like any other).
+pub const RULES_HEADER: &str = "x-lodestone-rules";
 /// How long a player waits before asking again while the first content image is recorded.
 const RECORDING_RETRY_SECS: u64 = 5;
 /// How long a player waits before fetching again while too many downloads run.
@@ -96,11 +100,16 @@ fn check_rules(text: Option<&str>) -> Result<(), Error> {
     let Some(text) = text else {
         return Ok(());
     };
-    let rules: u32 = text
-        .parse()
-        .ok()
-        .filter(|rules| *rules >= 1)
-        .ok_or_else(|| bad_request("rules must be a whole number from 1"))?;
+    // Digits only (`str::parse` would take a leading `+`). A number too large for a u32 is
+    // still a whole number from 1, of rules far newer than the core's.
+    if text.is_empty() || !text.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(bad_request("rules must be a whole number from 1"));
+    }
+    let digits = text.trim_start_matches('0');
+    if digits.is_empty() {
+        return Err(bad_request("rules must be a whole number from 1"));
+    }
+    let rules: u32 = digits.parse().unwrap_or(u32::MAX);
     if rules < lodestone_image::RULES {
         return Err(bad_request(
             "This server runs a newer Lodestone: update Lodestone to join it",
@@ -215,8 +224,24 @@ fn answer_response(answer: ClientAnswer) -> Result<Response, Error> {
 }
 
 /// `GET …/image?side=client&have=<id>,<id>`: the current client view, a delta to it from
-/// the first `have` the core knows, or 204 when that one is current.
+/// the first `have` the core knows, or 204 when that one is current. Every answer, errors
+/// too, carries [`RULES_HEADER`].
 pub(crate) async fn image_response(
+    state: &AppState,
+    uuid: &InstanceUuid,
+    query: ImageQuery,
+) -> Result<Response, Error> {
+    let mut response = match image_answer(state, uuid, query).await {
+        Ok(response) => response,
+        Err(e) => e.into_response(),
+    };
+    response
+        .headers_mut()
+        .insert(RULES_HEADER, HeaderValue::from(lodestone_image::RULES));
+    Ok(response)
+}
+
+async fn image_answer(
     state: &AppState,
     uuid: &InstanceUuid,
     query: ImageQuery,
@@ -445,7 +470,10 @@ mod tests {
         assert!(check_rules(None).is_ok());
         assert!(check_rules(Some(&lodestone_image::RULES.to_string())).is_ok());
         assert!(check_rules(Some(&(lodestone_image::RULES + 1).to_string())).is_ok());
-        for bad in ["0", "", "-1", "x", "1.0", "99999999999"] {
+        // far newer rules than a u32 holds are newer all the same
+        assert!(check_rules(Some("99999999999")).is_ok());
+        assert!(check_rules(Some(&format!("0{}", lodestone_image::RULES))).is_ok());
+        for bad in ["0", "00", "", "-1", "+1", " 1", "x", "1.0"] {
             assert!(check_rules(Some(bad)).is_err(), "{bad}");
         }
     }

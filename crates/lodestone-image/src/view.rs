@@ -175,6 +175,32 @@ pub fn view(image: &Image, side: Side, rules: u32) -> Result<Image, ViewError> {
     Ok(project(image, side, rules, Some(source_id)))
 }
 
+/// Checks a view received from elsewhere, whole or as the result of applying a delta to a
+/// view (a server's answer to its players): it must be `side`'s view and nothing more. Its
+/// side is `side`, its rules are known ([`ViewError::UnsupportedRules`] otherwise: it was
+/// made by a newer version, whose user should update), it hashes to its id, and its own
+/// view gives it back, so it carries nothing `side`'s view never does (Lodestone's own
+/// files, a server's state, configs not shared with players). A delta's `apply` checks
+/// only the result's id, so a delta must be checked this way too once applied. The caller
+/// also compares the id with the one it was told to expect.
+pub fn check_received(image: &Image, side: Side) -> Result<(), ViewError> {
+    match image.side {
+        Some(received) if received == side => {}
+        Some(other) => return Err(ViewError::AlreadyView(other)),
+        None => return Err(ViewError::Mismatch("it isn't a view".into())),
+    }
+    check_rules(image.rules)?;
+    image
+        .verify()
+        .map_err(|e| ViewError::Mismatch(e.to_string()))?;
+    if view(image, side, image.rules)?.id != image.id {
+        return Err(ViewError::Mismatch(format!(
+            "it carries what the {side:?} side's view doesn't"
+        )));
+    }
+    Ok(())
+}
+
 /// `side`'s view of `image`, sealed: only what the view carries, and none of the
 /// informational fields (parent, created, producer, label, each entry's `modified`).
 fn project(image: &Image, side: Side, rules: u32, projected_from: Option<String>) -> Image {
@@ -708,6 +734,75 @@ pub(crate) mod tests {
         labelled.entries[0].modified = Some(9);
         let checked = view(&labelled, Side::Client, RULES).unwrap();
         assert_eq!(checked, client);
+    }
+
+    /// What a player receives, whole or as a delta applied to a view it has, must be the
+    /// client view and nothing more: `apply` alone checks only the result's id.
+    #[test]
+    fn received_views_are_checked() {
+        let image = fabric_pack();
+        let client = view(&image, Side::Client, RULES).unwrap();
+        assert_eq!(check_received(&client, Side::Client), Ok(()));
+        let server = view(&image, Side::Server, RULES).unwrap();
+        assert_eq!(check_received(&server, Side::Server), Ok(()));
+        assert_eq!(
+            check_received(&server, Side::Client),
+            Err(ViewError::AlreadyView(Side::Server))
+        );
+        assert!(matches!(
+            check_received(&image, Side::Client),
+            Err(ViewError::Mismatch(_))
+        ));
+
+        let hostile = |change: &dyn Fn(&mut Image)| {
+            let mut target = client.clone();
+            change(&mut target);
+            target.seal();
+            // a delta to it applies cleanly...
+            let delta = crate::delta::diff(&client, &target);
+            let delta =
+                crate::delta::Delta::from_json(&serde_json::to_vec(&delta).unwrap()).unwrap();
+            let applied = crate::delta::apply(&client, &delta).unwrap();
+            assert_eq!(applied.id, target.id);
+            // ...and only the check refuses it
+            check_received(&applied, Side::Client)
+        };
+        for path in [
+            "server.properties",
+            ".lodestone_x/y.json",
+            "mods/.lodestone_client_mods.json",
+            "config/secret.toml",
+            "mods/b.jar.disabled",
+        ] {
+            assert!(
+                matches!(
+                    hostile(&|t: &mut Image| t.entries.push(object_entry(path))),
+                    Err(ViewError::Mismatch(_))
+                ),
+                "{path}"
+            );
+        }
+        assert_eq!(
+            hostile(&|t: &mut Image| t.side = Some(Side::Server)),
+            Err(ViewError::AlreadyView(Side::Server))
+        );
+        assert_eq!(
+            hostile(&|t: &mut Image| t.rules = RULES + 1),
+            Err(ViewError::UnsupportedRules(RULES + 1))
+        );
+        // a change a client view may carry passes
+        assert_eq!(
+            hostile(&|t: &mut Image| t.entries.push(object_entry("mods/new.jar"))),
+            Ok(())
+        );
+
+        // bytes that don't hash to the id
+        let mut forged = client.clone();
+        forged.entries.pop();
+        assert!(matches!(
+            check_received(&forged, Side::Client),
+            Err(ViewError::Mismatch(_))
+        ));
     }
 
     #[test]

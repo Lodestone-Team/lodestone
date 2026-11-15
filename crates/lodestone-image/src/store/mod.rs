@@ -1046,25 +1046,6 @@ impl Store {
         }
     }
 
-    /// Deletes the chunk list of a large file of `size` bytes when the file can't be read
-    /// whole from it: a chunk is missing or of the wrong length (one deleted as damaged by
-    /// [`Store::remove_damaged_chunk`], say). [`Store::has_object`] and
-    /// [`Store::object_form`] look only at the list, so while it is there they still find
-    /// the object, and whoever checks only those would never store the file again. Without
-    /// the list the object is plainly missing, so the next write of the file stores it (and
-    /// writes the lost chunk back). The chunks are left: other files may share them. Returns
-    /// whether it deleted the list; a small file, a list for another size or a complete one
-    /// is left as it is.
-    pub fn remove_incomplete(&self, sha256: &str, size: u64) -> Result<bool, StoreError> {
-        let Some(Presence::Chunked(path, _)) = self.presence(sha256, size) else {
-            return Ok(false);
-        };
-        if self.object_complete(sha256, size) {
-            return Ok(false);
-        }
-        remove_if_there(&path)
-    }
-
     // -----------------------------------------------------------------------------------
     // Manifests
 

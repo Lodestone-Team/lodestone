@@ -124,18 +124,36 @@ struct Pointer {
 }
 
 /// The instance's current content image, read without building the rest of the state:
-/// what serving players reads on every request. `None` when there is none or the file
-/// can't be read, like [`load`]. Blocking.
-pub fn current_pointer(store_root: &Path, uuid: &InstanceUuid) -> Option<String> {
-    let path = path(store_root, uuid).ok()?;
-    if std::fs::metadata(&path).ok()?.len() > MAX_BYTES {
-        return None;
+/// what serving players reads on every request. `None` when there is none: no state file,
+/// or one that is too large, damaged or names no image, like [`load`]. Unlike [`load`],
+/// any other failure to read it (too many open files, say) is an error: it says nothing
+/// about whether there is an image, so it must not start a record. Blocking.
+pub fn current_pointer(store_root: &Path, uuid: &InstanceUuid) -> Result<Option<String>, Error> {
+    let path = path(store_root, uuid)?;
+    let failed = |e: std::io::Error| -> Result<Option<String>, Error> {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            Ok(None)
+        } else {
+            Err(color_eyre::Report::new(e)
+                .wrap_err("Failed to read the server's content state")
+                .into())
+        }
+    };
+    let meta = match std::fs::metadata(&path) {
+        Ok(meta) => meta,
+        Err(e) => return failed(e),
+    };
+    if meta.len() > MAX_BYTES {
+        return Ok(None);
     }
-    let bytes = std::fs::read(&path).ok()?;
-    serde_json::from_slice::<Pointer>(&bytes)
-        .ok()?
-        .current
-        .filter(|id| lodestone_image::hex::is_sha256(id))
+    let bytes = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(e) => return failed(e),
+    };
+    Ok(serde_json::from_slice::<Pointer>(&bytes)
+        .ok()
+        .and_then(|pointer| pointer.current)
+        .filter(|id| lodestone_image::hex::is_sha256(id)))
 }
 
 /// One version of an instance's state file, told apart without reading it: how many saves
@@ -215,11 +233,11 @@ mod tests {
         assert_eq!(load(dir.path(), &uuid), ContentState::default());
         // The pointer alone reads the same.
         std::fs::write(path(dir.path(), &uuid).unwrap(), b"{oops").unwrap();
-        assert_eq!(current_pointer(dir.path(), &uuid), None);
+        assert_eq!(current_pointer(dir.path(), &uuid).unwrap(), None);
         save(dir.path(), &uuid, &state).unwrap();
-        assert_eq!(current_pointer(dir.path(), &uuid), state.current);
+        assert_eq!(current_pointer(dir.path(), &uuid).unwrap(), state.current);
         std::fs::write(path(dir.path(), &uuid).unwrap(), br#"{"current":"../x"}"#).unwrap();
-        assert_eq!(current_pointer(dir.path(), &uuid), None);
+        assert_eq!(current_pointer(dir.path(), &uuid).unwrap(), None);
         // Each save is a new version of the file.
         let before = stamp(dir.path(), &uuid).unwrap();
         save(dir.path(), &uuid, &state).unwrap();

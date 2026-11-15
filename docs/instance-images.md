@@ -630,8 +630,10 @@ GET  …/objects/{sha256}                                             (and HEAD)
 
 On the main port (both prefixes) the core's remote-access check comes first: while the
 core serves only this computer, another device gets 403 `{"kind": "LocalOnly"}` on every
-route. No route takes a request body; any other method is 405, except `OPTIONS`, which the
-core's CORS layer answers as a preflight (200). Conditional requests aren't honoured (an
+route. No route takes a request body; any other method is 405, except that on the main
+port `OPTIONS` is the CORS preflight, which the core's CORS layer answers (200); through an
+invite's info port or a friend tunnel, which have no CORS layer, `OPTIONS` is 405 like any
+other method. Conditional requests aren't honoured (an
 `If-None-Match` naming the current view still gets 200): a player says what it has with
 `have`. Unknown query parameters are ignored, so a client may send `rules` to any core.
 
@@ -673,11 +675,17 @@ means an older core, and the client falls back to the `.mrpack`.
 **`GET …/image`.** `side` must be `client` (anything else is 400: a server view carries
 the server's configs and secrets). `have` lists client view ids the player has, newest
 first, comma-separated, at most 16, each 64 lowercase hex digits (else 400). `rules`, which
-a client should send, is the newest view rules it knows (`lodestone_image::RULES`, a whole
-number from 1, else 400): a core whose rules are newer answers 400 `BadRequest` ("update
+a client should send, is the newest view rules it knows (`lodestone_image::RULES`: ASCII
+digits only, a whole number from 1, else 400; a number too large for 32 bits counts as
+newer than any core's): a core whose rules are newer answers 400 `BadRequest` ("update
 Lodestone"), since it makes views the client can't check; a core whose rules are older or
 the same ignores it (views are made under the core's rules, which every later Lodestone
-reads). The first id the core knows decides (it first looks among the views it has
+reads). Every answer of `…/image` past the access checks (200, 204, 400, 500 and 503 alike)
+carries `X-Lodestone-Rules: <the core's RULES>`, so a client tells the update refusal from
+other 400s without reading its message: a client whose own `RULES` is lower than that
+header's tells the player to update Lodestone, whatever the status, and neither retries nor
+installs anything. Answers refused before the access checks (a query that can't be read, a
+missing sign-in, a 404 for a server that isn't served, `LocalOnly`) don't carry it. The first id the core knows decides (it first looks among the views it has
 already learnt, and reads the server's other manifests for ids it doesn't know only when
 none of those decides), so it is not always the first id:
 
@@ -702,13 +710,20 @@ what it gets before using it:
 - a view: `Image::from_json`, then `verify` (its contents hash to its id), then its own
   view's id equals its id (`view(v, Client, v.rules).id == v.id`, the check for a view
   received from elsewhere) and equals `X-Lodestone-View`;
-- a delta: `Delta::from_json`, then `apply` to the view it has, which checks `from` and
-  that the result's id is `to` (which equals `X-Lodestone-View`).
+- a delta: `Delta::from_json`, then `apply` to the view its `from` names, which checks
+  `from` and that the result's id is `to`; then the result gets the same check as a whole
+  view (its side is client, `view(r, Client, r.rules).id == r.id`, and `r.id` equals
+  `X-Lodestone-View`). `apply` alone doesn't check that the result is a client view: a
+  hostile server or peer could send a delta that adds `server.properties`, Lodestone's own
+  `.lodestone*` files or an unshared config, or changes `side` or `rules`, and it would
+  apply cleanly.
 
-A view or delta whose `schema` or `rules` the client doesn't know (the parse or the view
-check fails with an unsupported schema or `UnsupportedRules`) means the server runs a newer
-Lodestone: the client tells the player to update Lodestone, and neither retries nor
-installs anything.
+`lodestone_image::view::check_received(image, Side::Client)` does the view check for both
+(side, known rules, `verify`, and the view of the view giving back its id); the client then
+compares the id with `X-Lodestone-View`. A view or delta whose `schema` or `rules` the client
+doesn't know (the parse fails with an unsupported schema, or the view check with
+`UnsupportedRules`) means the server runs a newer Lodestone: the client tells the player to
+update Lodestone, and neither retries nor installs anything.
 
 While the server has no content image yet (or its pointer names a manifest that went
 missing or can't be read), the answer is **503** with `Retry-After: 5` and the error body
@@ -751,6 +766,21 @@ server's mods folder, does honour it; see "M3 decisions"), and a pack file the s
 changed in place reaches players as the server has it only when the view carries it. A
 pack file outside the client share that the view carries anyway (a `server-overrides/` mod
 the owner marked for players) has source `object`: only the server can give it.
+
+**From one view to the next on disk.** A delta (or a player's own diff of a whole view)
+only gives the new view; it is not a list of what to change on disk, because a view's files
+aren't only its entries. What changes on disk is the difference between the files the old
+view places and the files the new view places, each worked out in full as above:
+
+- when `base` changes (the server's pack was updated), the client gets the new base and
+  works out its client share again: the new pack's client-only files and
+  `client-overrides/` change too, though they are never entries and never in the delta;
+- when `removed` changes, the base files it names go, or come back when a path leaves it;
+- entries with source `base` whose bytes didn't change aren't in the delta, but follow the
+  base.
+
+The three-way merge (Launcher step 4) compares those two placed file sets with what is on
+the player's disk, so the player's own mods and changed configs stay.
 
 Files a view can't give: its `withheld` paths (a mod jar that is a symbolic link, a file
 that kept changing or couldn't be read when the image was recorded; names only) are files
@@ -837,9 +867,10 @@ The Launcher (M4):
 4. next Play: `have=<that view id>` (and any other views it keeps), `rules=<its RULES>`;
    a 204 whose `X-Lodestone-View` is the applied view means join at once (one naming
    another of its views means switch to that one first), otherwise apply the delta to the
-   view its `from` names (or diff the new view against the applied one) with the
-   three-way merge modpack updates already use (the player's own mods and changed configs
-   stay).
+   view its `from` names (or take the whole view), check the result, and place the
+   difference between what the applied view places and what the new one places ("From one
+   view to the next on disk") with the three-way merge modpack updates already use (the
+   player's own mods and changed configs stay).
 
 Works for Fabric, Quilt, Forge and NeoForge servers.
 
@@ -1307,8 +1338,9 @@ of M2 adds its own subsection.
   `.mrpack` the operation used (hashed by the core) when the pack is on Modrinth; an
   uploaded pack is no base. Each file's `env`: an index file's as written (unknown when it
   has none); an `overrides/` file required on both sides; a `server-overrides/` file
-  unsupported on clients and required on servers; an `overrides/` file that
-  `client-overrides/` replaces for clients unsupported on clients (they get another file).
+  unsupported on clients and required on servers; a file that `client-overrides/` replaces
+  for clients (an `overrides/` file or an index download at the same path) unsupported on
+  clients (they get the client-overrides file, placed after the downloads).
 - **Writes.** An install records "Installed <pack> <version>" once its files and
   `pack.json` are written. An update or restore holds the server stopped and its mods lock,
   puts back an update that was interrupted, and records the content as it is
@@ -1395,7 +1427,9 @@ player" has the protocol itself).
   the whole view instead of a delta whenever the delta's JSON would be no smaller.
 - **A view and a delta are told apart by headers**: `X-Lodestone-Answer: view|delta`, with
   `X-Lodestone-View` naming the current view on every 200 and 204 (see "Server to player"
-  for how a player checks each).
+  for how a player checks each). A delta's result gets the whole view's check
+  (`lodestone_image::view::check_received`, which the shared crate gained), since `apply`
+  checks only its id: the test client does both.
 - **A pruned player diffs the whole view itself**, rather than sending a summary of what it
   has (which milestone 3's plan suggested, for example in a bounded POST). A summary that
   lets the core rebuild the exact view (each entry's source, sides and mode, not only paths
@@ -1411,7 +1445,8 @@ player" has the protocol itself).
   players' machines (two Fabric APIs, and Fabric refuses to start). The recorder lists in
   `removed` every file in `pack.json` (by its canonical path) that the walk didn't find
   there and that is content the image would carry (in the content scope, not left out by
-  the excludes), never a path the image lists; only with a base (an uploaded pack, with
+  the excludes), never a path the image lists or withholds (a pack mod the server has as a
+  symbolic link is withheld, not removed: the server has it); only with a base (an uploaded pack, with
   none, removes nothing). The same rule then holds for every image, the Launcher's too:
   base share less `removed`, entries over it. A restore that puts back an image built on
   another pack version (a backup, restored in place or as a new server, or the modpack
@@ -1492,9 +1527,10 @@ player" has the protocol itself).
   downloads a generous read timeout. A new request doesn't wait: it tries the lock
   (`Store::try_hold_off_collection`) and answers 503 `TooManyRequests` with
   `Retry-After: 5` while a collection holds it, so a HEAD or GET never hangs unanswered.
-  File locks give a waiting collection no priority, so many overlapping downloads can
-  hold one off for as long as they keep overlapping; each hold is one read, and pruning
-  asks again every 15 minutes, so it runs in a gap.
+  File locks give a waiting collection no priority: a collection waits on the lock (on a
+  blocking thread of its own) and runs at the first instant no read holds it. Each hold
+  covers one read of at most 1 MiB, so it waits only as long as reads keep overlapping,
+  which on a busy server can be long.
 - **Damaged and lost objects.** A whole object is checked before any byte goes; a large
   file's chunks one by one, and on a full download the whole file's SHA-256 at the end. A
   check that fails ends the response short (the player sees a truncated body and must check
@@ -1503,18 +1539,25 @@ player" has the protocol itself).
   descriptors (or an antivirus holding a file on Windows) would then delete healthy
   objects that backups share, from an anonymous request. So the serving path reads again
   with the checked functions the shared crate gained (`Store::read_chunk_checked`,
-  `remove_damaged_checked`, `remove_damaged_chunk_checked`, `remove_incomplete_checked`),
+  `remove_damaged_checked`, `remove_damaged_shallow_checked`, `remove_damaged_chunk_checked`,
+  `remove_incomplete_checked`),
   which call damage only bytes that were read and are wrong, or a chunk the drive says is
   missing, and report any other failure as an I/O error that deletes nothing: the request
   is then a 500, or its body is cut short, and no record starts. The core also raises its
-  soft limit on open files to the hard limit at startup (`open_files::raise_limit`; macOS
-  starts programs with 256, and caps the soft limit at 10240). A large file that lost a chunk
+  soft limit on open files at startup (`open_files::raise_limit`; macOS starts programs
+  with 256) to 10240, or the hard limit if lower, and never lowers it: 10240 is what macOS
+  allows, and ample for 64 downloads and records. It isn't raised to the hard limit
+  elsewhere, since the servers the core starts inherit it, and in containers or under
+  systemd that is often a million or more, which slows programs that loop over every
+  possible descriptor. A large file that lost a chunk
   (found damaged and deleted, or missing) also loses its chunk list
   (`Store::remove_incomplete_checked`): the list can't give the file whole, and while it is there the
   object looks present, so nothing would ever store the file again. Before it answers, a
   download checks the object is there (a large file's chunk list read and checked, not its
   chunks, which would cost an open per chunk on every request, under a hold on
-  collections); when it isn't, the answer is 503 rather than a 200 whose body ends at once,
+  collections; when that read calls it damaged, a checked read of the object and the list
+  only, `remove_damaged_shallow_checked`, decides whether to delete, never one of every
+  chunk, which for a file of a few GiB would read all of it on a request); when it isn't, the answer is 503 rather than a 200 whose body ends at once,
   so a player can tell a passing failure from a file the server lacks, and the core records
   the server's content in the background (`ImageService::record_again`, labelled "Changed
   outside Lodestone" if the content changed meanwhile): the content stat cache can't claim
@@ -1534,11 +1577,14 @@ player" has the protocol itself).
   and leaves `running_since` as it is, so the next stop takes the baseline again as usual.
   A pointer whose manifest went missing or is damaged counts as no image (the record saves
   it again); a read that fails otherwise (too many open files) is a 500, which a record
-  wouldn't mend. An older view the core learnt whose manifest is gone, damaged or can't be
+  wouldn't mend; a record a player's request would start checks the same way, so a state
+  file that fails to read (rather than isn't there or is damaged) never starts one. An
+  older view the core learnt whose manifest is gone, damaged or can't be
   read now is forgotten, and the player gets the whole view instead of a delta. The record's task settles its state however it ends: one that panics
   counts as failed, so a server is never left "being recorded" for good; a deleted server's
   state is forgotten. These 503s aren't logged per request (players poll them every few
-  seconds); the record logs its failure once.
+  seconds); the record logs its failure once, and a current manifest that can't be read is
+  logged once per image (again only after it read fine in between).
 - **Freshness.** The view follows the current content image, not the image a running
   server started with: mods added or removed while it runs reach players before the server
   loads them, and a removed mod both sides need can stop players joining until a restart,
@@ -1595,7 +1641,11 @@ player" has the protocol itself).
   blocking thread that fills the cache itself and keeps its turn until it ends, so a
   request dropped meanwhile (its player hung up) neither throws the work away nor lets the
   next request start it again: a client that asks and hangs up at once costs the work
-  once. A cached delta answers without the view it starts from being loaded (its two ids
+  once. A turn counts the requests holding it (the one computing and those waiting) and
+  leaves its map only when the last is dropped, so a waiter that hangs up doesn't let the
+  next request start a second computation either. A scan learns a manifest for good only
+  when it read it or found it unusable (damaged, not a content image); one that failed to
+  read in a way that may pass (too many open files) is read again by the next scan. A cached delta answers without the view it starts from being loaded (its two ids
   are its key), so cycling through many old views costs a cache hit, not a manifest read
   each. A 300-mod view takes
   about 30 ms and its delta about 60 ms the first time in a debug build, and a cached answer
@@ -1610,7 +1660,10 @@ player" has the protocol itself).
 - **Rules and versions.** `…/image` takes an optional `rules=<n>`, the newest rules the
   client knows. A core whose rules are newer answers 400 ("update Lodestone") rather than
   send a view the client's `view` check refuses (`UnsupportedRules`); older or equal rules
-  change nothing, since views are made under the core's rules. Unknown query parameters
+  change nothing, since views are made under the core's rules. Every answer past the access
+  checks carries `X-Lodestone-Rules`, the core's rules, which is how a client recognises
+  that 400 (a header rather than a new error `kind`, which would change the core's shared
+  error type): its message is for people and may change. Unknown query parameters
   are ignored, so a client sends it to every core. A client that still meets a schema or
   rules it doesn't know tells the player to update and installs nothing.
 - **Finding out which servers serve images.** No new field in the listings: the image

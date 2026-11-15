@@ -40,6 +40,7 @@ use std::time::Duration;
 use axum::body::Bytes;
 use futures::Stream;
 use lodestone_image::hex::Sha256Hasher;
+use lodestone_image::store::cdc::MAX_CHUNK;
 use lodestone_image::store::chunklist::{ChunkList, CHUNKED_ABOVE};
 use lodestone_image::store::{ObjectForm, Store, StoreError};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
@@ -329,8 +330,13 @@ impl Progress {
             // pieces, and reading it whole could take any amount of memory.
             return Err(StoreError::Damaged(self.sha256.clone()));
         }
-        let bytes = self.store.read_object_bytes(&self.sha256, self.size)?;
+        let mut bytes = self.store.read_object_bytes(&self.sha256, self.size)?;
         Ok(match self.range {
+            // A small file is always sent whole, from its start: no copy.
+            Some(range) if range.start == 0 => {
+                bytes.truncate(range.end as usize + 1);
+                bytes
+            }
             Some(range) => bytes[range.start as usize..=range.end as usize].to_vec(),
             None => Vec::new(),
         })
@@ -342,7 +348,10 @@ impl Progress {
             self.done = true;
             return Ok(Vec::new());
         };
-        let mut out = Vec::new();
+        // A step stops once it holds a unit, so it holds at most a unit and one chunk, and
+        // never more than the range has left.
+        let left = (range.end + 1).saturating_sub(range.start.max(self.offset));
+        let mut out = Vec::with_capacity((UNIT + MAX_CHUNK).min(left as usize));
         while self.next < list.chunks.len() && self.offset <= range.end && out.len() < UNIT {
             let chunk = &list.chunks[self.next];
             let len = u64::from(chunk.size);
@@ -419,9 +428,15 @@ pub(crate) fn object_there(store: &Store, sha256: &str, size: u64) -> Result<The
         Err(StoreError::Missing(_) | StoreError::WrongSize { .. }) => Ok(There::No),
         // What `object_form` calls damaged may be a file it couldn't open: only a checked
         // read tells, and only proven damage is deleted. Whatever that leaves is looked at
-        // again, and a failure then is the request's error.
+        // again, and a failure then is the request's error. The check reads at most a large
+        // file's chunk list, never its chunks (a full check of a file of a few GiB, on a
+        // request, holding collections off): the download checks each chunk as it sends it.
         Err(StoreError::Damaged(_)) => {
-            remove_if_damaged(store, sha256);
+            match store.remove_damaged_shallow_checked(sha256) {
+                Ok(true) => warn!("The stored object {sha256} was damaged; deleted it"),
+                Ok(false) => {}
+                Err(e) => warn!("Failed to read the stored object {sha256}: {e}"),
+            }
             match store.object_form(sha256, size) {
                 Ok(_) => Ok(There::Yes),
                 Err(StoreError::Missing(_) | StoreError::WrongSize { .. }) => Ok(There::No),

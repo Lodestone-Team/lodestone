@@ -6,8 +6,9 @@
 //!
 //! - game streams, passed to the instance's game port on this computer;
 //! - info streams: HTTP for [`info_router`], a few read-only routes about this instance
-//!   only (its name, version, loader and client modpack). Nothing else of the API is
-//!   reachable through an invite.
+//!   only (its name, version, loader and client modpack, and its client view, deltas and
+//!   objects: `crate::handlers::player_image`). Nothing else of the API is reachable
+//!   through an invite.
 //!
 //! Each shared instance's identity (certificate, key, token, and the invite's code and
 //! secret) is saved in `stores/connect/<uuid>.json`, readable only by the core's user,

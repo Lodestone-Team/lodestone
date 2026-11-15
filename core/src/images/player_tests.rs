@@ -12,6 +12,7 @@ use std::sync::Arc;
 use lodestone_image::hex::sha256_hex;
 use lodestone_image::store::materialize::{materialize, missing_objects, MaterializeOptions};
 use lodestone_image::store::{Encoding, Store};
+use lodestone_image::view::check_received;
 use lodestone_image::{apply, Delta, DiskLayout, EnvFrom, EnvValue, Image, Side, Source};
 use reqwest::{Method, StatusCode};
 use serde_json::json;
@@ -34,6 +35,16 @@ fn fabric_jar(path: &Path, id: &str, environment: &str) {
             ),
         )],
     );
+}
+
+/// A delta applied as a player must: to the view its `from` names, then checked as a whole
+/// view would be (`apply` checks only the result's id), and its id against
+/// `X-Lodestone-View`.
+fn apply_received(from: &Image, delta: &Delta, current: &str) -> Image {
+    let next = apply(from, delta).unwrap();
+    check_received(&next, Side::Client).unwrap();
+    assert_eq!(next.id, current);
+    next
 }
 
 /// What a player's client does with one server.
@@ -120,14 +131,7 @@ impl<'a> Player<'a> {
         match kind.as_str() {
             "view" => {
                 let view = Image::from_json(&body).unwrap();
-                view.verify().unwrap();
-                assert_eq!(view.side, Some(Side::Client));
-                assert_eq!(
-                    lodestone_image::view(&view, Side::Client, view.rules)
-                        .unwrap()
-                        .id,
-                    view.id
-                );
+                check_received(&view, Side::Client).unwrap();
                 assert_eq!(view.id, current);
                 Answer::View(Box::new(view))
             }
@@ -453,8 +457,7 @@ async fn a_player_downloads_the_client_view_and_keeps_up_with_deltas() {
     else {
         panic!("a delta");
     };
-    let second = apply(&first, &delta).unwrap();
-    assert_eq!(second.id, current);
+    let second = apply_received(&first, &delta, &current);
     assert_eq!(
         delta
             .new_contents(&first)
@@ -493,7 +496,7 @@ async fn a_player_downloads_the_client_view_and_keeps_up_with_deltas() {
     // which is how a player whose views were all pruned catches up: it diffs the whole
     // view against the view it applied, as the three-way merge needs
     let changes = lodestone_image::delta::diff(&first, &whole);
-    assert_eq!(apply(&first, &changes).unwrap().id, second.id);
+    apply_received(&first, &changes, &second.id);
 }
 
 /// A server built on a Modrinth pack, with a CurseForge file and client settings: the
@@ -785,11 +788,7 @@ async fn a_player_of_a_pack_server_installs_the_pack_less_what_the_server_took_o
         .await
         .unwrap();
     let next = match player.image(&[&view.id]).await {
-        Answer::Delta(delta, current) => {
-            let next = apply(&view, &delta).unwrap();
-            assert_eq!(next.id, current);
-            next
-        }
+        Answer::Delta(delta, current) => apply_received(&view, &delta, &current),
         // the core sends the view when the delta would be no smaller
         Answer::View(next) => *next,
         Answer::Current(_) => panic!("the view changed"),

@@ -810,9 +810,14 @@ impl ImageService {
         }
 
         let removed = match base {
-            Some(base) if base.base.is_some() => {
-                removed_pack_files(&layout, &excludes, &baseline, base, &entries)
-            }
+            Some(base) if base.base.is_some() => removed_pack_files(
+                &layout,
+                &excludes,
+                &baseline,
+                &snapshot.withheld,
+                base,
+                &entries,
+            ),
             _ => Vec::new(),
         };
         let mut image = Image::new(Kind::Content, game_of(&ctx.game_version, &ctx.flavour));
@@ -1113,7 +1118,9 @@ async fn matching_base_files(
 /// removed when the walk didn't find it (`found`: every content file it found, by disk
 /// path, readable or not) and it is content the image would carry (in the content scope,
 /// not left out by `excludes`); files outside that scope say nothing either way. Never a
-/// path the image lists, which an image can't both remove and carry. A `pack.json` without
+/// path the image lists, which an image can't both remove and carry, nor one it withholds
+/// (`withheld`: a symbolic link, a file that kept changing, or one in a folder whose name
+/// the layout can't map), which the server has though the image holds no copy. A `pack.json` without
 /// the pack's file list (after a restore across pack versions) has the restored image's
 /// `removed` and every path it carried instead ([`BaseInfo::removed`], [`BaseInfo::paths`]),
 /// and each of those the walk didn't find is removed by the same rules: any of them may be
@@ -1122,10 +1129,18 @@ fn removed_pack_files(
     layout: &DiskLayout,
     excludes: &[String],
     found: &BTreeMap<String, (u64, i64)>,
+    withheld: &[lodestone_image::Withheld],
     base: &BaseInfo,
     entries: &[Entry],
 ) -> Vec<CanonicalPath> {
     let listed: HashSet<&str> = entries.iter().map(|e| e.path.as_str()).collect();
+    // A withheld path is a file, or a folder whose files weren't looked at one by one.
+    let is_withheld = |path: &str| {
+        withheld.iter().any(|w| {
+            path.strip_prefix(w.path.as_str())
+                .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+        })
+    };
     let excludes = Excludes::new(excludes);
     let carried = base.removed.iter().chain(&base.paths).filter(|path| {
         layout
@@ -1142,6 +1157,7 @@ fn removed_pack_files(
             is_content(path, false)
                 && !excludes.excludes(path.as_str(), false)
                 && !listed.contains(path.as_str())
+                && !is_withheld(path.as_str())
         })
         .collect();
     removed.sort();

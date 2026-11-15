@@ -391,8 +391,8 @@ async fn a_view_whose_image_is_damaged_gets_the_whole_view() {
     assert!(!fx.service.views.knows(&fx.uuid, &view_of(&old).id));
 }
 
-/// A turn to compute a key leaves the map however it ends, and never takes out a newer
-/// turn's entry.
+/// A turn to compute a key leaves the map once every turn of it is dropped, in whatever
+/// order.
 #[test]
 fn turns_leave_no_entry_behind() {
     let turns: Turns<String> = Default::default();
@@ -400,13 +400,32 @@ fn turns_leave_no_entry_behind() {
     let waiter = Turn::take(&turns, "a".to_string());
     assert!(Arc::ptr_eq(&first.mutex, &waiter.mutex));
     drop(first);
+    assert_eq!(locked(&turns).len(), 1, "the waiter still holds it");
+    drop(waiter);
     assert!(locked(&turns).is_empty());
     let newer = Turn::take(&turns, "a".to_string());
-    assert!(!Arc::ptr_eq(&newer.mutex, &waiter.mutex));
-    // the waiter of the old turn leaves the newer one in place
-    drop(waiter);
-    assert_eq!(locked(&turns).len(), 1);
     drop(newer);
+    assert!(locked(&turns).is_empty());
+}
+
+/// A waiter that goes away while another request computes must not let the next request
+/// start a second computation of the same key: it waits for the first.
+#[tokio::test]
+async fn a_dropped_waiter_leaves_the_computation_its_turn() {
+    let turns: Turns<String> = Default::default();
+    let first = Turn::take(&turns, "a".to_string());
+    let computing = first.mutex.clone().lock_owned().await;
+    let waiter = Turn::take(&turns, "a".to_string());
+    drop(waiter);
+    let next = Turn::take(&turns, "a".to_string());
+    assert!(Arc::ptr_eq(&next.mutex, &first.mutex));
+    assert!(
+        next.mutex.try_lock().is_err(),
+        "the first is still computing"
+    );
+    drop((computing, first));
+    assert!(next.mutex.try_lock().is_ok());
+    drop(next);
     assert!(locked(&turns).is_empty());
 }
 

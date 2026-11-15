@@ -220,7 +220,7 @@ fn reads_check_every_byte() {
         // The list is fine; the chunk is what to delete.
         assert!(store.remove_damaged(&large_hash).is_err());
         assert!(!store
-            .remove_incomplete(&large_hash, large.len() as u64)
+            .remove_incomplete_checked(&large_hash, large.len() as u64)
             .unwrap());
         assert!(store.remove_damaged_chunk(&list.chunks[1]).unwrap());
         assert!(!store.remove_damaged_chunk(&list.chunks[0]).unwrap());
@@ -229,16 +229,18 @@ fn reads_check_every_byte() {
         assert!(!store.object_complete(&large_hash, large.len() as u64));
         // ...until it is taken away as incomplete: only the list, never another size's.
         assert!(!store
-            .remove_incomplete(&large_hash, large.len() as u64 + 1)
+            .remove_incomplete_checked(&large_hash, large.len() as u64 + 1)
             .unwrap());
-        assert!(!store.remove_incomplete(&small_hash, 50_000).unwrap());
+        assert!(!store
+            .remove_incomplete_checked(&small_hash, 50_000)
+            .unwrap());
         assert!(store
-            .remove_incomplete(&large_hash, large.len() as u64)
+            .remove_incomplete_checked(&large_hash, large.len() as u64)
             .unwrap());
         assert!(!store.has_object(&large_hash, large.len() as u64));
         assert!(store.chunk_path(&list.chunks[0].sha256).unwrap().exists());
         assert!(!store
-            .remove_incomplete(&large_hash, large.len() as u64)
+            .remove_incomplete_checked(&large_hash, large.len() as u64)
             .unwrap());
         store.put_bytes(&large).unwrap();
         assert_eq!(

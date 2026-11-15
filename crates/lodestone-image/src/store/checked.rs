@@ -142,6 +142,21 @@ impl Store {
     /// missing or damaged chunk is that chunk's error (see
     /// [`Store::remove_damaged_chunk_checked`]). Returns whether it deleted anything.
     pub fn remove_damaged_checked(&self, sha256: &str) -> Result<bool, StoreError> {
+        self.remove_damaged_proven(sha256, true)
+    }
+
+    /// [`Store::remove_damaged_checked`] without reading a chunk list's chunks: the whole
+    /// object is deleted when it was read and doesn't hash to its name, the chunk list when
+    /// it was read and isn't a list. A list that parses is left whatever its chunks hold, so
+    /// this costs at most the list's read, where a full check of a file of a few GiB reads,
+    /// decompresses and hashes all of it; whoever reads the chunks later checks each and
+    /// deletes on proof ([`Store::remove_damaged_chunk_checked`],
+    /// [`Store::remove_incomplete_checked`]). Returns whether it deleted anything.
+    pub fn remove_damaged_shallow_checked(&self, sha256: &str) -> Result<bool, StoreError> {
+        self.remove_damaged_proven(sha256, false)
+    }
+
+    fn remove_damaged_proven(&self, sha256: &str, chunks: bool) -> Result<bool, StoreError> {
         let mut removed = false;
         let path = self.object_path(sha256)?;
         // The store keeps only files of up to 1 MiB whole: a longer one isn't its file.
@@ -161,6 +176,7 @@ impl Store {
             Proven::Bytes(bytes) => ChunkList::parse(&bytes).ok(),
         };
         let healthy = match list {
+            Some(_) if !chunks => true,
             Some(list) => {
                 let mut hasher = Sha256::new();
                 for chunk in &list.chunks {
@@ -193,9 +209,15 @@ impl Store {
         }
     }
 
-    /// [`Store::remove_incomplete`], deleting only on proof (see the module): the chunk list
-    /// of a large file of `size` bytes is deleted when one of its chunks is missing or its
-    /// length (or zstd frame header) shows it isn't the chunk. A failure to open or read a
+    /// Deletes the chunk list of a large file of `size` bytes when the file can't be read
+    /// whole from it, deleting only on proof (see the module): when one of its chunks is
+    /// missing (one deleted by [`Store::remove_damaged_chunk_checked`], say) or its length
+    /// (or zstd frame header) shows it isn't the chunk. [`Store::has_object`] and
+    /// [`Store::object_form`] look only at the list, so while it is there they still find
+    /// the object, and whoever checks only those would never store the file again; without
+    /// the list the object is plainly missing, so the next write of the file stores it (and
+    /// writes the lost chunk back). The chunks are left: other files may share them. A small
+    /// file or a list for another size is left as it is. A failure to open or read a
     /// chunk is [`StoreError::Io`] and deletes nothing; a list that can't be read now is left
     /// as it is. Returns whether it deleted the list.
     pub fn remove_incomplete_checked(&self, sha256: &str, size: u64) -> Result<bool, StoreError> {
@@ -289,6 +311,9 @@ mod tests {
             store.remove_damaged_checked(&large_hash),
             Err(StoreError::Damaged(_))
         ));
+        // the shallow check reads only the list, which is fine, and leaves it
+        assert!(!store.remove_damaged_shallow_checked(&large_hash).unwrap());
+        assert!(store.list_path(&large_hash).unwrap().exists());
         assert!(store.remove_damaged_chunk_checked(chunk).unwrap());
         assert!(matches!(
             store.read_chunk_checked(chunk),
@@ -310,6 +335,16 @@ mod tests {
         overwrite(&list_path, b"not a list");
         assert!(store.remove_damaged_checked(&large_hash).unwrap());
         assert!(!list_path.exists());
+        // ...which the shallow check deletes too, and a whole object that doesn't hash
+        store.put_bytes(&large).unwrap();
+        overwrite(&list_path, b"not a list");
+        assert!(store.remove_damaged_shallow_checked(&large_hash).unwrap());
+        assert!(!list_path.exists());
+        assert!(!store.remove_damaged_shallow_checked(&large_hash).unwrap());
+        store.put_bytes(&small).unwrap();
+        overwrite(&path, b"not the object");
+        assert!(store.remove_damaged_shallow_checked(&small_hash).unwrap());
+        assert!(!path.exists());
     }
 
     /// A file that can't be opened (as when the process is out of file descriptors, or an
@@ -363,6 +398,10 @@ mod tests {
         ));
         assert!(matches!(
             store.remove_damaged_checked(&large_hash),
+            Err(StoreError::Io { .. })
+        ));
+        assert!(matches!(
+            store.remove_damaged_shallow_checked(&small_hash),
             Err(StoreError::Io { .. })
         ));
         assert!(matches!(

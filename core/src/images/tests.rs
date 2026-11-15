@@ -1346,6 +1346,16 @@ async fn pack_files_get_their_sources_and_env() {
     write(&s.root, "config/pack.toml", b"pack override");
     write(&s.root, "config/changed.toml", b"changed by the owner");
     write(&s.root, "mods/disabled.jar.disabled", b"disabled pack mod");
+    // a pack mod the server has as a symbolic link: withheld, but the server has it
+    #[cfg(unix)]
+    {
+        write(&s.root, "shared/linked.jar", b"linked pack mod");
+        std::os::unix::fs::symlink(
+            s.root.join("shared/linked.jar"),
+            s.root.join("mods/linked.jar"),
+        )
+        .unwrap();
+    }
     let sha1 = |bytes: &[u8]| {
         use sha1::Digest;
         sha1::Sha1::digest(bytes)
@@ -1387,6 +1397,13 @@ async fn pack_files_get_their_sources_and_env() {
                 "config/changed.toml".to_string(),
                 base::BaseFile {
                     sha1: sha1(b"the pack's version"),
+                    ..Default::default()
+                },
+            ),
+            (
+                "mods/linked.jar".to_string(),
+                base::BaseFile {
+                    sha1: sha1(b"linked pack mod"),
                     ..Default::default()
                 },
             ),
@@ -1445,6 +1462,9 @@ async fn pack_files_get_their_sources_and_env() {
     // the pack's files the server no longer has where the pack put them are removed
     let removed: Vec<&str> = image.removed.iter().map(|p| p.as_str()).collect();
     assert_eq!(removed, ["mods/disabled.jar", "mods/gone.jar"]);
+    // a withheld pack file isn't removed: the server has it
+    #[cfg(unix)]
+    assert!(image.withheld.iter().any(|w| w.path == "mods/linked.jar"));
 
     // a pack with no base (uploaded, not on Modrinth) has nothing to remove from
     let mut no_base = info.clone();

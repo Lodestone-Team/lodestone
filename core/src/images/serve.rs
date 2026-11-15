@@ -185,7 +185,8 @@ struct Known {
     /// only the server sees (`server.properties`, a server-only mod) leaves it as it was.
     views: HashMap<String, HashSet<String>>,
     /// Manifests already looked at, each with its client view id (`None`: not a content
-    /// image, or unreadable), so each is read once.
+    /// image, or one that can't be used), so each is read once. One that failed to read in
+    /// a way that may pass isn't here: the next scan reads it again.
     seen: HashMap<String, Option<String>>,
 }
 
@@ -234,6 +235,9 @@ pub(crate) struct ViewCache {
     /// Instances a player's request is recording in the background, or whose next such
     /// record must wait.
     first_records: StdMutex<HashMap<InstanceUuid, FirstRecordState>>,
+    /// The current content image of each instance last logged as unreadable, so players
+    /// polling while it is recorded again (or while a failed record waits) log it once.
+    unreadable: StdMutex<HashMap<InstanceUuid, String>>,
 }
 
 /// Where the background records ([`ImageService::record_first`],
@@ -275,6 +279,7 @@ impl Default for ViewCache {
             lookups: Default::default(),
             pointers: Default::default(),
             first_records: Default::default(),
+            unreadable: Default::default(),
         }
     }
 }
@@ -283,13 +288,18 @@ fn locked<T>(mutex: &StdMutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// Whose turn it is to compute what, by key: one computation of a key at a time.
-type Turns<K> = Arc<StdMutex<HashMap<K, Arc<tokio::sync::Mutex<()>>>>>;
+/// Whose turn it is to compute what, by key: one computation of a key at a time. Each
+/// entry counts the [`Turn`]s that hold it (the one computing and those waiting), so it
+/// leaves the map only when the last of them is dropped.
+type Turns<K> = Arc<StdMutex<HashMap<K, (Arc<tokio::sync::Mutex<()>>, usize)>>>;
 
 /// A request's place in line to compute `key` ([`Turns`]): hold [`Turn::mutex`] while
-/// computing. Dropping it takes the key's entry out of the map however the computation
-/// ended (done, failed, or dropped), unless a newer entry replaced it, so the map holds
-/// only keys being computed. A computation that outlives its request takes its turn along.
+/// computing. The key's entry stays in the map while any turn of it is held, and leaves
+/// it when the last is dropped, however the computation ended (done, failed, or dropped),
+/// so the map holds only keys being computed or waited for. A computation that outlives
+/// its request takes its turn along. A waiter that goes away while another request
+/// computes leaves the entry in place, so the next request waits for that computation
+/// rather than start a second one.
 struct Turn<K: Eq + Hash + Clone> {
     turns: Turns<K>,
     key: K,
@@ -298,7 +308,12 @@ struct Turn<K: Eq + Hash + Clone> {
 
 impl<K: Eq + Hash + Clone> Turn<K> {
     fn take(turns: &Turns<K>, key: K) -> Turn<K> {
-        let mutex = locked(turns).entry(key.clone()).or_default().clone();
+        let mutex = {
+            let mut map = locked(turns);
+            let (mutex, holders) = map.entry(key.clone()).or_default();
+            *holders += 1;
+            mutex.clone()
+        };
         Turn {
             turns: turns.clone(),
             key,
@@ -310,10 +325,16 @@ impl<K: Eq + Hash + Clone> Turn<K> {
 impl<K: Eq + Hash + Clone> Drop for Turn<K> {
     fn drop(&mut self) {
         let mut turns = locked(&self.turns);
-        if turns
-            .get(&self.key)
-            .is_some_and(|mutex| Arc::ptr_eq(mutex, &self.mutex))
-        {
+        let Some((mutex, holders)) = turns.get_mut(&self.key) else {
+            return;
+        };
+        // Every turn of a key holds the entry it counted itself in, so this is the same
+        // mutex; checked anyway, so a turn can never take out another's entry.
+        if !Arc::ptr_eq(mutex, &self.mutex) {
+            return;
+        }
+        *holders = holders.saturating_sub(1);
+        if *holders == 0 {
             turns.remove(&self.key);
         }
     }
@@ -337,6 +358,7 @@ impl ViewCache {
         locked(&self.lookups).remove(uuid);
         locked(&self.pointers).remove(uuid);
         locked(&self.first_records).remove(uuid);
+        locked(&self.unreadable).remove(uuid);
     }
 
     /// The content images known to have the client view `view_id`.
@@ -386,33 +408,35 @@ impl ViewCache {
     }
 }
 
+/// Why a manifest couldn't be read, sorted as [`Unserved`] says.
+fn unserved(e: StoreError, manifest: &str) -> Unserved {
+    // What a player sees is only the top message: the store's errors name its folders,
+    // so they go only into the log, as causes.
+    let gone = matches!(e, StoreError::Missing(_));
+    let unusable = matches!(
+        e,
+        StoreError::Damaged(_) | StoreError::Manifest(_) | StoreError::Identity(_)
+    );
+    let error = Error::from(
+        color_eyre::Report::new(e).wrap_err(format!("Failed to read the image {manifest}")),
+    );
+    if gone || unusable {
+        Unserved::NoImage { gone, error }
+    } else {
+        Unserved::Failed(error)
+    }
+}
+
 /// The client view of the content image `content_id` of `uuid`, from its manifest (which
-/// is checked against its id as it is read). Blocking.
+/// is checked against its id as it is read), ready to send. Blocking.
 fn served_view(
     store: &Store,
     uuid: &InstanceUuid,
     content_id: &str,
 ) -> Result<ServedView, Unserved> {
-    // What a player sees is only the top message: the store's errors name its folders,
-    // so they go only into the log, as causes.
     let image = store
         .load_manifest(uuid.as_ref(), content_id)
-        .map_err(|e| {
-            let gone = matches!(e, StoreError::Missing(_));
-            let unusable = matches!(
-                e,
-                StoreError::Damaged(_) | StoreError::Manifest(_) | StoreError::Identity(_)
-            );
-            let error = Error::from(
-                color_eyre::Report::new(e)
-                    .wrap_err(format!("Failed to read the content image {content_id}")),
-            );
-            if gone || unusable {
-                Unserved::NoImage { gone, error }
-            } else {
-                Unserved::Failed(error)
-            }
-        })?;
+        .map_err(|e| unserved(e, content_id))?;
     let view = view(&image, Side::Client, RULES)
         .map_err(color_eyre::Report::new)
         .wrap_err(format!("Failed to compute the client view of {content_id}"))
@@ -436,9 +460,16 @@ impl ImageService {
             return Ok(None);
         };
         match self.served(uuid, &current).await {
-            Ok(view) => Ok(Some(view)),
+            Ok(view) => {
+                // Readable again (saved again by a record): the next damage is logged too.
+                locked(&self.views.unreadable).remove(uuid);
+                Ok(Some(view))
+            }
             Err(Unserved::NoImage { gone, error }) => {
-                if !gone {
+                let first = locked(&self.views.unreadable)
+                    .insert(uuid.clone(), current.clone())
+                    .is_none_or(|was| was != current);
+                if !gone && first {
                     warn!(
                         "The current content image of {uuid} can't be read; recording it again: {:#}",
                         error.source
@@ -462,7 +493,7 @@ impl ImageService {
             let stamp = super::state::stamp(&root, &id);
             let pointer = match (&cached, stamp) {
                 (Some((was, pointer)), Some(now)) if *was == now => pointer.clone(),
-                _ => super::state::current_pointer(&root, &id),
+                _ => super::state::current_pointer(&root, &id)?,
             };
             Ok((stamp, pointer))
         })
@@ -658,23 +689,39 @@ impl ImageService {
                 if seen.contains(manifest) || data {
                     continue;
                 }
-                let view_id = match store.load_header(id.as_ref(), manifest) {
-                    Ok(header) if header.kind == Kind::Content => {
-                        match served_view(&store, &id, manifest) {
-                            Ok(served) => Some(served.view.id),
-                            Err(Unserved::NoImage { error, .. } | Unserved::Failed(error)) => {
-                                warn!(
-                                    "Failed to read the content image {manifest}: {:#}",
-                                    error.source
-                                );
-                                None
-                            }
+                // Only the view's id is needed, so it isn't made ready to send. A manifest
+                // that can't be used is seen for good (a content id is its contents); one
+                // that failed to read in a way that may pass is read again by the next scan.
+                let header = store
+                    .load_header(id.as_ref(), manifest)
+                    .map_err(|e| unserved(e, manifest));
+                // A view that can't be computed from a manifest that reads fine (rules from
+                // a newer core) won't be computed by the next scan either.
+                let view_id = match header {
+                    Ok(header) if header.kind == Kind::Content => store
+                        .load_manifest(id.as_ref(), manifest)
+                        .map_err(|e| unserved(e, manifest))
+                        .map(|image| view(&image, Side::Client, RULES).ok().map(|v| v.id)),
+                    Ok(_) => Ok(None),
+                    Err(e) => Err(e),
+                };
+                let view_id = match view_id {
+                    Ok(view_id) => view_id,
+                    Err(Unserved::NoImage { gone, error }) => {
+                        if !gone {
+                            warn!(
+                                "Failed to read the image {manifest} of {id}: {:#}",
+                                error.source
+                            );
                         }
-                    }
-                    Ok(_) => None,
-                    Err(e) => {
-                        warn!("Failed to read the image {manifest} of {id}: {e}");
                         None
+                    }
+                    Err(Unserved::Failed(error)) => {
+                        warn!(
+                            "Failed to read the image {manifest} of {id}: {:#}",
+                            error.source
+                        );
+                        continue;
                     }
                 };
                 learnt.push((manifest.clone(), view_id));
@@ -764,9 +811,11 @@ impl ImageService {
             let root = self.root.clone();
             let store = self.store();
             let uuid = ctx.uuid.clone();
+            // A state file that fails to read (rather than isn't there or is damaged) is an
+            // error, not "no image": a record wouldn't mend it, and the recorder would save a
+            // state without the one it couldn't read.
             let has_image = blocking(move || {
-                Ok(super::state::load(&root, &uuid)
-                    .current
+                Ok(super::state::current_pointer(&root, &uuid)?
                     .is_some_and(|id| store.load_manifest(uuid.as_ref(), &id).is_ok()))
             })
             .await?;

@@ -42,8 +42,9 @@ pub fn pack_sha512(path: &Path) -> Option<String> {
 /// What the pack at `path` says about each file it writes into a server: an index file's
 /// `env` as written, an override's from its folder. `overrides/` is for both sides,
 /// `server-overrides/` for the server only (it replaces an `overrides/` file of the same
-/// path there), and an `overrides/` file that `client-overrides/` replaces on clients isn't
-/// what clients get, so it is unsupported on their side. Blocking.
+/// path there), and a file that `client-overrides/` replaces on clients (an `overrides/`
+/// file or an index download) isn't what clients get, so it is unsupported on their side.
+/// Blocking.
 fn pack_envs(path: &Path) -> Result<HashMap<String, Env>, Error> {
     let mut archive = open_pack(path)?;
     let index = read_index(&mut archive)?;
@@ -87,6 +88,14 @@ fn pack_envs(path: &Path) -> Result<HashMap<String, Env>, Error> {
             Ok::<_, Error>(())
         },
     )?;
+    // An index file is replaced on clients the same way: Modrinth launchers place
+    // `client-overrides/` after the downloads, so what clients get at that path is the
+    // client-overrides file, never the server's download.
+    for (path, env) in envs.iter_mut() {
+        if client_only.contains(path) {
+            env.client = EnvValue::Unsupported;
+        }
+    }
     Ok(envs)
 }
 
@@ -326,5 +335,46 @@ mod tests {
         assert!(!info.files.contains_key("mods/a.jar.disabled"));
         assert_eq!(info.files["mods/a.jar"].size, Some(3));
         assert_eq!(record_of_base(&info), record);
+    }
+
+    /// Each file's sides as the pack gives them; a file `client-overrides/` replaces on
+    /// clients (an override or an index download) is client-unsupported, since clients get
+    /// the client-overrides file there instead.
+    #[test]
+    fn pack_envs_follow_the_override_folders() {
+        use crate::modpack::tests::{fabric, file_entry, index, pack, Entry};
+        let files = vec![
+            file_entry(
+                "mods/a.jar",
+                b"a",
+                Some("required"),
+                "https://cdn.modrinth.com/a.jar",
+            ),
+            file_entry(
+                "mods/x.jar",
+                b"x",
+                Some("required"),
+                "https://cdn.modrinth.com/x.jar",
+            ),
+        ];
+        let p = pack(
+            index(files, fabric()),
+            &[
+                Entry::File("overrides/config/a.json", b"both"),
+                Entry::File("overrides/config/b.json", b"both, replaced on clients"),
+                Entry::File("client-overrides/config/b.json", b"client"),
+                Entry::File("client-overrides/mods/x.jar", b"the client's x"),
+                Entry::File("server-overrides/config/s.json", b"server"),
+            ],
+        );
+        let envs = pack_envs(&p.path).unwrap();
+        let both = Env::new(EnvValue::Required, EnvValue::Required);
+        let server_only = Env::new(EnvValue::Unsupported, EnvValue::Required);
+        assert_eq!(envs["mods/a.jar"], both);
+        assert_eq!(envs["mods/x.jar"], server_only);
+        assert_eq!(envs["config/a.json"], both);
+        assert_eq!(envs["config/b.json"], server_only);
+        assert_eq!(envs["config/s.json"], server_only);
+        assert!(!envs.contains_key("options.txt"));
     }
 }

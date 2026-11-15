@@ -3,12 +3,21 @@
 //! macOS starts a program from launchd or Terminal with a soft limit of 256 open files, and
 //! the core, as Lodestone Host's child, inherits it. That is easily reached: every player
 //! download holds a socket and a file or two of the image store, a record holds the files
-//! it walks, and the servers' consoles hold pipes. So the core raises its soft limit to its
-//! hard limit at startup, which needs no privilege. The servers it starts inherit the
-//! raised limit.
+//! it walks, and the servers' consoles hold pipes. So the core raises its soft limit at
+//! startup, which needs no privilege, to [`WANTED`] or the hard limit if that is lower. The
+//! servers it starts inherit the raised limit, which is why it is capped: in containers and
+//! under systemd the hard limit is often a million or more, and some programs a server may
+//! start loop over every possible descriptor (to close them before running a child) or use
+//! `select`, and slow down or break with a limit that large.
 
-/// Raises the soft limit on open files as far as the hard limit allows. A failure only
-/// leaves the limit as it was.
+/// The soft limit the core asks for: ample for its 64 downloads and its records, and what
+/// macOS allows at most (it refuses a soft limit above `OPEN_MAX`, 10240, even under an
+/// unlimited hard one).
+#[cfg(unix)]
+const WANTED: libc::rlim_t = 10240;
+
+/// Raises the soft limit on open files to [`WANTED`], within the hard limit; never lowers
+/// it. A failure only leaves the limit as it was.
 #[cfg(unix)]
 pub(crate) fn raise_limit() {
     let mut limit = libc::rlimit {
@@ -19,13 +28,7 @@ pub(crate) fn raise_limit() {
     if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) } != 0 {
         return;
     }
-    #[allow(unused_mut)]
-    let mut wanted = limit.rlim_max;
-    // macOS refuses a soft limit above OPEN_MAX (10240), even under an unlimited hard one.
-    #[cfg(target_vendor = "apple")]
-    {
-        wanted = wanted.min(10240);
-    }
+    let wanted = limit.rlim_max.min(WANTED);
     if wanted <= limit.rlim_cur {
         return;
     }
@@ -69,6 +72,7 @@ mod tests {
         let after = limit();
         assert!(after.rlim_cur >= before.rlim_cur);
         assert!(after.rlim_cur <= after.rlim_max);
+        assert!(after.rlim_cur <= before.rlim_cur.max(super::WANTED));
         assert_eq!(after.rlim_max, before.rlim_max);
         super::raise_limit();
         assert_eq!(limit().rlim_cur, after.rlim_cur);
