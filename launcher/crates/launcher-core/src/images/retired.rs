@@ -163,7 +163,7 @@ impl Images {
         };
         for file in [
             super::state::FILE,
-            "restore-journal.json",
+            super::swap::JOURNAL_FILE,
             "stat-cache.json",
         ] {
             let _ = std::fs::remove_file(dir.join(file));

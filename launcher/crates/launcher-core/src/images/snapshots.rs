@@ -634,7 +634,23 @@ impl Images {
     ) -> Result<(), ImageError> {
         let policy = SnapshotPolicy::of(ctx.instance.snapshots.as_ref());
         let now = chrono::Utc::now().timestamp();
-        let ids = data_to_delete(records, now, &policy, just_created);
+        // A snapshot being restored is read meanwhile ([`Images::keep_while`]).
+        let held: Vec<String> = self
+            .keep
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&ctx.id)
+            .cloned()
+            .unwrap_or_default();
+        let ids: Vec<String> = data_to_delete(records, now, &policy, just_created)
+            .into_iter()
+            .filter(|id| {
+                records
+                    .iter()
+                    .find(|r| &r.id == id)
+                    .is_none_or(|r| !held.contains(&r.image))
+            })
+            .collect();
         if ids.is_empty() {
             return Ok(());
         }

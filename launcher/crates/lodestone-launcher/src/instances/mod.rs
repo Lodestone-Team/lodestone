@@ -630,6 +630,15 @@ impl Instances {
         );
         let store = InstanceStore::new(data_dir.instances_dir());
         let images = Images::open(&data_dir);
+        // A restore a crash interrupted is finished or undone before anything can be
+        // played: on this thread, since it only renames folders back.
+        let recovery = images.recover_restores();
+        if !recovery.broken.is_empty() {
+            log::warn!(
+                "Interrupted restores of {:?} couldn't be undone; they are tried again at the next start",
+                recovery.broken
+            );
+        }
         // Instances deleted outside the Launcher (in Finder or Explorer) since it last ran:
         // their images would keep their files from every collection.
         let forgetting = images.clone();

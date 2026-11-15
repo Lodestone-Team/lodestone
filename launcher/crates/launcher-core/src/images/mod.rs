@@ -43,11 +43,15 @@ pub mod history;
 pub mod labels;
 pub mod recorder;
 pub mod retention;
+pub mod restore;
 pub mod retired;
 pub mod scope;
 pub mod snapshots;
 pub mod state;
+pub mod swap;
 
+#[cfg(test)]
+mod restore_tests;
 #[cfg(test)]
 mod snapshot_tests;
 #[cfg(test)]
@@ -70,6 +74,7 @@ pub use check::Checked;
 pub use history::{History, HistoryEntry};
 pub use recorder::{Operation, Recorded};
 pub use retention::{DEFAULT_POLICY, KEEP_CONTENT, Keep, SnapshotPolicy};
+pub use restore::{ContentDiff, RestorePreview, RestoreScope, Restored, WorldChange};
 pub use retired::{CleanedUp, Retired, RetiredMarker};
 pub use snapshots::{RiskyChange, SnapshotKind, SnapshotRecord, Snapshots, Take};
 
