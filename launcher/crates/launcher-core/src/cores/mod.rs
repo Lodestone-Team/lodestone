@@ -34,6 +34,7 @@ pub mod link;
 pub mod live;
 pub mod local_claim;
 pub mod models;
+pub mod player_image;
 pub mod server_list;
 pub mod store;
 pub mod sync;

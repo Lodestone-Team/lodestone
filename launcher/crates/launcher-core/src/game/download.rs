@@ -93,12 +93,12 @@ impl Progress {
         self.bytes_done.store(0, Ordering::Relaxed);
     }
 
-    fn add_bytes(&self, bytes: u64) {
+    pub(crate) fn add_bytes(&self, bytes: u64) {
         self.bytes_done.fetch_add(bytes, Ordering::Relaxed);
     }
 
     /// Takes back bytes counted for an attempt that failed.
-    fn sub_bytes(&self, bytes: u64) {
+    pub(crate) fn sub_bytes(&self, bytes: u64) {
         let mut done = self.bytes_done.load(Ordering::Relaxed);
         while let Err(actual) = self.bytes_done.compare_exchange_weak(
             done,
@@ -110,7 +110,7 @@ impl Progress {
         }
     }
 
-    fn file_done(&self) {
+    pub(crate) fn file_done(&self) {
         self.files_done.fetch_add(1, Ordering::Relaxed);
     }
 }
