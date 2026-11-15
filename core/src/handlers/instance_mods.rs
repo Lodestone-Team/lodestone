@@ -205,7 +205,9 @@ async fn install_mod(
     // keeps other Mods-tab changes out, and downloads land under temporary names that are
     // never content, so a record meanwhile sees at worst a jar added before the older
     // version went; the record of the install's own label takes the finished state.
-    let op = state.images.begin_job(&uuid, String::new());
+    let mut op = state.images.begin_job(&uuid, String::new());
+    // It writes only in the mods (or plugins) folder.
+    op.wrote(vec![folder.directory().to_string()]);
     let (start, event_id) = Event::new_progression_event_start(
         format!("Installing {}", project.title),
         None,

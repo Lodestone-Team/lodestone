@@ -28,7 +28,6 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -45,7 +44,7 @@ use crate::types::InstanceUuid;
 
 use super::base::{BaseFile, BaseInfo};
 use super::env::{self, JarFacts, ModrinthHint};
-use super::excludes::canonical_excludes;
+use super::excludes::canonical_excludes_where;
 use super::layout::{game_of, server_layout, server_settings, InstanceContext};
 use super::scope::{content_filter, exclude_reaches_content, SCOPE_RULES};
 use super::state::ContentState;
@@ -80,14 +79,68 @@ pub struct Recorded {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Queued {
     pub(crate) label: String,
-    /// For a job's label ([`ImageService::begin_job`]): how many new images the instance
-    /// had recorded when the job began (`Slot::new_images`). A job holds no gate, so a
-    /// record of another operation can take in its finished files before it succeeds; its
-    /// own record then finds nothing changed and adds its label to that image, but only
-    /// when a new image was recorded after it began. Otherwise the job changed no content
-    /// (an unzip of a world, a copy into a folder the policy excludes) and its label is
-    /// dropped, as any operation's that changed nothing.
-    pub(crate) job: Option<u64>,
+    /// For a job's label ([`ImageService::begin_job`]). A job holds no gate, so a record of
+    /// another operation can take in its finished files before it succeeds; its own record
+    /// then finds nothing changed and adds its label to the current image, but only when
+    /// the entries under what the job wrote differ between the image that was current when
+    /// it began and that one ([`Jobs`]). Otherwise the job changed no content (an unzip of a
+    /// world, a copy into a folder the policy excludes, an install that rewrote the same
+    /// bytes), whatever else was recorded meanwhile, and its label is dropped, as any
+    /// operation's that changed nothing.
+    pub(crate) job: Option<JobLabel>,
+}
+
+/// A job's part in its queued label.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct JobLabel {
+    /// Its id among the instance's [`Jobs`].
+    pub(crate) id: u64,
+    /// What it wrote ([`Operation::wrote`]): disk paths relative to the server folder,
+    /// `/`-separated, a folder standing for everything in it. `None`: not known, so any
+    /// content file.
+    pub(crate) wrote: Option<Vec<String>>,
+}
+
+/// An instance's jobs ([`ImageService::begin_job`]) that began and whose labels aren't
+/// recorded yet (nor dropped): for each, the image that was current before the first new
+/// image recorded since it began.
+#[derive(Debug, Default)]
+pub(crate) struct Jobs {
+    next: u64,
+    /// `None` while no new image was recorded since the job began; then the image the
+    /// first one was recorded after (`Some(None)`: there was none).
+    running: HashMap<u64, Option<Option<String>>>,
+}
+
+impl Jobs {
+    fn begin(&mut self) -> u64 {
+        let id = self.next;
+        self.next += 1;
+        self.running.insert(id, None);
+        id
+    }
+
+    /// A record wrote a new image after `parent`.
+    fn recorded(&mut self, parent: &Option<String>) {
+        for since in self.running.values_mut() {
+            since.get_or_insert_with(|| parent.clone());
+        }
+    }
+
+    /// Forgets the job `id`; returns the image that was current before the first new image
+    /// recorded since it began, if one was.
+    fn end(&mut self, id: u64) -> Option<Option<String>> {
+        self.running.remove(&id).flatten()
+    }
+
+    /// Forgets the jobs of labels that will never be recorded.
+    pub(crate) fn forget(&mut self, labels: &[Queued]) {
+        for queued in labels {
+            if let Some(job) = &queued.job {
+                self.running.remove(&job.id);
+            }
+        }
+    }
 }
 
 /// Labels waiting to be recorded, and when they came.
@@ -101,7 +154,7 @@ pub(crate) struct Pending {
 }
 
 impl Pending {
-    pub(crate) fn push(&mut self, label: String, job: Option<u64>, now: Instant) {
+    pub(crate) fn push(&mut self, label: String, job: Option<JobLabel>, now: Instant) {
         if !label.is_empty() {
             self.labels.push(Queued { label, job });
         }
@@ -138,10 +191,6 @@ impl Pending {
         self.first.get_or_insert(now);
         self.last.get_or_insert(now);
     }
-
-    pub(crate) fn clear(&mut self) {
-        self.take();
-    }
 }
 
 /// How an operation holds the instance's content gate: the guards are only held, never
@@ -162,11 +211,21 @@ pub struct Operation {
     uuid: InstanceUuid,
     label: String,
     gate: Option<Gate>,
-    /// For a job: `Slot::new_images` when it began.
-    began: Option<u64>,
+    /// For a job: its id among the instance's [`Jobs`] and what it wrote.
+    job: Option<JobLabel>,
 }
 
 impl Operation {
+    /// For a job: what it wrote, as disk paths relative to the server folder,
+    /// `/`-separated, a folder standing for everything in it (replacing what was said
+    /// before). Its label is added to an image another record took its files in with only
+    /// when the entries under these differ ([`Queued::job`]). Not said: any content file.
+    pub fn wrote(&mut self, paths: Vec<String>) {
+        if let Some(job) = &mut self.job {
+            job.wrote = Some(paths);
+        }
+    }
+
     /// The operation succeeded: its label is recorded with whatever else succeeds within
     /// the merge window.
     pub fn succeed(mut self) {
@@ -174,7 +233,7 @@ impl Operation {
             service.queue(
                 &self.uuid,
                 std::mem::take(&mut self.label),
-                self.began,
+                self.job.take(),
                 true,
             );
         }
@@ -199,12 +258,26 @@ impl Operation {
         service.queue(
             &self.uuid,
             std::mem::take(&mut self.label),
-            self.began,
+            self.job.take(),
             false,
         );
         // The record takes the gate alone: let go of this operation's share first.
         drop(self.gate.take());
         service.record(ctx, None, None).await
+    }
+}
+
+impl Drop for Operation {
+    /// A job that ends without succeeding is forgotten.
+    fn drop(&mut self) {
+        if let (Some(service), Some(job)) = (&self.service, &self.job) {
+            service
+                .slot(&self.uuid)
+                .jobs
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .end(job.id);
+        }
     }
 }
 
@@ -223,7 +296,7 @@ impl ImageService {
                 uuid: uuid.clone(),
                 label,
                 gate: None,
-                began: None,
+                job: None,
             };
         }
         let gate = self.slot(uuid).gate.clone().read_owned().await;
@@ -232,7 +305,7 @@ impl ImageService {
             uuid: uuid.clone(),
             label,
             gate: Some(Gate::Shared(gate)),
-            began: None,
+            job: None,
         }
     }
 
@@ -240,7 +313,8 @@ impl ImageService {
     /// unzip into the server folder): it holds no gate, so it never holds up the server's
     /// records, or the operations waiting behind one, for as long as it runs. A record that
     /// runs meanwhile may take the job's files half written; the record of the job's own
-    /// label, queued when it succeeds, takes them whole.
+    /// label, queued when it succeeds, takes them whole. Say what it wrote with
+    /// [`Operation::wrote`].
     pub fn begin_job(self: &Arc<Self>, uuid: &InstanceUuid, label: impl Into<String>) -> Operation {
         let accepted = Self::accepts(uuid);
         Operation {
@@ -248,7 +322,15 @@ impl ImageService {
             uuid: uuid.clone(),
             label: label.into(),
             gate: None,
-            began: accepted.then(|| self.slot(uuid).new_images.load(Ordering::SeqCst)),
+            job: accepted.then(|| JobLabel {
+                id: self
+                    .slot(uuid)
+                    .jobs
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .begin(),
+                wrote: None,
+            }),
         }
     }
 
@@ -274,15 +356,30 @@ impl ImageService {
             uuid: uuid.clone(),
             label,
             gate,
-            began: None,
+            job: None,
         }
     }
 
     /// Queues a label (`job`: from a job); with `spawn`, makes sure a task records it when
     /// it is due.
-    fn queue(self: &Arc<Self>, uuid: &InstanceUuid, label: String, job: Option<u64>, spawn: bool) {
+    fn queue(
+        self: &Arc<Self>,
+        uuid: &InstanceUuid,
+        label: String,
+        job: Option<JobLabel>,
+        spawn: bool,
+    ) {
         let slot = self.slot(uuid);
         let now = self.clock.now();
+        if label.is_empty() {
+            // Nothing to label an image with: the job is done.
+            if let Some(job) = &job {
+                slot.jobs
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .end(job.id);
+            }
+        }
         let start = {
             let mut pending = slot.pending.lock().unwrap_or_else(|e| e.into_inner());
             pending.push(label, job, now);
@@ -323,9 +420,15 @@ impl ImageService {
                 }
                 let Some(ctx) = this.context(&uuid).await else {
                     // The server is gone.
-                    let mut pending = slot.pending.lock().unwrap_or_else(|e| e.into_inner());
-                    pending.clear();
-                    pending.worker = false;
+                    let dropped = {
+                        let mut pending = slot.pending.lock().unwrap_or_else(|e| e.into_inner());
+                        pending.worker = false;
+                        pending.take()
+                    };
+                    slot.jobs
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .forget(&dropped);
                     return;
                 };
                 if let Err(e) = this.flush(ctx).await {
@@ -434,17 +537,26 @@ impl ImageService {
         }
         match self.record_locked(&ctx, &labels, threads).await {
             Ok(recorded) => {
-                if recorded.changed {
-                    slot.new_images.fetch_add(1, Ordering::SeqCst);
-                } else {
-                    let recorded_since = slot.new_images.load(Ordering::SeqCst);
-                    let jobs: Vec<String> = labels
-                        .iter()
-                        .filter(|q| q.job.is_some_and(|began| recorded_since > began))
-                        .map(|q| q.label.clone())
-                        .collect();
-                    self.add_job_labels(&ctx, &recorded.id, jobs).await;
+                let mut finished = Vec::new();
+                {
+                    let mut jobs = slot.jobs.lock().unwrap_or_else(|e| e.into_inner());
+                    if recorded.changed {
+                        jobs.recorded(&recorded.parent);
+                    }
+                    for queued in &labels {
+                        let Some(job) = &queued.job else { continue };
+                        // A job whose label this image has, or one no new image was
+                        // recorded since it began: nothing more to add.
+                        if let Some(before) = jobs.end(job.id).filter(|_| !recorded.changed) {
+                            finished.push(FinishedJob {
+                                label: queued.label.clone(),
+                                wrote: job.wrote.clone(),
+                                before,
+                            });
+                        }
+                    }
                 }
+                self.add_job_labels(&ctx, &recorded.id, finished).await;
                 Ok(recorded)
             }
             Err(e) => {
@@ -577,24 +689,55 @@ impl ImageService {
         .await
     }
 
-    /// A record that found nothing changed, with the labels `jobs` of jobs a new image was
-    /// recorded after they began ([`Queued::job`]): that record took in the jobs' finished
-    /// files before they succeeded, so the current image `id` holds what they did. Their
+    /// A record that found nothing changed, with the jobs `jobs` a new image was recorded
+    /// after they began ([`Queued::job`]): when the entries under what a job wrote differ
+    /// between the image current before then and the current image `id`, a record took in
+    /// the job's finished files before it succeeded, so `id` holds what it did. Those jobs'
     /// labels are added to its label (the label isn't part of the id, so the manifest is
-    /// saved again under the same id), rather than lost. A failure is only logged: the
-    /// files are recorded either way. Called with the instance's lock held.
-    async fn add_job_labels(&self, ctx: &InstanceContext, id: &str, jobs: Vec<String>) {
+    /// saved again under the same id), rather than lost; the others changed no content.
+    /// When that can't be told (an image since pruned), the label is added. A failure is
+    /// only logged: the files are recorded either way. Called with the instance's lock held.
+    async fn add_job_labels(&self, ctx: &InstanceContext, id: &str, jobs: Vec<FinishedJob>) {
         if jobs.is_empty() {
             return;
         }
         let store = self.store();
         let uuid = ctx.uuid.clone();
         let id = id.to_string();
+        let ctx = ctx.clone();
         let saved = blocking(move || {
             let mut image = store
                 .load_manifest(uuid.as_ref(), &id)
                 .map_err(|e| color_eyre::eyre::eyre!("{e}"))?;
-            let texts: Vec<String> = image.label.iter().cloned().chain(jobs).collect();
+            let layout = server_layout(&ctx.root, &ctx.level_name, &ctx.flavour)
+                .ok()
+                .map(|(layout, _)| layout);
+            let mut earlier: HashMap<String, Option<Image>> = HashMap::new();
+            let mut added = Vec::new();
+            for job in jobs {
+                let before = match &job.before {
+                    None => Some(None),
+                    Some(before) => earlier
+                        .entry(before.clone())
+                        .or_insert_with(|| store.load_manifest(uuid.as_ref(), before).ok())
+                        .as_ref()
+                        .map(Some),
+                };
+                let changed = match (before, &layout) {
+                    (Some(before), Some(layout)) => {
+                        wrote_differs(before, &image, layout, job.wrote.as_deref())
+                    }
+                    // Can't tell: keep the label rather than lose it.
+                    _ => true,
+                };
+                if changed {
+                    added.push(job.label);
+                }
+            }
+            if added.is_empty() {
+                return Ok(());
+            }
+            let texts: Vec<String> = image.label.iter().cloned().chain(added).collect();
             let label = join_labels(&texts);
             if label == image.label {
                 return Ok(());
@@ -695,6 +838,53 @@ impl ImageService {
     }
 }
 
+/// A job whose label a record that found nothing changed took ([`Queued::job`]).
+struct FinishedJob {
+    label: String,
+    wrote: Option<Vec<String>>,
+    /// The image current before the first new image recorded since it began (`None`:
+    /// there was none).
+    before: Option<String>,
+}
+
+/// Whether the entries under `wrote` (disk paths, a folder standing for everything in it;
+/// `None`: all) differ between `before` (`None`: no image) and `now`.
+fn wrote_differs(
+    before: Option<&Image>,
+    now: &Image,
+    layout: &DiskLayout,
+    wrote: Option<&[String]>,
+) -> bool {
+    let under = |entry: &Entry| match wrote {
+        None => true,
+        Some(paths) => match layout.to_disk(&entry.path) {
+            Ok(disk) => paths.iter().any(|path| covers(path, &disk)),
+            // Can't tell where it is: count it.
+            Err(_) => true,
+        },
+    };
+    let side = |image: Option<&Image>| -> BTreeMap<String, (String, u32)> {
+        image
+            .into_iter()
+            .flat_map(|image| image.entries.iter())
+            .filter(|entry| under(entry))
+            .map(|entry| (entry.path.to_string(), (entry.sha256.clone(), entry.mode)))
+            .collect()
+    };
+    side(before) != side(Some(now))
+}
+
+/// Whether the disk path `path` (a folder standing for everything in it) is or holds
+/// `disk`.
+fn covers(path: &str, disk: &str) -> bool {
+    let path = path.trim_matches('/');
+    path.is_empty()
+        || disk == path
+        || disk
+            .strip_prefix(path)
+            .is_some_and(|rest| rest.starts_with('/'))
+}
+
 struct Built {
     image: Image,
     snapshot: Snapshot,
@@ -703,17 +893,21 @@ struct Built {
 }
 
 /// The server's disk layout and canonical excludes, for its content: blocking. Only the
-/// excludes that can reach a content file ([`exclude_reaches_content`]): a world's, say,
-/// change neither what a content image holds nor its id. They are sorted and without
+/// excludes that can reach a content file ([`exclude_reaches_content`]), chosen before the
+/// patterns are cut to an image's budgets: a world's, say, change neither what a content
+/// image holds nor its id, nor which content patterns fit. They are sorted and without
 /// duplicates, as an image keeps them, so they compare equal to the ones a record saved
 /// with its baseline.
 pub(crate) fn content_scope(ctx: &InstanceContext) -> Result<(DiskLayout, Vec<String>), Error> {
     let (layout, _) = server_layout(&ctx.root, &ctx.level_name, &ctx.flavour)?;
+    // Left out before the patterns are cut to an image's budgets, so a world's patterns
+    // never push out one that reaches content.
     let mut excludes = match &layout {
-        DiskLayout::Server(server) => canonical_excludes(&ctx.policy_exclude, server).canonical,
+        DiskLayout::Server(server) => {
+            canonical_excludes_where(&ctx.policy_exclude, server, exclude_reaches_content).canonical
+        }
         DiskLayout::Client => Vec::new(),
     };
-    excludes.retain(|pattern| exclude_reaches_content(pattern));
     excludes.sort();
     excludes.dedup();
     Ok((layout, excludes))
@@ -971,7 +1165,7 @@ mod tests {
         assert_eq!(pending.deadline(), None);
         pending.push("a".into(), None, start);
         assert_eq!(pending.deadline(), Some(start + MERGE_WINDOW));
-        pending.push("b".into(), Some(0), start + Duration::from_secs(2));
+        pending.push("b".into(), Some(job(0)), start + Duration::from_secs(2));
         assert_eq!(
             pending.deadline(),
             Some(start + Duration::from_secs(2) + MERGE_WINDOW)
@@ -995,11 +1189,25 @@ mod tests {
             label: label.into(),
             job,
         };
-        busy.push("later".into(), Some(0), start);
+        busy.push("later".into(), Some(job(0)), start);
         busy.restore(vec![queued("first", None)], start);
         assert_eq!(
             busy.take(),
-            vec![queued("first", None), queued("later", Some(0))]
+            vec![queued("first", None), queued("later", Some(job(0)))]
         );
+    }
+
+    fn job(id: u64) -> JobLabel {
+        JobLabel { id, wrote: None }
+    }
+
+    #[test]
+    fn a_folder_a_job_wrote_covers_what_is_in_it() {
+        assert!(covers("", "server.properties"));
+        assert!(covers("world", "world/region/r.0.0.mca"));
+        assert!(covers("world/", "world/level.dat"));
+        assert!(covers("mods/a.jar", "mods/a.jar"));
+        assert!(!covers("world", "world_nether/level.dat"));
+        assert!(!covers("mods/a.jar", "mods/a.jar.disabled"));
     }
 }

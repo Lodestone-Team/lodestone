@@ -778,10 +778,14 @@ of M2 adds its own subsection.
   files half written; the record of its own label, after it succeeded, takes them whole; when
   a record of another operation took them in whole before the job succeeded, the job's record
   finds nothing changed and adds the job's label to that image, saving its manifest again
-  under the same id, so "Added JEI" isn't lost; only when a new image was recorded after the
-  job began, though: otherwise the job changed no content, such as an unzip of a world or a
-  copy into a folder the policy excludes, and its label is dropped like any operation's that
-  changed nothing). A
+  under the same id, so "Added JEI" isn't lost; only when the entries under what the job
+  wrote differ between the image current before the first new image recorded since it began
+  and that image, though: otherwise the job changed no content, such as an unzip of a world,
+  a copy into a folder the policy excludes or an install that rewrote the same bytes, and its
+  label is dropped like any operation's that changed nothing, whatever else was recorded
+  meanwhile. A job says what it wrote (`Operation::wrote`): a copy its landing paths, a zip
+  its archive, an unzip what it placed in the destination, an install the mods or plugins
+  folder; when that image was pruned meanwhile, the label is kept). A
   modpack update or restore begins with `ImageService::begin_exclusive`, which waits for
   every Files API operation (not the jobs, which hold no gate) and keeps new ones out, so
   none lands between its last check of the files and their placement; placing a new file
@@ -792,8 +796,8 @@ of M2 adds its own subsection.
   latest; a failed operation (dropped without `succeed`) records nothing. A record snapshots
   the content scope with the policy's translated excludes that can reach content (written
   into the image's `excludes`; a pattern anchored under a path where nothing is content, a
-  world's `saves/<level>/…` or `/logs/`, is left out, so editing it changes no content
-  image) and the `content` stat cache, on one thread while the server runs; the image's
+  world's `saves/<level>/…` or `/logs/`, is left out before the patterns are cut to an
+  image's budgets, so editing it changes no content image, nor which content patterns fit) and the `content` stat cache, on one thread while the server runs; the image's
   game is the server's (Paper and Spigot: `vanilla`), its settings only the flavour for now,
   and its `parent` the current image. Recording the same contents again writes no manifest.
   Every file is listed as an entry, the pack's too, with explicit sources: `modrinth` for a pack download whose bytes are the pack's (or a file whose

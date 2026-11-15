@@ -35,6 +35,17 @@ const BUKKIT_END: &str = ".bukkit_the_end";
 
 /// Translates a policy's patterns for a server with `layout` (see the module).
 pub fn canonical_excludes(policy: &[String], layout: &ServerLayout) -> Translated {
+    canonical_excludes_where(policy, layout, |_| true)
+}
+
+/// [`canonical_excludes`], keeping only the canonical patterns `keep` accepts (a content
+/// image's: those that can reach content). The others are left out before the patterns are
+/// cut to an image's budgets, so they never push out one that is kept.
+pub fn canonical_excludes_where(
+    policy: &[String],
+    layout: &ServerLayout,
+    keep: impl Fn(&str) -> bool,
+) -> Translated {
     let mut out = Translated::default();
     for pattern in policy {
         match translate(pattern, layout) {
@@ -43,7 +54,7 @@ pub fn canonical_excludes(policy: &[String], layout: &ServerLayout) -> Translate
                     if pattern_error(&canonical).is_some() {
                         // Too long once `saves/<world>/` is added, say.
                         push_unique(&mut out.untranslated, pattern.clone());
-                    } else {
+                    } else if keep(&canonical) {
                         push_unique(&mut out.canonical, canonical);
                     }
                 }

@@ -564,9 +564,9 @@ impl ContentScope {
 
     /// Starts a content operation labelled `label` when any of `paths` (each with whether
     /// it is a folder) is covered: one that holds the content gate, or with `job` a long
-    /// job's, which doesn't ([`ImageService::begin_job`]). Begin it after every permission
-    /// check passed and right before the change; dropping it without succeeding records
-    /// nothing.
+    /// job's, which doesn't ([`ImageService::begin_job`]) and writes `paths` (or what is in
+    /// them; [`Operation::wrote`]). Begin it after every permission check passed and right
+    /// before the change; dropping it without succeeding records nothing.
     async fn begin(
         &self,
         state: &AppState,
@@ -582,10 +582,23 @@ impl ContentScope {
             return None;
         }
         Some(if job {
-            state.images.begin_job(uuid, label)
+            let mut op = state.images.begin_job(uuid, label);
+            if let Some(wrote) = self.disk_paths(paths.iter().map(|(path, _)| *path)) {
+                op.wrote(wrote);
+            }
+            op
         } else {
             state.images.begin(uuid, label).await
         })
+    }
+
+    /// `paths` (in the instance folder) as disk paths, for [`Operation::wrote`]; `None`
+    /// when one isn't in it or can't be one.
+    fn disk_paths<'a>(&self, paths: impl IntoIterator<Item = &'a FsPath>) -> Option<Vec<String>> {
+        paths
+            .into_iter()
+            .map(|path| disk_path(path.strip_prefix(&self.root).ok()?))
+            .collect()
     }
 }
 
@@ -1887,14 +1900,21 @@ pub async fn unzip_instance_file(
         .iter()
         .map(|dir| (dir.as_path(), true))
         .collect();
-    let op = content_job(
-        &state,
-        &uuid,
-        &root,
-        &landing,
-        format!("Unzipped {}", label_path(&root, &path_to_zip_file)),
-    )
-    .await;
+    let scope = ContentScope::of(&state, &uuid, &root).await;
+    let mut op = match &scope {
+        Some(scope) => {
+            scope
+                .begin(
+                    &state,
+                    &uuid,
+                    &landing,
+                    format!("Unzipped {}", label_path(&root, &path_to_zip_file)),
+                    true,
+                )
+                .await
+        }
+        None => None,
+    };
     let check = code_entry_check(
         root,
         destinations,
@@ -1915,6 +1935,13 @@ pub async fn unzip_instance_file(
         event_broadcaster.send(progression_event_start);
 
         let result = unzip_file_checked_async(path_to_zip_file, unzip_option, check).await;
+        if let (Ok(placed), Some(op), Some(scope)) = (&result, &mut op, &scope) {
+            // What it placed in the destination, rather than all of it: an unzip of a world
+            // into the server folder wrote no content.
+            if let Some(wrote) = scope.disk_paths(placed.iter().map(PathBuf::as_path)) {
+                op.wrote(wrote);
+            }
+        }
         if let Err(e) = result {
             event_broadcaster.send(Event::new_progression_event_end(
                 event_id,

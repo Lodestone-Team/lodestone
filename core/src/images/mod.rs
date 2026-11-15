@@ -146,10 +146,9 @@ pub(crate) struct Slot {
     /// Around saving manifests, moving the pointer and pruning.
     pub(crate) lock: Arc<Mutex<()>>,
     pub(crate) pending: StdMutex<recorder::Pending>,
-    /// How many new images records have written since the core started: a job's label is
-    /// added to an image only if one was written after the job began
-    /// ([`recorder::Queued::job`]).
-    pub(crate) new_images: std::sync::atomic::AtomicU64,
+    /// The jobs whose labels aren't recorded yet, and the image current before the first
+    /// new image recorded since each began ([`recorder::Queued::job`]).
+    pub(crate) jobs: StdMutex<recorder::Jobs>,
     /// How many stops' content work hasn't finished ([`ImageService::begin_stop`]).
     stops: tokio::sync::watch::Sender<usize>,
 }
@@ -160,7 +159,7 @@ impl Default for Slot {
             gate: Default::default(),
             lock: Default::default(),
             pending: Default::default(),
-            new_images: Default::default(),
+            jobs: Default::default(),
             stops: tokio::sync::watch::Sender::new(0),
         }
     }
@@ -387,10 +386,15 @@ impl ImageService {
         let slot = self.slot(uuid);
         let _gate = slot.gate.clone().write_owned().await;
         let _lock = slot.lock.clone().lock_owned().await;
-        slot.pending
+        let dropped = slot
+            .pending
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .clear();
+            .take();
+        slot.jobs
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .forget(&dropped);
         let store = self.store();
         let id = uuid.clone();
         blocking(move || {

@@ -636,6 +636,106 @@ async fn a_job_that_changed_no_content_labels_nothing() {
 }
 
 #[tokio::test]
+async fn a_job_that_changed_no_content_labels_nothing_while_other_changes_record() {
+    let s = setup_with(ManualClock::new());
+    fabric_server(&s.root);
+    let ctx = context(&s.root, fabric());
+    s.images
+        .record_now(ctx.clone(), "Created".into())
+        .await
+        .unwrap();
+    let label = |id: &str| {
+        s.manifests()
+            .into_iter()
+            .find(|i| i.id == id)
+            .unwrap()
+            .label
+    };
+
+    // An unzip into the server folder runs while an edit of server.properties records an
+    // image. The unzip placed only world files: its label is dropped, not added to the
+    // edit's image.
+    let mut unzip = s.images.begin_job(&uuid(), "Unzipped world.zip");
+    write(&s.root, "server.properties", b"level-name=world\nmotd=hi\n");
+    let edit = s
+        .images
+        .begin(&uuid(), "Edited server.properties")
+        .await
+        .succeed_and_record(ctx.clone())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(edit.changed);
+    write(&s.root, "world/region/r.0.0.mca", b"unzipped region");
+    unzip.wrote(vec!["world".into()]);
+    unzip.succeed();
+    let again = s.images.flush(ctx.clone()).await.unwrap().unwrap();
+    assert!(!again.changed);
+    assert_eq!(again.id, edit.id);
+    assert_eq!(label(&edit.id).as_deref(), Some("Edited server.properties"));
+
+    // An install that only wrote the bytes the jar already had changed nothing either.
+    let mut install = s.images.begin_job(&uuid(), "Updated A");
+    install.wrote(vec!["mods".into()]);
+    write(&s.root, "config/a.toml", b"a = 3");
+    let config = s
+        .images
+        .begin(&uuid(), "Edited config/a.toml")
+        .await
+        .succeed_and_record(ctx.clone())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(config.changed);
+    write(&s.root, "mods/a.jar", b"mod a");
+    install.succeed();
+    let again = s.images.flush(ctx.clone()).await.unwrap().unwrap();
+    assert_eq!(again.id, config.id);
+    assert_eq!(label(&config.id).as_deref(), Some("Edited config/a.toml"));
+
+    // One whose files that record took in still adds its label.
+    let mut install = s.images.begin_job(&uuid(), "Added JEI");
+    install.wrote(vec!["mods".into()]);
+    write(&s.root, "mods/jei.jar", b"jei");
+    write(&s.root, "config/a.toml", b"a = 4");
+    let config = s
+        .images
+        .begin(&uuid(), "Edited config/a.toml")
+        .await
+        .succeed_and_record(ctx.clone())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(config.changed);
+    install.succeed();
+    let again = s.images.flush(ctx).await.unwrap().unwrap();
+    assert_eq!(again.id, config.id);
+    assert_eq!(
+        label(&config.id).as_deref(),
+        Some("Edited config/a.toml; Added JEI")
+    );
+}
+
+#[test]
+fn excludes_that_reach_no_content_never_push_out_one_that_does() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("server");
+    fabric_server(&root);
+    let mut ctx = context(&root, fabric());
+    // More world patterns than an image's search budget holds, then a content pattern.
+    let mut policy: Vec<String> = (0..64).map(|n| format!("world/*tmp{n}*/")).collect();
+    policy.push("config/*secret*".into());
+    ctx.policy_exclude = policy.clone();
+    let (_, before) = recorder::content_scope(&ctx).unwrap();
+    assert_eq!(before, vec!["config/*secret*".to_string()]);
+    // Removing a world pattern changes nothing.
+    policy.remove(0);
+    ctx.policy_exclude = policy;
+    let (_, after) = recorder::content_scope(&ctx).unwrap();
+    assert_eq!(after, before);
+}
+
+#[tokio::test]
 async fn excludes_that_reach_no_content_change_no_content_image() {
     let s = setup();
     fabric_server(&s.root);
