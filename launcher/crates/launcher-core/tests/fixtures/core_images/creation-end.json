@@ -1,0 +1,71 @@
+{
+  "event_inner": {
+    "type": "ProgressionEvent",
+    "event_id": "533632679460081664",
+    "progression_event_inner": {
+      "type": "ProgressionEnd",
+      "success": true,
+      "message": "Server created successfully. 1 file(s) can't be downloaded here and were left out: mods/cf.jar. 1 mod(s) that run only on clients were removed: zoom.jar. 1 script file(s) were left out: only the owner can add scripts, while code execution is on",
+      "inner": {
+        "type": "InstanceCreation",
+        "uuid": "INSTANCE_f0adc05a-19bf-4abd-a4d7-dc03134b96f6",
+        "name": "From a file",
+        "game_type": {
+          "type": "MinecraftJava",
+          "variant": {
+            "type": "Fabric"
+          }
+        },
+        "description": "",
+        "version": "1.21.1",
+        "port": 25671,
+        "creation_time": 1794758745,
+        "path": "/var/folders/gc/n8j_s1h902vgddrrjdkc59540000gn/T/.tmpHQtP6r/instances/From a file-f0adc05a",
+        "auto_start": false,
+        "restart_on_crash": false,
+        "state": "Stopped",
+        "player_count": 0,
+        "max_player_count": 20,
+        "player_list": [],
+        "icon_url": null,
+        "modpack": null,
+        "loader_version": "0.16.10",
+        "min_ram": 2048,
+        "max_ram": 4096,
+        "outcome": {
+          "not_downloaded": {
+            "names": [],
+            "count": 0
+          },
+          "no_source": {
+            "names": [
+              "mods/cf.jar"
+            ],
+            "count": 1
+          },
+          "client_jars": {
+            "names": [
+              "zoom.jar"
+            ],
+            "count": 1
+          },
+          "secrets": {
+            "names": [],
+            "count": 0
+          },
+          "settings_removed": {
+            "names": [],
+            "count": 0
+          },
+          "scripts": 1
+        }
+      }
+    }
+  },
+  "details": "",
+  "snowflake": "533632679917260802",
+  "level": "Info",
+  "caused_by": {
+    "type": "System"
+  }
+}

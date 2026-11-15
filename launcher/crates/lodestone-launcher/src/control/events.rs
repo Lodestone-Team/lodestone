@@ -241,7 +241,7 @@ impl Notices {
                 None,
                 Value::Null,
             ),
-            ServersEvent::ShowServers => {}
+            ServersEvent::ShowServers | ServersEvent::ImportWorld { .. } => {}
         }
     }
 

@@ -1292,14 +1292,16 @@
       h("p", sv("DifferentModsBody", { changes: "" }), svp("ModsAdded", { count: 2 }), ", ", svp("ModsUpdated", { count: 1 }), ", ", svp("ModsRemoved", { count: 1 }), ", ", svp("OtherFiles", { count: 3 })),
       card([sv("ChangeNew", { name: "Create 0.5.1" }), sv("ChangeChanged", { name: "Sodium 0.5.13" }), sv("ChangeRemoved", { name: "OptiFabric" }), sv("ChangeConfig", { name: "config/create.toml" })].map((x) => h("div.lx-row", { style: { minHeight: "40px" } }, x))), h("div.lx-muted", sv("NoChanges"))],
       [pbtn(sv("UpdateAndPlay"), () => ctx.close()), btn(sv("PlayAnyway"), { on: () => ctx.close() }), btn(cm("Cancel"), { on: () => ctx.close() })]),
-    hostOnCore: (ctx) => { const st = ctx.state.host; return dialog(ctx, sv("HostTitle"), st === "done" ? [note(svp("HostDone", { name: "All the mods", core: "Peter's Lodestone Core", port: 25566, count: 42 }), "ok"), h("p.lx-muted", svp("HostDoneRelinked", { name: "All the mods", core: "Peter's Lodestone Core", port: 25566, count: 42, server: "Old SMP" }))] :
-      st === "progress" ? [waitBox(sv("StageUploading", { size: "3.2 MB" })), h("div.lx-muted", sv("StageExporting"), " \u00b7 ", sv("StageSigningIn"), " \u00b7 ", sv("StageCreating"))] : [
+    hostOnCore: (ctx) => { const st = ctx.state.host; const eula = h("div", { style: { display: "flex", alignItems: "center", gap: "10px" } }, check(sv("EulaAgree", { url: "https://aka.ms/MinecraftEULA" })), gbtn(sv("ReadEula"), null, "ext"));
+      return dialog(ctx, sv("HostTitle"), st === "done" ? [note(sv("HostCreated", { name: "All the mods", core: "Peter's Lodestone Core", port: 25566 }), "ok"), h("p.lx-muted", sv("HostCreatedRelinked", { server: "Old SMP" })), h("span.lx-muted", sv("HostLeftOut"))] :
+      st === "progress" ? [h("p.lx-muted", sv("HostIntro", { name: "All the mods" })), waitBox(sv("HostStageSending", { done: "90 MB", total: "180 MB" })), h("div.lx-muted", sv("StageExporting"), " \u00b7 ", sv("HostStageReading"))] :
+      st === "summary" ? [h("div.lx-form", h("span.lx-muted", sv("ServerName")), field("All the mods"), h("span.lx-muted", sv("HostPort")), field("25566")), eula] :
+      st === "creating" ? [waitBox(sv("StageCreating")), h("p.lx-muted", sv("HostCreatingHint"))] : [
         h("p.lx-muted", sv("HostIntro", { name: "All the mods" })),
-        h("div.lx-form", h("span.lx-muted", sv("CoreLabel")), select(tx("Peter's Lodestone Core")), h("span.lx-muted", sv("ServerName")), field("All the mods"), h("span.lx-muted", sv("Memory")), field("4096 MB")),
-        h("div.lx-muted", sv("GamePortHint", { port: 25565 })), check(sv("ShowOnServersPage"), true),
-        h("div", { style: { display: "flex", alignItems: "center", gap: "10px" } }, check(sv("EulaAgree", { url: "https://aka.ms/MinecraftEULA" })), gbtn(sv("ReadEula"), null, "ext")),
-        st === "errors" ? note([sv("NameTheServer"), " ", sv("AgreeEulaFirst"), " ", sv("HostNeedsPassword", { computer: "this Mac" }), " ", sv("AddCoreFirst"), " ", sv("CoreGone"), " ", sv("InstanceGone"), " ", sv("PackNotKept"), " ", sv("SignedOutRightAway")], "err") : null],
-      [st === "done" ? btn(cm("Done"), { on: () => ctx.close() }) : pbtn(sv("CreateServer"), () => ctx.set("host", "progress")), st === "done" ? null : btn(cm("Cancel"), { on: () => ctx.close() })]) },
+        h("div.lx-form", h("span.lx-muted", sv("CoreLabel")), select(tx("Peter's Lodestone Core")), h("span.lx-muted", sv("HostWorlds")), check(tx("Survival island · 182 MB"), true), h("span.lx-muted", sv("Memory")), field("4096 MB")),
+        h("div.lx-muted", sv("HostWorldsHint")), h("div.lx-muted", sv("HostNoWorlds")),
+        st === "errors" ? note([sv("NameTheServer"), " ", sv("HostNameForbidden"), " ", sv("HostNameTooLong"), " ", sv("HostNameControl"), " ", sv("HostPortInvalid"), " ", sv("AgreeEulaFirst"), " ", sv("HostNeedsPassword", { computer: "this Mac" }), " ", sv("AddCoreFirst"), " ", sv("CoreGone"), " ", sv("InstanceGone"), " ", sv("SignedOutRightAway"), " ", sv("HostTooOld", { core: "Peter's Lodestone Core" }), " ", sv("HostNoPermission", { core: "Peter's Lodestone Core" }), " ", sv("HostGameRunning"), " ", sv("HostStillCreating"), " ", sv("HostCreationFailed", { error: "no room" }), " ", sv("HostCreationFailedPlain")], "err") : null],
+      [st === "done" ? pbtn(sv("ShowOnServersPage"), () => ctx.close()) : st === "summary" ? pbtn(sv("CreateServer"), () => ctx.set("host", "creating")) : st === "creating" ? btn(cm("Close"), { on: () => ctx.close() }) : pbtn(cm("Continue"), () => ctx.set("host", "progress")), st === "done" || st === "creating" ? null : btn(cm("Cancel"), { on: () => ctx.close() })]) },
     joinLan: (ctx) => dialog(ctx, sv("JoinWorld", { world: "Steve's world" }), [h("p.lx-muted", sv("PickInstance", { address: "192.168.1.31:51234" })),
       ctx.state.instances === "none" ? h("p", sv("NoInstancesYet")) : card(INST.slice(1, 4).map((i, n) => h("div.lx-row", { style: { minHeight: "48px" } }, h("span.lx-radio" + (n === 0 ? ".on" : ""), h("i")), grass(), h("div.lx-row-main", tx(i.name), h("div.lx-row-s", tx(i.ver))))))],
       [pbtn(sv("Join"), () => ctx.close()), btn(cm("Cancel"), { on: () => ctx.close() })], { narrow: true }),
@@ -1567,7 +1569,7 @@
     join: ST("Join a friend dialog", "paste invalid empty connecting slow reading ready readyMods readyLinked readyInstance readyLocal portTaken starting busy failed noPath stopped ended notSharing wrongHost offline service tunnel"),
     addFriend: ST("Add friend dialog", "start made preview added notLink paste other already needName"),
     importState: ST("Import dialog", "list looking none progress"),
-    host: ST("Host on a core dialog", "form errors progress done"),
+    host: ST("Host on a core dialog", "form errors progress summary creating done"),
     advisory: ST("Mods advisory", "new update offline"),
     copyAs: ST("Copy with another version or loader", "newer same older vanilla reading checking offline failed noMods"),
     unsavedWhere: ST("Unsaved changes dialog", "instance this defaults"),

@@ -24,6 +24,7 @@ use gpui::{
 };
 use launcher_core::game::download::CancelToken;
 use launcher_core::images::export::{self, ExportReport, ImportPreview};
+use launcher_core::images::from_server::{PackPlatform, PackShare, SkipReason};
 use launcher_core::images::{
     ContentDiff, RestorePreview, RestoreScope, SnapshotKind, SnapshotRecord, Take,
 };
@@ -131,6 +132,17 @@ pub fn mods_differ(diff: &ContentDiff) -> bool {
 
 /// How many names a list of files in the import and export dialogs shows before "…".
 const LISTED_NAMES: usize = 8;
+
+/// Why a downloaded world's instance lacks its server's modpack's own files, said in the
+/// window's language.
+pub(crate) fn pack_skipped(why: SkipReason) -> String {
+    t(match why {
+        SkipReason::Gone => M::ImportPackSkippedGone,
+        SkipReason::Curseforge => M::ImportPackSkippedCurseforge,
+        SkipReason::Failed => M::ImportPackSkipped,
+    })
+    .to_string()
+}
 
 /// The first [`LISTED_NAMES`] of `names` as a list, and "…" when there are more: a file
 /// from someone else can name a million, and the dialog draws the line every frame.
@@ -343,6 +355,21 @@ impl Instances {
     pub fn snapshot_exports_dir(&self) -> PathBuf {
         self.data_dir.cache_dir().join("snapshot-exports")
     }
+
+    /// Where "Host this" writes the file it sends ([`launcher_core::cores::hosting`]).
+    pub fn host_uploads_dir(&self) -> PathBuf {
+        self.data_dir
+            .cache_dir()
+            .join(launcher_core::cores::hosting::UPLOADS_FOLDER)
+    }
+
+    /// Where "Download this world" saves the file it gets
+    /// ([`launcher_core::cores::world_download`]).
+    pub fn world_downloads_dir(&self) -> PathBuf {
+        self.data_dir
+            .cache_dir()
+            .join(launcher_core::cores::world_download::DOWNLOADS_FOLDER)
+    }
 }
 
 /// What the Settings tab (and the window) asks the shell to open.
@@ -354,6 +381,12 @@ pub enum SnapshotRequest {
     Delete(String, String),
     /// An image file to make a new instance from.
     Import(PathBuf),
+    /// A server's world "Download this world" got: an instance is made from it as from a
+    /// file, named after the server, and the file is deleted when the dialog goes.
+    ImportDownloaded {
+        file: Arc<launcher_core::cores::world_download::Downloaded>,
+        server: String,
+    },
 }
 
 pub struct SnapshotRequested(pub SnapshotRequest);
@@ -397,6 +430,12 @@ pub struct SnapshotDialog {
     instance_id: Option<String>,
     snapshot: Option<SnapshotRecord>,
     import_path: Option<PathBuf>,
+    /// Import: a world downloaded from this server, kept (and so its file) while the
+    /// dialog is open.
+    downloaded: Option<(
+        Arc<launcher_core::cores::world_download::Downloaded>,
+        String,
+    )>,
     /// Restore: what it would do.
     preview: Option<RestorePreview>,
     /// Import: what the file holds.
@@ -432,6 +471,8 @@ impl EventEmitter<SnapshotDismissed> for SnapshotDialog {}
 impl Drop for SnapshotDialog {
     fn drop(&mut self) {
         // An export left before it is written stops (its partial file is removed).
+        // A downloaded world's file goes with `downloaded`, deleted away from the window
+        // (`Downloaded`'s own drop).
         self.cancel.cancel();
     }
 }
@@ -453,12 +494,18 @@ impl SnapshotDialog {
                 .with_placeholder(M::InstanceSnapshots)
                 .with_automation_id("snapshot-name")
         });
+        let mut downloaded = None;
         let (mode, instance_id, snapshot_id, import_path) = match request {
             SnapshotRequest::Take(id) => (Mode::Take, Some(id), None, None),
             SnapshotRequest::Restore(id, s) => (Mode::Restore, Some(id), Some(s), None),
             SnapshotRequest::Export(id, s) => (Mode::Export, Some(id), Some(s), None),
             SnapshotRequest::Delete(id, s) => (Mode::Delete, Some(id), Some(s), None),
             SnapshotRequest::Import(path) => (Mode::Import, None, None, Some(path)),
+            SnapshotRequest::ImportDownloaded { file, server } => {
+                let path = file.path().to_path_buf();
+                downloaded = Some((file, server));
+                (Mode::Import, None, None, Some(path))
+            }
         };
         let mut this = Self {
             instances,
@@ -466,6 +513,7 @@ impl SnapshotDialog {
             instance_id,
             snapshot: None,
             import_path,
+            downloaded,
             preview: None,
             import: None,
             choice: Choice::Worlds,
@@ -533,12 +581,19 @@ impl SnapshotDialog {
                     .file_stem()
                     .map(|s| s.to_string_lossy().trim().to_string())
                     .filter(|s| !s.is_empty());
-                let read = cx.background_spawn(async move {
-                    let preview = export::inspect(&path)?;
-                    Ok::<_, launcher_core::images::ImageError>((
-                        preview,
-                        launcher_core::disk::free_space(&root),
-                    ))
+                let server = self.downloaded.as_ref().map(|(_, server)| server.clone());
+                let read = cx.background_spawn({
+                    let server = server.clone();
+                    async move {
+                        let preview = match &server {
+                            Some(server) => export::inspect_from_host(&path, server)?,
+                            None => export::inspect(&path)?,
+                        };
+                        Ok::<_, launcher_core::images::ImageError>((
+                            preview,
+                            launcher_core::disk::free_space(&root),
+                        ))
+                    }
                 });
                 self._work = Some(cx.spawn(async move |this, cx| {
                     let result = read.await;
@@ -546,8 +601,15 @@ impl SnapshotDialog {
                         match result {
                             Ok((preview, free)) => {
                                 // Exports are named "<instance> - <snapshot>": the file's
-                                // name says more than the snapshot's label alone.
-                                let name = stem.unwrap_or_else(|| preview.name_shown.clone());
+                                // name says more than the snapshot's label alone. A
+                                // server's world is named after the server.
+                                let name = match (&preview.from_server, server) {
+                                    (_, Some(server)) => export::shown_name(&server),
+                                    (Some(from), None) => from.name.clone(),
+                                    (None, None) => {
+                                        stem.unwrap_or_else(|| preview.name_shown.clone())
+                                    }
+                                };
                                 this.name.update(cx, |input, cx| input.set_text(name, cx));
                                 this.import = Some(preview);
                                 this.import_free = free;
@@ -680,9 +742,20 @@ impl SnapshotDialog {
 
     /// Whether closing now would cut work short: taking, restoring or importing goes on
     /// until it ends or Cancel stops it, and the dialog shows how it ends; reading or
-    /// writing a file to share, or deleting, can be left.
-    fn busy(&self) -> bool {
+    /// writing a file to share, or deleting, can be left. The shell queues a dialog
+    /// that would replace this one while it is busy.
+    pub(crate) fn busy(&self) -> bool {
         busy(&self.state)
+    }
+
+    /// Puts the dialog in the middle of work, or out of it, for the shell's tests.
+    #[cfg(all(test, feature = "screenshot"))]
+    pub(crate) fn test_set_working(&mut self, working: bool) {
+        self.state = if working {
+            State::Working(M::ImportingSnapshot)
+        } else {
+            State::Ready
+        };
     }
 
     /// Cancel: closes the dialog, or, while work it shows runs, stops that work (the
@@ -935,6 +1008,9 @@ impl SnapshotDialog {
         let room = export::room_on(instances.store().root().to_path_buf());
         let name = self.name.read(cx).text().trim().to_string();
         let expected = self.import.as_ref().map(|preview| preview.image.clone());
+        // the downloaded file stays while the import reads it, whatever the dialog does
+        let keep = self.downloaded.as_ref().map(|(file, _)| file.clone());
+        let server = self.downloaded.as_ref().map(|(_, server)| server.clone());
         let progress = Arc::new(launcher_core::game::download::Progress::default());
         self.import_progress = Some(progress.clone());
         launcher_core::trace::emit("snapshot.import", || serde_json::json!({}));
@@ -944,6 +1020,7 @@ impl SnapshotDialog {
                 let Some(modrinth) = modrinth else {
                     return Err(t(M::ImportNeedsModrinth).to_string());
                 };
+                let _keep = keep;
                 futures::executor::block_on(launcher_core::http::in_http_runtime(
                     export::import_file(
                         &images,
@@ -952,9 +1029,12 @@ impl SnapshotDialog {
                             modrinth: &modrinth,
                             curseforge: curseforge.as_deref(),
                         },
-                        &path,
-                        Some(&name),
-                        expected.as_deref(),
+                        export::ImportRequest {
+                            name: Some(&name),
+                            expect_image: expected.as_deref(),
+                            server: server.as_deref(),
+                            ..export::ImportRequest::new(&path)
+                        },
                         &room,
                         &progress,
                         cancel,
@@ -972,18 +1052,30 @@ impl SnapshotDialog {
             |instances, imported, cx| {
                 instances.reload(cx);
                 instances.select(&imported.instance.id, cx);
-                // Files no download confirmed (it failed, or wasn't possible) whose bytes
-                // neither the file nor the store had: the new instance lacks them, so say
-                // which.
+                // What the new instance lacks, in one notice (a second would replace the
+                // first): files no download confirmed (it failed, or wasn't possible) whose
+                // bytes neither the file nor the store had, and a server's modpack whose
+                // client share couldn't be had (the files only its players use).
+                let mut said: Vec<(&'static str, String)> = Vec::new();
                 if !imported.left_out.is_empty() {
                     let names: Vec<String> = imported
                         .left_out
                         .iter()
                         .map(|p| launcher_core::images::display_text(p).into_owned())
                         .collect();
+                    said.push((
+                        t(M::ImportLeftOutTitle),
+                        tr!(M::ImportLeftOut, files = shortened(&names)),
+                    ));
+                }
+                if let Some(PackShare::Skipped { why, .. }) = &imported.server_pack {
+                    said.push((t(M::ImportPackSkippedTitle), pack_skipped(*why)));
+                }
+                if let Some((title, _)) = said.first() {
+                    let message: Vec<String> = said.iter().map(|(_, m)| m.clone()).collect();
                     cx.emit(super::InstancesEvent::Notice {
-                        title: t(M::ImportLeftOutTitle).into(),
-                        message: tr!(M::ImportLeftOut, files = shortened(&names)).into(),
+                        title: (*title).into(),
+                        message: message.join("\n\n").into(),
                         about: super::About::Instance(imported.instance.id.clone()),
                     });
                 }
@@ -1004,6 +1096,14 @@ impl SnapshotDialog {
             Mode::Restore => tr!(M::RestoreTitle, name = name).into(),
             Mode::Export => tr!(M::ExportTitle, name = name).into(),
             Mode::Delete => tr!(M::DeleteSnapshotTitle, name = name).into(),
+            Mode::Import
+                if self
+                    .import
+                    .as_ref()
+                    .is_some_and(|p| p.from_server.is_some()) =>
+            {
+                t(M::ImportServerTitle).into()
+            }
             Mode::Import => t(M::ImportSnapshotTitle).into(),
         }
     }
@@ -1251,6 +1351,44 @@ impl SnapshotDialog {
                 )));
             }
             body = body.child(warning);
+        }
+        if let Some(from) = &preview.from_server {
+            body = body.child(muted(trn!(
+                P::ImportFromServer,
+                from.not_taken,
+                server = from.server_shown
+            )));
+            if !from.server_only_mods.is_empty() {
+                body = body.child(muted(tr!(
+                    M::ImportServerOnlyMods,
+                    names = shortened(&from.server_only_mods)
+                )));
+            }
+            match from.modpack {
+                // the pack's client share places jars no count above names: warned as mods are
+                Some(PackPlatform::Modrinth) => {
+                    body = body.child(note(t(M::ImportServerPack).to_string()));
+                }
+                Some(PackPlatform::Curseforge) => {
+                    body = body.child(note(t(M::ImportServerPackCurseforge).to_string()));
+                }
+                None => {}
+            }
+            // what the core itself took out of the file before sending it
+            if let Some((downloaded, _)) = &self.downloaded {
+                let exported = &downloaded.exported;
+                // what a player would miss: the server software is never a player's
+                let left_out = &exported.left_out_for_players;
+                if !left_out.is_empty() {
+                    body = body.child(muted(tr!(M::ImportHostLeftOut, files = left_out.joined())));
+                }
+                if !exported.blanked.is_empty() {
+                    body = body.child(muted(tr!(
+                        M::ImportHostBlanked,
+                        names = exported.blanked.joined()
+                    )));
+                }
+            }
         }
         if preview.download_bytes > 0 {
             body = body.child(muted(tr!(

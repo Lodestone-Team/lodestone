@@ -362,13 +362,11 @@ crate::i18n::messages! {
         // ===== "Host on Lodestone", from an instance's Settings =====
         HostTitle = "Host on Lodestone",
         ShowOnServersPage = "Show on the Lodestone Host page",
-        HostIntro = "Makes a server from {name}'s mods and configs, as a Modrinth modpack. Client-only mods from Modrinth are left out. The server is created stopped.",
         /// The label over the choice of host.
         CoreLabel = "Host",
         PasswordNotKept = "Your password is sent once to sign in, and isn't kept.",
         ServerName = "Server name",
         Memory = "Memory",
-        GamePortHint = "The game port is the first free one from {port} on the host's machine.",
         EulaAgree = "I agree to the Minecraft EULA ({url}). The host accepts it for the new server.",
         /// Opens https://aka.ms/MinecraftEULA in the browser.
         ReadEula = "Read the EULA",
@@ -377,15 +375,59 @@ crate::i18n::messages! {
         HostNeedsPassword = "Enter your username and password for this host. Creating a server needs more than the key on {computer} may do.",
         AgreeEulaFirst = "Agree to the Minecraft EULA first: the host accepts it for the new server.",
         StageExporting = "Exporting the instance…",
-        StageSigningIn = "Signing in…",
-        /// {size} is "3.2 MB".
-        StageUploading = "Uploading the modpack ({size})…",
         StageCreating = "Creating the server…",
         CoreGone = "That host is gone.",
         InstanceGone = "The instance is gone.",
-        PackNotKept = "The host didn't keep the modpack.",
         SignedOutRightAway = "The host signed you out right after signing in. Try again.",
         AddCoreFirst = "Add your host on the Lodestone Host page first.",
+        HostIntro = "Makes a server on a host from {name}: its mods and configs, and the worlds you pick. Mods only players need, your accounts and your own settings stay here. The server is created stopped.",
+        HostWorlds = "Worlds to send",
+        HostWorldsHint = "You pick which one becomes the server’s world next. Send none for a new world.",
+        HostNoWorlds = "This instance has no worlds: the server makes a new one.",
+        HostWorldsLoading = "Looking for the instance’s worlds…",
+        /// {done} and {total} are sizes ("90 MB of 180 MB").
+        HostStageSending = "Sending it to the host ({done} of {total})…",
+        HostStageReading = "The host is reading the file…",
+        HostPort = "Port",
+        HostPortInvalid = "Enter a port from 1 to 65535.",
+        HostNameForbidden = "A server’s name can’t have / \\ : * ? \" < > |",
+        HostNameTooLong = "A server’s name can have at most 100 characters.",
+        HostNameControl = "A server’s name can’t have control characters.",
+        HostCreatingHint = "You can close this window: the host goes on setting up the server, and this instance is linked to it once it’s ready.",
+        /// The server was made: {name} on the host {core}, on {port}.
+        HostCreated = "{name} is on {core}, on port {port}. It’s stopped: start it from the Lodestone Host page or the dashboard when you’re ready. This instance is linked to it, so Play joins it.",
+        /// The server was made, but its instance was deleted meanwhile.
+        HostCreatedUnlinked = "{name} is on {core}, on port {port}. It’s stopped: start it from the Lodestone Host page or the dashboard when you’re ready. The instance was deleted meanwhile, so nothing is linked to it.",
+        HostCreatedRelinked = "This instance was linked to {server}; it now belongs to the new server.",
+        /// Over the lines that say what the new server didn't get.
+        HostLeftOut = "Not on the server",
+        HostCreationFailed = "The host couldn’t make the server: {error}",
+        HostCreationFailedPlain = "The host couldn’t make the server.",
+        HostStillCreating = "The host is still setting up the server. It shows on the Lodestone Host page once it’s ready; this instance isn’t linked to it yet.",
+        /// {core} is the host's name.
+        HostTooOld = "{core}’s Lodestone is too old to make servers from files. Update it on that computer, then try again.",
+        HostNoPermission = "Your user on {core} can’t create servers. Ask its owner.",
+        HostGameRunning = "Quit the game first: its worlds can’t be sent while it runs.",
+        DownloadWorldAction = "Download this world…",
+        DownloadWorldTitle = "Download {server}’s world",
+        DownloadWorldIntro = "Makes a new instance on this computer from a backup of {server}: its world, with the mods its players get. The server’s settings, operators and plugins stay on it.",
+        DownloadWorldSignIn = "Sign in with a user who can read this server’s files.",
+        DownloadWorldNeedsPassword = "Enter your username and password for this host.",
+        DownloadWorldBackups = "Backup",
+        DownloadWorldMidWrite = "taken while it ran, may be caught mid-write",
+        DownloadWorldBackUpNow = "Back up now",
+        DownloadWorldBackUpNowHint = "A backup of the server as it is now",
+        DownloadWorldButton = "Download",
+        DownloadWorldBackingUp = "The host is backing the server up…",
+        DownloadWorldPreparing = "The host is preparing the file…",
+        DownloadWorldDownloading = "Downloading ({done} of {total})…",
+        DownloadWorldTooOld = "{core}’s Lodestone is too old to send a world. Update it on that computer, then try again.",
+        DownloadWorldForbidden = "Your user can’t read this server’s files, so its world can’t be downloaded. Ask its owner.",
+        DownloadWorldNoBackups = "The server has no backups yet. Back it up first.",
+        DownloadWorldNothingToDownload = "This server has no backups, and your user can’t back it up. Ask its owner to back it up, then try again.",
+        DownloadWorldBackupForbidden = "Your user can’t back this server up. Pick one of its backups instead.",
+        DownloadWorldBackupFailed = "The backup failed: {error}",
+        DownloadWorldCancelled = "The download was cancelled.",
 
         // ===== Worlds opened to LAN =====
         LanListenFailed = "Couldn't listen for LAN worlds: {error}",
@@ -531,14 +573,5 @@ crate::i18n::messages! {
         ScriptFiles = ("{count} script file", "{count} script files"),
         /// Under a list that shows the first few.
         AndMore = ("and {count} more", "and {count} more"),
-        HostDone = (
-            "{name} is on {core}, on port {port}. The host is setting it up now: it installs Fabric and downloads {count} mod file from Modrinth.\n\nThe server is stopped. Start it from the Lodestone Host page or the dashboard when you're ready; this instance is ready to join it.",
-            "{name} is on {core}, on port {port}. The host is setting it up now: it installs Fabric and downloads {count} mod files from Modrinth.\n\nThe server is stopped. Start it from the Lodestone Host page or the dashboard when you're ready; this instance is ready to join it."
-        ),
-        /// The same, for an instance that was linked to another server: {server}.
-        HostDoneRelinked = (
-            "{name} is on {core}, on port {port}. The host is setting it up now: it installs Fabric and downloads {count} mod file from Modrinth.\n\nThe server is stopped. Start it from the Lodestone Host page or the dashboard when you're ready; this instance is ready to join it. This instance was linked to {server}; it now belongs to the new server.",
-            "{name} is on {core}, on port {port}. The host is setting it up now: it installs Fabric and downloads {count} mod files from Modrinth.\n\nThe server is stopped. Start it from the Lodestone Host page or the dashboard when you're ready; this instance is ready to join it. This instance was linked to {server}; it now belongs to the new server."
-        ),
     }
 }

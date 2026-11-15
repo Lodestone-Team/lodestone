@@ -18,6 +18,7 @@
 pub mod add_dialog;
 pub mod detail;
 mod detail_view;
+pub mod download_world;
 pub mod extras;
 pub mod friend_list;
 mod friend_list_view;
@@ -668,6 +669,11 @@ pub enum ServersEvent {
     },
     /// Show the Servers page.
     ShowServers,
+    /// "Download this world" got a server's world: make an instance from it.
+    ImportWorld {
+        file: std::sync::Arc<launcher_core::cores::world_download::Downloaded>,
+        server: String,
+    },
 }
 
 /// A row is keyed by core and server.

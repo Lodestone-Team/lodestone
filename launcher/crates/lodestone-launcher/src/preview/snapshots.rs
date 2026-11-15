@@ -21,6 +21,10 @@ pub fn is_scene(scene: &str) -> bool {
     scene == "snapshots" || scene.starts_with("snapshot-")
 }
 
+/// A Fabric server's backup a real core exported (launcher-core's test fixture).
+const SERVER_BACKUP: &[u8] =
+    include_bytes!("../../../launcher-core/tests/fixtures/core_images/fabric-backup.lodeimg");
+
 /// The file the import scene opens.
 fn import_file(data_dir: &DataDir) -> PathBuf {
     data_dir
@@ -146,6 +150,61 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
         }
         "snapshot-export" => SnapshotRequest::Export(id, named("Before 1.21")),
         "snapshot-delete" => SnapshotRequest::Delete(id, named("Before updating Sodium")),
+        "snapshot-import-server" => {
+            // a server's backup a core exported, as "Download this world" gets it
+            let file = data_dir
+                .root()
+                .join("Survival - 20261112-141000-a1b2.lodeimg");
+            let _ = std::fs::write(&file, SERVER_BACKUP);
+            SnapshotRequest::Import(file)
+        }
+        "snapshot-import-server-downloaded" => {
+            // the same backup through "Download this world", with what the host took out
+            let file = data_dir.root().join("downloaded-world.lodeimg");
+            let _ = std::fs::write(&file, SERVER_BACKUP);
+            let exported = serde_json::from_value(serde_json::json!({
+                "left_out": {"names": ["config/simplevoice.toml", "eula.txt", "plugins/LuckPerms/config.yml"], "count": 3},
+                "left_out_for_players": {"names": ["config/simplevoice.toml"], "count": 1},
+                "blanked": {"names": ["server.properties: rcon.password"], "count": 1}
+            }))
+            .unwrap_or_default();
+            SnapshotRequest::ImportDownloaded {
+                file: std::sync::Arc::new(
+                    launcher_core::cores::world_download::Downloaded::preview(file, exported),
+                ),
+                server: "Survival SMP".into(),
+            }
+        }
+        "snapshot-import-pack-skipped" => {
+            // the import made, without the files only the server's modpack's players use
+            instances.update(cx, |_, cx| {
+                cx.emit(crate::instances::InstancesEvent::Notice {
+                    title: t(M::ImportPackSkippedTitle).into(),
+                    message: crate::instances::snapshots::pack_skipped(
+                        launcher_core::images::from_server::SkipReason::Gone,
+                    )
+                    .into(),
+                    about: crate::instances::About::Instance(id.clone()),
+                })
+            });
+            return;
+        }
+        "snapshot-import-server-done" => {
+            // what the import says once made, when some of the server's mods couldn't
+            // be downloaded
+            instances.update(cx, |_, cx| {
+                cx.emit(crate::instances::InstancesEvent::Notice {
+                    title: t(M::ImportLeftOutTitle).into(),
+                    message: crate::i18n::tr!(
+                        M::ImportLeftOut,
+                        files = "mods/lithium.jar, mods/sodium.jar"
+                    )
+                    .into(),
+                    about: crate::instances::About::Instance(id.clone()),
+                })
+            });
+            return;
+        }
         _ => SnapshotRequest::Import(import_file(&data_dir)),
     };
     shell.open_snapshot(request, cx);

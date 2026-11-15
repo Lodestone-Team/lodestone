@@ -686,7 +686,7 @@ async fn download_all(
     Ok(verified)
 }
 
-/// What [`place`] did, for the creation's last message.
+/// What [`place`] did, for the creation's outcome ([`super::outcome`]).
 #[derive(Debug, Default)]
 pub struct Placed {
     /// Files that couldn't be had (no download, no bytes in the file), by path.
@@ -1091,73 +1091,6 @@ async fn write_marks(image: &Image, root: &Path) -> Result<(), Error> {
     let text = serde_json::to_string_pretty(&marks)
         .map_err(|e| color_eyre::eyre::eyre!("Failed to write the marks: {e}"))?;
     crate::persist::write_atomic(&root.join("mods").join(MARKS_FILE), text, None).await
-}
-
-/// The creation's last message: what the new server didn't get.
-pub fn describe(plan_dropped: &[(String, Why)], placed: &Placed) -> Option<String> {
-    let mut parts = Vec::new();
-    let count = |why: Why| plan_dropped.iter().filter(|(_, w)| *w == why).count();
-    let names = |paths: &[String]| {
-        let shown: Vec<String> = paths
-            .iter()
-            .take(8)
-            .map(|p| display_text(p).into_owned())
-            .collect();
-        let more = if paths.len() > 8 { ", …" } else { "" };
-        format!("{}{more}", shown.join(", "))
-    };
-    if !placed.left_out.is_empty() {
-        parts.push(format!(
-            "{} file(s) couldn't be downloaded and were left out: {}",
-            placed.left_out.len(),
-            names(&placed.left_out)
-        ));
-    }
-    let no_source: Vec<String> = plan_dropped
-        .iter()
-        .filter(|(_, w)| *w == Why::NoSource)
-        .map(|(p, _)| p.clone())
-        .collect();
-    if !no_source.is_empty() {
-        parts.push(format!(
-            "{} file(s) can't be downloaded here and were left out: {}",
-            no_source.len(),
-            names(&no_source)
-        ));
-    }
-    if !placed.client_jars.is_empty() {
-        parts.push(format!(
-            "{} mod(s) that run only on clients were removed: {}",
-            placed.client_jars.len(),
-            names(&placed.client_jars)
-        ));
-    }
-    let secrets: Vec<String> = plan_dropped
-        .iter()
-        .filter(|(_, w)| *w == Why::Secret)
-        .map(|(p, _)| p.clone())
-        .collect();
-    if !secrets.is_empty() {
-        parts.push(format!(
-            "{} file(s) holding a key to the server, a password or a token were left out, so the server writes its defaults: {}",
-            secrets.len(),
-            names(&secrets)
-        ));
-    }
-    if !placed.settings_removed.is_empty() {
-        parts.push(format!(
-            "{} settings file(s) couldn't be checked for keys to the server and were left out, so the server writes its defaults: {}",
-            placed.settings_removed.len(),
-            names(&placed.settings_removed)
-        ));
-    }
-    let scripts = count(Why::Script);
-    if scripts > 0 {
-        parts.push(format!(
-            "{scripts} script file(s) were left out: only the owner can add scripts, while code execution is on"
-        ));
-    }
-    (!parts.is_empty()).then(|| parts.join(". "))
 }
 
 #[cfg(test)]

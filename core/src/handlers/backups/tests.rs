@@ -229,6 +229,48 @@ fn the_hosts_bodies_are_read() {
     assert_eq!(task, json!({ "task_id": "7380000000000000001" }));
 }
 
+/// Of what an export left out, a player is told only what a player would miss: never the
+/// server software, the EULA, Lodestone's files or what a client view never carries
+/// (plugins' data, the server's settings), however many there are.
+#[test]
+fn players_are_told_only_what_they_would_miss() {
+    for kept in [
+        "config/FabricProxy-Lite.toml",
+        "mods/kept/a.jar",
+        "saves/world/data/secrets.dat",
+        "kubejs/server_scripts/token.js",
+    ] {
+        assert!(missed_by_players(kept), "{kept}");
+    }
+    for software in [
+        ".lodestone_config",
+        "config/.lodestone-marks.json",
+        "eula.txt",
+        "EULA.TXT",
+        ".console_history",
+        "fabric-server-launch.jar",
+        "run.sh",
+        "user_jvm_args.txt",
+        "hs_err_pid123.log",
+        "libraries/net/fabricmc/x.jar",
+        "Versions/1.21.1/server.jar",
+        // what a player's instance never takes: the server's settings, operators and
+        // plugins' data
+        "ops.json",
+        "server.properties",
+        "Banned-IPs.json",
+        "forwarding.secret",
+        "plugins/LuckPerms/config.yml",
+        "PLUGINS/Essentials/userdata/0f0e.yml",
+        "plugins/CoreProtect/database.db",
+        "bukkit.yml",
+        "usercache.json",
+        "mods/old.jar.disabled",
+    ] {
+        assert!(!missed_by_players(software), "{software}");
+    }
+}
+
 #[tokio::test]
 async fn backups_are_listed_renamed_pinned_and_deleted() {
     let core = core().await;

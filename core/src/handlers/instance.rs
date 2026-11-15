@@ -13,8 +13,10 @@ use tracing::{error, warn};
 use crate::auth::user::UserAction;
 use crate::error::{Error, ErrorKind};
 use crate::events::{
-    CausedBy, Event, ProgressionEndValue, ProgressionEventID, ProgressionStartValue,
+    CausedBy, CreatedInstance, Event, ProgressionEndValue, ProgressionEventID,
+    ProgressionStartValue,
 };
+use crate::images::share::outcome::CreationOutcome;
 
 use crate::traits::t_configurable::GameType;
 
@@ -155,15 +157,35 @@ pub async fn create_minecraft_instance(
 
 /// A step that runs after a new Minecraft instance is set up and before it is added, such
 /// as installing a modpack. It gets the instance folder, the creation's progression event
-/// and the new instance's uuid, and returns an extra message for the end of the creation.
+/// and the new instance's uuid, and returns what the end of the creation says.
 pub(super) type PostSetupStep = Box<
     dyn FnOnce(
             PathBuf,
             ProgressionEventID,
             InstanceUuid,
-        ) -> BoxFuture<'static, Result<Option<String>, Error>>
+        ) -> BoxFuture<'static, Result<SetupDone, Error>>
         + Send,
 >;
+
+/// What a [`PostSetupStep`] tells the end of the creation.
+#[derive(Debug, Default)]
+pub(super) struct SetupDone {
+    /// An extra English sentence after "Server created successfully.".
+    pub message: Option<String>,
+    /// For a server made from a file, what it didn't get, as data for clients that
+    /// translate it (the end value's `outcome`).
+    pub outcome: Option<CreationOutcome>,
+}
+
+impl SetupDone {
+    /// Only an extra message (or none), as every creation but one from a file ends.
+    pub fn message(message: Option<String>) -> SetupDone {
+        SetupDone {
+            message,
+            outcome: None,
+        }
+    }
+}
 
 /// The progress of recording a new server's first content image, on top of the creation's
 /// `total_progress`.
@@ -243,10 +265,10 @@ pub(super) async fn spawn_minecraft_instance_creation(
                         state.code_execution.clone(),
                     )
                     .await?;
-                let (instance, message) = match post_setup {
-                    None => (instance, None),
+                let (instance, done) = match post_setup {
+                    None => (instance, SetupDone::default()),
                     Some(post_setup) => {
-                        let message =
+                        let done =
                             post_setup(setup_path.clone(), event_id.clone(), uuid.clone()).await?;
                         // read the instance again: the step may have changed its files
                         drop(instance);
@@ -257,7 +279,7 @@ pub(super) async fn spawn_minecraft_instance_creation(
                             state.code_execution.clone(),
                         )
                         .await?;
-                        (instance, message)
+                        (instance, done)
                     }
                 };
                 // finished: from now on the core loads it
@@ -270,10 +292,10 @@ pub(super) async fn spawn_minecraft_instance_creation(
                 if let Err(e) = tokio::fs::remove_file(setup_path.join(CREATING_MARKER)).await {
                     warn!("Failed to remove the new server's creation marker: {e}");
                 }
-                Ok::<_, Error>((instance, message))
+                Ok::<_, Error>((instance, done))
             }
             .await;
-            let (minecraft_instance, message) = match created {
+            let (minecraft_instance, done) = match created {
                 Ok(created) => created,
                 Err(e) => {
                     event_broadcaster.send(Event::new_progression_event_end(
@@ -333,7 +355,7 @@ pub(super) async fn spawn_minecraft_instance_creation(
             state
                 .instances
                 .insert(uuid.clone(), minecraft_instance.into());
-            let message = match message {
+            let message = match done.message {
                 Some(extra) => format!("Server created successfully. {extra}"),
                 None => "Server created successfully".to_string(),
             };
@@ -341,7 +363,10 @@ pub(super) async fn spawn_minecraft_instance_creation(
                 event_id,
                 true,
                 Some(&message),
-                Some(ProgressionEndValue::InstanceCreation(info)),
+                Some(ProgressionEndValue::InstanceCreation(CreatedInstance {
+                    info,
+                    outcome: done.outcome.map(Box::new),
+                })),
             ));
         }
     });

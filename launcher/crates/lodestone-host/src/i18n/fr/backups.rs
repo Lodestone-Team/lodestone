@@ -107,10 +107,10 @@ pub fn text(message: M) -> &'static str {
         M::BackupFailed => "Échec de la sauvegarde",
         M::RestoreDone => "Restauration terminée",
         M::RestoreFailed => "Échec de la restauration",
-        M::ExportLabel => "Exporter en fichier pour un autre Lodestone Host",
+        M::ExportLabel => "Exporter en fichier pour un autre Host ou un Launcher",
         M::ExportTitle => "Exporter « {name} »",
         M::ExportBody => {
-            "Enregistre cette sauvegarde dans un fichier .lodeimg qu’un autre Lodestone Host peut ouvrir. Les mots de passe de server.properties sont vidés, et les fichiers qui contiennent un mot de passe ou un jeton sont laissés de côté."
+            "Enregistre cette sauvegarde dans un fichier .lodeimg. Un autre Lodestone Host peut en faire un serveur, et Lodestone Launcher une instance solo de son monde. Les mots de passe de server.properties sont vidés, et les fichiers qui contiennent un mot de passe ou un jeton sont laissés de côté."
         }
         M::ExportPlugins => {
             "Inclure les paramètres des plugins (ils peuvent contenir des mots de passe)"

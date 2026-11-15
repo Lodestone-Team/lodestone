@@ -113,9 +113,9 @@ pub fn first_free_port(used: &[u32]) -> u32 {
 /// A name, port, minimum and maximum RAM that passed the checks.
 pub type CheckedSettings = (String, u32, u32, u32);
 
-/// The characters the core refuses in a new server's name (its folder's name, and what
-/// Windows can't have in one): checked here so the field says so before the request.
-pub const NAME_FORBIDDEN: &[char] = &['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
+/// The characters the core refuses in a new server's name, checked here so the field says
+/// so before the request.
+pub use launcher_core::cores::admin::instances::NAME_FORBIDDEN;
 
 /// The settings step's checks (the dashboard's `settingsSchema`): the errors by field.
 pub fn check_settings(

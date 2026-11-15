@@ -86,6 +86,8 @@ pub enum DetailEvent {
     Power(Power),
     /// The core refused the key: sign the core out.
     SignedOut,
+    /// "Download this world": a backup of the server as a new instance.
+    DownloadWorld,
 }
 
 /// Whether the server's Minecraft EULA is accepted, for those who may start it.
@@ -722,6 +724,9 @@ impl super::Servers {
             match event {
                 DetailEvent::Close => this.close_detail(cx),
                 DetailEvent::Power(power) => this.power(&core_uuid, server, *power, cx),
+                DetailEvent::DownloadWorld => {
+                    this.open_download_world(&core_uuid, &server.uuid, &server.name, cx)
+                }
                 DetailEvent::SignedOut => {
                     this.close_detail(cx);
                     if let Some(index) = this.cores.iter().position(|c| c.saved.uuid == core_uuid) {

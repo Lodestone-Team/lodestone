@@ -15,6 +15,7 @@ use launcher_core::cores::{
             InstanceEventInner, ProgressionEndValue, ProgressionEventInner, ProgressionStartValue,
             UserEventInner,
         },
+        images::CreationOutcome,
         instances::Power,
         models::GlobalSettingsData,
     },
@@ -47,21 +48,34 @@ const CREATED_PLAINLY: &str = "Server created successfully";
 /// The toast for the end of a server's creation: its failure, or what the creation flow
 /// says beyond its plain success (a file's server: what couldn't be downloaded and was
 /// left out). Another success (a backup restored as a new server, whose page already said
-/// it started) says nothing more. The core's own words, as for zipping in the Files tab.
-pub fn creation_toast(success: bool, message: Option<&str>) -> Option<Toast> {
+/// it started) says nothing more. What a file's server didn't get comes translated from
+/// the end's `outcome`; a core that sends none (from before milestone 6's second part)
+/// gives its own English words, as for zipping in the Files tab. A core's own words are
+/// shown escaped (`display_text`): the Host can be signed in to another person's core.
+pub fn creation_toast(
+    success: bool,
+    message: Option<&str>,
+    outcome: Option<&CreationOutcome>,
+) -> Option<Toast> {
     let message = message.map(str::trim).filter(|m| !m.is_empty());
-    match (success, message) {
-        (false, Some(message)) => Some(Toast::error(message.to_string())),
-        (false, None) => Some(Toast::error(crate::i18n::t(
+    match (success, message, outcome) {
+        (false, Some(message), _) => Some(Toast::error(
+            launcher_core::images::display_text(message).into_owned(),
+        )),
+        (false, None, _) => Some(Toast::error(crate::i18n::t(
             crate::i18n::InstancesMsg::CreateFailedLater,
         ))),
-        (true, Some(message)) => message
+        (true, _, Some(outcome)) => {
+            let lines = lodestone_ui::sharing::outcome_lines(outcome);
+            (!lines.is_empty()).then(|| Toast::info(lines.join("\n")))
+        }
+        (true, Some(message), None) => message
             .strip_prefix(CREATED_PLAINLY)
             .and_then(|rest| rest.strip_prefix(". "))
             .map(str::trim)
             .filter(|extra| !extra.is_empty())
-            .map(|extra| Toast::info(extra.to_string())),
-        (true, None) => None,
+            .map(|extra| Toast::info(launcher_core::images::display_text(extra).into_owned())),
+        (true, None, None) => None,
     }
 }
 
@@ -528,17 +542,24 @@ impl HostState {
                         self.creating.retain(|c| c.event_id != id);
                         // a server made in the background says how it went: what a file's
                         // server didn't get, or why it failed after it was asked for
+                        let outcome = match inner {
+                            Some(ProgressionEndValue::InstanceCreation(created)) => {
+                                created.outcome.as_ref()
+                            }
+                            _ => None,
+                        };
                         if was_creating
-                            && let Some(toast) = creation_toast(*success, message.as_deref())
+                            && let Some(toast) =
+                                creation_toast(*success, message.as_deref(), outcome)
                         {
                             self.toast(toast, cx);
                         }
                         match inner {
-                            Some(ProgressionEndValue::InstanceCreation(info)) => {
+                            Some(ProgressionEndValue::InstanceCreation(created)) => {
                                 if let Some(list) = self.instances.as_mut()
-                                    && !list.iter().any(|i| i.uuid == info.uuid)
+                                    && !list.iter().any(|i| i.uuid == created.info.uuid)
                                 {
-                                    list.push((**info).clone());
+                                    list.push(created.info.clone());
                                 }
                             }
                             Some(ProgressionEndValue::InstanceDelete { instance_uuid }) => {
@@ -647,11 +668,13 @@ mod tests {
     fn a_creation_says_how_it_went_only_when_there_is_more_to_say() {
         use lodestone_ui::components::ToastLevel;
         crate::i18n::force(crate::i18n::Locale::En);
-        assert!(creation_toast(true, Some("Server created successfully")).is_none());
-        assert!(creation_toast(true, None).is_none());
+        assert!(creation_toast(true, Some("Server created successfully"), None).is_none());
+        assert!(creation_toast(true, None, None).is_none());
+        // an older core: its English
         let left_out = creation_toast(
             true,
             Some("Server created successfully. 1 file(s) couldn't be downloaded and were left out: mods/a.jar"),
+            None,
         )
         .unwrap();
         assert_eq!(left_out.level, ToastLevel::Info);
@@ -659,13 +682,40 @@ mod tests {
             left_out.text.as_ref(),
             "1 file(s) couldn't be downloaded and were left out: mods/a.jar"
         );
+        // a core with the outcome: translated from its data
+        let outcome: CreationOutcome = serde_json::from_value(serde_json::json!({
+            "not_downloaded": {"names": ["mods/a.jar"], "count": 1}, "scripts": 1
+        }))
+        .unwrap();
+        let translated = creation_toast(
+            true,
+            Some("Server created successfully. the core's English"),
+            Some(&outcome),
+        )
+        .unwrap();
+        assert_eq!(
+            translated.text.as_ref(),
+            "1 file couldn’t be downloaded and was left out: mods/a.jar\n1 script was left out: only the owner can add scripts, while code execution is on."
+        );
+        // an outcome with nothing in it says nothing
+        assert!(
+            creation_toast(
+                true,
+                Some("Server created successfully"),
+                Some(&CreationOutcome::default())
+            )
+            .is_none()
+        );
         // a backup restored as a new server: its page said so already
-        assert!(creation_toast(true, Some("Restored the backup as Copy")).is_none());
-        let failed = creation_toast(false, Some("Server creation failed: no room")).unwrap();
+        assert!(creation_toast(true, Some("Restored the backup as Copy"), None).is_none());
+        let failed = creation_toast(false, Some("Server creation failed: no room"), None).unwrap();
         assert_eq!(failed.level, ToastLevel::Error);
         assert_eq!(failed.text.as_ref(), "Server creation failed: no room");
+        // a core's words can't hide text or span lines
+        let hostile = creation_toast(false, Some("bad \u{202E}gpj.exe\nline"), None).unwrap();
+        assert_eq!(hostile.text.as_ref(), "bad \\u{202E}gpj.exe\\u{000A}line");
         assert_eq!(
-            creation_toast(false, None).unwrap().level,
+            creation_toast(false, None, None).unwrap().level,
             ToastLevel::Error
         );
     }

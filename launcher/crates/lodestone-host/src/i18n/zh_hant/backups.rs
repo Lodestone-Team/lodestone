@@ -87,10 +87,10 @@ pub fn text(message: M) -> &'static str {
         M::BackupFailed => "備份失敗",
         M::RestoreDone => "還原完成",
         M::RestoreFailed => "還原失敗",
-        M::ExportLabel => "匯出為檔案，供其他 Lodestone Host 使用",
+        M::ExportLabel => "匯出為檔案，供其他 Host 或 Launcher 使用",
         M::ExportTitle => "匯出「{name}」",
         M::ExportBody => {
-            "將此備份儲存為 .lodeimg 檔案，其他 Lodestone Host 可以開啟。server.properties 中的密碼會被清空，含有密碼或權杖的檔案會被排除。"
+            "將此備份儲存為 .lodeimg 檔案。其他 Lodestone Host 可以用它建立伺服器，Lodestone Launcher 可以用它的世界建立單人遊戲實例。server.properties 中的密碼會被清空，含有密碼或權杖的檔案會被排除。"
         }
         M::ExportPlugins => "包含外掛設定（其中可能有密碼）",
         M::ExportPluginsHint => "外掛資料夾中的全部內容：設定、資料庫和玩家資料。",

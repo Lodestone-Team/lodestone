@@ -12,10 +12,13 @@ use gpui::{
     Styled, Subscription, Task, Window, div, prelude::*, relative,
 };
 use launcher_core::cores::admin::images::{
-    CreateFromImageRequest, ImageMaker, ImageSummary, ImageUpload, NotTaken, is_image_file,
+    CreateFromImageRequest, ImageMaker, ImageUpload, is_image_file,
 };
 use launcher_core::cores::admin::models::CorePermission;
 use launcher_core::game::download::{CancelToken, Progress};
+use lodestone_ui::sharing::{
+    Level, Picked, can_create, chosen_server, default_name, default_world, summary_lines,
+};
 use lodestone_ui::{
     components::{
         Button, ButtonVariant, Checkbox, Dropdown, ListRow, TextInput, Toast,
@@ -28,11 +31,11 @@ use lodestone_ui::{
 
 use super::{
     error_line, eula, fields, loading_line,
-    modpack::{NAME_FORBIDDEN, check_settings, first_free_port},
+    modpack::{check_settings, first_free_port},
     wizard,
 };
 use crate::{
-    i18n::{CommonMsg, InstancesMsg as M, InstancesPlural as P, format, t, tr, trn},
+    i18n::{CommonMsg, InstancesMsg as M, SharingMsg as S, format, t, tr},
     pages::parts,
     state::HostState,
 };
@@ -98,118 +101,6 @@ impl ShowsError for ImageFlow {
     fn show_error(&mut self, message: SharedString, cx: &mut Context<Self>) {
         self.toast(Toast::error(message), cx);
     }
-}
-
-/// A server's name from the file: its label without control and invisible characters,
-/// else the file's name without `.lodeimg`, at most 64 characters, with the characters a
-/// server's name can't have replaced (an unnamed backup's label has the time, `14:10`).
-pub fn default_name(summary: &ImageSummary) -> String {
-    let label = summary.label.as_deref().unwrap_or_default();
-    // the core writes invisible characters visibly (`\u{…}`): those go too
-    let visible = |text: &str| -> String {
-        let mut out = String::new();
-        let mut rest = text;
-        while let Some(at) = rest.find("\\u{") {
-            out.push_str(&rest[..at]);
-            rest = rest[at..].split_once('}').map_or("", |(_, after)| after);
-        }
-        out.push_str(rest);
-        out.chars().filter(|c| !c.is_control()).collect()
-    };
-    let label = visible(label);
-    let name = if label.trim().is_empty() {
-        let file = visible(&summary.file_name);
-        file.strip_suffix(".lodeimg").unwrap_or(&file).to_string()
-    } else {
-        label
-    };
-    name.chars()
-        .map(|c| match c {
-            ':' => '.',
-            c if NAME_FORBIDDEN.contains(&c) => '-',
-            c => c,
-        })
-        .collect::<String>()
-        .trim()
-        .chars()
-        .take(64)
-        .collect()
-}
-
-/// The note on the server made, in the Host's words: a Bukkit-family server the file names
-/// (Spigot, Purpur…) is made as Paper, said only while Paper is the server picked.
-pub fn server_note(summary: &ImageSummary, picked: Option<&str>) -> Option<String> {
-    let flavour = summary.flavour.as_deref()?;
-    let paper = picked.or(summary.server.as_deref()) == Some("Paper");
-    let relative = ["spigot", "bukkit", "purpur", "folia"]
-        .iter()
-        .any(|f| flavour.eq_ignore_ascii_case(f));
-    (paper && relative).then(|| {
-        let mut name = flavour.to_string();
-        if let Some(first) = name.get_mut(0..1) {
-            first.make_ascii_uppercase();
-        }
-        tr!(M::ImageMadeAsPaper, flavour = name)
-    })
-}
-
-/// Why no server can be made from the file, in the Host's words, when none can.
-pub fn unsupported(summary: &ImageSummary) -> Option<String> {
-    summary.unsupported.as_ref()?;
-    let mut loader = summary.loader.clone();
-    if let Some(first) = loader.get_mut(0..1) {
-        first.make_ascii_uppercase();
-    }
-    Some(tr!(M::ImageUnsupported, loader = loader))
-}
-
-/// The world picked when the summary opens: the file's own choice when it names one it
-/// has (a Host's level, a Launcher's last played world).
-pub fn default_world(summary: &ImageSummary) -> Option<String> {
-    summary
-        .default_world
-        .clone()
-        .filter(|w| summary.worlds.iter().any(|world| &world.folder == w))
-        .or_else(|| summary.worlds.first().map(|w| w.folder.clone()))
-}
-
-/// The game in a line: "Fabric 0.16.10 · Minecraft 1.21.1", "Paper · Minecraft 1.21.1".
-pub fn game_line(summary: &ImageSummary) -> String {
-    let software = summary
-        .server
-        .clone()
-        .or_else(|| summary.flavour.clone())
-        .unwrap_or_else(|| summary.loader.clone());
-    let software = match (&summary.loader_version, summary.loader.as_str()) {
-        (Some(version), loader) if loader != "vanilla" => format!("{software} {version}"),
-        _ => software,
-    };
-    format!("{software} · Minecraft {}", summary.minecraft)
-}
-
-/// The server software to ask for: the one picked, only when the file's game allows a
-/// choice and it is one of them; otherwise the core makes the file's own.
-pub fn chosen_server(summary: &ImageSummary, picked: Option<&str>) -> Option<String> {
-    let picked = picked?;
-    (summary.server_choices.len() > 1 && summary.server_choices.iter().any(|c| c == picked))
-        .then(|| picked.to_string())
-}
-
-/// What the server won't take from the file, as a list.
-fn not_taken(what: &[NotTaken]) -> String {
-    what.iter()
-        .filter_map(|n| {
-            Some(t(match n {
-                NotTaken::ServerSoftware => M::NotTakenSoftware,
-                NotTaken::Eula => M::NotTakenEula,
-                NotTaken::ClientFiles => M::NotTakenClientFiles,
-                NotTaken::Operators => M::NotTakenOperators,
-                NotTaken::Scripts => M::NotTakenScripts,
-                NotTaken::Unknown => return None,
-            }))
-        })
-        .collect::<Vec<_>>()
-        .join(", ")
 }
 
 impl ImageFlow {
@@ -522,7 +413,8 @@ impl ImageFlow {
                 "offline_mode": true, "needs_global_files": true
             })
         };
-        let summary: ImageSummary = serde_json::from_value(summary).expect("a sample summary");
+        let summary: launcher_core::cores::admin::images::ImageSummary =
+            serde_json::from_value(summary).expect("a sample summary");
         let mut this = Self::new(state, cx);
         this.open_summary(
             ImageUpload {
@@ -533,37 +425,6 @@ impl ImageFlow {
         );
         this
     }
-}
-
-/// Whether a server can be made from the file `summary` describes by someone who may
-/// (`may_write_global`) or may not change global files: not when Lodestone makes no server
-/// for it, nor when it carries protected files the person may not add, which the core
-/// always refuses whatever world is picked. No room for the default world doesn't stop
-/// it: a smaller world may fit, and the core refuses clearly when it doesn't.
-fn can_create(summary: &ImageSummary, may_write_global: bool) -> bool {
-    summary.unsupported.is_none() && (may_write_global || !summary.needs_global_files)
-}
-
-/// The trust warning of a file whose server takes mods or plugins, which run on it: how
-/// many, as the Launcher's import says it, and the ones whose bytes the file carries
-/// (from whoever made it, not a download). A file with no mods that still carries
-/// protected files of its own (jars, programs) gets a warning too.
-fn trust_warning(summary: &ImageSummary) -> Option<String> {
-    let count = summary.server_mods.max(summary.carried_mods.count);
-    if count == 0 {
-        return summary
-            .needs_global_files
-            .then(|| t(M::ImageProtectedWarning).to_string());
-    }
-    let mut text = trn!(P::ImageModsWarning, count as usize);
-    if !summary.carried_mods.is_empty() {
-        text.push(' ');
-        text.push_str(&tr!(M::ImageCarried, names = summary.carried_mods.joined()));
-        if !text.ends_with(['.', '…', '。']) {
-            text.push('.');
-        }
-    }
-    Some(text)
 }
 
 /// A muted line of text.
@@ -713,114 +574,31 @@ impl ImageFlow {
             return div().into_any_element();
         };
         let summary = &upload.summary;
-        // the game line names the server picked
-        let picked = ImageSummary {
-            server: self.server.clone().or_else(|| summary.server.clone()),
-            ..summary.clone()
-        };
-        let mut notes = vec![note(format!(
-            "{} · {} · {}",
-            game_line(&picked),
-            trn!(P::ImportFiles, summary.files as usize),
-            format::bytes(summary.total_bytes)
-        ))];
-        notes.push(note(match summary.made_by {
-            ImageMaker::Host => tr!(M::ImageMadeByHost, version = summary.producer_version),
-            ImageMaker::Launcher => {
-                tr!(M::ImageMadeByLauncher, version = summary.producer_version)
-            }
-            ImageMaker::Unknown => t(M::ImageMadeByOther).to_string(),
-        }));
-        if let Some(server_note) = server_note(summary, self.server.as_deref()) {
-            notes.push(note(server_note));
-        }
-        if let Some(base) = &summary.base {
-            notes.push(note(base.clone()));
-        }
-
-        let mut alerts = Vec::new();
-        if let Some(why) = unsupported(summary) {
-            alerts.push(parts::error(why));
-        }
-        if let Some(warning) = trust_warning(summary) {
-            alerts.push(parts::warning(warning));
-        }
-        if !summary.not_downloadable.is_empty() {
-            alerts.push(parts::warning(tr!(
-                M::ImageNotDownloadable,
-                names = summary.not_downloadable.joined()
-            )));
-        }
-        if summary.offline_mode {
-            alerts.push(parts::warning(t(M::ImageOfflineMode)));
-        }
         let may_write_global = self
             .state
             .read(cx)
             .me
             .may_core(CorePermission::WriteGlobalFile);
-        if summary.needs_global_files && !may_write_global {
-            alerts.push(parts::error(t(M::ImageNeedsGlobal)));
-        }
-
-        let mut details = Vec::new();
-        if summary.download_bytes > 0 {
-            let size = format::bytes(summary.download_bytes);
-            details.push(note(if summary.mods_from_modrinth.is_empty() {
-                tr!(M::ImageDownloads, size = size)
-            } else {
-                tr!(
-                    M::ImageDownloadsMods,
-                    size = size,
-                    names = summary.mods_from_modrinth.joined()
-                )
-            }));
-        }
-        for (list, message) in [
-            (&summary.client_only, M::ImageClientOnly),
-            (&summary.left_out, M::ImageTakenOut),
-            (&summary.withheld, M::ImageWithheld),
-        ] {
-            if !list.is_empty() {
-                details.push(note(tr!(message, names = list.joined())));
-            }
-        }
-        for (list, message) in [
-            (&summary.blanked, M::ImageBlanked),
-            (&summary.secrets_not_taken, M::ImageSecretsNotTaken),
-        ] {
-            if !list.is_empty() {
-                details.push(note(tr!(message, names = list.joined())));
-            }
-        }
-        // the operators' tickbox below says itself whether they are taken
-        let what = not_taken(
-            &summary
-                .not_taken
-                .iter()
-                .filter(|n| !(self.keep_operators && **n == NotTaken::Operators))
-                .copied()
-                .collect::<Vec<_>>(),
+        let lines = summary_lines(
+            summary,
+            Picked {
+                world: self.world.as_deref(),
+                server: self.server.as_deref(),
+                keep_operators: self.keep_operators,
+                may_write_global,
+                own_file: false,
+            },
         );
-        if !what.is_empty() {
-            details.push(note(tr!(M::ImageNotTaken, what = what)));
-        }
-        // for the world picked: the core checks again
-        let world_picked = self.world.as_deref();
-        if let Some(free) = summary.disk_free {
-            details.push(note(tr!(
-                M::ImageDisk,
-                needed = format::bytes(
-                    summary
-                        .needed_bytes_for(world_picked)
-                        .saturating_add(ImageSummary::SPARE_BYTES)
-                ),
-                free = format::bytes(free)
-            )));
-        }
-        if !summary.has_room_for(world_picked) {
-            alerts.push(parts::warning(t(M::ImageNoRoom)));
-        }
+        let notes: Vec<AnyElement> = lines.notes.into_iter().map(note).collect();
+        let alerts: Vec<AnyElement> = lines
+            .alerts
+            .into_iter()
+            .map(|(level, text)| match level {
+                Level::Error => parts::error(text),
+                Level::Warning => parts::warning(text),
+            })
+            .collect();
+        let details: Vec<AnyElement> = lines.details.into_iter().map(note).collect();
 
         // the world: a Launcher's file gives only the one picked, or none
         let world = (!summary.worlds.is_empty()).then(|| {
@@ -840,17 +618,17 @@ impl ImageFlow {
                 })
                 .collect();
             if summary.made_by != ImageMaker::Host {
-                options.push((None, t(M::ImageNoWorld).into(), None));
+                options.push((None, t(S::ImageNoWorld).into(), None));
             }
             let current = self.world.clone();
             fields::row(
-                t(M::ImageWorld),
-                t(M::ImageWorldHint),
+                t(S::ImageWorld),
+                t(S::ImageWorldHint),
                 false,
                 self.picker(
                     Menu::World,
                     "image-world",
-                    t(M::ImageWorld).into(),
+                    t(S::ImageWorld).into(),
                     options,
                     current,
                     |this, value| this.world = value,
@@ -875,13 +653,13 @@ impl ImageFlow {
                 .collect();
             let current = self.server.clone();
             fields::row(
-                t(M::ImageServerSoftware),
-                t(M::ImageServerSoftwareHint),
+                t(S::ImageServerSoftware),
+                t(S::ImageServerSoftwareHint),
                 false,
                 self.picker(
                     Menu::Server,
                     "image-server",
-                    t(M::ImageServerSoftware).into(),
+                    t(S::ImageServerSoftware).into(),
                     options,
                     current,
                     |this, value| this.server = value,
@@ -1050,173 +828,5 @@ impl Render for ImageFlow {
                             .children(next),
                     ),
             )
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use launcher_core::cores::admin::images::ImageWorld;
-
-    fn summary(json: serde_json::Value) -> ImageSummary {
-        serde_json::from_value(json).unwrap()
-    }
-
-    #[test]
-    fn a_server_is_named_after_the_file() {
-        assert_eq!(
-            default_name(&summary(serde_json::json!({
-                "label": "Survival \\u{202E}SMP", "file_name": "x.lodeimg"
-            }))),
-            "Survival SMP"
-        );
-        assert_eq!(
-            default_name(&summary(serde_json::json!({
-                "label": "  ", "file_name": "Island.lodeimg"
-            }))),
-            "Island"
-        );
-        let long = "a".repeat(100);
-        assert_eq!(
-            default_name(&summary(serde_json::json!({ "label": long })))
-                .chars()
-                .count(),
-            64
-        );
-        // an unnamed backup's label has the time, and a name may have any character: the
-        // name made is one the core takes
-        let name = default_name(&summary(serde_json::json!({
-            "label": "Survival – 2026-11-12 14:10 UTC"
-        })));
-        assert_eq!(name, "Survival – 2026-11-12 14.10 UTC");
-        let name = default_name(&summary(serde_json::json!({
-            "label": "Before 1/2 \"big\" update? <a|b> *\\"
-        })));
-        assert!(!name.contains(NAME_FORBIDDEN), "{name}");
-        assert!(check_settings(&name, "25565", "1", "1").is_ok(), "{name}");
-    }
-
-    #[test]
-    fn the_files_own_world_is_picked() {
-        let world = |folder: &str| ImageWorld {
-            folder: folder.into(),
-            ..Default::default()
-        };
-        let mut s = ImageSummary {
-            worlds: vec![world("A"), world("B")],
-            default_world: Some("B".into()),
-            ..Default::default()
-        };
-        assert_eq!(default_world(&s).as_deref(), Some("B"));
-        s.default_world = Some("gone".into());
-        assert_eq!(default_world(&s).as_deref(), Some("A"));
-        s.worlds.clear();
-        assert_eq!(default_world(&s), None);
-    }
-
-    #[test]
-    fn server_software_is_asked_for_only_when_there_is_a_choice() {
-        let vanilla = summary(serde_json::json!({
-            "server": "Vanilla", "server_choices": ["Vanilla", "Paper"]
-        }));
-        assert_eq!(
-            chosen_server(&vanilla, Some("Paper")).as_deref(),
-            Some("Paper")
-        );
-        assert_eq!(chosen_server(&vanilla, Some("Fabric")), None);
-        assert_eq!(chosen_server(&vanilla, None), None);
-        let fabric = summary(serde_json::json!({
-            "server": "Fabric", "server_choices": ["Fabric"]
-        }));
-        assert_eq!(chosen_server(&fabric, Some("Fabric")), None);
-    }
-
-    #[test]
-    fn notes_on_the_server_are_the_hosts_own_words() {
-        crate::i18n::force(crate::i18n::Locale::En);
-        let purpur = summary(serde_json::json!({
-            "loader": "vanilla", "flavour": "purpur", "server": "Paper",
-            "server_choices": ["Vanilla", "Paper"],
-            "server_note": "the core's English"
-        }));
-        assert_eq!(
-            server_note(&purpur, None).as_deref(),
-            Some("Lodestone makes Purpur servers as Paper servers, which run the same plugins.")
-        );
-        assert_eq!(
-            server_note(&purpur, Some("Vanilla")),
-            None,
-            "not once Vanilla is picked"
-        );
-        let paper = summary(serde_json::json!({ "flavour": "paper", "server": "Paper" }));
-        assert_eq!(server_note(&paper, None), None);
-        let quilt = summary(serde_json::json!({
-            "loader": "quilt", "unsupported": "Lodestone can't make Quilt servers"
-        }));
-        assert_eq!(
-            unsupported(&quilt).as_deref(),
-            Some("Lodestone can’t make Quilt servers.")
-        );
-        assert_eq!(unsupported(&paper), None);
-    }
-
-    #[test]
-    fn mods_from_anywhere_get_the_trust_warning() {
-        crate::i18n::force(crate::i18n::Locale::En);
-        let downloaded = summary(serde_json::json!({
-            "server_mods": 40,
-            "mods_from_modrinth": {"names": ["lithium.jar"], "count": 40}
-        }));
-        assert_eq!(
-            trust_warning(&downloaded).as_deref(),
-            Some(
-                "It has 40 mods or plugins: programs that run on the server. Only use files from people you trust."
-            )
-        );
-        let carried = summary(serde_json::json!({
-            "server_mods": 1, "carried_mods": {"names": ["own.jar"], "count": 1}
-        }));
-        assert_eq!(
-            trust_warning(&carried).as_deref(),
-            Some(
-                "It has 1 mod or plugin: a program that runs on the server. Only use files from people you trust. These are in the file itself, not downloaded from Modrinth: own.jar."
-            )
-        );
-        assert_eq!(trust_warning(&summary(serde_json::json!({}))), None);
-        // no mods, but protected files of its own: warned too
-        let programs = summary(serde_json::json!({ "needs_global_files": true }));
-        assert_eq!(
-            trust_warning(&programs).as_deref(),
-            Some(t(M::ImageProtectedWarning))
-        );
-    }
-
-    #[test]
-    fn a_file_the_core_would_refuse_cant_be_created() {
-        let fine = summary(serde_json::json!({ "server": "Fabric" }));
-        assert!(can_create(&fine, false));
-        let jars = summary(serde_json::json!({ "server": "Fabric", "needs_global_files": true }));
-        assert!(can_create(&jars, true));
-        assert!(!can_create(&jars, false));
-        let quilt = summary(serde_json::json!({ "unsupported": "Quilt" }));
-        assert!(!can_create(&quilt, true));
-    }
-
-    #[test]
-    fn the_game_reads_in_one_line() {
-        crate::i18n::force(crate::i18n::Locale::En);
-        let fabric = summary(serde_json::json!({
-            "minecraft": "1.21.1", "loader": "fabric", "loader_version": "0.16.10",
-            "server": "Fabric"
-        }));
-        assert_eq!(game_line(&fabric), "Fabric 0.16.10 · Minecraft 1.21.1");
-        let paper = summary(serde_json::json!({
-            "minecraft": "1.21.3", "loader": "vanilla", "flavour": "purpur", "server": "Paper"
-        }));
-        assert_eq!(game_line(&paper), "Paper · Minecraft 1.21.3");
-        assert_eq!(
-            not_taken(&[NotTaken::Eula, NotTaken::Unknown, NotTaken::Operators]),
-            "the EULA, the operators"
-        );
     }
 }

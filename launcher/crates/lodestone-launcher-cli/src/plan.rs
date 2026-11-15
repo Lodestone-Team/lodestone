@@ -821,17 +821,31 @@ pub fn plan(
                 password: p,
                 name,
                 max_ram,
+                send_worlds,
+                no_worlds,
+                world,
+                no_world,
+                port,
+                server_software,
+                preview,
                 accept_eula,
             } => {
                 // the EULA is checked before the password is read, and a core this
                 // computer is the owner of needs none
                 let password = match username {
-                    Some(_) if *accept_eula => json!(password(p, read_stdin)?),
+                    Some(_) if *accept_eula || *preview => json!(password(p, read_stdin)?),
                     Some(_) => json!(""),
                     None if p.password_stdin => {
                         return Err(usage("--password-stdin goes with --username."));
                     }
                     None => Value::Null,
+                };
+                let worlds = if *no_worlds {
+                    json!([])
+                } else if send_worlds.is_empty() {
+                    Value::Null
+                } else {
+                    json!(send_worlds)
                 };
                 long(
                     "servers.host",
@@ -842,9 +856,46 @@ pub fn plan(
                         ("password", password),
                         ("name", json!(name)),
                         ("max_ram", json!(max_ram)),
+                        ("worlds", worlds),
+                        ("world", json!(world)),
+                        ("no_world", json!(no_world)),
+                        ("port", json!(port)),
+                        ("server_software", json!(server_software)),
+                        ("preview", json!(preview)),
                         ("accept_eula", json!(accept_eula)),
                     ],
                 )
+            }
+            Servers::DownloadWorld {
+                server: s,
+                username,
+                password: p,
+                backup,
+                new_backup,
+                name,
+                preview,
+            } => {
+                let password = match username {
+                    Some(_) => json!(password(p, read_stdin)?),
+                    None if p.password_stdin => {
+                        return Err(usage("--password-stdin goes with --username."));
+                    }
+                    None => Value::Null,
+                };
+                let backup = if *new_backup {
+                    json!("new")
+                } else {
+                    json!(backup.as_deref().unwrap_or("newest"))
+                };
+                let mut pairs = server(s);
+                pairs.extend([
+                    ("username", json!(username)),
+                    ("password", password),
+                    ("backup", backup),
+                    ("name", json!(name)),
+                    ("preview", json!(preview)),
+                ]);
+                long("servers.download_world", pairs)
             }
         },
         Command::Friends(c) => match c {
@@ -1554,6 +1605,119 @@ mod tests {
         // a core this computer is the owner of needs no password
         let (_, params, _) = call_of(&["servers", "host", "S", "--core", "c", "--accept-eula"]);
         assert!(params["username"].is_null() && params["password"].is_null());
+        // the worlds default to the last played (left to the launcher), and the world to
+        // the host's choice
+        assert!(params["worlds"].is_null() && params["world"].is_null());
+        assert_eq!(params["preview"], false);
+    }
+
+    #[test]
+    fn hosting_says_which_worlds_go_and_which_is_the_servers() {
+        let (method, params, _) = call_of(&[
+            "servers",
+            "host",
+            "S",
+            "--core",
+            "c",
+            "--send-world",
+            "A",
+            "--send-world",
+            "B",
+            "--world",
+            "B",
+            "--port",
+            "25570",
+            "--server-software",
+            "Paper",
+            "--accept-eula",
+        ]);
+        assert_eq!(method, "servers.host");
+        assert_eq!(params["worlds"], json!(["A", "B"]));
+        assert_eq!(params["world"], "B");
+        assert_eq!(params["port"], 25570);
+        assert_eq!(params["server_software"], "Paper");
+        let (_, params, _) = call_of(&[
+            "servers",
+            "host",
+            "S",
+            "--core",
+            "c",
+            "--no-worlds",
+            "--no-world",
+            "--preview",
+        ]);
+        assert_eq!(params["worlds"], json!([]));
+        assert!(params["world"].is_null());
+        assert_eq!(params["no_world"], true);
+        assert_eq!(params["preview"], true);
+        assert_eq!(params["accept_eula"], false);
+        assert!(
+            Cli::try_parse_from([
+                "lodestone-launcher-cli",
+                "servers",
+                "host",
+                "S",
+                "--core",
+                "c",
+                "--send-world",
+                "A",
+                "--no-worlds"
+            ])
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn a_world_download_names_its_backup() {
+        let (method, params, _) = call_of(&[
+            "servers",
+            "download-world",
+            "Smp",
+            "--core",
+            "c",
+            "--preview",
+        ]);
+        assert_eq!(method, "servers.download_world");
+        assert_eq!(params["server"], "Smp");
+        assert_eq!(params["core"], "c");
+        assert_eq!(params["backup"], "newest");
+        assert_eq!(params["preview"], true);
+        let (_, params, _) = call_of(&[
+            "servers",
+            "download-world",
+            "Smp",
+            "--new-backup",
+            "--name",
+            "At home",
+        ]);
+        assert_eq!(params["backup"], "new");
+        assert_eq!(params["name"], "At home");
+        let (_, params, _) = call_of(&["servers", "download-world", "Smp", "--backup", "b1"]);
+        assert_eq!(params["backup"], "b1");
+        assert!(
+            Cli::try_parse_from([
+                "lodestone-launcher-cli",
+                "servers",
+                "download-world",
+                "Smp",
+                "--backup",
+                "b1",
+                "--new-backup"
+            ])
+            .is_err()
+        );
+        // a preview changes nothing on the core: it never backs the server up
+        assert!(
+            Cli::try_parse_from([
+                "lodestone-launcher-cli",
+                "servers",
+                "download-world",
+                "Smp",
+                "--new-backup",
+                "--preview"
+            ])
+            .is_err()
+        );
     }
 
     /// `path` as the CLI sends it: `/tmp/x` is absolute on Unix, but on Windows it

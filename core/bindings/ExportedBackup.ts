@@ -12,6 +12,16 @@ export type ExportedBackup = { key: string, file_name: string, size: number,
  */
 left_out: NameList, 
 /**
+ * What of `left_out` a player would miss, for a Launcher making an instance of the
+ * world to show: without the server software, the EULA, the JVM's crash files, the
+ * console history, Lodestone's own files and what a player's instance never takes
+ * (the server's settings, operators and ban lists, plugins' data). A list of its own,
+ * because `left_out`'s first names are mostly `libraries/`' and plugins' files.
+ * It may name a `config/` file the owner never shared with players, which a player
+ * wouldn't get anyway: the export doesn't look up the content image's marks.
+ */
+left_out_for_players: NameList, 
+/**
  * Secret values made empty, as `<file>: <key>`.
  */
 blanked: NameList, 

@@ -100,7 +100,7 @@ The user also sees each connected program (this CLI says
   `content remove`, `accounts remove`, `cores remove`, `cores trust`, `friends remove`,
   `friend-list answer`, `friend-list accept`, `friend-list verify`, `friend-list remove`,
   `friend-list retire-core`, `friend-list retire`, `shared clear`,
-  `play clear-logs`, `storage clean`, `snapshots restore` in place (any `--scope` but `new`), `snapshots delete`, `snapshots import` of a file with mods, `snapshots export` over an existing file, applying `modpacks update` or `modpacks add`, `modpacks remove`, an `instances copy-as` that
+  `play clear-logs`, `storage clean`, `snapshots restore` in place (any `--scope` but `new`), `snapshots delete`, `snapshots import` of a file with mods, `servers download-world` (without `--preview`), `snapshots export` over an existing file, applying `modpacks update` or `modpacks add`, `modpacks remove`, an `instances copy-as` that
   leaves mods behind or upgrades worlds (the refusal's `data.plan` says what goes and what
   stays: show it to the user), and turning on `settings developer set --sign-in-as-minecraft-launcher true`.
   Deleting moves to the Trash. Never add `--yes` on your own.
@@ -117,7 +117,33 @@ The user also sees each connected program (this CLI says
   itself carries rather than downloading from Modrinth or CurseForge: say so); only if
   they trust who sent it, rerun with `--yes`.
   An import always makes a new instance with the launcher's own launch settings (image
-  files carry none), and downloads the Modrinth and CurseForge files it lists.
+  files carry none), and downloads the Modrinth and CurseForge files it lists. A
+  server's backup exported by Lodestone Host imports as the instance a player of that
+  server would have, with its world: the preview's `from_server` names the server, its
+  server-only mods left out and how many server files aren't taken (`not_taken`); the
+  server's settings, operators and plugins never come.
+- **Hosting and downloading worlds.** `servers host` sends an instance (its mods,
+  configs and the worlds sent, never accounts or private files) and makes a stopped
+  server: run it with `--preview` first and show the user the `summary` (what the server
+  gets, client-only mods left out, files not taken, downloads, disk space). A preview
+  costs a whole transfer (the instance with its worlds is written and sent, then
+  discarded), so for a big world preview once, not again before each try. Worlds are
+  named by their folder in `saves/`, spelt exactly (`worlds list` shows them); a
+  folder the instance lacks is refused before anything is sent. `--world X` alone sends
+  only X. `--server-software` must be one of the preview's `server_choices` (any case);
+  another is refused (`invalid_params`, naming the choices). Its reply's `outcome` lists
+  what the server didn't get. `servers download-world` makes a new
+  instance from a server's backup: run it with `--preview` first (it downloads the whole
+  newest backup, or `--backup`'s, to read it, and makes nothing; the real run downloads it
+  again), then download the backup the
+  preview's `backup` names with `--backup <id> --yes` once the user trusts the server's
+  mods. `--new-backup` backs the server up first, so it never goes with `--preview`. The
+  reply's `exported` says what the core left out of the file (`left_out`, of which
+  `left_out_for_players` is what a player would miss, `blanked`
+  secrets, `secrets_withheld`, `not_downloadable`), and `server_pack` whether the files
+  only the players of a server built on a Modrinth modpack use came with it (`placed`)
+  or not (`skipped`, with the `reason`). A core older than milestone 6 answers
+  `unavailable` ("too old"): tell the user to update Lodestone on that computer.
 - **Certificates:** a core whose HTTPS certificate isn't trusted fails with
   `untrusted_certificate` and `data.fingerprint`. Ask the user to compare it with the
   fingerprint the core shows (dashboard: Settings, Core Settings; or the core's log).
@@ -125,7 +151,8 @@ The user also sees each connected program (this CLI says
   `--fingerprint`.
 - **EULA:** launching Minecraft and hosting a server accept Mojang's EULA
   (https://aka.ms/MinecraftEULA). Ask before the first `play launch`, and `servers host`
-  needs `--accept-eula`, which only the user can give.
+  needs `--accept-eula`, which only the user can give (`--preview` only shows what the
+  server would get, and makes nothing).
 - **Invite links are secrets.** Anyone with a friend's invite link can join their server.
   Pass it on stdin (`friends join -`), never echo or log it; `friends list` never prints
   one. A `wrong_host` error means the computer that answered isn't the one in the link:
@@ -422,8 +449,13 @@ lodestone-launcher-cli servers create-instance Smp           # long; matching ve
 lodestone-launcher-cli servers join Smp                      # long; starts it first if stopped
 lodestone-launcher-cli servers link Survival Smp
 lodestone-launcher-cli servers unlink Survival
-lodestone-launcher-cli servers host Survival --core "Lodestone Host" --accept-eula   # a core claimed with claim-local
-printf '%s\n' "$PASSWORD" | lodestone-launcher-cli servers host Survival --core "Home core" --username alice --password-stdin --accept-eula
+lodestone-launcher-cli servers host Survival --core "Lodestone Host" --preview       # what the server would get (summary)
+lodestone-launcher-cli servers host Survival --core "Lodestone Host" --accept-eula   # a core claimed with claim-local; sends the last played world
+lodestone-launcher-cli servers host Survival --core "Lodestone Host" --send-world Island --world Island --port 25570 --accept-eula
+printf '%s\n' "$PASSWORD" | lodestone-launcher-cli servers host Survival --core "Home core" --username alice --password-stdin --no-worlds --accept-eula
+lodestone-launcher-cli servers download-world Smp --core "Lodestone Host" --preview  # what the newest backup would give (its id in `backup`)
+lodestone-launcher-cli servers download-world Smp --core "Lodestone Host" --backup b1 --yes   # a new instance from that backup
+lodestone-launcher-cli servers download-world Smp --core "Lodestone Host" --new-backup --yes  # back up now, then make the instance
 lodestone-launcher-cli prompts list                          # questions the window is asking
 lodestone-launcher-cli prompts answer update play
 ```

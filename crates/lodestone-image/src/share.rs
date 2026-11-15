@@ -137,6 +137,30 @@ pub fn is_player_private(path: &CanonicalPath) -> bool {
     }
 }
 
+/// Whether `path` is a file of a server's world that only a server reads, which a client's
+/// save never takes: what a Paper or Bukkit server's split Nether and End folders keep
+/// beside their dimension (`saves/<w>/.bukkit_nether/…`, `saves/<w>/.bukkit_the_end/…`,
+/// their own `level.dat`, `uid.dat` and settings), and Paper's settings of a world
+/// (`saves/<w>/paper-world.yml`), in any letter case. The dimensions themselves come back
+/// as a client's `DIM-1` and `DIM1` through the canonical paths.
+pub fn is_server_world_file(path: &CanonicalPath) -> bool {
+    let parts: Vec<&str> = path.components().collect();
+    match parts.as_slice() {
+        [saves, _world, name] if in_names(saves, &["saves"]) => {
+            in_names(name, &["paper-world.yml"])
+                || in_names(
+                    name,
+                    &[crate::layout::BUKKIT_NETHER, crate::layout::BUKKIT_END],
+                )
+        }
+        [saves, _world, folder, _, ..] if in_names(saves, &["saves"]) => in_names(
+            folder,
+            &[crate::layout::BUKKIT_NETHER, crate::layout::BUKKIT_END],
+        ),
+        _ => false,
+    }
+}
+
 /// Whether `part` is one of `names` (lower-case ASCII) spelled with other than ASCII
 /// letters, as a disk that ignores letter case would still take it for that name: `modſ`
 /// (a long s) is `mods` on APFS, and a loader loads from it, while a check comparing
@@ -298,6 +322,34 @@ mod tests {
             "options.txt",
         ] {
             assert!(!is_launcher_account_file(name), "{name}");
+        }
+    }
+
+    #[test]
+    fn a_servers_own_world_files_are_known_in_any_case() {
+        let server_only = |path: &str| is_server_world_file(&CanonicalPath::new(path).unwrap());
+        for path in [
+            "saves/world/paper-world.yml",
+            "saves/world/Paper-World.YML",
+            "saves/world/.bukkit_nether/level.dat",
+            "saves/world/.bukkit_nether/paper-world.yml",
+            "saves/world/.BUKKIT_THE_END/uid.dat",
+            "saves/world/.bukkit_the_end/data/x.dat",
+        ] {
+            assert!(server_only(path), "{path}");
+        }
+        for path in [
+            "saves/world/level.dat",
+            "saves/world/DIM-1/region/r.0.0.mca",
+            "saves/world/DIM1/region/r.0.0.mca",
+            // only at a world's top
+            "saves/world/sub/paper-world.yml",
+            "saves/world/region/.bukkit_nether",
+            "paper-world.yml",
+            "config/paper-world.yml",
+            "world/paper-world.yml",
+        ] {
+            assert!(!server_only(path), "{path}");
         }
     }
 

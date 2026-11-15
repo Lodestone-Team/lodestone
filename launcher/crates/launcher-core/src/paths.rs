@@ -59,6 +59,18 @@ impl DataDir {
         self.cache_dir().join("server-packs")
     }
 
+    /// The temporary folders the Launcher empties when it starts: what an earlier run was
+    /// writing to share and never finished with (snapshot exports, "Host this" uploads,
+    /// "Download this world" downloads).
+    pub fn temporary_dirs(&self) -> [PathBuf; 3] {
+        [
+            self.cache_dir().join("snapshot-exports"),
+            self.cache_dir().join(crate::cores::hosting::UPLOADS_FOLDER),
+            self.cache_dir()
+                .join(crate::cores::world_download::DOWNLOADS_FOLDER),
+        ]
+    }
+
     /// One folder per instance, each with `instance.json` and the game's `minecraft/`.
     pub fn instances_dir(&self) -> PathBuf {
         self.root.join("instances")

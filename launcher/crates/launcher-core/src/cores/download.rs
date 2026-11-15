@@ -13,10 +13,12 @@ use http_client::{AsyncBody, HttpRequestExt as _, Method, RedirectPolicy, Reques
 use super::{
     CoreClient, CoreError,
     client::{Auth, RawResponse, check},
+    player_image::unless_cancelled,
 };
 use crate::{
     USER_AGENT,
     game::download::{CancelToken, Progress, ProgressSnapshot},
+    http::DOWNLOAD_IDLE_TIMEOUT,
 };
 
 /// How long a download may take.
@@ -24,7 +26,10 @@ pub const DOWNLOAD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs
 
 impl CoreClient {
     /// Downloads `GET /file/{key}` into `out` (created, or replaced), at most `limit`
-    /// bytes. The key itself is the permission, so no token is sent.
+    /// bytes. The key itself is the permission, so no token is sent. `cancel` ends it at
+    /// once, while the core is yet to answer or while a read waits, and a read that waits
+    /// longer than [`DOWNLOAD_IDLE_TIMEOUT`] fails: a link that went dead (Wi-Fi dropped,
+    /// a laptop's lid closed) would otherwise hold the download until [`DOWNLOAD_TIMEOUT`].
     pub async fn download_file(
         &self,
         key: &str,
@@ -38,8 +43,9 @@ impl CoreClient {
         }
         let url = self.url(&format!("file/{key}"));
         // through the core's pinned certificate, like every other request
-        let response = self
-            .send_checked(|| {
+        let response = unless_cancelled(
+            cancel,
+            self.send_checked(|| {
                 Request::builder()
                     .method(Method::GET)
                     .uri(url.as_str())
@@ -48,8 +54,10 @@ impl CoreClient {
                     .timeout(DOWNLOAD_TIMEOUT)
                     .body(AsyncBody::empty())
                     .map_err(|err| CoreError::InvalidAddress(err.to_string()))
-            })
-            .await?;
+            }),
+        )
+        .await
+        .ok_or_else(cancelled)??;
         let status = response.status().as_u16();
         let total = response
             .headers()
@@ -69,10 +77,9 @@ impl CoreClient {
                 Auth::None,
             )?;
         }
-        if total.is_some_and(|t| t > limit) {
+        if let Some(total) = total.filter(|&t| t > limit) {
             return Err(CoreError::Invalid(format!(
-                "the download is larger than {} GB",
-                limit / (1024 * 1024 * 1024)
+                "the download is larger than it may be ({total} bytes, at most {limit})"
             )));
         }
         let io = |err: std::io::Error| CoreError::Invalid(format!("{}: {err}", out.display()));
@@ -81,12 +88,19 @@ impl CoreClient {
         let mut done = 0u64;
         loop {
             if cancel.is_cancelled() {
-                return Err(CoreError::Invalid("cancelled".into()));
+                return Err(cancelled());
             }
-            let read = body
-                .read(&mut buffer)
-                .await
-                .map_err(|err| CoreError::Unreachable(err.to_string()))?;
+            let read = unless_cancelled(
+                cancel,
+                // the timer is made inside the HTTP client's runtime, which it needs
+                crate::http::in_http_runtime(async {
+                    tokio::time::timeout(DOWNLOAD_IDLE_TIMEOUT, body.read(&mut buffer)).await
+                }),
+            )
+            .await
+            .ok_or_else(cancelled)?
+            .map_err(|_| CoreError::Unreachable("the host stopped sending the file".into()))?
+            .map_err(|err| CoreError::Unreachable(err.to_string()))?;
             if read == 0 {
                 break;
             }
@@ -110,6 +124,10 @@ impl CoreClient {
         }
         Ok(done)
     }
+}
+
+fn cancelled() -> CoreError {
+    CoreError::Invalid("cancelled".into())
 }
 
 /// Has `write` save into a file next to `out`, then renames it over `out` once it

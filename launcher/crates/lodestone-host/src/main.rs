@@ -332,7 +332,8 @@ mod screenshot {
             }
             // `--create <step>`: the "New server" dialog, moved on to `games`, `basic`,
             // `server`, `auto`, `modpack`, or a file's summary, `image` (a Host's backup)
-            // or `image-launcher` (a Launcher's snapshot) (package A)
+            // or `image-launcher` (a Launcher's snapshot), or `image-outcome` (the toast a
+            // server made from a file ends with) (package A)
             if let Some(step) = arg_after("--create") {
                 window
                     .update(cx, |app, _, cx| {

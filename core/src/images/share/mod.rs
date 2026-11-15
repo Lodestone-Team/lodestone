@@ -1,8 +1,9 @@
 //! Moving a server's images to another computer (`docs/instance-images.md`, "Sharing", and
 //! "M6a decisions"): a backup exported as a `.lodeimg` file with its secrets taken out
 //! ([`export`]), and a `.lodeimg` made by a Host or a Launcher uploaded ([`uploads`]),
-//! read ([`inspect`]) and made into a new server ([`import`]). Both ends withhold settings
-//! files that hold a credential under a name that says so ([`secrets`]).
+//! read ([`inspect`]) and made into a new server ([`import`]), which ends with what the
+//! server didn't get ([`outcome`]). Both ends withhold settings files that hold a
+//! credential under a name that says so ([`secrets`]).
 //!
 //! The file is the shared crate's export container (`lodestone_image::container`), the
 //! same one the Launcher writes and reads, so either program opens the other's files.
@@ -10,9 +11,12 @@
 pub mod export;
 pub mod import;
 pub mod inspect;
+pub mod outcome;
 pub mod secrets;
 pub mod uploads;
 
+#[cfg(test)]
+mod launcher_fixtures;
 #[cfg(test)]
 mod tests;
 

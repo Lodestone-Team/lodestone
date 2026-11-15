@@ -98,6 +98,10 @@ impl CoreError {
     }
 }
 
+/// What a 404 with an empty body is called: what a core answers for a route it doesn't
+/// have, where its own refusals say what wasn't found.
+pub(crate) const NOT_FOUND: &str = "Not found";
+
 /// Whether `host` (as a URL has it: `localhost`, `127.0.0.1`, `[::1]`) is this
 /// computer.
 pub fn is_loopback_host(host: &str) -> bool {
@@ -917,7 +921,7 @@ pub(super) fn check(response: &RawResponse, auth: Auth<'_>) -> Result<(), CoreEr
             message
         }),
         404 => CoreError::NotFound(if message.is_empty() {
-            "Not found".into()
+            NOT_FOUND.into()
         } else {
             message
         }),

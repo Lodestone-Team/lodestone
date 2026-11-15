@@ -506,7 +506,7 @@ impl User {
                 inner: Some(end_value),
                 ..
             } => match end_value {
-                ProgressionEndValue::InstanceCreation(info) => Some(view(&info.uuid)),
+                ProgressionEndValue::InstanceCreation(created) => Some(view(&created.info.uuid)),
                 ProgressionEndValue::InstanceDelete { instance_uuid }
                 | ProgressionEndValue::FSOperationCompleted { instance_uuid, .. } => {
                     Some(view(instance_uuid))

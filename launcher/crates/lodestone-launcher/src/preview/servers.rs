@@ -49,8 +49,19 @@ pub const SCENES: &[&str] = &[
     "servers-lan-join",
     "servers-host",
     "servers-host-owner",
-    "servers-host-progress",
-    "servers-host-done",
+    "servers-host-uploading",
+    "servers-host-summary",
+    "servers-host-summary-world",
+    "servers-host-summary-no-global",
+    "servers-host-creating",
+    "servers-host-outcome",
+    "servers-host-outcome-unlinked",
+    "servers-host-too-old",
+    "servers-host-still-creating",
+    "servers-download-world",
+    "servers-download-world-progress",
+    "servers-download-world-backup-forbidden",
+    "servers-download-world-backup-forbidden-none",
     "servers-certificate",
     "servers-certificate-changed",
     "servers-certificate-new",
@@ -102,12 +113,8 @@ const NEW_FINGERPRINT: &str = "A1B2C3D4E5F60718293A4B5C6D7E8F9011223344556677889
 pub fn has_instances(scene: &str) -> bool {
     matches!(
         scene,
-        "servers-lan-join"
-            | "servers-host"
-            | "servers-host-owner"
-            | "servers-host-progress"
-            | "servers-host-done"
-    )
+        "servers-lan-join" | "servers-host" | "servers-host-owner"
+    ) || scene.starts_with("servers-host-")
 }
 
 fn server(
@@ -983,18 +990,30 @@ fn apply_extras(scene: &str, shell: &mut LauncherShell, cx: &mut Context<Launche
             shell.show(Page::Servers, cx);
             true
         }
-        "servers-host" | "servers-host-owner" | "servers-host-progress" | "servers-host-done" => {
+        "servers-download-world"
+        | "servers-download-world-progress"
+        | "servers-download-world-backup-forbidden"
+        | "servers-download-world-backup-forbidden-none" => {
+            servers.update(cx, |servers, cx| {
+                let mut home = home(true);
+                home.0.local_claim = true;
+                servers.preview(vec![home], Vec::new());
+                let step = scene
+                    .strip_prefix("servers-download-world-")
+                    .unwrap_or("pick");
+                servers.preview_download_world(step, cx);
+            });
+            shell.show(Page::Servers, cx);
+            true
+        }
+        scene if scene == "servers-host" || scene.starts_with("servers-host-") => {
             servers.update(cx, |servers, cx| {
                 let mut home = home(true);
                 // connected as owner on this computer: the owner key creates the server
-                home.0.local_claim = scene == "servers-host-owner";
+                home.0.local_claim = scene != "servers-host";
                 servers.preview(vec![home, friend()], Vec::new());
-                let (stage, done) = match scene {
-                    "servers-host-progress" => (Some("Uploading the modpack (3.2 MB)…"), None),
-                    "servers-host-done" => (None, Some("Survival 1.20.1 is on Peter's Lodestone Core, on port 25566. The host is setting it up now: it installs Fabric and downloads 24 mod file(s) from Modrinth.\n\nThe server is stopped. Start it from the Lodestone Host page or the dashboard when you're ready; this instance is ready to join it.")),
-                    _ => (None, None),
-                };
-                servers.preview_host(&survival, stage, done, cx);
+                let step = scene.strip_prefix("servers-host-").unwrap_or("setup");
+                servers.preview_host(&survival, step, cx);
             });
             shell.select_instance(&survival, cx);
             shell.select_tab(crate::shell::InstanceTab::Settings, cx);

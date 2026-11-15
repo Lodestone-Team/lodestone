@@ -715,8 +715,13 @@ pub const METHODS: &[Method] = &[
     ),
     method(
         "servers.host",
-        "Hosts an instance's modpack as a new server on a core.",
+        "Hosts an instance as a new server on a core, with the worlds it sends.",
         servers::host,
+    ),
+    method(
+        "servers.download_world",
+        "Downloads a server's world as a new instance, with the mods its players get.",
+        servers::download_world,
     ),
     method(
         "prompts.list",
@@ -1897,6 +1902,7 @@ mod tests {
         "servers.link",
         "servers.unlink",
         "servers.host",
+        "servers.download_world",
         "prompts.answer",
         "friends.open",
         "friends.join",

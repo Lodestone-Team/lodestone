@@ -1,7 +1,7 @@
 //! An instance's Backups tab (not in the dashboard): backing up now, the schedule
 //! with how many automatic backups are kept, the storage used, and the list, with
 //! restoring (in place or as a new server), downloading, exporting as a `.lodeimg` for
-//! another Lodestone Host, pinning and deleting.
+//! another Lodestone Host or a Launcher, pinning and deleting.
 //!
 //! The core does the work (`launcher_core::cores::admin::backups`): taking and
 //! restoring run in the background, and their progression's events drive the

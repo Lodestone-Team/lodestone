@@ -188,7 +188,7 @@ pub struct UserEvent {
 #[ts(export)]
 #[serde(tag = "type")]
 pub enum ProgressionEndValue {
-    InstanceCreation(InstanceInfo),
+    InstanceCreation(CreatedInstance),
     InstanceDelete {
         instance_uuid: InstanceUuid,
     },
@@ -212,6 +212,30 @@ pub enum ProgressionEndValue {
         success: bool,
         message: String,
     },
+}
+
+/// A new server, at the end of its creation: its info, and for one made from a `.lodeimg`
+/// what it didn't get (`docs/instance-images.md`, "M6b decisions"). On the wire it is the
+/// `InstanceInfo` fields with an `outcome` field beside them only for a creation from a
+/// file, so readers of the info alone see no change.
+#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
+#[ts(export)]
+pub struct CreatedInstance {
+    #[serde(flatten)]
+    #[ts(flatten)]
+    pub info: InstanceInfo,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub outcome: Option<Box<crate::images::share::outcome::CreationOutcome>>,
+}
+
+impl From<InstanceInfo> for CreatedInstance {
+    fn from(info: InstanceInfo) -> Self {
+        CreatedInstance {
+            info,
+            outcome: None,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
@@ -548,5 +572,78 @@ impl Event {
             }),
             caused_by: CausedBy::System,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::images::share::inspect::NameList;
+    use crate::images::share::outcome::CreationOutcome;
+    use crate::traits::t_configurable::{Game, MinecraftVariant};
+    use crate::traits::t_server::State;
+
+    fn info() -> InstanceInfo {
+        InstanceInfo {
+            uuid: InstanceUuid::default(),
+            name: "Survival".into(),
+            game_type: Game::MinecraftJava {
+                variant: MinecraftVariant::Fabric,
+            },
+            description: String::new(),
+            version: "1.21.1".into(),
+            port: 25565,
+            creation_time: 1,
+            path: "/servers/Survival".into(),
+            auto_start: false,
+            restart_on_crash: false,
+            state: State::Stopped,
+            player_count: None,
+            max_player_count: None,
+            player_list: None,
+            icon_url: None,
+            modpack: None,
+            loader_version: None,
+            min_ram: None,
+            max_ram: None,
+        }
+    }
+
+    /// The dashboard and older clients read a creation's end value as the server's info:
+    /// a creation that isn't from a file sends exactly that, and one from a file only adds
+    /// `outcome` beside the info's fields.
+    #[test]
+    fn a_creation_end_is_the_info_with_an_outcome_only_from_a_file() {
+        let info = info();
+        let plain = ProgressionEndValue::InstanceCreation(info.clone().into());
+        let json = serde_json::to_value(&plain).unwrap();
+        let mut expected = serde_json::to_value(&info).unwrap();
+        expected["type"] = "InstanceCreation".into();
+        assert_eq!(json, expected);
+        assert!(json.get("outcome").is_none());
+        assert_eq!(
+            serde_json::from_value::<ProgressionEndValue>(json).unwrap(),
+            plain
+        );
+
+        let outcome = CreationOutcome {
+            not_downloaded: NameList::of(["mods/a.jar"]),
+            scripts: 1,
+            ..CreationOutcome::default()
+        };
+        let from_file = ProgressionEndValue::InstanceCreation(CreatedInstance {
+            info,
+            outcome: Some(Box::new(outcome.clone())),
+        });
+        let json = serde_json::to_value(&from_file).unwrap();
+        assert_eq!(json["type"], "InstanceCreation");
+        assert_eq!(json["name"], "Survival");
+        assert_eq!(json["port"], 25565);
+        assert_eq!(json["outcome"]["not_downloaded"]["names"][0], "mods/a.jar");
+        assert_eq!(json["outcome"]["scripts"], 1);
+        assert_eq!(
+            serde_json::from_value::<ProgressionEndValue>(json).unwrap(),
+            from_file
+        );
     }
 }
