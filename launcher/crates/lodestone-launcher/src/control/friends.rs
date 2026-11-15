@@ -385,6 +385,10 @@ fn answer_questions(
     if let Some(prompt) = servers.prompt.current()
         && prompt.server.name == server_name
     {
+        if let Some(err) = super::servers::snapshot_failed(prompt) {
+            servers.cancel_prompt(cx);
+            return Some(Err(err));
+        }
         return Some(match params.update_mods {
             Some(update) => {
                 servers.answer_prompt(update, cx);

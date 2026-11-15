@@ -342,9 +342,20 @@ impl World {
         ready: &Arc<Ready>,
         held: Option<&'static str>,
     ) -> Result<Result<(), SyncError>, &'static str> {
+        self.update_with(id, ready, held, true)
+    }
+
+    /// [`Self::update`], with the snapshot before it or without.
+    fn update_with(
+        &self,
+        id: &str,
+        ready: &Arc<Ready>,
+        held: Option<&'static str>,
+        snapshot: bool,
+    ) -> Result<Result<(), SyncError>, &'static str> {
         let dirs = InstanceDirs::new(self.store.dir(id));
         let instance = self.store.get(id).unwrap();
-        let update = ServerUpdate::start(
+        let mut update = ServerUpdate::start(
             self.images.clone(),
             instance,
             "SMP",
@@ -352,6 +363,9 @@ impl World {
             ready.clone(),
             held,
         )?;
+        if !snapshot {
+            update = update.without_snapshot();
+        }
         let placed = match block_on(http::in_http_runtime(update.place(
             &self.sources(ready),
             &InstallProgress::default(),
@@ -1227,6 +1241,66 @@ fn files_a_view_cant_give_stay_on_disk() {
     assert_eq!(read(&game.join("mods/foo.jar")), "foo 2");
 }
 
+/// An update from a server takes a snapshot first, named after it, whose content image is
+/// the record before the update; one the player chose to make without a snapshot (it
+/// couldn't be taken) still records the content first.
+#[test]
+fn an_update_takes_a_snapshot_first() {
+    let world = World::new();
+    let first = world.content(&world.pack1, &world.sodium1);
+    world.core.publish(&first, &[("", b"the server's own mod")]);
+    let (instance, _) = world.create();
+    let id = instance.id;
+    let snapshots = || -> Vec<String> {
+        world
+            .images
+            .snapshots(&id)
+            .unwrap()
+            .records
+            .into_iter()
+            .map(|record| record.name)
+            .collect()
+    };
+    assert!(snapshots().is_empty());
+
+    let mut second = first.clone();
+    second
+        .entries
+        .push(object_entry("mods/new.jar", b"a new mod"));
+    world.core.publish(&second, &[("", b"a new mod")]);
+    world.play(&id).unwrap().expect("another view");
+    assert_eq!(snapshots(), [labels::before_server_update("SMP")]);
+    let before = world.images.snapshots(&id).unwrap().records[0].clone();
+    assert!(
+        before.content.is_some(),
+        "it links the record before the update"
+    );
+    assert_eq!(world.labels(&id)[0], labels::server_updated("SMP"));
+
+    // without a snapshot: none more, but the update is still recorded
+    let mut third = second.clone();
+    third
+        .entries
+        .push(object_entry("mods/three.jar", b"mod three"));
+    world.core.publish(&third, &[("", b"mod three")]);
+    let dirs = InstanceDirs::new(world.store.dir(&id));
+    let instance = world.store.get(&id).unwrap();
+    let applied = link::load_link(&dirs.instance).unwrap().view;
+    let Prepared::Ready(ready) = world
+        .prepare(Some((&dirs, &instance)), applied.as_deref())
+        .unwrap()
+    else {
+        panic!("expected a plan");
+    };
+    world
+        .update_with(&id, &Arc::from(ready), None, false)
+        .unwrap()
+        .unwrap();
+    assert!(world.game(&id).join("mods/three.jar").exists());
+    assert_eq!(snapshots(), [labels::before_server_update("SMP")]);
+    assert_eq!(world.labels(&id)[0], labels::server_updated("SMP"));
+}
+
 /// An update that stopped part way (after placing files, before its records) and a server
 /// that moves on before the next Play: the files the stopped update placed are the
 /// server's, so the next view removes the ones it drops, instead of keeping them as the
@@ -1426,9 +1500,13 @@ fn a_base_entry_from_the_packs_server_share_is_installed() {
 /// The modpack updater's rollback copy of an update's files, in `backups/modpack-update/`.
 fn rollback_copies(world: &World, id: &str) -> Vec<std::path::PathBuf> {
     let dirs = InstanceDirs::new(world.store.dir(id));
-    std::fs::read_dir(launcher_core::worlds::backups_dir(&dirs).join("modpack-update"))
-        .map(|entries| entries.flatten().map(|e| e.path()).collect())
-        .unwrap_or_default()
+    std::fs::read_dir(
+        dirs.instance
+            .join("backups")
+            .join(launcher_core::modpack::update::BACKUPS_FOLDER),
+    )
+    .map(|entries| entries.flatten().map(|e| e.path()).collect())
+    .unwrap_or_default()
 }
 
 /// The player's own files at paths the server's pack starts placing outside the content

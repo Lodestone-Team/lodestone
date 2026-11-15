@@ -89,6 +89,11 @@ pub enum SyncError {
         "There isn't enough free space for the server's files: {needed} bytes are needed and {free} are free."
     )]
     NotEnoughSpace { needed: u64, free: u64 },
+    /// The snapshot before the update couldn't be taken, so nothing changed: the player
+    /// may update without one ([`apply::ServerUpdate::without_snapshot`]), as a modpack
+    /// update offers ("M4b decisions").
+    #[error("No snapshot could be taken first, so nothing has changed: {0}")]
+    NoSnapshot(String),
     #[error(transparent)]
     Modpack(#[from] ModpackError),
     #[error("{0}")]

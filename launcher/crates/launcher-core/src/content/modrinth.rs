@@ -444,8 +444,15 @@ impl Modrinth {
     }
 
     /// The URL to download a Modrinth file from, if it is an HTTPS URL on
-    /// `cdn.modrinth.com`.
+    /// `cdn.modrinth.com` whose path is the one written: a URL with dot segments (`..`,
+    /// `%2e%2e`) or backslashes is refused, since parsing would resolve it to another path
+    /// than the one a caller checked (an image entry's URL naming its project and version).
     pub fn cdn_url(&self, url: &str) -> Result<String, ModrinthError> {
+        if has_dot_segments(url) {
+            return Err(ModrinthError::Invalid(format!(
+                "Refusing to download from {url}: its path has dot segments"
+            )));
+        }
         let parsed =
             Url::parse(url).map_err(|_| ModrinthError::Invalid(format!("{url} isn't a URL")))?;
         if parsed.scheme() != "https"
@@ -544,6 +551,18 @@ pub fn sort_newest_first(versions: &mut [RawVersion]) {
     versions.sort_by(|a, b| b.date_published.cmp(&a.date_published));
 }
 
+/// Whether `url`'s path (before any query or fragment) has a segment that URL parsing
+/// resolves away: `.` or `..`, also percent-encoded (`%2e`), or a backslash, which parsing
+/// reads as `/` in an `https` URL.
+fn has_dot_segments(url: &str) -> bool {
+    let path = url.split(['?', '#']).next().unwrap_or_default();
+    path.contains('\\')
+        || path.split('/').any(|segment| {
+            let segment = segment.to_ascii_lowercase().replace("%2e", ".");
+            segment == "." || segment == ".."
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -578,6 +597,11 @@ mod tests {
             "https://github.com/x.jar",
             "file:///etc/passwd",
             "not a url",
+            "https://cdn.modrinth.com/data/A/versions/v/../../../B/versions/w/x.jar",
+            "https://cdn.modrinth.com/data/A/versions/v/%2e%2e/%2E%2E/B/x.jar",
+            "https://cdn.modrinth.com/data/A/versions/v/.%2e/x.jar",
+            "https://cdn.modrinth.com/data/A/versions/v/./x.jar",
+            "https://cdn.modrinth.com/data/A/versions/v\\..\\x.jar",
         ] {
             assert!(modrinth.cdn_url(bad).is_err(), "{bad}");
         }

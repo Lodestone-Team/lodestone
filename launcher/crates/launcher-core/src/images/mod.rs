@@ -1,14 +1,13 @@
 //! Instance images in the Launcher (`docs/instance-images.md`): content images of each
 //! instance, recorded as the Launcher changes its mods, packs and configs and before the
-//! game launches, kept in one image store for every instance on the machine.
+//! game launches, and its snapshots (data and full images), kept in one image store for
+//! every instance on the machine.
 //!
 //! The store is `<data>/image-store/` ([`crate::paths::DataDir::image_store_dir`]): plain
 //! files (the Launcher has no zstd; APFS clones them where it can), `objects/`, `lists/`,
-//! `chunks/` and `images/<instance>/`. It sits beside the snapshot store
-//! (`<data>/snapshots/`, [`crate::snapshots`]), never inside it: each has its own objects
-//! and its own collector, and neither collector reads the other's folder, so neither can
-//! delete what the other names. The image store's only collector is its own GC
-//! ([`Images::request_gc`]).
+//! `chunks/` and `images/<instance>/`. Its only collector is its own GC
+//! ([`Images::request_gc`]), which marks every manifest: content images, snapshots and the
+//! content they link to, and deleted instances' snapshots ([`retired`]).
 //!
 //! - [`recorder`]: operations ([`Images::begin`]), merging what succeeds within a few
 //!   seconds into one image, and recording a content image.
@@ -19,6 +18,9 @@
 //! - [`state`]: the current content image and the baseline. [`labels`]: what each action
 //!   calls its image.
 //! - [`retention`]: which manifests to keep. [`history`]: listing an instance's images.
+//! - [`snapshots`]: taking snapshots and their records; [`restore`] and [`swap`]: going
+//!   back to one; [`export`]: sharing one as a file; [`retired`]: deleted instances'
+//!   snapshots.
 //!
 //! Everything here blocks (it reads and hashes files) except [`Images::begin`] and
 //! [`recorder::Operation`]'s success, which only queue a label: call the rest on a
@@ -39,13 +41,22 @@
 
 pub mod check;
 pub mod context;
+pub mod export;
 pub mod history;
 pub mod labels;
 pub mod recorder;
+pub mod restore;
 pub mod retention;
+pub mod retired;
 pub mod scope;
+pub mod snapshots;
 pub mod state;
+pub mod swap;
 
+#[cfg(test)]
+mod restore_tests;
+#[cfg(test)]
+mod snapshot_tests;
 #[cfg(test)]
 mod tests;
 
@@ -64,8 +75,14 @@ use crate::paths::DataDir;
 
 pub use check::Checked;
 pub use history::{History, HistoryEntry};
+/// For the app, which shows labels and names from images and passes no way to cancel.
+pub use lodestone_image::display_text;
+pub use lodestone_image::store::{Cancel, NEVER};
 pub use recorder::{Operation, Recorded};
-pub use retention::{KEEP_CONTENT, Keep};
+pub use restore::{ContentDiff, RestorePreview, RestoreScope, Restored, WorldChange};
+pub use retention::{DEFAULT_POLICY, KEEP_CONTENT, Keep, SnapshotPolicy};
+pub use retired::{CleanedUp, Retired, RetiredMarker};
+pub use snapshots::{RecordWorld, RiskyChange, SnapshotKind, SnapshotRecord, Snapshots, Take};
 
 /// Successes this close together are one image.
 pub const MERGE_WINDOW: Duration = Duration::from_secs(3);
@@ -116,6 +133,15 @@ pub enum ImageError {
     Busy,
     #[error("the image store is paused while the data folder moves")]
     Suspended,
+    #[error("the game is running; close it first")]
+    Running,
+    #[error("there is no snapshot {0}")]
+    NoSnapshot(String),
+    #[error("cancelled")]
+    Cancelled,
+    /// The disk lacks room: `needed` bytes asked for, `free` there (an import's check).
+    #[error("It needs {} MB and the disk has {} MB free", .needed.div_ceil(1_000_000), .free / 1_000_000)]
+    NoRoom { needed: u64, free: u64 },
     #[error("{0}")]
     Invalid(String),
 }
@@ -301,6 +327,8 @@ pub struct Images {
     /// Bytes the records under way may still write: each record's free-space check counts
     /// the others' ([`recorder`]'s `reserve_space`).
     pub(crate) reserved: Mutex<u64>,
+    /// Who hears of each change to an instance's snapshot list ([`Images::watch_snapshots`]).
+    snapshot_watchers: Mutex<Vec<futures::channel::mpsc::UnboundedSender<String>>>,
     /// The free space tests pretend the disk has.
     #[cfg(test)]
     pub(crate) fake_free: Mutex<Option<u64>>,
@@ -338,9 +366,31 @@ impl Images {
             activity: Arc::default(),
             root_private: AtomicBool::new(false),
             reserved: Mutex::default(),
+            snapshot_watchers: Mutex::default(),
             #[cfg(test)]
             fake_free: Mutex::default(),
         })
+    }
+
+    /// The ids of the instances whose snapshot list changes from now on, one per change:
+    /// a snapshot taken (by hand, or one the Launcher takes on its own: after playing,
+    /// before a change), pinned, renamed or deleted, retention's deletions, an import. A
+    /// window showing a list reads it again. Stops when the receiver is dropped.
+    pub fn watch_snapshots(&self) -> futures::channel::mpsc::UnboundedReceiver<String> {
+        let (sender, receiver) = futures::channel::mpsc::unbounded();
+        self.snapshot_watchers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(sender);
+        receiver
+    }
+
+    /// Tells the watchers that `instance`'s snapshot list changed.
+    pub(crate) fn snapshots_changed(&self, instance: &str) {
+        self.snapshot_watchers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|watcher| watcher.unbounded_send(instance.to_string()).is_ok());
     }
 
     pub fn store(&self) -> &Arc<Store> {
@@ -480,10 +530,12 @@ impl Images {
         self.activity.suspended()
     }
 
-    /// Forgets a deleted instance: its manifests, content state and stat cache
-    /// (`images/<id>/`), and anything queued for it. Its objects go at the collection this
-    /// asks for. Call it once the instance's folder is gone (moved to the Trash): instance
-    /// ids are reused, so a new instance of the same name must not inherit this history.
+    /// Forgets a deleted instance: its content images, state and stat caches
+    /// (`images/<id>/`), and anything queued for it; its snapshots are kept under a folder
+    /// of their own until the user deletes them ([`retired`]). What nothing names any more
+    /// goes at the collection this asks for. Call it once the instance's folder is gone
+    /// (moved to the Trash): instance ids are reused, so a new instance of the same name
+    /// must not inherit this history.
     /// Waits for a record of it that is running, however long (its first image of a big
     /// pack may take minutes; Delete's spinner waits that long, which is rare and safe). An
     /// instance folder deleted outside the Launcher is forgotten too, by
@@ -497,7 +549,7 @@ impl Images {
             let _record = slot.lock_record();
             let _writing = self.enter()?;
             slot.pending().take();
-            self.wipe_locked(id)?;
+            self.retire_locked(id)?;
         }
         self.request_gc();
         Ok(())
@@ -521,8 +573,10 @@ impl Images {
 
     /// [`Self::forget_deleted`] without asking for a collection, inside a counted write.
     /// Nothing is forgotten while the instances folder itself is missing (a drive that
-    /// isn't there). See [`instance_gone`] for when one instance counts as gone.
-    fn forget_deleted_held(&self) -> usize {
+    /// isn't there). See [`instance_gone`] for when one instance counts as gone. A folder
+    /// with a retirement marker is retired whether or not its instance is there (a crash
+    /// between the marker and the rename); retired folders themselves are left alone.
+    pub(crate) fn forget_deleted_held(&self) -> usize {
         if !self.instances.root().is_dir() {
             return 0;
         }
@@ -535,23 +589,26 @@ impl Images {
             let Some(id) = entry.file_name().to_str().map(str::to_string) else {
                 continue;
             };
-            if !valid_instance_id(&id) || !entry.file_type().is_ok_and(|t| t.is_dir()) || !gone(&id)
+            if !valid_instance_id(&id)
+                || id.starts_with(retired::RETIRED_PREFIX)
+                || !entry.file_type().is_ok_and(|t| t.is_dir())
+                || !(gone(&id) || self.retired_marker_in(&id))
             {
                 continue;
             }
             let slot = self.slot(&id);
             let _record = slot.lock_record();
             // Looked at again under the lock: an instance made meanwhile keeps its images.
-            if !gone(&id) {
+            if !(gone(&id) || self.retired_marker_in(&id)) {
                 continue;
             }
             slot.pending().take();
-            match self.wipe_locked(&id) {
+            match self.retire_locked(&id) {
                 Ok(()) => {
                     warn(
                         "images.forgotten",
                         &id,
-                        "the instance's folder is gone; its images are deleted",
+                        "the instance's folder is gone; its content images are deleted",
                     );
                     forgotten += 1;
                 }
@@ -559,19 +616,6 @@ impl Images {
             }
         }
         forgotten
-    }
-
-    /// Deletes `images/<id>/`. The caller holds the instance's record lock. Today the
-    /// folder holds only content images; milestone 5 must change this (and its callers
-    /// [`Self::delete_instance`], [`Self::forget_deleted`] and the id-reuse guard) before
-    /// data images move in, so deleting an instance or moving its folder never deletes its
-    /// backups (`docs/instance-images.md`, "Launcher store decisions").
-    pub(crate) fn wipe_locked(&self, id: &str) -> Result<(), ImageError> {
-        let dir = self.store.instance_dir(id)?;
-        remove_tree(&dir).map_err(ImageError::io(format!(
-            "Failed to delete {}",
-            dir.display()
-        )))
     }
 
     /// Starts a collection in the background, or, while one runs, has it run once more
@@ -653,7 +697,7 @@ impl Images {
         if let Some(free) = *self.fake_free.lock().unwrap_or_else(|e| e.into_inner()) {
             return Some(free);
         }
-        crate::snapshots::free_space(&self.data_root)
+        crate::disk::free_space(&self.data_root)
     }
 }
 
@@ -750,7 +794,7 @@ pub(crate) fn warn(topic: &str, instance: &str, message: &str) {
 
 /// Deletes a folder and everything in it, clearing read-only first where that stops a
 /// delete (Windows; the store writes its files read-only). Missing is fine.
-fn remove_tree(dir: &Path) -> std::io::Result<()> {
+pub(crate) fn remove_tree(dir: &Path) -> std::io::Result<()> {
     #[cfg(windows)]
     fn writable(dir: &Path) {
         let Ok(entries) = std::fs::read_dir(dir) else {

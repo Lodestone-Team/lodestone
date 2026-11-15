@@ -5,8 +5,8 @@
 //! checked against its SHA-256.
 //!
 //! An update runs through [`ServerUpdate`], which holds its order: refused while the
-//! instance's files are held (its game runs), the record before it ([`before_server_update`]),
-//! the operation "Updated from <server>", the files, `content.json` and `modpack.json`
+//! instance's files are held (its game runs), the snapshot before it
+//! ([`before_server_update`]), the operation "Updated from <server>", the files, `content.json` and `modpack.json`
 //! (inside the updater), then, on the window's thread, the instance's loader version and
 //! the operation's success, and last, off it, [`mark_applied`]: the kept view and the
 //! link's applied view. A crash anywhere before the link leaves the old applied view, so
@@ -22,8 +22,8 @@ use super::{SyncError, plan::ServerPlan, prepare::Ready, views::KeptViews};
 use crate::{
     content::{InstanceDirs, install::InstallProgress, provenance::Provenance},
     cores::link::{self, ServerLink},
-    game::download::CancelToken,
-    images::{Images, Operation, labels},
+    game::download::{CancelToken, ProgressSnapshot},
+    images::{ImageError, Images, Operation, RiskyChange, labels},
     instances::{Instance, InstanceStore, Loader},
     modpack::ModpackRecord,
     modpack::{
@@ -34,22 +34,64 @@ use crate::{
     },
 };
 
-/// Records the instance's content before a server's update changes its files ("Before a
-/// server update"), so every content file the update replaces is in an image. The one
-/// place this happens: the snapshot before a server update joins it here. A failure is
-/// logged and the update goes on (it compares the files themselves, and keeps its own
-/// rollback copy); whether the record was made is returned (not for an instance whose
-/// images aren't kept).
-pub fn before_server_update(images: &Images, instance: &str, server: &str) -> bool {
-    match images.record_before_change(instance, labels::BEFORE_SERVER_UPDATE) {
-        Ok(recorded) => recorded.is_some(),
+/// Before a server's update changes the instance's files: a snapshot ("Before updating from
+/// <server>", [`RiskyChange::ServerUpdate`]) whose content image, recorded first ("Before a
+/// server update"), holds every content file the update replaces. The one place this
+/// happens, for an update from a server's image and from a `.mrpack` client pack alike. The
+/// snapshot's reading shows on `progress` (the first one of a big world reads all of it),
+/// and `cancel` stops it ([`SyncError::Cancelled`]). When it fails otherwise, nothing has
+/// changed and the update doesn't start ([`SyncError::NoSnapshot`]), as a modpack update
+/// stops: the player may then update without one (`snapshot` false), which only records
+/// the content first (a failure of that is logged, and the update keeps its rollback copy
+/// of what it replaces). Returns whether an image now holds the instance's files as they
+/// are (not for an instance whose images aren't kept). Blocking.
+pub fn before_server_update(
+    images: &Images,
+    instance: &str,
+    server: &str,
+    snapshot: bool,
+    progress: &InstallProgress,
+    cancel: &CancelToken,
+) -> Result<bool, SyncError> {
+    if !snapshot {
+        return Ok(
+            match images.record_before_change(instance, labels::BEFORE_SERVER_UPDATE) {
+                Ok(recorded) => recorded.is_some(),
+                Err(err) => {
+                    crate::images::warn(
+                        "images.before_server_update",
+                        instance,
+                        &format!(
+                            "Couldn't record the content before updating from {server}: {err}"
+                        ),
+                    );
+                    false
+                }
+            },
+        );
+    }
+    progress.set_label("Taking a snapshot before the update");
+    let shown = |read: u64, total: u64| {
+        progress.downloads.set(ProgressSnapshot {
+            bytes_done: read,
+            bytes_total: total,
+            ..ProgressSnapshot::default()
+        });
+    };
+    let stop = || cancel.is_cancelled();
+    let change = RiskyChange::ServerUpdate { server };
+    let taken = images.before_risky_change_with(instance, change, &shown, &stop);
+    progress.downloads.set(ProgressSnapshot::default());
+    match taken {
+        Ok(_) => Ok(images.accepts(instance)),
+        Err(ImageError::Cancelled) => Err(SyncError::Cancelled),
         Err(err) => {
             crate::images::warn(
                 "images.before_server_update",
                 instance,
-                &format!("Couldn't record the content before updating from {server}: {err}"),
+                &format!("Couldn't take a snapshot before updating from {server}: {err}"),
             );
-            false
+            Err(SyncError::NoSnapshot(err.to_string()))
         }
     }
 }
@@ -203,6 +245,8 @@ pub struct ServerUpdate {
     server: String,
     dirs: InstanceDirs,
     ready: Arc<Ready>,
+    /// Whether a snapshot comes first ([`before_server_update`]).
+    snapshot: bool,
 }
 
 impl ServerUpdate {
@@ -226,10 +270,19 @@ impl ServerUpdate {
             server: server.to_string(),
             dirs,
             ready,
+            snapshot: true,
         })
     }
 
-    /// Places the view's files (from `sources`): first the record before a server update,
+    /// The update without the snapshot before it, which couldn't be taken
+    /// ([`SyncError::NoSnapshot`]) and the player chose to go on without: the content is
+    /// still recorded first.
+    pub fn without_snapshot(mut self) -> Self {
+        self.snapshot = false;
+        self
+    }
+
+    /// Places the view's files (from `sources`): first the snapshot before a server update,
     /// then the files inside the operation, which succeeds part way when placing fails
     /// with files changed part way, and records nothing when it failed changing nothing.
     pub async fn place(
@@ -263,7 +316,21 @@ impl ServerUpdate {
         // what the record before the update holds: the content folders and the files the
         // instance's packs wrote, as they are before it
         let scope = crate::images::context::scope_of(&self.dirs.instance);
-        let recorded = before_server_update(&self.images, &id, &self.server);
+        let recorded = match before_server_update(
+            &self.images,
+            &id,
+            &self.server,
+            self.snapshot,
+            progress,
+            cancel,
+        ) {
+            Ok(recorded) => recorded,
+            Err(err) => {
+                // cancelled, or no snapshot: nothing changed
+                views.stopped_placing(&placing_before);
+                return Err(err);
+            }
+        };
         let operation = self.images.begin(&id, labels::server_updated(&self.server));
         match update_instance(sources, &self.dirs, &self.ready.plan, progress, cancel).await {
             Ok(outcome) => {
@@ -371,7 +438,7 @@ pub async fn update_instance(
     progress: &InstallProgress,
     cancel: &CancelToken,
 ) -> Result<UpdateOutcome, SyncError> {
-    update::apply_from(sources, dirs, &plan.update, false, progress, cancel)
+    update::apply_from(sources, dirs, &plan.update, progress, cancel)
         .await
         .map_err(modpack_error)
 }

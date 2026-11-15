@@ -1001,14 +1001,16 @@ impl ContentView {
 
     /// Installs `requests` one after the other in the background, with progress.
     pub fn install(&mut self, requests: Vec<InstallRequest>, cx: &mut Context<Self>) {
-        self.install_then(requests, Vec::new(), cx);
+        self.install_then(requests, Vec::new(), None, cx);
     }
 
     /// Like [`Self::install`], then the CurseForge requests `queued_cf` once they are in.
+    /// An update (`updating`, the titles it updates) takes a snapshot first.
     fn install_then(
         &mut self,
         requests: Vec<InstallRequest>,
         queued_cf: Vec<CfInstallRequest>,
+        updating: Option<Vec<String>>,
         cx: &mut Context<Self>,
     ) {
         if requests.is_empty() || !self.can_change(cx) {
@@ -1028,6 +1030,16 @@ impl ContentView {
             let progress = progress.clone();
             let cancel = cancel.clone();
             cx.background_spawn(async move {
+                let no_snapshot = match &updating {
+                    Some(titles) => {
+                        match snapshot_before_update(&images, &image_id, titles, &progress, &cancel)
+                        {
+                            Ok(no_snapshot) => no_snapshot,
+                            Err(err) => return (Err(err), None),
+                        }
+                    }
+                    None => None,
+                };
                 // The whole job (Update all) is one operation: what each install did, and
                 // what one that failed part way placed, is one image once it ends.
                 let mut operation = images.begin(&image_id, "");
@@ -1074,11 +1086,12 @@ impl ContentView {
                 }
                 .await;
                 operation.succeed();
-                result.map(|()| total)
+                (result.map(|()| total), no_snapshot)
             })
         };
         let task = cx.spawn(async move |this, cx| {
-            let result = work.await;
+            let (result, no_snapshot) = work.await;
+            let no_snapshot = no_snapshot.as_deref();
             this.update(cx, |this, cx| {
                 let Some((job, shown)) = this.finish_job(&id) else {
                     return;
@@ -1088,7 +1101,10 @@ impl ContentView {
                 let queued = if succeeded { job.queued_cf } else { Vec::new() };
                 if !shown {
                     let message = match &result {
-                        Ok(outcome) => (outcome_message(outcome).into(), false),
+                        Ok(outcome) => (
+                            with_snapshot_note(outcome_message(outcome), no_snapshot).into(),
+                            false,
+                        ),
                         Err(err) => (err.to_string().into(), true),
                     };
                     let message = Some(message);
@@ -1097,7 +1113,7 @@ impl ContentView {
                 }
                 match result {
                     Ok(outcome) => {
-                        let message = outcome_message(&outcome);
+                        let message = with_snapshot_note(outcome_message(&outcome), no_snapshot);
                         this.set_message(message, false, cx);
                         for kind in &kinds {
                             this.section_mut(*kind).updates.clear();
@@ -1201,8 +1217,16 @@ impl ContentView {
     pub fn update_all(&mut self, kind: ContentKind, cx: &mut Context<Self>) {
         // Modrinth's first, then CurseForge's: one install runs at a time.
         let cf_requests = self.cf_update_requests(kind);
+        let mut titles: Vec<String> = self
+            .section(kind)
+            .updates
+            .keys()
+            .map(|name| launcher_core::content::enabled_name(name))
+            .collect();
+        titles.sort();
+        titles.extend(self.cf_update_titles(kind));
         if self.section(kind).updates.is_empty() {
-            self.cf_install(cf_requests, cx);
+            self.cf_install_with(cf_requests, Some(titles), cx);
             return;
         }
         let mut versions: Vec<RawVersion> = self.section(kind).updates.values().cloned().collect();
@@ -1217,7 +1241,7 @@ impl ContentView {
                 force: false,
             })
             .collect();
-        self.install_then(requests, cf_requests, cx);
+        self.install_then(requests, cf_requests, Some(titles), cx);
     }
 
     pub fn update_one(&mut self, kind: ContentKind, file_name: &str, cx: &mut Context<Self>) {
@@ -1226,7 +1250,8 @@ impl ContentView {
             return;
         }
         if let Some(version) = self.section(kind).updates.get(file_name).cloned() {
-            self.install(
+            let title = vec![launcher_core::content::enabled_name(file_name)];
+            self.install_then(
                 vec![InstallRequest {
                     kind,
                     version,
@@ -1234,6 +1259,8 @@ impl ContentView {
                     install_dependencies: true,
                     force: false,
                 }],
+                Vec::new(),
+                Some(title),
                 cx,
             );
         }
@@ -2239,6 +2266,46 @@ pub(crate) fn outcome_message(outcome: &InstallOutcome) -> String {
     message
 }
 
+/// The snapshot before content updates (`titles` are what updates), in the update's
+/// background task, shown in its progress and stopped by its Cancel (which cancels the
+/// update too: `Err`). A snapshot that fails doesn't stop the update: `Ok(Some(why))`, for
+/// the update's message to say no snapshot was taken.
+pub(crate) fn snapshot_before_update(
+    images: &launcher_core::images::Images,
+    instance: &str,
+    titles: &[String],
+    progress: &InstallProgress,
+    cancel: &CancelToken,
+) -> Result<Option<String>, launcher_core::content::ContentError> {
+    use launcher_core::game::download::{DownloadError, ProgressSnapshot};
+    progress.set_label(t(crate::i18n::InstanceSettingsMsg::TakingSnapshot));
+    let shown = |read: u64, total: u64| {
+        progress.downloads.set(ProgressSnapshot {
+            bytes_done: read,
+            bytes_total: total,
+            ..ProgressSnapshot::default()
+        })
+    };
+    let stop = || cancel.is_cancelled();
+    let change = launcher_core::images::RiskyChange::ContentUpdate { titles };
+    match images.before_risky_change_with(instance, change, &shown, &stop) {
+        Ok(_) => Ok(None),
+        Err(launcher_core::images::ImageError::Cancelled) => Err(DownloadError::Cancelled.into()),
+        Err(err) => {
+            log::warn!("Couldn't take a snapshot of {instance} before the update: {err}");
+            Ok(Some(err.to_string()))
+        }
+    }
+}
+
+/// `message`, then that no snapshot was taken first when `no_snapshot` says why.
+pub(crate) fn with_snapshot_note(message: String, no_snapshot: Option<&str>) -> String {
+    match no_snapshot {
+        Some(error) => format!("{message} {}", tr!(M::NoSnapshotFirst, error = error)),
+        None => message,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2958,11 +3025,12 @@ mod image_tests {
             .expect("a Fabric sample instance")
     }
 
-    /// The sample instances, off the network, with the Fabric one's id and the images.
+    /// The sample instances, off the network, with the Fabric one's id and the images. The
+    /// instance settings scene's: the worlds scene's comes with snapshots and their history.
     fn sample(cx: &mut TestAppContext) -> (Entity<Instances>, String, Arc<Images>) {
         let instances = cx.update(|cx| {
             let accounts = crate::preview::accounts("signed-out", cx);
-            crate::preview::instances("worlds", &accounts, cx)
+            crate::preview::instances("instance-settings", &accounts, cx)
         });
         let (id, images) = instances.update(cx, |instances, _| {
             instances.preview_offline();
@@ -3084,9 +3152,11 @@ mod image_tests {
             plan: Arc::new(plan),
             pack_path,
             pack: Arc::new(pack),
+            snapshot_failed: None,
+            without_snapshot: false,
         };
         instances.update(&mut cx, |instances, cx| {
-            instances.apply_modpack_update(prompt, false, cx)
+            instances.apply_modpack_update(prompt, cx)
         });
         wait_until(&mut cx, |cx| {
             instances.read_with(cx, |instances, _| {

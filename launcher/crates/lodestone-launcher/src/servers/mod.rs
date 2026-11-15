@@ -91,7 +91,7 @@ use url::Url;
 use crate::{
     accounts::Accounts,
     components::DialogSlot,
-    i18n::{CommonMsg, ServersMsg as M, ServersPlural as P, format, t, tr, trn},
+    i18n::{CommonMsg, ServersMsg as M, ServersPlural as P, ShellMsg, format, t, tr, trn},
     instances::{Instances, InstancesEvent},
 };
 use add_dialog::{AddRequest, AddServerDialog, AddServerEvent};
@@ -410,6 +410,7 @@ impl Busy {
 }
 
 /// A server's image that was read and planned, before the instance is made or updated.
+#[derive(Clone)]
 pub struct PendingImage {
     core: String,
     server: ServerInstance,
@@ -417,6 +418,8 @@ pub struct PendingImage {
     instance_id: Option<String>,
     ready: Arc<Ready>,
     image: ServerImage,
+    /// The player chose to update without the snapshot before it, which couldn't be taken.
+    without_snapshot: bool,
 }
 
 /// A server's `.mrpack` client pack that was downloaded and read, before the instance is
@@ -432,6 +435,7 @@ pub struct PendingCreate {
 
 /// An update that brings an instance's mods in step with its server's `.mrpack` client
 /// pack: a core older than milestone 3.
+#[derive(Clone)]
 pub struct PendingSync {
     core: String,
     server: ServerInstance,
@@ -439,6 +443,8 @@ pub struct PendingSync {
     pack_path: PathBuf,
     plan: Arc<UpdatePlan>,
     etag: Option<String>,
+    /// The player chose to update without the snapshot before it, which couldn't be taken.
+    without_snapshot: bool,
 }
 
 /// An install from a core that waits for the user.
@@ -537,8 +543,62 @@ pub struct UpdatePrompt {
     pub only_lacking: bool,
     /// What the update downloads, in bytes.
     pub download_bytes: u64,
+    /// The snapshot before the update couldn't be taken (why): nothing changed, and the
+    /// prompt offers to update without one.
+    pub snapshot_failed: Option<String>,
     pending: Option<PendingPull>,
     pub focus: FocusHandle,
+}
+
+impl UpdatePrompt {
+    /// The prompt for bringing `instance` in step with a server's image (`pending`).
+    fn for_image(
+        pending: PendingImage,
+        instance: Option<&launcher_core::instances::Instance>,
+        snapshot_failed: Option<String>,
+        focus: FocusHandle,
+    ) -> Self {
+        let summary = &pending.ready.plan.summary;
+        let new_loader = pending
+            .ready
+            .plan
+            .loader
+            .as_ref()
+            .map(|l| l.version.clone());
+        let old_loader = instance.and_then(|i| i.loader_version.clone());
+        UpdatePrompt {
+            core: pending.core.clone(),
+            server: pending.server.clone(),
+            instance_id: pending.instance_id.clone().unwrap_or_default(),
+            changes: summary.changes.clone(),
+            missing: summary.missing.clone(),
+            curseforge: summary.curseforge_listed.clone(),
+            loader: (old_loader != new_loader).then(|| summary.loader.clone()),
+            only_lacking: !pending.ready.changes(instance),
+            download_bytes: summary.download_bytes,
+            snapshot_failed,
+            pending: Some(PendingPull::SyncImage(pending)),
+            focus,
+        }
+    }
+
+    /// The prompt for bringing an instance in step with a server's `.mrpack` client pack.
+    fn for_pack(pending: PendingSync, snapshot_failed: Option<String>, focus: FocusHandle) -> Self {
+        UpdatePrompt {
+            core: pending.core.clone(),
+            server: pending.server.clone(),
+            instance_id: pending.instance_id.clone(),
+            changes: PackChanges::from_plan(&pending.plan),
+            missing: Vec::new(),
+            curseforge: Vec::new(),
+            loader: None,
+            only_lacking: false,
+            download_bytes: pending.plan.download_size(),
+            snapshot_failed,
+            pending: Some(PendingPull::Sync(pending)),
+            focus,
+        }
+    }
 }
 
 /// What will be installed from a server: before a new instance is made from its image,
@@ -2040,6 +2100,7 @@ impl Servers {
                             instance_id: None,
                             ready: Arc::new(*ready),
                             image,
+                            without_snapshot: false,
                         });
                         this.gate(pending, PullKind::ClientPack, cx);
                     }
@@ -2597,37 +2658,23 @@ impl Servers {
                             instance_id: Some(instance_id),
                             ready: Arc::new(*ready),
                             image,
+                            without_snapshot: false,
                         },
                         cx,
                     ),
                     Ok(ImageCheck::Changed(ready)) => {
                         let instance = this.instances.read(cx).store().get(&instance_id).ok();
-                        let summary = &ready.plan.summary;
-                        let new_loader = ready.plan.loader.as_ref().map(|l| l.version.clone());
-                        let only_lacking = !ready.changes(instance.as_ref());
-                        let loader = (instance.and_then(|i| i.loader_version) != new_loader)
-                            .then(|| summary.loader.clone());
+                        let pending = PendingImage {
+                            core: core_uuid.clone(),
+                            server,
+                            instance_id: Some(instance_id),
+                            ready: Arc::new(*ready),
+                            image,
+                            without_snapshot: false,
+                        };
                         let focus = cx.focus_handle();
                         this.prompt.open(
-                            UpdatePrompt {
-                                core: core_uuid.clone(),
-                                server: server.clone(),
-                                instance_id: instance_id.clone(),
-                                changes: summary.changes.clone(),
-                                missing: summary.missing.clone(),
-                                curseforge: summary.curseforge_listed.clone(),
-                                loader,
-                                only_lacking,
-                                download_bytes: summary.download_bytes,
-                                pending: Some(PendingPull::SyncImage(PendingImage {
-                                    core: core_uuid.clone(),
-                                    server,
-                                    instance_id: Some(instance_id),
-                                    ready: Arc::new(*ready),
-                                    image,
-                                })),
-                                focus,
-                            },
+                            UpdatePrompt::for_image(pending, instance.as_ref(), None, focus),
                             cx,
                         );
                     }
@@ -2745,32 +2792,18 @@ impl Servers {
                     Ok(Check::InStep) => this.join(&core_uuid, &server, &instance_id, cx),
                     Ok(Check::Changed(boxed)) => {
                         let (pack_path, plan, etag) = *boxed;
-                        let changes = PackChanges::from_plan(&plan);
-                        let download_bytes = plan.download_size();
+                        let pending = PendingSync {
+                            core: core_uuid.clone(),
+                            server,
+                            instance_id,
+                            pack_path,
+                            plan: Arc::new(plan),
+                            etag,
+                            without_snapshot: false,
+                        };
                         let focus = cx.focus_handle();
-                        this.prompt.open(
-                            UpdatePrompt {
-                                core: core_uuid.clone(),
-                                server: server.clone(),
-                                instance_id: instance_id.clone(),
-                                changes,
-                                missing: Vec::new(),
-                                curseforge: Vec::new(),
-                                loader: None,
-                                only_lacking: false,
-                                download_bytes,
-                                pending: Some(PendingPull::Sync(PendingSync {
-                                    core: core_uuid.clone(),
-                                    server,
-                                    instance_id,
-                                    pack_path,
-                                    plan: Arc::new(plan),
-                                    etag,
-                                })),
-                                focus,
-                            },
-                            cx,
-                        );
+                        this.prompt
+                            .open(UpdatePrompt::for_pack(pending, None, focus), cx);
                     }
                     Err(err) => {
                         this.fail_core(&core_uuid, || t(M::CheckModsFailed).into(), err, cx)
@@ -2904,8 +2937,9 @@ impl Servers {
             pending.discard();
             return self.join(&core, &server, &instance_id, cx);
         }
-        // a view that only lacks files installs nothing: no advisory, only recorded
-        if prompt.only_lacking {
+        // a view that only lacks files installs nothing: no advisory, only recorded; an
+        // update tried again without a snapshot passed the advisory already
+        if prompt.only_lacking || prompt.snapshot_failed.is_some() {
             return self.install(pending, cx);
         }
         self.gate(pending, PullKind::ModSync, cx);
@@ -2987,6 +3021,7 @@ impl Servers {
             pending.ready.clone(),
             held,
         ) {
+            Ok(update) if pending.without_snapshot => update.without_snapshot(),
             Ok(update) => update,
             Err(why) => {
                 return self.fail(move || (t(M::UpdateModsFailed).into(), t(why).into()), cx);
@@ -3018,6 +3053,22 @@ impl Servers {
                     Err(err) if is_cancelled(&err) => {
                         this.done_updating(&row, &mine);
                         this.friend_cancelled(&pending.core, cx);
+                        return None;
+                    }
+                    Err(SyncError::NoSnapshot(error)) => {
+                        // nothing changed: the prompt comes back, offering to update
+                        // without a snapshot, as a modpack update's does
+                        this.done_updating(&row, &mine);
+                        let instance = this.instances.read(cx).store().get(&instance_id).ok();
+                        let retry = PendingImage {
+                            without_snapshot: true,
+                            ..pending.clone()
+                        };
+                        let focus = cx.focus_handle();
+                        this.prompt.open(
+                            UpdatePrompt::for_image(retry, instance.as_ref(), Some(error), focus),
+                            cx,
+                        );
                         return None;
                     }
                     Err(err) => {
@@ -3162,8 +3213,24 @@ impl Servers {
             .instances
             .read(cx)
             .mark_files_busy(&pending.instance_id);
+        let snapshot = !pending.without_snapshot;
         let work = cx.background_spawn(async move {
-            before_server_update(&images, &image_id, &server_name);
+            match before_server_update(
+                &images,
+                &image_id,
+                &server_name,
+                snapshot,
+                &progress,
+                &cancel,
+            ) {
+                Ok(_) => {}
+                // the pack stays for the prompt, which offers to update without one
+                Err(err @ SyncError::NoSnapshot(_)) => return (Err(PullError::from(err)), None),
+                Err(err) => {
+                    let _ = std::fs::remove_file(&pack_path);
+                    return (Err(PullError::from(err)), None);
+                }
+            }
             let operation = images.begin(
                 &image_id,
                 launcher_core::images::labels::server_updated(&server_name),
@@ -3174,7 +3241,6 @@ impl Servers {
                 &dirs,
                 &plan,
                 &pack_path,
-                false,
                 &progress,
                 &cancel,
             )
@@ -3236,6 +3302,15 @@ impl Servers {
                         }
                     }
                     Err(PullError::Cancelled) => this.friend_cancelled(&pending.core, cx),
+                    Err(PullError::Sync(SyncError::NoSnapshot(error))) => {
+                        let retry = PendingSync {
+                            without_snapshot: true,
+                            ..pending.clone()
+                        };
+                        let focus = cx.focus_handle();
+                        this.prompt
+                            .open(UpdatePrompt::for_pack(retry, Some(error), focus), cx);
+                    }
                     Err(err) => {
                         this.fail_core(&pending.core, || t(M::UpdateModsFailed).into(), err, cx)
                     }
@@ -3583,10 +3658,27 @@ impl Servers {
             only_lacking,
             loader,
             download_bytes: 0,
+            snapshot_failed: None,
             pending: None,
             focus: cx.focus_handle(),
         };
         self.prompt.open(prompt, cx);
+    }
+
+    /// The update prompt back after the snapshot before the update failed (`error`).
+    pub fn preview_no_snapshot(
+        &mut self,
+        core: &str,
+        server: ServerInstance,
+        instance_id: &str,
+        changes: PackChanges,
+        error: &str,
+        cx: &mut Context<Self>,
+    ) {
+        self.preview_update(core, server, instance_id, changes, Vec::new(), None, cx);
+        if let Some(prompt) = self.prompt.current_mut() {
+            prompt.snapshot_failed = Some(error.into());
+        }
     }
 
     pub fn preview_advisory(
@@ -3888,6 +3980,7 @@ pub fn sync_error(err: &SyncError) -> String {
         SyncError::BaseFileMissing(path) => tr!(M::ErrBaseFileMissing, path = path),
         SyncError::Image(ImageError::OlderCore) => t(M::ErrOlderCore).into(),
         SyncError::StoppedSharing => t(M::ErrStoppedSharing).into(),
+        SyncError::NoSnapshot(error) => tr!(ShellMsg::ModpackUpdateNoSnapshot, error = error),
         SyncError::NotEnoughSpace { needed, free } => tr!(
             M::ErrNotEnoughSpace,
             needed = format::bytes_binary(*needed),

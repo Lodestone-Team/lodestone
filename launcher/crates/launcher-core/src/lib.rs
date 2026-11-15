@@ -39,7 +39,6 @@ pub mod settings;
 pub mod shared_options;
 pub mod skin;
 pub mod skin_model;
-pub mod snapshots;
 pub mod storage;
 pub mod trace;
 pub mod ui_skin;

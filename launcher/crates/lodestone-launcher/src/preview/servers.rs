@@ -36,6 +36,7 @@ pub const SCENES: &[&str] = &[
     "servers-add",
     "servers-update",
     "servers-update-missing",
+    "servers-update-no-snapshot",
     "servers-update-lacking",
     "servers-install",
     "servers-install-missing",
@@ -339,7 +340,11 @@ fn apply_servers(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) 
                 _ => {}
             }
         }
-        "servers-add" | "servers-update" | "servers-update-missing" | "servers-update-lacking" => {
+        "servers-add"
+        | "servers-update"
+        | "servers-update-missing"
+        | "servers-update-no-snapshot"
+        | "servers-update-lacking" => {
             servers.preview(
                 vec![home(true)],
                 vec![("home".into(), "smp".into(), "survival-smp".into())],
@@ -362,6 +367,15 @@ fn apply_servers(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) 
                     changes,
                     missing(),
                     Some("Fabric 0.16.14".into()),
+                    cx,
+                ),
+                // the snapshot before the update couldn't be taken: update without one?
+                "servers-update-no-snapshot" => servers.preview_no_snapshot(
+                    "home",
+                    smp(),
+                    "survival-smp",
+                    changes,
+                    "There isn't enough free space for the snapshot: 1.2 GiB are needed.",
                     cx,
                 ),
                 // nothing changes on disk, but the server now has a mod it can't share

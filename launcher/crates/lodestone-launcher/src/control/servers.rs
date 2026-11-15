@@ -564,6 +564,19 @@ pub(crate) fn advisory_json(prompt: &crate::servers::AdvisoryPrompt) -> Value {
     data
 }
 
+/// The update prompt came back because the snapshot before the update couldn't be taken:
+/// nothing changed, and the API fails with the reason instead of going on without one (as
+/// `modpacks update` does); the window offers that.
+pub(super) fn snapshot_failed(prompt: &crate::servers::UpdatePrompt) -> Option<ErrorObject> {
+    let error = prompt.snapshot_failed.as_deref()?;
+    Some(api_error(
+        codes::FAILED,
+        format!(
+            "No snapshot could be taken before the update, so nothing has changed: {error}. Fix the problem and try again, or update without a snapshot in the window."
+        ),
+    ))
+}
+
 fn changes_json(prompt: &crate::servers::UpdatePrompt) -> Value {
     json!({
         "server": prompt.server.name,
@@ -577,6 +590,7 @@ fn changes_json(prompt: &crate::servers::UpdatePrompt) -> Value {
         "loader": prompt.loader,
         "only_lacking": prompt.only_lacking,
         "download_bytes": prompt.download_bytes,
+        "snapshot_failed": prompt.snapshot_failed,
     })
 }
 
@@ -650,6 +664,10 @@ pub fn join_instance(call: Call, instance: Instance, options: JoinOptions, cx: &
                 if let Some(prompt) = servers.prompt.current()
                     && prompt.instance_id == id
                 {
+                    if let Some(err) = snapshot_failed(prompt) {
+                        servers.cancel_prompt(cx);
+                        return Some(Err(err));
+                    }
                     return Some(match options.update_mods {
                         Some(update) => {
                             servers.answer_prompt(update, cx);

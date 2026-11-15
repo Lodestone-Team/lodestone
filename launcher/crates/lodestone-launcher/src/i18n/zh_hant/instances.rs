@@ -79,6 +79,12 @@ pub fn text(message: M) -> &'static str {
         M::WaitForUpdate => "請等待更新完成，再按「開始遊戲」。",
         M::StopBeforeDeleting => "請先停止遊戲，再刪除該實例。",
         M::FilesBusy => "請等待該實例的檔案處理完成，然後再試一次。",
+        M::NoSnapshotBeforeGameChange => "變更遊戲前未能拍攝快照",
+        M::LoaderChangeNotSaved => "新的載入器版本未儲存",
+        M::LoaderChangeDropped => "拍攝快照期間這個實例被修改了。請重新選擇載入器版本。",
+        M::RestoreUnfinished => {
+            "這個實例的一次還原沒有完成，也無法復原，因此它的部分世界或模組被暫時移到一旁。請關閉正在使用其檔案的程式，然後再按一次「開始遊戲」，或重新啟動 Lodestone Launcher。"
+        }
         M::CouldntSavePlayed => "無法儲存上次遊玩時間：{error}",
         M::CouldntSavePlayTime => "無法儲存遊戲時數：{error}",
         M::ModpackExported => "模組包已匯出",
@@ -131,7 +137,7 @@ pub fn text(message: M) -> &'static str {
 
         M::NotAModpack => "不是模組包",
         M::NotMrpack => {
-            "{name} 不是模組包。Modrinth 模組包的副檔名為 .mrpack，CurseForge 模組包是含有 manifest.json 的 .zip 檔案。"
+            "{name} 不是模組包。Modrinth 模組包的副檔名為 .mrpack，CurseForge 模組包是含有 manifest.json 的 .zip 檔案。從 Lodestone 分享的快照副檔名為 .lodeimg。"
         }
         M::CurseForgeUnreachable => {
             "這是 CurseForge 模組包，而此 Lodestone Launcher 無法連線至 CurseForge。"
@@ -272,7 +278,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
             ["有 {count} 個檔案需要從 CurseForge 網站下載：實例的「內容」分頁會列出它們。"; 2]
         }
         P::PackFilesLeftOut => ["模組包中有 {count} 個檔案被略過，例如 {path}。"; 2],
-        P::WorldsBackedUp => ["已先備份 {count} 個世界。"; 2],
         P::DownloadingFiles => ["正在下載 {count} 個檔案"; 2],
         P::CopyModsLeftBehind => ["{count} 個模組未複製：{names}。"; 2],
         P::CopyDependenciesMissing => ["{count} 個所需的前置模組無法安裝：{names}。"; 2],

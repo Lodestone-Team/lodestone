@@ -336,7 +336,7 @@ impl Instances {
 }
 
 /// The task that waits for a result sent on `rx`.
-fn answer<R: 'static>(
+pub(super) fn answer<R: 'static>(
     rx: oneshot::Receiver<Result<R, String>>,
     cx: &mut Context<Instances>,
 ) -> Task<Result<R, String>> {

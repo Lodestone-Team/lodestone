@@ -542,30 +542,47 @@ impl Images {
     }
 
     /// The instance's state, after the id-reuse guard: images under its id that belong to
-    /// an earlier instance of the same name ([`state::belongs_elsewhere`]) are deleted
-    /// first. The caller holds the record lock.
+    /// an earlier instance of the same name ([`state::belongs_elsewhere`], or a retirement
+    /// marker) are retired first: its snapshots kept aside, its content images deleted
+    /// ([`super::retired`]). The caller holds the record lock.
     pub(crate) fn guarded_state(&self, ctx: &InstanceContext) -> Result<ContentState, ImageError> {
         Ok(self.guarded(ctx)?.state)
     }
 
     /// [`Self::guarded_state`], with whether a state file is there (none after the guard
     /// deleted an earlier instance's images).
-    fn guarded(&self, ctx: &InstanceContext) -> Result<state::Loaded, ImageError> {
+    pub(crate) fn guarded(&self, ctx: &InstanceContext) -> Result<state::Loaded, ImageError> {
+        self.readopt_or_warn(ctx);
         let loaded = state::load_present(self.store(), &ctx.id)?;
         let has_manifests = !self.store().manifest_ids(&ctx.id)?.is_empty();
-        if state::belongs_elsewhere(&loaded, has_manifests, ctx.instance.created) {
+        if self.retired_marker_in(&ctx.id)
+            || state::belongs_elsewhere(&loaded, has_manifests, ctx.instance.created)
+        {
             super::warn(
                 "images.reused",
                 &ctx.id,
-                "the images under this id are an earlier instance's; deleting them",
+                "the images under this id are an earlier instance's; setting them aside",
             );
-            self.wipe_locked(&ctx.id)?;
+            self.retire_locked(&ctx.id)?;
+            // A marked folder may be this instance's own snapshots part way back (a crash
+            // while taking them back): they come back now.
+            if self.readopt_locked(&ctx.id, ctx.instance.created)? {
+                return state::load_present(self.store(), &ctx.id);
+            }
             return Ok(state::Loaded {
                 state: ContentState::default(),
                 present: false,
             });
         }
         Ok(loaded)
+    }
+
+    /// [`Self::readopt_locked`] for the instance of `ctx`; a failure is only noted (the
+    /// instance starts a history of its own and the snapshots stay retired).
+    pub(crate) fn readopt_or_warn(&self, ctx: &InstanceContext) {
+        if let Err(e) = self.readopt_locked(&ctx.id, ctx.instance.created) {
+            super::warn("images.readopted", &ctx.id, &e.to_string());
+        }
     }
 
     /// The labels of operations a new image was written during (see the module), added to

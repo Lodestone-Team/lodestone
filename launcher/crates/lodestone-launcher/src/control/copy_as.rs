@@ -110,15 +110,24 @@ pub fn set_loader_version(call: Call, cx: &mut App) -> Reply {
             ));
         }
         changed.loader_version = Some(version);
+        // A snapshot first, as the Settings tab's change takes, then the save.
         let saved = control.instances.update(cx, |instances, cx| {
-            instances.undoable(&changed.id, cx, |instances, cx| instances.save(&changed, cx))
+            instances.undoable(&changed.id, cx, |instances, cx| {
+                instances.save_settings(&changed, cx)
+            })
         });
-        failed(saved)?;
+        let snapshot_failed = match failed(saved)? {
+            Some(pending) => pending
+                .await
+                .map_err(|err| api_error(codes::CONFLICT, err))?,
+            None => None,
+        };
         Ok(json!({
             "instance": changed.id,
             "loader": changed.loader,
             "loader_version": changed.loader_version,
             "message": "The loader installs the next time the game starts.",
+            "snapshot_failed": snapshot_failed,
         }))
     })
 }

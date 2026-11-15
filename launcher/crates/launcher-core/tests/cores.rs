@@ -533,7 +533,6 @@ fn imports_and_keeps_a_servers_client_pack_in_step() {
         &dirs,
         &plan,
         &pack_path,
-        false,
         &InstallProgress::default(),
         &CancelToken::new(),
     )))

@@ -178,6 +178,51 @@ pub const LEFTOVER_AGE: Duration = Duration::from_secs(60 * 60);
 /// The prefix of the temporary files and folders imports make in `instances/`.
 const LEFTOVER_PREFIX: &str = ".lodestone-";
 
+/// The bytes free to this user on `dir`'s volume (quotas included), like `statvfs`'s
+/// `f_bavail`; `None` when it can't be asked. For the checks before copying into the
+/// data folder (images, data moves, copies of worlds, imports). One public function
+/// that picks the platform's way inside, so its visibility can't differ by platform.
+pub fn free_space(dir: &Path) -> Option<u64> {
+    platform_free_space(dir)
+}
+
+#[cfg(unix)]
+fn platform_free_space(dir: &Path) -> Option<u64> {
+    use std::os::unix::ffi::OsStrExt;
+    let path = std::ffi::CString::new(dir.as_os_str().as_bytes()).ok()?;
+    let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
+    // SAFETY: `path` is NUL-terminated and `stat` is a valid statvfs to fill.
+    if unsafe { libc::statvfs(path.as_ptr(), &mut stat) } != 0 {
+        return None;
+    }
+    #[allow(clippy::unnecessary_cast)]
+    Some(stat.f_bavail as u64 * stat.f_frsize as u64)
+}
+
+#[cfg(windows)]
+fn platform_free_space(dir: &Path) -> Option<u64> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+    let path: Vec<u16> = dir.as_os_str().encode_wide().chain([0]).collect();
+    let mut available = 0u64;
+    // SAFETY: `path` is NUL-terminated; the call writes only the one counter it is
+    // given, and leaves the other two out.
+    let ok = unsafe {
+        GetDiskFreeSpaceExW(
+            path.as_ptr(),
+            &mut available,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    };
+    (ok != 0).then_some(available)
+}
+
+#[cfg(not(any(unix, windows)))]
+fn platform_free_space(_: &Path) -> Option<u64> {
+    None
+}
+
 /// What the data directory takes.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 pub struct Report {
@@ -189,8 +234,8 @@ pub struct Report {
     pub cache: u64,
     pub leftovers: Leftovers,
     pub logs: Logs,
-    /// Snapshots of instances.
-    pub snapshots: crate::snapshots::Usage,
+    /// The image store: content history and snapshots of every instance.
+    pub images: ImagesUsage,
     /// Settings, accounts and other small files, and anything else in the folder.
     pub other: u64,
 }
@@ -218,7 +263,7 @@ impl Report {
             + self.game_files.total()
             + self.cache
             + self.leftovers.bytes
-            + self.snapshots.bytes
+            + self.images.bytes
             + self.other
     }
 }
@@ -234,7 +279,8 @@ pub enum Clean {
     /// Logs and crash reports older than [`OLD_LOGS`].
     OldLogs,
     AllLogs,
-    /// Automatic snapshots, those of deleted instances, and shared snapshot files.
+    /// Snapshots the Launcher took on its own, and deleted instances' snapshots
+    /// ([`clean_snapshots`], through the image store).
     Snapshots,
 }
 
@@ -265,6 +311,68 @@ impl Clean {
         .into_iter()
         .find(|clean| clean.name() == name)
     }
+}
+
+/// What the image store takes (`<data>/image-store/`), read without its locks from the
+/// snapshot lists and deleted instances' markers.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct ImagesUsage {
+    /// The store folder's size: every image's files, stored once.
+    pub bytes: u64,
+    /// Snapshots of every instance, deleted ones included.
+    pub snapshots: usize,
+    /// Of those, the ones Storage's clean-up deletes: those the Launcher took on its own
+    /// (not pinned), and every deleted instance's.
+    pub removable: usize,
+    /// Deleted instances whose snapshots are kept.
+    pub retired_instances: usize,
+}
+
+/// Counts the snapshots in the image store at `root` (see [`ImagesUsage`]); `bytes` is
+/// left to the caller. A retired folder of an instance in `instances` that came back (put
+/// back from the Trash, not yet taken back) counts as that instance's, as the clean-up
+/// treats it.
+fn images_usage(root: &Path, instances: &[Instance]) -> ImagesUsage {
+    use crate::images::snapshots::SnapshotKind;
+    #[derive(serde::Deserialize)]
+    struct Records {
+        #[serde(default)]
+        snapshots: Vec<Record>,
+    }
+    #[derive(serde::Deserialize)]
+    struct Record {
+        kind: SnapshotKind,
+        #[serde(default)]
+        pinned: bool,
+    }
+    let mut usage = ImagesUsage::default();
+    for entry in read_dir(&root.join("images")) {
+        let dir = entry.path();
+        let retired = dir.join(crate::images::retired::RETIRED_FILE).is_file() && {
+            let marker = crate::images::retired::read_marker(&dir);
+            let created = instances
+                .iter()
+                .find(|i| i.id == marker.former_id)
+                .map(|i| i.created);
+            !crate::images::retired::returns_to(&root.join("images"), &marker, created)
+        };
+        if retired {
+            usage.retired_instances += 1;
+        }
+        let path = dir.join(crate::images::snapshots::RECORDS_FILE);
+        let records = fs::metadata(&path)
+            .is_ok_and(|m| m.len() <= 16 << 20)
+            .then(|| fs::read(&path).ok())
+            .flatten()
+            .and_then(|bytes| serde_json::from_slice::<Records>(&bytes).ok());
+        for record in records.map(|r| r.snapshots).unwrap_or_default() {
+            usage.snapshots += 1;
+            if retired || (record.kind.removable() && !record.pinned) {
+                usage.removable += 1;
+            }
+        }
+    }
+    usage
 }
 
 /// What a cleanup did.
@@ -377,9 +485,10 @@ fn scan_on(
     report.game_files.unused = unused_game_files(data, &used, cancel)?;
 
     report.cache = sizer.size(&data.cache_dir())?;
-    let store = crate::snapshots::Store::new(data);
-    let ids: HashSet<&str> = instances.iter().map(|i| i.id.as_str()).collect();
-    report.snapshots = store.usage(&ids);
+    report.images = ImagesUsage {
+        bytes: sizer.size(&data.image_store_dir())?,
+        ..images_usage(&data.image_store_dir(), instances)
+    };
 
     // Everything else at the top of the data directory.
     let known: HashSet<PathBuf> = [
@@ -389,7 +498,7 @@ fn scan_on(
         data.libraries_dir(),
         data.assets_dir(),
         data.cache_dir(),
-        store.root().to_path_buf(),
+        data.image_store_dir(),
     ]
     .into_iter()
     .collect();
@@ -401,6 +510,61 @@ fn scan_on(
     }
     report.other = other;
     Ok(report)
+}
+
+/// Settings › Storage's snapshot clean-up ([`Clean::Snapshots`]): deletes the snapshots the
+/// Launcher took on its own (not pinned) of the instances `live`, and every deleted
+/// instance's snapshots, then collects what nothing names. `bytes` is what the store's
+/// folder shrank by: files written within the last hour stay until a later collection
+/// (the store's grace).
+pub fn clean_snapshots(
+    data: &DataDir,
+    images: &crate::images::Images,
+    live: &[String],
+) -> Result<Cleaned, DiskError> {
+    let cancel = Cancel::new();
+    let measure = || {
+        Sizer::new(&cancel)
+            .size(&data.image_store_dir())
+            .unwrap_or(0)
+    };
+    let before = measure();
+    let cleaned = images.clean_up(live).map_err(|e| DiskError::Remove {
+        path: data.image_store_dir().display().to_string(),
+        reason: e.to_string(),
+    })?;
+    Ok(Cleaned {
+        bytes: before.saturating_sub(measure()),
+        files: cleaned.records + cleaned.retired,
+    })
+}
+
+/// Deletes the snapshot store of Launchers from before images (`<data>/snapshots/`, with
+/// `objects/` or `instances/` in it): nothing reads it any more, and its snapshots
+/// aren't converted. Returns whether it was there. For the background at startup.
+pub fn remove_old_snapshot_store(data: &DataDir) -> bool {
+    let old = data.root().join("snapshots");
+    let is_old = fs::symlink_metadata(&old).is_ok_and(|m| m.is_dir())
+        && (old.join("objects").is_dir() || old.join("instances").is_dir());
+    if !is_old {
+        return false;
+    }
+    match crate::images::remove_tree(&old) {
+        Ok(()) => {
+            crate::trace::emit(
+                "storage.old_snapshots",
+                || serde_json::json!({ "removed": old.display().to_string() }),
+            );
+            true
+        }
+        Err(e) => {
+            crate::trace::emit(
+                "storage.old_snapshots",
+                || serde_json::json!({ "path": old.display().to_string(), "warning": e.to_string() }),
+            );
+            false
+        }
+    }
 }
 
 /// Whether runtimes folder `component` holds Zulu 8 builds: `zulu-8`, or
@@ -444,8 +608,11 @@ fn clean_on(
     let mut cleaned = Cleaned::default();
     match what {
         Clean::Snapshots => {
-            let ids: HashSet<&str> = instances.iter().map(|i| i.id.as_str()).collect();
-            cleaned.bytes = crate::snapshots::Store::new(data).clean_up(&ids);
+            // The image store's own locks keep its records whole: see clean_snapshots.
+            return Err(DiskError::Remove {
+                path: data.image_store_dir().display().to_string(),
+                reason: "snapshots are cleaned through the image store".into(),
+            });
         }
         Clean::Cache => {
             for entry in read_dir(&data.cache_dir()) {
@@ -1562,5 +1729,103 @@ mod tests {
         ] {
             assert_eq!(Clean::from_name(clean.name()), Some(clean));
         }
+    }
+
+    #[test]
+    fn the_image_store_is_counted_apart_with_its_snapshots() {
+        let (_tmp, data, mut instances) = fixture();
+        let mut back = instances[0].clone();
+        back.id = "fab2".into();
+        back.created = 1_700_000_123;
+        instances.push(back);
+        let before = scan(&data, &instances, &Cancel::new()).unwrap();
+        assert_eq!(before.images, ImagesUsage::default());
+        let images = data.image_store_dir().join("images");
+        let records = |kinds: &[(&str, bool)]| {
+            let snapshots: Vec<serde_json::Value> = kinds
+                .iter()
+                .map(|(kind, pinned)| serde_json::json!({ "kind": kind, "pinned": pinned }))
+                .collect();
+            serde_json::to_vec(&serde_json::json!({ "version": 1, "snapshots": snapshots }))
+                .unwrap()
+        };
+        // a live instance: manual, automatic, a pinned automatic one, a safety snapshot
+        write(
+            &images
+                .join("fab")
+                .join(crate::images::snapshots::RECORDS_FILE),
+            &records(&[
+                ("manual", false),
+                ("before_change", false),
+                ("after_play", true),
+                ("before_restore", false),
+                ("imported", false),
+            ]),
+        );
+        // a deleted instance's: all of them go with Storage's clean-up
+        let retired = images.join("_deleted_0123456789abcdef");
+        write(&retired.join(crate::images::retired::RETIRED_FILE), b"{}");
+        write(
+            &retired.join(crate::images::snapshots::RECORDS_FILE),
+            &records(&[("manual", true)]),
+        );
+        // the snapshots of a live instance put back from the Trash (its id and creation
+        // time, no images of its own yet): still its own, so only its automatic one goes
+        let came_back = images.join("_deleted_fedcba9876543210");
+        write(
+            &came_back.join(crate::images::retired::RETIRED_FILE),
+            serde_json::to_string(&serde_json::json!({
+                "former_id": "fab2",
+                "instance_created": instances[1].created,
+            }))
+            .unwrap()
+            .as_bytes(),
+        );
+        write(
+            &came_back.join(crate::images::snapshots::RECORDS_FILE),
+            &records(&[("manual", true), ("before_change", false)]),
+        );
+        // a list that can't be read counts nothing, and isn't an error
+        write(
+            &images
+                .join("other")
+                .join(crate::images::snapshots::RECORDS_FILE),
+            b"not a list",
+        );
+        write(
+            &data.image_store_dir().join("objects/ab/cdef"),
+            b"an object",
+        );
+        let report = scan(&data, &instances, &Cancel::new()).unwrap();
+        assert_eq!(
+            report.images,
+            ImagesUsage {
+                bytes: Sizer::new(&Cancel::new())
+                    .size(&data.image_store_dir())
+                    .unwrap(),
+                snapshots: 8,
+                removable: 4,
+                retired_instances: 1,
+            }
+        );
+        assert_eq!(report.other, before.other, "the store isn't other");
+        let total_on_disk = Sizer::new(&Cancel::new()).size(data.root()).unwrap();
+        assert_eq!(report.total(), total_on_disk);
+    }
+
+    #[test]
+    fn only_the_old_snapshot_store_is_removed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let data = DataDir::at(tmp.path());
+        // a folder of that name that isn't the old store stays
+        write(&data.root().join("snapshots/notes.txt"), b"mine");
+        assert!(!remove_old_snapshot_store(&data));
+        assert!(data.root().join("snapshots/notes.txt").is_file());
+        for layout in ["objects/ab/cd", "instances/a/snapshot.json"] {
+            write(&data.root().join("snapshots").join(layout), b"old");
+            assert!(remove_old_snapshot_store(&data), "{layout}");
+            assert!(!data.root().join("snapshots").exists());
+        }
+        assert!(!remove_old_snapshot_store(&data), "nothing left");
     }
 }

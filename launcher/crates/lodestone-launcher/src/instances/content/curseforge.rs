@@ -287,6 +287,17 @@ impl ContentView {
     /// Installs `requests` one after the other in the background, with progress. Files
     /// the user has to download themselves end up in the blocked card.
     pub fn cf_install(&mut self, requests: Vec<CfInstallRequest>, cx: &mut Context<Self>) {
+        self.cf_install_with(requests, None, cx);
+    }
+
+    /// [`Self::cf_install`], first taking a snapshot named after the `updating` titles when
+    /// it updates content (a risky change: [`launcher_core::images::RiskyChange`]).
+    pub(super) fn cf_install_with(
+        &mut self,
+        requests: Vec<CfInstallRequest>,
+        updating: Option<Vec<String>>,
+        cx: &mut Context<Self>,
+    ) {
         if requests.is_empty() || !self.can_change(cx) {
             return;
         }
@@ -311,6 +322,12 @@ impl ContentView {
                 // The tab may not have read the instance's shader mod yet: "Update all"
                 // goes on here when its instance is shown again, as the tab starts over.
                 target.shader_loader = listing::shader_state(&dirs)?.loader;
+                let no_snapshot = match &updating {
+                    Some(titles) => super::snapshot_before_update(
+                        &images, &image_id, titles, &progress, &cancel,
+                    )?,
+                    None => None,
+                };
                 // The whole job is one operation, as for Modrinth's.
                 let mut operation = images.begin(&image_id, "");
                 let result = async {
@@ -363,7 +380,7 @@ impl ContentView {
                 }
                 .await;
                 operation.succeed();
-                result.map(|()| (total, blocked))
+                result.map(|()| (total, blocked, no_snapshot))
             })
         };
         let task = cx.spawn(async move |this, cx| {
@@ -374,13 +391,18 @@ impl ContentView {
                 };
                 if !shown {
                     let message = match result {
-                        Ok((outcome, blocked)) => {
+                        Ok((outcome, blocked, no_snapshot)) => {
                             let said = !outcome.installed.is_empty() || blocked.is_empty();
                             // the card shows them when the instance is shown again
                             this.instances.update(cx, |instances, _| {
                                 instances.put_back_pending_downloads(&id, blocked)
                             });
-                            said.then(|| (super::outcome_message(&outcome).into(), false))
+                            said.then(|| {
+                                let message = super::outcome_message(&outcome);
+                                let message =
+                                    super::with_snapshot_note(message, no_snapshot.as_deref());
+                                (message.into(), false)
+                            })
                         }
                         Err(err) => Some((err.to_string().into(), true)),
                     };
@@ -388,9 +410,12 @@ impl ContentView {
                     return;
                 }
                 match result {
-                    Ok((outcome, blocked)) => {
+                    Ok((outcome, blocked, no_snapshot)) => {
                         if !outcome.installed.is_empty() || blocked.is_empty() {
-                            this.set_message(super::outcome_message(&outcome), false, cx);
+                            let message = super::outcome_message(&outcome);
+                            let message =
+                                super::with_snapshot_note(message, no_snapshot.as_deref());
+                            this.set_message(message, false, cx);
                         }
                         for kind in &kinds {
                             this.section_mut(*kind).updates.clear();
@@ -438,7 +463,8 @@ impl ContentView {
     /// allows it, else through the blocked card.
     pub fn cf_update_one(&mut self, kind: ContentKind, file_name: &str, cx: &mut Context<Self>) {
         if let Some(update) = self.section(kind).cf_updates.get(file_name).cloned() {
-            self.cf_install(
+            let title = vec![launcher_core::content::enabled_name(file_name)];
+            self.cf_install_with(
                 vec![CfInstallRequest {
                     kind,
                     file: update.file,
@@ -446,9 +472,22 @@ impl ContentView {
                     install_dependencies: true,
                     force: false,
                 }],
+                Some(title),
                 cx,
             );
         }
+    }
+
+    /// The files the last check found CurseForge updates for, by their names when on.
+    pub(super) fn cf_update_titles(&self, kind: ContentKind) -> Vec<String> {
+        let mut titles: Vec<String> = self
+            .section(kind)
+            .cf_updates
+            .keys()
+            .map(|name| launcher_core::content::enabled_name(name))
+            .collect();
+        titles.sort();
+        titles
     }
 
     /// The CurseForge requests for every CurseForge update the last check found.

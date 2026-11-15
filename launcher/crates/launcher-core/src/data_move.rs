@@ -176,7 +176,7 @@ pub fn run(
     let total = measure(from, cancel)?;
     progress.total.store(total.max(1), Ordering::Relaxed);
     if let Some(parent) = existing_ancestor(to)
-        && let Some(free) = crate::snapshots::free_space(&parent)
+        && let Some(free) = crate::disk::free_space(&parent)
         && total > free
     {
         return Err(MoveError::NoRoom {

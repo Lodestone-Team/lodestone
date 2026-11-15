@@ -37,7 +37,7 @@ use crate::{
         settings::popover_panel,
         text_tooltip,
     },
-    i18n::{CommonMsg, ServersMsg as M, ServersPlural as P, format, t, tr, trn},
+    i18n::{CommonMsg, ServersMsg as M, ServersPlural as P, ShellMsg, format, t, tr, trn},
     theme::{self, colors, fonts, leading, radius, text, weights},
 };
 
@@ -1564,12 +1564,24 @@ fn update_dialog(servers: &Entity<Servers>, prompt: &UpdatePrompt) -> AnyElement
                     .font_family(fonts::mono())
                     .text_color(crate::theme::ink::text())
             }))
-            .children(missing_block(&prompt.missing, &prompt.curseforge)),
+            .children(missing_block(&prompt.missing, &prompt.curseforge))
+            .children(prompt.snapshot_failed.as_ref().map(|error| {
+                small(tr!(ShellMsg::ModpackUpdateNoSnapshot, error = error))
+                    .whitespace_normal()
+                    .text_color(colors::YELLOW)
+            })),
     )
     .footer(
-        Button::new("update-and-play", t(M::UpdateAndPlay))
-            .variant(ButtonVariant::Primary)
-            .on_click(move |_, _, cx| update.update(cx, |this, cx| this.answer_prompt(true, cx))),
+        Button::new(
+            "update-and-play",
+            if prompt.snapshot_failed.is_some() {
+                t(ShellMsg::UpdateWithoutSnapshot)
+            } else {
+                t(M::UpdateAndPlay)
+            },
+        )
+        .variant(ButtonVariant::Primary)
+        .on_click(move |_, _, cx| update.update(cx, |this, cx| this.answer_prompt(true, cx))),
     )
     .footer(
         Button::new("play-anyway", t(M::PlayAnyway))
