@@ -272,7 +272,10 @@ pub fn text(message: M) -> &'static str {
         M::ErrPrepareFailed => "伺服器無法準備其檔案。請幾分鐘後再試。",
         M::ErrStillPreparing => "伺服器仍在準備其檔案。請幾分鐘後再試。",
         M::ErrFileFailed => "伺服器無法傳送 {path}。請稍後再試。",
-        M::ErrViewChanged => "下載期間伺服器的檔案有所變更。請再按一次「開始遊戲」。",
+        M::ErrViewChanged => "下載期間伺服器的檔案有所變更。請再試一次。",
+        M::ErrFilesChangedSince => {
+            "{path} 在更新準備好之後有所變更，因此沒有做任何變更。請再按一次「開始遊戲」。"
+        }
         M::ErrBasePackGone => {
             "伺服器的模組包已不在 Modrinth 上，因此無法下載其檔案。請伺服器的擁有者更新模組包。"
         }

@@ -82,6 +82,14 @@ pub enum ModpackError {
     Image(#[from] crate::cores::player_image::ImageError),
     #[error("cancelled")]
     Cancelled,
+    /// A file an update would overwrite or remove changed after the update was planned:
+    /// nothing was changed, and planning again takes the change in.
+    #[error("{path} changed after the update was worked out, so nothing was changed. Try again.")]
+    ChangedSincePlanned { path: String },
+    /// An update stopped part way and some of what it changed couldn't be put back: the
+    /// instance's files are partly the new version's.
+    #[error("{0}")]
+    NotUndone(String),
 }
 
 impl From<lodestone_minecraft::Error> for ModpackError {

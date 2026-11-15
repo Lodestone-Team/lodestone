@@ -1,7 +1,8 @@
 //! Placing a planned view ([`super::plan`]): a new instance, staged whole beside the
 //! instances and renamed into place, or an update of an instance through the modpack
-//! updater (staging, a rollback copy of what it replaces, the swap), with the server's
-//! objects fetched from the server and every file checked against its SHA-256.
+//! updater (staging, a rollback copy of what it replaces, the plan checked again against
+//! the disk, the swap), with the server's objects fetched from the server and every file
+//! checked against its SHA-256.
 //!
 //! An update runs through [`ServerUpdate`], which holds its order: refused while the
 //! instance's files are held (its game runs), the record before it ([`before_server_update`]),
@@ -34,13 +35,14 @@ use crate::{
 };
 
 /// Records the instance's content before a server's update changes its files ("Before a
-/// server update"), so every file the update replaces is in an image. The one place this
-/// happens: the snapshot before a server update joins it here. A failure is logged and
-/// the update goes on (it compares the files themselves, and keeps its own rollback
-/// copy); whether the record was made is returned.
+/// server update"), so every content file the update replaces is in an image. The one
+/// place this happens: the snapshot before a server update joins it here. A failure is
+/// logged and the update goes on (it compares the files themselves, and keeps its own
+/// rollback copy); whether the record was made is returned (not for an instance whose
+/// images aren't kept).
 pub fn before_server_update(images: &Images, instance: &str, server: &str) -> bool {
     match images.record_before_change(instance, labels::BEFORE_SERVER_UPDATE) {
-        Ok(_) => true,
+        Ok(recorded) => recorded.is_some(),
         Err(err) => {
             crate::images::warn(
                 "images.before_server_update",
@@ -216,7 +218,8 @@ impl ServerUpdate {
     }
 
     /// Places the view's files (from `sources`): first the record before a server update,
-    /// then the files inside the operation, which succeeds part way when placing fails.
+    /// then the files inside the operation, which succeeds part way when placing fails
+    /// with files changed part way, and records nothing when it failed changing nothing.
     pub async fn place(
         self,
         sources: &Sources<'_>,
@@ -240,17 +243,31 @@ impl ServerUpdate {
             });
         }
         remove_stale_staging(&self.dirs);
-        KeptViews::open(&self.dirs.instance)
+        let views = KeptViews::open(&self.dirs.instance);
+        views
             .begin_placing(&self.ready.plan.view)
             .map_err(|err| SyncError::io("the server's view", err))?;
+        // what the record before the update holds: the content folders and the files the
+        // instance's packs wrote, as they are before it
+        let scope = crate::images::context::scope_of(&self.dirs.instance);
         let recorded = before_server_update(&self.images, &id, &self.server);
         let operation = self.images.begin(&id, labels::server_updated(&self.server));
         match update_instance(sources, &self.dirs, &self.ready.plan, progress, cancel).await {
             Ok(outcome) => {
-                // The record before the update holds what it replaced, so its rollback
-                // copy, there only to undo a swap that fails part way, isn't kept: a
-                // server that updates weekly would grow it for ever.
-                if recorded {
+                // When the record before the update holds every file it replaced or
+                // removed, its rollback copy, there only to undo a swap that fails part
+                // way, isn't kept: a server that updates weekly would grow it for ever.
+                // A file outside the record's scope (the player's own script at a path
+                // the server's pack now places) is only in the rollback copy, which stays.
+                let held = recorded
+                    && self
+                        .ready
+                        .plan
+                        .update
+                        .touched()
+                        .iter()
+                        .all(|path| scope.holds_file(path));
+                if held {
                     let _ = fs::remove_dir_all(&outcome.snapshot);
                 }
                 Ok(PlacedUpdate {
@@ -259,9 +276,18 @@ impl ServerUpdate {
                     ready: self.ready,
                 })
             }
-            Err(err) => {
-                // the files changed part way, or not at all
+            Err(err @ SyncError::Modpack(ModpackError::NotUndone(_))) => {
+                // the files changed part way: the files it placed are the server's
                 operation.succeed_part_way();
+                Err(err)
+            }
+            Err(err) => {
+                // nothing changed (it stopped before the files, or put back what it had
+                // changed): no image, and the view isn't being placed any more, so the
+                // next plan doesn't take the player's own copy of one of its files for
+                // the server's
+                drop(operation);
+                views.done_placing();
                 Err(err)
             }
         }

@@ -41,6 +41,7 @@ pub const SCENES: &[&str] = &[
     "servers-install-missing",
     "servers-preparing",
     "servers-base-pack",
+    "servers-updating",
     "servers-signed-out",
     "servers-lan",
     "servers-lan-empty",
@@ -129,6 +130,7 @@ fn server(
         max_player_count: players.map(|p| p.1),
         has_client_pack: Some(loader == ServerLoader::Fabric),
         listed: true,
+        public_only: false,
     }
 }
 
@@ -429,6 +431,30 @@ fn apply_servers(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) 
                         scene == "servers-preparing",
                     )),
                     creating: scene == "servers-base-pack",
+                    progress: std::sync::Arc::new(progress),
+                    cancel: Default::default(),
+                },
+            );
+        }
+        "servers-updating" => {
+            // the server's own files downloading into an instance, with the row's Cancel
+            servers.preview(
+                vec![home(true)],
+                vec![("home".into(), "smp".into(), "survival-smp".into())],
+            );
+            let progress = launcher_core::content::install::InstallProgress::default();
+            progress
+                .downloads
+                .set(launcher_core::game::download::ProgressSnapshot {
+                    files_total: 12,
+                    files_done: 5,
+                    bytes_total: 48_000_000,
+                    bytes_done: 21_000_000,
+                });
+            servers.preview_busy(
+                "home",
+                "smp",
+                Busy::UpdatingMods {
                     progress: std::sync::Arc::new(progress),
                     cancel: Default::default(),
                 },

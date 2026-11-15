@@ -41,6 +41,7 @@ fn smp() -> ServerInstance {
         max_player_count: Some(20),
         has_client_pack: Some(true),
         listed: true,
+        public_only: false,
     }
 }
 

@@ -278,7 +278,9 @@ crate::i18n::messages! {
         ErrPrepareFailed = "The server couldn't prepare its files. Try again in a few minutes.",
         ErrStillPreparing = "The server is still preparing its files. Try again in a few minutes.",
         ErrFileFailed = "The server couldn't send {path}. Try again later.",
-        ErrViewChanged = "The server's files changed while they downloaded. Press Play again.",
+        ErrViewChanged = "The server's files changed while they downloaded. Try again.",
+        /// {path} is a file in the instance, like "config/sodium.toml".
+        ErrFilesChangedSince = "{path} changed after the update was worked out, so nothing was changed. Press Play again.",
         ErrBasePackGone = "The server's modpack is no longer on Modrinth, so its files can't be downloaded. Ask the server's owner to update the modpack.",
         /// {game} and {instance} are "Minecraft 1.21.1 with Fabric 0.16.10".
         ErrGameChanged = "The server now runs {game}, and this instance is for {instance}. Make a new instance for the server.",

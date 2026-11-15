@@ -220,6 +220,13 @@ impl ServerImage {
         &self.server
     }
 
+    /// Waits `wait` (a `Retry-After`, or the pause after a failure), unless cancelled.
+    async fn pause(&self, wait: Duration, cancel: &CancelToken) -> Result<(), ImageError> {
+        unless_cancelled(cancel, (self.sleep)(wait))
+            .await
+            .ok_or(ImageError::Cancelled)
+    }
+
     fn auth(&self) -> Auth<'_> {
         match &self.key {
             Some(key) => Auth::Bearer(key),
@@ -322,7 +329,10 @@ impl ServerImage {
                 return Err(ImageError::Cancelled);
             }
             let idle = self.limits.image_idle;
-            let response = self.get(&path, "application/json", None, idle).await?;
+            let response =
+                unless_cancelled(cancel, self.get(&path, "application/json", None, idle))
+                    .await
+                    .ok_or(ImageError::Cancelled)??;
             let headers = Headers::of(&response);
             if headers.rules_newer() {
                 return Err(ImageError::UpdateLodestone);
@@ -373,7 +383,7 @@ impl ServerImage {
                     };
                 }
                 503 => {
-                    let unavailable = read_unavailable(&headers, &mut body, idle).await;
+                    let unavailable = read_unavailable(&headers, &mut body, idle, cancel).await;
                     match unavailable.kind.as_deref() {
                         Some("Internal") => {
                             return Err(ImageError::PrepareFailed {
@@ -388,12 +398,14 @@ impl ServerImage {
                             if waited > self.limits.preparing {
                                 return Err(ImageError::StillPreparing);
                             }
-                            (self.sleep)(wait).await;
+                            self.pause(wait, cancel).await?;
                         }
                     }
                 }
                 404 => return Err(ImageError::OlderCore),
-                _ => return Err(error_status(status, &mut body, idle, self.auth()).await),
+                _ => {
+                    return Err(error_status(status, &mut body, idle, self.auth(), cancel).await);
+                }
             }
         }
     }
@@ -453,7 +465,9 @@ impl ServerImage {
                     if busy_waited > self.limits.busy {
                         break Err(failed());
                     }
-                    (self.sleep)(wait).await;
+                    if self.pause(wait, cancel).await.is_err() {
+                        break Err(ImageError::Cancelled);
+                    }
                     continue;
                 }
                 Fetched::Conflict(wait) => {
@@ -461,7 +475,9 @@ impl ServerImage {
                     if conflict_waited > self.limits.conflict {
                         break Err(failed());
                     }
-                    (self.sleep)(wait).await;
+                    if self.pause(wait, cancel).await.is_err() {
+                        break Err(ImageError::Cancelled);
+                    }
                     continue;
                 }
                 Fetched::Internal(wait) => {
@@ -469,7 +485,9 @@ impl ServerImage {
                     if internal >= MAX_INTERNAL {
                         break Err(failed());
                     }
-                    (self.sleep)(wait).await;
+                    if self.pause(wait, cancel).await.is_err() {
+                        break Err(ImageError::Cancelled);
+                    }
                     continue;
                 }
                 Fetched::Failed(wait) => wait,
@@ -478,7 +496,13 @@ impl ServerImage {
             if failures > MAX_RETRIES {
                 break Err(failed());
             }
-            (self.sleep)(failure.unwrap_or(RETRY_PAUSE)).await;
+            if self
+                .pause(failure.unwrap_or(RETRY_PAUSE), cancel)
+                .await
+                .is_err()
+            {
+                break Err(ImageError::Cancelled);
+            }
         };
         match &result {
             Ok(()) => {
@@ -517,10 +541,15 @@ impl ServerImage {
             Err(_) => 0,
         };
         let range = (have > 0).then_some(have);
-        let response = match self
-            .get(url_path, "application/octet-stream", range, idle)
-            .await
-        {
+        let sent = unless_cancelled(
+            cancel,
+            self.get(url_path, "application/octet-stream", range, idle),
+        )
+        .await;
+        let Some(sent) = sent else {
+            return Fetched::Fatal(ImageError::Cancelled);
+        };
+        let response = match sent {
             Ok(response) => response,
             Err(err) if err.is_offline() => return Fetched::Failed(None),
             Err(err) => return Fetched::Fatal(err.into()),
@@ -551,7 +580,7 @@ impl ServerImage {
                 return Fetched::Failed(None);
             }
             503 => {
-                let unavailable = read_unavailable(&headers, &mut body, idle).await;
+                let unavailable = read_unavailable(&headers, &mut body, idle, cancel).await;
                 return match unavailable.kind.as_deref() {
                     Some("TooManyRequests") => Fetched::Busy(unavailable.retry_after),
                     Some("Conflict") => Fetched::Conflict(unavailable.retry_after),
@@ -568,7 +597,9 @@ impl ServerImage {
             }
             500..=599 => return Fetched::Failed(None),
             other => {
-                return Fetched::Fatal(error_status(other, &mut body, idle, self.auth()).await);
+                return Fetched::Fatal(
+                    error_status(other, &mut body, idle, self.auth(), cancel).await,
+                );
             }
         };
         let file = if append {
@@ -591,9 +622,14 @@ impl ServerImage {
             if cancel.is_cancelled() {
                 return Fetched::Fatal(ImageError::Cancelled);
             }
-            let read =
-                crate::http::in_http_runtime(tokio::time::timeout(idle, body.read(&mut buffer)))
-                    .await;
+            let read = unless_cancelled(
+                cancel,
+                crate::http::in_http_runtime(tokio::time::timeout(idle, body.read(&mut buffer))),
+            )
+            .await;
+            let Some(read) = read else {
+                return Fetched::Fatal(ImageError::Cancelled);
+            };
             let read = match read {
                 Ok(Ok(read)) => read,
                 // a stall or a connection cut: what came is kept, to resume
@@ -622,21 +658,31 @@ impl ServerImage {
             // cut short: the next fetch resumes a large file
             return Fetched::Failed(None);
         }
-        if let Err(err) = file.sync_all() {
-            return Fetched::Fatal(io_error(dest, err));
-        }
-        drop(file);
-        let actual = match hasher {
-            Some(hasher) => Ok(hasher.finish_hex()),
-            None => sha256_of_file(dest),
+        // Flushing to disk blocks for milliseconds per file (F_FULLFSYNC on macOS), and
+        // reading a resumed file again for its hash for longer: on a blocking thread, so
+        // the other objects downloading beside this one keep going meanwhile.
+        let resumed = append.then(|| dest.to_path_buf());
+        let finished = reqwest_client::runtime()
+            .spawn_blocking(move || -> std::io::Result<Option<String>> {
+                file.sync_all()?;
+                drop(file);
+                resumed.map(|path| sha256_of_file(&path)).transpose()
+            })
+            .await
+            .map_err(std::io::Error::other)
+            .and_then(|result| result);
+        let actual = match (finished, hasher) {
+            (Ok(Some(actual)), _) => actual,
+            (Ok(None), Some(hasher)) => hasher.finish_hex(),
+            // a file fetched whole always has its hasher
+            (Ok(None), None) => return Fetched::Failed(None),
+            (Err(err), _) => return Fetched::Fatal(io_error(dest, err)),
         };
-        match actual {
-            Ok(actual) if actual == sha256 => Fetched::Done,
-            Ok(_) => {
-                let _ = fs::remove_file(dest);
-                Fetched::Failed(None)
-            }
-            Err(err) => Fetched::Fatal(io_error(dest, err)),
+        if actual == sha256 {
+            Fetched::Done
+        } else {
+            let _ = fs::remove_file(dest);
+            Fetched::Failed(None)
         }
     }
 
@@ -648,6 +694,8 @@ impl ServerImage {
         progress: &Progress,
         cancel: &CancelToken,
     ) -> Result<(), ImageError> {
+        // made up front and boxed, so the future stays `Send` for any lifetime its
+        // borrows have (a lazy map's closure doesn't)
         let fetches: Vec<BoxFuture<'_, Result<(), ImageError>>> = items
             .iter()
             .map(|item| {
@@ -789,10 +837,15 @@ struct Unavailable {
 
 /// Reads a 503's JSON body (only when it says it is JSON, and only so much of it) for its
 /// `kind`.
-async fn read_unavailable(headers: &Headers, body: &mut AsyncBody, idle: Duration) -> Unavailable {
+async fn read_unavailable(
+    headers: &Headers,
+    body: &mut AsyncBody,
+    idle: Duration,
+    cancel: &CancelToken,
+) -> Unavailable {
     let mut kind = None;
     if headers.is_json()
-        && let Ok(bytes) = read_bounded(body, MAX_ERROR_BYTES, idle, &CancelToken::new()).await
+        && let Ok(bytes) = read_bounded(body, MAX_ERROR_BYTES, idle, cancel).await
     {
         kind = serde_json::from_slice::<serde_json::Value>(&bytes)
             .ok()
@@ -812,10 +865,12 @@ async fn error_status(
     body: &mut AsyncBody,
     idle: Duration,
     auth: Auth<'_>,
+    cancel: &CancelToken,
 ) -> ImageError {
-    let text = read_bounded(body, MAX_ERROR_BYTES, idle, &CancelToken::new())
-        .await
-        .unwrap_or_default();
+    let text = match read_bounded(body, MAX_ERROR_BYTES, idle, cancel).await {
+        Err(ImageError::Cancelled) => return ImageError::Cancelled,
+        read => read.unwrap_or_default(),
+    };
     match check(
         &RawResponse {
             status,
@@ -852,8 +907,12 @@ async fn read_bounded(
         if cancel.is_cancelled() {
             return Err(ImageError::Cancelled);
         }
-        let read =
-            crate::http::in_http_runtime(tokio::time::timeout(idle, body.read(&mut buffer))).await;
+        let read = unless_cancelled(
+            cancel,
+            crate::http::in_http_runtime(tokio::time::timeout(idle, body.read(&mut buffer))),
+        )
+        .await
+        .ok_or(ImageError::Cancelled)?;
         let read = match read {
             Ok(Ok(read)) => read,
             Ok(Err(err)) => return Err(CoreError::Unreachable(err.to_string()).into()),
@@ -872,6 +931,21 @@ async fn read_bounded(
             return Err(too_large(limit));
         }
         bytes.extend_from_slice(&buffer[..read]);
+    }
+}
+
+/// `wait`'s outcome, unless `cancel` is cancelled first (`None` then): every wait for the
+/// server (its answer, a read of its body, a `Retry-After`) ends as soon as the player
+/// presses Cancel, not when its own limit runs out.
+async fn unless_cancelled<T>(
+    cancel: &CancelToken,
+    wait: impl std::future::Future<Output = T>,
+) -> Option<T> {
+    let wait = std::pin::pin!(wait);
+    let cancelled = std::pin::pin!(cancel.cancelled());
+    match futures::future::select(wait, cancelled).await {
+        futures::future::Either::Left((value, _)) => Some(value),
+        futures::future::Either::Right(_) => None,
     }
 }
 

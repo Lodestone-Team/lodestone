@@ -3,7 +3,7 @@
 //! instance" (no instance yet) and for Play (an instance linked to the server).
 
 use std::{
-    collections::{BTreeSet, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     fs,
     path::Path,
 };
@@ -117,7 +117,7 @@ pub async fn prepare(
                     && let Some(applied) = kept(&view)
                     && game_matches(instance, &applied)
                 {
-                    if server_mods_on_disk(dirs) {
+                    if server_mods_on_disk(dirs, &cant_give(&applied)) {
                         return Ok(Prepared::Current);
                     }
                     mods_changed = true;
@@ -249,43 +249,146 @@ fn game_matches(instance: &Instance, view: &Image) -> bool {
         && instance.loader_version.as_deref() == loader.as_ref().map(|l| l.version.as_str())
 }
 
+/// The paths `view` lists but can't give (needed withheld files, CurseForge files that
+/// may not be downloaded): a copy the player kept stays theirs, so it isn't checked.
+fn cant_give(view: &Image) -> BTreeSet<String> {
+    lodestone_image::view::needed_withheld(view)
+        .into_iter()
+        .map(|w| w.path.clone())
+        .chain(
+            view.entries
+                .iter()
+                .filter(|e| {
+                    matches!(
+                        e.source,
+                        Source::Curseforge {
+                            downloadable: false,
+                            ..
+                        }
+                    )
+                })
+                .map(|e| e.path.as_str().to_string()),
+        )
+        .collect()
+}
+
+/// The file in the kept views' folder that remembers the size and modification time of
+/// each server mod the last check found as placed ([`server_mods_on_disk`]).
+const CHECKED_FILE: &str = "mods-checked.json";
+/// The most of it that is read.
+const MAX_CHECKED_BYTES: u64 = 16 << 20;
+/// A file modified this recently isn't remembered: a change within the clock's
+/// resolution after the check would leave its time as it was.
+const TOO_RECENT: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// A mod as the last check found it: its size, modification time (nanoseconds since
+/// 1970) and the hash it was placed with (`sha256:` or `sha1:` and hex).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+struct CheckedStat {
+    size: u64,
+    modified: u64,
+    digest: String,
+}
+
+/// A file's size and modification time, unless it was modified too recently to trust.
+fn stat_of(meta: &fs::Metadata) -> Option<(u64, u64)> {
+    let modified = meta.modified().ok()?;
+    if modified.elapsed().map_or(true, |age| age < TOO_RECENT) {
+        return None;
+    }
+    let nanos = modified
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_nanos();
+    Some((meta.len(), u64::try_from(nanos).ok()?))
+}
+
 /// Whether every mod the instance's `modpack.json` says the applied view placed is on
-/// disk as placed (a mod the player turned off counts): when one is missing or changed,
-/// the server's answer that the instance is in step isn't taken, and the applied view is
-/// placed again, so the server's `mods/` stays authoritative and the player can join.
-/// Without a record, the view placed nothing to check.
-pub fn server_mods_on_disk(dirs: &InstanceDirs) -> bool {
+/// disk as placed (a mod the player turned off counts), but those at `skip` (files the
+/// view can't give, which the player may keep as they like): when one is missing or
+/// changed, the server's answer that the instance is in step isn't taken, and the
+/// applied view is placed again, so the server's `mods/` stays authoritative and the
+/// player can join. Without a record, the view placed nothing to check.
+///
+/// A 204 is the common Play, so this mustn't read every mod each time: a mod whose size
+/// and modification time are those the last check remembered (`mods-checked.json`, with
+/// the hash it was placed with) isn't read again, as the image store's stat cache does
+/// for snapshots.
+fn server_mods_on_disk(dirs: &InstanceDirs, skip: &BTreeSet<String>) -> bool {
     let Some(record) = ModpackRecord::load(&dirs.instance) else {
         return true;
     };
-    record
+    let checked_path = dirs
+        .instance
+        .join(super::views::VIEWS_FOLDER)
+        .join(CHECKED_FILE);
+    let remembered: BTreeMap<String, CheckedStat> = fs::File::open(&checked_path)
+        .ok()
+        .and_then(|file| {
+            let mut bytes = Vec::new();
+            std::io::Read::read_to_end(
+                &mut std::io::Read::take(file, MAX_CHECKED_BYTES),
+                &mut bytes,
+            )
+            .ok()?;
+            serde_json::from_slice(&bytes).ok()
+        })
+        .unwrap_or_default();
+    let mut found: BTreeMap<String, CheckedStat> = BTreeMap::new();
+    let all = record
         .files
         .iter()
         .filter(|(path, _)| {
             AUTHORITATIVE
                 .iter()
                 .any(|dir| path.starts_with(&format!("{dir}/")))
+                && !skip.contains(*path)
         })
         .all(|(path, file)| {
+            let digest = file.digest();
+            let tag = match &digest {
+                Digest::Sha256(hex) => format!("sha256:{}", hex.to_ascii_lowercase()),
+                Digest::Sha1(hex) => format!("sha1:{}", hex.to_ascii_lowercase()),
+            };
             let mut candidates = vec![path.clone()];
             if !is_disabled_name(path) {
                 candidates.push(disabled_name(path));
             }
-            candidates.iter().any(|candidate| {
-                let on_disk = dirs.game.join(candidate);
-                if !fs::symlink_metadata(&on_disk).is_ok_and(|m| m.is_file()) {
+            candidates.into_iter().any(|candidate| {
+                let on_disk = dirs.game.join(&candidate);
+                let Ok(meta) = fs::symlink_metadata(&on_disk) else {
+                    return false;
+                };
+                if !meta.is_file() {
                     return false;
                 }
-                match file.digest() {
-                    Digest::Sha256(want) => {
-                        sha256_of_file(&on_disk).is_ok_and(|have| have.eq_ignore_ascii_case(&want))
-                    }
-                    Digest::Sha1(want) => {
-                        sha1_on_disk(&on_disk).is_some_and(|have| have.eq_ignore_ascii_case(&want))
-                    }
+                let stat = stat_of(&meta).map(|(size, modified)| CheckedStat {
+                    size,
+                    modified,
+                    digest: tag.clone(),
+                });
+                let same = stat.is_some() && remembered.get(&candidate) == stat.as_ref();
+                let placed = same
+                    || match &digest {
+                        Digest::Sha256(want) => sha256_of_file(&on_disk)
+                            .is_ok_and(|have| have.eq_ignore_ascii_case(want)),
+                        Digest::Sha1(want) => sha1_on_disk(&on_disk)
+                            .is_some_and(|have| have.eq_ignore_ascii_case(want)),
+                    };
+                if placed && let Some(stat) = stat {
+                    found.insert(candidate, stat);
                 }
+                placed
             })
-        })
+        });
+    if all && found != remembered {
+        // only a cache: a failure to save it only means reading the mods next time
+        if let Ok(json) = serde_json::to_vec(&found) {
+            let _ = fs::create_dir_all(checked_path.parent().unwrap_or(&dirs.instance));
+            let _ = crate::storage::write_atomic(&checked_path, &json);
+        }
+    }
+    all
 }
 
 /// Adds to `current` (what `modpack.json` says the applied view placed) the files of

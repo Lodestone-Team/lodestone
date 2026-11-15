@@ -13,7 +13,10 @@ use launcher_core::cores::image_sync::WithheldReason;
 use launcher_core::cores::{
     CoreError, CoreProduct, LaunchedBy, ServerInstance, ServerLoader, ServerState,
     client::display_address,
-    image_sync::plan::{PackChanges, Summary},
+    image_sync::{
+        display_text,
+        plan::{PackChanges, Summary},
+    },
     local_claim::ClaimError,
     trust::Advisory,
 };
@@ -21,7 +24,7 @@ use launcher_core::ui_skin::SurfaceId;
 use launcher_core::wording;
 
 use super::{
-    AdvisoryAnswer, AdvisoryPrompt, Busy, CertPrompt, CoreEntry, CoreStatus, NoticeKind, Servers,
+    AdvisoryAnswer, AdvisoryPrompt, CertPrompt, CoreEntry, CoreStatus, NoticeKind, Servers,
     TrustPrompt, UpdatePrompt, core_error, loader_label, local::FoundCore, power_state,
     status_label, trust_explanation, withheld_reason,
 };
@@ -309,8 +312,9 @@ impl Servers {
                     .child(small(busy.label()))
                     .into_any_element(),
             );
-            // asking the server may wait minutes while it prepares its files
-            if matches!(busy, Busy::Asking { .. }) {
+            // asking the server may wait minutes while it prepares its files, and its
+            // files come as fast as it sends them
+            if busy.cancel().is_some() {
                 let (c, s) = (core_uuid.clone(), server.uuid.clone());
                 actions.push(
                     Button::new(
@@ -318,7 +322,7 @@ impl Servers {
                         t(CommonMsg::Cancel),
                     )
                     .size(ButtonSize::Slim)
-                    .on_click(cx.listener(move |this, _, _, cx| this.cancel_asking(&c, &s, cx)))
+                    .on_click(cx.listener(move |this, _, _, cx| this.cancel_row(&c, &s, cx)))
                     .into_any_element(),
                 );
             }
@@ -1524,7 +1528,7 @@ fn update_dialog(servers: &Entity<Servers>, prompt: &UpdatePrompt) -> AnyElement
         (&changes.other, M::ChangeConfig),
     ] {
         for name in names.iter().take(6) {
-            lines.push(tr!(message, name = name));
+            lines.push(tr!(message, name = display_text(name)));
         }
     }
     if let Some(loader) = &prompt.loader {
@@ -1669,7 +1673,12 @@ fn missing_block(missing: &[(String, WithheldReason)], curseforge: &[String]) ->
                     .font_weight(weights::BOLD.into())
                     .text_color(colors::YELLOW),
                 )
-                .children(curseforge.iter().take(SHOWN).map(|path| mono(path.clone())))
+                .children(
+                    curseforge
+                        .iter()
+                        .take(SHOWN)
+                        .map(|path| mono(display_text(path).into_owned())),
+                )
                 .children(more(curseforge.len()))
                 .child(small(t(M::CurseForgeNote)).text_color(crate::theme::ink::secondary()))
             }),
@@ -1875,7 +1884,8 @@ fn trust_dialog(servers: &Entity<Servers>, prompt: &TrustPrompt) -> Dialog {
 
 /// A file's name, for the lists: `mods/sodium.jar` is `sodium.jar`.
 fn file_label(path: &str) -> String {
-    path.strip_prefix("mods/").unwrap_or(path).to_string()
+    let path = display_text(path);
+    path.strip_prefix("mods/").unwrap_or(&path).to_string()
 }
 
 /// What a new instance gets from a server's image, when its core is trusted for mods:

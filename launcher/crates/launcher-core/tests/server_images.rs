@@ -35,7 +35,7 @@ use launcher_core::{
     http,
     images::{Images, Timing, labels},
     instances::{Instance, InstanceStore},
-    modpack::{ModpackRecord, fetch::Sources},
+    modpack::{ModpackError, ModpackRecord, fetch::Sources},
     paths::DataDir,
 };
 use lodestone_image::{Base, CanonicalPath, Entry, Image, Loader, Source, hex::sha256_hex};
@@ -1331,4 +1331,266 @@ fn a_base_entry_from_the_packs_server_share_is_installed() {
         read(&world.game(&instance.id).join("mods/both.jar")),
         "for both sides"
     );
+}
+
+/// The modpack updater's rollback copy of an update's files, in `backups/modpack-update/`.
+fn rollback_copies(world: &World, id: &str) -> Vec<std::path::PathBuf> {
+    let dirs = InstanceDirs::new(world.store.dir(id));
+    std::fs::read_dir(launcher_core::worlds::backups_dir(&dirs).join("modpack-update"))
+        .map(|entries| entries.flatten().map(|e| e.path()).collect())
+        .unwrap_or_default()
+}
+
+/// The player's own files at paths the server's pack starts placing outside the content
+/// folders (CraftTweaker's `scripts/`): the pack's own file there never goes over the
+/// player's, as a modpack update keeps it; a file the server changed does (the server is
+/// the authority on it), and since no content image holds the player's copy (it was in no
+/// pack's record), the update's rollback copy of it stays. An update whose files the
+/// record before it holds keeps no rollback copy.
+#[test]
+fn the_players_own_files_where_the_pack_now_places_some_are_kept() {
+    let world = World::new();
+    let first = world.content(&world.pack1, &world.sodium1);
+    world.core.publish(&first, &[("", b"the server's own mod")]);
+    let (instance, _) = world.create();
+    let id = instance.id;
+    let game = world.game(&id);
+    std::fs::create_dir_all(game.join("scripts")).unwrap();
+    std::fs::write(game.join("scripts/foo.zs"), b"the player's foo").unwrap();
+    std::fs::write(game.join("scripts/bar.zs"), b"the player's bar").unwrap();
+
+    // pack 3 brings two scripts: the server has the pack's foo.zs and its own bar.zs
+    let pack3_bytes = make_pack(
+        "3.0",
+        json!([
+            index_file(&world.sodium1, "mods/sodium.jar", "required"),
+            index_file(&world.zoomify, "mods/zoomify.jar", "required"),
+        ]),
+        &[
+            ("overrides/mods/bundled.jar", b"bundled 1"),
+            ("overrides/config/pack.toml", b"pack config 1"),
+            ("client-overrides/config/client.toml", b"client config 1"),
+            ("overrides/scripts/foo.zs", b"the pack's foo"),
+            ("overrides/scripts/bar.zs", b"the pack's bar"),
+        ],
+    );
+    let pack3 = FakeVersion::new("pv3", PACK, "3.0", &["fabric"], &["1.21.1"], "2026-03-01")
+        .file("cozy-3.mrpack", &pack3_bytes);
+    world.modrinth.version(pack3.clone());
+    let mut third = world.content(&pack3, &world.sodium1);
+    third
+        .entries
+        .push(base_entry("scripts/foo.zs", b"the pack's foo"));
+    third
+        .entries
+        .push(object_entry("scripts/bar.zs", b"the server's bar"));
+    world.core.publish(
+        &third,
+        &[("", b"the server's own mod"), ("", b"the server's bar")],
+    );
+    let ready = world.play(&id).unwrap().expect("another view");
+    assert!(
+        ready
+            .plan
+            .update
+            .overrides_kept
+            .contains(&"scripts/foo.zs".to_string()),
+        "{:?}",
+        ready.plan.update
+    );
+    assert_eq!(read(&game.join("scripts/foo.zs")), "the player's foo");
+    assert_eq!(ready.plan.update.replaced_own, ["scripts/bar.zs"]);
+    assert_eq!(read(&game.join("scripts/bar.zs")), "the server's bar");
+    let copies = rollback_copies(&world, &id);
+    assert_eq!(copies.len(), 1, "{copies:?}");
+    assert_eq!(
+        read(&copies[0].join("minecraft/scripts/bar.zs")),
+        "the player's bar"
+    );
+
+    // the server changes its own mod: the record before the update holds it
+    let mut fourth = third.clone();
+    fourth.entries.retain(|e| e.path.as_str() != "mods/own.jar");
+    fourth
+        .entries
+        .push(object_entry("mods/own.jar", b"the server's own mod 2"));
+    world.core.publish(
+        &fourth,
+        &[("", b"the server's own mod 2"), ("", b"the server's bar")],
+    );
+    world.play(&id).unwrap().expect("another view");
+    assert_eq!(read(&game.join("mods/own.jar")), "the server's own mod 2");
+    assert_eq!(rollback_copies(&world, &id), copies);
+}
+
+/// The update prompt waits for the player, who may change a file the plan would replace
+/// meanwhile (a config edited in game): the update stops before anything changes, and the
+/// next Play plans with the change, which stays.
+#[test]
+fn a_file_changed_after_planning_stops_the_update() {
+    let world = World::new();
+    let first = world.content(&world.pack1, &world.sodium1);
+    world.core.publish(&first, &[("", b"the server's own mod")]);
+    let (instance, created) = world.create();
+    let id = instance.id;
+    let game = world.game(&id);
+    let dirs = InstanceDirs::new(world.store.dir(&id));
+    let second = world.content(&world.pack2, &world.sodium2);
+    world
+        .core
+        .publish(&second, &[("", b"the server's own mod")]);
+    let instance = world.store.get(&id).unwrap();
+    let applied = created.plan.view.id.clone();
+    let Prepared::Ready(ready) = world
+        .prepare(Some((&dirs, &instance)), Some(&applied))
+        .unwrap()
+    else {
+        panic!("another view");
+    };
+    assert!(
+        ready
+            .plan
+            .update
+            .overrides_written
+            .contains(&"config/client.toml".to_string())
+    );
+    std::fs::write(game.join("config/client.toml"), b"the player's edit").unwrap();
+    let err = world
+        .update(&id, &Arc::from(ready), None)
+        .unwrap()
+        .unwrap_err();
+    assert!(
+        matches!(
+            &err,
+            SyncError::Modpack(ModpackError::ChangedSincePlanned { path })
+                if path == "config/client.toml"
+        ),
+        "{err}"
+    );
+    assert_eq!(read(&game.join("config/client.toml")), "the player's edit");
+    assert_eq!(read(&game.join("mods/sodium.jar")), "sodium 1");
+    assert_eq!(link::load_link(&dirs.instance).unwrap().view, Some(applied));
+    // nothing was placed: the view isn't taken for one being placed, and no copy is left
+    assert!(KeptViews::open(&dirs.instance).placing().is_none());
+    assert!(rollback_copies(&world, &id).is_empty());
+
+    let ready = world.play(&id).unwrap().expect("the update");
+    assert!(
+        ready
+            .plan
+            .update
+            .overrides_kept
+            .contains(&"config/client.toml".to_string())
+    );
+    assert_eq!(read(&game.join("config/client.toml")), "the player's edit");
+    assert_eq!(read(&game.join("mods/sodium.jar")), "sodium 2");
+}
+
+/// A vanilla server's view places nothing: nothing to install, nothing to trust (no
+/// advisory: no file in it can run code), nothing missing to tell; Play joins on its 204.
+#[test]
+fn a_vanilla_servers_view_installs_and_asks_nothing() {
+    let world = World::new();
+    let mut image = content_image("1.21.1", Loader::Vanilla, None);
+    image
+        .entries
+        .push(object_entry("server.properties", b"motd=hi"));
+    world.core.publish(&image, &[("", b"motd=hi")]);
+    let Prepared::Ready(ready) = world.prepare(None, None).unwrap() else {
+        panic!("a new instance gets a plan");
+    };
+    assert!(!ready.plan.update.changes_files());
+    assert!(launcher_core::cores::image_sync::plan::pulls(&ready.plan.update).is_empty());
+    assert!(ready.plan.summary.missing.is_empty());
+    assert!(ready.plan.summary.curseforge_listed.is_empty());
+    let (instance, _) = world.create();
+    assert_eq!(instance.loader, launcher_core::instances::Loader::None);
+    let record = ModpackRecord::load(&world.store.dir(&instance.id)).unwrap();
+    assert!(record.files.is_empty());
+    assert!(world.play(&instance.id).unwrap().is_none());
+}
+
+/// A file a view can't give that the player deleted isn't a server's mod gone missing:
+/// a 204 joins without planning again, and the next view drops its line.
+#[test]
+fn a_file_a_view_cant_give_that_the_player_deleted_isnt_checked() {
+    let world = World::new();
+    let mut first = world.content(&world.pack1, &world.sodium1);
+    first.entries.push(object_entry("mods/foo.jar", b"foo 1"));
+    world
+        .core
+        .publish(&first, &[("", b"the server's own mod"), ("", b"foo 1")]);
+    let (instance, _) = world.create();
+    let id = instance.id;
+    let game = world.game(&id);
+    let dirs = InstanceDirs::new(world.store.dir(&id));
+    let mut second = first.clone();
+    second.entries.retain(|e| e.path.as_str() != "mods/foo.jar");
+    second.withheld.push(lodestone_image::Withheld {
+        path: "mods/foo.jar".into(),
+        reason: lodestone_image::WithheldReason::Symlink,
+    });
+    world.core.publish(&second, &[]);
+    world.play(&id).unwrap().expect("another view");
+    std::fs::remove_file(game.join("mods/foo.jar")).unwrap();
+    assert!(world.play(&id).unwrap().is_none());
+
+    let mut third = second.clone();
+    third.entries.push(object_entry("mods/extra.jar", b"extra"));
+    world
+        .core
+        .publish(&third, &[("", b"the server's own mod"), ("", b"extra")]);
+    world.play(&id).unwrap().expect("another view");
+    let record = ModpackRecord::load(&dirs.instance).unwrap();
+    assert!(!record.files.contains_key("mods/foo.jar"));
+    assert!(world.play(&id).unwrap().is_none());
+}
+
+/// A 204 doesn't read every mod: one whose size and modification time are those the
+/// last check found is taken as placed, and one whose time changed is read (and put back
+/// when the player changed it).
+#[test]
+fn a_204_reads_only_the_mods_whose_size_or_time_changed() {
+    let world = World::new();
+    let first = world.content(&world.pack1, &world.sodium1);
+    world.core.publish(&first, &[("", b"the server's own mod")]);
+    let (instance, _) = world.create();
+    let id = instance.id;
+    let game = world.game(&id);
+    let dirs = InstanceDirs::new(world.store.dir(&id));
+    let set_time = |path: &Path, ago: u64| {
+        std::fs::File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(std::time::SystemTime::now() - Duration::from_secs(ago))
+            .unwrap();
+    };
+    for entry in std::fs::read_dir(game.join("mods")).unwrap().flatten() {
+        set_time(&entry.path(), 3600);
+    }
+    assert!(world.play(&id).unwrap().is_none());
+    assert!(
+        dirs.instance
+            .join("server-views/mods-checked.json")
+            .is_file()
+    );
+
+    // damaged to the same size, its time put back: not read, so not seen
+    let own = game.join("mods/own.jar");
+    let len = std::fs::metadata(&own).unwrap().len() as usize;
+    let modified = std::fs::metadata(&own).unwrap().modified().unwrap();
+    std::fs::write(&own, vec![b'x'; len]).unwrap();
+    std::fs::File::options()
+        .write(true)
+        .open(&own)
+        .unwrap()
+        .set_modified(modified)
+        .unwrap();
+    assert!(world.play(&id).unwrap().is_none());
+
+    // its time changed: read, found changed, put back
+    set_time(&own, 600);
+    world.play(&id).unwrap().expect("the server's mod put back");
+    assert_eq!(read(&own), "the server's own mod");
 }

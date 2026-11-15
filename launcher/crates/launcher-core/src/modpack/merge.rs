@@ -138,6 +138,18 @@ impl Wanted {
     }
 }
 
+/// What a file the merge decided to overwrite or remove must still be when the update
+/// is applied, for the decision to hold: the update may be applied long after it was
+/// planned (its prompt waits for the player, the game may run meanwhile), and a file the
+/// player changed since must not be taken for the version's own.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Expect {
+    /// Not there: a file the update adds, which would go over the player's own.
+    Absent,
+    /// The last version's file, unchanged (as read, or as its record and size said).
+    Unchanged(Digest),
+}
+
 /// What the merge decided. Paths are relative to the game folder.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Merged {
@@ -150,6 +162,11 @@ pub struct Merged {
     pub overrides_kept: Vec<String>,
     pub writes: Vec<(Fetch, String)>,
     pub removals: Vec<String>,
+    /// What each file to overwrite or remove (by its path on disk) must still be when the
+    /// update is applied: see [`Expect`]. A file replaced whatever it holds (a server's
+    /// mod the player changed, the player's own file at a path the version now uses) has
+    /// none.
+    pub expected: BTreeMap<String, Expect>,
 }
 
 /// The files on disk, hashed when asked, each once per hash. No game folder: nothing is
@@ -261,6 +278,15 @@ pub(crate) fn plan(
             && disk.len(actual) == Some(wanted.fetch.size())
     };
 
+    // The new paths by their letters folded, to find a removed file a new path names in
+    // other letter case without comparing every pair.
+    let mut new_folded: HashMap<String, Vec<&String>> = HashMap::new();
+    for path in new.keys() {
+        new_folded
+            .entry(path.to_ascii_lowercase())
+            .or_default()
+            .push(path);
+    }
     // The old version's files that go away, by project, to pair them with new versions.
     let mut removed_by_project: HashMap<String, String> = HashMap::new();
     for (path, old) in current {
@@ -281,13 +307,20 @@ pub(crate) fn plan(
             // a new file names it in other letter case: it is that file (renaming only the
             // letters of a file the disk can't tell apart would delete it)
             Some(actual)
-                if new
-                    .keys()
-                    .any(|other| disk.same_file_other_case(other, &actual)) => {}
+                if new_folded
+                    .get(&actual.to_ascii_lowercase())
+                    .is_some_and(|others| {
+                        others
+                            .iter()
+                            .any(|other| disk.same_file_other_case(other, &actual))
+                    }) => {}
             Some(actual) if disk.matches(&actual, &old.digest()) => {
                 if let Some(project) = &old.project {
                     removed_by_project.insert(project.clone(), actual.clone());
                 }
+                merged
+                    .expected
+                    .insert(actual.clone(), Expect::Unchanged(old.digest()));
                 merged.removals.push(actual);
             }
             Some(actual) => merged.kept_changed.push(actual),
@@ -307,6 +340,9 @@ pub(crate) fn plan(
             (_, Some(actual)) if disk.matches(&actual, &wanted.digest) => {}
             (Some(old), Some(actual)) if disk.matches(&actual, &old.digest()) => {
                 merged.updated.push((actual.clone(), actual.clone()));
+                merged
+                    .expected
+                    .insert(actual.clone(), Expect::Unchanged(old.digest()));
                 write(&mut merged, actual);
             }
             (Some(_), Some(actual)) if replaces(path) => {
@@ -332,6 +368,7 @@ pub(crate) fn plan(
                     Some(old) => merged.updated.push((old.clone(), dest.clone())),
                     None => merged.added.push(dest.clone()),
                 }
+                merged.expected.insert(dest.clone(), Expect::Absent);
                 write(&mut merged, dest);
             }
         }
@@ -353,12 +390,16 @@ pub(crate) fn plan(
         match (current.get(path), actual) {
             (_, None) => {
                 merged.overrides_written.push(path.clone());
+                merged.expected.insert(path.clone(), Expect::Absent);
                 merged.writes.push((wanted.fetch.clone(), path.clone()));
             }
             (old, Some(actual)) if unchanged(old, &actual, wanted) => {}
             (_, Some(actual)) if disk.matches(&actual, &wanted.digest) => {}
             (Some(old), Some(actual)) if disk.matches(&actual, &old.digest()) => {
                 merged.overrides_written.push(actual.clone());
+                merged
+                    .expected
+                    .insert(actual.clone(), Expect::Unchanged(old.digest()));
                 merged.writes.push((wanted.fetch.clone(), actual));
             }
             (_, Some(actual)) if replaces(path) => {
@@ -369,6 +410,27 @@ pub(crate) fn plan(
         }
     }
     merged
+}
+
+/// Whether the file at `relative` in `game` is still as `expect` says. A file the update
+/// would overwrite or remove that is gone now is (writing or removing it loses nothing).
+pub(crate) fn still(game: &Path, relative: &str, expect: &Expect) -> bool {
+    let path = game.join(relative);
+    match expect {
+        Expect::Absent => std::fs::symlink_metadata(&path)
+            .is_err_and(|err| err.kind() == std::io::ErrorKind::NotFound),
+        Expect::Unchanged(digest) => {
+            let disk = Disk {
+                game: Some(game),
+                hashes: RefCell::new(HashMap::new()),
+            };
+            match std::fs::symlink_metadata(&path) {
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => true,
+                Ok(meta) if meta.is_file() => disk.matches(relative, digest),
+                _ => false,
+            }
+        }
+    }
 }
 
 /// What `modpack.json` records for the files `new` places.
@@ -453,6 +515,61 @@ mod tests {
             },
         );
         assert_eq!(trusted.kept_changed, ["mods/b.jar"]);
+    }
+
+    /// What each file a plan changes must still be when it is applied: the last version's
+    /// file, unchanged, for one it overwrites or removes as unchanged; nothing there for
+    /// one it adds; and nothing asked of one it replaces whatever it holds (a server's mod
+    /// the player changed).
+    #[test]
+    fn the_plan_says_what_each_file_it_changes_must_still_be() {
+        let game = game_with(&[
+            ("mods/old.jar", b"old"),
+            ("mods/changed.jar", b"the player's"),
+            ("mods/up.jar", b"up 1"),
+        ]);
+        let current: BTreeMap<String, PackFile> = [
+            ("mods/old.jar".to_string(), object(b"old").record),
+            (
+                "mods/changed.jar".to_string(),
+                object(b"the server's").record,
+            ),
+            ("mods/up.jar".to_string(), object(b"up 1").record),
+        ]
+        .into();
+        let new: BTreeMap<String, Wanted> = [
+            ("mods/changed.jar".to_string(), object(b"the server's 2")),
+            ("mods/up.jar".to_string(), object(b"up 2")),
+            ("mods/added.jar".to_string(), object(b"added")),
+        ]
+        .into();
+        let merged = plan(
+            Some(game.path()),
+            &current,
+            &new,
+            Rules {
+                authoritative: &["mods"],
+                trust_recorded: false,
+            },
+        );
+        let sha = |bytes: &[u8]| Expect::Unchanged(Digest::Sha256(sha256_hex(bytes)));
+        let expected: BTreeMap<String, Expect> = [
+            ("mods/old.jar".to_string(), sha(b"old")),
+            ("mods/up.jar".to_string(), sha(b"up 1")),
+            ("mods/added.jar".to_string(), Expect::Absent),
+        ]
+        .into();
+        assert_eq!(merged.expected, expected);
+        assert!(merged.writes.iter().any(|(_, p)| p == "mods/changed.jar"));
+
+        assert!(still(game.path(), "mods/old.jar", &sha(b"old")));
+        std::fs::write(game.path().join("mods/old.jar"), b"edited").unwrap();
+        assert!(!still(game.path(), "mods/old.jar", &sha(b"old")));
+        std::fs::remove_file(game.path().join("mods/old.jar")).unwrap();
+        assert!(still(game.path(), "mods/old.jar", &sha(b"old")));
+        assert!(still(game.path(), "mods/added.jar", &Expect::Absent));
+        std::fs::write(game.path().join("mods/added.jar"), b"the player's").unwrap();
+        assert!(!still(game.path(), "mods/added.jar", &Expect::Absent));
     }
 
     /// A file the next version places under the same name in other letter case: on a disk

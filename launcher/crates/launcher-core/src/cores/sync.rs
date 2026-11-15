@@ -1,13 +1,10 @@
 //! The fallback for a core older than milestone 3, which serves no images (it answers 404
 //! on `…/image`): its `.mrpack` client pack in a launcher instance, through the modpack
-//! import and update. Every core that serves images goes through
+//! import and update ([`crate::modpack`]). "Create matching instance" imports the pack as
+//! a new instance (mods, overrides and configs, `modpack.json` and `content.json`, staged
+//! and renamed into place), and "keep mods in step" plans an update from the pack the
+//! instance has to the server's current one. Every core that serves images goes through
 //! [`super::image_sync`] instead; nothing new should call this.
-//!
-//! A server's client pack in a launcher instance, through the modpack import and update
-//! ([`crate::modpack`]): "Create matching instance" imports the pack as a new instance
-//! (mods, overrides and configs, `modpack.json` and `content.json`, staged and renamed into
-//! place), and "keep mods in step" plans an update from the pack the instance has to the
-//! server's current one.
 //!
 //! The server is the authority on mods: a mod of the pack the user changed is replaced
 //! (see [`update::plan_with`]), so the instance can join. Their own mods, a disabled mod

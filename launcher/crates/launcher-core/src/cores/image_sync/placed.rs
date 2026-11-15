@@ -102,9 +102,15 @@ pub fn placed(
     let mut from_base = BTreeSet::new();
     for entry in &view.entries {
         let path = entry.path.as_str();
-        if matches!(entry.source, Source::Base {})
-            || share.get(path).is_some_and(|copy| same_file(entry, copy))
-        {
+        // the pack's own file: a `base` entry, or a Modrinth file with the hash of the
+        // pack's (which its download checks); a server's own file or a CurseForge one
+        // only claims its hashes, so it isn't taken for the pack's
+        let pack_file = match entry.source {
+            Source::Base {} => true,
+            Source::Modrinth { .. } => share.get(path).is_some_and(|copy| same_file(entry, copy)),
+            Source::Object {} | Source::Curseforge { .. } => false,
+        };
+        if pack_file {
             from_base.insert(path.to_string());
         }
         let pack_places = share.contains_key(path) && {
@@ -184,9 +190,18 @@ pub fn placed(
                         lodestone_image::display_text(path).into_owned(),
                     ));
                 }
+                // placed as the pack places it (an override never over the player's own
+                // file, as a modpack update keeps it), a config as a config
                 candidates
                     .iter()
-                    .find_map(|copy| base_file(entry, copy, source))
+                    .find_map(|copy| {
+                        let source = if is_config(&entry.path) {
+                            FileSource::Override
+                        } else {
+                            copy.record.source
+                        };
+                        base_file(entry, copy, source)
+                    })
                     .ok_or_else(|| {
                         SyncError::Refused(format!(
                             "{} isn't the modpack's file, though it says it is",

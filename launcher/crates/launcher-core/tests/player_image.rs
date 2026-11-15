@@ -505,3 +505,50 @@ fn at_most_four_objects_download_at_once() {
         files.iter().map(|(_, b)| b.len() as u64).sum::<u64>()
     );
 }
+
+/// Cancel ends a download at once, though the server stalls in the middle of a body for
+/// far longer than that (a hostile server may send a byte now and then for ever): every
+/// wait for the server races the token.
+#[test]
+fn cancel_ends_a_stalled_download_at_once() {
+    let core = ImageCore::start();
+    let bytes = big();
+    smp(&core, &[("mods/big.jar", &bytes)]);
+    let client = CoreClient::new(http::default_client().unwrap(), core.base.clone());
+    let image = ServerImage::new(client, None, SERVER)
+        .unwrap()
+        .with_sleep(recording_sleep().0)
+        .with_limits(Limits {
+            object_idle: Duration::from_secs(60),
+            ..Limits::default()
+        });
+    let dir = tempfile::tempdir().unwrap();
+    let dest = dir.path().join("big.jar");
+    core.fault(Fault::Stall(Duration::from_secs(20)));
+    let cancel = CancelToken::new();
+    let canceller = std::thread::spawn({
+        let cancel = cancel.clone();
+        move || {
+            std::thread::sleep(Duration::from_millis(300));
+            cancel.cancel();
+        }
+    });
+    let started = std::time::Instant::now();
+    let fetched = block_on(http::in_http_runtime(image.object(
+        &sha256_hex(&bytes),
+        bytes.len() as u64,
+        &dest,
+        "mods/big.jar",
+        &Progress::default(),
+        &cancel,
+    )));
+    canceller.join().unwrap();
+    assert_eq!(fetched, Err(ImageError::Cancelled));
+    assert!(
+        started.elapsed() < Duration::from_secs(10),
+        "{:?}",
+        started.elapsed()
+    );
+    // what was kept of it is thrown away
+    assert!(!dest.exists());
+}

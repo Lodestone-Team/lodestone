@@ -5,8 +5,9 @@
 //! version must be the named project's, Modrinth's listing of its `.mrpack` must have the
 //! SHA-512 the base names, and the file is downloaded from Modrinth's CDN with that
 //! SHA-512 checked. Packs are kept in `<data>/cache/server-packs/<sha512>.mrpack` (the
-//! newest few), hashed again each time one is used, so a player whose server updates its
-//! pack, or who makes a second instance, downloads it once.
+//! newest few, and any used in the last day), hashed again each time one is used, so a
+//! player whose server updates its pack, or who makes a second instance, downloads it
+//! once.
 
 use std::{
     collections::BTreeSet,
@@ -24,8 +25,12 @@ use crate::{
     modpack::{self, ModpackError, OverrideFile, PackInfo, import},
 };
 
-/// How many base packs the cache keeps.
+/// How many base packs the cache keeps (besides the ones used lately).
 pub const CACHED_PACKS: usize = 8;
+/// A pack used within this long is kept whatever [`CACHED_PACKS`] says: an install
+/// prompt that waits for the player holds the pack its update copies from
+/// ([`BasePack::path`]), and pruning after another server's install mustn't take it.
+pub const RECENTLY_USED: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
 
 /// A base pack that was found or downloaded, checked and read.
 #[derive(Clone, Debug)]
@@ -154,8 +159,8 @@ fn touch(path: &Path) {
     }
 }
 
-/// Deletes all but the newest [`CACHED_PACKS`] packs in the cache (and downloads a crash
-/// left there).
+/// Deletes all but the newest [`CACHED_PACKS`] packs in the cache, keeping any used
+/// within [`RECENTLY_USED`] too (and deletes downloads a crash left there).
 pub fn prune_cache(cache: &Path) {
     let Ok(entries) = fs::read_dir(cache) else {
         return;
@@ -185,7 +190,44 @@ pub fn prune_cache(cache: &Path) {
         }
     }
     packs.sort_by(|a, b| b.cmp(a));
-    for (_, path) in packs.into_iter().skip(CACHED_PACKS) {
-        let _ = fs::remove_file(path);
+    for (modified, path) in packs.into_iter().skip(CACHED_PACKS) {
+        let recent = modified.elapsed().map_or(true, |age| age < RECENTLY_USED);
+        if !recent {
+            let _ = fs::remove_file(path);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{Duration, SystemTime};
+
+    use super::*;
+
+    /// Past the newest [`CACHED_PACKS`], a pack used within the last day stays (an install
+    /// prompt may still hold it) and an older one goes.
+    #[test]
+    fn pruning_keeps_the_newest_and_the_recently_used_packs() {
+        let dir = tempfile::tempdir().unwrap();
+        let pack = |i: u8, ago: Duration| {
+            let path = dir
+                .path()
+                .join(format!("{}.mrpack", format!("{i:02x}").repeat(64)));
+            fs::write(&path, b"pack").unwrap();
+            fs::File::options()
+                .write(true)
+                .open(&path)
+                .unwrap()
+                .set_modified(SystemTime::now() - ago)
+                .unwrap();
+            path
+        };
+        let recent: Vec<PathBuf> = (0..9u8)
+            .map(|i| pack(i, Duration::from_secs(60 + u64::from(i))))
+            .collect();
+        let old = pack(9, Duration::from_secs(2 * 24 * 60 * 60));
+        prune_cache(dir.path());
+        assert!(recent.iter().all(|path| path.is_file()));
+        assert!(!old.exists());
     }
 }

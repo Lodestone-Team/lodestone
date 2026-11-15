@@ -270,7 +270,10 @@ pub fn text(message: M) -> &'static str {
         M::ErrPrepareFailed => "服务器无法准备其文件。请几分钟后再试。",
         M::ErrStillPreparing => "服务器仍在准备其文件。请几分钟后再试。",
         M::ErrFileFailed => "服务器无法发送 {path}。请稍后再试。",
-        M::ErrViewChanged => "下载期间服务器的文件发生了变化。请再按一次“开始游戏”。",
+        M::ErrViewChanged => "下载期间服务器的文件发生了变化。请重试。",
+        M::ErrFilesChangedSince => {
+            "{path} 在更新准备好之后发生了变化，因此没有做任何更改。请再按一次“开始游戏”。"
+        }
         M::ErrBasePackGone => {
             "服务器的整合包已不在 Modrinth 上，因此无法下载其文件。请让服务器的所有者更新整合包。"
         }

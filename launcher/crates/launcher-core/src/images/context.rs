@@ -75,12 +75,7 @@ impl InstanceContext {
         resource_packs.truncate(MAX_RESOURCE_PACKS);
         let record = ModpackRecord::load(&dir);
         let added = AddedPacks::load(&dir);
-        let scope = ContentScope::new(
-            record
-                .iter()
-                .chain(added.packs.iter().map(|pack| &pack.record))
-                .flat_map(|record| record.files.keys().map(String::as_str)),
-        );
+        let scope = scope(record.as_ref(), &added);
         Ok(InstanceContext {
             id: id.to_string(),
             record,
@@ -194,6 +189,23 @@ impl InstanceContext {
 }
 
 /// The game of `instance`, as images write it.
+/// The content scope of an instance whose pack record is `record` and whose added packs
+/// are `added`: the content folders and every file those packs wrote.
+fn scope(record: Option<&ModpackRecord>, added: &AddedPacks) -> ContentScope {
+    ContentScope::new(
+        record
+            .into_iter()
+            .chain(added.packs.iter().map(|pack| &pack.record))
+            .flat_map(|record| record.files.keys().map(String::as_str)),
+    )
+}
+
+/// The content scope of the instance at `dir` now: what a content image recorded now
+/// holds ([`ContentScope::holds_file`]).
+pub fn scope_of(dir: &std::path::Path) -> ContentScope {
+    scope(ModpackRecord::load(dir).as_ref(), &AddedPacks::load(dir))
+}
+
 pub fn game_of(instance: &Instance) -> Game {
     Game {
         minecraft: instance.game_version.clone(),

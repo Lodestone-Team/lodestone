@@ -99,6 +99,7 @@ mod tests {
             max_player_count: None,
             has_client_pack: Some(false),
             listed: false,
+            public_only: false,
         }
     }
 

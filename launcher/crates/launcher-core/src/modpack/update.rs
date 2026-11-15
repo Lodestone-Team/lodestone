@@ -20,11 +20,15 @@
 //! Applying it downloads and extracts every new file into a staging folder first, then
 //! copies what will be replaced or removed into a content snapshot
 //! (`backups/modpack-update/<time>/`, with `instance.json`, `content.json` and
-//! `modpack.json`), optionally backs up every world, and only then changes the game
-//! folder. If changing the game folder or the records fails part way (a file another
-//! program holds open, say), the files changed so far and the records are put back
-//! from the snapshot. The loader and Minecraft version follow the new pack; they
-//! install on the next Play.
+//! `modpack.json`), checks that every file it would overwrite or remove is still what the
+//! plan saw (a plan waits for its prompt, and a file the user changed since stops the
+//! update before anything changes: [`ModpackError::ChangedSincePlanned`]), optionally
+//! backs up every world, and only then changes the game folder. If changing the game
+//! folder or the records fails part way (a file another program holds open, say), the
+//! files changed so far and the records are put back from the snapshot, which is then
+//! deleted (the instance is as it was; when something couldn't be put back it stays, and
+//! the error is [`ModpackError::NotUndone`]). The loader and Minecraft version follow the
+//! new pack; they install on the next Play.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -40,7 +44,7 @@ use super::{
     fetch::{Sources, stage},
     import::content_entries,
     io_error,
-    merge::{self, Fetch, Wanted},
+    merge::{self, Expect, Fetch, Wanted},
     slash_path,
 };
 use crate::{
@@ -83,6 +87,9 @@ pub struct UpdatePlan {
     writes: Vec<(Fetch, String)>,
     /// Files to remove (their path on disk).
     removals: Vec<String>,
+    /// What the files to overwrite or remove must still be when the plan is applied
+    /// ([`merge::Expect`]), checked just before the game folder changes.
+    expected: BTreeMap<String, Expect>,
 }
 
 impl UpdatePlan {
@@ -130,9 +137,16 @@ impl UpdatePlan {
 
     /// Leaves the files at `paths` (in the game folder; a mod also by its `.disabled`
     /// name) on disk as they are though the new version doesn't place them, still
-    /// recorded as `current` records them: the files a server's view can't give, which
-    /// the player keeps when they have them ("Files a view can't give").
-    pub(crate) fn keep_files(&mut self, paths: &BTreeSet<String>, current: &ModpackRecord) {
+    /// recorded as `current` records them while `on_disk` says the player has them: the
+    /// files a server's view can't give, which the player keeps when they have them
+    /// ("Files a view can't give"). The line of one the player doesn't have goes, so it
+    /// isn't taken for a server's mod gone missing at every Play.
+    pub(crate) fn keep_files(
+        &mut self,
+        paths: &BTreeSet<String>,
+        current: &ModpackRecord,
+        on_disk: impl Fn(&str) -> bool,
+    ) {
         let kept = |path: &str| paths.contains(path) || paths.contains(&enabled_name(path));
         self.removals.retain(|path| !kept(path));
         self.removed.retain(|path| !kept(path));
@@ -142,7 +156,7 @@ impl UpdatePlan {
             .partition(|(old, new)| old != new && kept(old));
         self.updated = updated;
         self.added.extend(paired.into_iter().map(|(_, new)| new));
-        for path in paths {
+        for path in paths.iter().filter(|path| on_disk(path)) {
             if let Some(file) = current.files.get(path) {
                 self.record
                     .files
@@ -237,6 +251,7 @@ pub(crate) fn plan_files(
         overrides_kept: merged.overrides_kept,
         writes: merged.writes,
         removals: merged.removals,
+        expected: merged.expected,
         ..UpdatePlan::default()
     }
 }
@@ -248,6 +263,29 @@ pub struct UpdateOutcome {
     pub snapshot: PathBuf,
     /// The world backups made first.
     pub world_backups: Vec<PathBuf>,
+}
+
+/// A new, empty folder in `parent` for an update's snapshot, named by the time: two
+/// updates within a second get folders of their own (one deleting its copy mustn't take
+/// the other's).
+fn new_snapshot_dir(parent: &Path) -> Result<PathBuf, ModpackError> {
+    fs::create_dir_all(parent).map_err(io_error(parent))?;
+    let stamp = worlds::timestamp(SystemTime::now());
+    for n in 1..=1000u32 {
+        let dir = match n {
+            1 => parent.join(&stamp),
+            n => parent.join(format!("{stamp}-{n}")),
+        };
+        match fs::create_dir(&dir) {
+            Ok(()) => return Ok(dir),
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(err) => return Err(io_error(&dir)(err)),
+        }
+    }
+    Err(ModpackError::Invalid(format!(
+        "Too many update snapshots in {} this second.",
+        parent.display()
+    )))
 }
 
 /// Copies `relative` (under `game`) into the snapshot.
@@ -343,23 +381,38 @@ async fn apply_staged(
 
     // 2. The snapshot, and the world backups.
     progress.set_label("Saving a snapshot of the instance's files");
-    let snapshot = worlds::backups_dir(dirs)
-        .join("modpack-update")
-        .join(worlds::timestamp(SystemTime::now()));
-    fs::create_dir_all(&snapshot).map_err(io_error(&snapshot))?;
-    for path in plan.touched() {
-        snapshot_file(game, &snapshot, &path)?;
-    }
-    for file in [
-        "instance.json",
-        crate::content::provenance::FILE,
-        super::RECORD_FILE,
-        super::addon::ADDED_FILE,
-    ] {
-        let from = dirs.instance.join(file);
-        if from.is_file() {
-            fs::copy(&from, snapshot.join(file)).map_err(io_error(&from))?;
+    let snapshot = new_snapshot_dir(&worlds::backups_dir(dirs).join("modpack-update"))?;
+    let copied = (|| -> Result<(), ModpackError> {
+        for path in plan.touched() {
+            snapshot_file(game, &snapshot, &path)?;
         }
+        for file in [
+            "instance.json",
+            crate::content::provenance::FILE,
+            super::RECORD_FILE,
+            super::addon::ADDED_FILE,
+        ] {
+            let from = dirs.instance.join(file);
+            if from.is_file() {
+                fs::copy(&from, snapshot.join(file)).map_err(io_error(&from))?;
+            }
+        }
+        // The plan was made before the player answered its prompt, maybe long before:
+        // a file it would overwrite or remove that the player changed since (a config
+        // edited in game meanwhile) stops it here, before anything changes.
+        for path in plan.touched() {
+            if let Some(expect) = plan.expected.get(&path)
+                && !merge::still(game, &path, expect)
+            {
+                return Err(ModpackError::ChangedSincePlanned { path });
+            }
+        }
+        Ok(())
+    })();
+    if let Err(err) = copied {
+        // half a copy (a full disk, say) or one no longer needed: nothing changed
+        let _ = fs::remove_dir_all(&snapshot);
+        return Err(err);
     }
     let mut world_backups = Vec::new();
     if backup_worlds {
@@ -471,7 +524,10 @@ fn swap_in(
 /// Puts the instance back as it was before an update that stopped with `err`: each of
 /// the `changed` game files is copied back from the snapshot, or removed when the update
 /// added it, and `content.json` and `modpack.json` are restored. Returns the error to
-/// show, which says whether that worked.
+/// show, which says whether that worked: [`ModpackError::NotUndone`] when something
+/// couldn't be put back (the snapshot is kept then, holding the files it replaced), else
+/// the instance is as it was and the snapshot, which holds nothing the instance doesn't,
+/// is deleted.
 fn undo(
     dirs: &InstanceDirs,
     snapshot: &Path,
@@ -507,12 +563,13 @@ fn undo(
         }
     }
     if failed.is_empty() {
+        let _ = fs::remove_dir_all(snapshot);
         ModpackError::Invalid(format!(
             "The update stopped part way ({err}), so the files it had changed were put \
              back. The instance is as it was before the update."
         ))
     } else {
-        ModpackError::Invalid(format!(
+        ModpackError::NotUndone(format!(
             "The update stopped part way ({err}), and these couldn't be put back: {}. \
              The files it replaced are in {}.",
             failed.join(", "),

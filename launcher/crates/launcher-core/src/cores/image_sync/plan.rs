@@ -10,7 +10,7 @@
 //! refused for an existing instance ([`SyncError::GameChanged`]). The loader version
 //! follows the server's.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 
 use lodestone_image::{Image, Loader, Source, WithheldReason, display_text};
 
@@ -20,7 +20,7 @@ use super::{
     placed::{Placed, projects_and_paths},
 };
 use crate::{
-    content::InstanceDirs,
+    content::{InstanceDirs, disabled_name},
     cores::trust::{FileRole, PulledFile, file_role},
     game::loaders::{LoaderChoice, LoaderKind},
     instances::{self, Instance},
@@ -185,15 +185,21 @@ pub fn plan(
             .and_then(|file| file.sha256.as_deref())
             .is_some_and(|have| have.eq_ignore_ascii_case(sha256))
     };
+    // each entry's SHA-256 by path (paths are unique in a checked view), looked up once
+    // per listed file rather than by a walk of every entry
+    let sha256_of: HashMap<&str, &str> = view
+        .entries
+        .iter()
+        .map(|e| (e.path.as_str(), e.sha256.as_str()))
+        .collect();
     let curseforge_listed: Vec<String> = placed
         .curseforge_listed
         .iter()
         .map(|(path, _, _)| path.clone())
         .filter(|path| {
-            !view
-                .entries
-                .iter()
-                .any(|e| e.path.as_str() == path && has(path, &e.sha256))
+            !sha256_of
+                .get(path.as_str())
+                .is_some_and(|sha256| has(path, sha256))
         })
         .collect();
     // Files the view can't give (withheld, or CurseForge's to get by hand) stay on disk
@@ -210,7 +216,14 @@ pub fn plan(
                 .map(|(path, _, _)| path.clone()),
         )
         .collect();
-    update.keep_files(&cant_give, current);
+    let game = dirs.map(|d| d.game.as_path());
+    update.keep_files(&cant_give, current, |path| {
+        game.is_some_and(|game| {
+            [path.to_string(), disabled_name(path)]
+                .iter()
+                .any(|p| std::fs::symlink_metadata(game.join(p)).is_ok_and(|m| m.is_file()))
+        })
+    });
     // A mod a pack the player added has, which the server's view has too, goes, so the
     // game doesn't load two versions of it.
     if let Some(dirs) = dirs {

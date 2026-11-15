@@ -331,7 +331,10 @@ pub fn text(message: M) -> &'static str {
         }
         M::ErrFileFailed => "Le serveur n’a pas pu envoyer {path}. Réessayez plus tard.",
         M::ErrViewChanged => {
-            "Les fichiers du serveur ont changé pendant le téléchargement. Appuyez à nouveau sur Jouer."
+            "Les fichiers du serveur ont changé pendant le téléchargement. Réessayez."
+        }
+        M::ErrFilesChangedSince => {
+            "{path} a changé après la préparation de la mise à jour, donc rien n’a été modifié. Appuyez à nouveau sur Jouer."
         }
         M::ErrBasePackGone => {
             "Le modpack du serveur n’est plus sur Modrinth, ses fichiers ne peuvent donc pas être téléchargés. Demandez au propriétaire du serveur de mettre le modpack à jour."
