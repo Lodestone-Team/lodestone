@@ -432,6 +432,9 @@ pub enum InstancesEvent {
     LoaderChanged(String),
     /// An image file (`.lodeimg`) was dropped or picked: offer to make an instance from it.
     ImportSnapshot(std::path::PathBuf),
+    /// The snapshot before a modpack update failed, so nothing changed: ask again, saying
+    /// why, and offer to update without one.
+    ModpackUpdateNeedsSnapshot(Box<modpacks::UpdatePrompt>),
     /// A game's window opened: the log said so, or it has run for
     /// [`WINDOW_WAIT`] without saying. Sent once per run.
     GameWindowOpened(String),
@@ -489,6 +492,10 @@ pub struct Instances {
     /// Instances whose files a job of their Content or Worlds tab, or a snapshot, is
     /// writing (see `jobs.rs`).
     busy_files: jobs::BusyCount,
+    /// Instances whose game change waits for its snapshot before `instance.json` is saved
+    /// ([`Instances::save_after_snapshot`]), with the settings saved meanwhile: they are
+    /// saved once that save is done, rather than taken for a change made elsewhere.
+    saves_after_snapshot: HashMap<String, Option<Instance>>,
     /// Instance images read for Undo, with the file's modification time and size when
     /// read: a change that leaves an image alone doesn't read it again.
     undo_images: HashMap<PathBuf, (SystemTime, u64, Arc<Vec<u8>>)>,
@@ -641,8 +648,8 @@ impl Instances {
         }
         // Instances deleted outside the Launcher (in Finder or Explorer) since it last ran:
         // their images would keep their files from every collection. And the snapshot
-        // store and world backup zips of Launchers from before images, which nothing
-        // reads any more.
+        // store of Launchers from before images, which nothing reads any more (their world
+        // backup zips are the user's files and stay where they are).
         let forgetting = images.clone();
         let old_store = data_dir.clone();
         cx.background_spawn(async move {
@@ -650,7 +657,6 @@ impl Instances {
                 log::warn!("Couldn't forget the images of deleted instances: {err}");
             }
             launcher_core::disk::remove_old_snapshot_store(&old_store);
-            launcher_core::disk::remove_old_world_backups(&old_store);
         })
         .detach();
         // What succeeded in the last few seconds is recorded before the process ends,
@@ -700,6 +706,7 @@ impl Instances {
             icon_task: None,
             file_ops: HashMap::new(),
             busy_files: jobs::BusyCount::default(),
+            saves_after_snapshot: HashMap::new(),
             undo_images: HashMap::new(),
             backgrounds: HashMap::new(),
             background_tasks: HashMap::new(),
@@ -1488,6 +1495,13 @@ impl Instances {
         instance: &Instance,
         cx: &mut Context<Self>,
     ) -> Result<Option<PendingSave>, String> {
+        // A game change still waits for its snapshot: this save follows it (compared then
+        // with what it saved), so neither is dropped for the other.
+        if let Some(queued) = self.saves_after_snapshot.get_mut(&instance.id) {
+            *queued = Some(instance.clone());
+            self.update_listed(instance.clone(), cx);
+            return Ok(None);
+        }
         let before = self.store.get(&instance.id).ok();
         if let Some((before, change)) =
             before.and_then(|before| game_change(&before, instance).map(|c| (before, c)))
@@ -1518,6 +1532,7 @@ impl Instances {
         cx: &mut Context<Self>,
     ) -> PendingSave {
         let busy = self.mark_files_busy(&instance.id);
+        self.saves_after_snapshot.insert(instance.id.clone(), None);
         self.update_listed(instance.clone(), cx);
         let images = self.images.clone();
         let id = instance.id.clone();
@@ -1550,7 +1565,7 @@ impl Instances {
                         instance.id
                     );
                     cx.emit(InstancesEvent::Notice {
-                        title: t(M::NoSnapshotBeforeLoaderChange).into(),
+                        title: t(M::NoSnapshotBeforeGameChange).into(),
                         message: err.clone().into(),
                         about: about.clone(),
                     });
@@ -1571,6 +1586,18 @@ impl Instances {
                         title: t(M::LoaderChangeNotSaved).into(),
                         message: err.clone().into(),
                         about,
+                    });
+                }
+                // Settings saved while the snapshot was taken follow, compared with what
+                // was just saved (another game change takes its own snapshot).
+                if let Some(Some(queued)) = this.saves_after_snapshot.remove(&instance.id)
+                    && let Err(err) = this.save_settings(&queued, cx)
+                {
+                    log::warn!("Couldn't save {}: {err}", instance.id);
+                    cx.emit(InstancesEvent::Notice {
+                        title: t(M::LoaderChangeNotSaved).into(),
+                        message: err.into(),
+                        about: About::Instance(instance.id.clone()),
                     });
                 }
                 saved.map(|()| snapshot_failed)
@@ -2267,6 +2294,10 @@ impl Instances {
         self.take_notes(id);
         let after_play = self.snapshot_after_play(id);
         if let Some(run) = self.runs.get_mut(id) {
+            // Only a run whose game started is a play session to take a snapshot after:
+            // not a launch that failed or was cancelled while it was prepared.
+            let played = matches!(run.state, RunState::Running { .. });
+            let after_play = after_play && played;
             run.state = RunState::Idle;
             run.task = None;
             run.ticker = None;

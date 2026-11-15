@@ -723,11 +723,7 @@ pub fn text(message: M) -> &'static str {
         M::StorageRuntimes => "Java 运行时",
         M::StorageCache => "缓存",
         M::StorageSnapshots => "快照",
-        M::StorageSnapshotsHint => "{count} 个快照和每个实例的内容历史 · 可删除 {removable} 个",
         M::StorageCleanSnapshotsTitle => "删除启动器自动拍摄的快照？",
-        M::StorageCleanSnapshotsBody => {
-            "将删除 {count} 个快照：启动器自动拍摄的快照，以及已删除实例的快照。你自己拍摄的和已固定的快照会保留。最近一小时内的文件会在下次清理时释放。"
-        }
         M::StorageLeftovers => "未完成的下载和导入",
         M::StorageCleanLeftoversTitle => "移除未完成的下载？",
         M::StorageCleanLeftoversBody => {
@@ -808,6 +804,13 @@ pub fn text(message: M) -> &'static str {
         }
         M::ZoomKeywords => "比例 大小 放大 缩小 文字",
         M::WhenAGameStartsKeywords => "启动后 最小化 隐藏 关闭 退出",
+        M::ModpackUpdateNoSnapshot => {
+            "无法先拍摄快照，因此没有做任何更改：{error}。你可以不拍摄快照直接更新，或释放一些空间后重试。"
+        }
+        M::UpdateWithoutSnapshot => "不拍摄快照直接更新",
+        M::ReplaceWorldModsNote => {
+            "只有世界会恢复；实例的模组保持不变。要同时恢复它当时使用的模组，请在“设置 › 快照”中恢复该快照。"
+        }
     }
 }
 
@@ -819,5 +822,12 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::LauncherAccounts => ["有 {count} 个账户正以 Minecraft Launcher 身份登录：{names}。"; 2],
         P::Subscriptions => ["{count} 个订阅"; 2],
         P::PerfEntries => ["{count} 个条目"; 2],
+        P::StorageSnapshotsHint => {
+            ["{count} 个快照和每个实例的内容历史 · 可删除 {removable} 个"; 2]
+        }
+        P::StorageCleanSnapshotsBody => {
+            ["将删除 {count} 个快照：启动器自动拍摄的快照，以及已删除实例的所有快照（包括已固定的）。你的实例中你自己拍摄的和已固定的快照会保留。最近一小时内的文件会在下次清理时释放。";
+                2]
+        }
     }
 }

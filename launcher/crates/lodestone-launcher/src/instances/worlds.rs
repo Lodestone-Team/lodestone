@@ -127,8 +127,10 @@ pub struct Backup {
     pub name: String,
     /// Unix seconds.
     pub created: i64,
-    /// The bytes of the snapshot's files.
+    /// The bytes of this world in the snapshot (the snapshot's whole size when unknown).
     pub bytes: u64,
+    /// How many other worlds the snapshot holds: "Back up" takes all of them.
+    pub others: usize,
 }
 
 /// The snapshots of `records` that hold each world of `list`, by world folder.
@@ -142,7 +144,8 @@ fn backups_of(list: &[World], records: &[SnapshotRecord]) -> HashMap<String, Vec
                     snapshot: r.id.clone(),
                     name: r.name_shown(),
                     created: r.created,
-                    bytes: r.bytes,
+                    bytes: r.world_size(&world.folder).unwrap_or(r.bytes),
+                    others: r.worlds.len().saturating_sub(1),
                 })
                 .collect();
             (world.folder.clone(), held)
@@ -2213,9 +2216,20 @@ impl WorldsView {
                                     .child(date),
                             )
                             .child(
-                                small(format!("{} · {}", backup.name, format::bytes(backup.bytes)))
-                                    .truncate()
-                                    .text_color(crate::theme::ink::muted()),
+                                small({
+                                    let mut line = format!(
+                                        "{} · {}",
+                                        backup.name,
+                                        format::bytes(backup.bytes)
+                                    );
+                                    if backup.others > 0 {
+                                        line.push_str(" · ");
+                                        line.push_str(&trn!(P::WithOtherWorlds, backup.others));
+                                    }
+                                    line
+                                })
+                                .truncate()
+                                .text_color(crate::theme::ink::muted()),
                             ),
                     )
                     .child(

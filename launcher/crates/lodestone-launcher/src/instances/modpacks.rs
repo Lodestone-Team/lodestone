@@ -15,7 +15,11 @@ use launcher_core::{
         install::InstallProgress,
         share::{self, ShareCode, ShareOutcome},
     },
-    game::{download::CancelToken, install::Installer, loaders::LoaderKind},
+    game::{
+        download::{CancelToken, ProgressSnapshot},
+        install::Installer,
+        loaders::LoaderKind,
+    },
     images::{RiskyChange, labels},
     instances::{Instance, Loader},
     modpack::{
@@ -118,6 +122,19 @@ pub struct UpdateJob {
     _task: Task<()>,
 }
 
+/// How a modpack update's background work ended.
+enum Started {
+    /// The snapshot first, then the update ran.
+    Applied(
+        Result<update::UpdateOutcome, ModpackError>,
+        launcher_core::images::Operation,
+    ),
+    /// Cancelled while the snapshot was taken: nothing changed.
+    Cancelled,
+    /// The snapshot first failed, so nothing changed (the pack stays for the prompt).
+    NoSnapshot(String),
+}
+
 /// An update that was planned and waits for the user to confirm it.
 #[derive(Clone, Debug)]
 pub struct UpdatePrompt {
@@ -128,6 +145,11 @@ pub struct UpdatePrompt {
     /// The downloaded pack, removed when the prompt is answered.
     pub pack_path: PathBuf,
     pub pack: Arc<PackInfo>,
+    /// Why the snapshot before this update couldn't be taken, when the prompt is shown
+    /// again after it failed: the user may update without one.
+    pub snapshot_failed: Option<String>,
+    /// Update without taking a snapshot first (the user chose to, after one failed).
+    pub without_snapshot: bool,
 }
 
 /// A pack to add to an instance, picked in "Add a modpack".
@@ -868,6 +890,8 @@ impl Instances {
                     plan: Arc::new(plan),
                     pack_path,
                     pack: Arc::new(pack),
+                    snapshot_failed: None,
+                    without_snapshot: false,
                 }),
                 Err(err) => {
                     let _ = std::fs::remove_file(&pack_path);
@@ -918,14 +942,42 @@ impl Instances {
             let prompt = prompt.clone();
             cx.background_spawn(async move {
                 // Every file the update replaces is in an image first: a snapshot of the
-                // worlds, linked to a content image of what the game wrote too.
+                // worlds, linked to a content image of what the game wrote too. When it
+                // fails, nothing changes: the prompt comes back, offering to update
+                // without one, as the world backups before images did.
                 let record = &prompt.plan.record;
-                let change = RiskyChange::ModpackUpdate {
-                    title: &record.title,
-                    version: &record.version_number,
-                };
-                if let Err(err) = images.before_risky_change(&image_id, change) {
-                    log::warn!("Couldn't take a snapshot of {image_id} before the update: {err}");
+                if !prompt.without_snapshot {
+                    let change = RiskyChange::ModpackUpdate {
+                        title: &record.title,
+                        version: &record.version_number,
+                    };
+                    progress.set_label(t(crate::i18n::InstanceSettingsMsg::TakingSnapshot));
+                    let snapshot_progress = |read: u64, total: u64| {
+                        progress.downloads.set(ProgressSnapshot {
+                            bytes_done: read,
+                            bytes_total: total,
+                            ..ProgressSnapshot::default()
+                        });
+                    };
+                    let stop = || cancel.is_cancelled();
+                    match images.before_risky_change_with(
+                        &image_id,
+                        change,
+                        &snapshot_progress,
+                        &stop,
+                    ) {
+                        Ok(_) => {}
+                        Err(launcher_core::images::ImageError::Cancelled) => {
+                            let _ = std::fs::remove_file(&prompt.pack_path);
+                            return Started::Cancelled;
+                        }
+                        Err(err) => {
+                            log::warn!(
+                                "Couldn't take a snapshot of {image_id} before the update: {err}"
+                            );
+                            return Started::NoSnapshot(err.to_string());
+                        }
+                    }
                 }
                 let operation = images.begin(
                     &image_id,
@@ -942,13 +994,27 @@ impl Instances {
                 )
                 .await;
                 let _ = std::fs::remove_file(&prompt.pack_path);
-                (result, operation)
+                Started::Applied(result, operation)
             })
         };
+        let job_id = prompt.instance_id.clone();
         let task = cx.spawn(async move |this, cx| {
-            let (result, operation) = work.await;
+            let started = work.await;
             this.update(cx, |this, cx| {
                 this.modpack_updates.remove(&id);
+                let (result, operation) = match started {
+                    Started::Applied(result, operation) => (result, operation),
+                    Started::Cancelled => return cx.notify(),
+                    Started::NoSnapshot(error) => {
+                        cx.emit(InstancesEvent::ModpackUpdateNeedsSnapshot(Box::new(
+                            UpdatePrompt {
+                                snapshot_failed: Some(error),
+                                ..prompt.clone()
+                            },
+                        )));
+                        return cx.notify();
+                    }
+                };
                 this.content_changed(&id);
                 match result {
                     Ok(outcome) => {
@@ -1001,7 +1067,7 @@ impl Instances {
             .ok();
         });
         self.modpack_updates.insert(
-            prompt.instance_id.clone(),
+            job_id,
             UpdateJob {
                 progress,
                 cancel,

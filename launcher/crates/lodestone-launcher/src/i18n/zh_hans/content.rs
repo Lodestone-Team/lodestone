@@ -279,6 +279,7 @@ pub fn text(message: M) -> &'static str {
         M::EnableModOnly => "仅开启 {name}",
 
         M::AddModpackContent => "添加整合包",
+        M::NoSnapshotFirst => "未能先拍摄快照：{error}",
     }
 }
 

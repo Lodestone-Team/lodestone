@@ -86,14 +86,14 @@ impl Progress {
             .store(snapshot.bytes_done, Ordering::Relaxed);
     }
 
-    fn reset(&self, files: u64, bytes: u64) {
+    pub(crate) fn reset(&self, files: u64, bytes: u64) {
         self.files_total.store(files, Ordering::Relaxed);
         self.files_done.store(0, Ordering::Relaxed);
         self.bytes_total.store(bytes, Ordering::Relaxed);
         self.bytes_done.store(0, Ordering::Relaxed);
     }
 
-    fn add_bytes(&self, bytes: u64) {
+    pub(crate) fn add_bytes(&self, bytes: u64) {
         self.bytes_done.fetch_add(bytes, Ordering::Relaxed);
     }
 
@@ -110,7 +110,7 @@ impl Progress {
         }
     }
 
-    fn file_done(&self) {
+    pub(crate) fn file_done(&self) {
         self.files_done.fetch_add(1, Ordering::Relaxed);
     }
 }

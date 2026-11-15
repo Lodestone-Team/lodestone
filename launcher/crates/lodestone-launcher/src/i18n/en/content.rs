@@ -313,6 +313,7 @@ crate::i18n::messages! {
 
         /// Next to "Browse Modrinth" on the Mods tab: add a modpack's mods.
         AddModpackContent = "Add a modpack",
+        NoSnapshotFirst = "No snapshot was taken first: {error}",
     }
 
     pub enum ContentPlural {

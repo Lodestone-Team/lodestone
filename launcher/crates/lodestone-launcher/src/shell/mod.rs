@@ -417,6 +417,9 @@ impl LauncherShell {
                         cx,
                     );
                 }
+                InstancesEvent::ModpackUpdateNeedsSnapshot(prompt) => {
+                    this.show_modpack_update((**prompt).clone(), cx);
+                }
                 InstancesEvent::ImportSnapshot(path) => {
                     this.open_snapshot(
                         crate::instances::snapshots::SnapshotRequest::Import(path.clone()),
@@ -1019,24 +1022,38 @@ impl LauncherShell {
                     div()
                         .whitespace_normal()
                         .text_size(theme::text_size(text::SMALL))
-                        .child(t(M::ModpackUpdateSafety)),
+                        .child(match &prompt.snapshot_failed {
+                            None => t(M::ModpackUpdateSafety).to_string(),
+                            Some(error) => tr!(M::ModpackUpdateNoSnapshot, error = error),
+                        }),
                 ),
         )
         .footer(
-            Button::new("confirm-modpack-update", t(CommonMsg::Update))
-                .variant(ButtonVariant::Primary)
-                .on_click(cx.listener(|this, _, _, cx| {
-                    let update = match this.modal.close(cx) {
-                        Some(Modal::ModpackUpdate { prompt, .. }) => Some((**prompt).clone()),
-                        _ => None,
-                    };
-                    this.show_queued_modal_soon(cx);
-                    if let Some(prompt) = update {
-                        this.instances.update(cx, |instances, cx| {
-                            instances.apply_modpack_update(prompt, cx)
-                        });
+            Button::new(
+                "confirm-modpack-update",
+                if prompt.snapshot_failed.is_some() {
+                    t(M::UpdateWithoutSnapshot)
+                } else {
+                    t(CommonMsg::Update)
+                },
+            )
+            .variant(ButtonVariant::Primary)
+            .on_click(cx.listener(|this, _, _, cx| {
+                let update = match this.modal.close(cx) {
+                    Some(Modal::ModpackUpdate { prompt, .. }) => {
+                        let mut prompt = (**prompt).clone();
+                        prompt.without_snapshot = prompt.snapshot_failed.is_some();
+                        Some(prompt)
                     }
-                })),
+                    _ => None,
+                };
+                this.show_queued_modal_soon(cx);
+                if let Some(prompt) = update {
+                    this.instances.update(cx, |instances, cx| {
+                        instances.apply_modpack_update(prompt, cx)
+                    });
+                }
+            })),
         )
         .footer(
             Button::new("cancel-modpack-update", t(CommonMsg::Cancel))
@@ -1108,11 +1125,19 @@ impl LauncherShell {
                     div()
                         .text_color(crate::theme::ink::secondary())
                         .whitespace_normal()
+                        .flex()
+                        .flex_col()
+                        .gap_2()
                         .child(tr!(
                             M::ReplaceWorldBody,
                             name = name,
                             when = when.to_lowercase(),
-                        )),
+                        ))
+                        .child(
+                            div()
+                                .text_size(theme::text_size(text::SMALL))
+                                .child(t(M::ReplaceWorldModsNote)),
+                        ),
                 )
                 .footer(
                     Button::new("confirm-replace-world", t(M::BackUpAndReplace))

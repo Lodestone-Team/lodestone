@@ -252,7 +252,7 @@ impl ContentScope {
         let Some(parts) = game_parts(candidate) else {
             return false;
         };
-        if parts.iter().any(|part| is_lodestone_name(part)) {
+        if parts.iter().any(|part| is_lodestone_name(part)) || is_crash_file(candidate, &parts) {
             return false;
         }
         if candidate.is_dir {
@@ -264,9 +264,35 @@ impl ContentScope {
 }
 
 /// A snapshot's filter for a full image: everything in the game folder but Lodestone's own
-/// names (which no image holds anyway).
+/// names (which no image holds anyway) and the JVM's crash and dump files.
 pub fn full_filter(candidate: &Candidate) -> bool {
-    game_parts(candidate).is_some_and(|parts| !parts.iter().any(|part| is_lodestone_name(part)))
+    game_parts(candidate).is_some_and(|parts| {
+        !parts.iter().any(|part| is_lodestone_name(part)) && !is_crash_file(candidate, &parts)
+    })
+}
+
+/// Whether `candidate` (at `parts` in the game folder) is a file the JVM writes into its
+/// working folder, the game folder, when it crashes or dumps its memory: `hs_err_pid*`
+/// (its crash log, which holds the whole command line, the account's access token
+/// included), `replay_pid*`, `java_pid*.hprof`, `*.mdmp` minidumps and `core` /
+/// `core.<digits>` dumps. They hold secrets and process memory, can be huge and are only
+/// debugging leftovers, so no snapshot takes them (and an export strips them,
+/// `export::PRIVATE_FILES`).
+fn is_crash_file(candidate: &Candidate, parts: &[&str]) -> bool {
+    !candidate.is_dir && parts.len() == 1 && is_crash_name(parts[0])
+}
+
+/// [`is_crash_file`]'s names, with ASCII letters folded.
+pub fn is_crash_name(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    name.starts_with("hs_err_pid")
+        || name.starts_with("replay_pid")
+        || (name.starts_with("java_pid") && name.ends_with(".hprof"))
+        || name.ends_with(".mdmp")
+        || name == "core"
+        || name
+            .strip_prefix("core.")
+            .is_some_and(|rest| !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()))
 }
 
 /// The parts of `candidate`'s path in the game folder: its canonical path, or, for a name
@@ -564,6 +590,35 @@ mod tests {
         }
         // Lodestone's own names are in no image.
         assert!(!full.iter().any(|p| p.contains(".lodestone")));
+    }
+
+    #[test]
+    fn the_jvms_crash_files_are_in_no_snapshot() {
+        let scope = ContentScope::default();
+        let file = |disk: &'static str| Candidate {
+            disk,
+            path: None,
+            is_dir: false,
+        };
+        for name in [
+            "minecraft/hs_err_pid4242.log",
+            "minecraft/hs_err_pid4242.mdmp",
+            "minecraft/replay_pid4242.log",
+            "minecraft/java_pid4242.hprof",
+            "minecraft/core",
+            "minecraft/core.12345",
+        ] {
+            assert!(!scope.data_accepts(&file(name)), "{name}");
+            assert!(!full_filter(&file(name)), "{name}");
+        }
+        for name in [
+            "minecraft/options.txt",
+            "minecraft/core.json",
+            "minecraft/saves/World/hs_err_pid1.log",
+        ] {
+            assert!(scope.data_accepts(&file(name)), "{name}");
+            assert!(full_filter(&file(name)), "{name}");
+        }
     }
 
     #[test]

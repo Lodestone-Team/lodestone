@@ -543,9 +543,13 @@ fn start_install(
         let job_id = id.clone();
         let outcome = cx
             .background_spawn(async move {
-                if let Some(titles) = &updating {
-                    crate::instances::content::snapshot_before_update(&images, &job_id, titles);
-                }
+                let no_snapshot = match &updating {
+                    Some(titles) => crate::instances::content::snapshot_before_update(
+                        &images, &job_id, titles, &progress, &cancel,
+                    )
+                    .map_err(|_| api_error(codes::CANCELLED, "Cancelled."))?,
+                    None => None,
+                };
                 run_requests(
                     api,
                     downloader,
@@ -557,6 +561,7 @@ fn start_install(
                     cancel,
                 )
                 .await
+                .map(|outcome| (outcome, no_snapshot))
             })
             .await;
         if let Some(control) = refresh.upgrade() {
@@ -564,7 +569,12 @@ fn start_install(
             all.push(ContentKind::ShaderPack);
             cx.update(|cx| refresh_view(&control, &id, &all, cx));
         }
-        Ok(outcome_json(&outcome?))
+        let (outcome, no_snapshot) = outcome?;
+        let mut reply = outcome_json(&outcome);
+        if let Some(why) = no_snapshot {
+            reply["snapshot_failed"] = json!(why);
+        }
+        Ok(reply)
     });
     let job = control.start_job(
         JobSpec::new("content", label)

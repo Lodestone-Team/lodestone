@@ -11,8 +11,9 @@
 //!
 //! **Records.** Images are named by their contents, so two snapshots of an instance that
 //! didn't change between them are one image, while each keeps its own name, kind, pin and
-//! time: `images/<instance>/snapshots.json` lists the records, each naming its image, with
-//! the figures the list shows, so listing reads one file and no manifest. A data or full
+//! time: `images/<instance>/snapshots.json` lists the records, each naming its image and the
+//! content it links to, with the figures the list shows, so listing them (and retention's
+//! listing of the store, `Images::listing`) never reads a snapshot's manifest. A data or full
 //! image's manifest is deleted only when no record names it any more. Before listing,
 //! retention or a delete, the records are brought in line with the manifests: a record
 //! whose manifest is gone is dropped (a crash in the middle of a delete), and a data or full
@@ -24,8 +25,8 @@
 //!
 //! **Taking one** ([`Images::take_snapshot`]), under the instance's record lock and inside
 //! a counted write, never while its game runs: the content first ([`Images`]'s content
-//! step: what is queued, then the quick check, or for a change about to replace files the
-//! record before it), so the link names what is on disk; then a snapshot with the `data`
+//! step: the record before a change, which takes in what is queued, a change by hand and
+//! what the game wrote since the last record), so the link names what is on disk; then a snapshot with the `data`
 //! stat cache, the free-space check (what it will read, the records under way, and 1 GiB
 //! to spare), the manifest (retried once when a collection took an object meanwhile), the
 //! record, the stat cache, and retention. An automatic snapshot whose image is the newest
@@ -113,6 +114,10 @@ pub struct SnapshotRecord {
     /// The world folders it holds.
     #[serde(default)]
     pub worlds: Vec<String>,
+    /// Each world's own name and size, as the image has them, for lists that show a world
+    /// by its name and a snapshot's share of one world.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub world_details: Vec<RecordWorld>,
     /// The content image a data image links to.
     #[serde(default)]
     pub content: Option<String>,
@@ -130,7 +135,50 @@ pub struct SnapshotRecord {
     pub new_bytes: u64,
 }
 
+/// One world of a snapshot ([`SnapshotRecord::world_details`]).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecordWorld {
+    /// Its folder in `saves/`.
+    pub name: String,
+    /// Its own name (`level.dat`'s), when read: show it through `display_text`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub level_name: Option<String>,
+    /// The bytes of its files.
+    #[serde(default)]
+    pub size: u64,
+}
+
+/// The [`RecordWorld`]s of `image`'s worlds.
+pub(crate) fn record_worlds(image: &Image) -> Vec<RecordWorld> {
+    image
+        .worlds
+        .iter()
+        .map(|w| RecordWorld {
+            name: w.name.clone(),
+            level_name: w.level_name.clone(),
+            size: w.size.unwrap_or_default(),
+        })
+        .collect()
+}
+
 impl SnapshotRecord {
+    /// The world in the folder `folder`, by its own name when the snapshot read it.
+    pub fn world_name(&self, folder: &str) -> String {
+        self.world_details
+            .iter()
+            .find(|w| w.name == folder)
+            .and_then(|w| w.level_name.clone())
+            .unwrap_or_else(|| folder.to_string())
+    }
+
+    /// The bytes of the world in the folder `folder`, when known.
+    pub fn world_size(&self, folder: &str) -> Option<u64> {
+        self.world_details
+            .iter()
+            .find(|w| w.name == folder)
+            .map(|w| w.size)
+    }
+
     /// The name to show: control and invisible characters written visibly
     /// (`lodestone_image::display_text`), since an imported snapshot's name came from
     /// someone else.
@@ -231,11 +279,9 @@ impl RiskyChange<'_> {
         }
     }
 
-    /// The label of the content record before it, when the change replaces files the game
-    /// may have written (a pack's or server's update merges configs): that record takes in
-    /// what the game wrote, so the content image holds every file the change replaces.
-    /// `None`: the quick check is enough (a content update or a loader change replaces
-    /// what the Launcher installed).
+    /// The label of the content record before it when the game's writes are the only
+    /// change, for a change that merges configs (a pack's or server's update). `None`: the
+    /// record is labelled "Changed while playing" then, as for any snapshot.
     fn content_record(&self) -> Option<&'static str> {
         match self {
             RiskyChange::ModpackUpdate { .. } => Some(labels::BEFORE_MODPACK_UPDATE),
@@ -308,16 +354,35 @@ impl Images {
     /// to change ([`SnapshotKind::BeforeChange`], named after the change), whose content
     /// image, recorded first, holds every file the change replaces. The one hook for every
     /// risky change: a content update, a modpack update, a loader change, and a server's
-    /// update (milestone 4's second half calls it in `apply_sync` in place of
+    /// update (milestone 4's second half is to call it in `apply_sync` in place of
     /// `record_before_change`). `None` when nothing changed since the newest snapshot.
-    /// Callers log a failure and go on with the change, as they do for the content record
-    /// alone. Blocking.
+    /// What a failure does is the caller's: a modpack update stops, and the user can update
+    /// without a snapshot; a content update or a loader change goes on and says so in its
+    /// notice. Blocking.
     pub fn before_risky_change(
         &self,
         instance: &str,
         change: RiskyChange,
     ) -> Result<Option<SnapshotRecord>, ImageError> {
-        let take = Take::new(SnapshotKind::BeforeChange, change.name());
+        self.before_risky_change_with(instance, change, &|_, _| {}, NEVER)
+    }
+
+    /// [`Self::before_risky_change`], showing (bytes read, bytes to read) while the files are
+    /// read and stopping with [`ImageError::Cancelled`] when `cancel` says so: the first
+    /// snapshot of a big world reads all of it, so the change's own progress and Cancel
+    /// cover it. A cancelled snapshot records nothing; the caller cancels its change too.
+    pub fn before_risky_change_with(
+        &self,
+        instance: &str,
+        change: RiskyChange,
+        progress: &(dyn Fn(u64, u64) + Sync),
+        cancel: Cancel,
+    ) -> Result<Option<SnapshotRecord>, ImageError> {
+        let take = Take {
+            progress,
+            cancel,
+            ..Take::new(SnapshotKind::BeforeChange, change.name())
+        };
         self.take_snapshot_with(instance, take, change.content_record())
     }
 
@@ -383,10 +448,24 @@ impl Images {
         let content = pointer.filter(|_| content_ok && !take.full);
         let mut records = self.reconciled_locked(instance)?;
         let name = snapshot_name(take.name.as_deref());
+        // A session that begins meanwhile (Play pressed again while the snapshot after the
+        // last one reads a big world: Play waits only so long for the record lock) stops
+        // the snapshot at the next file, so the game never writes what it is reading. A
+        // session can't end while this holds the record lock, so one seen at the end began
+        // during it.
+        let caller_cancel = take.cancel;
+        let stop = || caller_cancel() || slot.in_session();
+        let take = Take {
+            cancel: &stop,
+            ..take
+        };
         let mut retried = false;
         let (image, snapshot) = loop {
-            let (image, snapshot) =
-                self.build_snapshot(&ctx, &take, content.clone(), &records, &name)?;
+            let built = self.build_snapshot(&ctx, &take, content.clone(), &records, &name);
+            if slot.in_session() {
+                return Err(ImageError::Running);
+            }
+            let (image, snapshot) = built?;
             let automatic = take.kind.automatic();
             if automatic
                 && records
@@ -429,6 +508,7 @@ impl Images {
             pinned: false,
             full: image.kind == Kind::Full,
             worlds: image.worlds.iter().map(|w| w.name.clone()).collect(),
+            world_details: record_worlds(&image),
             content: image.content.clone(),
             files: image.entries.len(),
             withheld: image.withheld.len(),
@@ -499,7 +579,8 @@ impl Images {
                 .map(|e| e.size)
                 .fold(0, u64::saturating_add);
             world.size = Some(size);
-            // The game isn't running (snapshots are refused while it is).
+            // The game isn't running: snapshots are refused while it is, and one a session
+            // begins during is stopped and never recorded.
             world.quiesced = Some(true);
             if let Some(found) = crate::worlds::read_world(&saves.join(&world.name))
                 && let Some(summary) = found.summary
@@ -724,6 +805,7 @@ impl Images {
                 pinned: false,
                 full: header.kind == Kind::Full,
                 worlds: Vec::new(),
+                world_details: Vec::new(),
                 content: header.content.clone(),
                 files: 0,
                 withheld: 0,
@@ -732,6 +814,7 @@ impl Images {
             };
             if let Ok(image) = self.store().load_manifest(instance, id) {
                 record.worlds = image.worlds.iter().map(|w| w.name.clone()).collect();
+                record.world_details = record_worlds(&image);
                 record.files = image.entries.len();
                 record.withheld = image.withheld.len();
                 record.bytes = lodestone_image::container::files_size(&image);
@@ -755,7 +838,10 @@ impl Images {
     /// The records file of `instance`: `Some(records)` (empty when there is none), or
     /// `None` when it is there but isn't one (too big, not JSON, a bad image id, too many
     /// records). Failing to read it is an error, never "no snapshots".
-    fn load_records(&self, instance: &str) -> Result<Option<Vec<SnapshotRecord>>, ImageError> {
+    pub(crate) fn load_records(
+        &self,
+        instance: &str,
+    ) -> Result<Option<Vec<SnapshotRecord>>, ImageError> {
         let path = self.records_path(instance)?;
         let meta = match std::fs::symlink_metadata(&path) {
             Ok(meta) => meta,

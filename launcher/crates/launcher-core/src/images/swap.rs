@@ -19,7 +19,11 @@
 //!    are deleted.
 //!
 //! A failure in steps 2 to 4 rolls back (what was moved goes back; nothing at a
-//! destination is ever deleted, what is in the way goes into the staging folder). A crash
+//! destination is ever deleted, what is in the way goes into the staging folder, and what
+//! of that the restore didn't stage, such as a mod another job installed meanwhile, is kept
+//! in `<instance>/restore-leftovers-<16>/` rather than deleted with the staging folder;
+//! after a swap that succeeded, the same goes for a file in the old folder that the restore
+//! didn't replace). A crash
 //! leaves the journal, and [`recover_one`] does the same rollback at the next start, before
 //! any instance can be played (and Play again, for a rollback that failed); a `done`
 //! journal only has its leftovers deleted. The journal holds only the folders' random
@@ -46,6 +50,10 @@ pub const OLD_PREFIX: &str = ".lodestone-restore-old-";
 pub const JOURNAL_FILE: &str = "restore-journal.json";
 /// Where a staged copy goes when the carried path on disk wins over it.
 const REPLACED_DIR: &str = ".replaced";
+/// The folder in the instance folder, before the staging folder's 16 hex digits, where
+/// files a swap or its rollback found in its way and that no snapshot holds are kept
+/// (written by another job meanwhile), rather than deleted with the work folders.
+pub const LEFTOVERS_PREFIX: &str = "restore-leftovers-";
 
 /// Why a swap failed.
 #[derive(Debug)]
@@ -84,6 +92,10 @@ pub struct Journal {
     /// The 16 hex digits of `.lodestone-restore-old-<16>`.
     pub old: String,
     pub entries: Vec<JournalEntry>,
+    /// The staged files (relative to the instance folder): after a rollback, anything else
+    /// in the staging folder was in the way (written meanwhile) and is kept aside.
+    #[serde(default)]
+    pub placed: Vec<String>,
 }
 
 /// A journal is small; one larger than this is damaged.
@@ -109,6 +121,11 @@ pub(crate) struct Staged {
     old: String,
     owned: Vec<JournalEntry>,
     carried: Vec<String>,
+    /// What the restore replaces: anything else left in the old folder after the swap
+    /// (a file another job wrote meanwhile) is kept aside, not deleted.
+    replaced: HashSet<String>,
+    /// What it staged: anything else in the staging folder after a rollback is kept aside.
+    placed: Vec<String>,
     #[cfg(test)]
     pub(crate) faults: Faults,
 }
@@ -180,8 +197,16 @@ fn folders_of<'a>(paths: impl Iterator<Item = &'a str>) -> BTreeSet<String> {
 impl Staged {
     /// The swap of `owned` (relative paths) for what `staging` holds there. `replaced` are
     /// the files on disk the restore replaces or removes (everything else inside an owned
-    /// folder is carried), `placed` the files it stages. Refuses an owned path that is a
-    /// link, and a name inside an owned folder it can't handle.
+    /// folder is carried), `placed` the files it stages.
+    ///
+    /// An owned path the restore neither replaces nor places anything in is left alone (a
+    /// file the safety snapshot couldn't take, such as one another program locks or one
+    /// with a name no image holds, is never renamed aside and deleted). Refused: an owned
+    /// path that is a link; a file it would overwrite that the safety snapshot has no copy
+    /// of; a name inside an owned folder it can't handle; and a name on disk spelled
+    /// differently from the snapshot's (letter case, or accents written another way) where
+    /// the disk takes them for one, since the copy on disk would then win over the
+    /// snapshot's without a word.
     pub(crate) fn new(
         root: &Path,
         staging: String,
@@ -196,9 +221,16 @@ impl Staged {
                 .map(String::as_str)
                 .chain(placed.iter().map(String::as_str)),
         );
+        let placed_set: HashSet<&str> = placed.iter().map(String::as_str).collect();
         let mut entries = Vec::new();
         let mut carried = Vec::new();
         for path in owned {
+            let changes_something = replaced.contains(path)
+                || placed_set.contains(path.as_str())
+                || touched.contains(path);
+            if !changes_something {
+                continue;
+            }
             if !valid_rel_path(path) {
                 return Err(ImageError::Invalid(format!(
                     "the restore can't handle the path {path:?}"
@@ -211,6 +243,14 @@ impl Staged {
                     "{path} is a link, which a restore can't replace; remove it first"
                 )));
             }
+            if meta.is_some() {
+                spelled_as_on_disk(root, path)?;
+            }
+            if meta.as_ref().is_some_and(|m| !m.is_dir()) && !replaced.contains(path) {
+                return Err(ImageError::Invalid(format!(
+                    "{path} isn't in the safety snapshot, so the restore won't replace it; close what holds it, or move it away, and try again"
+                )));
+            }
             entries.push(JournalEntry {
                 path: path.clone(),
                 had_old: meta.is_some(),
@@ -220,12 +260,25 @@ impl Staged {
                 carried.extend(kept_inside(root, path, replaced, &touched)?);
             }
         }
+        // A carried path the staging also has: on a disk that takes two spellings for one
+        // name, the snapshot's copy would lose to it; elsewhere, it is a file the safety
+        // snapshot couldn't take that the restore would overwrite.
+        if let Some(clash) = carried
+            .iter()
+            .find(|path| exists(&join_rel(&staging_dir, path)))
+        {
+            return Err(ImageError::Invalid(format!(
+                "{clash} on disk isn't in the safety snapshot, or is spelled differently from the snapshot's copy (letter case or accents); rename or move it away, and try again"
+            )));
+        }
         Ok(Staged {
             root: root.to_path_buf(),
             staging,
             old: random_suffix(),
             owned: entries,
             carried,
+            replaced: replaced.clone(),
+            placed: placed.to_vec(),
             #[cfg(test)]
             faults: Faults::default(),
         })
@@ -239,6 +292,11 @@ impl Staged {
         self.root.join(format!("{OLD_PREFIX}{}", self.old))
     }
 
+    fn leftovers_dir(&self) -> PathBuf {
+        self.root
+            .join(format!("{LEFTOVERS_PREFIX}{}", self.staging))
+    }
+
     /// Deletes the staged files without changing anything else.
     pub(crate) fn discard(self) {
         let _ = super::remove_tree(&self.staging_dir());
@@ -247,7 +305,7 @@ impl Staged {
     /// Swaps the staged files in, with the journal at `journal_path` (see the module).
     /// Not cancellable: it is short, and stopping halfway would leave a half-restored
     /// instance.
-    pub(crate) fn swap(self, journal_path: &Path) -> Result<(), SwapError> {
+    pub(crate) fn swap(self, journal_path: &Path) -> Result<Option<PathBuf>, SwapError> {
         let staging_dir = self.staging_dir();
         let mut journal = Journal {
             phase: Phase::MovingOld,
@@ -263,6 +321,7 @@ impl Staged {
                     had_new: exists(&join_rel(&staging_dir, path)),
                 }))
                 .collect(),
+            placed: self.placed.clone(),
         };
         if let Err(e) = write_journal(journal_path, &journal) {
             self.discard();
@@ -277,9 +336,15 @@ impl Staged {
                 };
                 match write_journal(journal_path, &done) {
                     Ok(()) => {
+                        // What is left in the old folder is what the restore replaced,
+                        // unless another job wrote into an owned folder meanwhile.
+                        let replaced = &self.replaced;
+                        let kept = keep_strays(&self.old_dir(), &self.leftovers_dir(), &|rel| {
+                            replaced.contains(rel)
+                        });
                         self.remove_work_dirs();
                         remove_journal(journal_path);
-                        Ok(())
+                        Ok(kept)
                     }
                     // The journal still says the swap is under way, and the next start
                     // would undo it after the game ran: undo it now instead.
@@ -300,7 +365,7 @@ impl Staged {
         journal_path: &Path,
         journal: &Journal,
         error: ImageError,
-    ) -> Result<(), SwapError> {
+    ) -> Result<Option<PathBuf>, SwapError> {
         #[cfg(test)]
         let undone = if self.faults.break_rollback {
             Err(vec!["broken on purpose".to_string()])
@@ -311,9 +376,16 @@ impl Staged {
         let undone = rollback(&self.root, journal);
         match undone {
             Ok(()) => {
+                let kept = keep_strays_after_rollback(&self.root, journal);
                 remove_journal(journal_path);
                 self.remove_work_dirs();
-                Err(SwapError::RolledBack(error))
+                Err(SwapError::RolledBack(match kept {
+                    Some(kept) => ImageError::Invalid(format!(
+                        "{error}. Files that were in the way are kept in {}",
+                        kept.display()
+                    )),
+                    None => error,
+                }))
             }
             Err(problems) => {
                 super::warn(
@@ -462,6 +534,122 @@ fn kept_inside(
     }
     kept.sort();
     Ok(kept)
+}
+
+/// Moves every file (or link) under `dir` whose path relative to the instance folder (`dir`
+/// stands for it) `expected` doesn't name into `leftovers`, at the same path. Returns the
+/// leftovers folder when it moved anything; failures are logged and leave the file where it
+/// is (deleted with the work folder: nothing better can be done then).
+fn keep_strays(dir: &Path, leftovers: &Path, expected: &dyn Fn(&str) -> bool) -> Option<PathBuf> {
+    keep_strays_mapped(dir, leftovers, &|rel| {
+        (!expected(rel)).then(|| rel.to_string())
+    })
+}
+
+/// [`keep_strays`] with `keep` deciding, for each file's relative path, where under
+/// `leftovers` it goes (`None`: it is a known file, deleted with `dir`).
+fn keep_strays_mapped(
+    dir: &Path,
+    leftovers: &Path,
+    keep: &dyn Fn(&str) -> Option<String>,
+) -> Option<PathBuf> {
+    if !is_real_dir(dir) {
+        return None;
+    }
+    let mut moved = 0usize;
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(folder) = stack.pop() {
+        let Ok(entries) = fs::read_dir(&folder) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Ok(kind) = entry.file_type() else {
+                continue;
+            };
+            if kind.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            let Some(rel) = path
+                .strip_prefix(dir)
+                .ok()
+                .and_then(|rel| rel.to_str())
+                .map(|rel| rel.replace('\\', "/"))
+            else {
+                continue;
+            };
+            let Some(to) = keep(&rel) else {
+                continue;
+            };
+            let mut target = join_rel(leftovers, &to);
+            let mut n = 0usize;
+            while exists(&target) {
+                n += 1;
+                target = join_rel(&leftovers.join(format!("{n}")), &to);
+            }
+            let result = target
+                .parent()
+                .map_or(Ok(()), fs::create_dir_all)
+                .and_then(|_| crate::fsx::rename(&path, &target));
+            match result {
+                Ok(()) => moved += 1,
+                Err(e) => super::warn(
+                    "images.restore",
+                    "",
+                    &format!("Failed to keep {} aside: {e}", path.display()),
+                ),
+            }
+        }
+    }
+    (moved > 0).then(|| leftovers.to_path_buf())
+}
+
+/// After a rollback of `journal` in the instance folder `root`: keeps aside what the
+/// staging folder holds that the restore didn't stage (what the rollback found in its
+/// way, written meanwhile), at its path in the instance folder. The rollback's own
+/// `.rollback-<n>/` and the swap's `.replaced/` prefixes are dropped first.
+fn keep_strays_after_rollback(root: &Path, journal: &Journal) -> Option<PathBuf> {
+    let staging = root.join(format!("{STAGING_PREFIX}{}", journal.staging));
+    let leftovers = root.join(format!("{LEFTOVERS_PREFIX}{}", journal.staging));
+    let placed: HashSet<&str> = journal.placed.iter().map(String::as_str).collect();
+    keep_strays_mapped(&staging, &leftovers, &|rel| {
+        let mut logical = rel;
+        if let Some((first, rest)) = logical.split_once('/')
+            && (first == REPLACED_DIR
+                || first
+                    .strip_prefix(".rollback-")
+                    .is_some_and(|n| n.bytes().all(|b| b.is_ascii_digit())))
+        {
+            logical = rest;
+        }
+        (!placed.contains(logical)).then(|| logical.to_string())
+    })
+}
+
+/// Refuses `rel` when a name on the way to it (relative to `root`) is spelled differently
+/// on disk: the disk ignores letter case or how accents are written, so looking it up found
+/// another spelling, which a restore comparing names would take for another file.
+fn spelled_as_on_disk(root: &Path, rel: &str) -> Result<(), ImageError> {
+    let mut dir = root.to_path_buf();
+    for part in rel.split('/') {
+        let Ok(entries) = fs::read_dir(&dir) else {
+            return Ok(());
+        };
+        let listed = entries
+            .flatten()
+            .any(|entry| entry.file_name() == std::ffi::OsStr::new(part));
+        if !listed {
+            if exists(&dir.join(part)) {
+                return Err(ImageError::Invalid(format!(
+                    "{rel} is spelled differently on disk than in the snapshot (letter case or accents); rename it as the snapshot has it and try again"
+                )));
+            }
+            return Ok(());
+        }
+        dir.push(part);
+    }
+    Ok(())
 }
 
 fn valid_suffix(suffix: &str) -> bool {
@@ -666,6 +854,16 @@ pub(crate) fn recover_one(root: &Path, journal_path: &Path) -> Result<Option<Pha
         return Ok(None);
     };
     rollback(root, &journal).map_err(|problems| problems.join("; "))?;
+    if let Some(kept) = keep_strays_after_rollback(root, &journal) {
+        super::warn(
+            "images.restore",
+            "",
+            &format!(
+                "files in the way of an unfinished restore are kept in {}",
+                kept.display()
+            ),
+        );
+    }
     remove_journal(journal_path);
     for dir in [
         root.join(format!("{STAGING_PREFIX}{}", journal.staging)),

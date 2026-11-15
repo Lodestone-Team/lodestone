@@ -113,5 +113,9 @@ pub fn plural(message: P) -> [&'static str; 2] {
             "{count} capture d’écran · F2 dans le jeu en prend une",
             "{count} captures d’écran · F2 dans le jeu en prend une",
         ],
+        P::WithOtherWorlds => [
+            "avec {count}\u{a0}autre monde",
+            "avec {count}\u{a0}autres mondes",
+        ],
     }
 }

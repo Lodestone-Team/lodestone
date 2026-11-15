@@ -186,7 +186,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::SnapshotAfterPlay => "Prendre un instantané après chaque partie",
         M::SnapshotAfterPlayHint => {
-            "Copie les mondes après chaque partie. Désactivé sauf si vous l’activez."
+            "Copie les mondes après chaque partie. Suit Paramètres › Instances, où c’est désactivé sauf si vous l’activez."
         }
         M::SnapshotKeepHint => {
             "Les instantanés pris par le Launcher sont gardés un temps\u{a0}: les {last} derniers, un par jour pendant {days} jours et un par semaine pendant {weeks} semaines. Les vôtres restent jusqu’à ce que vous les supprimiez."
@@ -214,7 +214,7 @@ pub fn text(message: M) -> &'static str {
             "Tout le dossier du jeu revient à l’instantané\u{a0}: mondes, mods, configurations et options. Les mondes créés depuis sont supprimés."
         }
         M::WorldGoneNow => "{size} · plus dans l’instance",
-        M::ModsDiffer => "Ces mondes ont tourné avec d’autres mods\u{a0}: {changes}.",
+        M::ModsDiffer => "Ces mondes ont tourné pour la dernière fois avec d’autres mods.",
         M::RestoreModsToo => "Remettre aussi leurs mods",
         M::RestoreLoaderChange => "Le chargeur revient à la version {version}.",
         M::RestoreSafety => {
@@ -229,7 +229,7 @@ pub fn text(message: M) -> &'static str {
         M::ChooseWorld => "Choisissez au moins un monde.",
         M::ExportTitle => "Exporter {name}",
         M::ExportNote => {
-            "Les mods et packs de Modrinth et CurseForge sont listés, pas copiés\u{a0}: ils sont téléchargés à nouveau à l’importation."
+            "Les mods et packs de Modrinth et CurseForge sont listés, pas copiés\u{a0}: ils sont téléchargés de nouveau à l’import du fichier, quand leurs auteurs le permettent."
         }
         M::ExportLeftOut => {
             "Laissés de côté, car ils peuvent contenir des mots de passe et des connexions\u{a0}: {files}."
@@ -456,6 +456,22 @@ pub fn text(message: M) -> &'static str {
         M::RemoveAddedModpackNote => {
             "Supprime les fichiers ajoutés par le pack. Les fichiers que vous avez modifiés restent."
         }
+        M::SnapshotsNotChanged => "Les instantanés n’ont pas pu être modifiés",
+        M::RestoreKeptAsideTitle => "Des fichiers gênaient la restauration",
+        M::RestoreKeptAside => {
+            "Les fichiers écrits pendant la restauration sont conservés dans {folder}."
+        }
+        M::ImportNoRoom => {
+            "Le disque n’a pas assez de place\u{a0}: il faut {size} et {free} sont libres."
+        }
+        M::ImportSpaceFree => "Nécessite {size} d’espace disque\u{a0}; {free} sont libres.",
+        M::ExportNotDownloadable => {
+            "Ceux-ci ne peuvent pas être téléchargés, donc la personne qui importe le fichier ne les aura pas\u{a0}: {files}"
+        }
+        M::SnapshotAfterPlayOwnHint => {
+            "Copie les mondes après chaque partie. Réglé pour cette instance."
+        }
+        M::DeleteUnreadableNote => "Elles sont supprimées définitivement.",
     }
 }
 
@@ -522,6 +538,22 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::CopyModsFound => [
             "{found} sur {count}\u{a0}mod a un build pour {target}.",
             "{found} sur {count}\u{a0}mods ont un build pour {target}.",
+        ],
+        P::RestorePutsBack => [
+            "Remet {count}\u{a0}fichier\u{a0}: {names}",
+            "Remet {count}\u{a0}fichiers\u{a0}: {names}",
+        ],
+        P::RestoreRemoves => [
+            "Supprime {count}\u{a0}fichier\u{a0}: {names}",
+            "Supprime {count}\u{a0}fichiers\u{a0}: {names}",
+        ],
+        P::RestoreChanges => [
+            "Modifie {count}\u{a0}fichier\u{a0}: {names}",
+            "Modifie {count}\u{a0}fichiers\u{a0}: {names}",
+        ],
+        P::ImportCarriedMods => [
+            "{count} d’entre eux est dans le fichier lui-même, et non téléchargé depuis Modrinth ou CurseForge\u{a0}: {names}",
+            "{count} d’entre eux sont dans le fichier lui-même, et non téléchargés depuis Modrinth ou CurseForge\u{a0}: {names}",
         ],
     }
 }

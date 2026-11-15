@@ -22,6 +22,10 @@ pub const WHILE_RUNNING_LABEL: &str = "Changed while the game ran or by hand";
 pub const BEFORE_MODPACK_UPDATE: &str = "Before a modpack update";
 /// The record before a server's update is applied, of what it is about to change.
 pub const BEFORE_SERVER_UPDATE: &str = "Before a server update";
+/// The content record before a snapshot, when the content differs from the current image
+/// only by what the game wrote while it ran (configs mods rewrite), which a session's end
+/// folds into the baseline without recording.
+pub const WRITTEN_WHILE_PLAYING: &str = "Changed while playing";
 
 /// A new instance.
 pub fn created(name: &str) -> String {

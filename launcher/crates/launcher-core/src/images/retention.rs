@@ -197,10 +197,28 @@ pub(crate) struct Listing {
 }
 
 impl Images {
-    /// Lists the instance's manifests by their headers.
+    /// Lists the instance's manifests by their headers. A data or full image a snapshot
+    /// record names is taken from the record (which names its content link) without
+    /// reading its manifest: those are the big ones (a world's every file), and this runs
+    /// after every content record and each time the Snapshots list opens. Only content
+    /// images and manifests no record names are read, so a damaged data manifest a record
+    /// names isn't listed as unreadable (restoring it fails, saying so); its link is still
+    /// kept.
     pub(crate) fn listing(&self, instance: &str) -> Result<Listing, ImageError> {
         let mut listing = Listing::default();
+        let named: std::collections::HashMap<String, Option<String>> = self
+            .load_records(instance)
+            .ok()
+            .flatten()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|record| (record.image, record.content))
+            .collect();
         for id in self.store().manifest_ids(instance)? {
+            if let Some(content) = named.get(&id) {
+                listing.links.push((id, content.clone()));
+                continue;
+            }
             match self.store().load_header(instance, &id) {
                 Ok(header) if header.kind == Kind::Content => listing.content.push(header),
                 Ok(header) => listing.links.push((id, header.content)),
@@ -319,6 +337,7 @@ mod tests {
             pinned: false,
             full: false,
             worlds: Vec::new(),
+            world_details: Vec::new(),
             content: None,
             files: 0,
             withheld: 0,

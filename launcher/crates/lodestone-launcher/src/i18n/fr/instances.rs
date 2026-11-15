@@ -95,9 +95,7 @@ pub fn text(message: M) -> &'static str {
         M::FilesBusy => {
             "Attendez que les fichiers de l’instance aient fini de changer, puis réessayez."
         }
-        M::NoSnapshotBeforeLoaderChange => {
-            "Aucun instantané n’a été pris avant le changement du chargeur"
-        }
+        M::NoSnapshotBeforeGameChange => "Aucun instantané n’a été pris avant le changement du jeu",
         M::LoaderChangeNotSaved => "La nouvelle version du chargeur n’a pas été enregistrée",
         M::LoaderChangeDropped => {
             "L’instance a été modifiée pendant la prise de son instantané. Choisissez de nouveau la version du chargeur."

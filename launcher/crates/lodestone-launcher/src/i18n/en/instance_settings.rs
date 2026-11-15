@@ -213,7 +213,7 @@ crate::i18n::messages! {
         SnapshotIncludeEverythingHint = "Without it, the snapshot keeps the worlds and other files, and remembers the mods they ran with.",
         /// The Settings tab's toggle; also Settings › Instances' default.
         SnapshotAfterPlay = "Take a snapshot after each play session",
-        SnapshotAfterPlayHint = "Copies the worlds after you play. Off unless you turn it on.",
+        SnapshotAfterPlayHint = "Copies the worlds after you play. Follows Settings › Instances, where it is off unless you turn it on.",
         /// {last}, {days} and {weeks} are numbers.
         SnapshotKeepHint = "Snapshots the Launcher takes on its own are kept for a while: the last {last}, one a day for {days} days and one a week for {weeks} weeks. Yours stay until you delete them.",
         /// Badges on a snapshot's row.
@@ -241,7 +241,7 @@ crate::i18n::messages! {
         /// A world in the snapshot that the instance no longer has; {size} is "120 MB".
         WorldGoneNow = "{size} · not in the instance now",
         /// {changes} is "2 added, 1 removed, 3 changed".
-        ModsDiffer = "These worlds last ran with other mods: {changes}.",
+        ModsDiffer = "These worlds last ran with other mods.",
         RestoreModsToo = "Put their mods back too",
         /// {version} is a loader version.
         RestoreLoaderChange = "The loader goes back to {version}.",
@@ -253,7 +253,7 @@ crate::i18n::messages! {
         ChooseWorld = "Choose at least one world.",
         /// The export dialog's title; {name} is the snapshot.
         ExportTitle = "Export {name}",
-        ExportNote = "Mods and packs from Modrinth and CurseForge are listed, not copied: they download again when the file is imported.",
+        ExportNote = "Mods and packs from Modrinth and CurseForge are listed, not copied: they download again when the file is imported, where their authors allow it.",
         /// {files} is a list of files.
         ExportLeftOut = "Left out, as they can hold passwords and sign-ins: {files}.",
         /// {name} is the snapshot, {version} a Minecraft version, {loader} "fabric 0.16.10".
@@ -504,6 +504,14 @@ crate::i18n::messages! {
         AddModpackServerHint = "Add a modpack's mods, such as client optimizations, next to {server}'s. The server's mods stay as they are.",
         AddModpackEllipsis = "Add a modpack…",
         RemoveAddedModpackNote = "Removes the files the pack added. Files you changed stay.",
+        SnapshotsNotChanged = "The snapshots couldn't be changed",
+        RestoreKeptAsideTitle = "Some files were in the restore's way",
+        RestoreKeptAside = "Files written while the restore ran are kept in {folder}.",
+        ImportNoRoom = "The disk doesn't have room for it: it needs {size} and {free} is free.",
+        ImportSpaceFree = "Needs {size} of disk space; {free} is free.",
+        ExportNotDownloadable = "These can't be downloaded, so whoever imports the file won't get them: {files}",
+        SnapshotAfterPlayOwnHint = "Copies the worlds after you play. Set for this instance.",
+        DeleteUnreadableNote = "They are deleted for good.",
     }
 
     pub enum InstanceSettingsPlural {
@@ -571,5 +579,9 @@ crate::i18n::messages! {
             "{found} of {count} mod has a build for {target}.",
             "{found} of {count} mods have a build for {target}."
         ),
+        RestorePutsBack = ("Puts back {count} file: {names}", "Puts back {count} files: {names}"),
+        RestoreRemoves = ("Removes {count} file: {names}", "Removes {count} files: {names}"),
+        RestoreChanges = ("Changes {count} file: {names}", "Changes {count} files: {names}"),
+        ImportCarriedMods = ("{count} of them is in the file itself, not downloaded from Modrinth or CurseForge: {names}", "{count} of them are in the file itself, not downloaded from Modrinth or CurseForge: {names}"),
     }
 }

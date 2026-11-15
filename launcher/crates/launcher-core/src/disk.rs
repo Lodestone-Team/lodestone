@@ -182,7 +182,7 @@ const LEFTOVER_PREFIX: &str = ".lodestone-";
 /// `f_bavail`; `None` when it can't be asked. For the checks before copying into the
 /// data folder (images, data moves, copies of worlds).
 #[cfg(unix)]
-pub(crate) fn free_space(dir: &Path) -> Option<u64> {
+pub fn free_space(dir: &Path) -> Option<u64> {
     use std::os::unix::ffi::OsStrExt;
     let path = std::ffi::CString::new(dir.as_os_str().as_bytes()).ok()?;
     let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
@@ -552,70 +552,6 @@ pub fn remove_old_snapshot_store(data: &DataDir) -> bool {
             false
         }
     }
-}
-
-/// Deletes the world backup zips of Launchers from before images
-/// (`instances/<id>/backups/<world>/<YYYY-MM-DD_HH-MM-SS>[-n].zip`): nothing lists or
-/// restores them any more, and they aren't converted. Only files of that name, in a folder
-/// per world; a world folder left empty goes, and `backups/` when it is empty then. A modpack
-/// update's rollback copies (`backups/modpack-update/`) and anything else stay. Links are
-/// never followed. Returns how many zips went and their bytes. For the background at
-/// startup.
-pub fn remove_old_world_backups(data: &DataDir) -> Cleaned {
-    let mut cleaned = Cleaned::default();
-    for instance in read_dir(&data.instances_dir()) {
-        let backups = instance.path().join("backups");
-        if !fs::symlink_metadata(&backups).is_ok_and(|m| m.is_dir()) {
-            continue;
-        }
-        for world in read_dir(&backups) {
-            let name = world.file_name();
-            if name == crate::modpack::update::BACKUPS_FOLDER
-                || !world.file_type().is_ok_and(|t| t.is_dir())
-            {
-                continue;
-            }
-            for zip in read_dir(&world.path()) {
-                let is_old = zip.file_type().is_ok_and(|t| t.is_file())
-                    && zip.file_name().to_str().is_some_and(is_old_backup_name);
-                if !is_old {
-                    continue;
-                }
-                let bytes = zip.metadata().map(|m| m.len()).unwrap_or(0);
-                if fs::remove_file(zip.path()).is_ok() {
-                    cleaned.files += 1;
-                    cleaned.bytes += bytes;
-                }
-            }
-            let _ = fs::remove_dir(world.path());
-        }
-        let _ = fs::remove_dir(&backups);
-    }
-    if cleaned.files > 0 {
-        crate::trace::emit(
-            "storage.old_world_backups",
-            || serde_json::json!({ "removed": cleaned.files, "bytes": cleaned.bytes }),
-        );
-    }
-    cleaned
-}
-
-/// `YYYY-MM-DD_HH-MM-SS.zip`, or with `-<n>` before `.zip`: the name the old world backups
-/// had.
-fn is_old_backup_name(name: &str) -> bool {
-    let Some(stem) = name.strip_suffix(".zip") else {
-        return false;
-    };
-    let (stamp, n) = match stem.get(19..) {
-        Some("") => (stem, None),
-        Some(rest) => match rest.strip_prefix('-') {
-            Some(n) => (&stem[..19], Some(n)),
-            None => return false,
-        },
-        None => return false,
-    };
-    n.is_none_or(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
-        && chrono::NaiveDateTime::parse_from_str(stamp, "%Y-%m-%d_%H-%M-%S").is_ok()
 }
 
 /// Whether runtimes folder `component` holds Zulu 8 builds: `zulu-8`, or
@@ -1858,55 +1794,5 @@ mod tests {
             assert!(!data.root().join("snapshots").exists());
         }
         assert!(!remove_old_snapshot_store(&data), "nothing left");
-    }
-
-    #[test]
-    fn old_world_backup_zips_go_and_the_rest_stays() {
-        let tmp = tempfile::tempdir().unwrap();
-        let data = DataDir::at(tmp.path());
-        let backups = data.instances_dir().join("a").join("backups");
-        write(&backups.join("New World/2026-11-08_14-30-00.zip"), b"zip");
-        write(
-            &backups.join("New World/2026-11-08_14-30-00-2.zip"),
-            b"zip2",
-        );
-        write(&backups.join("Other/2026-01-01_00-00-00.zip"), b"z");
-        write(&backups.join("Other/notes.txt"), b"mine");
-        write(&backups.join("Other/2026-01-01.zip"), b"not ours");
-        write(
-            &backups.join("Other/2026-13-01_00-00-00.zip"),
-            b"not a date",
-        );
-        write(
-            &backups.join("Other/2026-01-01_00-00-00-x.zip"),
-            b"not ours",
-        );
-        let rollback = backups.join("modpack-update/2026-11-08_14-30-00.zip");
-        write(&rollback, b"a rollback copy's file");
-        write(
-            &data
-                .instances_dir()
-                .join("b/backups/W/2026-11-08_14-30-00.zip"),
-            b"zip",
-        );
-        let cleaned = remove_old_world_backups(&data);
-        assert_eq!(
-            cleaned,
-            Cleaned {
-                bytes: 11,
-                files: 4
-            }
-        );
-        assert!(
-            !backups.join("New World").exists(),
-            "an emptied world folder goes"
-        );
-        assert!(backups.join("Other/notes.txt").is_file());
-        assert!(backups.join("Other/2026-01-01.zip").is_file());
-        assert!(backups.join("Other/2026-13-01_00-00-00.zip").is_file());
-        assert!(backups.join("Other/2026-01-01_00-00-00-x.zip").is_file());
-        assert!(rollback.is_file(), "a modpack update's rollback copy stays");
-        assert!(!data.instances_dir().join("b/backups").exists());
-        assert_eq!(remove_old_world_backups(&data), Cleaned::default());
     }
 }

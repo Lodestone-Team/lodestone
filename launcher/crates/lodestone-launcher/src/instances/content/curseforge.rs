@@ -322,9 +322,12 @@ impl ContentView {
                 // The tab may not have read the instance's shader mod yet: "Update all"
                 // goes on here when its instance is shown again, as the tab starts over.
                 target.shader_loader = listing::shader_state(&dirs)?.loader;
-                if let Some(titles) = &updating {
-                    super::snapshot_before_update(&images, &image_id, titles);
-                }
+                let no_snapshot = match &updating {
+                    Some(titles) => super::snapshot_before_update(
+                        &images, &image_id, titles, &progress, &cancel,
+                    )?,
+                    None => None,
+                };
                 // The whole job is one operation, as for Modrinth's.
                 let mut operation = images.begin(&image_id, "");
                 let result = async {
@@ -377,7 +380,7 @@ impl ContentView {
                 }
                 .await;
                 operation.succeed();
-                result.map(|()| (total, blocked))
+                result.map(|()| (total, blocked, no_snapshot))
             })
         };
         let task = cx.spawn(async move |this, cx| {
@@ -388,13 +391,18 @@ impl ContentView {
                 };
                 if !shown {
                     let message = match result {
-                        Ok((outcome, blocked)) => {
+                        Ok((outcome, blocked, no_snapshot)) => {
                             let said = !outcome.installed.is_empty() || blocked.is_empty();
                             // the card shows them when the instance is shown again
                             this.instances.update(cx, |instances, _| {
                                 instances.put_back_pending_downloads(&id, blocked)
                             });
-                            said.then(|| (super::outcome_message(&outcome).into(), false))
+                            said.then(|| {
+                                let message = super::outcome_message(&outcome);
+                                let message =
+                                    super::with_snapshot_note(message, no_snapshot.as_deref());
+                                (message.into(), false)
+                            })
                         }
                         Err(err) => Some((err.to_string().into(), true)),
                     };
@@ -402,9 +410,12 @@ impl ContentView {
                     return;
                 }
                 match result {
-                    Ok((outcome, blocked)) => {
+                    Ok((outcome, blocked, no_snapshot)) => {
                         if !outcome.installed.is_empty() || blocked.is_empty() {
-                            this.set_message(super::outcome_message(&outcome), false, cx);
+                            let message = super::outcome_message(&outcome);
+                            let message =
+                                super::with_snapshot_note(message, no_snapshot.as_deref());
+                            this.set_message(message, false, cx);
                         }
                         for kind in &kinds {
                             this.section_mut(*kind).updates.clear();

@@ -322,6 +322,72 @@ fn names_that_clash_on_a_case_insensitive_disk_are_refused() {
     assert_eq!(s.read("saves/World/region/r.0.0.mca").unwrap(), b"world v2");
 }
 
+#[cfg(unix)]
+#[test]
+fn everything_leaves_alone_a_file_no_snapshot_holds() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let (s, record) = played();
+    // Locked by another program (here: unreadable), and a name no image holds: the safety
+    // snapshot can't take them, so the restore must leave them where they are.
+    s.write("notes.txt", b"mine");
+    s.write("what?.txt", b"an odd name");
+    let notes = s.game("notes.txt");
+    std::fs::set_permissions(&notes, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let restored = s.restore(&record.id, RestoreScope::Everything);
+    std::fs::set_permissions(&notes, std::fs::Permissions::from_mode(0o644)).unwrap();
+    restored.unwrap();
+    assert_eq!(s.read("notes.txt").unwrap(), b"mine");
+    assert_eq!(s.read("what?.txt").unwrap(), b"an odd name");
+    assert_eq!(s.read("options.txt").unwrap(), b"fov:70");
+}
+
+#[cfg(unix)]
+#[test]
+fn everything_leaves_alone_a_file_the_snapshot_withheld() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let s = Setup::new();
+    s.write("options.txt", b"fov:70");
+    s.world("World", b"world v1");
+    s.images.record_now(s.id(), "Created").unwrap();
+    let options = s.game("options.txt");
+    std::fs::set_permissions(&options, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let record = s.snapshot("Without options");
+    std::fs::set_permissions(&options, std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert!(
+        s.image(&record.image)
+            .withheld
+            .iter()
+            .any(|w| w.path == "options.txt")
+    );
+    s.write("options.txt", b"fov:110");
+    s.write("saves/World/region/r.0.0.mca", b"world v2");
+    s.restore(&record.id, RestoreScope::Everything).unwrap();
+    // The snapshot has no copy of it: it stays as it is.
+    assert_eq!(s.read("options.txt").unwrap(), b"fov:110");
+    assert_eq!(s.read("saves/World/region/r.0.0.mca").unwrap(), b"world v1");
+}
+
+#[test]
+fn a_world_spelled_differently_on_disk_is_refused() {
+    let (s, record) = played();
+    let probe = s.game("CaseProbe");
+    std::fs::write(&probe, b"x").unwrap();
+    let ignores_case = s.game("caseprobe").exists();
+    std::fs::remove_file(&probe).unwrap();
+    if !ignores_case {
+        return;
+    }
+    // The world's folder renamed "world" since: on this disk "World" finds it, and the
+    // restore would otherwise take every file in it for one to keep.
+    let saves = s.game("saves");
+    std::fs::rename(saves.join("World"), saves.join("tmp")).unwrap();
+    std::fs::rename(saves.join("tmp"), saves.join("world")).unwrap();
+    s.write("saves/world/region/r.0.0.mca", b"w2");
+    let refused = s.restore(&record.id, RestoreScope::Worlds(vec!["World".into()]));
+    assert!(refused.is_err(), "{refused:?}");
+    assert_eq!(s.read("saves/world/region/r.0.0.mca").unwrap(), b"w2");
+}
+
 /// An instance folder with owned paths, staged replacements, and a carried file, for the
 /// swap's crash tests.
 fn swap_fixture(root: &Path) -> (Staged, BTreeMap<String, Vec<u8>>) {
@@ -429,7 +495,7 @@ fn a_failed_rename_rolls_back_and_a_broken_rollback_waits_for_the_next_start() {
         staged.faults.fail_after = Some(fail_after);
         let journal = dir.path().join("journal.json");
         match staged.swap(&journal) {
-            Ok(()) => break,
+            Ok(_) => break,
             Err(SwapError::RolledBack(_)) => {}
             Err(SwapError::Broken(e)) => panic!("not rolled back: {e}"),
         }
@@ -447,6 +513,64 @@ fn a_failed_rename_rolls_back_and_a_broken_rollback_waits_for_the_next_start() {
     swap::recover_one(&root, &journal).unwrap();
     swap::remove_leftovers(&root);
     assert_eq!(files(&root), before);
+}
+
+#[test]
+fn what_another_job_wrote_meanwhile_is_kept_aside() {
+    // During a swap that succeeds: a mod installed into an owned folder after the restore
+    // listed what it carries goes into the old folder with what it replaces.
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("instance");
+    let (staged, _) = swap_fixture(&root);
+    std::fs::write(root.join("minecraft/mods/late.jar"), b"installed meanwhile").unwrap();
+    let journal = dir.path().join("journal.json");
+    let kept = staged.swap(&journal).unwrap().expect("kept aside");
+    assert!(
+        kept.file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with(swap::LEFTOVERS_PREFIX)
+    );
+    assert_eq!(
+        std::fs::read(kept.join("minecraft/mods/late.jar")).unwrap(),
+        b"installed meanwhile"
+    );
+    assert_eq!(
+        std::fs::read(root.join("minecraft/mods/b.jar")).unwrap(),
+        b"new mod"
+    );
+
+    // During a rollback: the swap broke with the mods renamed aside, an install made a new
+    // mods folder meanwhile, and the rollback (Play's retry, or the next start) puts it in
+    // the staging folder to bring the old one back.
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("instance");
+    let (mut staged, before) = swap_fixture(&root);
+    staged.faults.fail_after = Some(1);
+    staged.faults.break_rollback = true;
+    let journal = dir.path().join("journal.json");
+    assert!(matches!(staged.swap(&journal), Err(SwapError::Broken(_))));
+    assert!(!root.join("minecraft/mods").exists());
+    std::fs::create_dir_all(root.join("minecraft/mods")).unwrap();
+    std::fs::write(
+        root.join("minecraft/mods/installed-meanwhile.jar"),
+        b"a new mod",
+    )
+    .unwrap();
+    swap::recover_one(&root, &journal).unwrap();
+    swap::remove_leftovers(&root);
+    let now = files(&root);
+    let (kept, rest): (BTreeMap<String, Vec<u8>>, BTreeMap<String, Vec<u8>>) = now
+        .into_iter()
+        .partition(|(path, _)| path.starts_with(swap::LEFTOVERS_PREFIX));
+    assert_eq!(rest, before, "the instance is as it was");
+    assert_eq!(kept.len(), 1, "{kept:?}");
+    let (path, bytes) = kept.into_iter().next().unwrap();
+    assert!(
+        path.ends_with("/minecraft/mods/installed-meanwhile.jar"),
+        "{path}"
+    );
+    assert_eq!(bytes, b"a new mod");
 }
 
 #[test]

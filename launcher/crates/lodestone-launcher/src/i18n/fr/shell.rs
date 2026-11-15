@@ -857,13 +857,7 @@ pub fn text(message: M) -> &'static str {
         M::StorageRuntimes => "Environnements Java",
         M::StorageCache => "Cache",
         M::StorageSnapshots => "Instantanés",
-        M::StorageSnapshotsHint => {
-            "{count}\u{a0}instantanés et l’historique du contenu de chaque instance · {removable} peuvent être supprimés"
-        }
         M::StorageCleanSnapshotsTitle => "Supprimer les instantanés pris par le Launcher\u{a0}?",
-        M::StorageCleanSnapshotsBody => {
-            "Cela supprime {count}\u{a0}instantanés\u{a0}: ceux pris par le Launcher et ceux des instances supprimées. Les vôtres et les épinglés restent. Les fichiers de la dernière heure sont libérés au prochain nettoyage."
-        }
         M::StorageLeftovers => "Téléchargements et importations inachevés",
         M::StorageCleanLeftoversTitle => "Supprimer les téléchargements inachevés\u{a0}?",
         M::StorageCleanLeftoversBody => {
@@ -958,6 +952,13 @@ pub fn text(message: M) -> &'static str {
         }
         M::ZoomKeywords => "échelle taille agrandir réduire texte",
         M::WhenAGameStartsKeywords => "après le lancement réduire masquer fermer quitter",
+        M::ModpackUpdateNoSnapshot => {
+            "Aucun instantané n’a pu être pris avant, donc rien n’a changé\u{a0}: {error}. Vous pouvez mettre à jour sans instantané, ou libérer de l’espace et réessayer."
+        }
+        M::UpdateWithoutSnapshot => "Mettre à jour sans instantané",
+        M::ReplaceWorldModsNote => {
+            "Seul le monde revient en arrière\u{a0}; les mods de l’instance restent tels quels. Pour remettre aussi les mods avec lesquels il tournait, restaurez l’instantané depuis Paramètres › Instantanés."
+        }
     }
 }
 
@@ -975,5 +976,13 @@ pub fn plural(message: P) -> [&'static str; 2] {
         ],
         P::Subscriptions => ["{count} abonnement", "{count} abonnements"],
         P::PerfEntries => ["{count} entrée", "{count} entrées"],
+        P::StorageSnapshotsHint => [
+            "{count}\u{a0}instantané et l’historique du contenu de chaque instance · {removable} peuvent être supprimés",
+            "{count}\u{a0}instantanés et l’historique du contenu de chaque instance · {removable} peuvent être supprimés",
+        ],
+        P::StorageCleanSnapshotsBody => [
+            "Cela supprime {count}\u{a0}instantané\u{a0}: ceux pris par le Launcher et tous ceux des instances supprimées, épinglés compris. Ceux de vos instances que vous avez pris ou épinglés restent. Les fichiers de la dernière heure sont libérés au prochain nettoyage.",
+            "Cela supprime {count}\u{a0}instantanés\u{a0}: ceux pris par le Launcher et tous ceux des instances supprimées, épinglés compris. Ceux de vos instances que vous avez pris ou épinglés restent. Les fichiers de la dernière heure sont libérés au prochain nettoyage.",
+        ],
     }
 }

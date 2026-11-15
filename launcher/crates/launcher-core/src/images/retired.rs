@@ -122,9 +122,14 @@ impl Images {
                 break name;
             }
         };
-        crate::fsx::rename(&dir, images_dir.join(&folder)).map_err(ImageError::io(format!(
-            "Failed to set aside the images of {id}"
-        )))?;
+        {
+            // A collection marks the manifests by listing `images/`: an entry renamed while it
+            // lists could be seen under neither name, and its objects swept.
+            let _hold = self.store().hold_off_collection()?;
+            crate::fsx::rename(&dir, images_dir.join(&folder)).map_err(ImageError::io(format!(
+                "Failed to set aside the images of {id}"
+            )))?;
+        }
         super::warn(
             "images.retired",
             id,
@@ -238,9 +243,13 @@ impl Images {
         if !from.is_dir() {
             return Ok(false);
         }
-        crate::fsx::rename(&from, &dir).map_err(ImageError::io(format!(
-            "Failed to take back the snapshots of {id}"
-        )))?;
+        {
+            // As when retiring: never renamed while a collection lists `images/`.
+            let _hold = self.store().hold_off_collection()?;
+            crate::fsx::rename(&from, &dir).map_err(ImageError::io(format!(
+                "Failed to take back the snapshots of {id}"
+            )))?;
+        }
         let state = super::state::ContentState {
             instance_created: Some(created),
             ..Default::default()

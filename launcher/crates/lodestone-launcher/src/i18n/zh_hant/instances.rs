@@ -79,7 +79,7 @@ pub fn text(message: M) -> &'static str {
         M::WaitForUpdate => "請等待更新完成，再按「開始遊戲」。",
         M::StopBeforeDeleting => "請先停止遊戲，再刪除該實例。",
         M::FilesBusy => "請等待該實例的檔案處理完成，然後再試一次。",
-        M::NoSnapshotBeforeLoaderChange => "變更載入器版本前未能拍攝快照",
+        M::NoSnapshotBeforeGameChange => "變更遊戲前未能拍攝快照",
         M::LoaderChangeNotSaved => "新的載入器版本未儲存",
         M::LoaderChangeDropped => "拍攝快照期間這個實例被修改了。請重新選擇載入器版本。",
         M::RestoreUnfinished => {

@@ -11,7 +11,7 @@ use std::{
     path::PathBuf,
     sync::{
         Arc,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::Duration,
 };
@@ -68,14 +68,16 @@ pub fn badge(record: &SnapshotRecord) -> Option<M> {
     }
 }
 
-/// "Monday 14:30 · World, Other · 412 MB, 38 MB new": a snapshot's details.
+/// "Monday 14:30 · Survival Island, Castle Build · 412 MB, 38 MB new": a snapshot's
+/// details, its worlds by their own names (as the restore dialog and the Worlds tab show
+/// them), else by their folders.
 pub fn details(record: &SnapshotRecord) -> String {
     let mut parts = vec![when(record.created)];
     if !record.worlds.is_empty() {
         let worlds: Vec<String> = record
             .worlds
             .iter()
-            .map(|w| launcher_core::images::display_text(w).into_owned())
+            .map(|w| launcher_core::images::display_text(&record.world_name(w)).into_owned())
             .collect();
         parts.push(format::list(&worlds));
     }
@@ -87,19 +89,47 @@ pub fn details(record: &SnapshotRecord) -> String {
     parts.join(" · ")
 }
 
-/// "2 added, 1 removed, 3 changed": how the content differs.
-pub fn diff_line(diff: &ContentDiff) -> String {
-    let mut parts = Vec::new();
+/// How many names a line about differing mods shows before "…".
+const DIFF_NAMES: usize = 5;
+
+/// What putting the snapshot's mods back would do, one line each: the files it puts back
+/// (in the snapshot, not now), removes (now, not in the snapshot) and changes, with a few
+/// names each.
+pub fn restore_changes(diff: &ContentDiff) -> Vec<String> {
+    let names = |paths: &[String]| {
+        let mut shown: Vec<String> = paths
+            .iter()
+            .take(DIFF_NAMES)
+            .map(|p| launcher_core::images::display_text(p).into_owned())
+            .collect();
+        if paths.len() > DIFF_NAMES {
+            shown.push("…".into());
+        }
+        format::list(&shown)
+    };
+    let mut lines = Vec::new();
     if !diff.added.is_empty() {
-        parts.push(trn!(P::ShareAddedCount, diff.added.len()));
+        lines.push(trn!(
+            P::RestorePutsBack,
+            diff.added.len(),
+            names = names(&diff.added)
+        ));
     }
     if !diff.removed.is_empty() {
-        parts.push(trn!(P::ShareRemovedCount, diff.removed.len()));
+        lines.push(trn!(
+            P::RestoreRemoves,
+            diff.removed.len(),
+            names = names(&diff.removed)
+        ));
     }
     if !diff.updated.is_empty() {
-        parts.push(trn!(P::ShareChangedCount, diff.updated.len()));
+        lines.push(trn!(
+            P::RestoreChanges,
+            diff.updated.len(),
+            names = names(&diff.updated)
+        ));
     }
-    format::list(&parts)
+    lines
 }
 
 impl Instances {
@@ -148,11 +178,19 @@ impl Instances {
             async move { images.set_pinned(&instance, &snapshot, pinned) }
         });
         cx.spawn(async move |this, cx| {
-            if let Err(err) = work.await {
-                log::warn!("Couldn't pin the snapshot: {err}");
-            }
-            this.update(cx, |this, cx| this.load_snapshots(&instance, cx))
-                .ok();
+            let result = work.await;
+            this.update(cx, |this, cx| {
+                if let Err(err) = result {
+                    log::warn!("Couldn't pin the snapshot: {err}");
+                    cx.emit(super::InstancesEvent::Notice {
+                        title: t(M::SnapshotsNotChanged).into(),
+                        message: err.to_string().into(),
+                        about: super::About::Instance(instance.clone()),
+                    });
+                }
+                this.load_snapshots(&instance, cx)
+            })
+            .ok();
         })
         .detach();
     }
@@ -172,11 +210,19 @@ impl Instances {
             }
         });
         cx.spawn(async move |this, cx| {
-            if let Err(err) = work.await {
-                log::warn!("Couldn't delete the images that can't be read: {err}");
-            }
-            this.update(cx, |this, cx| this.load_snapshots(&instance, cx))
-                .ok();
+            let result = work.await;
+            this.update(cx, |this, cx| {
+                if let Err(err) = result {
+                    log::warn!("Couldn't delete the images that can't be read: {err}");
+                    cx.emit(super::InstancesEvent::Notice {
+                        title: t(M::SnapshotsNotChanged).into(),
+                        message: err.to_string().into(),
+                        about: super::About::Instance(instance.clone()),
+                    });
+                }
+                this.load_snapshots(&instance, cx)
+            })
+            .ok();
         })
         .detach();
     }
@@ -265,12 +311,26 @@ pub struct SnapshotDialog {
     name: Entity<TextInput>,
     state: State,
     progress: Arc<(AtomicU64, AtomicU64)>,
+    /// Import: the downloads' progress, which the bar shows while it runs.
+    import_progress: Option<Arc<launcher_core::game::download::Progress>>,
+    /// Import: the free space on the instances' disk, read with the file.
+    import_free: Option<u64>,
+    /// Export: set when the dialog goes, so a file nobody waits for any more stops being
+    /// written.
+    export_cancel: Arc<AtomicBool>,
     focus: FocusHandle,
     _work: Option<Task<()>>,
     _ticker: Option<Task<()>>,
 }
 
 impl EventEmitter<SnapshotDismissed> for SnapshotDialog {}
+
+impl Drop for SnapshotDialog {
+    fn drop(&mut self) {
+        // An export left before it is written stops (its partial file is removed).
+        self.export_cancel.store(true, Ordering::Relaxed);
+    }
+}
 
 impl Focusable for SnapshotDialog {
     fn focus_handle(&self, _: &App) -> FocusHandle {
@@ -310,6 +370,9 @@ impl SnapshotDialog {
             name,
             state: State::Ready,
             progress: Arc::new((AtomicU64::new(0), AtomicU64::new(0))),
+            import_progress: None,
+            import_free: None,
+            export_cancel: Arc::new(AtomicBool::new(false)),
             focus: cx.focus_handle(),
             _work: None,
             _ticker: None,
@@ -359,15 +422,29 @@ impl SnapshotDialog {
                     return;
                 };
                 self.state = State::Working(M::ReadingSnapshot);
-                let read = cx.background_spawn(async move { export::inspect(&path) });
+                let root = self.instances.read(cx).store().root().to_path_buf();
+                let stem = path
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().trim().to_string())
+                    .filter(|s| !s.is_empty());
+                let read = cx.background_spawn(async move {
+                    let preview = export::inspect(&path)?;
+                    Ok::<_, launcher_core::images::ImageError>((
+                        preview,
+                        launcher_core::disk::free_space(&root),
+                    ))
+                });
                 self._work = Some(cx.spawn(async move |this, cx| {
                     let result = read.await;
                     this.update(cx, |this, cx| {
                         match result {
-                            Ok(preview) => {
-                                let name = preview.name_shown.clone();
+                            Ok((preview, free)) => {
+                                // Exports are named "<instance> - <snapshot>": the file's
+                                // name says more than the snapshot's label alone.
+                                let name = stem.unwrap_or_else(|| preview.name_shown.clone());
                                 this.name.update(cx, |input, cx| input.set_text(name, cx));
                                 this.import = Some(preview);
+                                this.import_free = free;
                                 this.state = State::Ready;
                             }
                             Err(err) => this.state = State::Failed(err.to_string().into()),
@@ -389,14 +466,14 @@ impl SnapshotDialog {
         self.state = State::Ready;
         if let Some(preview) = &preview {
             self.worlds = preview.worlds.iter().map(|w| w.name.clone()).collect();
-            self.choice = if preview.other_game {
-                Choice::AsNew
-            } else if preview.worlds.is_empty() {
-                Choice::Everything
-            } else {
-                Choice::Worlds
-            };
-            let name = format!("{} ({})", record.name_shown(), when(record.created));
+            self.choice = default_choice(preview);
+            let instance = self
+                .instance_id
+                .as_deref()
+                .and_then(|id| self.instances.read(cx).list().iter().find(|i| i.id == id))
+                .map(|i| i.name.clone())
+                .unwrap_or_default();
+            let name = format!("{instance} ({})", record.name_shown());
             self.name.update(cx, |input, cx| input.set_text(name, cx));
         }
         self.preview = preview;
@@ -542,6 +619,12 @@ impl SnapshotDialog {
             Choice::AsNew => None,
         };
         let instances = self.instances.read(cx);
+        // Another job writing the instance's files (an install) would lose what it writes
+        // into what the restore replaces.
+        if scope.is_some() && instances.files_busy(&id) {
+            self.state = State::Failed(t(crate::i18n::InstancesMsg::FilesBusy).into());
+            return cx.notify();
+        }
         let images = instances.images();
         let busy = instances.mark_files_busy(&id);
         let name = self.name.read(cx).text().trim().to_string();
@@ -569,6 +652,13 @@ impl SnapshotDialog {
                     instances.reload(cx);
                     if restored.instance.is_some() {
                         cx.emit(super::InstancesEvent::LoaderChanged(id.clone()));
+                    }
+                    if let Some(kept) = &restored.kept_aside {
+                        cx.emit(super::InstancesEvent::Notice {
+                            title: t(M::RestoreKeptAsideTitle).into(),
+                            message: tr!(M::RestoreKeptAside, folder = kept.display()).into(),
+                            about: super::About::Instance(id.clone()),
+                        });
                     }
                 },
                 |_, _, cx| cx.emit(SnapshotDismissed),
@@ -610,12 +700,17 @@ impl SnapshotDialog {
             .find(|i| i.id == id)
             .map(|i| i.name.clone())
             .unwrap_or_default();
-        let file = instances.snapshot_exports_dir().join(format!(
-            "{} - {}.{}",
-            file_safe(&instance_name),
-            file_safe(&snapshot.name),
-            export::EXTENSION
-        ));
+        // A folder per snapshot: two snapshots of one name never write the same file.
+        let file = instances
+            .snapshot_exports_dir()
+            .join(&snapshot.id)
+            .join(format!(
+                "{} - {}.{}",
+                file_safe(&instance_name),
+                file_safe(&snapshot.name),
+                export::EXTENSION
+            ));
+        let cancel = self.export_cancel.clone();
         launcher_core::trace::emit(
             "snapshot.export",
             || serde_json::json!({ "snapshot": snapshot.id }),
@@ -623,8 +718,9 @@ impl SnapshotDialog {
         self.run(
             M::PreparingFile,
             move |_| {
+                let stop = || cancel.load(Ordering::Relaxed);
                 images
-                    .export_snapshot(&id, &snapshot.id, &file, launcher_core::images::NEVER)
+                    .export_snapshot(&id, &snapshot.id, &file, &stop)
                     .map_err(|err| err.to_string())
             },
             |_, _, _| {},
@@ -692,6 +788,9 @@ impl SnapshotDialog {
         let curseforge = instances.curseforge();
         let room = export::room_on(instances.store().root().to_path_buf());
         let name = self.name.read(cx).text().trim().to_string();
+        let expected = self.import.as_ref().map(|preview| preview.image.clone());
+        let progress = Arc::new(launcher_core::game::download::Progress::default());
+        self.import_progress = Some(progress.clone());
         launcher_core::trace::emit("snapshot.import", || serde_json::json!({}));
         self.run(
             M::ImportingSnapshot,
@@ -699,7 +798,6 @@ impl SnapshotDialog {
                 let Some(modrinth) = modrinth else {
                     return Err(t(M::ImportNeedsModrinth).to_string());
                 };
-                let progress = launcher_core::game::download::Progress::default();
                 let cancel = launcher_core::game::download::CancelToken::new();
                 futures::executor::block_on(launcher_core::http::in_http_runtime(
                     export::import_file(
@@ -711,12 +809,20 @@ impl SnapshotDialog {
                         },
                         &path,
                         Some(&name),
+                        expected.as_deref(),
                         &room,
                         &progress,
                         &cancel,
                     ),
                 ))
-                .map_err(|err| err.to_string())
+                .map_err(|err| match err {
+                    launcher_core::images::ImageError::NoRoom { needed, free } => tr!(
+                        M::ImportNoRoom,
+                        size = format::bytes(needed),
+                        free = format::bytes(free)
+                    ),
+                    err => err.to_string(),
+                })
             },
             |instances, imported, cx| {
                 instances.reload(cx);
@@ -743,13 +849,19 @@ impl SnapshotDialog {
     }
 
     fn render_progress(&self, label: M) -> impl IntoElement + use<> {
-        let done = self.progress.0.load(Ordering::Relaxed);
-        let total = self.progress.1.load(Ordering::Relaxed);
-        let fraction = if total == 0 {
-            0.0
-        } else {
-            (done as f32 / total as f32).clamp(0.0, 1.0)
+        let (done, total) = match &self.import_progress {
+            Some(progress) => {
+                let now = progress.snapshot();
+                (now.bytes_done, now.bytes_total)
+            }
+            None => (
+                self.progress.0.load(Ordering::Relaxed),
+                self.progress.1.load(Ordering::Relaxed),
+            ),
         };
+        // Work that reports no size (a restore placing files, an import's first steps)
+        // shows the label and dots only, not a bar that looks stuck at nothing.
+        let fraction = (total > 0).then(|| (done as f32 / total as f32).clamp(0.0, 1.0));
         div()
             .flex()
             .flex_col()
@@ -764,20 +876,22 @@ impl SnapshotDialog {
                     .child(LoadingDots)
                     .child(t(label)),
             )
-            .child(
-                div()
-                    .h(px(6.))
-                    .w_full()
-                    .rounded_full()
-                    .bg(colors::GRAY_700)
-                    .child(
-                        div()
-                            .h_full()
-                            .rounded_full()
-                            .bg(colors::GREEN_400)
-                            .w(gpui::relative(fraction)),
-                    ),
-            )
+            .when_some(fraction, |this, fraction| {
+                this.child(
+                    div()
+                        .h(px(6.))
+                        .w_full()
+                        .rounded_full()
+                        .bg(colors::GRAY_700)
+                        .child(
+                            div()
+                                .h_full()
+                                .rounded_full()
+                                .bg(colors::GREEN_400)
+                                .w(gpui::relative(fraction)),
+                        ),
+                )
+            })
     }
 
     fn render_restore(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -861,10 +975,15 @@ impl SnapshotDialog {
                         .child(card(rows)),
                 );
                 if self.choice == Choice::Worlds
+                    && preview.can_restore_content
                     && let Some(diff) = preview.content.as_ref().filter(|d| !d.is_empty())
                 {
+                    let mut differs = note(t(M::ModsDiffer).to_string());
+                    for line in restore_changes(diff) {
+                        differs = differs.child(muted(line));
+                    }
                     body = body.child(
-                        note(tr!(M::ModsDiffer, changes = diff_line(diff))).child(
+                        differs.child(
                             div()
                                 .flex()
                                 .flex_row()
@@ -919,8 +1038,8 @@ impl SnapshotDialog {
         };
         let mut body = div().flex().flex_col().gap_3();
         let loader = match &preview.loader_version {
-            Some(version) => format!("{} {version}", preview.loader),
-            None => preview.loader.clone(),
+            Some(version) => format!("{} {version}", loader_name(&preview.loader)),
+            None => loader_name(&preview.loader),
         };
         body = body.child(div().font_weight(weights::BOLD.into()).child(tr!(
             M::ImportFrom,
@@ -939,10 +1058,21 @@ impl SnapshotDialog {
             if preview.mods.len() > shown.len() {
                 shown.push("…".into());
             }
-            body = body.child(
-                note(trn!(P::ImportModsWarning, preview.mods.len()))
-                    .child(muted(format::list(&shown))),
-            );
+            let mut warning = note(trn!(P::ImportModsWarning, preview.mods.len()))
+                .child(muted(format::list(&shown)));
+            if !preview.carried_mods.is_empty() {
+                let mut carried: Vec<String> =
+                    preview.carried_mods.iter().take(8).cloned().collect();
+                if preview.carried_mods.len() > carried.len() {
+                    carried.push("…".into());
+                }
+                warning = warning.child(muted(trn!(
+                    P::ImportCarriedMods,
+                    preview.carried_mods.len(),
+                    names = format::list(&carried)
+                )));
+            }
+            body = body.child(warning);
         }
         if preview.download_bytes > 0 {
             body = body.child(muted(tr!(
@@ -956,15 +1086,25 @@ impl SnapshotDialog {
                 files = format::list(&preview.not_downloadable)
             )));
         }
-        body = body
-            .child(muted(tr!(
+        body = match self.import_free {
+            Some(free) if preview.needed_bytes > free => body.child(note(tr!(
+                M::ImportNoRoom,
+                size = format::bytes(preview.needed_bytes),
+                free = format::bytes(free)
+            ))),
+            Some(free) => body.child(muted(tr!(
+                M::ImportSpaceFree,
+                size = format::bytes(preview.needed_bytes),
+                free = format::bytes(free)
+            ))),
+            None => body.child(muted(tr!(
                 M::ImportSpace,
-                size = format::bytes(preview.unpacked_bytes + preview.files_bytes)
-            )))
-            .child(
-                SettingRow::new(t(M::SnapshotName))
-                    .child(div().w(px(260.)).child(self.name.clone())),
-            );
+                size = format::bytes(preview.needed_bytes)
+            ))),
+        };
+        body = body.child(
+            SettingRow::new(t(M::SnapshotName)).child(div().w(px(260.)).child(self.name.clone())),
+        );
         body.into_any_element()
     }
 
@@ -1032,6 +1172,12 @@ impl SnapshotDialog {
                     ),
             )
             .child(muted(t(M::ExportNote)))
+            .when(!report.not_downloadable.is_empty(), |this| {
+                this.child(note(tr!(
+                    M::ExportNotDownloadable,
+                    files = format::list(&report.not_downloadable)
+                )))
+            })
             .when(!report.left_out.is_empty(), |this| {
                 this.child(muted(tr!(
                     M::ExportLeftOut,
@@ -1062,6 +1208,33 @@ impl SnapshotDialog {
                             .on_click(move |_, _, cx| cx.open_with_system(&folder)),
                     ),
             )
+    }
+}
+
+/// The choice a restore dialog opens on: only "as a new instance" for another game; the
+/// worlds when there are any; everything when the snapshot can put content back; else as
+/// a new instance (a data snapshot with no worlds whose content link is gone).
+fn default_choice(preview: &RestorePreview) -> Choice {
+    if preview.other_game {
+        Choice::AsNew
+    } else if !preview.worlds.is_empty() {
+        Choice::Worlds
+    } else if preview.can_restore_content {
+        Choice::Everything
+    } else {
+        Choice::AsNew
+    }
+}
+
+/// A loader's name as the Launcher shows it, from an image's id for it (`fabric`).
+fn loader_name(id: &str) -> String {
+    match id {
+        "vanilla" => t(M::Vanilla).to_string(),
+        "fabric" => "Fabric".into(),
+        "quilt" => "Quilt".into(),
+        "forge" => "Forge".into(),
+        "neoforge" => "NeoForge".into(),
+        other => launcher_core::images::display_text(other).into_owned(),
     }
 }
 
@@ -1117,8 +1290,9 @@ impl Render for FileChip {
     }
 }
 
-/// A name usable in a file name.
-fn file_safe(name: &str) -> String {
+/// A name usable in a file name on every system: letters, digits and ` -_.()` only, no
+/// leading dot, no trailing dot or space (Windows drops them).
+pub(crate) fn file_safe(name: &str) -> String {
     let cleaned: String = name
         .chars()
         .map(|c| {
@@ -1129,7 +1303,11 @@ fn file_safe(name: &str) -> String {
             }
         })
         .collect();
-    let cleaned = cleaned.trim().trim_start_matches('.').to_string();
+    let cleaned = cleaned
+        .trim()
+        .trim_start_matches('.')
+        .trim_end_matches(['.', ' '])
+        .to_string();
     if cleaned.is_empty() {
         "snapshot".into()
     } else {
@@ -1196,7 +1374,10 @@ impl Render for SnapshotDialog {
                 Mode::Take => true,
                 Mode::Restore => self.preview.is_some(),
                 Mode::Delete => self.snapshot.is_some(),
-                Mode::Import => self.import.is_some(),
+                Mode::Import => self.import.as_ref().is_some_and(|preview| {
+                    self.import_free
+                        .is_none_or(|free| preview.needed_bytes <= free)
+                }),
                 Mode::Export => false,
             };
         // While work that can't be stopped runs, there is no way to close: no ×, Escape or
@@ -1268,9 +1449,63 @@ mod tests {
     }
 
     #[test]
+    fn a_restore_opens_on_a_choice_it_offers() {
+        let world = launcher_core::images::WorldChange {
+            name: "World".into(),
+            level_name: None,
+            exists_now: true,
+            size: 1,
+        };
+        let preview = |worlds: Vec<_>, content: bool, other: bool| RestorePreview {
+            worlds,
+            can_restore_content: content,
+            other_game: other,
+            ..RestorePreview::default()
+        };
+        assert_eq!(
+            default_choice(&preview(vec![world.clone()], true, false)),
+            Choice::Worlds
+        );
+        assert_eq!(
+            default_choice(&preview(vec![], true, false)),
+            Choice::Everything
+        );
+        assert_eq!(
+            default_choice(&preview(vec![], false, false)),
+            Choice::AsNew
+        );
+        assert_eq!(
+            default_choice(&preview(vec![world], true, true)),
+            Choice::AsNew
+        );
+    }
+
+    #[test]
+    fn restore_changes_say_what_putting_the_mods_back_does() {
+        let diff = ContentDiff {
+            added: vec!["mods/old.jar".into()],
+            removed: (0..7).map(|n| format!("mods/new-{n}.jar")).collect(),
+            updated: Vec::new(),
+            loader_version: None,
+        };
+        let lines = restore_changes(&diff);
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].contains("mods/old.jar"), "{lines:?}");
+        assert!(
+            lines[1].contains("mods/new-0.jar") && lines[1].contains('…'),
+            "{lines:?}"
+        );
+        assert!(!lines[1].contains("mods/new-6.jar"), "{lines:?}");
+    }
+
+    #[test]
     fn file_names_are_safe() {
         assert_eq!(file_safe("a/b:c"), "a_b_c");
         assert_eq!(file_safe("..hidden"), "hidden");
         assert_eq!(file_safe("  "), "snapshot");
+        assert_eq!(
+            file_safe("Pre 1.21? *x* <y>|\"z\". "),
+            "Pre 1.21_ _x_ _y___z_"
+        );
     }
 }

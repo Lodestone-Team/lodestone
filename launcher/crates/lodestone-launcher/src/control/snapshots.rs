@@ -5,6 +5,7 @@
 
 use std::{path::PathBuf, sync::Arc};
 
+use crate::instances::snapshots::file_safe;
 use gpui::{App, AppContext as _};
 use launcher_control::{ErrorObject, codes};
 use launcher_core::{
@@ -31,6 +32,7 @@ pub(super) fn image_error(err: ImageError) -> ErrorObject {
             api_error(codes::NOT_FOUND, err.to_string())
         }
         ImageError::Running => api_error(codes::BUSY, err.to_string()),
+        ImageError::NoRoom { .. } => api_error(codes::FAILED, err.to_string()),
         ImageError::Cancelled => api_error(codes::CANCELLED, err.to_string()),
         ImageError::Invalid(_) => api_error(codes::INVALID_PARAMS, err.to_string()),
         other => api_error(codes::FAILED, other.to_string()),
@@ -405,6 +407,14 @@ pub fn restore(call: Call, cx: &mut App) -> Reply {
                 instance.name,
                 snapshot.name_shown()
             )));
+            // An install writing the instance's files meanwhile would lose what it writes
+            // into what the restore replaces.
+            if call.control.instances.read(cx).files_busy(&instance.id) {
+                return ready(Err(api_error(
+                    codes::BUSY,
+                    "Another job is changing the instance's files; try again when it is done.",
+                )));
+            }
             let busy = call
                 .control
                 .instances
@@ -430,6 +440,7 @@ pub fn restore(call: Call, cx: &mut App) -> Reply {
                         "safety_snapshot": restored.safety.as_ref().map(record_json),
                         "loader_version": restored.instance.as_ref().and_then(|i| i.loader_version.clone()),
                         "recorded": restored.recorded.as_ref().map(|r| r.id.clone()),
+                        "kept_aside": restored.kept_aside.as_ref().map(|p| p.display().to_string()),
                     }))
                 },
                 move |control, value, cx| {
@@ -482,8 +493,8 @@ pub fn export(call: Call, cx: &mut App) -> Reply {
     if path.is_dir() {
         path = path.join(format!(
             "{} - {}.{}",
-            instance.name.replace(['/', '\\', ':'], "_"),
-            snapshot.name.replace(['/', '\\', ':'], "_"),
+            file_safe(&instance.name),
+            file_safe(&snapshot.name),
             export::EXTENSION
         ));
     }
@@ -540,8 +551,17 @@ pub fn import(call: Call, cx: &mut App) -> Reply {
         return ready(Ok(serde_json::to_value(&preview).unwrap_or(Value::Null)));
     }
     if !preview.mods.is_empty() {
+        let carried = if preview.carried_mods.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "; {} of them come from whoever made the file, not from Modrinth or CurseForge ({})",
+                preview.carried_mods.len(),
+                preview.carried_mods.join(", ")
+            )
+        };
         tri!(call.confirm(format!(
-            "makes an instance with {} mods ({}): programs that run when the game starts. Only use files from people the user trusts",
+            "makes an instance with {} mods ({}){carried}: programs that run when the game starts. Only use files from people the user trusts",
             preview.mods.len(),
             preview.mods.join(", ")
         )));
@@ -558,6 +578,8 @@ pub fn import(call: Call, cx: &mut App) -> Reply {
     launcher_core::trace::emit("snapshot.import", || json!({ "mods": preview.mods.len() }));
     let label = format!("Making an instance from {}", preview.name_shown);
     let name = params.name;
+    // The file the user approved, not one put in its place since.
+    let expected = preview.image.clone();
     job(
         &call,
         label,
@@ -575,6 +597,7 @@ pub fn import(call: Call, cx: &mut App) -> Reply {
                     },
                     &path,
                     name.as_deref(),
+                    Some(&expected),
                     &room,
                     &progress,
                     &cancel,

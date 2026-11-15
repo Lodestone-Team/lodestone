@@ -140,8 +140,13 @@ pub struct Restored {
     pub safety: Option<SnapshotRecord>,
     /// The instance as saved, when the restore changed its loader version.
     pub instance: Option<Instance>,
-    /// The content record after it, when one was written.
+    /// The content record after it, when one was written. A record that fails after the
+    /// files were put back is logged, not the restore's failure: the next check records the
+    /// change.
     pub recorded: Option<Recorded>,
+    /// Where files another job wrote into what the restore replaced meanwhile were kept
+    /// (`<instance>/restore-leftovers-<16>/`), when there were any.
+    pub kept_aside: Option<PathBuf>,
 }
 
 /// A snapshot loaded whole: its image and, for a data image, the content it links to.
@@ -467,9 +472,19 @@ impl Images {
             .store()
             .instance_dir(instance)?
             .join(swap::JOURNAL_FILE);
-        match staged.swap(&journal) {
-            Ok(()) => {}
+        let kept_aside = match staged.swap(&journal) {
+            Ok(kept) => kept,
             Err(SwapError::RolledBack(e)) | Err(SwapError::Broken(e)) => return Err(e),
+        };
+        if let Some(kept) = &kept_aside {
+            super::warn(
+                "images.restore",
+                instance,
+                &format!(
+                    "files written meanwhile into what the restore replaced are kept in {}",
+                    kept.display()
+                ),
+            );
         }
 
         let saved = if scope.has_content() {
@@ -477,11 +492,22 @@ impl Images {
         } else {
             None
         };
-        let recorded = self.record_held(&slot, instance, Some(&labels::reverted(&record.name)))?;
+        // The files are back: a record that fails now (the disk filled up) is no failure
+        // of the restore, whose caller would otherwise reload nothing and keep showing the
+        // old loader version. The next check records the change as "Changed by hand".
+        let recorded =
+            match self.record_held(&slot, instance, Some(&labels::reverted(&record.name))) {
+                Ok(recorded) => recorded,
+                Err(e) => {
+                    super::warn("images.record", instance, &e.to_string());
+                    None
+                }
+            };
         Ok(Restored {
             safety,
             instance: saved,
             recorded,
+            kept_aside,
         })
     }
 

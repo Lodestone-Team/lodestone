@@ -1020,9 +1020,16 @@ impl ContentView {
             let progress = progress.clone();
             let cancel = cancel.clone();
             cx.background_spawn(async move {
-                if let Some(titles) = &updating {
-                    snapshot_before_update(&images, &image_id, titles);
-                }
+                let no_snapshot = match &updating {
+                    Some(titles) => {
+                        match snapshot_before_update(&images, &image_id, titles, &progress, &cancel)
+                        {
+                            Ok(no_snapshot) => no_snapshot,
+                            Err(err) => return (Err(err), None),
+                        }
+                    }
+                    None => None,
+                };
                 // The whole job (Update all) is one operation: what each install did, and
                 // what one that failed part way placed, is one image once it ends.
                 let mut operation = images.begin(&image_id, "");
@@ -1069,11 +1076,12 @@ impl ContentView {
                 }
                 .await;
                 operation.succeed();
-                result.map(|()| total)
+                (result.map(|()| total), no_snapshot)
             })
         };
         let task = cx.spawn(async move |this, cx| {
-            let result = work.await;
+            let (result, no_snapshot) = work.await;
+            let no_snapshot = no_snapshot.as_deref();
             this.update(cx, |this, cx| {
                 let Some((job, shown)) = this.finish_job(&id) else {
                     return;
@@ -1083,7 +1091,10 @@ impl ContentView {
                 let queued = if succeeded { job.queued_cf } else { Vec::new() };
                 if !shown {
                     let message = match &result {
-                        Ok(outcome) => (outcome_message(outcome).into(), false),
+                        Ok(outcome) => (
+                            with_snapshot_note(outcome_message(outcome), no_snapshot).into(),
+                            false,
+                        ),
                         Err(err) => (err.to_string().into(), true),
                     };
                     let message = Some(message);
@@ -1092,7 +1103,7 @@ impl ContentView {
                 }
                 match result {
                     Ok(outcome) => {
-                        let message = outcome_message(&outcome);
+                        let message = with_snapshot_note(outcome_message(&outcome), no_snapshot);
                         this.set_message(message, false, cx);
                         for kind in &kinds {
                             this.section_mut(*kind).updates.clear();
@@ -2246,15 +2257,42 @@ pub(crate) fn outcome_message(outcome: &InstallOutcome) -> String {
 }
 
 /// The snapshot before content updates (`titles` are what updates), in the update's
-/// background task: a failure is logged and the update goes on.
+/// background task, shown in its progress and stopped by its Cancel (which cancels the
+/// update too: `Err`). A snapshot that fails doesn't stop the update: `Ok(Some(why))`, for
+/// the update's message to say no snapshot was taken.
 pub(crate) fn snapshot_before_update(
     images: &launcher_core::images::Images,
     instance: &str,
     titles: &[String],
-) {
+    progress: &InstallProgress,
+    cancel: &CancelToken,
+) -> Result<Option<String>, launcher_core::content::ContentError> {
+    use launcher_core::game::download::{DownloadError, ProgressSnapshot};
+    progress.set_label(t(crate::i18n::InstanceSettingsMsg::TakingSnapshot));
+    let shown = |read: u64, total: u64| {
+        progress.downloads.set(ProgressSnapshot {
+            bytes_done: read,
+            bytes_total: total,
+            ..ProgressSnapshot::default()
+        })
+    };
+    let stop = || cancel.is_cancelled();
     let change = launcher_core::images::RiskyChange::ContentUpdate { titles };
-    if let Err(err) = images.before_risky_change(instance, change) {
-        log::warn!("Couldn't take a snapshot of {instance} before the update: {err}");
+    match images.before_risky_change_with(instance, change, &shown, &stop) {
+        Ok(_) => Ok(None),
+        Err(launcher_core::images::ImageError::Cancelled) => Err(DownloadError::Cancelled.into()),
+        Err(err) => {
+            log::warn!("Couldn't take a snapshot of {instance} before the update: {err}");
+            Ok(Some(err.to_string()))
+        }
+    }
+}
+
+/// `message`, then that no snapshot was taken first when `no_snapshot` says why.
+pub(crate) fn with_snapshot_note(message: String, no_snapshot: Option<&str>) -> String {
+    match no_snapshot {
+        Some(error) => format!("{message} {}", tr!(M::NoSnapshotFirst, error = error)),
+        None => message,
     }
 }
 
@@ -3103,6 +3141,8 @@ mod image_tests {
             plan: Arc::new(plan),
             pack_path,
             pack: Arc::new(pack),
+            snapshot_failed: None,
+            without_snapshot: false,
         };
         instances.update(&mut cx, |instances, cx| {
             instances.apply_modpack_update(prompt, cx)

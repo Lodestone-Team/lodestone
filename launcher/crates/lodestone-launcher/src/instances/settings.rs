@@ -201,6 +201,9 @@ pub struct InstanceSettings {
     preparing_update: bool,
     /// "Unlink" was clicked and waits for the second click.
     confirm_unlink: bool,
+    /// "Delete them" (images that can't be read) was clicked and waits for the second
+    /// click: they go for good.
+    confirm_delete_unreadable: bool,
     /// The icon picker, when it is open, and its tab.
     icon_picker: Option<IconTab>,
     /// The tile colour emoji icons are put on.
@@ -423,6 +426,7 @@ impl InstanceSettings {
             modpack_versions: Load::NotLoaded,
             preparing_update: false,
             confirm_unlink: false,
+            confirm_delete_unreadable: false,
             icon_picker: None,
             emoji_tile: appearance::TILE_COLORS[1],
             background_picker: false,
@@ -2970,18 +2974,39 @@ impl InstanceSettings {
                 .hint(t(M::SnapshotsHint))
                 .child(take),
             SettingRow::new(t(M::SnapshotAfterPlay))
-                .hint(t(M::SnapshotAfterPlayHint))
+                .hint(t(if own_after_play.is_some() {
+                    M::SnapshotAfterPlayOwnHint
+                } else {
+                    M::SnapshotAfterPlayHint
+                }))
+                .when(own_after_play.is_some(), |row| {
+                    row.child(
+                        muted_link("snapshot-after-play-default", t(M::UseDefault)).on_press(
+                            cx.listener(|this, _, _, cx| {
+                                let id = this.instance_id.clone();
+                                this.instances.update(cx, |instances, cx| {
+                                    if let Err(err) =
+                                        instances.set_snapshot_after_play(&id, None, cx)
+                                    {
+                                        log::warn!("Couldn't save the snapshot setting: {err}");
+                                    }
+                                });
+                            }),
+                        ),
+                    )
+                })
                 .child(
                     Toggle::new("snapshot-after-play", after_play)
                         .label(t(M::SnapshotAfterPlay))
                         .on_change(cx.listener(move |this, value: &bool, _, cx| {
                             let id = this.instance_id.clone();
                             let value = *value;
+                            // The instance's own choice from now on, until "Use the
+                            // default".
                             this.instances.update(cx, |instances, cx| {
-                                // Back to following Settings › Instances when it matches.
-                                let follows = instances.defaults().snapshot_after_play == value;
-                                let own = (!follows || own_after_play.is_some()).then_some(value);
-                                if let Err(err) = instances.set_snapshot_after_play(&id, own, cx) {
+                                if let Err(err) =
+                                    instances.set_snapshot_after_play(&id, Some(value), cx)
+                                {
                                     log::warn!("Couldn't save the snapshot setting: {err}");
                                 }
                             });
@@ -3068,21 +3093,42 @@ impl InstanceSettings {
                     );
                 }
                 if list.unreadable > 0 {
-                    items.push(
-                        SettingRow::new(trn!(P::UnreadableImages, list.unreadable))
-                            .hint(t(M::UnreadableImagesHint))
-                            .child(
-                                Button::new("snapshot-delete-unreadable", t(M::DeleteUnreadable))
-                                    .variant(ButtonVariant::Ghost)
-                                    .size(ButtonSize::Slim)
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        let id = this.instance_id.clone();
-                                        this.instances.update(cx, |instances, cx| {
-                                            instances.delete_unreadable_images(&id, cx)
-                                        })
-                                    })),
+                    let row = SettingRow::new(trn!(P::UnreadableImages, list.unreadable))
+                        .hint(t(M::UnreadableImagesHint));
+                    let row = if self.confirm_delete_unreadable {
+                        row.child(
+                            Button::new("snapshot-delete-unreadable", t(M::DeleteUnreadable))
+                                .variant(ButtonVariant::Danger)
+                                .size(ButtonSize::Slim)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.confirm_delete_unreadable = false;
+                                    let id = this.instance_id.clone();
+                                    this.instances.update(cx, |instances, cx| {
+                                        instances.delete_unreadable_images(&id, cx)
+                                    })
+                                })),
+                        )
+                        .child(
+                            muted_link("cancel-delete-unreadable", t(CommonMsg::Cancel)).on_press(
+                                cx.listener(|this, _, _, cx| {
+                                    this.confirm_delete_unreadable = false;
+                                    cx.notify();
+                                }),
                             ),
-                    );
+                        )
+                        .note(t(M::DeleteUnreadableNote), colors::GRAY_400)
+                    } else {
+                        row.child(
+                            Button::new("snapshot-delete-unreadable", t(M::DeleteUnreadable))
+                                .variant(ButtonVariant::Ghost)
+                                .size(ButtonSize::Slim)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.confirm_delete_unreadable = true;
+                                    cx.notify();
+                                })),
+                        )
+                    };
+                    items.push(row);
                 }
             }
         }

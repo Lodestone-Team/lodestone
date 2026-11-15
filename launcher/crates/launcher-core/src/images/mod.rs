@@ -82,7 +82,7 @@ pub use recorder::{Operation, Recorded};
 pub use restore::{ContentDiff, RestorePreview, RestoreScope, Restored, WorldChange};
 pub use retention::{DEFAULT_POLICY, KEEP_CONTENT, Keep, SnapshotPolicy};
 pub use retired::{CleanedUp, Retired, RetiredMarker};
-pub use snapshots::{RiskyChange, SnapshotKind, SnapshotRecord, Snapshots, Take};
+pub use snapshots::{RecordWorld, RiskyChange, SnapshotKind, SnapshotRecord, Snapshots, Take};
 
 /// Successes this close together are one image.
 pub const MERGE_WINDOW: Duration = Duration::from_secs(3);
@@ -139,6 +139,9 @@ pub enum ImageError {
     NoSnapshot(String),
     #[error("cancelled")]
     Cancelled,
+    /// The disk lacks room: `needed` bytes asked for, `free` there (an import's check).
+    #[error("It needs {} MB and the disk has {} MB free", .needed.div_ceil(1_000_000), .free / 1_000_000)]
+    NoRoom { needed: u64, free: u64 },
     #[error("{0}")]
     Invalid(String),
 }

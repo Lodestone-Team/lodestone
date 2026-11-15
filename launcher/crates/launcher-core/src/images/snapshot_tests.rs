@@ -224,6 +224,152 @@ fn a_snapshot_before_a_pack_update_holds_what_the_game_wrote() {
 }
 
 #[test]
+fn every_snapshot_holds_the_configs_the_game_wrote() {
+    // Manual, after playing, before a content update, before a loader change: each links a
+    // content image holding what the game wrote during the last session, which the session's
+    // end folded into the baseline without recording.
+    let takes: [(&str, fn(&Setup) -> SnapshotRecord); 4] = [
+        ("manual", |s| s.snapshot("Mine")),
+        ("after playing", |s| {
+            s.images.after_play(s.id());
+            s.records().remove(0)
+        }),
+        ("before a content update", |s| {
+            s.images
+                .before_risky_change(
+                    s.id(),
+                    RiskyChange::ContentUpdate {
+                        titles: &["Sodium".to_string()],
+                    },
+                )
+                .unwrap()
+                .unwrap()
+        }),
+        ("before a loader change", |s| {
+            s.images
+                .before_risky_change(
+                    s.id(),
+                    RiskyChange::LoaderChange {
+                        loader: crate::instances::Loader::Fabric,
+                        version: "0.17.0",
+                    },
+                )
+                .unwrap()
+                .unwrap()
+        }),
+    ];
+    for (what, take) in takes {
+        let s = Setup::new();
+        s.write("config/a.toml", b"as installed");
+        s.world("World", b"r");
+        s.images.record_now(s.id(), "Installed").unwrap();
+        assert!(matches!(s.images.before_launch(s.id()), Checked::Unchanged));
+        s.write("config/a.toml", b"rewritten by the game");
+        s.write("saves/World/region/r.0.0.mca", b"played");
+        s.images.end_session(s.id());
+        let record = take(&s);
+        assert_eq!(s.labels()[0], labels::WRITTEN_WHILE_PLAYING, "{what}");
+        let linked = s.image(record.content.as_deref().expect("a data image"));
+        let config = linked
+            .entries
+            .iter()
+            .find(|e| e.path.as_str() == "config/a.toml")
+            .unwrap();
+        assert_eq!(
+            config.sha256,
+            format!(
+                "{:x}",
+                <sha2::Sha256 as sha2::Digest>::digest(b"rewritten by the game")
+            ),
+            "{what}"
+        );
+        // Going back to it puts the game's version back, not the one installed.
+        s.write("config/a.toml", b"later");
+        s.images
+            .restore(
+                s.id(),
+                &record.id,
+                &restore::RestoreScope::Everything,
+                lodestone_image::store::NEVER,
+            )
+            .unwrap();
+        assert_eq!(
+            std::fs::read(s.game("config/a.toml")).unwrap(),
+            b"rewritten by the game",
+            "{what}"
+        );
+    }
+}
+
+#[test]
+fn a_session_that_begins_during_a_snapshot_stops_it() {
+    let s = Setup::new();
+    s.world("World", b"r");
+    s.world("Other", b"o");
+    s.images.record_now(s.id(), "Created").unwrap();
+    let records = s.records().len();
+    let slot = s.images.slot(s.id());
+    // Play pressed while the snapshot reads: the check before the launch begins a session.
+    let began = std::sync::atomic::AtomicBool::new(false);
+    let press_play = || {
+        if !began.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            slot.session
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+        false
+    };
+    let taken = s.images.take_snapshot(
+        s.id(),
+        Take {
+            cancel: &press_play,
+            ..Take::new(SnapshotKind::AfterPlay, labels::AFTER_PLAYING)
+        },
+    );
+    assert!(matches!(taken, Err(ImageError::Running)), "{taken:?}");
+    assert_eq!(s.records().len(), records, "nothing is recorded");
+    s.images.end_session(s.id());
+}
+
+#[test]
+fn a_second_snapshot_of_an_unchanged_world_reads_nothing() {
+    let s = Setup::new();
+    s.world("World", &[7u8; 64 * 1024]);
+    // Written well before the snapshot: the stat cache never trusts a file modified within
+    // its racy window.
+    let earlier = std::time::SystemTime::now() - std::time::Duration::from_secs(30);
+    for file in ["saves/World/level.dat", "saves/World/region/r.0.0.mca"] {
+        std::fs::File::options()
+            .write(true)
+            .open(s.game(file))
+            .unwrap()
+            .set_modified(earlier)
+            .unwrap();
+    }
+    s.images.record_now(s.id(), "Created").unwrap();
+    let read = |s: &Setup, name: &str| {
+        let to_read = std::sync::atomic::AtomicU64::new(0);
+        let progress = |_: u64, total: u64| {
+            to_read.fetch_max(total, std::sync::atomic::Ordering::Relaxed);
+        };
+        s.images
+            .take_snapshot(
+                s.id(),
+                Take {
+                    progress: &progress,
+                    ..Take::new(SnapshotKind::Manual, name)
+                },
+            )
+            .unwrap()
+            .unwrap();
+        to_read.load(std::sync::atomic::Ordering::Relaxed)
+    };
+    assert!(read(&s, "First") >= 64 * 1024);
+    // A content record in between (a mod installed) keeps the data stat cache.
+    s.change("mods/new.jar", b"a new mod", "Installed New");
+    assert_eq!(read(&s, "Second"), 0, "the world wasn't read again");
+}
+
+#[test]
 fn snapshots_are_refused_while_the_game_runs() {
     let s = Setup::new();
     s.world("World", b"r");

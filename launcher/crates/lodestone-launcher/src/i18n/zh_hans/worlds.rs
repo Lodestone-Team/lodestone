@@ -94,5 +94,6 @@ pub fn text(message: M) -> &'static str {
 pub fn plural(message: P) -> [&'static str; 2] {
     match message {
         P::ScreenshotsSummary => ["{count} 张截图 · 在游戏中按 F2 即可截图"; 2],
+        P::WithOtherWorlds => ["另含 {count} 个世界"; 2],
     }
 }

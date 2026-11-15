@@ -32,7 +32,7 @@ use crate::{
         },
     },
     file_dialog,
-    i18n::{ShellMsg as M, format, t, tr},
+    i18n::{ShellMsg as M, ShellPlural as P, format, t, tr, trn},
     instances::Instances,
     theme::{self, Color, colors, radius, text, weights},
 };
@@ -832,9 +832,9 @@ impl Render for StorageSettings {
         if images.snapshots > 0 || images.bytes > 0 {
             instance_rows.push(
                 SettingRow::new(t(M::StorageSnapshots))
-                    .hint(tr!(
-                        M::StorageSnapshotsHint,
-                        count = images.snapshots,
+                    .hint(trn!(
+                        P::StorageSnapshotsHint,
+                        images.snapshots,
                         removable = images.removable
                     ))
                     .child(size(images.bytes))
@@ -1032,7 +1032,7 @@ impl super::LauncherShell {
             // `bytes` is a count of snapshots here.
             Clean::Snapshots => (
                 M::StorageCleanSnapshotsTitle,
-                tr!(M::StorageCleanSnapshotsBody, count = bytes),
+                trn!(P::StorageCleanSnapshotsBody, bytes as usize),
                 M::StorageRemove,
             ),
         };

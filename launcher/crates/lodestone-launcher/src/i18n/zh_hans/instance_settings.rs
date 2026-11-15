@@ -178,7 +178,7 @@ pub fn text(message: M) -> &'static str {
             "不勾选时，快照保留世界和其他文件，并记住它们运行时使用的模组。"
         }
         M::SnapshotAfterPlay => "每次游戏结束后拍摄快照",
-        M::SnapshotAfterPlayHint => "游戏结束后复制世界。默认关闭。",
+        M::SnapshotAfterPlayHint => "游玩后复制世界。跟随“设置 › 实例”，默认关闭，除非你开启。",
         M::SnapshotKeepHint => {
             "启动器自动拍摄的快照会保留一段时间：最近 {last} 个、{days} 天内每天一个、{weeks} 周内每周一个。你自己拍摄的快照会一直保留，直到你删除。"
         }
@@ -203,7 +203,7 @@ pub fn text(message: M) -> &'static str {
             "整个游戏文件夹恢复到快照时的状态：世界、模组、配置和选项。之后创建的世界会被删除。"
         }
         M::WorldGoneNow => "{size} · 实例中已没有",
-        M::ModsDiffer => "这些世界上次运行时使用的是其他模组：{changes}。",
+        M::ModsDiffer => "这些世界上次运行时使用的是其他模组。",
         M::RestoreModsToo => "同时恢复它们的模组",
         M::RestoreLoaderChange => "加载器将恢复为 {version}。",
         M::RestoreSafety => "会先为被替换的内容拍摄快照，并保留 30 天。",
@@ -214,7 +214,7 @@ pub fn text(message: M) -> &'static str {
         M::ChooseWorld => "请至少选择一个世界。",
         M::ExportTitle => "导出 {name}",
         M::ExportNote => {
-            "来自 Modrinth 和 CurseForge 的模组和资源包只记录名称，不复制文件：导入时会重新下载。"
+            "来自 Modrinth 和 CurseForge 的模组和资源包只会列出而不会复制：导入文件时会在作者允许的情况下重新下载。"
         }
         M::ExportLeftOut => "以下文件可能包含密码和登录信息，已排除：{files}。",
         M::ImportFrom => "{name} · Minecraft {version} · {loader}",
@@ -404,6 +404,14 @@ pub fn text(message: M) -> &'static str {
         }
         M::AddModpackEllipsis => "添加整合包…",
         M::RemoveAddedModpackNote => "移除该整合包添加的文件。你修改过的文件会保留。",
+        M::SnapshotsNotChanged => "无法更改快照",
+        M::RestoreKeptAsideTitle => "有些文件妨碍了恢复",
+        M::RestoreKeptAside => "恢复期间写入的文件保存在 {folder}。",
+        M::ImportNoRoom => "磁盘空间不足：需要 {size}，可用 {free}。",
+        M::ImportSpaceFree => "需要 {size} 磁盘空间；可用 {free}。",
+        M::ExportNotDownloadable => "这些无法下载，因此导入该文件的人不会得到它们：{files}",
+        M::SnapshotAfterPlayOwnHint => "游玩后复制世界。仅为此实例设置。",
+        M::DeleteUnreadableNote => "它们将被永久删除。",
     }
 }
 
@@ -438,5 +446,11 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::CopyWorldsCount => ["{count} 个世界"; 2],
         P::CopyCheckingMods => ["正在 Modrinth 上检查 {count} 个模组…"; 2],
         P::CopyModsFound => ["{count} 个模组中有 {found} 个有适用于 {target} 的构建。"; 2],
+        P::RestorePutsBack => ["恢复 {count} 个文件：{names}"; 2],
+        P::RestoreRemoves => ["删除 {count} 个文件：{names}"; 2],
+        P::RestoreChanges => ["更改 {count} 个文件：{names}"; 2],
+        P::ImportCarriedMods => {
+            ["其中 {count} 个包含在文件本身中，而不是从 Modrinth 或 CurseForge 下载的：{names}"; 2]
+        }
     }
 }

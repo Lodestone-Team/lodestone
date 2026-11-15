@@ -301,6 +301,7 @@ pub fn text(message: M) -> &'static str {
         M::EnableModOnly => "Seulement {name}",
 
         M::AddModpackContent => "Ajouter un modpack",
+        M::NoSnapshotFirst => "Aucun instantané n’a été pris avant\u{a0}: {error}",
     }
 }
 

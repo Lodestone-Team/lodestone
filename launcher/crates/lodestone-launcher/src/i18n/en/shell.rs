@@ -814,10 +814,8 @@ crate::i18n::messages! {
         StorageCleanLeftoversBody = "This frees {size}. These are files of modpack downloads and imports that didn't finish.",
         StorageSnapshots = "Snapshots",
         /// {count} is how many snapshots there are, {removable} how many the clean-up removes.
-        StorageSnapshotsHint = "{count} snapshots and each instance's content history · {removable} can be removed",
         StorageCleanSnapshotsTitle = "Remove the Launcher's own snapshots?",
         /// {count} is how many snapshots go.
-        StorageCleanSnapshotsBody = "This removes {count} snapshots: the ones the Launcher took on its own, and those of deleted instances. Yours and pinned ones stay. Files from the last hour are freed at the next clean-up.",
         StorageOther = "Settings and other files",
         StorageCacheAndLogs = "Cache and logs",
         /// Settings > Storage: the section with the data folder's path.
@@ -893,6 +891,9 @@ crate::i18n::messages! {
         /// Words a search of the settings finds "When a game starts" by, besides its name; never
         /// shown.
         WhenAGameStartsKeywords = "after launch minimize hide close quit",
+        ModpackUpdateNoSnapshot = "No snapshot could be taken first, so nothing has changed: {error}. You can update without one, or free some space and try again.",
+        UpdateWithoutSnapshot = "Update without a snapshot",
+        ReplaceWorldModsNote = "Only the world goes back; the instance's mods stay as they are. To put back the mods it ran with too, restore the snapshot from Settings › Snapshots.",
     }
 
     pub enum ShellPlural {
@@ -909,5 +910,7 @@ crate::i18n::messages! {
         /// Event and trace subscriptions a connected program has.
         Subscriptions = ("{count} subscription", "{count} subscriptions"),
         PerfEntries = ("{count} entry", "{count} entries"),
+        StorageSnapshotsHint = ("{count} snapshot and each instance's content history · {removable} can be removed", "{count} snapshots and each instance's content history · {removable} can be removed"),
+        StorageCleanSnapshotsBody = ("This removes {count} snapshot: the ones the Launcher took on its own, and every snapshot of deleted instances, pinned ones too. Your instances' own and pinned snapshots stay. Files from the last hour are freed at the next clean-up.", "This removes {count} snapshots: the ones the Launcher took on its own, and every snapshot of deleted instances, pinned ones too. Your instances' own and pinned snapshots stay. Files from the last hour are freed at the next clean-up."),
     }
 }

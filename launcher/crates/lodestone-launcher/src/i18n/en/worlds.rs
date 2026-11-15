@@ -111,5 +111,6 @@ crate::i18n::messages! {
 
     pub enum WorldsPlural {
         ScreenshotsSummary = ("{count} screenshot · F2 in the game takes one", "{count} screenshots · F2 in the game takes one"),
+        WithOtherWorlds = ("with {count} other world", "with {count} other worlds"),
     }
 }

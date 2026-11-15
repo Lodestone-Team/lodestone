@@ -88,6 +88,11 @@ fn fixture() -> (Fixture, launcher_core::images::SnapshotRecord) {
     f.write("command_history.txt", b"/login hunter2");
     f.write("hotbar.nbt", b"hotbars");
     f.write("config/ias.json", b"{\"accounts\":\"token\"}");
+    // A JVM crash log, which holds the whole command line, access token included.
+    f.write(
+        "hs_err_pid4242.log",
+        b"java ... --accessToken eyJsecret ...",
+    );
     let meta = fs::metadata(f.game("mods/sodium.jar")).unwrap();
     let dir = f.store.dir(&f.instance.id);
     let mut known = Provenance::default();
@@ -203,7 +208,10 @@ fn import(
         if room {
             Ok(())
         } else {
-            Err(format!("no room for {bytes} bytes"))
+            Err(launcher_core::images::ImageError::NoRoom {
+                needed: bytes,
+                free: 0,
+            })
         }
     };
     block_on(export::import_file(
@@ -214,6 +222,7 @@ fn import(
             curseforge: None,
         },
         path,
+        None,
         None,
         &check,
         &Progress::default(),
@@ -256,12 +265,20 @@ fn an_export_carries_references_not_jars_and_never_private_files() {
         &b"/login hunter2"[..],
         b"hotbars",
         b"{\"accounts\":\"token\"}",
+        b"java ... --accessToken eyJsecret ...",
     ] {
         assert!(!names.contains(&format!("objects/{}", hex_sha256(private))));
     }
     assert!(names.contains(&format!("objects/{}", hex_sha256(b"region bytes"))));
     assert!(!objects.is_empty());
     let image = lodestone_image::Image::from_json(&zip_read(&file, "image.json")).unwrap();
+    assert!(
+        !image
+            .entries
+            .iter()
+            .any(|e| e.path.as_str().starts_with("hs_err")),
+        "no snapshot takes the JVM's crash log"
+    );
     for pattern in PRIVATE_FILES {
         assert!(image.excludes.iter().any(|e| e == pattern), "{pattern}");
     }
@@ -271,6 +288,11 @@ fn an_export_carries_references_not_jars_and_never_private_files() {
     assert_eq!(preview.minecraft, "1.21.1");
     assert_eq!(preview.loader, "fabric");
     assert_eq!(preview.mods, ["sodium.jar"]);
+    assert!(
+        preview.carried_mods.is_empty(),
+        "Sodium is a Modrinth download"
+    );
+    assert!(preview.needed_bytes > preview.files_bytes + preview.download_bytes);
     assert_eq!(preview.worlds, ["World"]);
     assert_eq!(preview.download_bytes, SODIUM.len() as u64);
     assert_eq!(preview.name_shown, "Before the end");
@@ -452,4 +474,148 @@ fn hostile_exports_are_refused_before_anything_is_placed() {
     assert!(export::inspect(&sneaky).is_err());
     assert!(import(&other, &sneaky, true).is_err());
     assert_eq!(instance_count(&other), before);
+}
+
+/// A full image of `entries` (path, bytes, source) for Minecraft 1.21.1 with `loader`,
+/// exported from a store of its own to `to`.
+fn hostile_export(
+    dir: &Path,
+    loader: lodestone_image::Loader,
+    entries: &[(&str, &[u8], lodestone_image::Source, Option<String>)],
+    to: &Path,
+) {
+    let store = lodestone_image::store::Store::new(
+        dir.join("store"),
+        lodestone_image::store::Encoding::Raw,
+    );
+    let mut image = lodestone_image::Image::new(
+        lodestone_image::Kind::Full,
+        lodestone_image::Game {
+            minecraft: "1.21.1".into(),
+            loader,
+            loader_version: Some("0.16.10".into()),
+        },
+    );
+    for (path, bytes, source, sha512) in entries {
+        let stored = store.put_bytes(bytes).unwrap();
+        let mut entry = lodestone_image::Entry::new(
+            lodestone_image::CanonicalPath::new(*path).unwrap(),
+            bytes.len() as u64,
+            stored.sha256.clone(),
+            source.clone(),
+        );
+        entry.sha512 = sha512.clone();
+        image.entries.push(entry);
+    }
+    image.normalize();
+    image.seal();
+    lodestone_image::container::export(&store, &image, &[], to, NEVER).unwrap();
+}
+
+#[test]
+fn a_download_whose_bytes_the_export_carries_is_checked_against_its_sha512() {
+    let other = elsewhere();
+    let evil: &[u8] = b"not sodium at all, but the same length?";
+    let file = other.data.root().join("evil.lodeimg");
+    // A "Modrinth" Sodium whose bytes are the sender's: the export carries the same bytes
+    // under another path, so nothing would be downloaded and its SHA-512 never compared.
+    hostile_export(
+        &other.data.root().join("sender"),
+        lodestone_image::Loader::Fabric,
+        &[
+            (
+                "mods/sodium.jar",
+                evil,
+                lodestone_image::Source::Modrinth {
+                    project: "AANobbMI".into(),
+                    version: "v1".into(),
+                    url: SODIUM_URL.into(),
+                },
+                Some(hex_sha512(SODIUM)),
+            ),
+            (
+                "config/blob.bin",
+                evil,
+                lodestone_image::Source::Object {},
+                None,
+            ),
+        ],
+        &file,
+    );
+    let before = instance_count(&other);
+    let refused = import(&other, &file, true);
+    assert!(refused.is_err(), "{:?}", refused.map(|i| i.instance.id));
+    assert_eq!(instance_count(&other), before);
+    assert!(other.mock.requests().is_empty());
+}
+
+#[test]
+fn mods_below_the_mods_folder_count_and_carried_ones_are_named() {
+    let other = elsewhere();
+    let file = other.data.root().join("quilt.lodeimg");
+    hostile_export(
+        &other.data.root().join("sender"),
+        lodestone_image::Loader::Quilt,
+        &[
+            (
+                "mods/1.21.1/evil.jar",
+                b"a jar from the sender",
+                lodestone_image::Source::Object {},
+                None,
+            ),
+            (
+                "coremods/old.jar",
+                b"an old forge coremod",
+                lodestone_image::Source::Object {},
+                None,
+            ),
+            (
+                "mods/sodium.jar",
+                SODIUM,
+                lodestone_image::Source::Modrinth {
+                    project: "AANobbMI".into(),
+                    version: "v1".into(),
+                    url: SODIUM_URL.into(),
+                },
+                Some(hex_sha512(SODIUM)),
+            ),
+        ],
+        &file,
+    );
+    let preview = export::inspect(&file).unwrap();
+    let mut mods = preview.mods.clone();
+    mods.sort();
+    assert_eq!(mods, ["1.21.1/evil.jar", "coremods/old.jar", "sodium.jar"]);
+    let mut carried = preview.carried_mods.clone();
+    carried.sort();
+    assert_eq!(carried, ["1.21.1/evil.jar", "coremods/old.jar"]);
+}
+
+#[test]
+fn an_import_refuses_a_file_that_changed_since_its_preview() {
+    let (f, record) = fixture();
+    let file = f.data.root().join("Survival.lodeimg");
+    f.images
+        .export_snapshot(&f.instance.id, &record.id, &file, NEVER)
+        .unwrap();
+    let other = elsewhere();
+    other.mock.serve(SODIUM_URL, SODIUM);
+    let modrinth = other.mock.client();
+    let downloader = downloader();
+    let refused = block_on(export::import_file(
+        &other.images,
+        Sources {
+            downloader: &downloader,
+            modrinth: &modrinth,
+            curseforge: None,
+        },
+        &file,
+        None,
+        Some(&"0".repeat(64)),
+        &|_| Ok(()),
+        &Progress::default(),
+        &CancelToken::new(),
+    ));
+    assert!(refused.is_err());
+    assert_eq!(instance_count(&other), 0);
 }
