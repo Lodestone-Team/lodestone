@@ -112,6 +112,32 @@ pub fn loader_of(view: &Image) -> Result<Option<LoaderChoice>, SyncError> {
     Ok(Some(LoaderChoice { kind, version }))
 }
 
+/// Refuses `view` for `instance` when it names another Minecraft version or loader: the
+/// instance's game is fixed ([`SyncError::GameChanged`]). Checked as soon as the view is,
+/// before its base pack is downloaded or CurseForge asked, so a view that will be refused
+/// costs nothing.
+pub fn check_game(instance: &Instance, view: &Image) -> Result<(), SyncError> {
+    let loader = loader_of(view)?;
+    let kind = loader.as_ref().map(|l| l.kind);
+    if instance.game_version == view.game.minecraft
+        && instance.loader == instances::Loader::from_kind(kind)
+    {
+        return Ok(());
+    }
+    Err(SyncError::GameChanged {
+        game: format!(
+            "Minecraft {} with {}",
+            view.game.minecraft,
+            loader_label(loader.as_ref())
+        ),
+        instance: format!(
+            "Minecraft {} with {}",
+            instance.game_version,
+            instance.loader_label()
+        ),
+    })
+}
+
 /// "Fabric 0.16.10", or "Vanilla".
 fn loader_label(loader: Option<&LoaderChoice>) -> String {
     match loader {
@@ -137,23 +163,7 @@ pub fn plan(
 ) -> Result<ServerPlan, SyncError> {
     let loader = loader_of(&view)?;
     if let Some((_, instance)) = existing {
-        let kind = loader.as_ref().map(|l| l.kind);
-        if instance.game_version != view.game.minecraft
-            || instance.loader != instances::Loader::from_kind(kind)
-        {
-            return Err(SyncError::GameChanged {
-                game: format!(
-                    "Minecraft {} with {}",
-                    view.game.minecraft,
-                    loader_label(loader.as_ref())
-                ),
-                instance: format!(
-                    "Minecraft {} with {}",
-                    instance.game_version,
-                    instance.loader_label()
-                ),
-            });
-        }
+        check_game(instance, &view)?;
     }
     // The base pack's name and version come from its index, which the server chose: shown
     // (the summary, the progress, the instance's page) without characters that could span

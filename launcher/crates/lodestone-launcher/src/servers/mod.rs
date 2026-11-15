@@ -2566,19 +2566,7 @@ impl Servers {
             .await;
             let prepared = match prepared {
                 Ok(prepared) => prepared,
-                // An instance with nothing of a server's on disk (vanilla, and no file
-                // the server placed: no `modpack.json`, or one that lists none, as for a
-                // vanilla, Paper or Spigot server's view) joins whatever went wrong
-                // asking: there is nothing to install for it to lack, as before the
-                // server's image existed.
-                Err(err)
-                    if !matches!(err, SyncError::Image(ImageError::OlderCore))
-                        && !needs_newer(&err)
-                        && !is_cancelled(&err)
-                        && instance.loader == Loader::None
-                        && modpack::ModpackRecord::load(&dirs.instance)
-                            .is_none_or(|record| record.files.is_empty()) =>
-                {
+                Err(err) if joins_anyway(&err, &instance, &dirs) => {
                     eprintln!("Couldn't ask {name} for its files ({err}); joining as it is");
                     return Ok(ImageCheck::InStep);
                 }
@@ -3683,6 +3671,28 @@ fn advisory_needed(core_needs: bool, files: &[PulledFile]) -> bool {
     core_needs && !files.is_empty()
 }
 
+/// Whether Play joins although asking the server for its image failed with `err`: an
+/// instance with nothing of a server's on disk (vanilla, and no file the server placed:
+/// no `modpack.json`, or one that lists none, as for a vanilla, Paper or Spigot server's
+/// view) has nothing to install for it to lack, as before the server's image existed.
+/// Not for an older core (the `.mrpack` fallback answers), a server that needs a newer
+/// Lodestone, the player's Cancel, or a server that now runs another game or loader:
+/// that isn't a failure to ask, and the player would lack it, so it's shown.
+fn joins_anyway(
+    err: &SyncError,
+    instance: &launcher_core::instances::Instance,
+    dirs: &launcher_core::content::InstanceDirs,
+) -> bool {
+    !matches!(
+        err,
+        SyncError::Image(ImageError::OlderCore) | SyncError::GameChanged { .. }
+    ) && !needs_newer(err)
+        && !is_cancelled(err)
+        && instance.loader == Loader::None
+        && launcher_core::modpack::ModpackRecord::load(&dirs.instance)
+            .is_none_or(|record| record.files.is_empty())
+}
+
 /// Whether a failure says the server needs a newer Lodestone.
 fn needs_newer(err: &SyncError) -> bool {
     matches!(
@@ -4009,6 +4019,37 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    /// A vanilla instance with nothing of the server's joins when asking fails, but not
+    /// when the server now runs another game or loader (it would lack that), an older
+    /// core answers (the `.mrpack` fallback does), or the player cancelled.
+    #[test]
+    fn a_vanilla_instance_joins_unless_the_game_changed() {
+        // a folder that isn't there: no `modpack.json`
+        let dirs = launcher_core::content::InstanceDirs::new(
+            std::env::temp_dir().join(format!("lodestone-no-instance-{}", std::process::id())),
+        );
+        let vanilla = launcher_core::instances::Instance::default();
+        assert_eq!(vanilla.loader, Loader::None);
+        let unreachable = SyncError::Refused("no answer".into());
+        assert!(joins_anyway(&unreachable, &vanilla, &dirs));
+        let changed = SyncError::GameChanged {
+            game: "Minecraft 1.21.4 with Vanilla".into(),
+            instance: "Minecraft 1.21.1 with Vanilla".into(),
+        };
+        assert!(!joins_anyway(&changed, &vanilla, &dirs));
+        assert!(!joins_anyway(
+            &SyncError::Image(ImageError::OlderCore),
+            &vanilla,
+            &dirs
+        ));
+        assert!(!joins_anyway(&SyncError::Cancelled, &vanilla, &dirs));
+        let fabric = launcher_core::instances::Instance {
+            loader: Loader::Fabric,
+            ..vanilla
+        };
+        assert!(!joins_anyway(&unreachable, &fabric, &dirs));
     }
 
     /// No advisory when nothing is installed (a vanilla server's view), whatever the

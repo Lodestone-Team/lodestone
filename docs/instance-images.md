@@ -2198,7 +2198,11 @@ side of "Server to player" open. The code is `launcher/crates/launcher-core/src/
   placed (by SHA-256 when recorded, else SHA-1; a mod the player turned off counts), as
   the client pack sync checked on a 304, but the files the applied view can't give (its
   needed withheld files and CurseForge files that may not be downloaded, which the player
-  keeps as they like). When one is missing or changed (deleted, updated through the
+  keeps as they like). A link or folder the player put at a mod's path counts as placed:
+  the merge keeps it as theirs, so planning again would only record, at every Play. A
+  needed withheld file the base pack places anyway isn't checked on a 204 (the check
+  doesn't read the base pack, and nothing records which kept files the base placed); the
+  next view that changes anything puts it back if the player deleted it. When one is missing or changed (deleted, updated through the
   Content tab, damaged) the kept applied view is planned again, reading those mods
   rather than taking them by their record, so the merge puts the server's mod back and
   the update prompt says so. A 204 is
@@ -2238,10 +2242,19 @@ side of "Server to player" open. The code is `launcher/crates/launcher-core/src/
   next version drops is removed, but a config and a file the game writes itself
   (`options.txt`) stay. Anything but a plain file at a path the view places (a link to a
   shared config, a folder) is the player's and stays as it is, never written over (in
-  `mods/` too: it is listed as a file the player changed). The player's own mods,
+  `mods/` too: it is listed as a file the player changed). So is a file in a folder the
+  player linked out of the game folder (a shared `resourcepacks/`, a folder above a
+  placed path resolving outside the instance): nothing is written into it or removed from
+  it (`merge::Disk::outside`; a modpack update too), so a view or base pack that adds a
+  resource pack there doesn't fail every Play; but in `mods/`, which is authoritative,
+  the update still refuses to write through such a folder ("a path leaves the instance
+  folder"). The player's own mods,
   their edited configs and a pack config the server deleted stay. A mod an added pack has
   that the view now has too is removed (`addon::superseded_by`).
-- **Files a view can't give stay on disk when the player has them.** A path the new view
+- **Files a view can't give stay on disk when the player has them.** A needed withheld
+  file the base pack places anyway (the core keeps withheld paths out of `removed`) isn't
+  one the player lacks: the pack's copy is placed, and the summary and the "has files you
+  won't get" prompt don't list it (`Placed::missing` leaves it out). A path the new view
   lists as a needed withheld file (it kept changing, couldn't be read, is a link), or as a
   CurseForge file to download by hand, is never removed, and its line in `modpack.json`
   stays while the player has the file (the line of one they deleted goes, so the check
@@ -2287,7 +2300,9 @@ side of "Server to player" open. The code is `launcher/crates/launcher-core/src/
 - **The game is fixed.** The view's game becomes a new instance's (Forge's loader version
   as a full Maven version, `<minecraft>-<version>`; Quilt and NeoForge as they are). For an
   existing instance a view of another Minecraft version or loader is refused, telling the
-  player to make a new instance; only the loader version follows, saved after the files
+  player to make a new instance, as soon as the view is checked (before its base pack is
+  downloaded or CurseForge asked, so a view that will be refused costs nothing), and
+  for a vanilla instance too (it isn't a failure to ask, below); only the loader version follows, saved after the files
   and before the link names the view. The `.mrpack` fallback follows the same rule (the old
   sync changed the Minecraft version in place). A view whose loader version differs from
   the instance's is placed again even when the server answers 204 (an update whose loader
@@ -2349,7 +2364,9 @@ side of "Server to player" open. The code is `launcher/crates/launcher-core/src/
   files, as a vanilla, Paper or Spigot server's view leaves, whatever view the link
   names) joins when asking the server fails for any reason but "update Lodestone" or the
   player's Cancel, as Play joined those servers before images: it has nothing to install
-  to lack. For the same reason "Create matching instance" for a vanilla, Paper or Spigot
+  to lack. A server that now runs another Minecraft version or loader isn't a failure to
+  ask: the player would lack that game, so "The server now runs … Make a new instance" is
+  shown for a vanilla instance too. For the same reason "Create matching instance" for a vanilla, Paper or Spigot
   server makes a plain instance when asking fails that way.
 - **Records and crash safety.** A new instance is staged whole beside the instances (files,
   `content.json`, `modpack.json`, the link with its view, the kept view) and renamed into
@@ -2385,7 +2402,8 @@ side of "Server to player" open. The code is `launcher/crates/launcher-core/src/
   anything; an undo puts the instance's records (`content.json`, `modpack.json`, the
   added packs') back whole (written aside and renamed), so a full disk can't leave a
   `modpack.json` cut short; a removal through a folder that links out of the game folder
-  (a shared `resourcepacks/`) is skipped, the file left alone; `finish`, on
+  (a shared `resourcepacks/`) is skipped, the file left alone (the merge already leaves it
+  out, below; the updater skips it too, for a plan made before the link); `finish`, on
   the window's thread, saves the loader version and lets the operation succeed; only when
   the save worked, `AppliedUpdate::record`, off the window's thread (it writes the whole
   view), keeps the view and names it in the link. A view that changes nothing on disk

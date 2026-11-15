@@ -613,16 +613,17 @@ mod tests {
     use crate::modpack::{FileSource, PackFile};
 
     /// A file to remove that is reached through a folder the player linked out of the
-    /// instance (a shared `resourcepacks/` holding the same bytes) is left alone.
+    /// instance after the plan was made (a shared `resourcepacks/` holding the same bytes)
+    /// is left alone. (The merge leaves such a file out of a plan made after the link.)
     #[test]
     fn a_removal_through_a_linked_folder_is_skipped() {
         let temp = tempfile::tempdir().unwrap();
         let game = temp.path().join("game");
         let shared = temp.path().join("shared");
-        fs::create_dir_all(&game).unwrap();
+        fs::create_dir_all(game.join("resourcepacks")).unwrap();
         fs::create_dir_all(&shared).unwrap();
         fs::write(shared.join("pack.zip"), b"pack").unwrap();
-        std::os::unix::fs::symlink(&shared, game.join("resourcepacks")).unwrap();
+        fs::write(game.join("resourcepacks/pack.zip"), b"pack").unwrap();
         let sha1 = super::super::import::sha1_on_disk(&shared.join("pack.zip")).unwrap();
         let current = ModpackRecord {
             files: [(
@@ -645,6 +646,8 @@ mod tests {
             merge::Rules::default(),
         );
         assert_eq!(plan.removals, ["resourcepacks/pack.zip"]);
+        fs::remove_dir_all(game.join("resourcepacks")).unwrap();
+        std::os::unix::fs::symlink(&shared, game.join("resourcepacks")).unwrap();
         let staging = temp.path().join("staging");
         fs::create_dir_all(&staging).unwrap();
         let mut changed = BTreeSet::new();

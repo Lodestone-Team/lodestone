@@ -14,7 +14,7 @@ use super::{
     SyncError,
     base::{BasePack, base_pack},
     placed::{BaseShare, CurseForgeFile, needs_server_copy, placed},
-    plan::{AUTHORITATIVE, ServerPlan, loader_of, plan},
+    plan::{AUTHORITATIVE, ServerPlan, check_game, loader_of, plan},
     received::{apply_delta, check_view},
     views::KeptViews,
 };
@@ -177,6 +177,9 @@ pub async fn prepare(
             }
         }
     };
+    if let Some((_, instance)) = target.existing {
+        check_game(instance, &view)?;
+    }
     let base = base_pack(
         lookup.modrinth,
         lookup.downloader,
@@ -329,7 +332,8 @@ fn stat_of(meta: &fs::Metadata) -> Option<(u64, u64)> {
 }
 
 /// The mods the instance's `modpack.json` says the applied view placed that aren't on
-/// disk as placed (a mod the player turned off counts as placed), but those at `skip`
+/// disk as placed (a mod the player turned off counts as placed, and so does a link or a
+/// folder the player put at its path, which the merge keeps as theirs), but those at `skip`
 /// (files the view can't give, which the player may keep as they like), by their
 /// `modpack.json` paths: when there are any, the server's answer that the instance is in
 /// step isn't taken, and the applied view is placed again with those read rather than
@@ -385,8 +389,10 @@ fn server_mods_changed(dirs: &InstanceDirs, skip: &BTreeSet<String>) -> BTreeSet
                 let Ok(meta) = fs::symlink_metadata(&on_disk) else {
                     return false;
                 };
+                // a link or a folder the player put there is theirs, which placing the
+                // view again would only keep: not a change, or every Play would plan
                 if !meta.is_file() {
-                    return false;
+                    return true;
                 }
                 let stat = stat_of(&meta).map(|(size, modified)| CheckedStat {
                     size,

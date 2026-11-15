@@ -47,7 +47,8 @@ pub struct CurseForgeFile {
 pub struct Placed {
     /// Every file, by path in the game folder.
     pub files: BTreeMap<String, Wanted>,
-    /// Files the server has that the view can't give and a player would need, with why.
+    /// Files the server has that the view can't give and a player would need, with why;
+    /// not those the base pack places anyway.
     pub missing: Vec<Withheld>,
     /// CurseForge files whose authors don't allow other apps to download them: the player
     /// gets them by hand. (path, project, file)
@@ -259,9 +260,16 @@ pub fn placed(
             "its files add up to more than 64 GB".into(),
         ));
     }
+    // A withheld file the base pack places anyway (the core keeps withheld paths out of
+    // `removed`) isn't one the player lacks: the pack's copy is placed like any other.
+    let missing = needed_withheld(view)
+        .into_iter()
+        .filter(|withheld| !files.contains_key(withheld.path.as_str()))
+        .cloned()
+        .collect();
     Ok(Placed {
         files,
-        missing: needed_withheld(view).into_iter().cloned().collect(),
+        missing,
         curseforge_listed,
         total_bytes,
         from_base,
@@ -657,6 +665,27 @@ mod tests {
             [("mods/blocked.jar".to_string(), 1, 2)]
         );
         assert_eq!(paths(&placed), ["mods/allowed.jar"]);
+    }
+
+    /// A withheld file the base pack places anyway (the server's copy is a link, say)
+    /// isn't one the player lacks: the pack's copy is placed.
+    #[test]
+    fn a_withheld_file_the_base_places_isnt_missing() {
+        let view = client_view(|image| {
+            image.withheld.push(Withheld {
+                path: "mods/sodium.jar".into(),
+                reason: WithheldReason::Symlink,
+            });
+            image.withheld.push(Withheld {
+                path: "mods/linked.jar".into(),
+                reason: WithheldReason::Symlink,
+            });
+        });
+        let pack = pack();
+        let placed = placed(&view, base(&pack), &HashMap::new()).unwrap();
+        assert!(placed.files.contains_key("mods/sodium.jar"));
+        let missing: Vec<&str> = placed.missing.iter().map(|w| w.path.as_str()).collect();
+        assert_eq!(missing, ["mods/linked.jar"]);
     }
 
     fn modrinth(project: &str, version: &str, url: &str) -> Source {

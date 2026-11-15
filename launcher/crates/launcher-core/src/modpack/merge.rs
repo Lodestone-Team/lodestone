@@ -10,9 +10,9 @@
 //! comparison needs it, once per file and hash.
 
 use std::{
-    cell::RefCell,
+    cell::{OnceCell, RefCell},
     collections::{BTreeMap, BTreeSet, HashMap},
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 use lodestone_minecraft::mrpack::PackDownload;
@@ -195,9 +195,58 @@ pub struct Merged {
 struct Disk<'a> {
     game: Option<&'a Path>,
     hashes: RefCell<HashMap<(String, HashKind), Option<String>>>,
+    /// The game folder with its links resolved, once asked for.
+    root: OnceCell<Option<PathBuf>>,
+    /// Whether each folder asked about resolves outside the game folder.
+    outside: RefCell<HashMap<PathBuf, bool>>,
 }
 
-impl Disk<'_> {
+impl<'a> Disk<'a> {
+    fn new(game: Option<&'a Path>) -> Self {
+        Self {
+            game,
+            hashes: RefCell::new(HashMap::new()),
+            root: OnceCell::new(),
+            outside: RefCell::new(HashMap::new()),
+        }
+    }
+
+    /// Whether `relative`'s folder, once links are resolved, is outside the game folder:
+    /// the player turned it (or a folder above it) into a link to a shared folder, say a
+    /// `resourcepacks/` several instances use. Nothing is written or removed there (the
+    /// update would refuse to write through it), so a file there is the player's. A
+    /// folder that doesn't exist yet is judged by the nearest one above it that does.
+    fn outside(&self, relative: &str) -> bool {
+        let Some(game) = self.game else {
+            return false;
+        };
+        let Some(root) = self
+            .root
+            .get_or_init(|| std::fs::canonicalize(game).ok())
+            .as_ref()
+        else {
+            return false;
+        };
+        let Some(parent) = game.join(relative).parent().map(Path::to_path_buf) else {
+            return false;
+        };
+        if let Some(found) = self.outside.borrow().get(&parent) {
+            return *found;
+        }
+        let mut folder = parent.as_path();
+        let found = loop {
+            match std::fs::canonicalize(folder) {
+                Ok(resolved) => break !resolved.starts_with(root),
+                Err(_) => match folder.parent() {
+                    Some(up) if up.starts_with(game) => folder = up,
+                    _ => break false,
+                },
+            }
+        };
+        self.outside.borrow_mut().insert(parent, found);
+        found
+    }
+
     fn hash(&self, relative: &str, kind: HashKind) -> Option<String> {
         let key = (relative.to_string(), kind);
         if let Some(found) = self.hashes.borrow().get(&key) {
@@ -317,10 +366,7 @@ pub(crate) fn plan(
             .iter()
             .any(|dir| path.starts_with(&format!("{}/", dir.trim_end_matches('/'))))
     };
-    let disk = Disk {
-        game,
-        hashes: RefCell::new(HashMap::new()),
-    };
+    let disk = Disk::new(game);
     let mut merged = Merged::default();
     // Unchanged by its record and size, without reading it (see `Rules::trust_recorded`).
     let unchanged = |path: &str, old: Option<&PackFile>, actual: &str, wanted: &Wanted| {
@@ -359,6 +405,9 @@ pub(crate) fn plan(
         }
         match disk.find(path) {
             None => {}
+            // reached through a folder that links out of the game folder: not the
+            // instance's to remove (the same bytes in a shared folder, say)
+            Some(actual) if disk.outside(&actual) => {}
             // a new file names it in other letter case: it is that file (renaming only the
             // letters of a file the disk can't tell apart would delete it)
             Some(actual)
@@ -389,6 +438,12 @@ pub(crate) fn plan(
         let write = |merged: &mut Merged, dest: String| {
             merged.writes.push((wanted.fetch.clone(), dest));
         };
+        // a file in a folder the player linked out of the game folder is theirs, but in
+        // an authoritative folder (a server's `mods/`), whose update refuses to go on
+        if !replaces(path) && disk.outside(path) {
+            merged.kept_changed.push(path.clone());
+            continue;
+        }
         let actual = disk.find(path);
         match (current.get(path), actual) {
             (_, Some(actual)) if !disk.is_file(&actual) => merged.kept_changed.push(actual),
@@ -448,6 +503,10 @@ pub(crate) fn plan(
         .iter()
         .filter(|(_, w)| w.record.source == FileSource::Override)
     {
+        if !replaces(path) && disk.outside(path) {
+            merged.overrides_kept.push(path.clone());
+            continue;
+        }
         let actual = disk.find(path);
         match (current.get(path), actual) {
             (_, None) => {
@@ -486,10 +545,7 @@ pub(crate) fn still(game: &Path, relative: &str, expect: &Expect) -> bool {
         Expect::Absent => std::fs::symlink_metadata(&path)
             .is_err_and(|err| err.kind() == std::io::ErrorKind::NotFound),
         Expect::Unchanged(digest) => {
-            let disk = Disk {
-                game: Some(game),
-                hashes: RefCell::new(HashMap::new()),
-            };
+            let disk = Disk::new(Some(game));
             match std::fs::symlink_metadata(&path) {
                 Err(err) if err.kind() == std::io::ErrorKind::NotFound => true,
                 Ok(meta) if meta.is_file() => disk.matches(relative, digest),
@@ -738,6 +794,49 @@ mod tests {
         assert_eq!(merged.overrides_kept, ["config/xaero.cfg"]);
         assert_eq!(merged.kept_changed, ["mods/linked.jar"]);
         assert!(merged.expected.is_empty());
+    }
+
+    /// A folder the player linked out of the game folder (a shared `resourcepacks/`) is
+    /// theirs: nothing is written into it or removed from it, but in an authoritative
+    /// folder, which the update refuses to write through.
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_linked_out_of_the_game_is_kept() {
+        let shared = game_with(&[("old.zip", b"old pack")]);
+        let game = game_with(&[]);
+        std::os::unix::fs::symlink(shared.path(), game.path().join("resourcepacks")).unwrap();
+        std::os::unix::fs::symlink(shared.path(), game.path().join("mods")).unwrap();
+        let mut old = object(b"old pack");
+        old.record.source = FileSource::Override;
+        let current: BTreeMap<String, PackFile> =
+            [("resourcepacks/old.zip".to_string(), old.record.clone())].into();
+        let mut added = object(b"new pack");
+        added.record.source = FileSource::Override;
+        let new: BTreeMap<String, Wanted> = [
+            ("resourcepacks/new.zip".to_string(), added),
+            ("resourcepacks/listed.zip".to_string(), object(b"listed")),
+            ("resourcepacks/sub/deep.zip".to_string(), object(b"deep")),
+            ("mods/a.jar".to_string(), object(b"server's mod")),
+        ]
+        .into();
+        let merged = plan(
+            Some(game.path()),
+            &current,
+            &new,
+            Rules {
+                authoritative: &["mods"],
+                dropped_overrides_go: true,
+                ..Rules::default()
+            },
+        );
+        assert!(merged.removals.is_empty());
+        assert_eq!(merged.overrides_kept, ["resourcepacks/new.zip"]);
+        assert_eq!(
+            merged.kept_changed,
+            ["resourcepacks/listed.zip", "resourcepacks/sub/deep.zip"]
+        );
+        let written: Vec<&str> = merged.writes.iter().map(|(_, p)| p.as_str()).collect();
+        assert_eq!(written, ["mods/a.jar"]);
     }
 
     /// Paths a 204's check found changed are read though their records would be trusted.

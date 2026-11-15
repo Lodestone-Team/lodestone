@@ -1778,3 +1778,48 @@ fn an_unreadable_delta_asks_for_the_whole_view() {
     assert!(images[0].contains("have="));
     assert!(!images[1].contains("have="));
 }
+
+/// A view for another Minecraft version is refused for an existing instance before its
+/// base pack is downloaded: a view that will be refused costs nothing.
+#[test]
+fn a_view_for_another_game_is_refused_before_its_base_pack_downloads() {
+    let world = World::new();
+    let first = world.content(&world.pack1, &world.sodium1);
+    world.core.publish(&first, &[("", b"the server's own mod")]);
+    let (instance, _) = world.create();
+    let id = instance.id;
+    let mut moved = world.content(&world.pack2, &world.sodium2);
+    moved.game.minecraft = "1.21.4".into();
+    world.core.publish(&moved, &[("", b"the server's own mod")]);
+    assert!(matches!(
+        world.play(&id),
+        Err(SyncError::GameChanged { .. })
+    ));
+    let cached = |pack: &FakeVersion| world.cache.join(format!("{}.mrpack", pack.sha512()));
+    assert!(cached(&world.pack1).is_file());
+    assert!(!cached(&world.pack2).exists());
+}
+
+/// A link the player put at a server mod's path is theirs (the merge keeps it): a 204
+/// doesn't take it for a changed mod, so Play doesn't plan again each time.
+#[cfg(unix)]
+#[test]
+fn a_link_at_a_server_mods_path_doesnt_plan_at_every_play() {
+    let world = World::new();
+    let first = world.content(&world.pack1, &world.sodium1);
+    world.core.publish(&first, &[("", b"the server's own mod")]);
+    let (instance, _) = world.create();
+    let id = instance.id;
+    let game = world.game(&id);
+    let shared = world.data.root().join("shared-jei.jar");
+    std::fs::write(&shared, b"jei 1").unwrap();
+    std::fs::remove_file(game.join("mods/jei.jar")).unwrap();
+    std::os::unix::fs::symlink(&shared, game.join("mods/jei.jar")).unwrap();
+    assert!(world.play(&id).unwrap().is_none());
+    assert!(
+        std::fs::symlink_metadata(game.join("mods/jei.jar"))
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+}
