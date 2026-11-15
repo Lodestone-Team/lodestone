@@ -2218,5 +2218,12 @@ side of "Server to player" open. The code is `launcher/crates/launcher-core/src/
   prompt is answered Install. A server that needs a newer Lodestone fails with the new
   code `update_required` (exit 1).
 - **The Host** offers the "For players" mark for every mod loader (see "M3 decisions").
+- **Tests against the core's own answers.** The Launcher's tests run against a fake core
+  whose answers `lodestone_image`'s `view` and `diff` compute, with scripted faults for
+  every status above, and replay the real core's answers to a player (the whole view, a
+  204, a delta, an object), which the core's test `records_the_answers_a_player_gets`
+  writes to `launcher/crates/launcher-core/tests/fixtures/player_image/` when
+  `LODESTONE_RECORD_PLAYER_FIXTURES` names that folder: the two workspaces can't link each
+  other, so they share the bytes.
 - **Open: "Not for players" on a pack's own file** still reaches players through the base's
   client share (M3 decisions); the fix needs a change to `Image::validate`, not made here.
