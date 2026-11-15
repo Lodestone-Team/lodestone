@@ -177,6 +177,29 @@ async fn info_get(tx: &mpsc::Sender<tokio::io::DuplexStream>, path: &str) -> (u1
     lodestone_connect::info::parse_response(&answer).unwrap()
 }
 
+/// The client view of `uuid` through a tunnel's `get`, once its first content image is
+/// recorded (503 until then), checked as a player checks it.
+async fn image_through<F, Fut>(get: F, uuid: &InstanceUuid) -> lodestone_image::Image
+where
+    F: Fn(String) -> Fut,
+    Fut: std::future::Future<Output = (u16, Vec<u8>)>,
+{
+    let path = format!("/api/v1/public/instances/{uuid}/image?side=client");
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        let (status, body) = get(path.clone()).await;
+        if status == 200 {
+            let view = lodestone_image::Image::from_json(&body).unwrap();
+            view.verify().unwrap();
+            assert_eq!(view.side, Some(lodestone_image::Side::Client));
+            return view;
+        }
+        assert_eq!(status, 503);
+        assert!(std::time::Instant::now() < deadline, "no content image");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
 #[tokio::test]
 async fn info_streams_reach_only_the_shared_instances_routes() {
     let core = core().await;
@@ -214,9 +237,47 @@ async fn info_streams_reach_only_the_shared_instances_routes() {
     .await;
     assert_eq!(status, 200);
 
+    // its client view and objects, as players fetch them
+    let view = image_through(
+        |path| {
+            let tx = &tx;
+            async move { info_get(tx, &path).await }
+        },
+        &core.fabric,
+    )
+    .await;
+    let jar = &view.entries[0];
+    let (status, bytes) = info_get(
+        &tx,
+        &format!(
+            "/api/v1/public/instances/{}/objects/{}",
+            core.fabric, jar.sha256
+        ),
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert_eq!(lodestone_image::hex::sha256_hex(&bytes), jar.sha256);
+
     // nothing about the other instance, and nothing else of the API
     for path in [
         format!("/api/v1/public/instances/{}/client-pack", core.vanilla),
+        format!(
+            "/api/v1/public/instances/{}/image?side=client",
+            core.vanilla
+        ),
+        format!(
+            "/api/v1/public/instances/{}/objects/{}",
+            core.vanilla, jar.sha256
+        ),
+        format!(
+            "/api/v1/launcher/instances/{}/image?side=client",
+            core.fabric
+        ),
+        format!(
+            "/api/v1/public/instances/{}/objects/{}",
+            core.fabric,
+            "f".repeat(64)
+        ),
         "/api/v1/info".to_string(),
         "/api/v1/user/info".to_string(),
         "/api/v1/instance/list".to_string(),
@@ -721,16 +782,45 @@ async fn friends_reach_only_what_is_shared_with_them() {
 
     let pack = format!("/api/v1/public/instances/{}/client-pack", core.fabric);
     assert_eq!(friend_get(&tx, ben, &pack).await.0, 200);
+    let view = image_through(
+        |path| {
+            let tx = &tx;
+            async move { friend_get(tx, ben, &path).await }
+        },
+        &core.fabric,
+    )
+    .await;
+    let object = format!(
+        "/api/v1/public/instances/{}/objects/{}",
+        core.fabric, view.entries[0].sha256
+    );
+    let (status, bytes) = friend_get(&tx, ben, &object).await;
+    assert_eq!(status, 200);
+    assert_eq!(
+        lodestone_image::hex::sha256_hex(&bytes),
+        view.entries[0].sha256
+    );
+    let image = format!("/api/v1/public/instances/{}/image?side=client", core.fabric);
 
     // Carl has nothing shared with him
     let (status, body) = friend_get(&tx, carl, "/api/v1/friend/servers").await;
     assert_eq!(status, 200);
     assert_eq!(body, b"[]");
     assert_eq!(friend_get(&tx, carl, &pack).await.0, 404);
+    assert_eq!(friend_get(&tx, carl, &image).await.0, 404);
+    assert_eq!(friend_get(&tx, carl, &object).await.0, 404);
 
     // nothing unshared, and nothing else of the API
     for path in [
         format!("/api/v1/public/instances/{}/client-pack", core.vanilla),
+        format!(
+            "/api/v1/public/instances/{}/image?side=client",
+            core.vanilla
+        ),
+        format!(
+            "/api/v1/launcher/instances/{}/image?side=client",
+            core.fabric
+        ),
         "/api/v1/connect/info".to_string(),
         "/api/v1/info".to_string(),
         "/api/v1/connect/friends".to_string(),
@@ -742,6 +832,8 @@ async fn friends_reach_only_what_is_shared_with_them() {
     // unsharing takes effect on the next request
     access.write().unwrap().clear();
     assert_eq!(friend_get(&tx, ben, &pack).await.0, 404);
+    assert_eq!(friend_get(&tx, ben, &image).await.0, 404);
+    assert_eq!(friend_get(&tx, ben, &object).await.0, 404);
 }
 
 #[tokio::test]
