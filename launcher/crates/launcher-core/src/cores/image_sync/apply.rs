@@ -257,7 +257,7 @@ impl ServerUpdate {
         remove_stale_staging(&self.dirs);
         check_free_space(&self.images, &self.ready.plan)?;
         let views = KeptViews::open(&self.dirs.instance);
-        views
+        let placing_before = views
             .begin_placing(&self.ready.plan.view)
             .map_err(|err| SyncError::io("the server's view", err))?;
         // what the record before the update holds: the content folders and the files the
@@ -298,9 +298,10 @@ impl ServerUpdate {
                 // nothing changed (it stopped before the files, or put back what it had
                 // changed): no image, and the view isn't being placed any more, so the
                 // next plan doesn't take the player's own copy of one of its files for
-                // the server's
+                // the server's; views an earlier update stopped part way placing still
+                // are, their files still on disk
                 drop(operation);
-                views.done_placing();
+                views.stopped_placing(&placing_before);
                 Err(err)
             }
         }

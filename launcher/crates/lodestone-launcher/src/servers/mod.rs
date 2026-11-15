@@ -2566,7 +2566,7 @@ impl Servers {
             .await;
             let prepared = match prepared {
                 Ok(prepared) => prepared,
-                Err(err) if joins_anyway(&err, &instance, &dirs) => {
+                Err(err) if joins_anyway(&err, &instance, &dirs, link.view.is_some()) => {
                     eprintln!("Couldn't ask {name} for its files ({err}); joining as it is");
                     return Ok(ImageCheck::InStep);
                 }
@@ -2636,7 +2636,8 @@ impl Servers {
                         let had_pack = link.is_some_and(|link| link.pack_etag.is_some());
                         // An instance that applied a view from this server isn't moved back
                         // to the `.mrpack`, whose overrides may land where a view can't: a
-                        // core that served images and now answers 404 stopped sharing.
+                        // core that served images and now answers 404 stopped sharing. (One
+                        // with nothing of the server's on disk joined: `joins_anyway`.)
                         if link.is_some_and(|link| link.view.is_some()) {
                             this.fail_core(
                                 &core_uuid,
@@ -3675,18 +3676,22 @@ fn advisory_needed(core_needs: bool, files: &[PulledFile]) -> bool {
 /// instance with nothing of a server's on disk (vanilla, and no file the server placed:
 /// no `modpack.json`, or one that lists none, as for a vanilla, Paper or Spigot server's
 /// view) has nothing to install for it to lack, as before the server's image existed.
-/// Not for an older core (the `.mrpack` fallback answers), a server that needs a newer
-/// Lodestone, the player's Cancel, or a server that now runs another game or loader:
-/// that isn't a failure to ask, and the player would lack it, so it's shown.
+/// Not for a server that needs a newer Lodestone, the player's Cancel, or a server that
+/// now runs another game or loader: that isn't a failure to ask, and the player would
+/// lack it, so it's shown. A 404 (`OlderCore`) joins only when the instance's link names
+/// a view (`linked_view`): the server stopped sharing its files, and the instance has
+/// none to keep in step; for an instance that never applied a view it's an older core,
+/// whose `.mrpack` fallback answers.
 fn joins_anyway(
     err: &SyncError,
     instance: &launcher_core::instances::Instance,
     dirs: &launcher_core::content::InstanceDirs,
+    linked_view: bool,
 ) -> bool {
-    !matches!(
-        err,
-        SyncError::Image(ImageError::OlderCore) | SyncError::GameChanged { .. }
-    ) && !needs_newer(err)
+    let older_core = matches!(err, SyncError::Image(ImageError::OlderCore));
+    !(older_core && !linked_view)
+        && !matches!(err, SyncError::GameChanged { .. })
+        && !needs_newer(err)
         && !is_cancelled(err)
         && instance.loader == Loader::None
         && launcher_core::modpack::ModpackRecord::load(&dirs.instance)
@@ -4023,7 +4028,9 @@ mod tests {
 
     /// A vanilla instance with nothing of the server's joins when asking fails, but not
     /// when the server now runs another game or loader (it would lack that), an older
-    /// core answers (the `.mrpack` fallback does), or the player cancelled.
+    /// core answers to an instance that never applied a view (the `.mrpack` fallback
+    /// does), or the player cancelled. A 404 to one whose link names a view (the server
+    /// stopped sharing) joins: it has nothing of the server's to keep in step.
     #[test]
     fn a_vanilla_instance_joins_unless_the_game_changed() {
         // a folder that isn't there: no `modpack.json`
@@ -4033,23 +4040,38 @@ mod tests {
         let vanilla = launcher_core::instances::Instance::default();
         assert_eq!(vanilla.loader, Loader::None);
         let unreachable = SyncError::Refused("no answer".into());
-        assert!(joins_anyway(&unreachable, &vanilla, &dirs));
+        assert!(joins_anyway(&unreachable, &vanilla, &dirs, false));
+        assert!(joins_anyway(&unreachable, &vanilla, &dirs, true));
         let changed = SyncError::GameChanged {
             game: "Minecraft 1.21.4 with Vanilla".into(),
             instance: "Minecraft 1.21.1 with Vanilla".into(),
         };
-        assert!(!joins_anyway(&changed, &vanilla, &dirs));
-        assert!(!joins_anyway(
-            &SyncError::Image(ImageError::OlderCore),
-            &vanilla,
-            &dirs
-        ));
-        assert!(!joins_anyway(&SyncError::Cancelled, &vanilla, &dirs));
+        assert!(!joins_anyway(&changed, &vanilla, &dirs, true));
+        let older = SyncError::Image(ImageError::OlderCore);
+        assert!(!joins_anyway(&older, &vanilla, &dirs, false));
+        assert!(joins_anyway(&older, &vanilla, &dirs, true));
+        assert!(!joins_anyway(&SyncError::Cancelled, &vanilla, &dirs, true));
         let fabric = launcher_core::instances::Instance {
             loader: Loader::Fabric,
-            ..vanilla
+            ..vanilla.clone()
         };
-        assert!(!joins_anyway(&unreachable, &fabric, &dirs));
+        assert!(!joins_anyway(&unreachable, &fabric, &dirs, true));
+        assert!(!joins_anyway(&older, &fabric, &dirs, true));
+
+        // a vanilla instance holding a file the server placed doesn't join
+        let folder =
+            std::env::temp_dir().join(format!("lodestone-holding-instance-{}", std::process::id()));
+        std::fs::create_dir_all(&folder).unwrap();
+        let holding = launcher_core::content::InstanceDirs::new(folder.clone());
+        let mut record = launcher_core::modpack::ModpackRecord::default();
+        record.files.insert(
+            "resourcepacks/server.zip".into(),
+            launcher_core::modpack::PackFile::default(),
+        );
+        record.save(&holding.instance).unwrap();
+        assert!(!joins_anyway(&older, &vanilla, &holding, true));
+        assert!(!joins_anyway(&unreachable, &vanilla, &holding, true));
+        let _ = std::fs::remove_dir_all(&folder);
     }
 
     /// No advisory when nothing is installed (a vanilla server's view), whatever the

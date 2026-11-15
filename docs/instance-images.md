@@ -2214,21 +2214,23 @@ side of "Server to player" open. The code is `launcher/crates/launcher-core/src/
   made or updated, so the first 204 after a Create or an update reads the mods once (a
   second or so for a 300-mod pack), and later ones read only what changed.
 - **An update that stopped part way.** Before placing a view's files, the update keeps the
-  view and names it in `server-views/placing` (harmless: the link still names the old
-  view); recording the view in the link removes it. When the next Play plans another view
-  while `placing` names a kept view that isn't the applied one, the files on disk that are
-  that view's entries, byte for byte, count as placed by it (added to what `modpack.json`
-  says), so the next view removes the ones it drops instead of keeping them as the
-  player's. (Only the view's entries, as a config's record or an index file's: a base
+  view and adds it to `server-views/placing` (one id a line, at most 8, the oldest
+  dropped; harmless: the link still names the old view); recording a view in the link
+  removes the file. When the next Play plans another view while `placing` names kept
+  views that aren't the applied one, the files on disk that are those views' entries,
+  byte for byte, count as placed by them (added to what `modpack.json` says), so the next
+  view removes the ones it drops instead of keeping them as the player's. (Only the view's entries, as a config's record or an index file's: a base
   file a stopped base update placed that isn't an entry and the next view drops stays,
   as a pack's dropped config does.) A 204 naming the applied view while `placing` names
   another isn't taken: the applied view is planned again the same way, so the files the
   stopped update added go. An update that fails having
   changed nothing (it stopped before the files, a file changed since the plan, or it put
-  back what it had changed) removes `placing` and records no image, so a player's own
-  copy of one of that view's files isn't taken for the server's later; only one whose
-  undo couldn't put everything back (`ModpackError::NotUndone`) keeps it, and records
-  "Updated from <server> (stopped part way)".
+  back what it had changed) takes its view back out of `placing` (leaving the views an
+  earlier stopped update named, whose files are still on disk, and removing the file when
+  none was named) and records no image, so a player's own copy of one of that view's
+  files isn't taken for the server's later; only one whose undo couldn't put everything
+  back (`ModpackError::NotUndone`) keeps it, and records "Updated from <server> (stopped
+  part way)".
 - **Merge rules for a server's files.** `mods/` is authoritative (a server's mod the player
   changed is replaced, so they can join), as the client pack sync had it. Entries in a
   config folder (`config/`, `defaultconfigs/`, `kubejs/`) are placed as a pack's overrides
@@ -2364,7 +2366,11 @@ side of "Server to player" open. The code is `launcher/crates/launcher-core/src/
   files, as a vanilla, Paper or Spigot server's view leaves, whatever view the link
   names) joins when asking the server fails for any reason but "update Lodestone" or the
   player's Cancel, as Play joined those servers before images: it has nothing to install
-  to lack. A server that now runs another Minecraft version or loader isn't a failure to
+  to lack. That includes a 404 when its link names a view (the server stopped sharing,
+  say its owner turned the client-pack scope off while the listing stays): it has none
+  of the server's files to keep in step, so it isn't stopped with "stopped sharing"; a
+  404 to one whose link names no view is the older core's, which the `.mrpack` fallback
+  above answers. A server that now runs another Minecraft version or loader isn't a failure to
   ask: the player would lack that game, so "The server now runs … Make a new instance" is
   shown for a vanilla instance too. For the same reason "Create matching instance" for a vanilla, Paper or Spigot
   server makes a plain instance when asking fails that way.

@@ -102,12 +102,15 @@ pub async fn prepare(
         .as_ref()
         .map(|v| v.have(target.applied))
         .unwrap_or_default();
-    // the view an update was placing when it stopped part way, when it isn't the
-    // applied one: the files it placed count as the server's (`with_interrupted`)
-    let interrupted = views
+    // the views updates were placing when they stopped part way, but the applied one: the
+    // files they placed count as the server's (`with_interrupted`)
+    let interrupted: Vec<Image> = views
         .as_ref()
-        .and_then(|v| v.placing())
-        .filter(|placing| Some(placing.id.as_str()) != target.applied);
+        .map(|v| v.placing())
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|placing| Some(placing.id.as_str()) != target.applied)
+        .collect();
     progress.set_label("Asking the server for its files");
     let mut answer = server.image(&have, on_preparing, cancel).await?;
     let mut asked_again = false;
@@ -128,7 +131,7 @@ pub async fn prepare(
                     untrusted = server_mods_changed(dirs, &cant_give(&applied));
                     // an update that stopped part way placed files the applied view
                     // doesn't have: it is placed again, which removes them
-                    if untrusted.is_empty() && interrupted.is_none() {
+                    if untrusted.is_empty() && interrupted.is_empty() {
                         return Ok(Prepared::Current);
                     }
                 }
@@ -203,8 +206,10 @@ pub async fn prepare(
         .existing
         .and_then(|(dirs, _)| ModpackRecord::load(&dirs.instance))
         .unwrap_or_default();
-    if let (Some(placing), Some((dirs, _))) = (&interrupted, target.existing) {
-        with_interrupted(&mut current, placing, &dirs.game);
+    if let Some((dirs, _)) = target.existing {
+        for placing in &interrupted {
+            with_interrupted(&mut current, placing, &dirs.game);
+        }
     }
     let plan = plan(
         target.existing,

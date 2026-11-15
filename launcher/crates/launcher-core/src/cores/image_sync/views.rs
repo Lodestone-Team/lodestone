@@ -23,9 +23,12 @@ use crate::storage;
 pub const VIEWS_FOLDER: &str = "server-views";
 /// How many views an instance keeps, the applied one among them.
 pub const KEPT_VIEWS: usize = 4;
-/// The file naming the view an update is placing, from before its files change until the
-/// link names it: what a crash part way leaves.
+/// The file naming the views updates were placing, one id a line, from before an update's
+/// files change until the link names a view: what a crash part way leaves.
 const PLACING: &str = "placing";
+/// At most this many views are named in [`PLACING`] (each update that stopped part way
+/// without being followed by one that finished adds one); the oldest go first.
+const MAX_PLACING: usize = 8;
 
 /// An instance's kept views.
 pub struct KeptViews {
@@ -74,25 +77,66 @@ impl KeptViews {
         self.keep(view)
     }
 
-    /// Notes that an update starts placing `view`'s files: keeps it and names it, until
-    /// [`Self::done_placing`]. Harmless on its own, since the link still names the view
-    /// applied before.
-    pub fn begin_placing(&self, view: &Image) -> std::io::Result<()> {
+    /// Notes that an update starts placing `view`'s files: keeps it and adds it to the views
+    /// being placed, until [`Self::done_placing`]. Harmless on its own, since the link still
+    /// names the view applied before. Returns the views named before, for
+    /// [`Self::stopped_placing`]: a view an earlier update stopped part way placing stays
+    /// named, since its files are still on disk until a later update finishes.
+    pub fn begin_placing(&self, view: &Image) -> std::io::Result<Vec<String>> {
         self.keep_once(view)?;
-        storage::write_atomic(&self.dir.join(PLACING), view.id.as_bytes())
+        let before = self.placing_ids();
+        let mut ids = before.clone();
+        if !ids.contains(&view.id) {
+            ids.push(view.id.clone());
+        }
+        let ids = &ids[ids.len().saturating_sub(MAX_PLACING)..];
+        storage::write_atomic(&self.dir.join(PLACING), ids.join("\n").as_bytes())?;
+        Ok(before)
     }
 
-    /// The view an update was placing and didn't record (it stopped part way, or the
-    /// Launcher stopped), when it is still kept.
-    pub fn placing(&self) -> Option<Image> {
-        let bytes = fs::read(self.dir.join(PLACING)).ok()?;
-        let id = std::str::from_utf8(&bytes).ok()?.trim();
-        self.load(id)
+    /// The views updates were placing and didn't record (they stopped part way, or the
+    /// Launcher stopped), oldest first, those still kept.
+    pub fn placing(&self) -> Vec<Image> {
+        self.placing_ids()
+            .iter()
+            .filter_map(|id| self.load(id))
+            .collect()
     }
 
-    /// The view an update placed is recorded: it is no longer being placed.
+    /// An update failed having changed nothing: the views named are those named before it
+    /// began (`before`, from [`Self::begin_placing`]), so a player's own copy of one of its
+    /// files isn't later taken for the server's, while a view an earlier update stopped
+    /// placing still counts.
+    pub fn stopped_placing(&self, before: &[String]) {
+        if before.is_empty() {
+            self.done_placing();
+        } else if let Err(err) =
+            storage::write_atomic(&self.dir.join(PLACING), before.join("\n").as_bytes())
+        {
+            // naming one view too many only counts its files on disk as the server's
+            eprintln!("Couldn't note which server views are being placed: {err}");
+        }
+    }
+
+    /// The view an update placed is recorded: no view is being placed any more (the
+    /// update's plan counted the files of those named).
     pub fn done_placing(&self) {
         let _ = fs::remove_file(self.dir.join(PLACING));
+    }
+
+    /// The ids [`PLACING`] names, oldest first: well-formed ones only, each once.
+    fn placing_ids(&self) -> Vec<String> {
+        let Some(bytes) = read_capped(&self.dir.join(PLACING)) else {
+            return Vec::new();
+        };
+        let mut ids: Vec<String> = Vec::new();
+        for id in String::from_utf8_lossy(&bytes).lines().map(str::trim) {
+            if is_sha256(id) && !ids.iter().any(|known| known == id) {
+                ids.push(id.to_string());
+            }
+        }
+        let start = ids.len().saturating_sub(MAX_PLACING);
+        ids.split_off(start)
     }
 
     /// The ids of the kept views, newest first.
@@ -237,6 +281,46 @@ mod tests {
 
         views.clear();
         assert!(views.have(None).is_empty());
+    }
+
+    /// An update that fails having changed nothing puts back the views named before it,
+    /// so a view an earlier update stopped part way placing still counts; a finished one
+    /// clears them all.
+    #[test]
+    fn a_failed_update_keeps_the_views_stopped_before_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let views = KeptViews::open(dir.path());
+        let (two, three) = (client_view(2), client_view(3));
+        assert!(views.begin_placing(&two).unwrap().is_empty());
+        // the Launcher stopped part way: view 2 is still named when view 3 begins
+        let before = views.begin_placing(&three).unwrap();
+        assert_eq!(before, std::slice::from_ref(&two.id));
+        let ids = |views: &KeptViews| -> Vec<String> {
+            views.placing().into_iter().map(|view| view.id).collect()
+        };
+        assert_eq!(ids(&views), [two.id.clone(), three.id.clone()]);
+        views.stopped_placing(&before);
+        assert_eq!(ids(&views), std::slice::from_ref(&two.id));
+        // beginning the same view again names it once
+        views.begin_placing(&two).unwrap();
+        assert_eq!(ids(&views), std::slice::from_ref(&two.id));
+        views.stopped_placing(&[]);
+        assert!(views.placing().is_empty());
+        views.begin_placing(&two).unwrap();
+        views.begin_placing(&three).unwrap();
+        views.done_placing();
+        assert!(views.placing().is_empty());
+        // junk lines and too many ids: only the newest well-formed ones
+        let many: Vec<String> = (0..20).map(|i| format!("{i:064x}")).collect();
+        fs::write(
+            dir.path().join(VIEWS_FOLDER).join(PLACING),
+            format!("../escape\n{}\n{}", many.join("\n"), two.id),
+        )
+        .unwrap();
+        let named = views.placing_ids();
+        assert_eq!(named.len(), MAX_PLACING);
+        assert_eq!(named.last(), Some(&two.id));
+        assert_eq!(ids(&views), std::slice::from_ref(&two.id));
     }
 
     #[test]

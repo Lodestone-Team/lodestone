@@ -1291,7 +1291,97 @@ fn files_a_stopped_update_placed_are_the_servers() {
     assert_eq!(removed, ["mods/new.jar", "mods/own.jar"]);
     assert!(!game.join("mods/new.jar").exists());
     assert!(!game.join("mods/own.jar").exists());
-    assert!(KeptViews::open(&dirs.instance).placing().is_none());
+    assert!(KeptViews::open(&dirs.instance).placing().is_empty());
+}
+
+/// An update that stopped part way, then one that fails having changed nothing (here,
+/// cancelled before its files): the first's files are still the server's, so the update
+/// that finishes removes the ones its view drops instead of leaving an old server mod
+/// beside the new one.
+#[test]
+fn a_failed_update_keeps_the_files_a_stopped_one_placed_the_servers() {
+    let world = World::new();
+    let first = world.content(&world.pack1, &world.sodium1);
+    world.core.publish(&first, &[("", b"the server's own mod")]);
+    let (instance, ready) = world.create();
+    let id = instance.id;
+    let first_view = ready.plan.view.id.clone();
+    let game = world.game(&id);
+    let dirs = InstanceDirs::new(world.store.dir(&id));
+
+    // view 2 adds a mod; its update stops before the records
+    let mut second = first.clone();
+    second
+        .entries
+        .push(object_entry("mods/new.jar", b"a new mod"));
+    world.core.publish(&second, &[("", b"a new mod")]);
+    let instance = world.store.get(&id).unwrap();
+    let Prepared::Ready(ready) = world
+        .prepare(Some((&dirs, &instance)), Some(&first_view))
+        .unwrap()
+    else {
+        panic!("expected a plan");
+    };
+    KeptViews::open(&dirs.instance)
+        .begin_placing(&ready.plan.view)
+        .unwrap();
+    block_on(http::in_http_runtime(update_instance(
+        &world.sources(&ready),
+        &dirs,
+        &ready.plan,
+        &InstallProgress::default(),
+        &CancelToken::new(),
+    )))
+    .unwrap();
+    // as if `modpack.json` hadn't been saved
+    let mut record = ModpackRecord::load(&dirs.instance).unwrap();
+    record.files.remove("mods/new.jar");
+    record.save(&dirs.instance).unwrap();
+
+    // view 3 drops it for another; the first try is cancelled before its files
+    let mut third = first.clone();
+    third
+        .entries
+        .push(object_entry("mods/three.jar", b"mod three"));
+    world.core.publish(&third, &[("", b"mod three")]);
+    let instance = world.store.get(&id).unwrap();
+    let Prepared::Ready(ready) = world
+        .prepare(Some((&dirs, &instance)), Some(&first_view))
+        .unwrap()
+    else {
+        panic!("expected a plan");
+    };
+    let ready: Arc<Ready> = Arc::from(ready);
+    assert_eq!(ready.plan.summary.changes.removed, ["mods/new.jar"]);
+    let update = ServerUpdate::start(
+        world.images.clone(),
+        instance,
+        "SMP",
+        dirs.clone(),
+        ready.clone(),
+        None::<()>,
+    )
+    .unwrap();
+    let cancel = CancelToken::new();
+    cancel.cancel();
+    let failed = block_on(http::in_http_runtime(update.place(
+        &world.sources(&ready),
+        &InstallProgress::default(),
+        &cancel,
+    )));
+    assert!(failed.is_err());
+    assert!(game.join("mods/new.jar").exists());
+    assert!(!game.join("mods/three.jar").exists());
+    let placing = KeptViews::open(&dirs.instance).placing();
+    assert_eq!(placing.len(), 1);
+    assert_ne!(placing[0].id, ready.plan.view.id);
+
+    // the next Play still counts view 2's file as the server's
+    let ready = world.play(&id).unwrap().expect("another view");
+    assert_eq!(ready.plan.summary.changes.removed, ["mods/new.jar"]);
+    assert!(!game.join("mods/new.jar").exists());
+    assert!(game.join("mods/three.jar").exists());
+    assert!(KeptViews::open(&dirs.instance).placing().is_empty());
 }
 
 /// A pack with a client-only copy of a mod (`client-overrides/`) beside the one both sides
@@ -1471,7 +1561,7 @@ fn a_file_changed_after_planning_stops_the_update() {
     assert_eq!(read(&game.join("mods/sodium.jar")), "sodium 1");
     assert_eq!(link::load_link(&dirs.instance).unwrap().view, Some(applied));
     // nothing was placed: the view isn't taken for one being placed, and no copy is left
-    assert!(KeptViews::open(&dirs.instance).placing().is_none());
+    assert!(KeptViews::open(&dirs.instance).placing().is_empty());
     assert!(rollback_copies(&world, &id).is_empty());
 
     let ready = world.play(&id).unwrap().expect("the update");
@@ -1732,7 +1822,7 @@ fn a_204_after_a_stopped_update_removes_what_it_added() {
     assert_eq!(ready.plan.view.id, first_view);
     assert_eq!(ready.plan.summary.changes.removed, ["mods/new.jar"]);
     assert!(!game.join("mods/new.jar").exists());
-    assert!(KeptViews::open(&dirs.instance).placing().is_none());
+    assert!(KeptViews::open(&dirs.instance).placing().is_empty());
     // and the next Play joins at once
     assert!(world.play(&id).unwrap().is_none());
 }
