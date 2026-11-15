@@ -24,6 +24,68 @@ pub fn result(mode: Mode, value: &Value) {
     };
 }
 
+/// `content.history` for people: one line per image, newest first.
+pub fn history(value: &Value) {
+    let _ = write!(std::io::stdout().lock(), "{}", history_text(value));
+}
+
+/// See [`history`]: `2026-11-14 10:02  Added JEI  (42 files, fabric 0.16.10 on 1.21.1)
+/// current`. Labels come from images other computers may have made, so their control and
+/// invisible characters are written visibly (`display_text`).
+pub fn history_text(value: &Value) -> String {
+    let images = value["images"].as_array().cloned().unwrap_or_default();
+    if images.is_empty() {
+        return "No content images yet.\n".into();
+    }
+    let mut text = String::new();
+    for image in &images {
+        let s = |key: &str| image[key].as_str().unwrap_or_default();
+        let label = lodestone_image::display_text(s("label")).into_owned();
+        let label = if label.is_empty() {
+            "(no label)".into()
+        } else {
+            label
+        };
+        let game = match image["loader_version"].as_str() {
+            Some(version) => format!("{} {version} on {}", s("loader"), s("minecraft")),
+            None => format!("{} {}", s("loader"), s("minecraft")),
+        };
+        let files = image["files"].as_u64().unwrap_or(0);
+        text.push_str(&format!(
+            "{}  {label}  ({files} {}, {})",
+            utc_minute(image["created"].as_i64().unwrap_or(0)),
+            if files == 1 { "file" } else { "files" },
+            lodestone_image::display_text(&game),
+        ));
+        if image["current"].as_bool() == Some(true) {
+            text.push_str("  current");
+        }
+        text.push('\n');
+    }
+    text
+}
+
+/// Unix seconds as `YYYY-MM-DD HH:MM` in UTC.
+fn utc_minute(seconds: i64) -> String {
+    let days = seconds.div_euclid(86_400);
+    let minute = seconds.rem_euclid(86_400) / 60;
+    // Howard Hinnant's days-to-civil.
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!(
+        "{year:04}-{month:02}-{day:02} {:02}:{:02}",
+        minute / 60,
+        minute % 60
+    )
+}
+
 /// One line of a stream (log rows, events), on stdout. Fails once stdout is gone,
 /// such as when `head` read what it wanted and exited: Rust ignores SIGPIPE, so the
 /// stream has to stop on the error or it would never end.

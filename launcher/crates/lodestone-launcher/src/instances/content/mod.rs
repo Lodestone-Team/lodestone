@@ -2817,10 +2817,8 @@ mod image_tests {
         images.record_now(&id, "Created").unwrap();
 
         // A resource pack added from the computer, and a mod turned off.
-        let picked = std::env::temp_dir().join(format!(
-            "lodestone-image-hooks-test-{}",
-            std::process::id()
-        ));
+        let picked =
+            std::env::temp_dir().join(format!("lodestone-image-hooks-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&picked);
         let pack = picked.join("MyPack");
         std::fs::create_dir_all(&pack).unwrap();

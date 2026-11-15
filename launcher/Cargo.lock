@@ -3196,6 +3196,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "launcher-control",
+ "lodestone_image",
  "serde_json",
  "tempfile",
 ]

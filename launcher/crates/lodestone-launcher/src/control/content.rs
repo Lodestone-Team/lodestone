@@ -19,7 +19,7 @@ use launcher_core::{
         share,
     },
     game::download::CancelToken,
-    images::{Images, labels},
+    images::{ImageError, Images, labels},
     instances::Instance,
     mc_text,
     modpack::addon::{self, AddedPack},
@@ -226,6 +226,40 @@ pub fn list(call: Call, cx: &mut App) -> Reply {
         value["instance"] = json!(id);
         Ok(value)
     })
+}
+
+/// The instance's content images, newest first (`content.history`): what each was
+/// recorded for, when, its game and pack, and how many files it lists. Labels are as
+/// recorded; whoever shows them writes their control characters visibly.
+pub fn history(call: Call, cx: &mut App) -> Reply {
+    let control = call.control.clone();
+    let instance = tri!(control.instance_param(&call, cx));
+    let images = control.instances.read(cx).images();
+    let id = instance.id.clone();
+    let work = cx.background_spawn(async move {
+        let history = images.history(&id).map_err(|err| match err {
+            ImageError::Gone(_) => api_error(codes::NOT_FOUND, err.to_string()),
+            err => api_error(codes::FAILED, err.to_string()),
+        })?;
+        Ok::<_, ErrorObject>(json!({
+            "instance": id,
+            "current": history.current,
+            "images": history.images.iter().map(|image| json!({
+                "id": image.id,
+                "created": image.created,
+                "label": image.label,
+                "parent": image.parent,
+                "current": image.current,
+                "minecraft": image.game.minecraft,
+                "loader": image.game.loader,
+                "loader_version": image.game.loader_version,
+                "base": image.base,
+                "files": image.files,
+                "withheld": image.withheld,
+            })).collect::<Vec<_>>(),
+        }))
+    });
+    cx.spawn(async move |_| work.await)
 }
 
 #[derive(Deserialize)]

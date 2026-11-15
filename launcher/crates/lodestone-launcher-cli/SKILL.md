@@ -262,11 +262,18 @@ lodestone-launcher-cli content enable Survival sodium
 lodestone-launcher-cli content updates Survival
 lodestone-launcher-cli content update Survival --all                # long
 lodestone-launcher-cli content remove Survival sodium --yes
+lodestone-launcher-cli content history Survival                    # content images, newest first
 ```
 
 Items are named by file name, slug, title or mod id. `install` picks the newest version
 that fits the instance's Minecraft version and loader; `--version` picks one, `--force`
 installs one that doesn't fit.
+
+`content history` lists the instance's content images, newest first: the launcher records
+one after each change it makes to mods, packs, configs or the loader version (changes a
+few seconds apart are one image), and before a launch when the files changed by hand
+("Changed by hand"). Each has its label, time, game, pack (`base`) and file count; the
+newest 30 are kept. Labels are as recorded: `--human` writes control characters visibly.
 
 Modpacks:
 
