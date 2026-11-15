@@ -745,13 +745,14 @@ struct Unavailable {
 /// `kind`.
 async fn read_unavailable(headers: &Headers, body: &mut AsyncBody, idle: Duration) -> Unavailable {
     let mut kind = None;
-    if headers.is_json() {
-        if let Ok(bytes) = read_bounded(body, MAX_ERROR_BYTES, idle, &CancelToken::new()).await {
-            kind = serde_json::from_slice::<serde_json::Value>(&bytes)
-                .ok()
-                .and_then(|v| v.get("kind").and_then(|k| k.as_str()).map(str::to_string));
-        }
+    if headers.is_json()
+        && let Ok(bytes) = read_bounded(body, MAX_ERROR_BYTES, idle, &CancelToken::new()).await
+    {
+        kind = serde_json::from_slice::<serde_json::Value>(&bytes)
+            .ok()
+            .and_then(|v| v.get("kind").and_then(|k| k.as_str()).map(str::to_string));
     }
+
     Unavailable {
         kind,
         retry_after: headers.retry_after(),

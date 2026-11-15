@@ -440,7 +440,11 @@ fn server_image_answers_reach_the_caller() {
     assert_eq!(output.status.code(), Some(1));
     assert_eq!(stderr_error(&output).code, codes::UPDATE_REQUIRED);
     // what a server's image installs comes with the advisory, missing files too
-    let output = cli(&launcher.socket, &["servers", "create-instance", "Smp"], None);
+    let output = cli(
+        &launcher.socket,
+        &["servers", "create-instance", "Smp"],
+        None,
+    );
     assert_eq!(output.status.code(), Some(6));
     let error = stderr_error(&output);
     assert_eq!(error.code, codes::UNTRUSTED_CORE);
