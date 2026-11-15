@@ -1020,7 +1020,7 @@ async fn a_dropped_download_ends_its_progression() {
     let mut events = core.state.event_broadcaster.subscribe();
     let (_, event_id) = Event::new_progression_event_start("Zipping", None, None, CausedBy::System);
     let cancel = core.state.backups.cancel_token().child_token();
-    drop(Zipping {
+    drop(Preparing {
         broadcaster: core.state.event_broadcaster.clone(),
         event_id: Some(event_id.clone()),
         cancel: cancel.clone(),
@@ -1040,7 +1040,7 @@ async fn a_dropped_download_ends_its_progression() {
     assert_eq!(ended, vec![(event_id.inner(), false)]);
 
     // one that finished sends its own End, once
-    let zipping = Zipping {
+    let zipping = Preparing {
         broadcaster: core.state.event_broadcaster.clone(),
         event_id: Some(event_id.clone()),
         cancel: core.state.backups.cancel_token().child_token(),
@@ -1416,4 +1416,58 @@ async fn collections_during_a_backup_never_take_its_files() {
             .verify_object(&entry.sha256, entry.size, lodestone_image::store::NEVER)
             .unwrap();
     }
+}
+
+/// An export whose request is dropped before the file is written (the client went away)
+/// ends its progression through the route's own guard, and leaves no file behind.
+#[tokio::test]
+async fn a_dropped_export_ends_its_progression() {
+    let core = core().await;
+    let owner = core.owner().await;
+    let id = core.backup(&owner, None).await;
+    let user = User::new("exporter".into(), "pw", true, false, Default::default());
+    core.state
+        .users_manager
+        .write()
+        .await
+        .add_user(user.clone(), CausedBy::System)
+        .await
+        .unwrap();
+    let mut events = core.state.event_broadcaster.subscribe();
+    let mut export = Box::pin(export_backup(
+        State(core.state.clone()),
+        Path((core.uuid.clone(), id.clone())),
+        AuthedUser(user),
+        None,
+    ));
+    // the progression starts, then the export waits for the backup store
+    assert!(futures::poll!(export.as_mut()).is_pending());
+    drop(export);
+    let mut started = None;
+    let mut ended = Vec::new();
+    while let Ok(event) = events.try_recv() {
+        let crate::events::EventInner::ProgressionEvent(p) = event.event_inner else {
+            continue;
+        };
+        match p.progression_event_inner() {
+            crate::events::ProgressionEventInner::ProgressionStart { .. } => {
+                started = Some(p.event_id())
+            }
+            crate::events::ProgressionEventInner::ProgressionEnd { success, .. } => {
+                ended.push((p.event_id(), *success))
+            }
+            _ => {}
+        }
+    }
+    let started = started.expect("the export's progression started");
+    assert_eq!(ended, vec![(started, false)]);
+    // the dropped request's export never writes its file
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    let suffix = format!("{id}.{}", crate::images::share::EXTENSION);
+    let written: Vec<_> = walkdir::WalkDir::new(path_to_tmp())
+        .into_iter()
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().ends_with(&suffix))
+        .collect();
+    assert!(written.is_empty(), "{written:?}");
 }

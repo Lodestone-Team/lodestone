@@ -147,6 +147,15 @@ pub fn mods_demo(view: &AnyView, scene: &str, cx: &mut App) {
     }
 }
 
+/// Opens the Backups tab's export dialog for the first backup (development screenshots'
+/// `--backup-export options|running`, with `--tab backups --demo`).
+#[cfg(feature = "screenshot")]
+pub fn backup_export_demo(view: &AnyView, scene: &str, cx: &mut App) {
+    if let Ok(page) = view.clone().downcast::<backups::BackupsPage>() {
+        page.update(cx, |page, cx| page.export_for_screenshot(scene, cx));
+    }
+}
+
 /// Opens a dropdown, for the development screenshots' `--open-menu <name>`: on the
 /// Settings dialog's Profile page `language` or `theme`, on its Users page the
 /// first user's menu; on an instance's Settings tab `difficulty`, a sample

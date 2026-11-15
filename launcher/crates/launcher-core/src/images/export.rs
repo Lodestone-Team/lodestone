@@ -379,6 +379,20 @@ fn check_entries(entries: &[Entry]) -> Result<(), ImageError> {
     Ok(())
 }
 
+/// Refuses a file Lodestone Host (the core) exported: a server's backup, laid out as a
+/// server's (`server.properties`, plugins), which an instance can't hold. Said plainly
+/// here, rather than naming the first server file the client layout refuses. Opening a
+/// server's world in the Launcher goes through the core's routes instead (milestone 6's
+/// second part, `docs/instance-images.md`).
+fn check_maker(image: &Image) -> Result<(), ImageError> {
+    if image.producer.app == lodestone_image::manifest::App::Core {
+        return Err(ImageError::Invalid(
+            "This file is a server's backup exported from Lodestone Host. The Launcher can't open server backups yet".into(),
+        ));
+    }
+    Ok(())
+}
+
 /// Refuses an export whose Minecraft or loader version isn't a plausible version id: the
 /// sender wrote them, the import dialog shows them and the new instance keeps them, so
 /// they mustn't hold prose or invisible characters (`1.21.1 (checked by Lodestone)`).
@@ -580,6 +594,7 @@ pub fn inspect(path: &Path) -> Result<ImportPreview, ImageError> {
     let container = container::open(path, &Limits::default()).map_err(container_error)?;
     let image = container.image();
     let linked = container.linked();
+    check_maker(image)?;
     let entries = placed_entries(image, linked);
     check_entries(&entries)?;
     check_game(&image.game)?;
@@ -670,6 +685,7 @@ pub async fn import_file(
             "The file changed since it was opened; open it again to see what it holds".into(),
         ));
     }
+    check_maker(&image)?;
     let linked = opened.linked().to_vec();
     let entries = placed_entries(&image, &linked);
     check_entries(&entries)?;

@@ -40,6 +40,31 @@ pub enum Connection {
     SignedOut,
 }
 
+/// What the core says when it created a server without anything more to tell
+/// (`spawn_minecraft_instance_creation`).
+const CREATED_PLAINLY: &str = "Server created successfully";
+
+/// The toast for the end of a server's creation: its failure, or what the creation flow
+/// says beyond its plain success (a file's server: what couldn't be downloaded and was
+/// left out). Another success (a backup restored as a new server, whose page already said
+/// it started) says nothing more. The core's own words, as for zipping in the Files tab.
+pub fn creation_toast(success: bool, message: Option<&str>) -> Option<Toast> {
+    let message = message.map(str::trim).filter(|m| !m.is_empty());
+    match (success, message) {
+        (false, Some(message)) => Some(Toast::error(message.to_string())),
+        (false, None) => Some(Toast::error(crate::i18n::t(
+            crate::i18n::InstancesMsg::CreateFailedLater,
+        ))),
+        (true, Some(message)) => message
+            .strip_prefix(CREATED_PLAINLY)
+            .and_then(|rest| rest.strip_prefix(". "))
+            .map(str::trim)
+            .filter(|extra| !extra.is_empty())
+            .map(|extra| Toast::info(extra.to_string())),
+        (true, None) => None,
+    }
+}
+
 /// An instance being made, from its progress events.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Creating {
@@ -494,8 +519,20 @@ impl HostState {
                             creating.progress += progress;
                         }
                     }
-                    ProgressionEventInner::ProgressionEnd { inner, .. } => {
+                    ProgressionEventInner::ProgressionEnd {
+                        inner,
+                        success,
+                        message,
+                    } => {
+                        let was_creating = self.creating.iter().any(|c| c.event_id == id);
                         self.creating.retain(|c| c.event_id != id);
+                        // a server made in the background says how it went: what a file's
+                        // server didn't get, or why it failed after it was asked for
+                        if was_creating
+                            && let Some(toast) = creation_toast(*success, message.as_deref())
+                        {
+                            self.toast(toast, cx);
+                        }
                         match inner {
                             Some(ProgressionEndValue::InstanceCreation(info)) => {
                                 if let Some(list) = self.instances.as_mut()
@@ -605,6 +642,33 @@ impl OwnFileToasts {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_creation_says_how_it_went_only_when_there_is_more_to_say() {
+        use lodestone_ui::components::ToastLevel;
+        crate::i18n::force(crate::i18n::Locale::En);
+        assert!(creation_toast(true, Some("Server created successfully")).is_none());
+        assert!(creation_toast(true, None).is_none());
+        let left_out = creation_toast(
+            true,
+            Some("Server created successfully. 1 file(s) couldn't be downloaded and were left out: mods/a.jar"),
+        )
+        .unwrap();
+        assert_eq!(left_out.level, ToastLevel::Info);
+        assert_eq!(
+            left_out.text.as_ref(),
+            "1 file(s) couldn't be downloaded and were left out: mods/a.jar"
+        );
+        // a backup restored as a new server: its page said so already
+        assert!(creation_toast(true, Some("Restored the backup as Copy")).is_none());
+        let failed = creation_toast(false, Some("Server creation failed: no room")).unwrap();
+        assert_eq!(failed.level, ToastLevel::Error);
+        assert_eq!(failed.text.as_ref(), "Server creation failed: no room");
+        assert_eq!(
+            creation_toast(false, None).unwrap().level,
+            ToastLevel::Error
+        );
+    }
 
     #[test]
     fn a_failed_operation_gives_up_its_claim_on_the_cores_toast() {

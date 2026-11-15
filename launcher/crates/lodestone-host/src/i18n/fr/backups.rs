@@ -107,6 +107,30 @@ pub fn text(message: M) -> &'static str {
         M::BackupFailed => "Échec de la sauvegarde",
         M::RestoreDone => "Restauration terminée",
         M::RestoreFailed => "Échec de la restauration",
+        M::ExportLabel => "Exporter en fichier pour un autre Lodestone Host",
+        M::ExportTitle => "Exporter « {name} »",
+        M::ExportBody => {
+            "Enregistre cette sauvegarde dans un fichier .lodeimg qu’un autre Lodestone Host peut ouvrir. Les mots de passe de server.properties sont vidés, et les fichiers qui contiennent un mot de passe ou un jeton sont laissés de côté."
+        }
+        M::ExportPlugins => {
+            "Inclure les paramètres des plugins (ils peuvent contenir des mots de passe)"
+        }
+        M::ExportPluginsHint => {
+            "Tout le contenu des dossiers des plugins : paramètres, bases de données et données des joueurs."
+        }
+        M::ExportAction => "Exporter…",
+        M::ExportPreparing => "Préparation du fichier…",
+        M::ExportSaving => "Enregistrement du fichier…",
+        M::Exported => "{name} enregistré",
+        M::ExportedBlanked => "Vidé : {names}",
+        M::ExportedNotDownloadable => {
+            "Absents du fichier, leurs auteurs n’autorisant pas le téléchargement ailleurs : {names}"
+        }
+        M::ExportedSecretsWithheld => {
+            "Laissés de côté, car ils contiennent un mot de passe ou un jeton (l’autre serveur écrit ses valeurs par défaut) : {names}"
+        }
+        M::ExportFailed => "Impossible d’exporter la sauvegarde : {error}",
+        M::ExportCancelled => "L’exportation a été annulée",
     }
 }
 
@@ -117,5 +141,9 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::EveryMinutes => ["Toutes les {count} minute", "Toutes les {count} minutes"],
         P::EveryHours => ["Toutes les {count} heure", "Toutes les {count} heures"],
         P::EveryDays => ["Tous les {count} jour", "Tous les {count} jours"],
+        P::ExportedLeftOut => [
+            "{count} fichier qui ne doit pas quitter cet ordinateur a été retiré",
+            "{count} fichiers qui ne doivent pas quitter cet ordinateur ont été retirés",
+        ],
     }
 }

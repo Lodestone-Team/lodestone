@@ -113,6 +113,10 @@ pub fn first_free_port(used: &[u32]) -> u32 {
 /// A name, port, minimum and maximum RAM that passed the checks.
 pub type CheckedSettings = (String, u32, u32, u32);
 
+/// The characters the core refuses in a new server's name (its folder's name, and what
+/// Windows can't have in one): checked here so the field says so before the request.
+pub const NAME_FORBIDDEN: &[char] = &['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
+
 /// The settings step's checks (the dashboard's `settingsSchema`): the errors by field.
 pub fn check_settings(
     name: &str,
@@ -154,6 +158,8 @@ pub fn check_settings(
     let name = name.trim().to_string();
     if name.is_empty() {
         errors.push(("name", tr!(M::ValidationRequired, name = t(M::FieldName))));
+    } else if name.contains(NAME_FORBIDDEN) {
+        errors.push(("name", t(M::ValidationNameCharacters).to_string()));
     }
     let port = integer("port", M::FieldPort, port, 1, 65535, &mut errors);
     let min = integer(
@@ -1197,5 +1203,9 @@ mod tests {
         let errors = check_settings("a", "70000", "2048", "1024").unwrap_err();
         let fields: Vec<_> = errors.iter().map(|(f, _)| *f).collect();
         assert_eq!(fields, ["port", "max_ram"]);
+        // what the core refuses in a name is said on the field
+        let errors = check_settings("Survival 14:10", "25565", "1", "1").unwrap_err();
+        let fields: Vec<_> = errors.iter().map(|(f, _)| *f).collect();
+        assert_eq!(fields, ["name"]);
     }
 }

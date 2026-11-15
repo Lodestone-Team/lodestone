@@ -1083,3 +1083,58 @@ fn an_import_refuses_a_file_that_changed_since_its_preview() {
     assert!(refused.is_err());
     assert_eq!(instance_count(&other), 0);
 }
+
+/// A server's backup exported by Lodestone Host is refused with a message that says so,
+/// before anything is unpacked, rather than naming the first server file an instance
+/// can't hold.
+#[test]
+fn a_hosts_server_backup_is_refused_plainly() {
+    let other = elsewhere();
+    let before = instance_count(&other);
+    let store = lodestone_image::store::Store::new(
+        other.data.root().join("host-store"),
+        lodestone_image::store::Encoding::Raw,
+    );
+    let mut image = lodestone_image::Image::new(
+        lodestone_image::Kind::Data,
+        lodestone_image::Game {
+            minecraft: "1.21.1".into(),
+            loader: lodestone_image::Loader::Vanilla,
+            loader_version: None,
+        },
+    );
+    image.producer = lodestone_image::Producer {
+        app: lodestone_image::manifest::App::Core,
+        version: "0.6.0".into(),
+    };
+    image.worlds = vec![lodestone_image::World {
+        name: "world".into(),
+        level_name: None,
+        data_version: None,
+        game_version: None,
+        size: None,
+        last_played: None,
+        quiesced: None,
+    }];
+    for (path, bytes) in [
+        ("server.properties", &b"motd=Hello\n"[..]),
+        ("saves/world/level.dat", b"level"),
+    ] {
+        let stored = store.put_bytes(bytes).unwrap();
+        image.entries.push(lodestone_image::Entry::new(
+            lodestone_image::CanonicalPath::new(path).unwrap(),
+            bytes.len() as u64,
+            stored.sha256,
+            lodestone_image::Source::Object {},
+        ));
+    }
+    image.normalize();
+    image.seal();
+    let file = other.data.root().join("Survival - backup.lodeimg");
+    lodestone_image::container::export(&store, &image, &[], &file, NEVER).unwrap();
+    let error = export::inspect(&file).unwrap_err().to_string();
+    assert!(error.contains("Lodestone Host"), "{error}");
+    let error = import(&other, &file, true).unwrap_err().to_string();
+    assert!(error.contains("Lodestone Host"), "{error}");
+    assert_eq!(instance_count(&other), before);
+}

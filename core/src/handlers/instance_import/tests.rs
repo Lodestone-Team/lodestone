@@ -8,6 +8,11 @@ use reqwest::StatusCode;
 use serde_json::{json, Value};
 
 use super::*;
+use crate::implementations::minecraft::{Flavour, ForgeBuildVersion};
+use crate::prelude::GameInstance;
+use crate::server_setup::flavour_with_loader;
+use crate::traits::t_configurable::TConfigurable;
+use crate::traits::t_server::TServer;
 use crate::{
     auth::{permission::UserPermission, user::User},
     events::CausedBy,
@@ -626,4 +631,122 @@ async fn folders_that_cannot_be_imported_are_refused() {
         .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{error}");
     assert_eq!(core.state.instances.len(), 0);
+}
+
+/// The whole import, offline: the test core's server setup is a fake that downloads
+/// nothing, so a server is made, its files copied over what the setup wrote, and it is
+/// listed, never started.
+#[tokio::test]
+async fn a_folder_becomes_a_server_without_the_network() {
+    let core = core().await;
+    let owner = core.user("owner", true, Default::default()).await;
+    let source = core.dir.path().join("Old Server");
+    paper_server(&source);
+    write(&source, "eula.txt", "eula=false\n");
+    let (status, body) = core
+        .post(
+            "/instance/import",
+            &owner,
+            json!({
+                "path": source.to_string_lossy(), "name": "Imported",
+                "version": "1.20.1", "flavour": "Paper", "port": 25611
+            }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    crate::test_util::wait_until("the server is listed", || async {
+        core.state.instances.len() == 1
+    })
+    .await;
+    let GameInstance::MinecraftInstance(instance) =
+        core.state.instances.iter().next().unwrap().value().clone();
+    let root = instance.path().await;
+    assert_eq!(instance.name().await, "Imported");
+    assert_eq!(
+        instance.state().await,
+        crate::traits::t_server::State::Stopped
+    );
+    // the folder's own files, over the setup's
+    assert_eq!(
+        std::fs::read_to_string(root.join("survival/level.dat")).unwrap(),
+        "level"
+    );
+    assert!(std::fs::read_to_string(root.join("eula.txt"))
+        .unwrap()
+        .contains("eula=false"));
+    assert!(std::fs::read_to_string(root.join("server.properties"))
+        .unwrap()
+        .contains("server-port=25611"));
+    assert!(!root.join("paper-1.20.1.jar").exists());
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// A new server through the creation flow `POST /instance/create/{game_type}` hands to
+/// (the route itself first reads Mojang's version list, which a test doesn't reach): the
+/// server setup installs it (here the fake, which downloads nothing), the EULA is accepted
+/// only when the request says the user ticked it, and the server is never started.
+#[tokio::test]
+async fn a_new_server_takes_the_eula_only_when_asked() {
+    use crate::implementations::minecraft::SetupConfig;
+    init_paths();
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = test_app_state(dir.path(), GlobalSettingsData::default()).await;
+    let setup = std::sync::Arc::new(crate::server_setup::FakeSetup::default());
+    state.server_setup = setup.clone();
+    let owner = crate::handlers::util::AuthedUser(User::new(
+        "owner".into(),
+        "pw",
+        true,
+        false,
+        Default::default(),
+    ));
+    for (name, accept, port) in [("Declined", false, 25621), ("Accepted", true, 25622)] {
+        let config = SetupConfig {
+            name: name.into(),
+            version: "1.21.1".into(),
+            flavour: Flavour::Vanilla,
+            port,
+            cmd_args: Vec::new(),
+            description: None,
+            min_ram: None,
+            max_ram: None,
+            auto_start: None,
+            restart_on_crash: None,
+            backup_period: None,
+            modpack: None,
+            accept_eula: accept,
+        };
+        let uuid = crate::handlers::instance::spawn_minecraft_instance_creation(
+            state.clone(),
+            &owner,
+            config,
+            format!("Setting up Minecraft server {name}"),
+            10.0,
+            None,
+        )
+        .await
+        .unwrap();
+        crate::test_util::wait_until("the server is listed", || async {
+            state.instances.get(&uuid).is_some()
+        })
+        .await;
+        let GameInstance::MinecraftInstance(instance) =
+            state.instances.get(&uuid).unwrap().value().clone();
+        let root = instance.path().await;
+        assert_eq!(
+            instance.state().await,
+            crate::traits::t_server::State::Stopped
+        );
+        assert_eq!(instance.port().await, port);
+        assert_eq!(
+            std::fs::read_to_string(root.join("server.jar")).unwrap(),
+            "fake server jar"
+        );
+        let eula = std::fs::read_to_string(root.join("eula.txt")).unwrap();
+        assert!(eula.contains(&format!("eula={accept}")), "{eula}");
+        let asked = setup.installed.lock().unwrap().last().unwrap().clone();
+        assert_eq!(asked.accept_eula, accept);
+        assert_eq!(asked.flavour, Flavour::Vanilla);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

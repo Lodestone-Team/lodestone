@@ -382,7 +382,9 @@ impl AdminClient {
 
     /// Downloads the backup as a zip into `out`; the bytes saved. The zip is written
     /// next to `out` and only replaces it once complete, so a failed or dropped
-    /// download leaves a file already there as it was, and no partial zip.
+    /// download leaves a file already there as it was, and no partial zip. The core's
+    /// zip is let go of once the download ends, however it ends: a zip already saved
+    /// mustn't hold one of the user's few places for backup files for the link's hour.
     pub async fn download_backup_to(
         &self,
         uuid: &str,
@@ -390,7 +392,8 @@ impl AdminClient {
         out: &Path,
     ) -> Result<u64, CoreError> {
         let download = self.backup_download_key(uuid, id).await?;
-        save_via_partial(out, |partial| async move {
+        let release = super::images::ReleaseOnDrop::new(self, &download.key);
+        let saved = save_via_partial(out, |partial| async move {
             self.core()
                 .download_file(
                     &download.key,
@@ -401,7 +404,9 @@ impl AdminClient {
                 )
                 .await
         })
-        .await
+        .await;
+        release.now().await;
+        saved
     }
 
     /// `GET /instance/{uuid}/backups/policy`.

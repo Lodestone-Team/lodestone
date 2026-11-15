@@ -97,7 +97,7 @@ fn main() {
 
 /// `--screenshot <file.png> [--wait <seconds>] [--select-first] [--tab <tab>] [--toasts] [--demo]`
 /// `[--power-menu]` (the selected instance's power menu open)
-/// `[--friends <scene>] [--mods <scene>] [--settings-search <text>]`,
+/// `[--friends <scene>] [--mods <scene>] [--backup-export <scene>] [--settings-search <text>]`,
 /// with the `screenshot` feature: renders the window offscreen after the wait (10 s by
 /// default: the core starts and the Host signs in), optionally with the first instance
 /// selected (on its `--tab`: `console`, `files`, …), sample toasts shown and the page
@@ -331,7 +331,8 @@ mod screenshot {
                     .await;
             }
             // `--create <step>`: the "New server" dialog, moved on to `games`, `basic`,
-            // `server`, `auto` or `modpack` (package A)
+            // `server`, `auto`, `modpack`, or a file's summary, `image` (a Host's backup)
+            // or `image-launcher` (a Launcher's snapshot) (package A)
             if let Some(step) = arg_after("--create") {
                 window
                     .update(cx, |app, _, cx| {
@@ -396,6 +397,20 @@ mod screenshot {
                     .update(cx, |app, _, cx| {
                         let view = app.shell()?.read(cx).page_view()?;
                         lodestone_host::pages::mods_demo(&view, &scene, cx);
+                        Some(())
+                    })
+                    .ok();
+                cx.background_executor()
+                    .timer(Duration::from_millis(500))
+                    .await;
+            }
+            // `--backup-export options|running`: the Backups tab's export dialog (with
+            // `--tab backups --demo`)
+            if let Some(scene) = arg_after("--backup-export") {
+                window
+                    .update(cx, |app, _, cx| {
+                        let view = app.shell()?.read(cx).page_view()?;
+                        lodestone_host::pages::backup_export_demo(&view, &scene, cx);
                         Some(())
                     })
                     .ok();

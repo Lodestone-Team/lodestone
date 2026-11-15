@@ -197,17 +197,29 @@ impl MultipartUpload {
     /// An upload of `paths`, each under its own file name. A file that can't be read
     /// refuses the upload before anything is sent.
     pub fn new(paths: &[PathBuf]) -> Result<Self, CoreError> {
+        let named: Vec<(PathBuf, String)> = paths
+            .iter()
+            .map(|path| {
+                let name = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                (path.clone(), name)
+            })
+            .collect();
+        Self::named(&named)
+    }
+
+    /// An upload of each `(path, name)`: the file at `path`, sent as `name` (for a file
+    /// written to a temporary place whose own name isn't the one to show).
+    pub fn named(files: &[(PathBuf, String)]) -> Result<Self, CoreError> {
         let boundary = multipart_boundary();
         let mut parts = Vec::new();
-        for path in paths {
-            let name = path
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_default();
+        for (path, name) in files {
             let size = std::fs::metadata(path)
                 .map_err(|err| CoreError::Invalid(format!("{name}: {err}")))?
                 .len();
-            parts.push((part_header(&boundary, &name), path.clone(), size));
+            parts.push((part_header(&boundary, name), path.clone(), size));
         }
         Ok(Self { boundary, parts })
     }
@@ -632,6 +644,19 @@ mod tests {
         assert_eq!(err.kind(), std::io::ErrorKind::UnexpectedEof);
         // and one that can't be read refuses the upload before it starts
         assert!(MultipartUpload::new(&[dir.path().join("missing.zip")]).is_err());
+    }
+
+    #[test]
+    fn a_file_can_be_sent_under_another_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("tmp-1234.lodeimg");
+        std::fs::write(&path, b"bytes").unwrap();
+        let upload = MultipartUpload::named(&[(path, "My \"world\".lodeimg".into())]).unwrap();
+        let mut body = String::new();
+        upload.reader().read_to_string(&mut body).unwrap();
+        assert!(body.contains("filename=\"My _world_.lodeimg\""), "{body}");
+        assert!(!body.contains("tmp-1234"));
+        assert_eq!(body.len() as u64, upload.len());
     }
 
     #[test]

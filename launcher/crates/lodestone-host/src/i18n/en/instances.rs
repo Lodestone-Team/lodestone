@@ -50,6 +50,7 @@ crate::i18n::messages! {
         ValidationPositive = "{name} must be positive",
         ValidationMin = "{name} must be greater than or equal to {min}",
         ValidationMax = "{name} must be less than or equal to {max}",
+        ValidationNameCharacters = "The name can’t have any of these characters: / \\ : * ? \" < > |",
         ValidationOneOf = "{name} must be one of the available options",
         MaxRamBelowMin = "Maximum RAM must be at least the minimum RAM",
         NothingFound = "Nothing found.",
@@ -89,6 +90,76 @@ crate::i18n::messages! {
         ImportChooseSoftware = "Choose the server software",
         ImportServer = "Import Server",
         ImportFailed = "Couldn’t import the server: {error}",
+        /// The "New server" dialog's card for a .lodeimg file.
+        GameTypeImage = "From a file",
+        GameTypeImageDescription = "Make a server from a .lodeimg file that another Host or a Launcher exported",
+        StepChooseFile = "Choose a file",
+        StepImageSummary = "What’s in it",
+        ImageFileTitle = "Choose a .lodeimg file",
+        ImageFileSubtitle = "A backup exported from Lodestone Host, or a snapshot exported from Lodestone Launcher. Nothing is made until you create the server.",
+        ImageBrowse = "Choose file…",
+        /// While the file is sent to the core and read.
+        ImageUploading = "Reading the file…",
+        ImageUploadFailed = "Couldn’t open the file: {error}",
+        ImageSummaryTitle = "What’s in the file",
+        ImageSummarySubtitle = "Check what the file holds, then create the server.",
+        /// {version}: the Lodestone version that made the file.
+        ImageMadeByHost = "Made with Lodestone Host {version}",
+        ImageMadeByLauncher = "Made with Lodestone Launcher {version}",
+        ImageMadeByOther = "Made by another program",
+        /// {names}: mod files whose bytes the file carries.
+        ImageCarried = "These are in the file itself, not downloaded from Modrinth: {names}",
+        /// {names}: mods dropped because only players run them.
+        ImageClientOnly = "Mods only players run, left out: {names}",
+        /// {names}: CurseForge files the file doesn't carry, which the core can't download.
+        ImageNotDownloadable = "Lodestone servers can’t download from CurseForge yet, so these files won’t be installed: {names}",
+        /// {names}: what the sender's Lodestone left out (patterns).
+        ImageTakenOut = "Taken out by the sender: {names}",
+        /// {names}: secrets the sender's Lodestone made empty.
+        ImageBlanked = "Made empty by the sender: {names}",
+        /// {names}: files that would give the file's sender a way into the server, or hold
+        /// a password or token (the sender's bot token, store key, proxy secret).
+        ImageSecretsNotTaken = "Not taken, as they hold a key to the server, a password or a token: {names}",
+        /// {names}: files the sender's copy couldn't hold.
+        ImageWithheld = "Missing from the file: {names}",
+        /// {what}: a list of the things below.
+        ImageNotTaken = "Not taken from the file: {what}",
+        NotTakenSoftware = "the server software (Lodestone installs its own)",
+        NotTakenEula = "the EULA",
+        NotTakenClientFiles = "a player’s own files",
+        NotTakenOperators = "the operators",
+        NotTakenScripts = "scripts",
+        ImageOfflineMode = "Its settings let players join without a Minecraft account (online-mode is off).",
+        /// {names}: the operators in the file.
+        ImageKeepOperators = "Keep the file’s operators: {names}",
+        ImageKeepOperatorsHint = "Operators can run any command on the server.",
+        /// Choosing between a vanilla and a Paper server for a vanilla game's file.
+        ImageServerSoftware = "Server software",
+        ImageServerSoftwareHint = "Paper runs plugins. A vanilla server runs Minecraft as it is.",
+        ImageWorld = "World",
+        ImageWorldHint = "The world that becomes the server’s world.",
+        ImageNoWorld = "No world (a new one)",
+        /// {size}: what is downloaded.
+        ImageDownloads = "Downloads {size} from Modrinth",
+        /// {size}: what is downloaded; {names}: the mods and plugins among it.
+        ImageDownloadsMods = "Downloads {size} from Modrinth: {names}",
+        /// {needed} and {free}: sizes.
+        ImageDisk = "Needs {needed} of disk space, 1 GB of it to spare; {free} is free.",
+        /// The free space needed is worked out for the world picked first.
+        ImageNoRoom = "There isn’t enough free space to make this server with the file’s own world. A smaller world, or none, may fit.",
+        ImageNeedsGlobal = "This file has jar files of its own, so making a server from it needs permission to change global files.",
+        /// A file with no mods that still carries protected files of its own.
+        ImageProtectedWarning = "It has protected files of its own, such as jar files or programs, from whoever made it. Only use files from people you trust.",
+        ImageCreate = "Create Server",
+        ImageCreateFailed = "Couldn’t create the server: {error}",
+        /// A server's creation failed after it was asked for, and the core said nothing.
+        CreateFailedLater = "The server couldn’t be created",
+        /// {name}: the file chosen.
+        ImageNotLodeimg = "{name} isn’t a .lodeimg file",
+        /// {flavour}: the file's server software (Spigot, Purpur…).
+        ImageMadeAsPaper = "Lodestone makes {flavour} servers as Paper servers, which run the same plugins.",
+        /// {loader}: the file's mod loader (Quilt…).
+        ImageUnsupported = "Lodestone can’t make {loader} servers.",
         GameVanillaDescription = "Standard vanilla Minecraft server from Mojang.",
         GameForgeDescription = "Modding framework that allows you to install mods and customize your Minecraft experience.",
         GameNeoForgeDescription = "Community fork of Forge with its own mods, for Minecraft 1.20.2 and later.",
@@ -243,6 +314,11 @@ crate::i18n::messages! {
     pub enum InstancesPlural {
         ModpackShowMore = ("Show more ({count} left)", "Show more ({count} left)"),
         ImportFiles = ("{count} file", "{count} files"),
+        /// The trust warning of a file whose server takes mods or plugins.
+        ImageModsWarning = (
+            "It has {count} mod or plugin: a program that runs on the server. Only use files from people you trust.",
+            "It has {count} mods or plugins: programs that run on the server. Only use files from people you trust."
+        ),
         ShareConnected = ("{count} person connected", "{count} people connected"),
         ShareJoins = ("({count} join so far)", "({count} joins so far)"),
     }
