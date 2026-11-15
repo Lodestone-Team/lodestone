@@ -1184,7 +1184,8 @@ pub enum Servers {
         #[arg(long)]
         accept_advisory: bool,
     },
-    /// Makes an instance matching the server (version, loader, client mods) and links it.
+    /// Makes an instance matching the server (its Minecraft version and loader, and the
+    /// files its image gives players: base modpack, mods, shared configs) and links it.
     #[command(
         after_help = "Examples:\n  lodestone-launcher-cli servers create-instance Smp\n  lodestone-launcher-cli servers create-instance Smp --accept-advisory"
     )]
