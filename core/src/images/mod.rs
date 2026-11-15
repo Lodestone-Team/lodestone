@@ -198,8 +198,8 @@ pub struct ImageService {
     gc: Arc<gc::GcState>,
     /// What players are served, cached ([`serve`]).
     pub(crate) views: serve::ViewCache,
-    /// One permit per object download running ([`objects::MAX_OBJECT_STREAMS`]).
-    pub(crate) object_streams: Arc<tokio::sync::Semaphore>,
+    /// Which object downloads may start ([`objects::Downloads`]).
+    pub(crate) downloads: objects::Downloads,
 }
 
 static GLOBAL: OnceLock<Arc<ImageService>> = OnceLock::new();
@@ -238,7 +238,7 @@ impl ImageService {
             source: Default::default(),
             gc: Default::default(),
             views: Default::default(),
-            object_streams: Arc::new(tokio::sync::Semaphore::new(objects::MAX_OBJECT_STREAMS)),
+            downloads: Default::default(),
         }
     }
 
@@ -421,6 +421,7 @@ impl ImageService {
             .unwrap_or_else(|e| e.into_inner())
             .remove(uuid);
         self.views.forget(uuid);
+        self.downloads.forget(uuid);
         Ok(())
     }
 

@@ -3,6 +3,7 @@
 export type SetClientMark = { 
 /**
  * Whether players need the mod: `true` marks it, `false` takes the mark off and
- * leaves it out of the client pack (where Modrinth says players can join without it).
+ * leaves it out of the client pack (where Modrinth says players can join without it)
+ * and of the client view.
  */
 required: boolean, };

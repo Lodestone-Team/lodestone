@@ -22,6 +22,7 @@
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::sync::{Arc, Mutex as StdMutex};
+use std::time::{Duration, Instant};
 
 use axum::body::Bytes;
 use lodestone_image::store::{Store, StoreError};
@@ -35,14 +36,18 @@ use super::{blocking, ImageService, InstanceContext};
 
 /// The most view ids a player may send in `have`.
 pub const MAX_HAVE: usize = 16;
-/// The largest view a player may send to ask for a delta from it (`POST …/image`).
-pub const MAX_SUMMARY_BYTES: usize = 8 << 20;
-/// How many views are kept, by content id: every server's current view and a few older
-/// ones players still have.
+/// How many views are kept, by content id (every server's current view and a few older
+/// ones players still have), and their JSON's bytes in all. A view takes a few times its
+/// JSON in memory; the most recently used one is always kept, however large.
 const VIEW_CACHE: usize = 32;
+const VIEW_CACHE_BYTES: usize = 32 << 20;
 /// How many deltas are kept, and their bytes in all.
 const DELTA_CACHE: usize = 64;
 const DELTA_CACHE_BYTES: usize = 16 << 20;
+/// How long after a failed first record ([`ImageService::record_first`]) the next may
+/// start; it doubles with each failure in a row, up to [`FIRST_RECORD_MAX_WAIT`].
+pub const FIRST_RECORD_WAIT: Duration = Duration::from_secs(60);
+pub const FIRST_RECORD_MAX_WAIT: Duration = Duration::from_secs(30 * 60);
 
 /// The client view of one content image, ready to send.
 pub struct ServedView {
@@ -96,7 +101,8 @@ impl ServedView {
 pub enum ClientAnswer {
     /// The player has the current view.
     Current(Arc<ServedView>),
-    /// The whole current view: the player has none the core knows, or the delta would be
+    /// The whole current view: the player has none the core knows (a player whose views
+    /// were all pruned diffs it against the view it applied itself), or the delta would be
     /// no smaller.
     View(Arc<ServedView>),
     /// The changes from a view the player has to the current one, as sent.
@@ -178,8 +184,35 @@ pub(crate) struct ViewCache {
     known: StdMutex<HashMap<InstanceUuid, Known>>,
     /// One scan of an instance's manifests at a time.
     lookups: StdMutex<HashMap<InstanceUuid, Arc<tokio::sync::Mutex<()>>>>,
-    /// Instances whose first content image a player's request is recording.
-    first_records: StdMutex<HashSet<InstanceUuid>>,
+    /// Instances whose first content image a player's request is recording, or whose
+    /// last such record failed.
+    first_records: StdMutex<HashMap<InstanceUuid, FirstRecordState>>,
+}
+
+/// Where the first record of an instance that has no content image is.
+enum FirstRecordState {
+    Running,
+    /// The last `failures` records in a row failed; the next may start at `retry_at`.
+    Failed {
+        failures: u32,
+        retry_at: Instant,
+    },
+}
+
+/// What [`ImageService::record_first`] did.
+#[derive(Debug, PartialEq, Eq)]
+pub enum FirstRecord {
+    /// The first content image is being recorded (by this request or an earlier one).
+    Recording,
+    /// The last record failed; the next starts once this has passed.
+    Failed { retry_after: Duration },
+}
+
+/// How long to wait after `failures` failed first records in a row.
+fn first_record_wait(failures: u32) -> Duration {
+    FIRST_RECORD_WAIT
+        .saturating_mul(1 << failures.saturating_sub(1).min(16))
+        .min(FIRST_RECORD_MAX_WAIT)
 }
 
 impl Default for ViewCache {
@@ -243,26 +276,6 @@ fn served_view(store: &Store, uuid: &InstanceUuid, content_id: &str) -> Result<S
     Ok(ServedView::new(content_id.to_string(), view))
 }
 
-fn bad_request(message: impl Into<String>) -> Error {
-    Error {
-        kind: ErrorKind::BadRequest,
-        source: color_eyre::eyre::eyre!(message.into()),
-    }
-}
-
-/// Whether `image` is a client view whose id is its own (the spec's check for a view
-/// received from elsewhere: its id equals the id of its own view).
-fn check_client_view(image: &Image) -> Result<(), Error> {
-    if image.side != Some(Side::Client) {
-        return Err(bad_request("This isn't a client view"));
-    }
-    match view(image, Side::Client, image.rules) {
-        Ok(again) if again.id == image.id => Ok(()),
-        Ok(_) => Err(bad_request("The view's id doesn't match its contents")),
-        Err(e) => Err(bad_request(format!("The view can't be read: {e}"))),
-    }
-}
-
 impl ImageService {
     /// The client view of the instance's current content image, or `None` while it has
     /// none (start one with [`Self::record_first`]).
@@ -305,8 +318,8 @@ impl ImageService {
             content_id.to_string(),
             view.clone(),
             VIEW_CACHE,
-            usize::MAX,
-            |_| 0,
+            VIEW_CACHE_BYTES,
+            |view| view.json.len(),
         );
         Ok(view)
     }
@@ -345,35 +358,6 @@ impl ImageService {
             }
         }
         Ok(Some(ClientAnswer::View(current)))
-    }
-
-    /// What to send a player whose views were all pruned: it sends the client view it last
-    /// applied (`have_view`, which must be a client view whose id checks out, else a bad
-    /// request), and gets a delta from it (or [`ClientAnswer::Current`], or the whole view
-    /// when that is no larger). A view rather than bare paths and hashes, since a delta must
-    /// give the exact image: every entry's source, sides and mode. Not cached: such a view
-    /// is the player's own. `None` while the instance has no content image.
-    pub async fn client_answer_from(
-        &self,
-        uuid: &InstanceUuid,
-        have_view: Image,
-    ) -> Result<Option<ClientAnswer>, Error> {
-        let have_view = blocking(move || check_client_view(&have_view).map(|()| have_view)).await?;
-        let Some(current) = self.client_view(uuid).await? else {
-            return Ok(None);
-        };
-        if have_view.id == current.id() {
-            return Ok(Some(ClientAnswer::Current(current)));
-        }
-        let to = current.clone();
-        let json = blocking(move || Ok(delta_json(&have_view, &to))).await?;
-        Ok(Some(match json {
-            Some(json) => ClientAnswer::Delta {
-                view: current,
-                json,
-            },
-            None => ClientAnswer::View(current),
-        }))
     }
 
     /// The answer for a player with the view `from`: a delta to `current`, cached.
@@ -479,23 +463,56 @@ impl ImageService {
     /// players ask, when it still has none (or its pointer names a manifest that went
     /// missing). Unlike the startup sweep it also records a running server (on one
     /// thread), and leaves `running_since` as it is, so the next stop takes the baseline
-    /// again as usual.
-    pub fn record_first(self: &Arc<Self>, ctx: InstanceContext) {
-        if !Self::accepts(&ctx.uuid) || !locked(&self.views.first_records).insert(ctx.uuid.clone())
-        {
-            return;
+    /// again as usual. After a record fails, none starts again for [`FIRST_RECORD_WAIT`],
+    /// doubling with each failure in a row: players can't make the core rescan a server
+    /// (holding its owner's operations off) over and over.
+    pub fn record_first(self: &Arc<Self>, ctx: InstanceContext) -> FirstRecord {
+        if !Self::accepts(&ctx.uuid) {
+            return FirstRecord::Recording;
         }
+        let now = self.clock.now();
+        let failures = {
+            let mut records = locked(&self.views.first_records);
+            let failures = match records.get(&ctx.uuid) {
+                Some(FirstRecordState::Running) => return FirstRecord::Recording,
+                Some(FirstRecordState::Failed { retry_at, .. }) if *retry_at > now => {
+                    return FirstRecord::Failed {
+                        retry_after: *retry_at - now,
+                    }
+                }
+                Some(FirstRecordState::Failed { failures, .. }) => *failures,
+                None => 0,
+            };
+            records.insert(ctx.uuid.clone(), FirstRecordState::Running);
+            failures
+        };
         let this = self.clone();
         tokio::spawn(async move {
             let uuid = ctx.uuid.clone();
-            if let Err(e) = this.record_first_now(ctx).await {
-                warn!(
-                    "Failed to record the first content image of {uuid}: {}",
-                    e.source
-                );
+            let result = this.record_first_now(ctx).await;
+            let mut records = locked(&this.views.first_records);
+            match result {
+                Ok(()) => {
+                    records.remove(&uuid);
+                }
+                Err(e) => {
+                    let failures = failures.saturating_add(1);
+                    let wait = first_record_wait(failures);
+                    warn!(
+                        "Failed to record the first content image of {uuid} (trying again in {wait:?} at the earliest): {}",
+                        e.source
+                    );
+                    records.insert(
+                        uuid,
+                        FirstRecordState::Failed {
+                            failures,
+                            retry_at: this.clock.now() + wait,
+                        },
+                    );
+                }
             }
-            locked(&this.views.first_records).remove(&uuid);
         });
+        FirstRecord::Recording
     }
 
     async fn record_first_now(&self, ctx: InstanceContext) -> Result<(), Error> {
@@ -529,7 +546,10 @@ impl ImageService {
     /// Whether a first record started by [`Self::record_first`] is running.
     #[cfg(test)]
     pub(crate) fn recording_first(&self, uuid: &InstanceUuid) -> bool {
-        locked(&self.views.first_records).contains(uuid)
+        matches!(
+            locked(&self.views.first_records).get(uuid),
+            Some(FirstRecordState::Running)
+        )
     }
 }
 

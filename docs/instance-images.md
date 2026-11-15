@@ -602,8 +602,8 @@ restore" when nothing changed outside Lodestone and the backup excludes didn't c
   manual and pinned never deleted; safety images before a restore kept 30 days), never
   the content lineage's. The Launcher offers the same, per instance.
 - A player whose views were all pruned gets the whole view for a `have` the core no longer
-  knows, or sends the client view it last applied (`POST …/image`, "Server to player") and
-  gets a delta from it.
+  knows, and diffs it against the view it applied itself (`lodestone_image::diff`), which
+  gives the same delta the server would ("Server to player").
 
 ## Server to player
 
@@ -623,9 +623,10 @@ for a server that doesn't exist, isn't listed, isn't shared or is a Docker conta
 
 ```
 GET  …/image?side=client[&have=<view id>,<view id>…]
-POST …/image?side=client            body: the client view the player last applied
 GET  …/objects/{sha256}             (and HEAD)
 ```
+
+No route takes a request body (any other method is 405).
 
 **`GET …/image`.** `side` must be `client` (anything else is 400: a server view carries
 the server's configs and secrets). `have` lists client view ids the player has, newest
@@ -655,16 +656,15 @@ While the server has no content image yet (or its pointer names a manifest that 
 missing), the answer is **503** with `Retry-After: 5` and the error body
 `{"kind": "Conflict", "causes": [...]}`, and the core records the server's first content
 image in the background (once, however many ask, on one thread, for a running server
-too). The player asks again after the delay.
+too). The player asks again after the delay. When that record failed, no other starts for
+a minute, doubling with each failure in a row up to 30 minutes; meanwhile the answer is
+**503** with `{"kind": "Internal", …}` and `Retry-After` the seconds left (at least 5).
 
-**`POST …/image`.** For a player whose `have` views were all pruned (retention keeps the
-newest 30 content images): the body is the client view manifest it last applied, exactly
-as it received it, at most 8 MiB (413 above). The answer is the GET's: 204 when it is the
-current view, else a delta from it or the whole view. 400 when the body isn't a manifest,
-isn't a client view (`side`), its rules are newer than the core's, or its id doesn't
-check out as a received view's must. It is a whole view rather than paths and hashes
-because a delta must rebuild the exact current view: every entry's source, sides and mode,
-which paths and hashes alone can't give.
+**A player whose views were all pruned** (retention keeps the newest 30 content images)
+names views the core no longer knows, so it gets the whole view (200,
+`X-Lodestone-Answer: view`). It diffs that against the view it last applied
+(`lodestone_image::diff(applied, received)`), which gives exactly the delta the server
+would have sent, and goes on as with a delta.
 
 **`GET …/objects/{sha256}`.** The bytes of a file the current client view names with
 source `object`, or of its client settings' icon or background. Nothing else in the store
@@ -684,7 +684,10 @@ from its chunks: chunk lists never reach players.
   the whole file (200), as HTTP allows.
 - HEAD: the same status and headers, no body; nothing is read.
 - 503 with `Retry-After: 1` and `{"kind": "TooManyRequests", …}` while 64 downloads run
-  (over every server and route).
+  over every server and route, or 16 of this server's. A player should run at most 4 at
+  once.
+- A download whose player takes nothing for 60 seconds ends, cut short (a player must
+  read at least about 4 KiB/s: the core hands the connection 256 KiB at a time).
 - Every byte is checked against the store before it is sent, but a check that fails can
   only be found after some bytes went (a damaged chunk mid-file, or the whole file's
   SHA-256 at the end): the response is then cut short. So the player checks the SHA-256
@@ -1256,17 +1259,30 @@ player" has the protocol itself).
 - **A view and a delta are told apart by headers**: `X-Lodestone-Answer: view|delta`, with
   `X-Lodestone-View` naming the current view on every 200 and 204 (see "Server to player"
   for how a player checks each).
-- **The summary of a pruned player is its last view**, POSTed (at most 8 MiB), not paths
-  and hashes: a delta must rebuild the exact image (each entry's source, sides and mode).
-  The core checks it is a client view whose id checks out, and diffs it against the
-  current view; nothing about it is cached.
+- **A pruned player diffs the whole view itself**, rather than sending a summary of what it
+  has. A summary that lets the core rebuild the exact view (each entry's source, sides and
+  mode, not only paths and hashes) is about as large as the view, so uploading it to get a
+  delta back would move more bytes than downloading the view, and would give the public
+  routes a request body to buffer and parse. `lodestone_image::diff(applied, received)`
+  gives the player the same delta the server would. No route takes a body.
 - **Only `side=client`.** A server view carries configs and secrets; `side=server` is 400.
 - **Which objects are served.** Only `object` entries of the current client view, plus
-  its client settings' icon and background; anything else is 404, including an object of
+  its client settings' icon and background (the core records no client settings in its
+  content images yet, so today that is only `object` entries; the rule is there for images
+  that carry them); anything else is 404, including an object of
   a view no longer current (the player asks for the image again). A large file is sent
   whole, put together from its chunks, so players never see chunk lists. One byte range
-  (206/416), HEAD, immutable caching. At most 64 downloads run at once (`MAX_OBJECT_STREAMS`,
-  503 with `Retry-After: 1` past that).
+  (206/416), HEAD, immutable caching.
+- **Download limits.** At most 64 downloads run at once over every server and route
+  (`MAX_OBJECT_STREAMS`) and 16 of one server (`MAX_OBJECT_STREAMS_PER_SERVER`); past either,
+  503 with `Retry-After: 1`. A download is a task that hands its bytes to the connection in
+  pieces of at most 256 KiB, reading ahead at most one 1 MiB step; a piece the connection
+  doesn't take within 60 seconds (`IDLE_TIMEOUT`) ends the download, cut short, and gives
+  its place back. So a client that opens downloads and stops reading holds them a minute
+  at most, and crowds out only that server's players; one that reads slowly on purpose
+  (over 4 KiB/s per download) can keep a server's 16, at the cost of its own bandwidth.
+  Limits per player aren't possible on every route (a tunnel has no address per player),
+  so there are none.
 - **Collections are held off per read, never per download.** A download reads at most 1 MiB
   at a time (a small file whole, or a large file's chunks), each read on a blocking thread
   of its own under its own shared hold on the store's collection lock: a slow player holds
@@ -1282,7 +1298,11 @@ player" has the protocol itself).
   object the store lacks, and fetching it fails.
 - **No content image yet** is 503 with `Retry-After: 5`, and the first content image is
   recorded in the background ("Content when Lodestone began recording"), once however many
-  players ask, on one thread. Unlike the startup sweep this also records a running server,
+  players ask, on one thread. A record that fails isn't tried again for a minute, doubling
+  with each failure in a row up to 30 minutes (per server, in memory, forgotten on
+  success); meanwhile players get 503 with the time left as `Retry-After`. Anyone may ask
+  on the public route, and each record holds the owner's operations off while it scans,
+  so a server whose first record keeps failing must not be rescanned on every request. Unlike the startup sweep this also records a running server,
   and leaves `running_since` as it is, so the next stop takes the baseline again as usual.
   A pointer whose manifest went missing counts as no image (the record saves it again).
 - **Freshness.** The view follows the current content image, not the image a running
@@ -1305,9 +1325,10 @@ player" has the protocol itself).
   image with such a jar gets a new id once, which nothing released depends on. The Mods
   tab's "for players" column reads the same metadata, so Forge mods that declare a side now
   show it there too.
-- **Caching.** Per process and in memory: views by content id (32), deltas by their two
-  view ids (64, at most 16 MiB), and which content image each view id comes from, per
-  server. All of them are immutable for one version of the rules (a content id is its
+- **Caching.** Per process and in memory: views by content id (32, at most 32 MiB of view
+  JSON; a view takes a few times its JSON in memory, and the most recently used one is
+  kept however large), deltas by their two view ids (64, at most 16 MiB), and which content
+  image each view id comes from, per server. All of them are immutable for one version of the rules (a content id is its
   contents), so nothing is ever invalidated; a server's view ids are forgotten when it is
   deleted, and those of pruned manifests at the next scan. A view id the core hasn't seen
   makes it read the manifests it hasn't read yet, each once while the core runs, one scan
@@ -1324,8 +1345,12 @@ player" has the protocol itself).
   player gets them from the base pack's `.mrpack`. If that pack version disappears from
   Modrinth, players can't install those files; M4 must say so clearly.
 - **Denial of service.** The public routes need no sign-in, so their costs are bounded:
-  views and deltas are cached, unknown `have` ids cost a folder listing, each manifest is
-  read once per process, POST bodies are capped at 8 MiB and parsed on blocking threads,
-  and downloads are capped at 64 with no thread held while a player is slow. A first burst
-  of unknown ids on a server with many backup-linked content images reads each of them
-  once. A download waits while a collection runs (seconds to minutes on a large store).
+  views and deltas are cached (by count and bytes), unknown `have` ids cost a folder
+  listing, each manifest is read once per process, no route takes a request body, a failed
+  first record isn't retried for a minute or more, and downloads are capped (64 in all, 16
+  per server, ended after 60 seconds without progress) with no thread held while a player
+  is slow. A first burst of unknown ids on a server with many backup-linked content images
+  reads each of them once. A download waits while a collection runs (seconds to minutes on
+  a large store). The core's HTTP server has no connection timeouts of its own, so a
+  stalled connection keeps what it already buffered (at most about 2 MiB of a download)
+  until the client closes it.

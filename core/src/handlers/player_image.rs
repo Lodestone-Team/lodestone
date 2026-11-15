@@ -1,6 +1,6 @@
 //! What a server serves its players over HTTP (`docs/instance-images.md`, "Server to
 //! player"): the client view of its current content image or a delta to it
-//! (`GET`/`POST …/image`), and the bytes only the server has (`GET …/objects/{sha256}`).
+//! (`GET …/image`), and the bytes only the server has (`GET …/objects/{sha256}`).
 //!
 //! The same answers are reachable three ways, each router checking access first exactly
 //! as its client-pack route does and then calling these:
@@ -13,7 +13,7 @@
 //!   shared instance only.
 
 use axum::{
-    body::{Body, Bytes},
+    body::Body,
     http::{
         header::{
             ACCEPT_RANGES, CACHE_CONTROL, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, ETAG, RANGE,
@@ -25,12 +25,11 @@ use axum::{
 };
 use color_eyre::eyre::{eyre, Context};
 use lodestone_image::hex::is_sha256;
-use lodestone_image::Image;
 use serde::Deserialize;
 
 use crate::error::{Error, ErrorKind};
-use crate::images::objects::{object_stream, ByteRange};
-use crate::images::serve::{ClientAnswer, MAX_HAVE};
+use crate::images::objects::{object_stream, ByteRange, IDLE_TIMEOUT};
+use crate::images::serve::{ClientAnswer, FirstRecord, MAX_HAVE};
 use crate::types::InstanceUuid;
 use crate::AppState;
 
@@ -108,16 +107,27 @@ fn unavailable(kind: ErrorKind, message: &str, retry_after: u64) -> Response {
 }
 
 /// The answer while the instance has no content image: its first is recorded in the
-/// background, and the player asks again shortly.
+/// background, and the player asks again shortly; or, when the last try failed, later.
 async fn recording(state: &AppState, uuid: &InstanceUuid) -> Response {
-    if let Some(ctx) = crate::images::context_of(state, uuid).await {
-        state.images().record_first(ctx);
+    let first = match crate::images::context_of(state, uuid).await {
+        Some(ctx) => state.images().record_first(ctx),
+        None => FirstRecord::Recording,
+    };
+    match first {
+        FirstRecord::Recording => unavailable(
+            ErrorKind::Conflict,
+            "The server's content is being recorded; try again in a few seconds",
+            RECORDING_RETRY_SECS,
+        ),
+        FirstRecord::Failed { retry_after } => unavailable(
+            ErrorKind::Internal,
+            "The server's content couldn't be recorded; try again later",
+            retry_after
+                .as_secs_f64()
+                .ceil()
+                .max(RECORDING_RETRY_SECS as f64) as u64,
+        ),
     }
-    unavailable(
-        ErrorKind::Conflict,
-        "The server's content is being recorded; try again in a few seconds",
-        RECORDING_RETRY_SECS,
-    )
 }
 
 fn answer_response(answer: ClientAnswer) -> Result<Response, Error> {
@@ -150,25 +160,6 @@ pub(crate) async fn image_response(
     check_side(&query)?;
     let have = parse_have(query.have.as_deref())?;
     match state.images().client_answer(uuid, &have).await? {
-        Some(answer) => answer_response(answer),
-        None => Ok(recording(state, uuid).await),
-    }
-}
-
-/// `POST …/image?side=client` with the client view the player last applied: a delta from
-/// it, the whole view, or 204 (for a player whose `have` views were all pruned).
-pub(crate) async fn summary_response(
-    state: &AppState,
-    uuid: &InstanceUuid,
-    query: ImageQuery,
-    body: Bytes,
-) -> Result<Response, Error> {
-    check_side(&query)?;
-    let have_view = crate::images::blocking(move || {
-        Image::from_json(&body).map_err(|e| bad_request(&format!("The view can't be read: {e}")))
-    })
-    .await?;
-    match state.images().client_answer_from(uuid, have_view).await? {
         Some(answer) => answer_response(answer),
         None => Ok(recording(state, uuid).await),
     }
@@ -287,7 +278,7 @@ pub(crate) async fn object_response(
             .body(Body::empty())
             .context("Failed to build the response")?);
     }
-    let Ok(permit) = state.images().object_streams.clone().try_acquire_owned() else {
+    let Some(permit) = state.images().downloads.try_start(uuid) else {
         return Ok(unavailable(
             ErrorKind::TooManyRequests,
             "Too many downloads are running; try again in a moment",
@@ -300,6 +291,7 @@ pub(crate) async fn object_response(
         size,
         range,
         permit,
+        IDLE_TIMEOUT,
     );
     Ok(builder
         .body(Body::from_stream(stream))

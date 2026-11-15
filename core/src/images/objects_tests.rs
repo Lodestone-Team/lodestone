@@ -9,7 +9,6 @@ use futures::StreamExt;
 use lodestone_image::store::gc::GcOptions;
 use lodestone_image::store::{Encoding, ObjectForm, Store};
 use lodestone_image::{CanonicalPath, Entry, Game, Image, Kind, Loader, Source};
-use tokio::sync::Semaphore;
 
 use super::*;
 
@@ -32,8 +31,17 @@ async fn collect(
     size: u64,
     range: Option<ByteRange>,
 ) -> Result<Vec<u8>, std::io::Error> {
-    let permit = Arc::new(Semaphore::new(1)).try_acquire_owned().unwrap();
-    let stream = object_stream(store.clone(), sha256.to_string(), size, range, permit);
+    let permit = Downloads::default()
+        .try_start(&InstanceUuid::default())
+        .unwrap();
+    let stream = object_stream(
+        store.clone(),
+        sha256.to_string(),
+        size,
+        range,
+        permit,
+        IDLE_TIMEOUT,
+    );
     let mut stream = std::pin::pin!(stream);
     let mut out = Vec::new();
     while let Some(bytes) = stream.next().await {
@@ -252,4 +260,88 @@ async fn collections_never_break_a_stream_of_a_live_object() {
     assert!(collector.join().unwrap() > 0);
     assert!(store.object_complete(&stored.sha256, stored.size));
     assert!(!store.object_complete(&unused.sha256, unused.size));
+}
+
+#[test]
+fn downloads_are_limited_per_server_and_in_all() {
+    let downloads = Downloads::default();
+    let servers: Vec<InstanceUuid> = (0..5)
+        .map(|n| InstanceUuid::from(format!("INSTANCE_{n}")))
+        .collect();
+    let mut held = Vec::new();
+    for _ in 0..MAX_OBJECT_STREAMS_PER_SERVER {
+        held.push(downloads.try_start(&servers[0]).unwrap());
+    }
+    // one server's limit leaves the others theirs
+    assert!(downloads.try_start(&servers[0]).is_none());
+    for server in &servers[1..] {
+        while held.len() < MAX_OBJECT_STREAMS {
+            let Some(permit) = downloads.try_start(server) else {
+                break;
+            };
+            held.push(permit);
+        }
+    }
+    assert_eq!(downloads.running(), MAX_OBJECT_STREAMS);
+    // all of them: nobody starts, not even a server with none running
+    assert!(downloads
+        .try_start(&InstanceUuid::from("INSTANCE_new".to_string()))
+        .is_none());
+    held.pop();
+    assert!(downloads.try_start(&servers[0]).is_none());
+    held.clear();
+    assert_eq!(downloads.running(), 0);
+    assert!(downloads.try_start(&servers[0]).is_some());
+}
+
+/// A player that stops reading: the download ends after the idle time and gives its place
+/// back, though the connection still holds the stream.
+#[tokio::test]
+async fn a_download_nobody_reads_ends_and_frees_its_place() {
+    let (_dir, store) = store();
+    let bytes = noise(3 << 20, 19);
+    let stored = store.put_bytes(&bytes).unwrap();
+    let downloads = Downloads::default();
+    let uuid = InstanceUuid::default();
+    let stream = object_stream(
+        store.clone(),
+        stored.sha256.clone(),
+        stored.size,
+        None,
+        downloads.try_start(&uuid).unwrap(),
+        Duration::from_millis(200),
+    );
+    let mut stream = std::pin::pin!(stream);
+    let first = stream.next().await.unwrap().unwrap();
+    assert_eq!(&first[..], &bytes[..first.len()]);
+    assert_eq!(downloads.running(), 1);
+    // the player takes nothing more
+    crate::test_util::wait_until("the download gives up", || async {
+        downloads.running() == 0
+    })
+    .await;
+    // what it already read ahead may still come, then the body ends short
+    let mut rest = first.len();
+    while let Some(piece) = stream.next().await {
+        rest += piece.unwrap().len();
+    }
+    assert!(rest < bytes.len(), "the body is cut short");
+
+    // a player that reads at its own pace gets everything
+    let stream = object_stream(
+        store.clone(),
+        stored.sha256.clone(),
+        stored.size,
+        None,
+        downloads.try_start(&uuid).unwrap(),
+        Duration::from_millis(200),
+    );
+    let mut stream = std::pin::pin!(stream);
+    let mut out = Vec::new();
+    while let Some(piece) = stream.next().await {
+        out.extend_from_slice(&piece.unwrap());
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(out, bytes);
+    assert_eq!(downloads.running(), 0);
 }

@@ -836,6 +836,144 @@ async fn friends_reach_only_what_is_shared_with_them() {
     assert_eq!(friend_get(&tx, ben, &object).await.0, 404);
 }
 
+/// Sends `request` (a whole HTTP/1.1 request) over `stream` and reads the whole answer.
+async fn exchange(mut stream: tokio::io::DuplexStream, request: &str) -> Vec<u8> {
+    stream.write_all(request.as_bytes()).await.unwrap();
+    let mut answer = Vec::new();
+    tokio::time::timeout(Duration::from_secs(30), stream.read_to_end(&mut answer))
+        .await
+        .unwrap()
+        .unwrap();
+    answer
+}
+
+/// An answer's status, header lines (lowercase names) and body.
+fn read_answer(answer: &[u8]) -> (u16, Vec<String>, Vec<u8>) {
+    let (status, body) = lodestone_connect::info::parse_response(answer).unwrap();
+    let end = answer.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+    let head = String::from_utf8_lossy(&answer[..end])
+        .lines()
+        .skip(1)
+        .map(|line| {
+            let (name, value) = line.split_once(':').unwrap();
+            format!("{}: {}", name.to_ascii_lowercase(), value.trim())
+        })
+        .collect();
+    (status, head, body)
+}
+
+/// Bytes FastCDC cuts into several chunks.
+fn noise(len: usize) -> Vec<u8> {
+    let mut state = 0x9e37_79b9_7f4a_7c15_u64;
+    (0..len)
+        .map(|_| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state as u8
+        })
+        .collect()
+}
+
+/// Fetches the object `sha256` of `uuid` (`bytes`, over 1 MiB, so a chunk list in the
+/// store) through a tunnel's `send`: whole, one range across chunks, and HEAD.
+async fn large_object_through<F, Fut>(send: F, uuid: &InstanceUuid, sha256: &str, bytes: &[u8])
+where
+    F: Fn(String) -> Fut,
+    Fut: std::future::Future<Output = Vec<u8>>,
+{
+    let path = format!("/api/v1/public/instances/{uuid}/objects/{sha256}");
+    let request = |method: &str, extra: &str| {
+        format!("{method} {path} HTTP/1.1\r\nHost: x\r\n{extra}Connection: close\r\n\r\n")
+    };
+    let length = format!("content-length: {}", bytes.len());
+
+    let (status, head, body) = read_answer(&send(request("GET", "")).await);
+    assert_eq!(status, 200);
+    assert!(head.contains(&length), "{head:?}");
+    assert_eq!(body.len(), bytes.len());
+    assert_eq!(lodestone_image::hex::sha256_hex(&body), sha256);
+
+    let (start, end) = (1_000_000, 2_200_000);
+    let (status, head, body) =
+        read_answer(&send(request("GET", &format!("Range: bytes={start}-{end}\r\n"))).await);
+    assert_eq!(status, 206);
+    assert!(
+        head.contains(&format!(
+            "content-range: bytes {start}-{end}/{}",
+            bytes.len()
+        )),
+        "{head:?}"
+    );
+    assert_eq!(body, &bytes[start..=end]);
+
+    let (status, head, body) = read_answer(&send(request("HEAD", "")).await);
+    assert_eq!(status, 200);
+    assert!(head.contains(&length), "{head:?}");
+    assert!(body.is_empty());
+}
+
+#[tokio::test]
+async fn large_objects_cross_info_streams_and_friend_tunnels() {
+    let core = core().await;
+    let bytes = noise(3 << 20);
+    std::fs::write(
+        core.dir.path().join("instances/fabric/mods/big.jar"),
+        &bytes,
+    )
+    .unwrap();
+    let sha256 = lodestone_image::hex::sha256_hex(&bytes);
+
+    let (info, rx) = mpsc::channel(4);
+    tokio::spawn(serve_info(core.state.clone(), core.fabric.clone(), rx));
+    let view = image_through(
+        |path| {
+            let info = &info;
+            async move { info_get(info, &path).await }
+        },
+        &core.fabric,
+    )
+    .await;
+    assert!(view.entries.iter().any(|e| e.sha256 == sha256));
+    large_object_through(
+        |request| {
+            let info = info.clone();
+            async move {
+                let (near, far) = tokio::io::duplex(1 << 20);
+                info.send(far).await.unwrap();
+                exchange(near, &request).await
+            }
+        },
+        &core.fabric,
+        &sha256,
+        &bytes,
+    )
+    .await;
+
+    let ben = lodestone_connect::friend::PublicKey([1; 32]);
+    let access: friends::Access = Default::default();
+    access
+        .write()
+        .unwrap()
+        .insert(ben, [core.fabric.clone()].into_iter().collect());
+    let (friend, rx) = mpsc::channel(4);
+    tokio::spawn(friends::serve_friend_info(core.state.clone(), access, rx));
+    large_object_through(
+        |request| {
+            let friend = friend.clone();
+            async move {
+                let (near, far) = tokio::io::duplex(1 << 20);
+                friend.send((far, ben)).await.unwrap();
+                exchange(near, &request).await
+            }
+        },
+        &core.fabric,
+        &sha256,
+        &bytes,
+    )
+    .await;
+}
+
 #[tokio::test]
 async fn the_friend_list_refuses_forwarded_requests_and_too_many_sharing_friends() {
     let core = core().await;

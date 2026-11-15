@@ -23,10 +23,7 @@ use std::{
 };
 
 use axum::{
-    body::Bytes,
-    extract::{
-        connect_info::Connected, ConnectInfo, DefaultBodyLimit, Path as UrlPath, Query, State,
-    },
+    extract::{connect_info::Connected, ConnectInfo, Path as UrlPath, Query, State},
     http::{HeaderMap, Method},
     response::Response,
     routing::get,
@@ -53,11 +50,10 @@ use super::{game_port_open, shared_server_of, SHARED_SCOPE};
 use crate::{
     error::{Error, ErrorKind},
     handlers::{
-        player_image::{image_response, object_response, summary_response, ImageQuery},
+        player_image::{image_response, object_response, ImageQuery},
         public_instances::{pack_response, public_instance},
         util::get_instance,
     },
-    images::serve::MAX_SUMMARY_BYTES,
     public_listing::PublicInstanceList,
     traits::{
         t_configurable::{Game, TConfigurable},
@@ -879,9 +875,9 @@ struct FriendRoutes {
 /// - `GET /api/v1/friend/servers`: their [`SharedServer`]s;
 /// - `GET /api/v1/public/instances`: those instances, as the public list shows them;
 /// - `GET /api/v1/public/instances/{uuid}/client-pack`: a shared instance's client pack;
-/// - `GET`/`POST /api/v1/public/instances/{uuid}/image` and
-///   `GET /api/v1/public/instances/{uuid}/objects/{sha256}`: a shared instance's client view,
-///   deltas and objects (`crate::handlers::player_image`).
+/// - `GET /api/v1/public/instances/{uuid}/image` and
+///   `GET`/`HEAD /api/v1/public/instances/{uuid}/objects/{sha256}`: a shared instance's
+///   client view, deltas and objects (`crate::handlers::player_image`).
 ///
 /// Everything else is 404.
 pub(crate) fn friend_router(state: AppState, access: Access) -> Router {
@@ -894,9 +890,7 @@ pub(crate) fn friend_router(state: AppState, access: Access) -> Router {
         )
         .route(
             "/api/v1/public/instances/{uuid}/image",
-            get(get_friend_image)
-                .post(post_friend_image)
-                .layer(DefaultBodyLimit::max(MAX_SUMMARY_BYTES)),
+            get(get_friend_image),
         )
         .route(
             "/api/v1/public/instances/{uuid}/objects/{sha256}",
@@ -990,17 +984,6 @@ async fn get_friend_image(
 ) -> Result<Response, Error> {
     friend_allows(&routes, &friend, &uuid)?;
     image_response(&routes.state, &uuid, query).await
-}
-
-async fn post_friend_image(
-    State(routes): State<FriendRoutes>,
-    ConnectInfo(FriendPeer(friend)): ConnectInfo<FriendPeer>,
-    UrlPath(uuid): UrlPath<InstanceUuid>,
-    Query(query): Query<ImageQuery>,
-    body: Bytes,
-) -> Result<Response, Error> {
-    friend_allows(&routes, &friend, &uuid)?;
-    summary_response(&routes.state, &uuid, query, body).await
 }
 
 async fn get_friend_object(

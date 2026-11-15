@@ -43,8 +43,9 @@ struct Player<'a> {
     /// The player's own store: raw files, like the Launcher's.
     store: Store,
     _dir: tempfile::TempDir,
-    /// Files the test stands in for Modrinth's CDN with, by SHA-256.
-    cdn: Vec<Vec<u8>>,
+    /// Files the test stands in for Modrinth's CDN, the base pack's `.mrpack` and
+    /// CurseForge with, found by SHA-256.
+    elsewhere: Vec<Vec<u8>>,
 }
 
 /// An answer to `GET …/image`.
@@ -55,14 +56,14 @@ enum Answer {
 }
 
 impl<'a> Player<'a> {
-    fn new(core: &'a content::Core, cdn: Vec<Vec<u8>>) -> Player<'a> {
+    fn new(core: &'a content::Core, elsewhere: Vec<Vec<u8>>) -> Player<'a> {
         let dir = tempfile::tempdir().unwrap();
         Player {
             core,
             http: reqwest::Client::new(),
             store: Store::new(dir.path().join("store"), Encoding::Raw),
             _dir: dir,
-            cdn,
+            elsewhere,
         }
     }
 
@@ -153,10 +154,27 @@ impl<'a> Player<'a> {
         (status, bytes)
     }
 
-    /// Fetches what the player's store lacks of `view`: objects from the server, Modrinth
-    /// files from the CDN stand-in (which the server must refuse). False when an object is
-    /// no longer served (the view was superseded meanwhile).
+    /// Fetches what the player's store lacks of `view`: objects (and the client settings'
+    /// icon and background) from the server, Modrinth, base pack and CurseForge files from
+    /// the stand-in for those (which the server must refuse). False when an object is no
+    /// longer served (the view was superseded meanwhile).
     async fn fetch(&self, view: &Image) -> bool {
+        let stored = view
+            .settings
+            .client
+            .iter()
+            .flat_map(|client| client.icon.iter().chain(client.background.iter()));
+        for file in stored {
+            if self.store.object_complete(&file.sha256, file.size) {
+                continue;
+            }
+            let (status, bytes) = self.object(&file.sha256).await;
+            if status == StatusCode::NOT_FOUND {
+                return false;
+            }
+            assert_eq!(status, StatusCode::OK, "a stored setting");
+            self.store.put_bytes(&bytes).unwrap();
+        }
         for entry in missing_objects(
             &self.store,
             view,
@@ -171,21 +189,23 @@ impl<'a> Player<'a> {
                     assert_eq!(status, StatusCode::OK, "{}", entry.path);
                     self.store.put_bytes(&bytes).unwrap();
                 }
-                Source::Modrinth { url, .. } => {
-                    assert!(url.starts_with("https://cdn.modrinth.com/"));
+                Source::Modrinth { .. } | Source::Base {} | Source::Curseforge { .. } => {
+                    if let Source::Modrinth { url, .. } = &entry.source {
+                        assert!(url.starts_with("https://cdn.modrinth.com/"));
+                    }
                     assert_eq!(
                         self.object(&entry.sha256).await.0,
                         StatusCode::NOT_FOUND,
-                        "a Modrinth file comes from Modrinth"
+                        "{} comes from where its source says",
+                        entry.path
                     );
                     let bytes = self
-                        .cdn
+                        .elsewhere
                         .iter()
                         .find(|b| sha256_hex(b) == entry.sha256)
-                        .expect("the CDN has it");
+                        .expect("its source has it");
                     self.store.put_bytes(bytes).unwrap();
                 }
-                other => panic!("{} has source {other:?}", entry.path),
             }
         }
         true
@@ -410,19 +430,147 @@ async fn a_player_downloads_the_client_view_and_keeps_up_with_deltas() {
     };
     assert_eq!(whole.id, second.id);
 
-    // a player whose views were pruned sends the view it last applied
+    // which is how a player whose views were all pruned catches up: it diffs the whole
+    // view against the view it applied, as the three-way merge needs
+    let changes = lodestone_image::delta::diff(&first, &whole);
+    assert_eq!(apply(&first, &changes).unwrap().id, second.id);
+}
+
+/// A server built on a Modrinth pack, with a CurseForge file and client settings: the
+/// player gets the base's files from the pack and the CurseForge file from CurseForge (the
+/// server refuses both), the icon and background from the server, and ends with exactly
+/// the pack's client files plus what the server added.
+#[tokio::test]
+async fn a_player_of_a_modpack_server_gets_the_base_from_the_pack() {
+    let core = content::core(Kind::Fabric).await;
+    let store = core.state.images().store();
+    let elsewhere: Vec<Vec<u8>> = vec![
+        b"pack mod".to_vec(),
+        b"pack server mod".to_vec(),
+        b"curseforge mod".to_vec(),
+    ];
+    let referenced = |path: &str, bytes: &[u8], source: Source, client: EnvValue| {
+        let mut entry = lodestone_image::Entry::new(
+            lodestone_image::CanonicalPath::new(path).unwrap(),
+            bytes.len() as u64,
+            sha256_hex(bytes),
+            source,
+        );
+        entry.env = lodestone_image::Env {
+            client,
+            server: EnvValue::Required,
+        };
+        entry.env_from = vec![EnvFrom::BasePack];
+        entry
+    };
+    let own = store.put_bytes(b"the server's own mod").unwrap();
+    let shared_config = store.put_bytes(b"shared = true").unwrap();
+    let icon = store.put_bytes(b"an icon").unwrap();
+    let background = store.put_bytes(&vec![7; 3 << 20]).unwrap();
+    let object = |path: &str, stored: &lodestone_image::store::Stored| {
+        lodestone_image::Entry::new(
+            lodestone_image::CanonicalPath::new(path).unwrap(),
+            stored.size,
+            stored.sha256.clone(),
+            Source::Object {},
+        )
+    };
+    let mut config = object("config/shared.toml", &shared_config);
+    config.env.client = EnvValue::Required;
+    config.env_from = vec![EnvFrom::OwnerMark];
+    let mut image = Image::new(
+        lodestone_image::Kind::Content,
+        lodestone_image::Game {
+            minecraft: "1.20.1".into(),
+            loader: lodestone_image::Loader::Fabric,
+            loader_version: Some("0.16.10".into()),
+        },
+    );
+    image.base = Some(lodestone_image::Base::ModrinthPack {
+        project: "pack".into(),
+        version: "1.0.0".into(),
+        sha512: "c".repeat(128),
+    });
+    image.entries = vec![
+        config,
+        referenced(
+            "mods/cf.jar",
+            &elsewhere[2],
+            Source::Curseforge {
+                project: 1,
+                file: 2,
+                downloadable: true,
+            },
+            EnvValue::Required,
+        ),
+        object("mods/own.jar", &own),
+        referenced(
+            "mods/pack.jar",
+            &elsewhere[0],
+            Source::Base {},
+            EnvValue::Required,
+        ),
+        referenced(
+            "mods/pack-server.jar",
+            &elsewhere[1],
+            Source::Base {},
+            EnvValue::Unsupported,
+        ),
+    ];
+    image.entries.sort_by(|a, b| a.path.cmp(&b.path));
+    image.settings.client = Some(lodestone_image::settings::ClientSettings {
+        icon: Some(lodestone_image::settings::StoredFile {
+            sha256: icon.sha256.clone(),
+            size: icon.size,
+        }),
+        background: Some(lodestone_image::settings::StoredFile {
+            sha256: background.sha256.clone(),
+            size: background.size,
+        }),
+        ..Default::default()
+    });
+    image.seal();
+    store.save_manifest(core.uuid.as_ref(), &image).unwrap();
+    crate::images::state::save(
+        core.state.images().root(),
+        &core.uuid,
+        &crate::images::state::ContentState {
+            current: Some(image.id.clone()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    let player = Player::new(&core, elsewhere);
+    let Answer::View(view) = player.image(&[]).await else {
+        panic!("the whole view");
+    };
+    assert_eq!(view.base, image.base);
+    assert!(player.fetch(&view).await);
+    assert!(player.store.object_complete(&icon.sha256, icon.size));
+    assert!(player
+        .store
+        .object_complete(&background.sha256, background.size));
+    assert_eq!(
+        player.place(&view),
+        set(&[
+            "minecraft/config/shared.toml",
+            "minecraft/mods/cf.jar",
+            "minecraft/mods/own.jar",
+            "minecraft/mods/pack.jar",
+        ])
+    );
+    // the background is a large file, sent whole and in ranges from its chunks
     let response = player
         .http
-        .post(player.url("image?side=client"))
+        .get(player.url(&format!("objects/{}", background.sha256)))
         .bearer_auth(&core.owner)
-        .body(serde_json::to_vec(&first).unwrap())
+        .header("range", "bytes=1048570-1048585")
         .send()
         .await
         .unwrap();
-    let Answer::Delta(from_summary, _) = player.answer(response).await else {
-        panic!("a delta");
-    };
-    assert_eq!(apply(&first, &from_summary).unwrap().id, second.id);
+    assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
+    assert_eq!(response.bytes().await.unwrap().to_vec(), vec![7; 16]);
 }
 
 #[tokio::test]

@@ -1278,25 +1278,16 @@ async fn the_image_routes_follow_the_client_pack_scope() {
         assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{query}");
     }
 
-    // the summary: the view the player last applied
-    let post = |body: Vec<u8>| {
-        let client = core.client.clone();
-        let image = image.clone();
-        async move { client.post(image).body(body).send().await.unwrap() }
-    };
-    assert_eq!(post(bytes.to_vec()).await.status(), StatusCode::NO_CONTENT);
-    assert_eq!(
-        post(b"not a view".to_vec()).await.status(),
-        StatusCode::BAD_REQUEST
-    );
-    let mut tampered: Value = serde_json::from_slice(&bytes).unwrap();
-    tampered["entries"] = json!([]);
-    assert_eq!(
-        post(serde_json::to_vec(&tampered).unwrap()).await.status(),
-        StatusCode::BAD_REQUEST
-    );
-    let huge = vec![b' '; (9 << 20) as usize];
-    assert_eq!(post(huge).await.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    // a player whose views were pruned gets the whole view and diffs it itself: nothing
+    // takes a body
+    let response = core
+        .client
+        .post(&image)
+        .body(bytes.to_vec())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
 
     // the objects the view names
     let object = format!(
@@ -1397,7 +1388,6 @@ async fn the_image_routes_follow_the_client_pack_scope() {
         .await;
     assert_eq!(get(image.clone()).await.status(), StatusCode::NOT_FOUND);
     assert_eq!(get(object.clone()).await.status(), StatusCode::NOT_FOUND);
-    assert_eq!(post(bytes.to_vec()).await.status(), StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
@@ -1443,16 +1433,6 @@ async fn the_launcher_image_routes_need_view_instance() {
             .unwrap();
         assert_eq!(response.status(), StatusCode::FORBIDDEN, "{url}");
     }
-    let response = core
-        .client
-        .post(&image)
-        .bearer_auth(&stranger)
-        .body("{}")
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::FORBIDDEN);
-
     // the owner's launcher key, unlisted: the view
     let key = core
         .create_key(&core.owner_jwt, json!({ "type": "launcher" }))

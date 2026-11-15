@@ -104,20 +104,20 @@ fn paths(image: &Image) -> Vec<&str> {
 }
 
 /// A clock tests move by hand.
-struct ManualClock {
+pub(crate) struct ManualClock {
     base: Instant,
     offset: watch::Sender<Duration>,
 }
 
 impl ManualClock {
-    fn new() -> Arc<ManualClock> {
+    pub(crate) fn new() -> Arc<ManualClock> {
         Arc::new(ManualClock {
             base: Instant::now(),
             offset: watch::channel(Duration::ZERO).0,
         })
     }
 
-    fn advance(&self, by: Duration) {
+    pub(crate) fn advance(&self, by: Duration) {
         self.offset.send_modify(|offset| *offset += by);
     }
 }

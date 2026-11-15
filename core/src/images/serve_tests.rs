@@ -5,9 +5,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use lodestone_image::env::{self, modrinth_environment, EnvInputs, JarEnvironment, OwnerMark};
+use lodestone_image::settings::{ClientSettings, StoredFile};
 use lodestone_image::store::Store;
 use lodestone_image::{
-    apply, CanonicalPath, Delta, Entry, Game, Image, Kind, Loader, Side, Source,
+    apply, Base, CanonicalPath, Delta, Entry, Env, EnvFrom, EnvValue, Game, Image, Kind, Loader,
+    Side, Source,
 };
 
 use super::*;
@@ -364,7 +366,7 @@ async fn a_view_whose_image_is_gone_is_unknown() {
 }
 
 #[tokio::test]
-async fn a_player_whose_views_were_pruned_sends_its_last_view() {
+async fn a_player_whose_views_were_pruned_gets_the_whole_view() {
     let fx = fixture();
     let content = server_content(&fx);
     let old = fx.save(content.clone(), "Initial");
@@ -377,62 +379,108 @@ async fn a_player_whose_views_were_pruned_sends_its_last_view() {
         .delete_manifest(fx.uuid.as_ref(), &old.id)
         .unwrap();
     let old_view = view_of(&old);
-    assert!(matches!(
-        fx.answer(&[&old_view.id]).await,
-        ClientAnswer::View(_)
-    ));
-    // but from the view itself it makes a delta
-    let answer = fx
-        .service
-        .client_answer_from(&fx.uuid, old_view.clone())
-        .await
-        .unwrap()
-        .unwrap();
-    let ClientAnswer::Delta { json, .. } = answer else {
-        panic!("a delta");
+    let ClientAnswer::View(whole) = fx.answer(&[&old_view.id]).await else {
+        panic!("the whole view");
     };
-    let applied = apply(&old_view, &Delta::from_json(&json).unwrap()).unwrap();
-    assert_eq!(applied.id, view_of(&current).id);
-    // the current view is current
-    let answer = fx
-        .service
-        .client_answer_from(&fx.uuid, view_of(&current))
-        .await
-        .unwrap()
-        .unwrap();
-    assert!(matches!(answer, ClientAnswer::Current(_)));
+    // and diffs it against the view it applied, which gives what the server's delta would
+    let changes = lodestone_image::diff(&old_view, &whole.view);
+    assert_eq!(apply(&old_view, &changes).unwrap().id, whole.id());
+}
 
-    let refused = |image: Image| {
-        let service = fx.service.clone();
-        let uuid = fx.uuid.clone();
-        async move {
-            let Err(e) = service.client_answer_from(&uuid, image).await else {
-                panic!("refused");
-            };
-            assert!(matches!(e.kind, ErrorKind::BadRequest), "{}", e.source);
-        }
+/// A server built on a pack, with a CurseForge file and client settings: the view keeps
+/// the base and what players need of it, and only `object` entries and the stored
+/// settings (icon, background) can be fetched from the server.
+#[tokio::test]
+async fn a_pack_servers_view_keeps_its_base_and_serves_only_its_own_bytes() {
+    let fx = fixture();
+    let referenced = |path: &str, source: Source, client: EnvValue| {
+        let mut entry = Entry::new(
+            CanonicalPath::new(path).unwrap(),
+            10,
+            lodestone_image::hex::sha256_hex(path.as_bytes()),
+            source,
+        );
+        entry.env = Env {
+            client,
+            server: EnvValue::Required,
+        };
+        entry.env_from = vec![EnvFrom::BasePack];
+        entry
     };
-    // not a view, a server view, a view whose id doesn't check out, newer rules
-    refused(old.clone()).await;
-    refused(lodestone_image::view(&old, Side::Server, lodestone_image::RULES).unwrap()).await;
-    let mut tampered = old_view.clone();
-    tampered.entries.pop();
-    refused(tampered).await;
-    let mut wrong_id = old_view.clone();
-    wrong_id.id = "a".repeat(64);
-    refused(wrong_id).await;
-    // a view that carries what a client view never does (a server's config)
-    let mut smuggled = old_view.clone();
-    smuggled
-        .entries
-        .push(fx.object("config/a.toml", b"secret = 1", EnvInputs::default()));
-    smuggled.entries.sort_by(|a, b| a.path.cmp(&b.path));
-    smuggled.seal();
-    refused(smuggled).await;
-    let mut newer_rules = old_view;
-    newer_rules.rules = lodestone_image::RULES + 1;
-    newer_rules.seal();
-    refused(newer_rules).await;
+    let mut content = vec![
+        referenced("mods/pack.jar", Source::Base {}, EnvValue::Required),
+        referenced(
+            "mods/pack-server.jar",
+            Source::Base {},
+            EnvValue::Unsupported,
+        ),
+        referenced(
+            "mods/cf.jar",
+            Source::Curseforge {
+                project: 1,
+                file: 2,
+                downloadable: false,
+            },
+            EnvValue::Optional,
+        ),
+        // the pack's config, which the server changed and didn't share
+        fx.object("config/pack.toml", b"changed = 1", EnvInputs::default()),
+        fx.object("mods/own.jar", b"own", EnvInputs::default()),
+    ];
+    content.sort_by(|a, b| a.path.cmp(&b.path));
+    let icon = fx.store().put_bytes(b"icon").unwrap();
+    let background = fx.store().put_bytes(b"background").unwrap();
+    let mut image = Image::new(
+        Kind::Content,
+        Game {
+            minecraft: "1.20.1".into(),
+            loader: Loader::Fabric,
+            loader_version: Some("0.16.10".into()),
+        },
+    );
+    image.base = Some(Base::ModrinthPack {
+        project: "pack".into(),
+        version: "1.0.0".into(),
+        sha512: "c".repeat(128),
+    });
+    image.entries = content;
+    image.settings.client = Some(ClientSettings {
+        recommended_memory_mb: Some(6144),
+        icon: Some(StoredFile {
+            sha256: icon.sha256.clone(),
+            size: icon.size,
+        }),
+        background: Some(StoredFile {
+            sha256: background.sha256.clone(),
+            size: background.size,
+        }),
+        ..Default::default()
+    });
+    image.seal();
+    fx.store().save_manifest(fx.uuid.as_ref(), &image).unwrap();
+    fx.set_current(&image.id);
+
+    let served = fx.service.client_view(&fx.uuid).await.unwrap().unwrap();
+    assert_eq!(served.view.base, image.base);
+    assert_eq!(
+        paths(&served.view),
+        ["mods/cf.jar", "mods/own.jar", "mods/pack.jar"]
+    );
+    assert_eq!(served.view.settings.client, image.settings.client);
+    for entry in &image.entries {
+        let expected = (entry.path.as_str() == "mods/own.jar").then_some(entry.size);
+        assert_eq!(
+            served.object_size(&entry.sha256),
+            expected,
+            "{}",
+            entry.path
+        );
+    }
+    assert_eq!(served.object_size(&icon.sha256), Some(icon.size));
+    assert_eq!(
+        served.object_size(&background.sha256),
+        Some(background.size)
+    );
 }
 
 #[tokio::test]
@@ -477,7 +525,7 @@ async fn without_a_content_image_the_first_is_recorded_once() {
     };
     // many players ask at once: one record
     for _ in 0..5 {
-        fx.service.record_first(ctx.clone());
+        assert_eq!(fx.service.record_first(ctx.clone()), FirstRecord::Recording);
     }
     crate::test_util::wait_until("the first record ends", || async {
         !fx.service.recording_first(&fx.uuid)
@@ -492,12 +540,89 @@ async fn without_a_content_image_the_first_is_recorded_once() {
     let served = fx.service.client_view(&fx.uuid).await.unwrap().unwrap();
     assert_eq!(paths(&served.view), ["mods/a.jar"]);
     // with an image, asking again records nothing
-    fx.service.record_first(ctx);
+    assert_eq!(fx.service.record_first(ctx), FirstRecord::Recording);
     crate::test_util::wait_until("the request ends", || async {
         !fx.service.recording_first(&fx.uuid)
     })
     .await;
     assert_eq!(fx.store().manifest_ids(fx.uuid.as_ref()).unwrap().len(), 1);
+}
+
+/// A first record that fails isn't tried again at once: players polling a server (the
+/// public route needs no sign-in) can't make the core rescan it over and over, holding its
+/// owner's operations off.
+#[tokio::test]
+async fn a_failed_first_record_waits_before_the_next() {
+    let dir = tempfile::tempdir().unwrap();
+    let clock = crate::images::tests::ManualClock::new();
+    let service = Arc::new(ImageService::with_clock(
+        dir.path().join("backups"),
+        clock.clone(),
+    ));
+    let uuid = InstanceUuid::default();
+    // the server's folder isn't there: recording fails
+    let root = dir.path().join("server");
+    let ctx = InstanceContext {
+        uuid: uuid.clone(),
+        root: root.clone(),
+        game_version: "1.20.1".into(),
+        flavour: Flavour::Fabric {
+            loader_version: None,
+            installer_version: None,
+        },
+        level_name: "world".into(),
+        policy_exclude: Vec::new(),
+        running: false,
+    };
+    let settled = || async { !service.recording_first(&uuid) };
+    assert_eq!(service.record_first(ctx.clone()), FirstRecord::Recording);
+    crate::test_util::wait_until("the first record ends", settled).await;
+    assert!(service.client_view(&uuid).await.unwrap().is_none());
+
+    // none starts again until the wait has passed
+    assert_eq!(
+        service.record_first(ctx.clone()),
+        FirstRecord::Failed {
+            retry_after: FIRST_RECORD_WAIT
+        }
+    );
+    assert!(!service.recording_first(&uuid));
+    clock.advance(FIRST_RECORD_WAIT - Duration::from_secs(1));
+    assert_eq!(
+        service.record_first(ctx.clone()),
+        FirstRecord::Failed {
+            retry_after: Duration::from_secs(1)
+        }
+    );
+    // then one does, and failing again doubles the wait
+    clock.advance(Duration::from_secs(1));
+    assert_eq!(service.record_first(ctx.clone()), FirstRecord::Recording);
+    crate::test_util::wait_until("the second record ends", settled).await;
+    assert_eq!(
+        service.record_first(ctx.clone()),
+        FirstRecord::Failed {
+            retry_after: FIRST_RECORD_WAIT * 2
+        }
+    );
+
+    // the folder is back: after the wait the record succeeds, and the failures are forgotten
+    std::fs::create_dir_all(root.join("mods")).unwrap();
+    std::fs::write(root.join("mods/a.jar"), b"a mod").unwrap();
+    clock.advance(FIRST_RECORD_WAIT * 2);
+    assert_eq!(service.record_first(ctx), FirstRecord::Recording);
+    crate::test_util::wait_until("the third record ends", settled).await;
+    let served = service.client_view(&uuid).await.unwrap().unwrap();
+    assert_eq!(paths(&served.view), ["mods/a.jar"]);
+    assert!(locked(&service.views.first_records).is_empty());
+}
+
+#[test]
+fn first_record_waits_double_up_to_a_limit() {
+    assert_eq!(first_record_wait(1), FIRST_RECORD_WAIT);
+    assert_eq!(first_record_wait(2), FIRST_RECORD_WAIT * 2);
+    assert_eq!(first_record_wait(3), FIRST_RECORD_WAIT * 4);
+    assert_eq!(first_record_wait(6), FIRST_RECORD_MAX_WAIT);
+    assert_eq!(first_record_wait(u32::MAX), FIRST_RECORD_MAX_WAIT);
 }
 
 #[tokio::test]

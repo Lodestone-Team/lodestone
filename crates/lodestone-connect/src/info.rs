@@ -8,10 +8,17 @@
 //!   instance list shows it (no address: the friend plays through the tunnel).
 //! - `GET /api/v1/public/instances/<uuid>/client-pack`: its client modpack (Fabric
 //!   servers with mods), with `ETag` and `If-None-Match` as the core does it.
+//! - `GET /api/v1/public/instances/<uuid>/image?side=client[&have=…]`: the client view of
+//!   its current content image, or a delta to it (204 when the player is in step).
+//! - `GET` and `HEAD /api/v1/public/instances/<uuid>/objects/<sha256>`: a file only the
+//!   server has that the current client view names, whole or one byte range (`Range`).
 //!
-//! Nothing else answers. So a launcher can point its core client at a local port that
-//! forwards info streams (`Joined::forward`) and fetch the client pack as it does from a
-//! core whose servers are listed publicly.
+//! The core's `docs/instance-images.md` ("Server to player") says what these two answer.
+//! Nothing else answers, and nothing takes a request body. So a launcher can point its core
+//! client at a local port that forwards info streams (`Joined::forward`) and fetch the
+//! client pack, the view and the objects as it does from a core whose servers are listed
+//! publicly. [`get`] reads at most 256 KiB of an answer: objects need a client that
+//! streams.
 
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};

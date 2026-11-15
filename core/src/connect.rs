@@ -26,8 +26,7 @@ use std::{
 };
 
 use axum::{
-    body::Bytes,
-    extract::{DefaultBodyLimit, Path as UrlPath, Query, State},
+    extract::{Path as UrlPath, Query, State},
     http::{HeaderMap, Method},
     response::Response,
     routing::get,
@@ -52,11 +51,10 @@ pub mod friends;
 use crate::{
     error::{Error, ErrorKind},
     handlers::{
-        player_image::{image_response, object_response, summary_response, ImageQuery},
+        player_image::{image_response, object_response, ImageQuery},
         public_instances::{pack_response, public_instance},
         util::get_instance,
     },
-    images::serve::MAX_SUMMARY_BYTES,
     public_listing::{PublicInstance, PublicInstanceList, PublicScope},
     traits::{
         t_configurable::{Game, TConfigurable},
@@ -734,9 +732,9 @@ struct Shared {
 /// - `GET /api/v1/connect/info`: [`SharedServer`];
 /// - `GET /api/v1/public/instances`: the instance alone, as the public list shows it;
 /// - `GET /api/v1/public/instances/{uuid}/client-pack`: its client modpack;
-/// - `GET`/`POST /api/v1/public/instances/{uuid}/image` and
-///   `GET /api/v1/public/instances/{uuid}/objects/{sha256}`: its client view, deltas and
-///   objects (`crate::handlers::player_image`).
+/// - `GET /api/v1/public/instances/{uuid}/image` and
+///   `GET`/`HEAD /api/v1/public/instances/{uuid}/objects/{sha256}`: its client view, deltas
+///   and objects (`crate::handlers::player_image`).
 ///
 /// Everything else is 404.
 pub(crate) fn info_router(state: AppState, uuid: InstanceUuid) -> Router {
@@ -749,9 +747,7 @@ pub(crate) fn info_router(state: AppState, uuid: InstanceUuid) -> Router {
         )
         .route(
             "/api/v1/public/instances/{uuid}/image",
-            get(get_shared_image)
-                .post(post_shared_image)
-                .layer(DefaultBodyLimit::max(MAX_SUMMARY_BYTES)),
+            get(get_shared_image),
         )
         .route(
             "/api/v1/public/instances/{uuid}/objects/{sha256}",
@@ -839,16 +835,6 @@ async fn get_shared_image(
 ) -> Result<Response, Error> {
     shared_allows(&shared, &uuid)?;
     image_response(&shared.state, &uuid, query).await
-}
-
-async fn post_shared_image(
-    State(shared): State<Shared>,
-    UrlPath(uuid): UrlPath<InstanceUuid>,
-    Query(query): Query<ImageQuery>,
-    body: Bytes,
-) -> Result<Response, Error> {
-    shared_allows(&shared, &uuid)?;
-    summary_response(&shared.state, &uuid, query, body).await
 }
 
 async fn get_shared_object(
