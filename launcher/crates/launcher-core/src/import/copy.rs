@@ -133,7 +133,11 @@ pub fn skip_reason(relative: &Path, is_dir: bool, options: &CopyOptions) -> Opti
             return Some("log");
         }
     }
-    if !is_dir && (name.ends_with(".tmp") || name.ends_with(".part")) {
+    // Lodestone's own unfinished files (`.lodestone-tmp-…` from `storage::write_atomic`,
+    // `.lodestone-<sha1>.download`) are what a crash left behind, never content.
+    if !is_dir
+        && (name.ends_with(".tmp") || name.ends_with(".part") || name.starts_with(".lodestone-"))
+    {
         return Some("unfinished download");
     }
     None
@@ -371,6 +375,18 @@ mod tests {
         assert_eq!(skip("servers.dat", false), None);
         assert_eq!(skip("saves", true), None);
         assert_eq!(skip("mods/.DS_Store", false), Some("system file"));
+        for unfinished in [
+            "mods/a.jar.part",
+            "mods/.lodestone-tmp-0123abcd0123abcd",
+            "config/.Lodestone-TMP-0123abcd0123abcd",
+            "mods/.lodestone-0123.download",
+        ] {
+            assert_eq!(
+                skip(unfinished, false),
+                Some("unfinished download"),
+                "{unfinished}"
+            );
+        }
         let without = CopyOptions {
             without_worlds: true,
         };

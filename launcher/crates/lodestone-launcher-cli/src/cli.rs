@@ -690,6 +690,12 @@ pub enum Content {
         #[arg(long)]
         kind: Option<String>,
     },
+    /// The instance's content images, newest first: what each was recorded for, when,
+    /// its game and how many files it lists.
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli content history Survival\n  lodestone-launcher-cli content history Survival --human"
+    )]
+    History { instance: String },
     /// Searches Modrinth. With --instance, only what fits it (unless --all).
     #[command(
         after_help = "Examples:\n  lodestone-launcher-cli content search sodium --instance Survival\n  lodestone-launcher-cli content search \"faithful\" --kind resourcepack --sort downloads\n  lodestone-launcher-cli content search --kind shader --instance Survival"

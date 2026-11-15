@@ -174,6 +174,9 @@ pub fn text(message: M) -> &'static str {
         }
         M::UpdateModsFailed => "Impossible de mettre à jour les mods",
         M::StopGameFirst => "Quittez d’abord le jeu.",
+        M::FinishFinderFirst => {
+            "Terminez d’abord la recherche Le trouver pour moi\u{a0}: elle a désactivé une partie des mods."
+        }
         M::UpdateInstanceFailed => "Impossible de mettre à jour l’instance",
         M::InstanceNotSaved => {
             "Les mods ont été mis à jour, mais l’instance n’a pas pu être enregistrée\u{a0}: {error}"

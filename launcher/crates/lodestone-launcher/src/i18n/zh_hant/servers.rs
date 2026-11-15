@@ -142,6 +142,7 @@ pub fn text(message: M) -> &'static str {
         M::AskOwnerToStart => "請它的擁有者啟動它，或在「Lodestone Host」頁面登入主機後自行啟動。",
         M::UpdateModsFailed => "無法更新模組",
         M::StopGameFirst => "請先結束遊戲。",
+        M::FinishFinderFirst => "請先完成「幫我找出來」的尋找：它關閉了部分模組。",
         M::UpdateInstanceFailed => "無法更新實例",
         M::InstanceNotSaved => "模組已更新，但無法儲存實例：{error}",
         M::BadJoinAddress => "Minecraft 無法加入此伺服器的位址或連接埠。",

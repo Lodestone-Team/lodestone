@@ -30,6 +30,7 @@
 //!   collecting what no image names.
 //! - [`container`]: export files, one zip carrying an image to another computer, and the
 //!   strict reader that takes one in.
+//! - [`lineage`]: the order content images are kept and listed in, and merged labels.
 //! - [`hex`]: hex digests.
 //!
 //! The crate makes no network calls: callers download. [`store`] and [`container`] read and
@@ -44,6 +45,7 @@ pub mod env;
 pub mod hex;
 pub mod identity;
 pub mod layout;
+pub mod lineage;
 pub mod manifest;
 pub mod paths;
 pub mod settings;

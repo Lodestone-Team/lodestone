@@ -18,6 +18,7 @@ use launcher_core::content::{
     install::{InstallOutcome, InstallProgress, Placed},
     listing,
 };
+use launcher_core::images::labels;
 
 use super::{
     ContentView, Job, Load, PAGE_SIZE,
@@ -295,6 +296,8 @@ impl ContentView {
         let modrinth = self.modrinth(cx);
         let downloader = self.instances.read(cx).content_downloader();
         let busy = self.instances.read(cx).mark_files_busy(&id);
+        let images = self.images(cx);
+        let image_id = id.clone();
         let progress = Arc::new(InstallProgress::default());
         let cancel = launcher_core::game::download::CancelToken::new();
         let kinds: Vec<ContentKind> = requests.iter().map(|r| r.kind).collect();
@@ -308,40 +311,59 @@ impl ContentView {
                 // The tab may not have read the instance's shader mod yet: "Update all"
                 // goes on here when its instance is shown again, as the tab starts over.
                 target.shader_loader = listing::shader_state(&dirs)?.loader;
-                for request in requests {
-                    let kind = request.kind;
-                    progress.set_label(match &request.project {
-                        Some(project) => tr!(M::CheckingProject, name = project.name),
-                        None => t(M::CheckingDependencies).to_string(),
-                    });
-                    let plan: CfInstallPlan = curseforge_install::plan(
-                        &cf,
-                        Platforms::new(modrinth.as_deref(), Some(&cf)),
-                        &dirs,
-                        &target,
-                        request,
-                    )
-                    .await?;
-                    let outcome = curseforge_install::execute(
-                        &cf,
-                        modrinth.as_deref(),
-                        &downloader,
-                        &dirs,
-                        &target,
-                        &plan,
-                        &progress,
-                        &cancel,
-                    )
-                    .await?;
-                    total.installed.extend(outcome.installed);
-                    total.removed.extend(outcome.removed);
-                    total.skipped.extend(outcome.skipped);
-                    blocked.extend(plan.blocked);
-                    if kind == ContentKind::Mod {
-                        target.shader_loader = listing::shader_state(&dirs)?.loader;
+                // The whole job is one operation, as for Modrinth's.
+                let mut operation = images.begin(&image_id, "");
+                let result = async {
+                    for request in requests {
+                        let kind = request.kind;
+                        progress.set_label(match &request.project {
+                            Some(project) => tr!(M::CheckingProject, name = project.name),
+                            None => t(M::CheckingDependencies).to_string(),
+                        });
+                        let plan: CfInstallPlan = curseforge_install::plan(
+                            &cf,
+                            Platforms::new(modrinth.as_deref(), Some(&cf)),
+                            &dirs,
+                            &target,
+                            request,
+                        )
+                        .await?;
+                        let executed = curseforge_install::execute(
+                            &cf,
+                            modrinth.as_deref(),
+                            &downloader,
+                            &dirs,
+                            &target,
+                            &plan,
+                            &progress,
+                            &cancel,
+                        )
+                        .await;
+                        let outcome = match executed {
+                            Ok(outcome) => outcome,
+                            Err(err) => {
+                                let title =
+                                    plan.files.first().map(|f| f.title()).unwrap_or_default();
+                                operation.note(labels::partly_installed(&title));
+                                return Err(err);
+                            }
+                        };
+                        if let Some(label) = labels::installed(&outcome, kind) {
+                            operation.note(label);
+                        }
+                        total.installed.extend(outcome.installed);
+                        total.removed.extend(outcome.removed);
+                        total.skipped.extend(outcome.skipped);
+                        blocked.extend(plan.blocked);
+                        if kind == ContentKind::Mod {
+                            target.shader_loader = listing::shader_state(&dirs)?.loader;
+                        }
                     }
+                    Ok::<_, ContentError>(())
                 }
-                Ok::<_, ContentError>((total, blocked))
+                .await;
+                operation.succeed();
+                result.map(|()| (total, blocked))
             })
         };
         let task = cx.spawn(async move |this, cx| {
@@ -465,19 +487,27 @@ impl ContentView {
         let task = cx.spawn(async move |this, cx| {
             loop {
                 cx.background_executor().timer(WATCH_EVERY).await;
-                let Ok(Some((folder, waiting, dirs, target))) = this.update(cx, |this, cx| {
-                    let blocked = this.blocked.as_ref()?;
-                    let folder = blocked.folder.clone()?;
-                    let waiting: Vec<(usize, CfPlannedFile)> = blocked
-                        .files
-                        .iter()
-                        .enumerate()
-                        .filter(|(i, _)| !blocked.added[*i])
-                        .map(|(i, f)| (i, f.clone()))
-                        .collect();
-                    let (_, dirs, target) = this.context(cx)?;
-                    Some((folder, waiting, dirs, target))
-                }) else {
+                let Ok(Some((folder, waiting, dirs, target, id, images))) =
+                    this.update(cx, |this, cx| {
+                        let blocked = this.blocked.as_ref()?;
+                        let folder = blocked.folder.clone()?;
+                        let waiting: Vec<(usize, CfPlannedFile)> = blocked
+                            .files
+                            .iter()
+                            .enumerate()
+                            .filter(|(i, _)| !blocked.added[*i])
+                            .map(|(i, f)| (i, f.clone()))
+                            .collect();
+                        // Content never changes while the game runs: the file waits in the
+                        // folder until it ends.
+                        if this.locked(cx) {
+                            return None;
+                        }
+                        let (id, dirs, target) = this.context(cx)?;
+                        let images = this.images(cx);
+                        Some((folder, waiting, dirs, target, id, images))
+                    })
+                else {
                     // The card was closed, or there is nothing to watch.
                     if this
                         .update(cx, |this, _| this.blocked.is_none())
@@ -498,9 +528,11 @@ impl ContentView {
                             .into_iter()
                             .map(|(at, path)| {
                                 let (index, planned) = &waiting[at];
+                                let operation = images.begin(&id, labels::added(&planned.title()));
                                 let result = curseforge_install::install_downloaded(
                                     &dirs, &target, planned, &path,
                                 );
+                                operation.finish(&result);
                                 (*index, planned.title(), result)
                             })
                             .collect::<Vec<_>>()

@@ -238,8 +238,26 @@ pub fn set_mod_enabled(
     Ok(new_name)
 }
 
+/// Whether nothing is at `file_name` in the kind's folder any more: a removal that failed
+/// after the file went (forgetting it in `options.txt` or the shader selection failed)
+/// still changed the instance's content. False for a name that isn't a plain file name.
+pub fn is_gone(dirs: &InstanceDirs, kind: ContentKind, file_name: &str) -> bool {
+    if file_name.is_empty()
+        || file_name.contains(['/', '\\'])
+        || file_name == "."
+        || file_name == ".."
+    {
+        return false;
+    }
+    matches!(
+        fs::symlink_metadata(dirs.content_dir(kind).join(file_name)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound
+    )
+}
+
 /// Removes a file or folder with `remove` (the app moves it to the Trash), and forgets
-/// it: its provenance, its place in `options.txt`, and the shader selection.
+/// it: its provenance, its place in `options.txt`, and the shader selection. An error
+/// after `remove` succeeded leaves the file removed ([`is_gone`]).
 pub fn delete_with(
     dirs: &InstanceDirs,
     target: &Target,
@@ -629,5 +647,33 @@ mod tests {
             )
             .is_err()
         );
+        assert!(!is_gone(&dirs, ContentKind::Mod, "../instance.json"));
+        assert!(!is_gone(&dirs, ContentKind::Mod, ".."));
+        assert!(!is_gone(&dirs, ContentKind::Mod, ""));
+        assert!(is_gone(&dirs, ContentKind::ShaderPack, "BSL.zip"));
+    }
+
+    /// A removal whose clean-up fails after the file went is an error, and the file is
+    /// gone all the same: the caller's content operation still succeeds.
+    #[cfg(unix)]
+    #[test]
+    fn a_removal_that_fails_after_the_file_went_leaves_it_gone() {
+        use std::os::unix::fs::PermissionsExt;
+        let (_dir, dirs, mut target) = setup(Loader::Fabric);
+        target.shader_loader = Some(ShaderLoader::Iris);
+        write_zip(
+            &dirs.content_dir(ContentKind::ShaderPack).join("BSL.zip"),
+            &[("shaders/a", b"x")],
+        );
+        select_shader(&dirs, ShaderLoader::Iris, Some("BSL.zip")).unwrap();
+        let config = dirs.game.join("config");
+        assert!(config.is_dir(), "Iris keeps its selection in config/");
+        fs::set_permissions(&config, fs::Permissions::from_mode(0o555)).unwrap();
+        let result = delete_with(&dirs, &target, ContentKind::ShaderPack, "BSL.zip", |path| {
+            fs::remove_file(path).map_err(|e| e.to_string())
+        });
+        fs::set_permissions(&config, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(result.is_err());
+        assert!(is_gone(&dirs, ContentKind::ShaderPack, "BSL.zip"));
     }
 }

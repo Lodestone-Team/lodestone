@@ -94,6 +94,31 @@ impl Backend for Fake {
                 }
                 return;
             }
+            "content.history" if p["instance"] == "Survival" => Ok(json!({
+                "instance": "survival",
+                "current": "b".repeat(64),
+                "images": [
+                    {
+                        "id": "b".repeat(64), "created": 1_794_645_624, "label": "Added JEI\u{202e}gpj.exe",
+                        "label_shown": "Added JEI\\u{202E}gpj.exe",
+                        "game_shown": "fabric 0.16.10 on 1.21.1",
+                        "parent": "a".repeat(64), "current": true, "minecraft": "1.21.1",
+                        "loader": "fabric", "loader_version": "0.16.10",
+                        "base": { "loader": {} }, "files": 42, "withheld": 0
+                    },
+                    {
+                        "id": "a".repeat(64), "created": 1_794_645_000, "label": "Created Survival",
+                        "label_shown": "Created Survival", "game_shown": "vanilla 1.21.1",
+                        "parent": null, "current": false, "minecraft": "1.21.1",
+                        "loader": "vanilla", "loader_version": null,
+                        "base": { "loader": {} }, "files": 1, "withheld": 0
+                    }
+                ]
+            })),
+            "content.history" => Err(ErrorObject::new(
+                codes::NOT_FOUND,
+                "No instance is called \"x\".",
+            )),
             "cores.add" => {
                 Ok(json!({ "core": { "id": "c1" }, "got_password": p["password"] == "s3cret" }))
             }
@@ -399,4 +424,41 @@ fn schema_needs_no_launcher() {
             .iter()
             .any(|c| c["code"] == 5)
     );
+}
+
+#[test]
+fn content_history_lists_images_newest_first() {
+    let launcher = launcher();
+    let output = cli(&launcher.socket, &["content", "history", "Survival"], None);
+    assert_eq!(output.status.code(), Some(0));
+    let value = stdout_json(&output);
+    assert_eq!(value["images"][0]["label"], "Added JEI\u{202e}gpj.exe");
+    assert_eq!(value["images"][0]["files"], 42);
+    {
+        let requests = launcher.fake.requests.lock().unwrap();
+        let request = requests.last().unwrap();
+        assert_eq!(request.method, "content.history");
+        assert_eq!(request.params["instance"], "Survival");
+    }
+
+    // For people: one line each, as the Launcher writes them to be shown (the direction
+    // override written visibly).
+    let output = cli(
+        &launcher.socket,
+        &["--human", "content", "history", "Survival"],
+        None,
+    );
+    let text = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(
+        lines,
+        [
+            "2026-11-14 08:40  Added JEI\\u{202E}gpj.exe  (42 files, fabric 0.16.10 on 1.21.1)  current",
+            "2026-11-14 08:30  Created Survival  (1 file, vanilla 1.21.1)",
+        ],
+        "{text}"
+    );
+
+    let output = cli(&launcher.socket, &["content", "history", "x"], None);
+    assert_eq!(stderr_error(&output).code, codes::NOT_FOUND);
 }

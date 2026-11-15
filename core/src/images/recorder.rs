@@ -31,7 +31,8 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use lodestone_image::manifest::{App, MAX_TEXT_LEN};
+use lodestone_image::lineage::join_labels;
+use lodestone_image::manifest::App;
 use lodestone_image::store::snapshot::{self, Snapshot, SnapshotOptions};
 use lodestone_image::store::{Store, StoreError};
 use lodestone_image::{DiskLayout, Entry, Image, Kind, Producer, Source};
@@ -1175,48 +1176,9 @@ fn describe(
     entry
 }
 
-/// The image's label: each operation's, in order, without repeats in a row, joined with
-/// "; " and cut to what an image may hold.
-pub(crate) fn join_labels(labels: &[String]) -> Option<String> {
-    let mut parts: Vec<String> = Vec::new();
-    for label in labels {
-        let clean: String = label
-            .chars()
-            .map(|c| if c.is_control() { ' ' } else { c })
-            .collect();
-        let clean = clean.trim().to_string();
-        if !clean.is_empty() && parts.last() != Some(&clean) {
-            parts.push(clean);
-        }
-    }
-    if parts.is_empty() {
-        return None;
-    }
-    let joined = parts.join("; ");
-    if joined.chars().count() <= MAX_TEXT_LEN {
-        return Some(joined);
-    }
-    let mut cut: String = joined.chars().take(MAX_TEXT_LEN - 1).collect();
-    cut.push('…');
-    Some(cut)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn labels_join_and_fit() {
-        assert_eq!(join_labels(&[]), None);
-        assert_eq!(
-            join_labels(&["Added JEI".into(), "Added JEI".into(), "Removed X\n".into()]),
-            Some("Added JEI; Removed X".into())
-        );
-        let long: Vec<String> = (0..500).map(|n| format!("Updated mod {n}")).collect();
-        let joined = join_labels(&long).unwrap();
-        assert_eq!(joined.chars().count(), MAX_TEXT_LEN);
-        assert!(joined.ends_with('…'));
-    }
 
     #[test]
     fn pending_merges_within_the_window_and_caps() {

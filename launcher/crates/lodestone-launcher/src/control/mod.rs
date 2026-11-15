@@ -425,6 +425,11 @@ pub const METHODS: &[Method] = &[
         content::list,
     ),
     method(
+        "content.history",
+        "An instance's content images, newest first: label, time, game, pack and file count.",
+        content::history,
+    ),
+    method(
         "content.search",
         "Searches Modrinth for content that fits the instance.",
         content::search,
@@ -1645,6 +1650,7 @@ pub const READ_METHODS: &[&str] = &[
     "shared.get",
     "shared.instance.get",
     "content.list",
+    "content.history",
     "content.search",
     "content.versions",
     "content.updates",

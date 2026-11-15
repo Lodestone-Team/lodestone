@@ -2023,6 +2023,8 @@ impl Servers {
         let pack = pending.pack.clone();
         let pack_path = pending.pack_path.clone();
         let loader = pending.loader.clone();
+        let images = self.instances.read(cx).images();
+        let created = launcher_core::images::labels::created_from_server(&name);
         let work = cx.background_spawn(async move {
             let result = import::import(
                 &store,
@@ -2041,6 +2043,9 @@ impl Servers {
             )
             .await;
             let _ = std::fs::remove_file(&pack_path);
+            if let Ok(instance) = &result {
+                crate::instances::record_created_later(&images, &instance.id, &created);
+            }
             result
         });
         self.tasks.push(cx.spawn(async move |this, cx| {
@@ -2105,6 +2110,8 @@ impl Servers {
         }
         self.busy.insert(row.clone(), Busy::CheckingMods);
         let dirs = self.instances.read(cx).content_dirs(&instance_id);
+        let images = self.instances.read(cx).images();
+        let image_id = instance_id.clone();
         let check_server = server.clone();
         let check = cx.background_spawn(async move {
             let link = link::load_link(&dirs.instance).unwrap_or_default();
@@ -2140,9 +2147,14 @@ impl Servers {
                 }
             };
             if !plan.changes_files() {
-                // the same mods in a rebuilt pack: remember it
+                // the same mods in a rebuilt pack: remember it. modpack.json names the
+                // pack's files, which the content images take, and a rebuilt pack can list
+                // others: a change of which files are content, recorded without a label
+                // (or only the baseline taken again when nothing new is in).
                 let _ = std::fs::remove_file(&pack_path);
-                let _ = plan.record.save(&dirs.instance);
+                let operation = images.begin_rescope(&image_id);
+                let saved = plan.record.save(&dirs.instance);
+                operation.finish(&saved);
                 let mut link = link;
                 link.pack_etag = etag;
                 let _ = link::save_link(&dirs.instance, &link);
@@ -2333,6 +2345,19 @@ impl Servers {
                 cx,
             );
         }
+        // A saved "Find it for me" search has mods turned off (see Instances::finder_saved).
+        if self.instances.read(cx).finder_saved(&pending.instance_id) {
+            let _ = std::fs::remove_file(&pending.pack_path);
+            return self.fail(
+                || {
+                    (
+                        t(M::UpdateModsFailed).into(),
+                        t(M::FinishFinderFirst).into(),
+                    )
+                },
+                cx,
+            );
+        }
         let instances = self.instances.read(cx);
         let api = instances.modrinth();
         let downloader = instances.content_downloader();
@@ -2344,8 +2369,31 @@ impl Servers {
         let plan = pending.plan.clone();
         let pack_path = pending.pack_path.clone();
         let etag = pending.etag.clone();
+        let images = self.instances.read(cx).images();
+        let image_id = pending.instance_id.clone();
+        let server_name = pending.server.name.clone();
+        // Play waits from the record before the update until the loader it brings is saved,
+        // so the check before a launch never takes a half-applied update for a change made by
+        // hand.
+        let busy = self
+            .instances
+            .read(cx)
+            .mark_files_busy(&pending.instance_id);
         let work = cx.background_spawn(async move {
-            let result = update::apply(
+            // Milestone 4's second half replaces this client pack sync with server images;
+            // the records around it stay: everything the update replaces is in an image
+            // first, and the update is an operation of its own.
+            if let Err(err) = images.record_before_change(
+                &image_id,
+                launcher_core::images::labels::BEFORE_SERVER_UPDATE,
+            ) {
+                log::warn!("Couldn't record the content of {image_id}: {err}");
+            }
+            let operation = images.begin(
+                &image_id,
+                launcher_core::images::labels::server_updated(&server_name),
+            );
+            let applied = update::apply(
                 api.as_deref(),
                 &downloader,
                 &dirs,
@@ -2357,16 +2405,35 @@ impl Servers {
             )
             .await;
             let _ = std::fs::remove_file(&pack_path);
-            result?;
-            let mut link = link::load_link(&dirs.instance).unwrap_or_default();
-            link.pack_etag = etag;
-            link::save_link(&dirs.instance, &link).map_err(|e| PullError::Other(e.to_string()))?;
-            Ok::<_, PullError>(())
+            // The files changed (all of them, or part way): the operation succeeds whatever
+            // happens next. On success it does once the loader the pack brings is saved,
+            // so the image has it; the link file isn't content.
+            let result = match applied {
+                Ok(_) => {
+                    let mut link = link::load_link(&dirs.instance).unwrap_or_default();
+                    link.pack_etag = etag;
+                    link::save_link(&dirs.instance, &link)
+                        .map_err(|e| PullError::Other(e.to_string()))
+                }
+                Err(err) => {
+                    operation.succeed_part_way();
+                    return (Err(PullError::from(err)), None);
+                }
+            };
+            (result, Some(operation))
         });
         self.tasks.push(cx.spawn(async move |this, cx| {
-            let result = work.await;
+            let (result, operation) = work.await;
+            // Saved below with the loader; on an error before that, now.
+            let mut operation = operation;
+            if result.is_err()
+                && let Some(operation) = operation.take()
+            {
+                operation.succeed();
+            }
             this.update(cx, |this, cx| {
                 this.busy.remove(&row);
+                let busy = busy;
                 match result {
                     Ok(()) => {
                         // the loader and Minecraft version follow the server's pack
@@ -2387,7 +2454,12 @@ impl Servers {
                                     Loader::from_kind(plan.loader.as_ref().map(|l| l.kind));
                                 instance.loader_version =
                                     plan.loader.as_ref().map(|l| l.version.clone());
-                                instances.save(&instance, cx)?;
+                                let saved = instances.save(&instance, cx);
+                                // after the loader the server's pack brings is saved
+                                if let Some(operation) = operation.take() {
+                                    operation.succeed();
+                                }
+                                saved?;
                                 // its Settings tab shows the loader it was built with
                                 if before
                                     != (
@@ -2400,6 +2472,12 @@ impl Servers {
                                 }
                                 Ok(())
                             });
+                        // The instance couldn't be read: the files changed all the same.
+                        if let Some(operation) = operation.take() {
+                            operation.succeed();
+                        }
+                        // Joining plays the instance: its files are done.
+                        drop(busy);
                         match saved {
                             Ok(()) => {
                                 this.join(&pending.core, &pending.server, &pending.instance_id, cx)

@@ -149,6 +149,7 @@ crate::i18n::messages! {
         AskOwnerToStart = "Ask its owner to start it, or sign in to the host on the Lodestone Host page to start it yourself.",
         UpdateModsFailed = "Couldn't update the mods",
         StopGameFirst = "Stop the game first.",
+        FinishFinderFirst = "Finish the Find it for me search first: it has some of the mods turned off.",
         UpdateInstanceFailed = "Couldn't update the instance",
         InstanceNotSaved = "The mods were updated, but the instance couldn't be saved: {error}",
         BadJoinAddress = "The server's address or port isn't one Minecraft can join.",

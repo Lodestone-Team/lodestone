@@ -24,6 +24,7 @@ pub mod fsx;
 pub mod game;
 pub mod hero_cache;
 pub mod http;
+pub mod images;
 pub mod import;
 pub mod instances;
 pub mod markdown;

@@ -23,6 +23,8 @@ pub fn text(message: M) -> &'static str {
 
         M::PreparingNote => "正在准备 Minecraft {version}（{loader}）",
         M::JoiningNote => "游戏启动后将加入 {address}",
+        M::ContentRecordedNote => "已记录实例当前的模组和配置",
+        M::ContentCheckFailedNote => "无法记录实例的模组和配置：{error}",
         M::VerifyingNote => "正在校验 Minecraft {version}（{loader}）的游戏文件",
         M::RosettaNote => "游戏通过 Rosetta 2 在 Intel（x86_64）Java 中运行。",
         M::StartingJavaNote => "正在启动 Java：{command}",
@@ -146,6 +148,7 @@ pub fn text(message: M) -> &'static str {
         M::CouldntImportModpack => "无法导入整合包",
         M::CouldntUpdateModpack => "无法更新整合包",
         M::StopGameFirst => "请先停止游戏。",
+        M::FinishFinderFirst => "请先完成“帮我找出来”的查找：它关闭了部分模组。",
         M::ModpackUpdated => "整合包已更新",
         M::ModpackUpdatedMessage => {
             "{name} 现在运行 {pack} {version}。被替换的文件已保存在 {path}。"
