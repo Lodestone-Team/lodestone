@@ -2803,7 +2803,7 @@ mod image_tests {
         });
         let id = instances.update(&mut cx, |instances, cx| {
             instances.preview_offline();
-            let id = instances.list()[0].id.clone();
+            let id = fabric_sample(instances);
             instances.select(&id, cx);
             id
         });
@@ -2909,7 +2909,18 @@ mod image_tests {
         assert_eq!(history.images[0].label.as_deref(), Some("Created Fresh"));
     }
 
-    /// The sample instances, off the network, with the first one's id and the images.
+    /// The Fabric sample instance ("Survival 1.20.1"), whatever order the list is in: the
+    /// tests change its loader version, which a vanilla instance has none of.
+    fn fabric_sample(instances: &Instances) -> String {
+        instances
+            .list()
+            .iter()
+            .find(|instance| instance.loader == launcher_core::instances::Loader::Fabric)
+            .map(|instance| instance.id.clone())
+            .expect("a Fabric sample instance")
+    }
+
+    /// The sample instances, off the network, with the Fabric one's id and the images.
     fn sample(cx: &mut TestAppContext) -> (Entity<Instances>, String, Arc<Images>) {
         let instances = cx.update(|cx| {
             let accounts = crate::preview::accounts("signed-out", cx);
@@ -2917,7 +2928,7 @@ mod image_tests {
         });
         let (id, images) = instances.update(cx, |instances, _| {
             instances.preview_offline();
-            (instances.list()[0].id.clone(), instances.images())
+            (fabric_sample(instances), instances.images())
         });
         cx.run_until_parked();
         (instances, id, images)
@@ -3122,7 +3133,14 @@ mod image_tests {
         assert_eq!(labels(&images, &id), ["Created"]);
 
         // Duplicate: the copy's first image says where it came from.
-        let name = instances.read_with(&cx, |instances, _| instances.list()[0].name.clone());
+        let name = instances.read_with(&cx, |instances, _| {
+            instances
+                .list()
+                .iter()
+                .find(|instance| instance.id == id)
+                .map(|instance| instance.name.clone())
+                .unwrap()
+        });
         let copied = instances.update(&mut cx, |instances, cx| instances.duplicate(&id, cx));
         wait_until(&mut cx, |cx| {
             instances.read_with(cx, |instances, _| instances.list().len() == 5)
