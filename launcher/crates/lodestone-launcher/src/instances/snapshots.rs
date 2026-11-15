@@ -827,9 +827,13 @@ impl SnapshotDialog {
                         tr!(M::WorldGoneNow, size = format::bytes(world.size))
                     };
                     rows.push(
-                        SettingRow::new(label.clone())
-                            .key(("snapshot-world-row", index))
-                            .hint(detail)
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap_3()
+                            .px_4()
+                            .py_2()
                             .child(
                                 Checkbox::new(("snapshot-world", index), on, label).on_change(
                                     cx.listener(move |this, value: &bool, _, cx| {
@@ -844,6 +848,8 @@ impl SnapshotDialog {
                                     }),
                                 ),
                             )
+                            .child(div().flex_1())
+                            .child(muted(detail))
                             .into_any_element(),
                     );
                 }
@@ -859,14 +865,22 @@ impl SnapshotDialog {
                 {
                     body = body.child(
                         note(tr!(M::ModsDiffer, changes = diff_line(diff))).child(
-                            Toggle::new("snapshot-mods-too", false)
-                                .label(t(M::RestoreModsToo))
-                                .on_change(cx.listener(|this, value: &bool, _, cx| {
-                                    if *value {
-                                        this.choice = Choice::WorldsAndMods;
-                                    }
-                                    cx.notify();
-                                })),
+                            div()
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .gap_2()
+                                .child(
+                                    Toggle::new("snapshot-mods-too", false)
+                                        .label(t(M::RestoreModsToo))
+                                        .on_change(cx.listener(|this, value: &bool, _, cx| {
+                                            if *value {
+                                                this.choice = Choice::WorldsAndMods;
+                                            }
+                                            cx.notify();
+                                        })),
+                                )
+                                .child(muted(t(M::RestoreModsToo))),
                         ),
                     );
                 }
