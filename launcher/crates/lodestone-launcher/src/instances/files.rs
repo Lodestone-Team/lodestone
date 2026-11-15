@@ -103,10 +103,21 @@ impl Instances {
     ) -> Task<Result<Instance, String>> {
         let store = self.store.clone();
         let source = id.to_string();
+        let images = self.images();
+        let label = launcher_core::images::labels::copied(
+            self.list
+                .iter()
+                .find(|instance| instance.id == id)
+                .map_or(id, |instance| instance.name.as_str()),
+        );
         self.file_work(
             id,
             FileOp::Duplicate,
-            move || store.duplicate(&source).map_err(|err| err.to_string()),
+            move || {
+                let copy = store.duplicate(&source).map_err(|err| err.to_string())?;
+                super::record_created(&images, &copy.id, &label);
+                Ok(copy)
+            },
             |this, result, cx| {
                 let copy = result?;
                 this.selected = Some(copy.id.clone());
@@ -128,12 +139,20 @@ impl Instances {
             return Task::ready(Err(t(M::FilesBusy).into()));
         }
         let store = self.store.clone();
+        let images = self.images();
         let gone = id.to_string();
         let forget = id.to_string();
         self.file_work(
             id,
             FileOp::Delete,
-            move || store.delete(&gone).map_err(|err| err.to_string()),
+            move || {
+                store.delete(&gone).map_err(|err| err.to_string())?;
+                // Its id goes to the next instance of the same name: its history mustn't.
+                if let Err(err) = images.delete_instance(&gone) {
+                    log::warn!("Couldn't delete the images of {gone}: {err}");
+                }
+                Ok(())
+            },
             move |this, result, cx| {
                 result?;
                 this.runs.remove(&forget);

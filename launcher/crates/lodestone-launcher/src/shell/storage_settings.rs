@@ -399,10 +399,16 @@ impl StorageSettings {
         };
         let progress = Arc::new(MoveProgress::default());
         let cancel = Cancel::new();
+        let images = self.instances.read(cx).images();
         let work = {
             let (progress, cancel) = (progress.clone(), cancel.clone());
             let request = request.clone();
-            cx.background_spawn(async move { data_move::run(&request, &progress, &cancel) })
+            cx.background_spawn(async move {
+                // The content images queued in the last few seconds are written before
+                // their store moves with everything else.
+                images.settle(Duration::from_secs(6));
+                data_move::run(&request, &progress, &cancel)
+            })
         };
         let task = cx.spawn(async move |this, cx| {
             let result = work.await;

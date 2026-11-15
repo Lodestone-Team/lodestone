@@ -2023,6 +2023,8 @@ impl Servers {
         let pack = pending.pack.clone();
         let pack_path = pending.pack_path.clone();
         let loader = pending.loader.clone();
+        let images = self.instances.read(cx).images();
+        let created = launcher_core::images::labels::created_from_server(&name);
         let work = cx.background_spawn(async move {
             let result = import::import(
                 &store,
@@ -2041,6 +2043,9 @@ impl Servers {
             )
             .await;
             let _ = std::fs::remove_file(&pack_path);
+            if let Ok(instance) = &result {
+                crate::instances::record_created(&images, &instance.id, &created);
+            }
             result
         });
         self.tasks.push(cx.spawn(async move |this, cx| {
@@ -2344,27 +2349,48 @@ impl Servers {
         let plan = pending.plan.clone();
         let pack_path = pending.pack_path.clone();
         let etag = pending.etag.clone();
+        let images = self.instances.read(cx).images();
+        let image_id = pending.instance_id.clone();
+        let server_name = pending.server.name.clone();
         let work = cx.background_spawn(async move {
-            let result = update::apply(
-                api.as_deref(),
-                &downloader,
-                &dirs,
-                &plan,
-                &pack_path,
-                false,
-                &progress,
-                &CancelToken::new(),
-            )
+            // Milestone 4's second half replaces this client pack sync with server images;
+            // the records around it stay: everything the update replaces is in an image
+            // first, and the update is an operation of its own.
+            if let Err(err) = images.record_before_change(
+                &image_id,
+                launcher_core::images::labels::BEFORE_SERVER_UPDATE,
+            ) {
+                log::warn!("Couldn't record the content of {image_id}: {err}");
+            }
+            let operation = images.begin(
+                &image_id,
+                launcher_core::images::labels::server_updated(&server_name),
+            );
+            let result = async {
+                let result = update::apply(
+                    api.as_deref(),
+                    &downloader,
+                    &dirs,
+                    &plan,
+                    &pack_path,
+                    false,
+                    &progress,
+                    &CancelToken::new(),
+                )
+                .await;
+                let _ = std::fs::remove_file(&pack_path);
+                result?;
+                let mut link = link::load_link(&dirs.instance).unwrap_or_default();
+                link.pack_etag = etag;
+                link::save_link(&dirs.instance, &link)
+                    .map_err(|e| PullError::Other(e.to_string()))?;
+                Ok::<_, PullError>(())
+            }
             .await;
-            let _ = std::fs::remove_file(&pack_path);
-            result?;
-            let mut link = link::load_link(&dirs.instance).unwrap_or_default();
-            link.pack_etag = etag;
-            link::save_link(&dirs.instance, &link).map_err(|e| PullError::Other(e.to_string()))?;
-            Ok::<_, PullError>(())
+            (result, operation)
         });
         self.tasks.push(cx.spawn(async move |this, cx| {
-            let result = work.await;
+            let (result, operation) = work.await;
             this.update(cx, |this, cx| {
                 this.busy.remove(&row);
                 match result {
@@ -2387,7 +2413,10 @@ impl Servers {
                                     Loader::from_kind(plan.loader.as_ref().map(|l| l.kind));
                                 instance.loader_version =
                                     plan.loader.as_ref().map(|l| l.version.clone());
-                                instances.save(&instance, cx)?;
+                                let saved = instances.save(&instance, cx);
+                                // after the loader the server's pack brings is saved
+                                operation.succeed();
+                                saved?;
                                 // its Settings tab shows the loader it was built with
                                 if before
                                     != (

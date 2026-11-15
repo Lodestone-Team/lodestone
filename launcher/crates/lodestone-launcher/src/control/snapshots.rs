@@ -312,14 +312,21 @@ pub fn revert(call: Call, cx: &mut App) -> Reply {
     let label = format!("Going back to {} in {}", snapshot.name, instance.name);
     let current = instance.clone();
     let id = instance.id.clone();
+    let images = call.control.instances.read(cx).images();
     job(
         &call,
         label,
         Some(&instance),
         move |progress| {
-            let (settings, safety) = store
+            let operation = images.begin(
+                &current.id,
+                launcher_core::images::labels::reverted(&snapshot.name),
+            );
+            let reverted = store
                 .revert(&snapshot, &current, &dir, &selection, progress)
-                .map_err(snapshot_error)?;
+                .map_err(snapshot_error);
+            operation.finish(&reverted);
+            let (settings, safety) = reverted?;
             Ok(json!({
                 "reverted_to": snapshot.id,
                 "safety_snapshot": snapshot_json(&safety),
@@ -434,6 +441,7 @@ pub fn import(call: Call, cx: &mut App) -> Reply {
     let instances = call.control.instances.read(cx);
     let store = instances.snapshot_store();
     let instance_store = instances.store();
+    let images = instances.images();
     launcher_core::trace::emit("snapshot.import", || json!({ "mods": mods.len() }));
     let label = format!("Making an instance from {}", snapshot.instance.name);
     job(
@@ -444,6 +452,11 @@ pub fn import(call: Call, cx: &mut App) -> Reply {
             let instance = store
                 .import_as_instance(&instance_store, &path, &selection, progress)
                 .map_err(snapshot_error)?;
+            crate::instances::record_created(
+                &images,
+                &instance.id,
+                launcher_core::images::labels::FROM_SNAPSHOT,
+            );
             Ok(json!({ "instance": instance.id, "name": instance.name }))
         },
         |control, _, cx| {

@@ -116,10 +116,11 @@ impl Instances {
             let store = self.store.clone();
             let api = self.modrinth.clone();
             let downloader = self.content_downloader.clone();
+            let images = self.images();
             let progress = progress.clone();
             let cancel = cancel.clone();
             cx.background_spawn(async move {
-                copy_as::execute(
+                let outcome = copy_as::execute(
                     &store,
                     api.as_deref(),
                     &downloader,
@@ -129,7 +130,15 @@ impl Instances {
                     &cancel,
                     move || drop(busy),
                 )
-                .await
+                .await;
+                if let Ok(outcome) = &outcome {
+                    super::record_created(
+                        &images,
+                        &outcome.instance.id,
+                        &launcher_core::images::labels::copied(&source.name),
+                    );
+                }
+                outcome
             })
         };
         let task = cx.spawn(async move |this, cx| {

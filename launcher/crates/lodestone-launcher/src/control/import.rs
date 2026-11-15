@@ -96,12 +96,13 @@ pub fn run(call: Call, cx: &mut App) -> Reply {
         tri!(absolute(folder));
     }
     let control = call.control.clone();
-    let (installer, store, api) = {
+    let (installer, store, api, images) = {
         let instances = control.instances.read(cx);
         (
             instances.installer(),
             instances.store(),
             instances.modrinth(),
+            instances.images(),
         )
     };
     let slot: Arc<Mutex<Option<Arc<ImportProgress>>>> = Arc::new(Mutex::new(None));
@@ -139,8 +140,13 @@ pub fn run(call: Call, cx: &mut App) -> Reply {
             if let Ok(mut slot) = slot.lock() {
                 *slot = Some(progress.clone());
             }
-            let (installer, store, api, cancel) =
-                (installer.clone(), store.clone(), api.clone(), cancel.clone());
+            let (installer, store, api, cancel, images) = (
+                installer.clone(),
+                store.clone(),
+                api.clone(),
+                cancel.clone(),
+                images.clone(),
+            );
             let name = found.name.clone();
             let options = CopyOptions {
                 without_worlds: params.without_worlds,
@@ -151,12 +157,18 @@ pub fn run(call: Call, cx: &mut App) -> Reply {
                     if cancel.is_cancelled() {
                         return Err(import::ImportError::Cancelled);
                     }
+                    let label =
+                        launcher_core::images::labels::imported(found.source.label());
                     let request = ImportRequest {
                         found,
                         resolved,
                         options,
                     };
-                    import::import(&store, &request, api.as_deref(), &progress, &cancel).await
+                    let done =
+                        import::import(&store, &request, api.as_deref(), &progress, &cancel)
+                            .await?;
+                    crate::instances::record_created(&images, &done.instance.id, &label);
+                    Ok(done)
                 })
                 .await;
             match result {

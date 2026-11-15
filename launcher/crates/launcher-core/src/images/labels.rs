@@ -164,11 +164,12 @@ pub fn reverted(snapshot: &str) -> String {
     format!("Went back to snapshot \u{201c}{snapshot}\u{201d}")
 }
 
-/// "Find it for me" ended: the mod it found stays off, or every mod it turned off is back.
-pub fn mod_finder_ended(culprit: Option<&str>) -> String {
-    match culprit {
-        Some(file) => format!("Find it for me turned off {file}"),
-        None => "Find it for me put the mods back".into(),
+/// "Find it for me" ended: the mods it found stay off, or every mod it turned off is back.
+pub fn mod_finder_ended(kept_off: &[String]) -> String {
+    match kept_off {
+        [] => "Find it for me put the mods back".into(),
+        [file] => format!("Find it for me turned off {file}"),
+        many => format!("Find it for me turned off {} mods", many.len()),
     }
 }
 

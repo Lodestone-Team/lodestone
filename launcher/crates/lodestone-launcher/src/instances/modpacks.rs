@@ -16,6 +16,7 @@ use launcher_core::{
         share::{self, ShareCode, ShareOutcome},
     },
     game::{download::CancelToken, install::Installer, loaders::LoaderKind},
+    images::labels,
     instances::{Instance, Loader},
     modpack::{
         self, CurseForgePack, ModpackError, ModpackRecord, PackInfo,
@@ -449,11 +450,16 @@ impl Instances {
         let progress = Arc::new(InstallProgress::default());
         let cancel = CancelToken::new();
         let downloader = self.content_downloader.clone();
+        let operation = self.images().begin(&id, labels::SHARE_CODE);
         let work = {
             let progress = progress.clone();
             let cancel = cancel.clone();
             cx.background_spawn(async move {
-                share::install(&api, &downloader, &dirs, &target, &code, &progress, &cancel).await
+                let outcome =
+                    share::install(&api, &downloader, &dirs, &target, &code, &progress, &cancel)
+                        .await;
+                operation.finish(&outcome);
+                outcome
             })
         };
         let instance_name = name.clone();
@@ -529,6 +535,7 @@ impl Instances {
         let store = self.store.clone();
         let installer = self.installer.clone();
         let downloader = self.content_downloader.clone();
+        let images = self.images();
         let work = {
             let progress = progress.clone();
             let cancel = cancel.clone();
@@ -632,24 +639,36 @@ impl Instances {
                     let _ = std::fs::remove_file(&source.pack_path);
                 }
                 let (instance, pack, blocked) = result?;
+                let record = ModpackRecord::load(&store.dir(&instance.id)).unwrap_or_default();
+                let title = if record.title.is_empty() {
+                    instance.name.clone()
+                } else {
+                    record.title.clone()
+                };
+                super::record_created(
+                    &images,
+                    &instance.id,
+                    &labels::installed_pack(&title, &record.version_number),
+                );
                 // A share code's changes, on top of the pack it is based on.
                 let shared = match &source.share {
                     Some(code) => {
                         let dirs = InstanceDirs::new(store.dir(&instance.id));
                         let target = Target::new(instance.game_version.clone(), instance.loader);
-                        Some(
-                            share::install(
-                                &api,
-                                &downloader,
-                                &dirs,
-                                &target,
-                                code,
-                                &progress,
-                                &cancel,
-                            )
-                            .await
-                            .map_err(|err| err.to_string()),
+                        let operation = images.begin(&instance.id, labels::SHARE_CODE);
+                        let outcome = share::install(
+                            &api,
+                            &downloader,
+                            &dirs,
+                            &target,
+                            code,
+                            &progress,
+                            &cancel,
                         )
+                        .await
+                        .map_err(|err| err.to_string());
+                        operation.finish(&outcome);
+                        Some(outcome)
                     }
                     None => None,
                 };
@@ -863,6 +882,8 @@ impl Instances {
         let api = self.modrinth.clone();
         let dirs = self.content_dirs(&id);
         let downloader = self.content_downloader.clone();
+        let images = self.images();
+        let image_id = id.clone();
         let progress = Arc::new(InstallProgress::default());
         let cancel = CancelToken::new();
         let work = {
@@ -870,6 +891,17 @@ impl Instances {
             let cancel = cancel.clone();
             let prompt = prompt.clone();
             cx.background_spawn(async move {
+                // Every file the update replaces is in an image first.
+                if let Err(err) =
+                    images.record_before_change(&image_id, labels::BEFORE_MODPACK_UPDATE)
+                {
+                    log::warn!("Couldn't record the content of {image_id}: {err}");
+                }
+                let record = &prompt.plan.record;
+                let operation = images.begin(
+                    &image_id,
+                    labels::pack_updated(&record.title, &record.version_number),
+                );
                 let result = update::apply(
                     api.as_deref(),
                     &downloader,
@@ -882,11 +914,11 @@ impl Instances {
                 )
                 .await;
                 let _ = std::fs::remove_file(&prompt.pack_path);
-                result
+                (result, operation)
             })
         };
         let task = cx.spawn(async move |this, cx| {
-            let result = work.await;
+            let (result, operation) = work.await;
             this.update(cx, |this, cx| {
                 this.modpack_updates.remove(&id);
                 this.content_changed(&id);
@@ -902,10 +934,13 @@ impl Instances {
                             instance.recommended_memory = plan.recommended_memory;
                             instance
                         });
-                        let message = match saved
+                        let saved = saved
                             .map_err(|e| e.to_string())
-                            .and_then(|i| this.save(&i, cx))
-                        {
+                            .and_then(|i| this.save(&i, cx));
+                        // After the new loader version is saved, so the image has it. The
+                        // files changed either way: a failed save is still recorded.
+                        operation.succeed();
+                        let message = match saved {
                             Ok(()) => {
                                 let updated = tr!(
                                     M::ModpackUpdatedMessage,
@@ -1107,6 +1142,9 @@ impl Instances {
         let cf = self.curseforge.clone();
         let dirs = self.content_dirs(&id);
         let downloader = self.content_downloader.clone();
+        let operation = self
+            .images()
+            .begin(&id, labels::addon_added(&prompt.plan.pack.record.title));
         let progress = Arc::new(InstallProgress::default());
         let cancel = CancelToken::new();
         let work = {
@@ -1124,6 +1162,7 @@ impl Instances {
                     &cancel,
                 )
                 .await;
+                operation.finish(&result);
                 if !prompt.keep_pack {
                     let _ = std::fs::remove_file(&prompt.pack_path);
                 }
@@ -1207,7 +1246,9 @@ impl Instances {
             .get(pack_id)
             .map(|p| p.record.title.clone())
             .unwrap_or_default();
+        let operation = self.images().begin(id, labels::addon_removed(&title));
         let removed = addon::remove(&dirs, pack_id);
+        operation.finish(&removed);
         self.content_changed(id);
         let result = match &removed {
             Ok(outcome) => Ok(outcome.clone()),

@@ -517,11 +517,20 @@ impl ModFinder {
         cx.notify();
         let search = self.search.clone();
         let dirs = self.dirs.clone();
+        // The search's end is one operation: no image was recorded while it renamed mods,
+        // and nothing at all when it puts every mod back as it was.
+        let kept_off: Vec<String> = keep_off.iter().cloned().collect();
+        let operation = self.instances.read(cx).images().begin(
+            &self.id,
+            launcher_core::images::labels::mod_finder_ended(&kept_off),
+        );
         let work = cx.background_spawn(async move {
-            match &search {
+            let result = match &search {
                 Some(search) => mod_finder::restore(&dirs, search, &keep_off),
                 None => mod_finder::forget(&dirs),
-            }
+            };
+            operation.finish(&result);
+            result
         });
         self.task = Some(cx.spawn(async move |this, cx| {
             let result = work.await;

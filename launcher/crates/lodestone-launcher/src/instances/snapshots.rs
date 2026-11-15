@@ -19,6 +19,7 @@ use gpui::{
     FileDragPaths, FocusHandle, Focusable, IntoElement, Render, SharedString, Task, Window, div,
     prelude::*,
 };
+use launcher_core::images::labels;
 use launcher_core::snapshots::{Category, Part, Selection, Snapshot, Store};
 
 use super::Instances;
@@ -153,7 +154,8 @@ impl Instances {
         instance: launcher_core::instances::Instance,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
-        let loader_moved = self.store.get(&instance.id).is_ok_and(|before| {
+        let before = self.store.get(&instance.id).ok();
+        let loader_moved = before.as_ref().is_some_and(|before| {
             (&before.game_version, before.loader, &before.loader_version)
                 != (
                     &instance.game_version,
@@ -161,7 +163,13 @@ impl Instances {
                     &instance.loader_version,
                 )
         });
+        let operation = before
+            .as_ref()
+            .and_then(|before| self.settings_operation(before, &instance));
         self.store.save(&instance).map_err(|err| err.to_string())?;
+        if let Some(operation) = operation {
+            operation.succeed();
+        }
         self.reload(cx);
         if loader_moved {
             cx.emit(super::InstancesEvent::LoaderChanged(instance.id.clone()));
@@ -568,6 +576,8 @@ impl SnapshotDialog {
         };
         let dir = instances.store().dir(&id);
         let store = instances.snapshot_store();
+        let images = instances.images();
+        let image_id = id.clone();
         // Play waits until the files are put back, even if the dialog is closed meanwhile
         let busy = instances.mark_files_busy(&id);
         launcher_core::trace::emit(
@@ -578,10 +588,13 @@ impl SnapshotDialog {
             M::RevertingSnapshot,
             move |progress| {
                 let _busy = busy;
-                store
+                let operation = images.begin(&image_id, labels::reverted(&snapshot.name));
+                let reverted = store
                     .revert(&snapshot, &current, &dir, &selection, progress)
                     .map(|(settings, _)| settings)
-                    .map_err(|err| err.to_string())
+                    .map_err(|err| err.to_string());
+                operation.finish(&reverted);
+                reverted
             },
             move |instances, settings, cx| {
                 // The automatic snapshot is listed even if saving the settings fails.
@@ -701,13 +714,16 @@ impl SnapshotDialog {
         let instances = self.instances.read(cx);
         let store = instances.snapshot_store();
         let instance_store = instances.store();
+        let images = instances.images();
         launcher_core::trace::emit("snapshot.import", || serde_json::json!({}));
         self.run(
             M::ImportingSnapshot,
             move |progress| {
-                store
+                let instance = store
                     .import_as_instance(&instance_store, &path, &selection, progress)
-                    .map_err(|err| err.to_string())
+                    .map_err(|err| err.to_string())?;
+                crate::instances::record_created(&images, &instance.id, labels::FROM_SNAPSHOT);
+                Ok(instance)
             },
             |instances, instance, cx| {
                 instances.reload(cx);

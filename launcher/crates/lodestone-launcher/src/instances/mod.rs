@@ -630,6 +630,16 @@ impl Instances {
         );
         let store = InstanceStore::new(data_dir.instances_dir());
         let images = Images::open(&data_dir);
+        // What succeeded in the last few seconds is recorded before the process ends,
+        // rather than found as "Changed by hand" at the next launch. On the window's
+        // thread: GPUI waits only 200 ms for a quit handler's future. Returns at once when
+        // nothing is queued.
+        let settling = images.clone();
+        cx.on_app_quit(move |_, _| {
+            settling.settle(Duration::from_secs(6));
+            async {}
+        })
+        .detach();
         // Copies of images that are gone, and the oldest past the limit.
         let hero_cache = launcher_core::hero_cache::HeroCache::new(&data_dir);
         let pruning = hero_cache.clone();
@@ -1411,19 +1421,9 @@ impl Instances {
 
     pub fn save(&mut self, instance: &Instance, cx: &mut Context<Self>) -> Result<(), String> {
         let before = self.store.get(&instance.id).ok();
-        // The loader version and recommended memory are in the instance's content images:
-        // a change from Settings, Undo, a modpack's or a server's update, or the CLI is an
-        // operation (merged with the update's own when it is one).
-        let operation = before.as_ref().and_then(|before| {
-            let label = if before.loader_version != instance.loader_version {
-                labels::loader_changed(instance.loader, instance.loader_version.as_deref())
-            } else if before.recommended_memory != instance.recommended_memory {
-                labels::MEMORY_CHANGED.to_string()
-            } else {
-                return None;
-            };
-            Some(self.images.begin(&instance.id, label))
-        });
+        let operation = before
+            .as_ref()
+            .and_then(|before| self.settings_operation(before, instance));
         self.store.save(instance).map_err(|err| err.to_string())?;
         if let Some(operation) = operation {
             operation.succeed();
@@ -1541,6 +1541,25 @@ impl Instances {
     /// The instances' content images, for actions that change content in the background.
     pub fn images(&self) -> Arc<Images> {
         self.images.clone()
+    }
+
+    /// The operation saving `after` over `before` is in the instance's content images, if
+    /// any: the loader version and the recommended memory are in them, so a change from
+    /// Settings, Undo, a modpack's or a server's update, or the CLI is an operation (merged
+    /// with the update's own when it is one). Succeed it once the instance is saved.
+    pub(crate) fn settings_operation(
+        &self,
+        before: &Instance,
+        after: &Instance,
+    ) -> Option<launcher_core::images::Operation> {
+        let label = if before.loader_version != after.loader_version {
+            labels::loader_changed(after.loader, after.loader_version.as_deref())
+        } else if before.recommended_memory != after.recommended_memory {
+            labels::MEMORY_CHANGED.to_string()
+        } else {
+            return None;
+        };
+        Some(self.images.begin(&after.id, label))
     }
 
     /// Records the first content image of the new instance `id`, in the background.
