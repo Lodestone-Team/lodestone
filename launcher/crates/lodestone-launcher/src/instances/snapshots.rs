@@ -28,12 +28,11 @@ use launcher_core::images::{
     ContentDiff, RestorePreview, RestoreScope, SnapshotKind, SnapshotRecord, Take,
 };
 
-use super::Instances;
+use super::{Instances, new_instance::form_row};
 use crate::{
     components::{
         Button, ButtonSize, ButtonVariant, Checkbox, Dialog, Icon, LoadingDots, TextInput, Toggle,
-        segmented,
-        settings::{SettingRow, card},
+        segmented, settings::card,
     },
     i18n::{CommonMsg, InstanceSettingsMsg as M, InstanceSettingsPlural as P, format, t, tr, trn},
     theme::{self, colors, px, radius, text, weights},
@@ -1189,10 +1188,7 @@ impl SnapshotDialog {
                 body = body.child(muted(t(M::RestoreEverythingHint)));
             }
             Choice::AsNew => {
-                body = body.child(
-                    SettingRow::new(t(M::RestoreAsNewName))
-                        .child(div().w(px(260.)).child(self.name.clone())),
-                );
+                body = body.child(form_row(t(M::RestoreAsNewName), self.name.clone()));
             }
         }
         // What putting the content back changes, before Restore is pressed.
@@ -1284,9 +1280,7 @@ impl SnapshotDialog {
                 size = format::bytes(preview.needed_bytes)
             ))),
         };
-        body = body.child(
-            SettingRow::new(t(M::SnapshotName)).child(div().w(px(260.)).child(self.name.clone())),
-        );
+        body = body.child(form_row(t(M::SnapshotName), self.name.clone()));
         body.into_any_element()
     }
 
@@ -1541,21 +1535,26 @@ impl Render for SnapshotDialog {
             }
             (Mode::Take, _) => {
                 body = body
+                    .child(form_row(t(M::SnapshotName), self.name.clone()))
                     .child(
-                        SettingRow::new(t(M::SnapshotName))
-                            .child(div().w(px(260.)).child(self.name.clone())),
-                    )
-                    .child(
-                        SettingRow::new(t(M::SnapshotIncludeEverything))
-                            .hint(t(M::SnapshotIncludeEverythingHint))
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
                             .child(
-                                Toggle::new("snapshot-everything", self.everything)
-                                    .label(t(M::SnapshotIncludeEverything))
-                                    .on_change(cx.listener(|this, value: &bool, _, cx| {
+                                Checkbox::new(
+                                    "snapshot-everything",
+                                    self.everything,
+                                    t(M::SnapshotIncludeEverything),
+                                )
+                                .on_change(cx.listener(
+                                    |this, value: &bool, _, cx| {
                                         this.everything = *value;
                                         cx.notify();
-                                    })),
-                            ),
+                                    },
+                                )),
+                            )
+                            .child(muted(t(M::SnapshotIncludeEverythingHint)).pl(px(24.))),
                     );
             }
             (_, State::Done(message)) => body = body.child(message.clone()),
