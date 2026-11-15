@@ -18,10 +18,14 @@ pub mod world;
 /// Overrides the Discord application id compiled in.
 pub const CLIENT_ID_ENV: &str = "LODESTONE_DISCORD_CLIENT_ID";
 
-/// The Discord application whose name the status shows ("Playing Lodestone
-/// Launcher"), and whose art assets it uses: `LODESTONE_DISCORD_CLIENT_ID` at run
-/// time, else the one compiled in from the same variable. `None` without either, and
-/// the launcher then shows no status.
+/// Lodestone's Discord application: its name is what the status shows ("Playing
+/// Lodestone"), and it holds the art assets. Application ids are public (Discord shows
+/// them to everyone who sees the status), so it is written here rather than kept in a
+/// secret.
+pub const LODESTONE_CLIENT_ID: &str = "1571639485601685634";
+
+/// The Discord application the status uses: `LODESTONE_DISCORD_CLIENT_ID` at run time,
+/// else one compiled in from the same variable, else [`LODESTONE_CLIENT_ID`].
 pub fn client_id() -> Option<String> {
     client_id_from(
         std::env::var(CLIENT_ID_ENV).ok().as_deref(),
@@ -30,7 +34,7 @@ pub fn client_id() -> Option<String> {
 }
 
 fn client_id_from(runtime: Option<&str>, built: Option<&str>) -> Option<String> {
-    [runtime, built]
+    [runtime, built, Some(LODESTONE_CLIENT_ID)]
         .into_iter()
         .flatten()
         .map(str::trim)
@@ -47,7 +51,8 @@ mod tests {
         assert_eq!(client_id_from(Some("123"), Some("456")), Some("123".into()));
         assert_eq!(client_id_from(None, Some(" 456 ")), Some("456".into()));
         assert_eq!(client_id_from(Some(""), Some("456")), Some("456".into()));
-        assert_eq!(client_id_from(Some("abc"), None), None);
-        assert_eq!(client_id_from(None, None), None);
+        let lodestone = Some(LODESTONE_CLIENT_ID.to_owned());
+        assert_eq!(client_id_from(Some("abc"), None), lodestone);
+        assert_eq!(client_id_from(None, None), lodestone);
     }
 }

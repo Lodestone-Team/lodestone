@@ -29,19 +29,15 @@ are off by default.
 - The status is sent only when it changed, at most every 5 s. In a world the second
   line takes turns between place, location and stats every 20 s.
 
-## Setting up the Discord application
+## The Discord application
 
-The status needs a Discord application: its name is what Discord shows ("Playing
-Lodestone Launcher"), and it holds the images.
+The status uses Lodestone's Discord application, `1571639485601685634`
+(`discord::LODESTONE_CLIENT_ID`): its name is what Discord shows ("Playing
+Lodestone"), and it holds the images. The id isn't a secret. To try another
+application, set `LODESTONE_DISCORD_CLIENT_ID` when building or running the launcher.
 
-1. Create an application at <https://discord.com/developers/applications> and name it
-   as the status should read.
-2. Build with its Application ID in `LODESTONE_DISCORD_CLIENT_ID` (compiled in by
-   `option_env!`, like `LODESTONE_CURSEFORGE_API_KEY`), or set the variable when
-   running the launcher to try it. Without one, Settings says the build can't set the
-   status, and the launcher never connects to Discord. The id isn't a secret.
-3. Under Rich Presence › Art Assets, upload images with these keys (any image without
-   its asset is left out):
+Its Rich Presence art assets have these keys (an image whose asset is missing is left
+out):
 
 | Key | Shown |
 | --- | --- |
