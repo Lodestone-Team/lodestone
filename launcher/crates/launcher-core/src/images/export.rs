@@ -24,6 +24,7 @@
 //! and the imported image is kept as an "imported" snapshot, so the user can go back to
 //! what they were sent.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -37,7 +38,7 @@ use sha2::Digest as _;
 
 use super::labels;
 use super::recorder::SPARE_BYTES;
-use super::scope::is_lodestone_name;
+use super::scope::{is_crash_name, is_lodestone_name};
 use super::snapshots::{SnapshotKind, SnapshotRecord, new_record_id, newest_first, snapshot_name};
 use super::{ImageError, Images};
 use crate::content::{ContentKind, CurseForge, InstanceDirs, Modrinth, enabled_name};
@@ -58,13 +59,16 @@ pub const PRIVATE_FILES: &[&str] = &[
     "ias.json",
     "essential/microsoft_accounts.json",
     "essential/mojang_accounts.json",
-    // The JVM's crash logs and dumps (`scope::is_crash_name`), which snapshots leave out:
-    // a crash log holds the command line, access token included.
+    // The JVM's crash logs and dumps, which snapshots leave out: a crash log holds the
+    // command line, access token included. `strip_private` also takes out every top-level
+    // name `scope::is_crash_name` matches (any case), as an image from elsewhere may hold
+    // one.
     "/hs_err_pid*",
     "/replay_pid*",
     "/java_pid*.hprof",
     "/*.mdmp",
     "/core",
+    "/core.*",
 ];
 
 /// What an export wrote.
@@ -147,7 +151,9 @@ fn strip_private(image: &mut Image) -> Vec<String> {
     let excludes = Excludes::new(&patterns);
     let mut left_out = Vec::new();
     image.entries.retain(|entry| {
-        let private = excludes.excludes(entry.path.as_str(), false);
+        let top_level_crash =
+            !entry.path.as_str().contains('/') && is_crash_name(entry.path.as_str());
+        let private = top_level_crash || excludes.excludes(entry.path.as_str(), false);
         if private {
             left_out.push(entry.path.to_string());
         }
@@ -334,14 +340,70 @@ fn check_entries(entries: &[Entry]) -> Result<(), ImageError> {
     Ok(())
 }
 
-/// Whether `entry` can be downloaded: a Modrinth file, or a CurseForge one its author
-/// allows (with a client to ask).
+/// Whether `entry` can be downloaded: a Modrinth file with its SHA-512 whose project and
+/// version are the ones its CDN URL names (as every export the Launcher writes has them,
+/// so a file of another project never passes for the one named), or a CurseForge one its
+/// author allows (with a client to ask).
 fn downloadable(entry: &Entry, curseforge: bool) -> bool {
     match &entry.source {
-        Source::Modrinth { .. } => entry.sha512.is_some(),
+        Source::Modrinth { url, .. } => {
+            entry.sha512.is_some() && Source::modrinth_from_url(url).as_ref() == Some(&entry.source)
+        }
         Source::Curseforge { downloadable, .. } => *downloadable && curseforge,
         _ => false,
     }
+}
+
+/// An entry's file and claimed source, for telling apart the downloads an import made: two
+/// entries with the same bytes but other sources are two downloads, so each claimed source
+/// is checked by a download of its own.
+fn download_key(entry: &Entry) -> (String, String) {
+    (entry.sha256.clone(), format!("{:?}", entry.source))
+}
+
+/// The SHA-256 of every object the export carries (its `object` files, icons and
+/// backgrounds).
+fn carried(image: &Image, linked: &[Image]) -> Result<HashSet<String>, ImageError> {
+    let images: Vec<&Image> = std::iter::once(image).chain(linked.iter()).collect();
+    container::carried_objects(&images)
+        .map(|objects| objects.into_keys().collect())
+        .map_err(ImageError::Invalid)
+}
+
+/// The names, as [`mod_name`] gives them, of the mod files in `image` and `linked` (each
+/// image's own entries, so a file a data image hides at its content link's path is
+/// counted too, as a later restore of the content can place it) whose bytes come from
+/// whoever made the export: bytes the file carries, unless the entry is a Modrinth
+/// download, which an import always downloads from Modrinth and checks. Sorted, without
+/// repeats.
+fn carried_mod_names(image: &Image, linked: &[Image], carried: &HashSet<String>) -> Vec<String> {
+    let mut names: Vec<String> = std::iter::once(image)
+        .chain(linked.iter())
+        .flat_map(|i| i.entries.iter())
+        .filter(|e| {
+            is_mod_path(&e.path)
+                && carried.contains(&e.sha256)
+                && !(matches!(e.source, Source::Modrinth { .. }) && downloadable(e, false))
+        })
+        .map(|e| lodestone_image::display_text(&mod_name(&e.path)).into_owned())
+        .collect();
+    names.sort();
+    names.dedup();
+    names
+}
+
+/// `image` with every Modrinth, CurseForge or base source that no download in this import
+/// confirmed (`verified`, by [`download_key`]) recorded as an `object`: those bytes came
+/// from the export or were in the store already, and nothing says they are that project's
+/// file, so nothing may record them as one.
+fn without_unconfirmed_sources(image: &Image, verified: &HashSet<(String, String)>) -> Image {
+    let mut image = image.clone();
+    for entry in &mut image.entries {
+        if !matches!(entry.source, Source::Object {}) && !verified.contains(&download_key(entry)) {
+            entry.source = Source::Object {};
+        }
+    }
+    image
 }
 
 /// Whether the file at `path` is one a loader loads: anything under `mods/` at any depth
@@ -396,11 +458,7 @@ pub fn inspect(path: &Path) -> Result<ImportPreview, ImageError> {
         .filter(|e| is_mod_path(&e.path))
         .map(|e| shown(&mod_name(&e.path)))
         .collect();
-    let carried_mods = entries
-        .iter()
-        .filter(|e| is_mod_path(&e.path) && matches!(e.source, Source::Object {}))
-        .map(|e| shown(&mod_name(&e.path)))
-        .collect();
+    let carried_mods = carried_mod_names(image, linked, &carried(image, linked)?);
     let download_bytes = entries
         .iter()
         .filter(|e| downloadable(e, true))
@@ -503,7 +561,11 @@ pub async fn import_file(
     .await;
     drop(hold);
     drop(writing);
-    let (instance, left_out) = match built {
+    let Built {
+        instance,
+        left_out,
+        verified,
+    } = match built {
         Ok(made) => made,
         Err(e) => {
             let _ = super::remove_tree(&staging);
@@ -513,7 +575,21 @@ pub async fn import_file(
     if let Err(e) = images.record_now(&instance.id, labels::FROM_SNAPSHOT) {
         super::warn("images.record", &instance.id, &e.to_string());
     }
-    if let Err(e) = images.adopt_imported(&instance.id, &image, &linked) {
+    // The snapshot kept of what they were sent claims no source this import didn't confirm,
+    // so a later restore of it can't record the sender's file as a project's either.
+    let mut kept_linked: Vec<Image> = linked
+        .iter()
+        .map(|content| without_unconfirmed_sources(content, &verified))
+        .collect();
+    let mut kept = without_unconfirmed_sources(&image, &verified);
+    for content in &mut kept_linked {
+        content.seal();
+    }
+    if kept.kind == Kind::Data {
+        kept.content = kept_linked.first().map(|c| c.id.clone());
+    }
+    kept.seal();
+    if let Err(e) = images.adopt_imported(&instance.id, &kept, &kept_linked) {
         super::warn("images.import", &instance.id, &e.to_string());
     }
     Ok(Imported { instance, left_out })
@@ -521,6 +597,14 @@ pub async fn import_file(
 
 /// How many downloads an import runs at once.
 const IMPORT_DOWNLOADS: usize = 8;
+
+/// The most downloads an import makes: far more files than any real instance has, so a
+/// file listing a million references is refused before anything is asked of Modrinth or
+/// CurseForge.
+const MAX_DOWNLOADS: usize = 20_000;
+
+/// How many CurseForge files one lookup asks for (CurseForge's own limit).
+const CURSEFORGE_LOOKUP: usize = 500;
 
 /// SHA-512 of `reader`'s bytes, read in pieces.
 fn sha512_of(mut reader: impl std::io::Read) -> std::io::Result<String> {
@@ -536,24 +620,14 @@ fn sha512_of(mut reader: impl std::io::Read) -> std::io::Result<String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
-/// A writer that only hashes, for checking a stored object's SHA-512.
-struct Sha512Writer(sha2::Sha512);
-
-impl std::io::Write for Sha512Writer {
-    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        self.0.update(bytes);
-        Ok(bytes.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
-
-/// The URLs of the entries the store lacks, by index in `missing`; those that can't be
-/// downloaded are left out. CurseForge files are looked up in one request.
-async fn download_urls(sources: &Sources<'_>, missing: &[&Entry]) -> Vec<Option<String>> {
-    let wanted: Vec<u64> = missing
+/// The URLs to download `wanted` from, by index; `None` for those that can't be
+/// downloaded. CurseForge files are looked up in batches, each file once.
+async fn download_urls(
+    sources: &Sources<'_>,
+    wanted: &[&Entry],
+    cancel: &CancelToken,
+) -> Result<Vec<Option<String>>, ImageError> {
+    let mut ids: Vec<u64> = wanted
         .iter()
         .filter_map(|e| match &e.source {
             Source::Curseforge {
@@ -564,33 +638,36 @@ async fn download_urls(sources: &Sources<'_>, missing: &[&Entry]) -> Vec<Option<
             _ => None,
         })
         .collect();
+    ids.sort_unstable();
+    ids.dedup();
     let mut curseforge_urls = std::collections::HashMap::new();
-    if let (Some(curseforge), false) = (sources.curseforge, wanted.is_empty()) {
-        match curseforge.files_by_id(&wanted).await {
-            Ok(files) => {
-                for file in files {
-                    if let Ok(url) = curseforge.download_url(&file) {
-                        curseforge_urls.insert((file.mod_id, file.id), url);
+    if let Some(curseforge) = sources.curseforge {
+        for chunk in ids.chunks(CURSEFORGE_LOOKUP) {
+            if cancel.is_cancelled() {
+                return Err(ImageError::Cancelled);
+            }
+            match curseforge.files_by_id(chunk).await {
+                Ok(files) => {
+                    for file in files {
+                        if let Ok(url) = curseforge.download_url(&file) {
+                            curseforge_urls.insert((file.mod_id, file.id), url);
+                        }
                     }
                 }
+                Err(e) => super::warn("images.import", "", &e.to_string()),
             }
-            Err(e) => super::warn("images.import", "", &e.to_string()),
         }
     }
-    missing
+    Ok(wanted
         .iter()
         .map(|entry| match &entry.source {
-            Source::Modrinth { url, .. } if entry.sha512.is_some() => {
-                sources.modrinth.cdn_url(url).ok()
+            Source::Modrinth { url, .. } => sources.modrinth.cdn_url(url).ok(),
+            Source::Curseforge { project, file, .. } => {
+                curseforge_urls.get(&(*project, *file)).cloned()
             }
-            Source::Curseforge {
-                project,
-                file,
-                downloadable: true,
-            } => curseforge_urls.get(&(*project, *file)).cloned(),
             _ => None,
         })
-        .collect()
+        .collect())
 }
 
 /// Downloads `entry` from `url` into the store (through `temp`), checking its size,
@@ -648,32 +725,25 @@ async fn download_into_store(
     stored
 }
 
-/// Checks that the stored bytes of a Modrinth or CurseForge `entry` that wasn't downloaded
-/// in this import (the store had them: the export carried the same bytes under another
-/// path, or the Launcher stored them before) are the ones its SHA-512 names; one without a
-/// SHA-512 is refused.
-fn check_reference(store: &lodestone_image::store::Store, entry: &Entry) -> Result<(), ImageError> {
-    let shown = || lodestone_image::display_text(entry.path.as_str()).into_owned();
-    let Some(sha512) = &entry.sha512 else {
-        return Err(ImageError::Invalid(format!(
-            "the export names {} as a download without its SHA-512",
-            shown()
-        )));
-    };
-    let mut hasher = Sha512Writer(sha2::Sha512::new());
-    store.read_object(&entry.sha256, entry.size, &mut hasher, NEVER)?;
-    let found = format!("{:x}", hasher.0.finalize());
-    if !found.eq_ignore_ascii_case(sha512) {
-        return Err(ImageError::Invalid(format!(
-            "the export says {} is a download, but the bytes it carries for it are another file",
-            shown()
-        )));
-    }
-    Ok(())
+/// What [`build`] made.
+struct Built {
+    instance: Instance,
+    /// Files it couldn't get, by path.
+    left_out: Vec<String>,
+    /// The downloads it made, by [`download_key`]: the sources this import confirmed.
+    verified: HashSet<(String, String)>,
 }
 
 /// The import's downloads, files and `instance.json` in `staging`, committed as a new
-/// instance. Returns it, with the files left out.
+/// instance.
+///
+/// Every Modrinth and CurseForge file is downloaded from its source in this import, even
+/// when the store has its bytes: the export's hashes came from the same file as its
+/// sources, so only a download says that a project's file has those bytes. Each distinct
+/// file and claimed source is downloaded once. A file that wasn't downloaded is still
+/// placed when the store has its bytes (the export carries them, or the store had them
+/// before), but as a plain file: `content.json` learns no source for it. The rest are left
+/// out.
 #[allow(clippy::too_many_arguments)]
 async fn build(
     images: &Arc<Images>,
@@ -685,21 +755,29 @@ async fn build(
     name: Option<&str>,
     progress: &Progress,
     cancel: &CancelToken,
-) -> Result<(Instance, Vec<String>), ImageError> {
+) -> Result<Built, ImageError> {
     use futures::TryStreamExt as _;
-    let mut left_out = Vec::new();
-    let missing: Vec<&Entry> = entries
+    let mut seen = HashSet::new();
+    let wanted: Vec<&Entry> = entries
         .iter()
-        .filter(|e| !store.object_complete(&e.sha256, e.size))
+        .filter(|e| downloadable(e, sources.curseforge.is_some()))
+        .filter(|e| seen.insert(download_key(e)))
         .collect();
-    let urls = download_urls(sources, &missing).await;
-    let mut downloads = Vec::new();
-    for (n, (entry, url)) in missing.iter().zip(urls).enumerate() {
-        match url {
-            Some(url) => downloads.push((n, *entry, url)),
-            None => left_out.push(entry.path.to_string()),
-        }
+    if wanted.len() > MAX_DOWNLOADS {
+        return Err(ImageError::Invalid(format!(
+            "the export names {} files to download, more than an instance has",
+            wanted.len()
+        )));
     }
+    let urls = download_urls(sources, &wanted, cancel).await?;
+    let downloads: Vec<(usize, &Entry, String)> = wanted
+        .iter()
+        .zip(urls)
+        .enumerate()
+        .filter_map(|(n, (entry, url))| url.map(|url| (n, *entry, url)))
+        .collect();
+    let verified: HashSet<(String, String)> =
+        downloads.iter().map(|(_, e, _)| download_key(e)).collect();
     progress.reset(
         downloads.len() as u64,
         downloads
@@ -719,29 +797,21 @@ async fn build(
             Ok(())
         })
         .await?;
-    let downloaded: std::collections::HashSet<&str> = missing
-        .iter()
-        .filter(|e| !left_out.contains(&e.path.to_string()))
-        .map(|e| e.sha256.as_str())
-        .collect();
-    // A download entry not downloaded now: the store had its bytes already, from the
-    // export (carried under another path) or from anywhere else. Those bytes must be the
-    // ones its SHA-512 names, or the file would pass for that project's in content.json.
-    for entry in entries {
-        if matches!(entry.source, Source::Object {})
-            || downloaded.contains(entry.sha256.as_str())
-            || !store.object_complete(&entry.sha256, entry.size)
-        {
-            continue;
+    let mut placed = without_unconfirmed_sources(
+        &Image {
+            entries: entries.to_vec(),
+            ..Image::new(Kind::Full, image.game.clone())
+        },
+        &verified,
+    );
+    let mut left_out = Vec::new();
+    placed.entries.retain(|e| {
+        let there = store.object_complete(&e.sha256, e.size);
+        if !there {
+            left_out.push(e.path.to_string());
         }
-        check_reference(store, entry)?;
-    }
-    let mut placed = Image::new(Kind::Full, image.game.clone());
-    placed.entries = entries
-        .iter()
-        .filter(|e| store.object_complete(&e.sha256, e.size))
-        .cloned()
-        .collect();
+        there
+    });
     let stop = || cancel.is_cancelled();
     let options = MaterializeOptions {
         selection: Selection::All,
@@ -760,12 +830,12 @@ async fn build(
         ))
     })?;
     let label = image.label.as_deref().unwrap_or(labels::SNAPSHOT);
-    let wanted = name
+    let wanted_name = name
         .map(str::trim)
         .filter(|n| !n.is_empty())
-        .map_or_else(|| snapshot_name(Some(label)), str::to_string);
+        .map_or_else(|| snapshot_name(Some(&shown_name(label))), str::to_string);
     let instance = Instance {
-        name: wanted.chars().take(64).collect(),
+        name: wanted_name.chars().take(64).collect(),
         game_version: game.minecraft.clone(),
         loader,
         loader_version: game.loader_version.clone(),
@@ -781,5 +851,19 @@ async fn build(
         .instances()
         .commit_staged(staging, instance)
         .map_err(|e| ImageError::Instance(e.to_string()))?;
-    Ok((made, left_out))
+    Ok(Built {
+        instance: made,
+        left_out,
+        verified,
+    })
+}
+
+/// A name the sender wrote, fit to name an instance: without control characters and the
+/// invisible format characters (direction overrides, zero-width ones:
+/// `lodestone_image::paths::is_default_ignorable`), which could make it show as another
+/// name.
+fn shown_name(text: &str) -> String {
+    text.chars()
+        .filter(|c| !c.is_control() && !lodestone_image::paths::is_default_ignorable(*c))
+        .collect()
 }

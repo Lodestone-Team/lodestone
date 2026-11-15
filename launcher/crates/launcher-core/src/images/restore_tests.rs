@@ -574,6 +574,92 @@ fn what_another_job_wrote_meanwhile_is_kept_aside() {
 }
 
 #[test]
+fn a_crash_after_the_swap_finished_keeps_what_another_job_wrote() {
+    // The swap got to `done`, with a mod installed meanwhile in the old folder, and the
+    // process died before clearing up: the next start keeps the mod aside.
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("instance");
+    let (mut staged, _) = swap_fixture(&root);
+    std::fs::write(root.join("minecraft/mods/late.jar"), b"installed meanwhile").unwrap();
+    staged.faults.crash_when_done = true;
+    let journal = dir.path().join("journal.json");
+    assert!(matches!(staged.swap(&journal), Err(SwapError::Broken(_))));
+    assert_eq!(
+        swap::recover_one(&root, &journal).unwrap(),
+        Some(swap::Phase::Done)
+    );
+    swap::remove_leftovers(&root);
+    let (kept, rest): (BTreeMap<String, Vec<u8>>, BTreeMap<String, Vec<u8>>) = files(&root)
+        .into_iter()
+        .partition(|(path, _)| path.starts_with(swap::LEFTOVERS_PREFIX));
+    assert_eq!(
+        kept.len(),
+        1,
+        "only the late mod, not what was replaced: {kept:?}"
+    );
+    let (path, bytes) = kept.into_iter().next().unwrap();
+    assert!(path.ends_with("/minecraft/mods/late.jar"), "{path}");
+    assert_eq!(bytes, b"installed meanwhile");
+    assert_eq!(rest["minecraft/mods/b.jar"], b"new mod");
+}
+
+#[test]
+fn work_folders_without_a_journal_never_lose_the_instances_files() {
+    // A broken restore whose journal was lost: the old folder holds the mods it renamed
+    // aside, the staging folder what a rollback set aside.
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("instance");
+    let (mut staged, _) = swap_fixture(&root);
+    staged.faults.fail_after = Some(1);
+    staged.faults.break_rollback = true;
+    let journal = dir.path().join("journal.json");
+    assert!(matches!(staged.swap(&journal), Err(SwapError::Broken(_))));
+    let staging = std::fs::read_dir(&root)
+        .unwrap()
+        .flatten()
+        .map(|e| e.path())
+        .find(|p| {
+            p.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with(swap::STAGING_PREFIX)
+        })
+        .unwrap();
+    std::fs::create_dir_all(staging.join(".rollback-1/minecraft/mods")).unwrap();
+    std::fs::write(
+        staging.join(".rollback-1/minecraft/mods/x.jar"),
+        b"set aside",
+    )
+    .unwrap();
+    std::fs::remove_file(&journal).unwrap();
+    swap::remove_leftovers(&root);
+    let now = files(&root);
+    assert!(
+        now.iter()
+            .all(|(path, _)| !path.starts_with(".lodestone-restore")),
+        "{now:?}"
+    );
+    let kept: Vec<(&String, &Vec<u8>)> = now
+        .iter()
+        .filter(|(path, _)| path.starts_with(swap::LEFTOVERS_PREFIX))
+        .collect();
+    assert!(
+        kept.iter()
+            .any(|(path, bytes)| path.ends_with("/minecraft/mods/a.jar") && *bytes == b"old mod"),
+        "{kept:?}"
+    );
+    assert!(
+        kept.iter()
+            .any(|(path, bytes)| path.ends_with("/minecraft/mods/x.jar") && *bytes == b"set aside"),
+        "{kept:?}"
+    );
+    assert!(
+        kept.iter().all(|(path, _)| !path.ends_with("/b.jar")),
+        "the staged copies go: {kept:?}"
+    );
+}
+
+#[test]
 fn an_interrupted_restore_is_recovered_when_the_launcher_starts() {
     let (s, _) = played();
     let root = s.store.dir(s.id());

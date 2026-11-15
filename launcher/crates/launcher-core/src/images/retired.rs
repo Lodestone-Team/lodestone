@@ -165,17 +165,14 @@ impl Images {
     }
 
     /// Deletes what a retired folder no longer needs: the content state, the stat caches,
-    /// a restore journal (its instance is gone), and the content images no snapshot there
-    /// links to. Best effort: what fails stays until the next look.
+    /// and the content images no snapshot there links to. A restore journal stays: if the
+    /// instance comes back from the Trash, it says what its unfinished restore set aside.
+    /// Best effort: what fails stays until the next look.
     fn tidy_retired(&self, folder: &str) {
         let Ok(dir) = self.store().instance_dir(folder) else {
             return;
         };
-        for file in [
-            super::state::FILE,
-            super::swap::JOURNAL_FILE,
-            "stat-cache.json",
-        ] {
+        for file in [super::state::FILE, "stat-cache.json"] {
             let _ = std::fs::remove_file(dir.join(file));
         }
         if let Ok(entries) = std::fs::read_dir(&dir) {
@@ -263,6 +260,7 @@ impl Images {
             id,
             &format!("the instance is back; its snapshots in {folder} are its own again"),
         );
+        self.snapshots_changed(id);
         Ok(true)
     }
 

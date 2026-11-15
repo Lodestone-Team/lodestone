@@ -273,6 +273,9 @@ pub struct WorldsView {
     large: Option<(PathBuf, Load<Arc<RenderImage>>)>,
     confirm_delete_shot: Option<String>,
     was_active: bool,
+    /// The instance's snapshot revision the backups were read at
+    /// ([`Instances::snapshot_revision`]).
+    snapshot_revision: u64,
     load_task: Option<Task<()>>,
     shots_task: Option<Task<()>>,
     large_task: Option<Task<()>>,
@@ -345,6 +348,7 @@ impl WorldsView {
             large: None,
             confirm_delete_shot: None,
             was_active: false,
+            snapshot_revision: 0,
             load_task: None,
             shots_task: None,
             large_task: None,
@@ -357,7 +361,7 @@ impl WorldsView {
 
     /// Follows the selected instance, and reads the lists again when its game stops.
     fn sync(&mut self, cx: &mut Context<Self>) {
-        let (selected, active) = {
+        let (selected, active, snapshots) = {
             let instances = self.instances.read(cx);
             // how a job went goes with its instance, not to a new one given its id
             if !self.finished.is_empty() {
@@ -369,7 +373,10 @@ impl WorldsView {
             let active = selected
                 .as_deref()
                 .is_some_and(|id| instances.is_active(id));
-            (selected, active)
+            let snapshots = selected
+                .as_deref()
+                .map_or(0, |id| instances.snapshot_revision(id));
+            (selected, active, snapshots)
         };
         if selected != self.instance_id {
             let from = std::mem::replace(&mut self.instance_id, selected);
@@ -398,7 +405,11 @@ impl WorldsView {
         } else if self.was_active && !active {
             self.reload(cx);
             self.reload_screenshots(cx);
+        } else if snapshots != self.snapshot_revision && !matches!(self.worlds, Load::NotLoaded) {
+            // a snapshot was taken or deleted elsewhere: the backups listed changed
+            self.reload(cx);
         }
+        self.snapshot_revision = snapshots;
         self.was_active = active;
         cx.notify();
     }
@@ -414,6 +425,19 @@ impl WorldsView {
         self.instance_id
             .as_deref()
             .is_some_and(|id| self.instances.read(cx).is_active(id))
+    }
+
+    /// Says to wait when another job (a mod install, a modpack update) is writing the
+    /// instance's files, which a restore must not swap meanwhile.
+    fn other_job_writes(&mut self, cx: &mut Context<Self>) -> bool {
+        let busy = self
+            .instance_id
+            .as_deref()
+            .is_some_and(|id| self.instances.read(cx).files_or_pack_busy(id));
+        if busy && self.job.is_none() {
+            self.set_message(t(M::WaitForTask), true, cx);
+        }
+        busy && self.job.is_none()
     }
 
     fn can_change(&mut self, cx: &mut Context<Self>) -> bool {
@@ -618,6 +642,9 @@ impl WorldsView {
     }
 
     pub fn restore_copy(&mut self, folder: String, backup: Backup, cx: &mut Context<Self>) {
+        if self.other_job_writes(cx) {
+            return;
+        }
         let (images, instance) = self.images_of(cx);
         self.run(
             JobLabel::Restoring,
@@ -639,6 +666,9 @@ impl WorldsView {
     /// Puts the world back from a snapshot, in its place (after the window's
     /// confirmation), after a safety snapshot.
     pub fn restore_replace(&mut self, folder: String, backup: Backup, cx: &mut Context<Self>) {
+        if self.other_job_writes(cx) {
+            return;
+        }
         let (images, instance) = self.images_of(cx);
         self.run(
             JobLabel::Replacing,

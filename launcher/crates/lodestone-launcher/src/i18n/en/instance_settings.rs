@@ -195,6 +195,8 @@ crate::i18n::messages! {
         SnapshotName = "Name",
         NoSnapshots = "No snapshots yet.",
         SnapshotSizes = "{total}, {new} new",
+        /// A snapshot's details: it holds the mods and configs, not only the worlds.
+        SnapshotWithMods = "With mods",
         PreparingFile = "Preparing the file…",
         DragToShare = "Drag the file into another app, or:",
         SaveAsEllipsis = "Save as…",
@@ -211,9 +213,11 @@ crate::i18n::messages! {
         /// Take a snapshot: a full image rather than worlds linked to the mods.
         SnapshotIncludeEverything = "Include mods and configs",
         SnapshotIncludeEverythingHint = "Without it, the snapshot keeps the worlds and other files, and remembers the mods they ran with.",
-        /// The Settings tab's toggle; also Settings › Instances' default.
+        /// The Settings tab's toggle; also Settings › Instance defaults' default.
         SnapshotAfterPlay = "Take a snapshot after each play session",
-        SnapshotAfterPlayHint = "Copies the worlds after you play. Follows Settings › Instances, where it is off unless you turn it on.",
+        SnapshotAfterPlayHint = "Copies the worlds after you play. Follows Settings › Instance defaults, where it is off unless you turn it on.",
+        /// Settings › Instance defaults' toggle.
+        SnapshotAfterPlayDefaultHint = "Copies the worlds after each play session, for instances that don't set it themselves. Off unless you turn it on.",
         /// {last}, {days} and {weeks} are numbers.
         SnapshotKeepHint = "Snapshots the Launcher takes on its own are kept for a while: the last {last}, one a day for {days} days and one a week for {weeks} weeks. Yours stay until you delete them.",
         /// Badges on a snapshot's row.
@@ -240,8 +244,9 @@ crate::i18n::messages! {
         RestoreEverythingHint = "The whole game folder goes back to the snapshot: worlds, mods, configs and options. Worlds made since are removed.",
         /// A world in the snapshot that the instance no longer has; {size} is "120 MB".
         WorldGoneNow = "{size} · not in the instance now",
-        /// {changes} is "2 added, 1 removed, 3 changed".
         ModsDiffer = "These worlds last ran with other mods.",
+        /// Like ModsDiffer, when only configs and other files differ, not mods.
+        FilesDiffer = "These worlds last ran with other files.",
         RestoreModsToo = "Put their mods back too",
         /// {version} is a loader version.
         RestoreLoaderChange = "The loader goes back to {version}.",
@@ -256,7 +261,7 @@ crate::i18n::messages! {
         ExportNote = "Mods and packs from Modrinth and CurseForge are listed, not copied: they download again when the file is imported, where their authors allow it.",
         /// {files} is a list of files.
         ExportLeftOut = "Left out, as they can hold passwords and sign-ins: {files}.",
-        /// {name} is the snapshot, {version} a Minecraft version, {loader} "fabric 0.16.10".
+        /// {name} is the snapshot, {version} a Minecraft version, {loader} "Fabric 0.16.10".
         ImportFrom = "{name} · Minecraft {version} · {loader}",
         /// {worlds} is a list of worlds.
         ImportWorlds = "Worlds: {worlds}",
@@ -265,7 +270,7 @@ crate::i18n::messages! {
         /// {files} is a list of files.
         ImportNotDownloadable = "Their authors don't allow downloads, so these are left out: {files}.",
         /// {size} is "1.2 GB".
-        ImportSpace = "Needs {size} of disk space.",
+        ImportSpace = "Needs {size} of disk space, 1 GB of it to spare.",
         ImportNeedsModrinth = "Modrinth can't be reached, so the file's mods can't be downloaded.",
 
         // Maintenance.
@@ -506,9 +511,12 @@ crate::i18n::messages! {
         RemoveAddedModpackNote = "Removes the files the pack added. Files you changed stay.",
         SnapshotsNotChanged = "The snapshots couldn't be changed",
         RestoreKeptAsideTitle = "Some files were in the restore's way",
+        ImportLeftOutTitle = "Some files weren't imported",
+        /// {files} is a list of files.
+        ImportLeftOut = "They couldn't be downloaded, so the new instance doesn't have them: {files}.",
         RestoreKeptAside = "Files written while the restore ran are kept in {folder}.",
-        ImportNoRoom = "The disk doesn't have room for it: it needs {size} and {free} is free.",
-        ImportSpaceFree = "Needs {size} of disk space; {free} is free.",
+        ImportNoRoom = "The disk doesn't have room for it: it needs {size}, 1 GB of it to spare, and {free} is free.",
+        ImportSpaceFree = "Needs {size} of disk space, 1 GB of it to spare; {free} is free.",
         ExportNotDownloadable = "These can't be downloaded, so whoever imports the file won't get them: {files}",
         SnapshotAfterPlayOwnHint = "Copies the worlds after you play. Set for this instance.",
         DeleteUnreadableNote = "They are deleted for good.",

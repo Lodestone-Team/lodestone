@@ -219,7 +219,7 @@ pub struct Instance {
 }
 
 /// An instance's snapshot settings (`images::snapshots`). Each `None` follows the
-/// Launcher's: Settings › Instances for `after_play` (off by default), and the retention
+/// Launcher's: Settings › Instance defaults for `after_play` (off by default), and the retention
 /// defaults ([`crate::images::retention::DEFAULT_POLICY`]) for the counts.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SnapshotSettings {

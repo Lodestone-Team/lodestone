@@ -158,6 +158,7 @@ pub fn text(message: M) -> &'static str {
         M::SnapshotName => "名称",
         M::NoSnapshots => "还没有快照。",
         M::SnapshotSizes => "{total}，其中新增 {new}",
+        M::SnapshotWithMods => "含模组",
         M::PreparingFile => "正在准备文件…",
         M::DragToShare => "将文件拖到其他应用中，或：",
         M::SaveAsEllipsis => "另存为…",
@@ -178,7 +179,12 @@ pub fn text(message: M) -> &'static str {
             "不勾选时，快照保留世界和其他文件，并记住它们运行时使用的模组。"
         }
         M::SnapshotAfterPlay => "每次游戏结束后拍摄快照",
-        M::SnapshotAfterPlayHint => "游玩后复制世界。跟随“设置 › 实例”，默认关闭，除非你开启。",
+        M::SnapshotAfterPlayHint => {
+            "游玩后复制世界。跟随“设置 › 实例默认设置”，默认关闭，除非你开启。"
+        }
+        M::SnapshotAfterPlayDefaultHint => {
+            "每次游戏结束后复制世界，适用于未自行设置的实例。默认关闭，除非你开启。"
+        }
         M::SnapshotKeepHint => {
             "启动器自动拍摄的快照会保留一段时间：最近 {last} 个、{days} 天内每天一个、{weeks} 周内每周一个。你自己拍摄的快照会一直保留，直到你删除。"
         }
@@ -204,6 +210,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::WorldGoneNow => "{size} · 实例中已没有",
         M::ModsDiffer => "这些世界上次运行时使用的是其他模组。",
+        M::FilesDiffer => "这些世界上次运行时使用的是其他文件。",
         M::RestoreModsToo => "同时恢复它们的模组",
         M::RestoreLoaderChange => "加载器将恢复为 {version}。",
         M::RestoreSafety => "会先为被替换的内容拍摄快照，并保留 30 天。",
@@ -221,7 +228,7 @@ pub fn text(message: M) -> &'static str {
         M::ImportWorlds => "世界：{worlds}",
         M::ImportDownloads => "需要从 Modrinth 和 CurseForge 下载 {size}。",
         M::ImportNotDownloadable => "作者不允许下载，因此已排除：{files}。",
-        M::ImportSpace => "需要 {size} 磁盘空间。",
+        M::ImportSpace => "需要 {size} 磁盘空间（含 1 GB 余量）。",
         M::ImportNeedsModrinth => "无法连接 Modrinth，无法下载文件中的模组。",
         M::VerifyGameFiles => "校验游戏文件",
         M::VerifyHint => "重新下载缺失或损坏的文件。",
@@ -406,9 +413,11 @@ pub fn text(message: M) -> &'static str {
         M::RemoveAddedModpackNote => "移除该整合包添加的文件。你修改过的文件会保留。",
         M::SnapshotsNotChanged => "无法更改快照",
         M::RestoreKeptAsideTitle => "有些文件妨碍了恢复",
+        M::ImportLeftOutTitle => "部分文件未导入",
+        M::ImportLeftOut => "这些文件无法下载，因此新实例中没有它们：{files}。",
         M::RestoreKeptAside => "恢复期间写入的文件保存在 {folder}。",
-        M::ImportNoRoom => "磁盘空间不足：需要 {size}，可用 {free}。",
-        M::ImportSpaceFree => "需要 {size} 磁盘空间；可用 {free}。",
+        M::ImportNoRoom => "磁盘空间不足：需要 {size}（含 1 GB 余量），可用 {free}。",
+        M::ImportSpaceFree => "需要 {size} 磁盘空间（含 1 GB 余量）；可用 {free}。",
         M::ExportNotDownloadable => "这些无法下载，因此导入该文件的人不会得到它们：{files}",
         M::SnapshotAfterPlayOwnHint => "游玩后复制世界。仅为此实例设置。",
         M::DeleteUnreadableNote => "它们将被永久删除。",

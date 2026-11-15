@@ -16,6 +16,7 @@ use std::{
     time::Duration,
 };
 
+use futures::StreamExt as _;
 use gpui::{
     AnyElement, App, AppContext as _, Context, Entity, EventEmitter, ExternalDragPayload,
     FileDragPaths, FocusHandle, Focusable, IntoElement, Render, SharedString, Task, Window, div,
@@ -68,9 +69,9 @@ pub fn badge(record: &SnapshotRecord) -> Option<M> {
     }
 }
 
-/// "Monday 14:30 · Survival Island, Castle Build · 412 MB, 38 MB new": a snapshot's
-/// details, its worlds by their own names (as the restore dialog and the Worlds tab show
-/// them), else by their folders.
+/// "Monday 14:30 · Survival Island, Castle Build · 412 MB, 38 MB new · With mods": a
+/// snapshot's details, its worlds by their own names (as the restore dialog and the Worlds
+/// tab show them), else by their folders, and whether it holds the mods (a full image).
 pub fn details(record: &SnapshotRecord) -> String {
     let mut parts = vec![when(record.created)];
     if !record.worlds.is_empty() {
@@ -81,12 +82,51 @@ pub fn details(record: &SnapshotRecord) -> String {
             .collect();
         parts.push(format::list(&worlds));
     }
-    parts.push(tr!(
-        M::SnapshotSizes,
-        total = format::bytes(record.bytes),
-        new = format::bytes(record.new_bytes)
-    ));
+    // A snapshot that only refers to files others have stores nothing new: its size alone.
+    parts.push(if record.new_bytes == 0 {
+        format::bytes(record.bytes)
+    } else {
+        tr!(
+            M::SnapshotSizes,
+            total = format::bytes(record.bytes),
+            new = format::bytes(record.new_bytes)
+        )
+    });
+    if record.full {
+        parts.push(t(M::SnapshotWithMods).to_string());
+    }
     parts.join(" · ")
+}
+
+/// Whether the content that differs includes mods (anything under `mods/` or `coremods/`)
+/// or the loader version, rather than only configs and other files a mod rewrites when the
+/// game starts.
+pub fn mods_differ(diff: &ContentDiff) -> bool {
+    let is_mod = |path: &String| {
+        path.split_once('/').is_some_and(|(first, _)| {
+            first.eq_ignore_ascii_case("mods") || first.eq_ignore_ascii_case("coremods")
+        })
+    };
+    diff.loader_version.is_some()
+        || diff
+            .added
+            .iter()
+            .chain(&diff.removed)
+            .chain(&diff.updated)
+            .any(is_mod)
+}
+
+/// How many names a list of files in the import and export dialogs shows before "…".
+const LISTED_NAMES: usize = 8;
+
+/// The first [`LISTED_NAMES`] of `names` as a list, and "…" when there are more: a file
+/// from someone else can name a million, and the dialog draws the line every frame.
+fn shortened(names: &[String]) -> String {
+    let mut shown: Vec<String> = names.iter().take(LISTED_NAMES).cloned().collect();
+    if names.len() > LISTED_NAMES {
+        shown.push("…".into());
+    }
+    format::list(&shown)
 }
 
 /// How many names a line about differing mods shows before "…".
@@ -133,6 +173,35 @@ pub fn restore_changes(diff: &ContentDiff) -> Vec<String> {
 }
 
 impl Instances {
+    /// Reads an instance's snapshots again whenever the image store says they changed,
+    /// whoever changed them: the snapshots the Launcher takes on its own (after playing,
+    /// before an update or a loader change), retention's deletions, the Worlds tab, the
+    /// control API.
+    pub(super) fn follow_snapshot_changes(&mut self, cx: &mut Context<Self>) {
+        let mut changes = self.images().watch_snapshots();
+        cx.spawn(async move |this, cx| {
+            while let Some(id) = changes.next().await {
+                let alive = this.update(cx, |this, cx| {
+                    *this.snapshot_revisions.entry(id.clone()).or_default() += 1;
+                    if this.snapshot_rows.contains_key(&id) || this.snapshot_tasks.contains_key(&id)
+                    {
+                        this.load_snapshots(&id, cx);
+                    }
+                    cx.notify();
+                });
+                if alive.is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
+    /// How many times the instance's snapshot list changed since the Launcher started.
+    pub fn snapshot_revision(&self, id: &str) -> u64 {
+        self.snapshot_revisions.get(id).copied().unwrap_or(0)
+    }
+
     /// The instance's snapshots, once read; reads them when not yet.
     pub fn snapshot_list(&mut self, id: &str, cx: &mut Context<Self>) -> Option<&SnapshotList> {
         if !self.snapshot_rows.contains_key(id) && !self.snapshot_tasks.contains_key(id) {
@@ -228,7 +297,7 @@ impl Instances {
     }
 
     /// Sets whether the instance takes a snapshot after each play session: `None`
-    /// follows Settings › Instances.
+    /// follows Settings › Instance defaults.
     pub fn set_snapshot_after_play(
         &mut self,
         id: &str,
@@ -304,6 +373,9 @@ pub struct SnapshotDialog {
     /// Import: what the file holds.
     import: Option<ImportPreview>,
     choice: Choice,
+    /// The choice to open on instead of the default, when the snapshot offers it (the
+    /// offscreen screenshots).
+    preset: Option<Choice>,
     /// Restore: the worlds chosen.
     worlds: Vec<String>,
     /// Take: a full image.
@@ -365,6 +437,7 @@ impl SnapshotDialog {
             preview: None,
             import: None,
             choice: Choice::Worlds,
+            preset: None,
             worlds: Vec::new(),
             everything: false,
             name,
@@ -457,6 +530,12 @@ impl SnapshotDialog {
         }
     }
 
+    /// Opens on `choice` once the snapshot is read, when it offers it (the offscreen
+    /// screenshots).
+    pub fn preset_choice(&mut self, choice: Choice) {
+        self.preset = Some(choice);
+    }
+
     fn loaded(
         &mut self,
         record: SnapshotRecord,
@@ -466,7 +545,10 @@ impl SnapshotDialog {
         self.state = State::Ready;
         if let Some(preview) = &preview {
             self.worlds = preview.worlds.iter().map(|w| w.name.clone()).collect();
-            self.choice = default_choice(preview);
+            self.choice = self
+                .preset
+                .filter(|choice| offered(preview).contains(choice))
+                .unwrap_or_else(|| default_choice(preview));
             let instance = self
                 .instance_id
                 .as_deref()
@@ -604,10 +686,6 @@ impl SnapshotDialog {
         let (Some(id), Some(snapshot)) = (self.instance_id.clone(), self.snapshot.clone()) else {
             return;
         };
-        if self.game_running(cx) {
-            self.state = State::Failed(t(M::SnapshotGameRunning).into());
-            return cx.notify();
-        }
         let scope = match self.choice {
             Choice::Worlds | Choice::WorldsAndMods if self.worlds.is_empty() => {
                 self.state = State::Failed(t(M::ChooseWorld).into());
@@ -618,10 +696,15 @@ impl SnapshotDialog {
             Choice::Everything => Some(RestoreScope::Everything),
             Choice::AsNew => None,
         };
+        // "As a new instance" only reads the store, so it can run while the game does.
+        if scope.is_some() && self.game_running(cx) {
+            self.state = State::Failed(t(M::SnapshotGameRunning).into());
+            return cx.notify();
+        }
         let instances = self.instances.read(cx);
-        // Another job writing the instance's files (an install) would lose what it writes
-        // into what the restore replaces.
-        if scope.is_some() && instances.files_busy(&id) {
+        // Another job writing the instance's files (an install, a modpack update) would
+        // lose what it writes into what the restore replaces.
+        if scope.is_some() && instances.files_or_pack_busy(&id) {
             self.state = State::Failed(t(crate::i18n::InstancesMsg::FilesBusy).into());
             return cx.notify();
         }
@@ -740,8 +823,19 @@ impl SnapshotDialog {
             let Ok(Ok(Some(to))) = picked.await else {
                 return;
             };
+            // The file was only made to be shared: moved out of the cache (copied, then
+            // deleted, to another disk), so it doesn't take its size twice.
             let copied = cx
-                .background_spawn(async move { std::fs::copy(&file, &to).map(|_| ()) })
+                .background_spawn(async move {
+                    if std::fs::rename(&file, &to).is_err() {
+                        std::fs::copy(&file, &to)?;
+                        let _ = std::fs::remove_file(&file);
+                    }
+                    if let Some(folder) = file.parent() {
+                        let _ = std::fs::remove_dir(folder);
+                    }
+                    Ok::<(), std::io::Error>(())
+                })
                 .await;
             this.update(cx, |this, cx| {
                 match copied {
@@ -827,6 +921,20 @@ impl SnapshotDialog {
             |instances, imported, cx| {
                 instances.reload(cx);
                 instances.select(&imported.instance.id, cx);
+                // Files that couldn't be fetched (CurseForge didn't answer, a file without
+                // its hash): the new instance lacks them, so say which.
+                if !imported.left_out.is_empty() {
+                    let names: Vec<String> = imported
+                        .left_out
+                        .iter()
+                        .map(|p| launcher_core::images::display_text(p).into_owned())
+                        .collect();
+                    cx.emit(super::InstancesEvent::Notice {
+                        title: t(M::ImportLeftOutTitle).into(),
+                        message: tr!(M::ImportLeftOut, files = shortened(&names)).into(),
+                        about: super::About::Instance(imported.instance.id.clone()),
+                    });
+                }
             },
             |_, _, cx| cx.emit(SnapshotDismissed),
             cx,
@@ -899,19 +1007,18 @@ impl SnapshotDialog {
             return div().child(LoadingDots).into_any_element();
         };
         let mut body = div().flex().flex_col().gap_3();
-        let mut choices: Vec<(Choice, SharedString)> = Vec::new();
-        if !preview.other_game {
-            if !preview.worlds.is_empty() {
-                choices.push((Choice::Worlds, t(M::RestoreWorldsOnly).into()));
-                if preview.can_restore_content {
-                    choices.push((Choice::WorldsAndMods, t(M::RestoreWorldsAndMods).into()));
-                }
-            }
-            if preview.can_restore_content {
-                choices.push((Choice::Everything, t(M::RestoreEverything).into()));
-            }
-        }
-        choices.push((Choice::AsNew, t(M::RestoreAsNew).into()));
+        let choices: Vec<(Choice, SharedString)> = offered(preview)
+            .into_iter()
+            .map(|choice| {
+                let label = match choice {
+                    Choice::Worlds => M::RestoreWorldsOnly,
+                    Choice::WorldsAndMods => M::RestoreWorldsAndMods,
+                    Choice::Everything => M::RestoreEverything,
+                    Choice::AsNew => M::RestoreAsNew,
+                };
+                (choice, t(label).into())
+            })
+            .collect();
         let entity = cx.entity();
         body = body.child(segmented(
             "snapshot-restore-choice",
@@ -978,7 +1085,12 @@ impl SnapshotDialog {
                     && preview.can_restore_content
                     && let Some(diff) = preview.content.as_ref().filter(|d| !d.is_empty())
                 {
-                    let mut differs = note(t(M::ModsDiffer).to_string());
+                    let headline = if mods_differ(diff) {
+                        M::ModsDiffer
+                    } else {
+                        M::FilesDiffer
+                    };
+                    let mut differs = note(t(headline).to_string());
                     for line in restore_changes(diff) {
                         differs = differs.child(muted(line));
                     }
@@ -1014,11 +1126,16 @@ impl SnapshotDialog {
                 );
             }
         }
+        // What putting the content back changes, before Restore is pressed.
         if matches!(self.choice, Choice::WorldsAndMods | Choice::Everything)
             && let Some(diff) = &preview.content
-            && let Some((_, Some(version))) = &diff.loader_version
         {
-            body = body.child(muted(tr!(M::RestoreLoaderChange, version = version)));
+            for line in restore_changes(diff) {
+                body = body.child(muted(line));
+            }
+            if let Some((_, Some(version))) = &diff.loader_version {
+                body = body.child(muted(tr!(M::RestoreLoaderChange, version = version)));
+            }
         }
         if preview.other_game {
             body = body.child(muted(t(M::RestoreOtherGame)));
@@ -1050,26 +1167,17 @@ impl SnapshotDialog {
         if !preview.worlds.is_empty() {
             body = body.child(muted(tr!(
                 M::ImportWorlds,
-                worlds = format::list(&preview.worlds)
+                worlds = shortened(&preview.worlds)
             )));
         }
         if !preview.mods.is_empty() {
-            let mut shown: Vec<String> = preview.mods.iter().take(8).cloned().collect();
-            if preview.mods.len() > shown.len() {
-                shown.push("…".into());
-            }
             let mut warning = note(trn!(P::ImportModsWarning, preview.mods.len()))
-                .child(muted(format::list(&shown)));
+                .child(muted(shortened(&preview.mods)));
             if !preview.carried_mods.is_empty() {
-                let mut carried: Vec<String> =
-                    preview.carried_mods.iter().take(8).cloned().collect();
-                if preview.carried_mods.len() > carried.len() {
-                    carried.push("…".into());
-                }
                 warning = warning.child(muted(trn!(
                     P::ImportCarriedMods,
                     preview.carried_mods.len(),
-                    names = format::list(&carried)
+                    names = shortened(&preview.carried_mods)
                 )));
             }
             body = body.child(warning);
@@ -1083,7 +1191,7 @@ impl SnapshotDialog {
         if !preview.not_downloadable.is_empty() {
             body = body.child(note(tr!(
                 M::ImportNotDownloadable,
-                files = format::list(&preview.not_downloadable)
+                files = shortened(&preview.not_downloadable)
             )));
         }
         body = match self.import_free {
@@ -1175,13 +1283,13 @@ impl SnapshotDialog {
             .when(!report.not_downloadable.is_empty(), |this| {
                 this.child(note(tr!(
                     M::ExportNotDownloadable,
-                    files = format::list(&report.not_downloadable)
+                    files = shortened(&report.not_downloadable)
                 )))
             })
             .when(!report.left_out.is_empty(), |this| {
                 this.child(muted(tr!(
                     M::ExportLeftOut,
-                    files = format::list(&report.left_out)
+                    files = shortened(&report.left_out)
                 )))
             })
             .child(
@@ -1209,6 +1317,26 @@ impl SnapshotDialog {
                     ),
             )
     }
+}
+
+/// The choices a restore of the snapshot `preview` describes offers, in the order shown:
+/// the worlds (and their mods) when it has worlds, everything when it can put content
+/// back, none of those for another game, and always a new instance.
+fn offered(preview: &RestorePreview) -> Vec<Choice> {
+    let mut choices = Vec::new();
+    if !preview.other_game {
+        if !preview.worlds.is_empty() {
+            choices.push(Choice::Worlds);
+            if preview.can_restore_content {
+                choices.push(Choice::WorldsAndMods);
+            }
+        }
+        if preview.can_restore_content {
+            choices.push(Choice::Everything);
+        }
+    }
+    choices.push(Choice::AsNew);
+    choices
 }
 
 /// The choice a restore dialog opens on: only "as a new instance" for another game; the
@@ -1496,6 +1624,25 @@ mod tests {
             "{lines:?}"
         );
         assert!(!lines[1].contains("mods/new-6.jar"), "{lines:?}");
+    }
+
+    #[test]
+    fn only_mods_and_the_loader_count_as_other_mods() {
+        let configs = ContentDiff {
+            updated: vec!["config/foo.json".into()],
+            ..ContentDiff::default()
+        };
+        assert!(!mods_differ(&configs));
+        let mods = ContentDiff {
+            removed: vec!["mods/new-mod-1.0.jar".into()],
+            ..configs.clone()
+        };
+        assert!(mods_differ(&mods));
+        let loader = ContentDiff {
+            loader_version: Some((Some("0.16.9".into()), Some("0.16.10".into()))),
+            ..configs
+        };
+        assert!(mods_differ(&loader));
     }
 
     #[test]

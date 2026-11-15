@@ -26,7 +26,9 @@
 //! didn't replace). A crash
 //! leaves the journal, and [`recover_one`] does the same rollback at the next start, before
 //! any instance can be played (and Play again, for a rollback that failed); a `done`
-//! journal only has its leftovers deleted. The journal holds only the folders' random
+//! journal only has its work folders cleared, keeping aside what the old folder holds
+//! besides what the restore replaced. A work folder no journal names is never simply
+//! deleted when it may hold the instance's files ([`remove_leftovers`]). The journal holds only the folders' random
 //! suffixes and relative paths, checked strictly before use, and no rename goes through a
 //! link.
 //!
@@ -96,6 +98,11 @@ pub struct Journal {
     /// in the staging folder was in the way (written meanwhile) and is kept aside.
     #[serde(default)]
     pub placed: Vec<String>,
+    /// What the restore replaces (relative to the instance folder): after a swap that got
+    /// as far as `done`, anything else in the old folder was written meanwhile into an
+    /// owned folder and is kept aside.
+    #[serde(default)]
+    pub replaced: Vec<String>,
 }
 
 /// A journal is small; one larger than this is damaged.
@@ -111,6 +118,8 @@ pub(crate) struct Faults {
     pub fail_after: Option<usize>,
     /// Make the rollback fail too.
     pub break_rollback: bool,
+    /// Stop as if the process died right after the `done` journal was written.
+    pub crash_when_done: bool,
 }
 
 /// A restore's files staged inside the instance folder, ready to swap in.
@@ -322,6 +331,11 @@ impl Staged {
                 }))
                 .collect(),
             placed: self.placed.clone(),
+            replaced: {
+                let mut replaced: Vec<String> = self.replaced.iter().cloned().collect();
+                replaced.sort();
+                replaced
+            },
         };
         if let Err(e) = write_journal(journal_path, &journal) {
             self.discard();
@@ -335,6 +349,10 @@ impl Staged {
                     ..journal.clone()
                 };
                 match write_journal(journal_path, &done) {
+                    #[cfg(test)]
+                    Ok(()) if self.faults.crash_when_done => Err(SwapError::Broken(
+                        ImageError::Invalid("crashed on purpose".into()),
+                    )),
                     Ok(()) => {
                         // What is left in the old folder is what the restore replaced,
                         // unless another job wrote into an owned folder meanwhile.
@@ -854,7 +872,20 @@ pub(crate) fn recover_one(root: &Path, journal_path: &Path) -> Result<Option<Pha
         return Ok(None);
     };
     rollback(root, &journal).map_err(|problems| problems.join("; "))?;
-    if let Some(kept) = keep_strays_after_rollback(root, &journal) {
+    let mut kept = keep_strays_after_rollback(root, &journal);
+    if journal.phase == Phase::Done && valid_suffix(&journal.old) && valid_suffix(&journal.staging)
+    {
+        // The swap finished but its clean-up didn't: what the old folder holds besides
+        // what the restore replaced was written meanwhile into an owned folder.
+        let replaced: HashSet<&str> = journal.replaced.iter().map(String::as_str).collect();
+        kept = keep_strays(
+            &root.join(format!("{OLD_PREFIX}{}", journal.old)),
+            &root.join(format!("{LEFTOVERS_PREFIX}{}", journal.staging)),
+            &|rel| replaced.contains(rel),
+        )
+        .or(kept);
+    }
+    if let Some(kept) = kept {
         super::warn(
             "images.restore",
             "",
@@ -876,19 +907,53 @@ pub(crate) fn recover_one(root: &Path, journal_path: &Path) -> Result<Option<Pha
     Ok(Some(journal.phase))
 }
 
-/// Deletes restore work folders in the instance folder `root` that no journal names (a
-/// crash while staging, before the journal was written).
+/// Clears restore work folders in the instance folder `root` that no journal names. A
+/// staging folder is deleted (a crash while staging, before the journal was written, leaves
+/// only copies from the store), except what a rollback set aside in it (`.rollback-<n>/`),
+/// which may be files from the instance. An old folder only outlives its journal when its
+/// clean-up failed or the journal was lost, and may hold files no snapshot has (carried
+/// ones, or ones written meanwhile): it is kept as `restore-leftovers-<16>/`, never
+/// deleted.
 pub(crate) fn remove_leftovers(root: &Path) {
     let Ok(entries) = fs::read_dir(root) else {
         return;
     };
     for entry in entries.flatten() {
-        let is_work = entry
-            .file_name()
-            .to_str()
-            .is_some_and(|n| n.starts_with(STAGING_PREFIX) || n.starts_with(OLD_PREFIX));
-        if is_work && is_real_dir(&entry.path()) {
-            let _ = super::remove_tree(&entry.path());
+        let path = entry.path();
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        if !is_real_dir(&path) {
+            continue;
+        }
+        if let Some(suffix) = name.strip_prefix(OLD_PREFIX) {
+            let kept = root.join(format!("{LEFTOVERS_PREFIX}{suffix}"));
+            match crate::fsx::rename(&path, &kept) {
+                Ok(()) => super::warn(
+                    "images.restore",
+                    "",
+                    &format!(
+                        "a restore's replaced files without a journal are kept in {}",
+                        kept.display()
+                    ),
+                ),
+                Err(e) => super::warn(
+                    "images.restore",
+                    "",
+                    &format!("Failed to keep {} aside: {e}", path.display()),
+                ),
+            }
+        } else if let Some(suffix) = name.strip_prefix(STAGING_PREFIX) {
+            let leftovers = root.join(format!("{LEFTOVERS_PREFIX}{suffix}"));
+            let _ = keep_strays_mapped(&path, &leftovers, &|rel| {
+                let (first, rest) = rel.split_once('/')?;
+                first
+                    .strip_prefix(".rollback-")
+                    .is_some_and(|n| n.bytes().all(|b| b.is_ascii_digit()))
+                    .then(|| rest.to_string())
+            });
+            let _ = super::remove_tree(&path);
         }
     }
 }

@@ -337,6 +337,19 @@ pub fn restore(call: Call, cx: &mut App) -> Reply {
         &target.instance,
         cx
     ));
+    // An install or a modpack update writing the instance's files meanwhile would lose
+    // what it writes into what the restore replaces.
+    if target
+        .control
+        .instances
+        .read(cx)
+        .files_or_pack_busy(&target.instance.id)
+    {
+        return ready(Err(api_error(
+            codes::BUSY,
+            "Another job is changing the instance's files; try again when it is done.",
+        )));
+    }
     let busy = target
         .control
         .instances

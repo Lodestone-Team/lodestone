@@ -353,6 +353,69 @@ pub fn delete_with(
     Ok(())
 }
 
+/// The first of the worlds in `saves` (only those named in `only`, when given) that a game
+/// has open, by folder name: one whose `session.lock` another process holds locked.
+/// Minecraft 1.16 and later lock it for as long as the world is open, so this sees a game
+/// that runs although this Launcher didn't start it (it was restarted while the game ran,
+/// or a game started by hand). Older versions lock nothing, and a world that can't be read
+/// counts as closed.
+pub fn open_in_game(saves: &Path, only: Option<&[String]>) -> Option<String> {
+    let names: Vec<String> = match only {
+        Some(names) => names.to_vec(),
+        None => fs::read_dir(saves)
+            .ok()?
+            .flatten()
+            .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
+            .filter_map(|e| e.file_name().to_str().map(str::to_string))
+            .collect(),
+    };
+    names
+        .into_iter()
+        .find(|name| session_lock_held(&saves.join(name).join("session.lock")))
+}
+
+/// Whether another process holds `lock` (a world's `session.lock`) locked. Java's
+/// `FileChannel.tryLock`, which the game uses, takes an `fcntl` lock on Unix, which
+/// `F_GETLK` reports.
+#[cfg(unix)]
+fn session_lock_held(lock: &Path) -> bool {
+    use std::os::fd::AsRawFd as _;
+    let Ok(file) = fs::File::open(lock) else {
+        return false;
+    };
+    // SAFETY: a zeroed flock is a valid value to fill in.
+    let mut query: libc::flock = unsafe { std::mem::zeroed() };
+    query.l_type = libc::F_WRLCK as _;
+    query.l_whence = libc::SEEK_SET as _;
+    query.l_start = 0;
+    query.l_len = 0;
+    // SAFETY: `file` is open for as long as the call runs, and `query` is a valid flock
+    // the call writes the conflicting lock into.
+    let asked = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETLK, &mut query) };
+    asked == 0 && query.l_type != libc::F_UNLCK as libc::c_short
+}
+
+/// See the Unix version. On Windows the game keeps the file open, and opening it without
+/// sharing fails while it does.
+#[cfg(windows)]
+fn session_lock_held(lock: &Path) -> bool {
+    use std::os::windows::fs::OpenOptionsExt as _;
+    const ERROR_SHARING_VIOLATION: i32 = 32;
+    const ERROR_LOCK_VIOLATION: i32 = 33;
+    match fs::OpenOptions::new().read(true).share_mode(0).open(lock) {
+        Ok(_) => false,
+        Err(e) => matches!(
+            e.raw_os_error(),
+            Some(ERROR_SHARING_VIOLATION | ERROR_LOCK_VIOLATION)
+        ),
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
+fn session_lock_held(_: &Path) -> bool {
+    false
+}
+
 /// The files and folders under `dir`, relative with `/`, without links. `session.lock`
 /// at the top is left out: the game holds it while the world is open.
 fn collect(dir: &Path) -> Result<Vec<(String, PathBuf, bool)>, WorldError> {
@@ -841,6 +904,77 @@ pub fn export(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Not a test on its own: run by [`a_world_another_process_has_locked_is_open_in_game`]
+    /// as a child process, it locks the file named by `LODESTONE_TEST_HOLD_LOCK` as the game
+    /// does (an `fcntl` lock), says so on stdout and holds it until stdin closes.
+    #[cfg(unix)]
+    #[test]
+    fn hold_session_lock_helper() {
+        use std::io::{Read as _, Write as _};
+        use std::os::fd::AsRawFd as _;
+        let Some(path) = std::env::var_os("LODESTONE_TEST_HOLD_LOCK") else {
+            return;
+        };
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(path)
+            .unwrap();
+        let mut lock: libc::flock = unsafe { std::mem::zeroed() };
+        lock.l_type = libc::F_WRLCK as _;
+        lock.l_whence = libc::SEEK_SET as _;
+        // SAFETY: a valid fd and flock.
+        assert_eq!(
+            unsafe { libc::fcntl(file.as_raw_fd(), libc::F_SETLK, &lock) },
+            0
+        );
+        println!("LOCKED");
+        std::io::stdout().flush().unwrap();
+        let _ = std::io::stdin().read_to_end(&mut Vec::new());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_world_another_process_has_locked_is_open_in_game() {
+        use std::io::BufRead as _;
+        let temp = tempfile::tempdir().unwrap();
+        let saves = temp.path().join("saves");
+        for world in ["Open", "Closed"] {
+            fs::create_dir_all(saves.join(world)).unwrap();
+            fs::write(saves.join(world).join("session.lock"), "☃").unwrap();
+        }
+        fs::create_dir_all(saves.join("No lock")).unwrap();
+        assert_eq!(open_in_game(&saves, None), None);
+        // a lock this process holds doesn't count: fcntl locks are per process
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "worlds::tests::hold_session_lock_helper",
+                "--nocapture",
+            ])
+            .env("LODESTONE_TEST_HOLD_LOCK", saves.join("Open/session.lock"))
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut out = std::io::BufReader::new(child.stdout.take().unwrap());
+        let mut line = String::new();
+        while !line.contains("LOCKED") {
+            line.clear();
+            assert!(out.read_line(&mut line).unwrap() > 0, "the helper ended");
+        }
+        assert_eq!(open_in_game(&saves, None).as_deref(), Some("Open"));
+        assert_eq!(
+            open_in_game(&saves, Some(&["Closed".into(), "Open".into()])).as_deref(),
+            Some("Open")
+        );
+        assert_eq!(open_in_game(&saves, Some(&["Closed".into()])), None);
+        drop(child.stdin.take());
+        child.wait().unwrap();
+        assert_eq!(open_in_game(&saves, None), None);
+        assert_eq!(open_in_game(&temp.path().join("missing"), None), None);
+    }
 
     #[test]
     fn folder_names() {

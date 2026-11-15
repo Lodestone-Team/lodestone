@@ -180,9 +180,14 @@ const LEFTOVER_PREFIX: &str = ".lodestone-";
 
 /// The bytes free to this user on `dir`'s volume (quotas included), like `statvfs`'s
 /// `f_bavail`; `None` when it can't be asked. For the checks before copying into the
-/// data folder (images, data moves, copies of worlds).
-#[cfg(unix)]
+/// data folder (images, data moves, copies of worlds, imports). One public function
+/// that picks the platform's way inside, so its visibility can't differ by platform.
 pub fn free_space(dir: &Path) -> Option<u64> {
+    platform_free_space(dir)
+}
+
+#[cfg(unix)]
+fn platform_free_space(dir: &Path) -> Option<u64> {
     use std::os::unix::ffi::OsStrExt;
     let path = std::ffi::CString::new(dir.as_os_str().as_bytes()).ok()?;
     let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
@@ -194,9 +199,8 @@ pub fn free_space(dir: &Path) -> Option<u64> {
     Some(stat.f_bavail as u64 * stat.f_frsize as u64)
 }
 
-/// See the Unix version.
 #[cfg(windows)]
-pub(crate) fn free_space(dir: &Path) -> Option<u64> {
+fn platform_free_space(dir: &Path) -> Option<u64> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
     let path: Vec<u16> = dir.as_os_str().encode_wide().chain([0]).collect();
@@ -215,7 +219,7 @@ pub(crate) fn free_space(dir: &Path) -> Option<u64> {
 }
 
 #[cfg(not(any(unix, windows)))]
-pub(crate) fn free_space(_: &Path) -> Option<u64> {
+fn platform_free_space(_: &Path) -> Option<u64> {
     None
 }
 

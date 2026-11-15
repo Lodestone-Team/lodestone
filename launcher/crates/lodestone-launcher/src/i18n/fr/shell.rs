@@ -953,7 +953,7 @@ pub fn text(message: M) -> &'static str {
         M::ZoomKeywords => "échelle taille agrandir réduire texte",
         M::WhenAGameStartsKeywords => "après le lancement réduire masquer fermer quitter",
         M::ModpackUpdateNoSnapshot => {
-            "Aucun instantané n’a pu être pris avant, donc rien n’a changé\u{a0}: {error}. Vous pouvez mettre à jour sans instantané, ou libérer de l’espace et réessayer."
+            "Aucun instantané n’a pu être pris avant, donc rien n’a changé. Vous pouvez mettre à jour sans instantané, ou régler le problème et réessayer.\n{error}"
         }
         M::UpdateWithoutSnapshot => "Mettre à jour sans instantané",
         M::ReplaceWorldModsNote => {

@@ -313,7 +313,8 @@ crate::i18n::messages! {
 
         /// Next to "Browse Modrinth" on the Mods tab: add a modpack's mods.
         AddModpackContent = "Add a modpack",
-        NoSnapshotFirst = "No snapshot was taken first: {error}",
+        /// After an update: the worlds weren't copied before it.
+        NoSnapshotFirst = "No snapshot was taken first, so take one in Settings › Snapshots before you play.\n{error}",
     }
 
     pub enum ContentPlural {

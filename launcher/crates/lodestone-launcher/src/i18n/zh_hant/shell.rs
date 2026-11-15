@@ -811,7 +811,7 @@ pub fn text(message: M) -> &'static str {
         M::ZoomKeywords => "比例 大小 放大 縮小 文字",
         M::WhenAGameStartsKeywords => "啟動後 最小化 隱藏 關閉 結束",
         M::ModpackUpdateNoSnapshot => {
-            "無法先拍攝快照，因此沒有做任何變更：{error}。你可以不拍攝快照直接更新，或釋放一些空間後重試。"
+            "無法先拍攝快照，因此沒有做任何變更。你可以不拍攝快照直接更新，或解決問題後重試。\n{error}"
         }
         M::UpdateWithoutSnapshot => "不拍攝快照直接更新",
         M::ReplaceWorldModsNote => {

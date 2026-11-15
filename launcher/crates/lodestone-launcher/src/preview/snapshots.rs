@@ -13,7 +13,7 @@ use launcher_core::{
 
 use crate::{
     i18n::{InstanceSettingsMsg as M, t},
-    instances::snapshots::SnapshotRequest,
+    instances::snapshots::{Choice, SnapshotRequest},
     shell::{InstanceTab, LauncherShell},
 };
 
@@ -128,6 +128,14 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
         }
         "snapshot-take" => SnapshotRequest::Take(id),
         "snapshot-restore" => SnapshotRequest::Restore(id, named("Before 1.21")),
+        "snapshot-restore-mods" => {
+            // "The worlds and their mods": what putting the mods back changes.
+            shell.open_snapshot(SnapshotRequest::Restore(id, named("Before 1.21")), cx);
+            if let Some(dialog) = shell.snapshot_dialog() {
+                dialog.update(cx, |dialog, _| dialog.preset_choice(Choice::WorldsAndMods));
+            }
+            return;
+        }
         "snapshot-export" => SnapshotRequest::Export(id, named("Before 1.21")),
         "snapshot-delete" => SnapshotRequest::Delete(id, named("Before updating Sodium")),
         _ => SnapshotRequest::Import(import_file(&data_dir)),

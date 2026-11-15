@@ -1935,6 +1935,14 @@ impl LauncherShell {
         );
     }
 
+    /// The open snapshot dialog, for the offscreen screenshots.
+    pub fn snapshot_dialog(&self) -> Option<&Entity<crate::instances::snapshots::SnapshotDialog>> {
+        match self.modal.current() {
+            Some(Modal::Snapshot { dialog, .. }) => Some(dialog),
+            _ => None,
+        }
+    }
+
     /// The open "Add a modpack" dialog, for the offscreen screenshots.
     pub fn add_modpack_dialog(&self) -> Option<&Entity<AddModpackDialog>> {
         match self.modal.current() {

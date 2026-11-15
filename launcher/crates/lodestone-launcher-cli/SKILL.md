@@ -317,7 +317,25 @@ playing when the user turns that on. A failed snapshot stops a modpack update (t
 error says why; the window offers to update without one); a mod update goes on and its
 reply's `snapshot_failed` says why. Automatic ones are kept by the instance's policy;
 manual, imported and pinned ones are never deleted on their own. Logs, caches and the
-JVM's crash logs and dumps are never included. Nothing runs while the instance's game does (`busy`).
+JVM's crash logs and dumps are never included. Nothing runs while the instance's game does (`busy`),
+including a game this launcher didn't start whose worlds are open (Minecraft 1.16 and
+later), except `restore --scope new`; a restore in place also waits (`busy`) while another
+job (a mod install, a modpack update) changes the instance's files.
+
+What the replies say beyond the obvious:
+
+- `snapshots export`: `not_downloadable` lists CurseForge files whose authors forbid
+  downloads elsewhere: whoever imports the file won't get them, so tell the user;
+  `left_out` lists the files kept private (typed commands, account switchers' files).
+- `snapshots import --preview`: `carried_mods` (see above), `needed_bytes` (what the
+  import writes, with 1 GiB to spare; the import refuses with less free) and
+  `not_downloadable`. After the import, `left_out` lists what it couldn't get. A mod the
+  file names as a Modrinth or CurseForge download is always downloaded from there and
+  checked; one that can't be is placed only if the file carries it, as the sender's file.
+- `snapshots restore` in place: `kept_aside` is a folder in the instance where files
+  written meanwhile by another job were moved rather than lost; tell the user.
+- Snapshot records carry `world_details` (each world's folder, own name and size) and
+  `full` (it holds the mods and configs too).
 
 ```sh
 lodestone-launcher-cli snapshots list Survival                                   # newest first, with the policy

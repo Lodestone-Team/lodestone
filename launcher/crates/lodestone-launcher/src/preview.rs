@@ -213,6 +213,7 @@ pub const SCENES: &[&str] = &[
     "snapshots",
     "snapshot-take",
     "snapshot-restore",
+    "snapshot-restore-mods",
     "snapshot-export",
     "snapshot-delete",
     "snapshot-import",

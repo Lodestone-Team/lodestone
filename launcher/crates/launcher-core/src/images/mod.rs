@@ -327,6 +327,8 @@ pub struct Images {
     /// Bytes the records under way may still write: each record's free-space check counts
     /// the others' ([`recorder`]'s `reserve_space`).
     pub(crate) reserved: Mutex<u64>,
+    /// Who hears of each change to an instance's snapshot list ([`Images::watch_snapshots`]).
+    snapshot_watchers: Mutex<Vec<futures::channel::mpsc::UnboundedSender<String>>>,
     /// The free space tests pretend the disk has.
     #[cfg(test)]
     pub(crate) fake_free: Mutex<Option<u64>>,
@@ -364,9 +366,31 @@ impl Images {
             activity: Arc::default(),
             root_private: AtomicBool::new(false),
             reserved: Mutex::default(),
+            snapshot_watchers: Mutex::default(),
             #[cfg(test)]
             fake_free: Mutex::default(),
         })
+    }
+
+    /// The ids of the instances whose snapshot list changes from now on, one per change:
+    /// a snapshot taken (by hand, or one the Launcher takes on its own: after playing,
+    /// before a change), pinned, renamed or deleted, retention's deletions, an import. A
+    /// window showing a list reads it again. Stops when the receiver is dropped.
+    pub fn watch_snapshots(&self) -> futures::channel::mpsc::UnboundedReceiver<String> {
+        let (sender, receiver) = futures::channel::mpsc::unbounded();
+        self.snapshot_watchers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(sender);
+        receiver
+    }
+
+    /// Tells the watchers that `instance`'s snapshot list changed.
+    pub(crate) fn snapshots_changed(&self, instance: &str) {
+        self.snapshot_watchers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|watcher| watcher.unbounded_send(instance.to_string()).is_ok());
     }
 
     pub fn store(&self) -> &Arc<Store> {

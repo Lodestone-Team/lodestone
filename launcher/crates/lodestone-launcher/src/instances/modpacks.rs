@@ -119,7 +119,7 @@ impl ImportJob {
 pub struct UpdateJob {
     pub progress: Arc<InstallProgress>,
     pub cancel: CancelToken,
-    _task: Task<()>,
+    pub(super) _task: Task<()>,
 }
 
 /// How a modpack update's background work ended.
@@ -918,6 +918,17 @@ impl Instances {
             });
             return;
         }
+        // A tab's job (a mod install, a restore) is writing the instance's files: the pack
+        // would be applied over files that are still changing.
+        if self.files_busy(&id) {
+            self.discard_update(&prompt);
+            cx.emit(InstancesEvent::LaunchFailed {
+                title: t(M::CouldntUpdateModpack).into(),
+                message: t(M::FilesBusy).into(),
+                about: About::Instance(id.clone()),
+            });
+            return;
+        }
         // A saved search has mods turned off: the update would replace files it restores
         // later, and the record before the update would take them as changed by hand.
         if self.finder_saved(&id) {
@@ -1222,6 +1233,17 @@ impl Instances {
             cx.emit(InstancesEvent::LaunchFailed {
                 title: t(M::CouldntAddModpack).into(),
                 message: t(M::StopGameFirst).into(),
+                about: About::Instance(id.clone()),
+            });
+            return;
+        }
+        // A tab's job (a mod install, a restore) is writing the instance's files: the pack
+        // would be applied over files that are still changing.
+        if self.files_busy(&id) {
+            self.discard_add(&prompt);
+            cx.emit(InstancesEvent::LaunchFailed {
+                title: t(M::CouldntAddModpack).into(),
+                message: t(M::FilesBusy).into(),
                 about: About::Instance(id.clone()),
             });
             return;

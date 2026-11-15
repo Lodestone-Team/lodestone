@@ -568,6 +568,10 @@ pub struct Instances {
     /// Each instance's snapshots, newest first, once read (see snapshots.rs).
     snapshot_rows: HashMap<String, snapshots::SnapshotList>,
     snapshot_tasks: HashMap<String, Task<()>>,
+    /// How many times each instance's snapshot list changed (taken, pinned, deleted, pruned:
+    /// `Images::watch_snapshots`), so views that show snapshots (the Worlds tab's backups)
+    /// read them again.
+    snapshot_revisions: HashMap<String, u64>,
     /// Files of an imported CurseForge pack the user downloads from curseforge.com, by
     /// instance; the Content tab takes them when it shows that instance.
     pending_downloads:
@@ -737,12 +741,25 @@ impl Instances {
             pending_downloads: HashMap::new(),
             snapshot_rows: HashMap::new(),
             snapshot_tasks: HashMap::new(),
+            snapshot_revisions: HashMap::new(),
             modpack_updates: HashMap::new(),
             content_revisions: HashMap::new(),
             import_ticker: None,
             images,
         };
         this.reload(cx);
+        this.follow_snapshot_changes(cx);
+        // Exports left from an earlier run were made to be shared then: the dialog that
+        // offered them is gone. Renamed away at once, so an export started now never
+        // writes into a folder being deleted, then deleted in the background.
+        let exports = this.snapshot_exports_dir();
+        let old = exports.with_file_name(format!("snapshot-exports-old-{}", std::process::id()));
+        if std::fs::rename(&exports, &old).is_ok() {
+            cx.background_spawn(async move {
+                let _ = std::fs::remove_dir_all(old);
+            })
+            .detach();
+        }
         if settings_notice.is_some() {
             this.notice = settings_notice;
         }
@@ -782,7 +799,7 @@ impl Instances {
     }
 
     /// Whether a snapshot is taken after each play session of the instance `id`: its own
-    /// setting, else Settings › Instances' (off by default).
+    /// setting, else Settings › Instance defaults' (off by default).
     pub fn snapshot_after_play(&self, id: &str) -> bool {
         self.list()
             .iter()
@@ -3418,6 +3435,36 @@ mod save_tests {
                 .unwrap()
                 .expect("a new loader version waits for a snapshot")
         })
+    }
+
+    #[gpui::test]
+    fn a_restore_waits_for_a_modpack_update_and_an_install(cx: &mut TestAppContext) {
+        let (instances, id) = setup(cx);
+        let busy = |cx: &mut TestAppContext| {
+            instances.read_with(cx, |this, _| this.files_or_pack_busy(&id))
+        };
+        assert!(!busy(cx));
+        // a modpack update being applied: it marks no files busy, but restores wait for it
+        instances.update(cx, |this, _| {
+            this.modpack_updates.insert(
+                id.clone(),
+                modpacks::UpdateJob {
+                    progress: Default::default(),
+                    cancel: CancelToken::new(),
+                    _task: gpui::Task::ready(()),
+                },
+            );
+        });
+        assert!(busy(cx));
+        instances.update(cx, |this, _| {
+            this.modpack_updates.remove(&id);
+        });
+        assert!(!busy(cx));
+        // a tab's install
+        let install = instances.read_with(cx, |this, _| this.mark_files_busy(&id));
+        assert!(busy(cx));
+        drop(install);
+        assert!(!busy(cx));
     }
 
     #[gpui::test]

@@ -1742,8 +1742,9 @@ same, it does the same. The code is `launcher/crates/launcher-core/src/images/`.
   the Snapshots list shows how many can't be read, with a button to delete them.
 - **Deleting and reused ids.** Instance ids are folder names and a deleted instance's id
   goes to the next instance of the same name. Deleting an instance (after its folder went to
-  the Trash) deletes `images/<id>/` and asks for a collection, so restoring it from the
-  Trash starts a new history. A record, check or history that finds `content-state.json`
+  the Trash) deletes `images/<id>/` and asks for a collection when it holds no snapshot;
+  one that does is retired, and putting the instance back from the Trash takes its
+  snapshots back, with the content they link to (milestone 5: "M5 decisions", Retiring). A record, check or history that finds `content-state.json`
   naming another `created` time than `instance.json`'s, or manifests with no state at all
   (an instance's first record writes its state before any manifest, so only a deleted
   instance's leftovers look like that), takes them for an earlier instance's: a record or
@@ -2102,7 +2103,15 @@ the world backup zips is read or converted.
   `game_version`, `last_played`, `size` (from its entries) and `quiesced: true` (the game
   never runs during a snapshot: they are refused while it does, and one a session begins
   during, Play pressed again while the snapshot after the last session reads a big world,
-  stops at the next file and records nothing, `ImageError::Running`). It uses the `data` stat
+  stops at the next file and records nothing, `ImageError::Running`). "While it does"
+  covers a game this Launcher didn't start too, which its sessions can't know of (the
+  Launcher restarted while the game ran, with Settings › After launch set to quit or
+  after a crash): a snapshot, and an in-place restore, is refused while any world of the
+  instance (for a restore, any world it replaces) has its `session.lock` locked by another
+  process (`worlds::open_in_game`: Minecraft 1.16 and later hold that lock while a world is
+  open, Java taking an `fcntl` lock on Unix, which `F_GETLK` reports; on Windows the file
+  can't be opened without sharing while the game has it open). Older versions lock
+  nothing, which stays a known limit. It uses the `data` stat
   cache, and the free-space check every record uses (what it reads, the records under
   way, 1 GiB to spare).
 - **The content step, every kind.** Every snapshot's content record is
@@ -2165,7 +2174,8 @@ the world backup zips is read or converted.
   launch that failed or was cancelled while it was prepared); a session that begins while
   it reads stops it (see the first bullet). Known limit: with Settings › After launch set
   to quit, or when the Launcher dies while the game runs, no end is seen and none is
-  taken.
+  taken (and while that game still runs, snapshots and restores are refused by its
+  worlds' `session.lock`, see the first bullet).
 - **Before risky changes**, one hook: `Images::before_risky_change(instance, RiskyChange)`
   (`ModpackUpdate`, `ServerUpdate`, `ContentUpdate`, `LoaderChange`), which records the
   content as above and takes an automatic snapshot; `before_risky_change_with` also takes
@@ -2176,7 +2186,10 @@ the world backup zips is read or converted.
   backups before images aborted the update); the control API's `modpacks update` fails
   with the reason. **A content update goes on** (Update all, one update and their
   CurseForge halves, once per job, and the control API's `content.update`): its message
-  adds "No snapshot was taken first: …", and the API's reply `snapshot_failed`. Modpack
+  adds "No snapshot was taken first, so take one in Settings › Snapshots before you play."
+  with the reason, and the API's reply `snapshot_failed`. The update isn't paused to ask:
+  the replaced jars are in the content history, and only the next launch, which the
+  message warns about, can change the worlds. Modpack
   updates call it in place of `record_before_change`, and no longer zip worlds
   (`update::apply` lost `backup_worlds`; its rollback copy of changed files stays).
   **Server updates: milestone 4's second half is to call it in `apply_sync`** in place of
@@ -2206,7 +2219,8 @@ the world backup zips is read or converted.
   or full manifest, one that can't be read, or records): `retired.json` (`former_id`,
   `name`, `instance_created`, `deleted`) is written into it, it is renamed
   `images/_deleted_<16 hex>/` (`_` never starts an id the Launcher makes), and its state,
-  stat caches, journal and the content images no snapshot links to are deleted. The
+  stat caches and the content images no snapshot links to are deleted. A restore journal
+  stays: if the instance comes back, it says what its unfinished restore set aside. The
   renames (retiring, and taking back below) hold collections off: a collection marks
   manifests by listing `images/`, and an entry renamed while it lists could be seen under
   neither name. One
@@ -2260,8 +2274,14 @@ the world backup zips is read or converted.
   on disk is spelled differently from the snapshot's (letter case or accents, on a disk
   that takes them for one name), or a carried path the staging also has, refuses the
   restore with a message to rename it: the copy on disk would otherwise win over the
-  snapshot's without a word. The window and the control API refuse a restore while
-  another job holds the instance's files busy (an install). After the swap, a content
+  snapshot's without a word. The window and the control API refuse an in-place restore
+  (the Snapshots dialog, `snapshots.restore`, the Worlds tab's "Replace world…" and
+  "Restore as copy", `worlds.restore`) while another job writes the instance's files
+  (`Instances::files_or_pack_busy`: a tab's job holding them busy, an install, or a
+  modpack update or add-on pack being applied, which mark nothing busy); and applying a
+  modpack update or an add-on pack is refused while a tab's job (a restore among them)
+  holds them busy. "As a new instance" only reads the store, so it runs while the game
+  does. After the swap, a content
   record that fails (the disk filled up) is logged, not the restore's failure: the files
   are back, and the next check records the change. Files are staged with
   `materialize` into `<instance>/.lodestone-restore-staging-<16>/` while collections are
@@ -2279,9 +2299,16 @@ the world backup zips is read or converted.
   Launcher's recovery runs on the window's thread at startup. Follow-up: one
   `lodestone_image` swap module both call, once milestone 4's second half has settled.
   `Images::recover_restores` runs on the window's thread right after the images open,
-  before anything can be played: a journal is undone (or, when done, only cleaned up),
-  work folders no journal names are deleted, and a journal whose instance folder isn't
-  there stays, logged. **One that can't be undone keeps the instance from being played**,
+  before anything can be played: a journal is undone (or, when done, only cleaned up:
+  the journal lists what the restore replaced, `replaced`, and anything else in the old
+  folder, written meanwhile into an owned folder, is kept aside as below), and a journal
+  whose instance folder isn't there stays, logged. Work folders no journal names
+  (`swap::remove_leftovers`) are never simply deleted when they may hold the instance's
+  files: a staging folder goes (a crash while staging leaves only copies from the store)
+  except what a rollback set aside in it (`.rollback-<n>/`), and an old folder, which only
+  outlives its journal when its clean-up failed or the journal was lost (a retired
+  instance put back after the Launcher started), is renamed
+  `<instance>/restore-leftovers-<16>/`. **One that can't be undone keeps the instance from being played**,
   like the core's locked server: while its journal is there (`Images::restore_unfinished`,
   a rollback that failed at startup or during the restore), Play first tries again
   (`retry_unfinished_restore`, renames only, on the window's thread, waiting at most
@@ -2309,49 +2336,85 @@ the world backup zips is read or converted.
 - **The differing-content offer.** `preview_restore` compares the current content image with
   the snapshot's content (the link, or a full image's content files), by enabled name: one
   Modrinth project removed and added is one update, turning a file off or on is an update,
-  and the loader versions are compared. The dialog says "These worlds last ran with other
-  mods." and what putting their mods back does, a line each with up to five names: the
-  files it puts back, removes and changes; a toggle switches to the worlds and their mods.
+  and the loader versions are compared. With "Only the worlds" chosen, the dialog says
+  "These worlds last ran with other mods." when something under `mods/` or `coremods/`
+  or the loader version differs, else "These worlds last ran with other files." (configs
+  a mod rewrites at startup, now that every snapshot takes in what the game wrote), and
+  what putting their mods back does, a line each with up to five names: the files it puts
+  back, removes and changes; a toggle switches to the worlds and their mods. With "The
+  worlds and their mods" or "Everything" chosen, the same lines say what the restore will
+  change, with the loader version it goes back to.
   The Worlds tab's "Replace world…" says that only the world goes back and points to the
   Snapshots list for its mods. Known limit: the preview compares with the current content
   image without the quick check, so a mod dropped in by hand since the last record isn't
-  in the list (the restore itself records it first, and replaces it).
+  in the list (the restore itself records it first, and replaces it). Known limit: a full
+  image's content files are picked with the instance's current content scope, which
+  counts today's `modpack.json` pack files outside the content folders, not the ones the
+  snapshot's pack listed (an image's base names the pack, not its files); a pack file
+  outside the content folders that only the snapshot's pack version listed (a
+  `scripts/x.zs` a later version dropped) is therefore not put back by "The worlds and
+  their mods" nor named in the preview; "Everything" puts it back.
 - **Exports** (`.lodeimg`, `export::EXTENSION`): `container::export` of the snapshot's image
   (labelled with its name, no parent) and its content image, after `PRIVATE_FILES`
   (`command_history.txt`, `hotbar.nbt`, `ias.json` at any depth: In-Game Account Switcher,
   `essential/microsoft_accounts.json` and `essential/mojang_accounts.json`: Essential; and
   at the top of the game folder the JVM's `hs_err_pid*`, `replay_pid*`, `java_pid*.hprof`,
-  `*.mdmp` and `core`, for snapshots that hold them however they were made) are removed
+  `*.mdmp`, `core` and `core.*`, and every top-level name `scope::is_crash_name` matches in
+  any case, exactly what snapshots leave out, for images that hold them however they were
+  made, such as an imported one) are removed
   from both and added to their `excludes`, both re-sealed. Best effort: an unlisted
   account switcher's file still travels; the dialog lists what was left out, and the
   CurseForge files whose authors don't allow downloads elsewhere
   (`ExportReport::not_downloadable`), which whoever imports the file won't get. Written to
-  `<data>/cache/snapshot-exports/<record id>/` for dragging out or Save as (Storage's cache
-  clean-up removes them), or where the CLI says; leaving the dialog stops writing it.
+  `<data>/cache/snapshot-exports/<record id>/` for dragging out or Save as, or where the
+  CLI says; leaving the dialog stops writing it. Save as moves the file out of the cache
+  (a copy and delete to another disk), and the folder is cleared when the Launcher starts
+  (renamed away at once, deleted in the background), so an export doesn't take its size
+  twice; Storage's cache clean-up removes it too. The control API's reply names
+  `not_downloadable` as the dialog does.
 - **Imports** make a new instance: `container::open` (refused when its image isn't the one
   the preview the user approved showed: `expect_image`), then entries with Lodestone's
   names or paths the client can't place are refused, then the caller's free-space check
   for everything (unpacked objects, the files, every possible download, 1 GiB; the same
   figure as `ImportPreview::needed_bytes`, which the dialog shows beside the free space,
-  refusing to start when it is short; a short disk is `ImageError::NoRoom`, which the
-  window words itself), then `import_objects`; files the store lacks are downloaded, eight
-  at a time (Modrinth through its CDN URL check, SHA-256 and SHA-512 checked, the SHA-512
-  read in pieces; CurseForge through the API's download URL when the author allows it,
-  looked up in one `files_by_id` request) into the store; the rest are left out and
-  listed. A Modrinth or CurseForge entry that wasn't downloaded (the store had its bytes:
-  the export carried the same bytes under another path, or the Launcher stored them
-  earlier) is checked against its SHA-512 before anything is placed, and the import is
-  refused when it doesn't match, so a sender's file never passes for a project's in
-  `content.json`. The preview's `mods` are every file under `mods/` at any depth (Quilt
-  loads subfolders, old Forge `mods/<version>/`) and in `coremods/`, and `carried_mods`
-  those whose bytes the file carries, which the dialog and the control API's confirm name
-  as coming from whoever made the file. Everything the store has is placed
-  into a new staging instance; `instance.json` gets the game, the recommended memory and
-  default launch settings (images carry none); `content.json` the sources. It is recorded
-  "Made from a snapshot", and the imported image (with its content) is kept as an
-  `imported` snapshot. An import of an image whose CurseForge files couldn't be
-  downloaded can't later restore "everything" from that snapshot (those objects are
-  missing).
+  saying 1 GB of it is to spare, refusing to start when it is short; a short disk is
+  `ImageError::NoRoom`, which the window words itself), then `import_objects`.
+  **Every Modrinth and CurseForge entry is downloaded from its source in that import**,
+  even when the store has its bytes: the file's SHA-256 and SHA-512 come from the same
+  untrusted file as its sources, so only a download says that a project's file has those
+  bytes (a sender could otherwise give their own jar Sodium's project with their jar's
+  hashes, and carry the bytes under another path). A Modrinth entry is a download only
+  with its SHA-512 and when `Source::modrinth_from_url(url)` gives back exactly its
+  project, version and URL (every export the Launcher writes is made that way), so a file
+  of another project on Modrinth's CDN never passes for the one named; it is fetched
+  through the CDN URL check, SHA-256 and SHA-512 checked, the SHA-512 read in pieces. A
+  CurseForge entry is a download when its author allows it and there is a key, through
+  the API's download URL for that project and file, looked up in batches of 500, each file
+  id once. Each distinct file and claimed source is downloaded once, eight at a time; an
+  import naming more than 20,000 downloads is refused (`MAX_DOWNLOADS`), so a file
+  listing a million references asks nothing of Modrinth or CurseForge. An entry that
+  wasn't downloaded is placed when the store has its bytes (the file carries them, or the
+  store had them already) **as a plain file**: `content.json` learns no source for it,
+  and the imported snapshot kept of the file records its source as `object` too
+  (`without_unconfirmed_sources`, both images re-sealed), so a later restore can't record
+  it as a project's file either; the rest are left out and listed, and the window says
+  which in a notice after the import. The preview's `mods` are every file under `mods/`
+  at any depth (Quilt loads subfolders, old Forge `mods/<version>/`) and in `coremods/`,
+  and `carried_mods` the mod files, in the image and in its content link each (a data
+  image's entry hides its link's at the same path, but a later restore of the content can
+  place the link's), whose bytes the file carries, unless they are Modrinth downloads,
+  which are always fetched and checked; the dialog and the control API's confirm name them
+  as coming from whoever made the file. The placed files go into a new staging instance;
+  `instance.json` gets the game, the recommended memory and default launch settings
+  (images carry none), and a name: the one given, else the image's label without control
+  and invisible format characters (direction overrides, zero-width ones), cut to 64
+  characters; `content.json` the confirmed sources. It is recorded "Made from a
+  snapshot", and the imported image (with its content) is kept as an `imported` snapshot.
+  Known limit: files that weren't downloaded when it was imported aren't in the store, so
+  restoring "Everything" or "As a new instance" from that snapshot is refused, saying
+  that N of its files couldn't be downloaded when it was imported (rather than that the
+  store lost them). The dialogs list at most eight names of each kind ("…" for more): a
+  file from someone else can name a million.
 - **LDS codes stay as they are, with no decode-to-image function.** `LDS1:` and `LDS2:` already encode an image whose files can
   all be downloaded: the base (a Modrinth pack's project and version: the image's
   `modrinth_pack`), each Modrinth file as project and version (an entry with a `modrinth`
@@ -2380,7 +2443,14 @@ the world backup zips is read or converted.
   restore, Imported, Pinned; time, worlds by their own names, sizes) with Restore…,
   Export…, Pin or Unpin and Delete (a pin or delete that fails is a notice), a row for
   images that can't be read with Delete (asking a second time: they go for good), and the
-  retention line. One dialog takes, restores (Only the worlds with world checkboxes,
+  retention line. A row's details leave out "0 bytes new" and say "With mods" for a full
+  image. The list follows the store: `Images::watch_snapshots` sends the instance's id
+  after every change to its list (taken, pinned, deleted, pruned by retention, imported,
+  taken back), from any thread, and `Instances` reads that instance's list again when it
+  has one and counts the change (`snapshot_revision`), so the Worlds tab reads its backups
+  again too: the snapshots the Launcher takes on its own (after playing, before an update
+  or a loader change) appear without reopening anything. Settings › Instance defaults'
+  toggle has its own hint ("for instances that don't set it themselves"). One dialog takes, restores (Only the worlds with world checkboxes,
   The worlds and their mods, Everything, As a new instance), exports (drag out or Save
   as…), deletes and imports (game, worlds, mods with the trust warning, downloads, files
   that can't be downloaded, disk space and what is free, name: the file's name, which
@@ -2398,7 +2468,9 @@ the world backup zips is read or converted.
   `worlds`, `name`, `preview`; confirm in place), `snapshots.export`, `snapshots.import`
   (`preview`, `name`; confirm with mods), `snapshots.delete`, `snapshots.pin`,
   `snapshots.policy`; `worlds.backups`, `worlds.backup` and `worlds.restore` (`snapshot`,
-  `mode`) work on snapshots. `snapshots.revert`, `worlds.delete_backup` and the modpack
+  `mode`) work on snapshots. Records carry `world_details`; `snapshots.export`'s reply
+  has `not_downloadable`; a restore whose `kept_aside` is set also shows the window's
+  notice. `snapshots.revert`, `worlds.delete_backup` and the modpack
   update's `backup_worlds` are gone; the CLI follows (`snapshots restore`, `pin`, `unpin`,
   `policy`; no `worlds delete-backup`, no `--no-backup-worlds`).
 - **Not in M5:** a content history view (the CLI's `content history` stays the only one),

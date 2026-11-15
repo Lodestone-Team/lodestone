@@ -69,6 +69,13 @@ impl Instances {
     pub fn files_busy(&self, id: &str) -> bool {
         self.busy_files.is_busy(id)
     }
+
+    /// Whether another job is writing the instance's files: a tab's job
+    /// ([`Self::files_busy`]) or a modpack update or add-on pack being applied. A restore
+    /// waits for both, so it never swaps files a job is still writing.
+    pub fn files_or_pack_busy(&self, id: &str) -> bool {
+        self.files_busy(id) || self.modpack_updates.contains_key(id)
+    }
 }
 
 /// The jobs of a tab that shows one instance at a time, for the instances it isn't

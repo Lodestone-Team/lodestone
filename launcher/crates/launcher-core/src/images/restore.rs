@@ -153,6 +153,9 @@ pub struct Restored {
 struct Target {
     image: Image,
     content: Option<Image>,
+    /// It came from an import ([`SnapshotKind::Imported`]): files the store lacks were never
+    /// downloaded, rather than lost.
+    imported: bool,
 }
 
 impl Target {
@@ -276,7 +279,11 @@ impl Images {
             }
             _ => None,
         };
-        Ok(Target { image, content })
+        Ok(Target {
+            image,
+            content,
+            imported: record.kind == SnapshotKind::Imported,
+        })
     }
 
     /// What going back to the snapshot `id` would do (see [`RestorePreview`]). Blocking;
@@ -356,6 +363,22 @@ impl Images {
             .find(|record| record.id == id)
             .ok_or_else(|| ImageError::NoSnapshot(id.to_string()))?;
         let ctx = InstanceContext::load(self.instances(), instance)?;
+        // A game this process didn't start (the Launcher was restarted while it ran) has
+        // the worlds open: swapping them would mix its next save into the restored world.
+        let owned_worlds = match scope {
+            RestoreScope::Worlds(worlds) | RestoreScope::WorldsAndContent(worlds) => {
+                Some(worlds.as_slice())
+            }
+            RestoreScope::Everything => None,
+        };
+        if crate::worlds::open_in_game(
+            &ctx.dir.join(CLIENT_GAME_FOLDER).join("saves"),
+            owned_worlds,
+        )
+        .is_some()
+        {
+            return Err(ImageError::Running);
+        }
         let target = self.target(instance, &record)?;
         // Kept from pruning and retention while it is read (the safety snapshot's
         // retention runs in between).
@@ -458,7 +481,7 @@ impl Images {
             "Failed to create the restore's staging folder",
         ))?;
         let staged = (|| -> Result<Staged, ImageError> {
-            stage(self, &target.image.game, &entries, &staging, cancel)?;
+            stage(self, &target, &entries, &staging, cancel)?;
             Staged::new(&ctx.dir, suffix, &owned, &replaced, &placed)
         })();
         let staged = match staged {
@@ -587,7 +610,7 @@ impl Images {
                 .new_staging()
                 .map_err(|e| ImageError::Instance(e.to_string()))?;
             let made = (|| -> Result<Instance, ImageError> {
-                stage(self, &target.image.game, &entries, &staging, cancel)?;
+                stage(self, &target, &entries, &staging, cancel)?;
                 if let Some(record) = &source.record {
                     let _ = crate::storage::save(&ModpackRecord::path(&staging), record);
                 }
@@ -670,7 +693,7 @@ impl Images {
             "Failed to create the restore's staging folder",
         ))?;
         let placed = (|| -> Result<String, ImageError> {
-            stage(self, &target.image.game, &entries, &staging, cancel)?;
+            stage(self, &target, &entries, &staging, cancel)?;
             let saves = ctx.dir.join(CLIENT_GAME_FOLDER).join("saves");
             std::fs::create_dir_all(&saves)
                 .map_err(ImageError::io("Failed to create the saves folder"))?;
@@ -905,12 +928,12 @@ fn plan_scope(
 /// lays them out, checking every byte; durable, since the swap comes next.
 fn stage(
     images: &Images,
-    game: &Game,
+    target: &Target,
     entries: &[Entry],
     staging: &Path,
     cancel: Cancel,
 ) -> Result<(), ImageError> {
-    let mut image = Image::new(Kind::Full, game.clone());
+    let mut image = Image::new(Kind::Full, target.image.game.clone());
     image.entries = entries.to_vec();
     let options = MaterializeOptions {
         selection: Selection::All,
@@ -926,6 +949,16 @@ fn stage(
     ) {
         Ok(_) => Ok(()),
         Err(MaterializeError::Cancelled) => Err(ImageError::Cancelled),
+        Err(MaterializeError::Missing(paths)) if target.imported => {
+            Err(ImageError::Invalid(format!(
+                "{} of the snapshot's files, such as {}, couldn't be downloaded when it was \
+                 imported, so nothing was put back",
+                paths.len(),
+                lodestone_image::display_text(
+                    paths.first().map(CanonicalPath::as_str).unwrap_or_default()
+                )
+            )))
+        }
         Err(MaterializeError::Missing(paths)) => Err(ImageError::Invalid(format!(
             "The image store lost {} of the snapshot's files, such as {}, so nothing was put back",
             paths.len(),

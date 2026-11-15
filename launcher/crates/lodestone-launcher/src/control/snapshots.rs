@@ -60,6 +60,9 @@ pub(super) fn record_json(record: &SnapshotRecord) -> Value {
         "pinned": record.pinned,
         "full": record.full,
         "worlds": record.worlds,
+        // Each world's folder, its own name (from someone else for an imported snapshot:
+        // show it escaped) and size.
+        "world_details": record.world_details,
         "content": record.content,
         "files": record.files,
         "withheld": record.withheld,
@@ -236,6 +239,11 @@ pub(super) fn job(
 /// One snapshot job per instance at a time, and none while its game runs.
 pub(super) fn idle(control: &Control, instance: &Instance, cx: &App) -> Result<(), ErrorObject> {
     control.idle(instance, cx)?;
+    no_snapshot_job(control, instance)
+}
+
+/// Refuses while a job of this API works on the instance's snapshots.
+fn no_snapshot_job(control: &Control, instance: &Instance) -> Result<(), ErrorObject> {
     if let Some(job) = control.jobs.borrow().running_for("snapshots", &instance.id) {
         return Err(api_error(
             codes::BUSY,
@@ -391,7 +399,12 @@ pub fn restore(call: Call, cx: &mut App) -> Reply {
             )));
         }
     };
-    tri!(idle(&call.control, &instance, cx));
+    // "new" only reads the store, so it can run while the game does.
+    if scope.is_some() {
+        tri!(idle(&call.control, &instance, cx));
+    } else {
+        tri!(no_snapshot_job(&call.control, &instance));
+    }
     let id = instance.id.clone();
     match scope {
         Some(scope) => {
@@ -407,9 +420,14 @@ pub fn restore(call: Call, cx: &mut App) -> Reply {
                 instance.name,
                 snapshot.name_shown()
             )));
-            // An install writing the instance's files meanwhile would lose what it writes
-            // into what the restore replaces.
-            if call.control.instances.read(cx).files_busy(&instance.id) {
+            // An install or a modpack update writing the instance's files meanwhile would
+            // lose what it writes into what the restore replaces.
+            if call
+                .control
+                .instances
+                .read(cx)
+                .files_or_pack_busy(&instance.id)
+            {
                 return ready(Err(api_error(
                     codes::BUSY,
                     "Another job is changing the instance's files; try again when it is done.",
@@ -445,10 +463,24 @@ pub fn restore(call: Call, cx: &mut App) -> Reply {
                 },
                 move |control, value, cx| {
                     let loader = value.get("loader_version").is_some_and(|v| !v.is_null());
+                    let kept_aside = value
+                        .get("kept_aside")
+                        .and_then(Value::as_str)
+                        .map(str::to_string);
                     control.instances.update(cx, |instances, cx| {
                         instances.reload(cx);
                         if loader {
                             cx.emit(crate::instances::InstancesEvent::LoaderChanged(id.clone()));
+                        }
+                        // As after a restore from the window: say where the files another
+                        // job wrote meanwhile went.
+                        if let Some(folder) = kept_aside {
+                            use crate::i18n::{InstanceSettingsMsg as M, t, tr};
+                            cx.emit(crate::instances::InstancesEvent::Notice {
+                                title: t(M::RestoreKeptAsideTitle).into(),
+                                message: tr!(M::RestoreKeptAside, folder = folder).into(),
+                                about: crate::instances::About::Instance(id.clone()),
+                            });
                         }
                     });
                     refresh(control, &id, cx);
@@ -524,6 +556,7 @@ pub fn export(call: Call, cx: &mut App) -> Reply {
                 "snapshot": snapshot.id,
                 "objects": report.objects,
                 "references": report.references,
+                "not_downloadable": report.not_downloadable,
                 "left_out": report.left_out,
             }))
         },
@@ -674,7 +707,7 @@ pub fn pin(call: Call, cx: &mut App) -> Reply {
 }
 
 /// `snapshots.policy`: the instance's snapshot settings, changing those given: `after_play`
-/// (`null` or `"default"` follows Settings › Instances) and how many automatic snapshots
+/// (`null` or `"default"` follows Settings › Instance defaults) and how many automatic snapshots
 /// are kept (`keep_last`, `keep_daily`, `keep_weekly`; at most 1000, `null` or
 /// `"default"` for the default).
 pub fn policy(call: Call, cx: &mut App) -> Reply {

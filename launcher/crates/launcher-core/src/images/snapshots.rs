@@ -416,6 +416,13 @@ impl Images {
             return Err(ImageError::Running);
         }
         let ctx = InstanceContext::load(self.instances(), instance)?;
+        // A game this process didn't start (the Launcher was restarted while it ran) still
+        // has its worlds open: a snapshot would read them mid-write.
+        if crate::worlds::open_in_game(&ctx.dir.join(CLIENT_GAME_FOLDER).join("saves"), None)
+            .is_some()
+        {
+            return Err(ImageError::Running);
+        }
         let loaded = self.guarded(&ctx)?;
         if !loaded.present {
             // The state names the instance before any manifest is written, so the
@@ -579,8 +586,9 @@ impl Images {
                 .map(|e| e.size)
                 .fold(0, u64::saturating_add);
             world.size = Some(size);
-            // The game isn't running: snapshots are refused while it is, and one a session
-            // begins during is stopped and never recorded.
+            // The game isn't running: snapshots are refused while it is (a session of this
+            // Launcher, or a world's `session.lock` held), and one a session begins during
+            // is stopped and never recorded.
             world.quiesced = Some(true);
             if let Some(found) = crate::worlds::read_world(&saves.join(&world.name))
                 && let Some(summary) = found.summary
@@ -921,7 +929,9 @@ impl Images {
         };
         let bytes = serde_json::to_vec_pretty(&file)
             .map_err(|e| ImageError::Invalid(format!("Failed to write the snapshot list: {e}")))?;
-        super::write_small_atomic(&self.records_path(instance)?, &bytes)
+        super::write_small_atomic(&self.records_path(instance)?, &bytes)?;
+        self.snapshots_changed(instance);
+        Ok(())
     }
 
     fn records_path(&self, instance: &str) -> Result<PathBuf, ImageError> {

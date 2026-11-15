@@ -513,12 +513,14 @@ fn hostile_export(
 }
 
 #[test]
-fn a_download_whose_bytes_the_export_carries_is_checked_against_its_sha512() {
+fn a_download_whose_bytes_the_export_carries_is_downloaded_and_checked_anyway() {
     let other = elsewhere();
+    other.mock.serve(SODIUM_URL, SODIUM);
     let evil: &[u8] = b"not sodium at all, but the same length?";
     let file = other.data.root().join("evil.lodeimg");
-    // A "Modrinth" Sodium whose bytes are the sender's: the export carries the same bytes
-    // under another path, so nothing would be downloaded and its SHA-512 never compared.
+    // A "Modrinth" Sodium whose bytes are the sender's, with the SHA-512 and SHA-256 of
+    // those bytes: the export carries the same bytes under another path, so the store has
+    // them, and the file's own hashes agree with them.
     hostile_export(
         &other.data.root().join("sender"),
         lodestone_image::Loader::Fabric,
@@ -531,7 +533,7 @@ fn a_download_whose_bytes_the_export_carries_is_checked_against_its_sha512() {
                     version: "v1".into(),
                     url: SODIUM_URL.into(),
                 },
-                Some(hex_sha512(SODIUM)),
+                Some(hex_sha512(evil)),
             ),
             (
                 "config/blob.bin",
@@ -543,10 +545,172 @@ fn a_download_whose_bytes_the_export_carries_is_checked_against_its_sha512() {
         &file,
     );
     let before = instance_count(&other);
+    // Modrinth's file isn't those bytes, so the download fails its check.
     let refused = import(&other, &file, true);
     assert!(refused.is_err(), "{:?}", refused.map(|i| i.instance.id));
     assert_eq!(instance_count(&other), before);
-    assert!(other.mock.requests().is_empty());
+    assert!(
+        other
+            .mock
+            .requests()
+            .iter()
+            .any(|r| r.path.ends_with("/sodium.jar")),
+        "Sodium was downloaded from Modrinth although the store had the claimed bytes"
+    );
+}
+
+#[test]
+fn a_file_of_another_project_never_passes_for_the_one_named() {
+    let other = elsewhere();
+    let evil: &[u8] = b"another project's jar";
+    let evil_url = "https://cdn.modrinth.com/data/EVILPROJ/versions/x1/evil.jar";
+    other.mock.serve(evil_url, evil);
+    let file = other.data.root().join("spoof.lodeimg");
+    // Sodium's project and version, with another project's URL and that file's hashes; the
+    // bytes are carried too, under another path. The label tries to show as another name.
+    hostile_export(
+        &other.data.root().join("sender"),
+        lodestone_image::Loader::Fabric,
+        &[
+            (
+                "mods/sodium.jar",
+                evil,
+                lodestone_image::Source::Modrinth {
+                    project: "AANobbMI".into(),
+                    version: "v1".into(),
+                    url: evil_url.into(),
+                },
+                Some(hex_sha512(evil)),
+            ),
+            (
+                "config/blob.bin",
+                evil,
+                lodestone_image::Source::Object {},
+                None,
+            ),
+            (
+                "mods/other.jar",
+                b"a curseforge jar",
+                lodestone_image::Source::Curseforge {
+                    project: 12345,
+                    file: 678,
+                    downloadable: true,
+                },
+                None,
+            ),
+            (
+                "config/other.bin",
+                b"a curseforge jar",
+                lodestone_image::Source::Object {},
+                None,
+            ),
+        ],
+        &file,
+    );
+    let mut image = lodestone_image::Image::from_json(&zip_read(&file, "image.json")).unwrap();
+    image.label = Some("Survival\u{202E}lacitnedi".into());
+    image.seal();
+    let labelled = other.data.root().join("labelled.lodeimg");
+    rewrite_zip(
+        &file,
+        &labelled,
+        |name, bytes| {
+            Some(if name == "image.json" {
+                image.to_json_pretty()
+            } else {
+                bytes
+            })
+        },
+        &[],
+    );
+    // The preview names both as the sender's files.
+    let preview = export::inspect(&labelled).unwrap();
+    assert_eq!(preview.carried_mods, ["other.jar", "sodium.jar"]);
+    let imported = import(&other, &labelled, true).unwrap();
+    let game = other.store.game_dir(&imported.instance.id);
+    // Placed as the sender's files, which nothing records as a project's.
+    assert_eq!(fs::read(game.join("mods/sodium.jar")).unwrap(), evil);
+    assert_eq!(
+        fs::read(game.join("mods/other.jar")).unwrap(),
+        b"a curseforge jar"
+    );
+    let known = Provenance::load(&other.store.dir(&imported.instance.id));
+    for name in ["mods/sodium.jar", "mods/other.jar"] {
+        assert!(
+            known
+                .files
+                .get(name)
+                .is_none_or(|e| e.modrinth.is_none() && e.curseforge.is_none()),
+            "{name}: {:?}",
+            known.files.get(name)
+        );
+    }
+    assert!(
+        other
+            .mock
+            .requests()
+            .iter()
+            .all(|r| !r.path.ends_with("/evil.jar")),
+        "a URL that isn't the named project's is never downloaded"
+    );
+    // The snapshot kept of what was sent claims no source either.
+    let snapshots = other.images.snapshots(&imported.instance.id).unwrap();
+    let kept = other
+        .images
+        .store()
+        .load_manifest(&imported.instance.id, &snapshots.records[0].image)
+        .unwrap();
+    assert!(
+        kept.entries
+            .iter()
+            .all(|e| e.source == lodestone_image::Source::Object {}),
+        "{:?}",
+        kept.entries
+    );
+    // The label's direction override is gone from the instance's name.
+    assert_eq!(imported.instance.name, "Survivallacitnedi");
+}
+
+#[test]
+fn an_export_listing_many_files_it_leaves_out_imports_in_linear_time() {
+    let other = elsewhere();
+    let store = lodestone_image::store::Store::new(
+        other.data.root().join("sender"),
+        lodestone_image::store::Encoding::Raw,
+    );
+    let mut image = lodestone_image::Image::new(
+        lodestone_image::Kind::Full,
+        lodestone_image::Game {
+            minecraft: "1.21.1".into(),
+            loader: lodestone_image::Loader::Fabric,
+            loader_version: Some("0.16.10".into()),
+        },
+    );
+    let count = 50_000u64;
+    for n in 0..count {
+        image.entries.push(lodestone_image::Entry::new(
+            lodestone_image::CanonicalPath::new(format!("mods/m{n}.jar")).unwrap(),
+            10,
+            format!("{n:064x}"),
+            lodestone_image::Source::Curseforge {
+                project: n,
+                file: n,
+                downloadable: false,
+            },
+        ));
+    }
+    image.normalize();
+    image.seal();
+    let file = other.data.root().join("many.lodeimg");
+    lodestone_image::container::export(&store, &image, &[], &file, NEVER).unwrap();
+    let started = std::time::Instant::now();
+    let imported = import(&other, &file, true).unwrap();
+    assert_eq!(imported.left_out.len(), count as usize);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(60),
+        "took {:?}",
+        started.elapsed()
+    );
 }
 
 #[test]

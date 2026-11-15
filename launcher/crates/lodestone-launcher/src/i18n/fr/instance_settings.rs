@@ -163,6 +163,7 @@ pub fn text(message: M) -> &'static str {
         M::SnapshotName => "Nom",
         M::NoSnapshots => "Aucun instantané pour l’instant.",
         M::SnapshotSizes => "{total}, dont {new} nouveaux",
+        M::SnapshotWithMods => "Avec les mods",
         M::PreparingFile => "Préparation du fichier…",
         M::DragToShare => "Faites glisser le fichier dans une autre app, ou\u{a0}:",
         M::SaveAsEllipsis => "Enregistrer sous…",
@@ -186,7 +187,10 @@ pub fn text(message: M) -> &'static str {
         }
         M::SnapshotAfterPlay => "Prendre un instantané après chaque partie",
         M::SnapshotAfterPlayHint => {
-            "Copie les mondes après chaque partie. Suit Paramètres › Instances, où c’est désactivé sauf si vous l’activez."
+            "Copie les mondes après chaque partie. Suit Paramètres › Paramètres par défaut des instances, où c’est désactivé sauf si vous l’activez."
+        }
+        M::SnapshotAfterPlayDefaultHint => {
+            "Copie les mondes après chaque partie, pour les instances qui ne le règlent pas elles-mêmes. Désactivé sauf si vous l’activez."
         }
         M::SnapshotKeepHint => {
             "Les instantanés pris par le Launcher sont gardés un temps\u{a0}: les {last} derniers, un par jour pendant {days} jours et un par semaine pendant {weeks} semaines. Les vôtres restent jusqu’à ce que vous les supprimiez."
@@ -215,6 +219,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::WorldGoneNow => "{size} · plus dans l’instance",
         M::ModsDiffer => "Ces mondes ont tourné pour la dernière fois avec d’autres mods.",
+        M::FilesDiffer => "Ces mondes ont tourné pour la dernière fois avec d’autres fichiers.",
         M::RestoreModsToo => "Remettre aussi leurs mods",
         M::RestoreLoaderChange => "Le chargeur revient à la version {version}.",
         M::RestoreSafety => {
@@ -240,7 +245,7 @@ pub fn text(message: M) -> &'static str {
         M::ImportNotDownloadable => {
             "Leurs auteurs n’autorisent pas le téléchargement, ils sont donc laissés de côté\u{a0}: {files}."
         }
-        M::ImportSpace => "Nécessite {size} d’espace disque.",
+        M::ImportSpace => "Nécessite {size} d’espace disque, dont 1\u{a0}Go de marge.",
         M::ImportNeedsModrinth => {
             "Modrinth est injoignable\u{a0}: les mods du fichier ne peuvent pas être téléchargés."
         }
@@ -458,13 +463,19 @@ pub fn text(message: M) -> &'static str {
         }
         M::SnapshotsNotChanged => "Les instantanés n’ont pas pu être modifiés",
         M::RestoreKeptAsideTitle => "Des fichiers gênaient la restauration",
+        M::ImportLeftOutTitle => "Certains fichiers n’ont pas été importés",
+        M::ImportLeftOut => {
+            "Ils n’ont pas pu être téléchargés, donc la nouvelle instance ne les a pas\u{a0}: {files}."
+        }
         M::RestoreKeptAside => {
             "Les fichiers écrits pendant la restauration sont conservés dans {folder}."
         }
         M::ImportNoRoom => {
-            "Le disque n’a pas assez de place\u{a0}: il faut {size} et {free} sont libres."
+            "Le disque n’a pas assez de place\u{a0}: il faut {size}, dont 1\u{a0}Go de marge, et {free} sont libres."
         }
-        M::ImportSpaceFree => "Nécessite {size} d’espace disque\u{a0}; {free} sont libres.",
+        M::ImportSpaceFree => {
+            "Nécessite {size} d’espace disque, dont 1\u{a0}Go de marge\u{a0}; {free} sont libres."
+        }
         M::ExportNotDownloadable => {
             "Ceux-ci ne peuvent pas être téléchargés, donc la personne qui importe le fichier ne les aura pas\u{a0}: {files}"
         }

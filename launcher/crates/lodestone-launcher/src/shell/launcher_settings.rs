@@ -344,7 +344,7 @@ impl Render for LauncherSettings {
                 ),
             // An instance's own setting wins over this one.
             SettingRow::new(t(InstanceSettingsMsg::SnapshotAfterPlay))
-                .hint(t(InstanceSettingsMsg::SnapshotAfterPlayHint))
+                .hint(t(InstanceSettingsMsg::SnapshotAfterPlayDefaultHint))
                 .child(
                     Toggle::new("default-snapshot-after-play", after_play)
                         .label(t(InstanceSettingsMsg::SnapshotAfterPlay))
