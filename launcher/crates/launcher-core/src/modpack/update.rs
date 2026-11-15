@@ -27,7 +27,7 @@
 //! install on the next Play.
 
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet},
     fs,
     path::{Path, PathBuf},
     time::SystemTime,
@@ -36,15 +36,17 @@ use std::{
 use lodestone_minecraft::mrpack::PackDownload;
 
 use super::{
-    FileSource, ModpackError, ModpackRecord, OverrideFile, PackInfo, cdn_ids,
-    import::{content_entries, download_files, extract_overrides, record_files, sha1_on_disk},
-    io_error, slash_path,
+    ModpackError, ModpackRecord, OverrideFile, PackInfo,
+    fetch::{Sources, stage},
+    import::content_entries,
+    io_error,
+    merge::{self, Fetch, Wanted},
+    slash_path,
 };
 use crate::{
     content::{
-        ContentKind, InstanceDirs, Modrinth, disabled_name, enabled_name,
+        ContentKind, InstanceDirs, Modrinth, enabled_name,
         install::InstallProgress,
-        is_disabled_name,
         provenance::{Provenance, key},
     },
     game::{
@@ -53,9 +55,6 @@ use crate::{
     },
     worlds,
 };
-
-/// The folders whose files a pack's dropped overrides are removed from.
-const CONTENT_DIRS: [&str; 3] = ["mods", "resourcepacks", "shaderpacks"];
 
 /// What updating will do. Paths are relative to the game folder.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -80,10 +79,8 @@ pub struct UpdatePlan {
     pub overrides_written: Vec<String>,
     /// Override files left as the user has them.
     pub overrides_kept: Vec<String>,
-    /// The downloads to make, with the path on disk (relative) each goes to.
-    downloads: Vec<(PackDownload, String)>,
-    /// The overrides to copy, with their path on disk.
-    overrides: Vec<(OverrideFile, String)>,
+    /// The files to write, with the path on disk (relative) each goes to.
+    writes: Vec<(Fetch, String)>,
     /// Files to remove (their path on disk).
     removals: Vec<String>,
 }
@@ -91,37 +88,51 @@ pub struct UpdatePlan {
 impl UpdatePlan {
     /// Whether the update changes any file.
     pub fn changes_files(&self) -> bool {
-        !self.downloads.is_empty() || !self.overrides.is_empty() || !self.removals.is_empty()
+        !self.writes.is_empty() || !self.removals.is_empty()
     }
 
     /// The files written or removed, on disk.
     pub fn touched(&self) -> Vec<String> {
         let mut paths: BTreeSet<String> = self.removals.iter().cloned().collect();
-        paths.extend(self.downloads.iter().map(|(_, p)| p.clone()));
-        paths.extend(self.overrides.iter().map(|(_, p)| p.clone()));
+        paths.extend(self.writes.iter().map(|(_, p)| p.clone()));
         paths.into_iter().collect()
     }
 
+    /// What the update downloads, from anywhere: the pack's hosts and the server.
     pub fn download_size(&self) -> u64 {
-        self.downloads.iter().map(|(d, _)| d.size).sum()
+        self.writes
+            .iter()
+            .filter(|(f, _)| !matches!(f, Fetch::Override { .. }))
+            .map(|(f, _)| f.size())
+            .sum()
+    }
+
+    /// Every file the update writes, with the path on disk each goes to.
+    pub fn writes(&self) -> impl Iterator<Item = (&Fetch, &str)> {
+        self.writes.iter().map(|(f, p)| (f, p.as_str()))
     }
 
     /// The files the update downloads, with the path on disk each goes to.
     pub fn downloads(&self) -> impl Iterator<Item = (&PackDownload, &str)> {
-        self.downloads.iter().map(|(d, p)| (d, p.as_str()))
+        self.writes.iter().filter_map(|(f, p)| match f {
+            Fetch::Download { download, .. } => Some((download, p.as_str())),
+            _ => None,
+        })
     }
 
     /// The override files the update writes, with their path on disk.
     pub fn override_writes(&self) -> impl Iterator<Item = (&OverrideFile, &str)> {
-        self.overrides.iter().map(|(o, p)| (o, p.as_str()))
+        self.writes.iter().filter_map(|(f, p)| match f {
+            Fetch::Override { file, .. } => Some((file, p.as_str())),
+            _ => None,
+        })
     }
 
     /// Also removes the files at `paths` (on disk), which aren't the pack's: the mods
     /// of added packs that the new version supersedes ([`super::addon::superseded`]).
     pub(crate) fn remove_also(&mut self, paths: Vec<String>) {
         for path in paths {
-            let written = self.downloads.iter().any(|(_, p)| *p == path)
-                || self.overrides.iter().any(|(_, p)| *p == path);
+            let written = self.writes.iter().any(|(_, p)| *p == path);
             if written || self.removals.contains(&path) {
                 continue;
             }
@@ -129,18 +140,6 @@ impl UpdatePlan {
             self.removals.push(path);
         }
     }
-}
-
-/// The file at `relative` (or, for a mod, its `.disabled` name): its path on disk and
-/// SHA-1.
-fn on_disk(game: &Path, relative: &str) -> Option<(String, String)> {
-    let mut candidates = vec![relative.to_string()];
-    if relative.starts_with("mods/") && !is_disabled_name(relative) {
-        candidates.push(disabled_name(relative));
-    }
-    candidates
-        .into_iter()
-        .find_map(|path| sha1_on_disk(&game.join(&path)).map(|sha1| (path, sha1)))
 }
 
 /// The plan for updating the instance at `dirs`, made from the pack `current` records,
@@ -166,126 +165,51 @@ pub fn plan_with(
     loader: Option<LoaderChoice>,
     authoritative: &[&str],
 ) -> UpdatePlan {
-    let replaces = |path: &str| {
-        authoritative
-            .iter()
-            .any(|dir| path.starts_with(&format!("{}/", dir.trim_end_matches('/'))))
-    };
-    let game = &dirs.game;
-    let mut plan = UpdatePlan {
+    let mut new: BTreeMap<String, Wanted> = pack
+        .downloads
+        .iter()
+        .map(|d| (slash_path(&d.path), Wanted::download(d)))
+        .collect();
+    // Overrides are copied after the downloads, so they win.
+    for file in &pack.overrides {
+        new.insert(file.path.clone(), Wanted::override_file(file));
+    }
+    let plan = plan_files(dirs, current, &new, record, authoritative);
+    UpdatePlan {
         game_version: pack.game_version.clone(),
         loader,
         recommended_memory: pack.recommended_memory,
+        ..plan
+    }
+}
+
+/// The plan for moving the instance at `dirs` from the files `current` records to the
+/// files `new` places (a pack's, or a server's image's), whose record is `record` with
+/// those files. The caller fills in the game.
+pub fn plan_files(
+    dirs: &InstanceDirs,
+    current: &ModpackRecord,
+    new: &BTreeMap<String, Wanted>,
+    record: ModpackRecord,
+    authoritative: &[&str],
+) -> UpdatePlan {
+    let merged = merge::plan(&dirs.game, &current.files, new, authoritative);
+    UpdatePlan {
+        record: ModpackRecord {
+            files: merge::record_files(new),
+            ..record
+        },
+        added: merged.added,
+        updated: merged.updated,
+        removed: merged.removed,
+        kept_changed: merged.kept_changed,
+        replaced_own: merged.replaced_own,
+        overrides_written: merged.overrides_written,
+        overrides_kept: merged.overrides_kept,
+        writes: merged.writes,
+        removals: merged.removals,
         ..UpdatePlan::default()
-    };
-    let new_index: BTreeMap<String, &PackDownload> = pack
-        .downloads
-        .iter()
-        .map(|d| (slash_path(&d.path), d))
-        .collect();
-    let new_overrides: BTreeMap<String, &OverrideFile> =
-        pack.overrides.iter().map(|o| (o.path.clone(), o)).collect();
-
-    // The old pack's files that go away, by project, to pair them with new versions.
-    let mut removed_by_project: HashMap<String, String> = HashMap::new();
-    for (path, old) in &current.files {
-        if new_index.contains_key(path) || new_overrides.contains_key(path) {
-            continue;
-        }
-        let removable = match old.source {
-            FileSource::Index => true,
-            FileSource::Override => CONTENT_DIRS
-                .iter()
-                .any(|dir| path.starts_with(&format!("{dir}/"))),
-        };
-        if !removable {
-            continue;
-        }
-        match on_disk(game, path) {
-            None => {}
-            Some((actual, sha1)) if sha1 == old.sha1 => {
-                if let Some(project) = &old.project {
-                    removed_by_project.insert(project.clone(), actual.clone());
-                }
-                plan.removals.push(actual);
-            }
-            Some((actual, _)) => plan.kept_changed.push(actual),
-        }
     }
-
-    for (path, download) in &new_index {
-        if new_overrides.contains_key(path) {
-            // An override replaces it anyway.
-            continue;
-        }
-        let project = download
-            .urls
-            .iter()
-            .find_map(|u| cdn_ids(u).map(|(p, _)| p));
-        match (current.files.get(path), on_disk(game, path)) {
-            (_, Some((_, sha1))) if sha1 == download.sha1 => {}
-            (Some(old), Some((actual, sha1))) if sha1 == old.sha1 => {
-                plan.updated.push((actual.clone(), actual.clone()));
-                plan.downloads.push(((*download).clone(), actual));
-            }
-            (Some(_), Some((actual, _))) if replaces(path) => {
-                plan.updated.push((actual.clone(), actual.clone()));
-                plan.downloads.push(((*download).clone(), actual));
-            }
-            (Some(_), Some((actual, _))) => plan.kept_changed.push(actual),
-            (None, Some((actual, _))) => {
-                plan.replaced_own.push(actual.clone());
-                plan.downloads.push(((*download).clone(), actual));
-            }
-            (_, None) => {
-                // A new version of a mod the old pack had: it stays disabled if it was.
-                let old = project.as_ref().and_then(|p| removed_by_project.get(p));
-                let dest = match old {
-                    Some(old) if is_disabled_name(old) && path.starts_with("mods/") => {
-                        disabled_name(path)
-                    }
-                    _ => path.clone(),
-                };
-                match old {
-                    Some(old) => plan.updated.push((old.clone(), dest.clone())),
-                    None => plan.added.push(dest.clone()),
-                }
-                plan.downloads.push(((*download).clone(), dest));
-            }
-        }
-    }
-    // Paired removals are shown as updates, not as removals.
-    let paired: BTreeSet<&String> = plan.updated.iter().map(|(old, _)| old).collect();
-    plan.removed = plan
-        .removals
-        .iter()
-        .filter(|p| !paired.contains(p))
-        .cloned()
-        .collect();
-
-    for (path, file) in &new_overrides {
-        match (current.files.get(path), on_disk(game, path)) {
-            (_, None) => {
-                plan.overrides_written.push(path.clone());
-                plan.overrides.push(((*file).clone(), path.clone()));
-            }
-            (_, Some((_, sha1))) if sha1 == file.sha1 => {}
-            (Some(old), Some((actual, sha1))) if sha1 == old.sha1 => {
-                plan.overrides_written.push(actual.clone());
-                plan.overrides.push(((*file).clone(), actual));
-            }
-            (_, Some((actual, _))) if replaces(path) => {
-                plan.overrides_written.push(actual.clone());
-                plan.overrides.push(((*file).clone(), actual));
-            }
-            (_, Some((actual, _))) => plan.overrides_kept.push(actual),
-        }
-    }
-    plan.record = ModpackRecord {
-        files: record_files(pack),
-        ..record
-    };
-    plan
 }
 
 /// What an update did.
@@ -325,17 +249,34 @@ pub async fn apply(
     progress: &InstallProgress,
     cancel: &CancelToken,
 ) -> Result<UpdateOutcome, ModpackError> {
+    let sources = Sources {
+        platforms: crate::content::Platforms::from(api),
+        downloader,
+        pack: Some(pack_path),
+        objects: None,
+    };
+    apply_from(&sources, dirs, plan, backup_worlds, progress, cancel).await
+}
+
+/// [`apply`], with the files from `sources`: a pack's, or a server's image's (whose
+/// objects come from the server).
+pub async fn apply_from(
+    sources: &Sources<'_>,
+    dirs: &InstanceDirs,
+    plan: &UpdatePlan,
+    backup_worlds: bool,
+    progress: &InstallProgress,
+    cancel: &CancelToken,
+) -> Result<UpdateOutcome, ModpackError> {
     let staging = dirs.instance.join(format!(
         ".lodestone-update-{:016x}",
         u64::from_le_bytes(crate::random_bytes())
     ));
     fs::create_dir_all(&staging).map_err(io_error(&staging))?;
     let result = apply_staged(
-        api,
-        downloader,
+        sources,
         dirs,
         plan,
-        pack_path,
         backup_worlds,
         progress,
         cancel,
@@ -348,11 +289,9 @@ pub async fn apply(
 
 #[allow(clippy::too_many_arguments)]
 async fn apply_staged(
-    api: Option<&Modrinth>,
-    downloader: &Downloader,
+    sources: &Sources<'_>,
     dirs: &InstanceDirs,
     plan: &UpdatePlan,
-    pack_path: &Path,
     backup_worlds: bool,
     progress: &InstallProgress,
     cancel: &CancelToken,
@@ -360,29 +299,15 @@ async fn apply_staged(
 ) -> Result<UpdateOutcome, ModpackError> {
     let game = &dirs.game;
     // 1. Everything new, into the staging folder.
-    if !plan.downloads.is_empty() {
-        progress.set_label(format!("Downloading {}", plan.record.title));
-        let downloads: Vec<(PackDownload, PathBuf)> = plan
-            .downloads
-            .iter()
-            .map(|(d, dest)| (d.clone(), staging.join(dest)))
-            .collect();
-        download_files(
-            crate::content::Platforms::from(api),
-            downloader,
-            staging,
-            &downloads,
-            progress,
-            cancel,
-        )
-        .await?;
-    }
-    let overrides: Vec<(OverrideFile, PathBuf)> = plan
-        .overrides
-        .iter()
-        .map(|(o, dest)| (o.clone(), staging.join(dest)))
-        .collect();
-    extract_overrides(pack_path, staging, &overrides, cancel)?;
+    stage(
+        sources,
+        staging,
+        &plan.record.title,
+        &plan.writes,
+        progress,
+        cancel,
+    )
+    .await?;
     if cancel.is_cancelled() {
         return Err(ModpackError::Cancelled);
     }
@@ -437,11 +362,17 @@ async fn apply_staged(
         return Err(undo(dirs, &snapshot, &changed, err));
     }
 
-    // 4. The records.
+    // 4. The records. What was downloaded or came from the server isn't what
+    // `content.json` said was at its path any more.
     let removed_keys: Vec<(ContentKind, String)> = plan
         .removals
         .iter()
-        .chain(plan.downloads.iter().map(|(_, p)| p))
+        .chain(
+            plan.writes
+                .iter()
+                .filter(|(f, _)| !matches!(f, Fetch::Override { .. }))
+                .map(|(_, p)| p),
+        )
         .filter_map(|path| {
             let (dir, name) = path.split_once('/')?;
             let kind = ContentKind::ALL.into_iter().find(|k| k.dir() == dir)?;
@@ -449,8 +380,8 @@ async fn apply_staged(
         })
         .collect();
     let downloaded: Vec<(String, &PackDownload)> =
-        plan.downloads.iter().map(|(d, p)| (p.clone(), d)).collect();
-    let entries = content_entries(api, game, &downloaded).await;
+        plan.downloads().map(|(d, p)| (p.to_string(), d)).collect();
+    let entries = content_entries(sources.platforms.modrinth, game, &downloaded).await;
     let saved = (|| -> Result<(), ModpackError> {
         Provenance::update(&dirs.instance, |provenance| {
             for (kind, name) in &removed_keys {
@@ -495,11 +426,7 @@ fn swap_in(
             Err(err) => return Err(io_error(&target)(err)),
         }
     }
-    let staged = plan
-        .downloads
-        .iter()
-        .map(|(_, p)| p)
-        .chain(plan.overrides.iter().map(|(_, p)| p));
+    let staged = plan.writes.iter().map(|(_, p)| p);
     let mut parents = super::import::ParentCheck::new(game)?;
     for path in staged {
         let from = staging.join(path);

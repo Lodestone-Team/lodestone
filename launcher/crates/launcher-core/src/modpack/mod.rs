@@ -19,7 +19,9 @@
 
 pub mod addon;
 pub mod curseforge;
+pub mod fetch;
 pub mod import;
+pub mod merge;
 pub mod update;
 
 use std::{
@@ -75,6 +77,9 @@ pub enum ModpackError {
     Instance(#[from] InstanceError),
     #[error(transparent)]
     Storage(#[from] StorageError),
+    /// A server's file couldn't be had ([`crate::cores::player_image`]).
+    #[error(transparent)]
+    Image(#[from] crate::cores::player_image::ImageError),
     #[error("cancelled")]
     Cancelled,
 }
@@ -121,6 +126,21 @@ pub struct PackFile {
     /// The Modrinth project of a downloaded file, from its CDN URL.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project: Option<String>,
+    /// The SHA-256 of the file, for a file a server's image placed (its entries all have
+    /// one; only Modrinth and CurseForge files have a SHA-1 too, which `sha1` holds, empty
+    /// otherwise). When set, the file is compared by it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
+}
+
+impl PackFile {
+    /// The hash the file is compared with: its SHA-256 when known, else its SHA-1.
+    pub fn digest(&self) -> merge::Digest {
+        match &self.sha256 {
+            Some(sha256) => merge::Digest::Sha256(sha256.clone()),
+            None => merge::Digest::Sha1(self.sha1.clone()),
+        }
+    }
 }
 
 /// `modpack.json`: the pack and version an instance was made from, and the files the pack

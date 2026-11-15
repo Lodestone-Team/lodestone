@@ -3028,6 +3028,7 @@ mod image_tests {
                     sha1: lodestone_minecraft::hash::sha1_of(&old_mod).unwrap(),
                     source: FileSource::Index,
                     project: None,
+                    sha256: None,
                 },
             )]
             .into_iter()

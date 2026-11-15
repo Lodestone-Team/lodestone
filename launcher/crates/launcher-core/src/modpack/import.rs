@@ -119,23 +119,47 @@ pub(crate) async fn download_files(
     progress: &InstallProgress,
     cancel: &CancelToken,
 ) -> Result<(), ModpackError> {
+    let downloads: Vec<(PackDownload, Option<String>, PathBuf)> = downloads
+        .iter()
+        .map(|(download, dest)| (download.clone(), None, dest.clone()))
+        .collect();
+    download_files_checked(platforms, downloader, root, &downloads, progress, cancel).await
+}
+
+/// [`download_files`], each file also checked against the SHA-256 given with it (a
+/// server's file, whose image entry has one). A file with no SHA-1 is checked against
+/// its SHA-256 as it downloads.
+pub(crate) async fn download_files_checked(
+    platforms: Platforms<'_>,
+    downloader: &Downloader,
+    root: &Path,
+    downloads: &[(PackDownload, Option<String>, PathBuf)],
+    progress: &InstallProgress,
+    cancel: &CancelToken,
+) -> Result<(), ModpackError> {
     progress.downloads.set(ProgressSnapshot {
         files_total: downloads.len() as u64,
-        bytes_total: downloads.iter().map(|(d, _)| d.size).sum(),
+        bytes_total: downloads.iter().map(|(d, _, _)| d.size).sum(),
         ..ProgressSnapshot::default()
     });
     // Every folder first, each checked once, rather than per file as it downloads.
     let mut parents = ParentCheck::new(root)?;
-    for (_, dest) in downloads {
+    for (_, _, dest) in downloads {
         parents.prepare(dest)?;
     }
     // Boxed, so the future stays `Send` for any lifetime (a closure over the borrowed
     // slice trips the compiler's higher-ranked `Send` check).
     let fetches: Vec<futures::future::BoxFuture<'_, Result<(), ModpackError>>> = downloads
         .iter()
-        .map(|(download, dest)| {
+        .map(|(download, sha256, dest)| {
             Box::pin(fetch_one(
-                platforms, downloader, download, dest, progress, cancel,
+                platforms,
+                downloader,
+                download,
+                sha256.as_deref(),
+                dest,
+                progress,
+                cancel,
             )) as futures::future::BoxFuture<'_, _>
         })
         .collect();
@@ -151,6 +175,7 @@ async fn fetch_one(
     platforms: Platforms<'_>,
     downloader: &Downloader,
     download: &PackDownload,
+    sha256: Option<&str>,
     dest: &Path,
     progress: &InstallProgress,
     cancel: &CancelToken,
@@ -167,7 +192,15 @@ async fn fetch_one(
             size: (download.size > 0).then_some(download.size),
             executable: false,
         };
-        match downloader.fetch(&item, &progress.downloads, cancel).await {
+        let fetched = match sha256 {
+            Some(sha256) if download.sha1.is_empty() => {
+                downloader
+                    .fetch_expecting_sha256(&item, sha256, &progress.downloads, cancel)
+                    .await
+            }
+            _ => downloader.fetch(&item, &progress.downloads, cancel).await,
+        };
+        match fetched {
             Ok(()) => {}
             Err(crate::game::download::DownloadError::Cancelled) => {
                 return Err(ModpackError::Cancelled);
@@ -177,18 +210,29 @@ async fn fetch_one(
                 continue;
             }
         }
-        if download.sha512.is_empty() {
-            return Ok(());
+        let host = url.host_str().unwrap_or_default();
+        if !download.sha512.is_empty() {
+            let sha512 = hash::sha512_of(dest).map_err(io_error(dest))?;
+            if !sha512.eq_ignore_ascii_case(&download.sha512) {
+                let _ = fs::remove_file(dest);
+                last_error = Some(format!(
+                    "the download from {host} is damaged: its SHA-512 hash doesn't match"
+                ));
+                continue;
+            }
         }
-        let sha512 = hash::sha512_of(dest).map_err(io_error(dest))?;
-        if sha512.eq_ignore_ascii_case(&download.sha512) {
-            return Ok(());
+        if let Some(sha256) = sha256.filter(|_| !download.sha1.is_empty()) {
+            let actual =
+                crate::cores::player_image::sha256_of_file(dest).map_err(io_error(dest))?;
+            if !actual.eq_ignore_ascii_case(sha256) {
+                let _ = fs::remove_file(dest);
+                last_error = Some(format!(
+                    "the download from {host} isn't the server's file: its SHA-256 hash doesn't match"
+                ));
+                continue;
+            }
         }
-        let _ = fs::remove_file(dest);
-        last_error = Some(format!(
-            "the download from {} is damaged: its SHA-512 hash doesn't match",
-            url.host_str().unwrap_or_default()
-        ));
+        return Ok(());
     }
     Err(ModpackError::Invalid(format!(
         "Couldn't download {}: {}",
@@ -408,6 +452,7 @@ pub(crate) fn record_files(pack: &PackInfo) -> std::collections::BTreeMap<String
                     .urls
                     .iter()
                     .find_map(|u| cdn_ids(u).map(|(p, _)| p)),
+                sha256: None,
             },
         );
     }
@@ -419,6 +464,7 @@ pub(crate) fn record_files(pack: &PackInfo) -> std::collections::BTreeMap<String
                 sha1: file.sha1.clone(),
                 source: FileSource::Override,
                 project: None,
+                sha256: None,
             },
         );
     }

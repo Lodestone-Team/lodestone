@@ -366,6 +366,28 @@ impl Downloader {
             .await
     }
 
+    /// [`Self::fetch_sha256`] for one of many files whose progress is counted together (a
+    /// server's Modrinth file without a published SHA-1): `progress` keeps its totals, and
+    /// `item.size` is checked.
+    pub(crate) async fn fetch_expecting_sha256(
+        &self,
+        item: &DownloadItem,
+        sha256: &str,
+        progress: &Progress,
+        cancel: &CancelToken,
+    ) -> Result<(), DownloadError> {
+        if cancel.is_cancelled() {
+            return Err(DownloadError::Cancelled);
+        }
+        if sha256_of(&item.dest).is_ok_and(|hash| hash.eq_ignore_ascii_case(sha256)) {
+            progress.add_bytes(item.size.unwrap_or(0));
+            progress.file_done();
+            return Ok(());
+        }
+        self.download(item, Expected::Sha256(sha256), progress, cancel)
+            .await
+    }
+
     /// Downloads one file, with retries, whatever is there now.
     async fn download(
         &self,

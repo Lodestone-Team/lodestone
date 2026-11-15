@@ -195,6 +195,7 @@ pub fn fill(instance_dir: &Path) {
                 sha1: hash::sha1_of(&path).unwrap_or_default(),
                 source: FileSource::Index,
                 project: Some(project.into()),
+                sha256: None,
             },
         );
     }
@@ -210,6 +211,7 @@ pub fn fill(instance_dir: &Path) {
                 sha1: hash::sha1_of(&path).unwrap_or_default(),
                 source: FileSource::Override,
                 project: None,
+                sha256: None,
             },
         );
     }
@@ -247,6 +249,7 @@ pub fn fill_server(instance_dir: &Path, scene: &str) {
                 sha1: hash::sha1_of(&path).unwrap_or_default(),
                 source: FileSource::Index,
                 project: Some(project.into()),
+                sha256: None,
             },
         );
     }
@@ -258,6 +261,7 @@ pub fn fill_server(instance_dir: &Path, scene: &str) {
             sha1: hash::sha1_of(&path).unwrap_or_default(),
             source: FileSource::Override,
             project: None,
+            sha256: None,
         },
     );
     let _ = ModpackRecord {
@@ -291,6 +295,7 @@ pub fn fill_server(instance_dir: &Path, scene: &str) {
                     sha1: hash::sha1_of(&path).unwrap_or_default(),
                     source: FileSource::Index,
                     project: Some(project.into()),
+                    sha256: None,
                 },
             );
         }
