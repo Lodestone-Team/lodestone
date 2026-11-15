@@ -236,6 +236,33 @@ pub fn check_received(image: &Image, side: Side) -> Result<(), ViewError> {
     Ok(())
 }
 
+/// The withheld files of a client view that a player would lack: files the server has
+/// and the image holds no copy of, at a place the client view would carry a file
+/// ("What a view places" in `docs/instance-images.md`). A player lists these, with
+/// their reason, before it plays, rather than install silently without them.
+///
+/// A withheld path that is a valid canonical path counts when [`in_view`] holds for the
+/// client for an entry there whose sides nothing knows (so `mods/` files count, and
+/// configs, a server's own files, disabled files and Lodestone's never do); one that
+/// isn't (a name no disk layout can place, often why it was withheld) counts when its
+/// first part is `mods`.
+pub fn needed_withheld(image: &Image) -> Vec<&crate::manifest::Withheld> {
+    image
+        .withheld
+        .iter()
+        .filter(
+            |withheld| match CanonicalPath::new(withheld.path.as_str()) {
+                Ok(path) => {
+                    let probe =
+                        Entry::new(path, 0, "0".repeat(64), crate::manifest::Source::Object {});
+                    in_view(&probe, Side::Client)
+                }
+                Err(_) => withheld.path.split('/').next() == Some("mods"),
+            },
+        )
+        .collect()
+}
+
 /// `side`'s view of `image`, sealed: only what the view carries, and none of the
 /// informational fields (parent, created, producer, label, each entry's `modified`).
 fn project(image: &Image, side: Side, rules: u32, projected_from: Option<String>) -> Image {
@@ -818,6 +845,57 @@ pub(crate) mod tests {
         labelled.entries[0].modified = Some(9);
         let checked = view(&labelled, Side::Client, RULES).unwrap();
         assert_eq!(checked, client);
+    }
+
+    /// A player lists the withheld files it would lack before it plays: those the client
+    /// view would carry as files, and an unplaceable name in `mods/`.
+    #[test]
+    fn needed_withheld_files_are_those_a_player_would_carry() {
+        use crate::manifest::{Withheld, WithheldReason};
+        let mut image = fabric_pack();
+        let withheld = |path: &str, reason: WithheldReason| Withheld {
+            path: path.into(),
+            reason,
+        };
+        image.withheld = vec![
+            // a mod jar that is a link on the server: players need it
+            withheld("mods/linked.jar", WithheldReason::Symlink),
+            // a resource pack players would get
+            withheld("resourcepacks/pack.zip", WithheldReason::KeptChanging),
+            // a config (never sent unless marked), a server's own state, a disabled jar,
+            // Lodestone's own file, a server-only file: players never get these anyway
+            withheld("config/sodium.json", WithheldReason::Unreadable),
+            withheld("plugins/x.jar", WithheldReason::Symlink),
+            withheld("mods/off.jar.disabled", WithheldReason::Symlink),
+            withheld(
+                "mods/.lodestone_client_mods.json",
+                WithheldReason::Unreadable,
+            ),
+            withheld("server.properties", WithheldReason::Unreadable),
+            // names no canonical path holds: only those in mods/ count
+            withheld("mods/CON.jar", WithheldReason::BadName),
+            withheld("mods/a\u{0301}.jar", WithheldReason::BadName),
+            withheld("config/bad:name.toml", WithheldReason::BadName),
+            withheld("modsx/bad:name.jar", WithheldReason::BadName),
+        ];
+        image.seal();
+        let client = view(&image, Side::Client, RULES).unwrap();
+        let needed: Vec<&str> = needed_withheld(&client)
+            .into_iter()
+            .map(|w| w.path.as_str())
+            .collect();
+        let mut expected = vec![
+            "mods/linked.jar",
+            "resourcepacks/pack.zip",
+            "mods/CON.jar",
+            "mods/a\u{0301}.jar",
+        ];
+        expected.sort();
+        let mut found = needed.clone();
+        found.sort();
+        assert_eq!(found, expected);
+        // nothing withheld: nothing needed
+        assert!(needed_withheld(&view(&fabric_pack(), Side::Client, RULES).unwrap()).is_empty());
     }
 
     /// What a player receives, whole or as a delta applied to a view it has, must be the
