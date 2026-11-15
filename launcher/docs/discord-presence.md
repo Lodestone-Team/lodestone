@@ -100,7 +100,13 @@ What Discord wants (checked against the Discord app in November 2026):
 - Legcord's and Vesktop's arRPC serve the same pipes but never answer `SUBSCRIBE`
   and never send these events. The connection for events takes the app that
   confirms within a second (`Connection::open_subscribed`), and the launcher lets an
-  unconfirmed one go and tries again later.
+  unconfirmed one go and tries again later. The launcher's playing status prefers
+  the confirming app too (`Connection::open_preferred`, which probes with
+  `ACTIVITY_SPECTATE`), falling back to arRPC when it's the only one, so with both
+  open the status lands on the official profile.
+- The official app throttles handshakes: after many connections in a short time,
+  READY comes 10 s or more late. The app connects rarely, so it doesn't matter
+  outside tests that connect over and over.
 - The invite link is about 140 characters, longer than a secret may be, so the
   secret writes the same invite more tightly: `1/<service>/<code>/<fingerprint and
   token in base64url>`, about 100 characters.
