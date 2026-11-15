@@ -155,11 +155,18 @@ pub(crate) fn random_suffix() -> String {
 }
 
 /// Renames the work folder `dir` in the instance folder `root` to a trash name, for
-/// [`empty_trash`] to delete; deletes it here only when that rename fails.
+/// [`empty_trash`] to delete in the background. A rename that fails (a file held open by
+/// a scanner on Windows) leaves it where it is, never deleted here: recovery runs on the
+/// window's thread, and a staged copy can be gigabytes. [`remove_leftovers`] tries again
+/// at the next start or restore.
 fn discard(root: &Path, dir: &Path) {
     let trash = root.join(format!("{TRASH_PREFIX}{}", random_suffix()));
-    if crate::fsx::rename(dir, &trash).is_err() {
-        let _ = super::remove_tree(dir);
+    if let Err(e) = crate::fsx::rename(dir, &trash) {
+        super::warn(
+            "images.restore",
+            "",
+            &format!("{} stays for now: {e}", dir.display()),
+        );
     }
 }
 
@@ -902,6 +909,12 @@ pub(crate) fn read_journal(path: &Path) -> Result<Option<Journal>, String> {
 /// then deletes the journal and renames the work folders to trash ([`empty_trash`]
 /// deletes them): renames only. Ok(None) when there was no journal.
 pub(crate) fn recover_one(root: &Path, journal_path: &Path) -> Result<Option<Phase>, String> {
+    // An instance folder that can't be reached (a drive unplugged under a link) would read
+    // as one where nothing was set aside: the journal must outlive that, or nothing knows
+    // what to put back once the folder is there again.
+    if !fs::metadata(root).is_ok_and(|meta| meta.is_dir()) {
+        return Err(format!("{} can't be reached", root.display()));
+    }
     let Some(journal) = read_journal(journal_path)? else {
         return Ok(None);
     };

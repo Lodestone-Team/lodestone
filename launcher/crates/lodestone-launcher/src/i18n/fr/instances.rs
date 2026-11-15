@@ -159,7 +159,7 @@ pub fn text(message: M) -> &'static str {
 
         M::NotAModpack => "Ce n’est pas un modpack",
         M::NotMrpack => {
-            "{name} n’est pas un modpack. Les modpacks Modrinth se terminent par .mrpack, et ceux de CurseForge sont des fichiers .zip contenant un manifest.json."
+            "{name} n’est pas un modpack. Les modpacks Modrinth se terminent par .mrpack, et ceux de CurseForge sont des fichiers .zip contenant un manifest.json. Les instantanés partagés depuis Lodestone se terminent par .lodeimg."
         }
         M::CurseForgeUnreachable => {
             "C’est un modpack CurseForge, et cette copie de Lodestone Launcher ne peut pas joindre CurseForge."

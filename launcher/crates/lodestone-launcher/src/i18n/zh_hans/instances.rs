@@ -137,7 +137,7 @@ pub fn text(message: M) -> &'static str {
 
         M::NotAModpack => "不是整合包",
         M::NotMrpack => {
-            "{name} 不是整合包。Modrinth 整合包的扩展名为 .mrpack，CurseForge 整合包是包含 manifest.json 的 .zip 文件。"
+            "{name} 不是整合包。Modrinth 整合包的扩展名为 .mrpack，CurseForge 整合包是包含 manifest.json 的 .zip 文件。从 Lodestone 分享的快照扩展名为 .lodeimg。"
         }
         M::CurseForgeUnreachable => {
             "这是 CurseForge 整合包，而此 Lodestone Launcher 无法连接 CurseForge。"

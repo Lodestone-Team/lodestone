@@ -190,7 +190,6 @@ pub fn text(message: M) -> &'static str {
         }
         M::BadgeAutomatic => "自動",
         M::BadgeAfterPlaying => "遊戲後",
-        M::BadgeBeforeRestore => "還原前",
         M::BadgeImported => "已匯入",
         M::BadgePinned => "已釘選",
         M::RestoreEllipsis => "還原…",
@@ -414,6 +413,7 @@ pub fn text(message: M) -> &'static str {
         M::RemoveAddedModpackNote => "移除此模組包加入的檔案。你修改過的檔案會保留。",
         M::SnapshotsNotChanged => "無法變更快照",
         M::RestoreKeptAsideTitle => "有些檔案妨礙了還原",
+        M::SnapshotRestored => "已還原「{name}」。",
         M::ImportLeftOutTitle => "部分檔案未匯入",
         M::ImportLeftOut => "這些檔案無法下載，因此新實例中沒有它們：{files}。",
         M::RestoreKeptAside => "還原期間寫入的檔案保存在 {folder}。",

@@ -28,8 +28,10 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use lodestone_image::container::{self, Limits};
+use lodestone_image::paths::{in_names, same_name};
 use lodestone_image::store::excludes::Excludes;
 use lodestone_image::store::materialize::{MaterializeOptions, Selection, materialize};
 use lodestone_image::store::{Cancel, NEVER};
@@ -280,7 +282,11 @@ impl Images {
         let _record = slot.lock_record();
         let _writing = self.enter()?;
         for content in linked {
-            self.store().save_manifest(instance, content)?;
+            // The placed content can be exactly what they were sent: the instance's own
+            // record of it ("Made from a snapshot") stays as it is.
+            if self.store().load_header(instance, &content.id).is_err() {
+                self.store().save_manifest(instance, content)?;
+            }
         }
         self.store().save_manifest(instance, image)?;
         let mut records = self.reconciled_locked(instance)?;
@@ -329,8 +335,25 @@ fn placed_entries(image: &Image, linked: &[Image]) -> Vec<Entry> {
     by_path.into_values().collect()
 }
 
-/// Refuses entries an import must never place: Lodestone's own names, and paths the client
-/// layout can't place.
+/// Top-level folders an import only takes spelled with ASCII letters: on a disk that
+/// ignores letter case, `modſ/` (a long s) is `mods/`, and a loader loads from it, while
+/// a check comparing letters would miss it. Nothing the Launcher writes spells them
+/// otherwise.
+const FOLDERS_SPELLED_PLAINLY: [&str; 9] = [
+    "mods",
+    "coremods",
+    "config",
+    "defaultconfigs",
+    "kubejs",
+    "resourcepacks",
+    "shaderpacks",
+    "saves",
+    "datapacks",
+];
+
+/// Refuses entries an import must never place: Lodestone's own names, top-level folders
+/// spelled so a disk would take them for a content folder ([`FOLDERS_SPELLED_PLAINLY`]),
+/// and paths the client layout can't place.
 fn check_entries(entries: &[Entry]) -> Result<(), ImageError> {
     for entry in entries {
         if entry.path.components().any(is_lodestone_name) {
@@ -339,10 +362,40 @@ fn check_entries(entries: &[Entry]) -> Result<(), ImageError> {
                 lodestone_image::display_text(entry.path.as_str())
             )));
         }
+        let first = entry.path.components().next().unwrap_or_default();
+        if !first.is_ascii() && in_names(first, &FOLDERS_SPELLED_PLAINLY) {
+            return Err(ImageError::Invalid(format!(
+                "the export has {}, a folder name a disk would take for another",
+                lodestone_image::display_text(entry.path.as_str())
+            )));
+        }
         if let Err(e) = DiskLayout::Client.to_disk(&entry.path) {
             return Err(ImageError::Invalid(format!(
                 "the export has {}, which an instance can't hold: {e}",
                 lodestone_image::display_text(entry.path.as_str())
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Refuses an export whose Minecraft or loader version isn't a plausible version id: the
+/// sender wrote them, the import dialog shows them and the new instance keeps them, so
+/// they mustn't hold prose or invisible characters (`1.21.1 (checked by Lodestone)`).
+/// Letters, digits and ` .-_+`, as every Minecraft and loader version has them.
+fn check_game(game: &lodestone_image::Game) -> Result<(), ImageError> {
+    let plausible = |text: &str| {
+        (1..=64).contains(&text.len())
+            && text
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b" .-_+".contains(&b))
+    };
+    let versions = std::iter::once(game.minecraft.as_str()).chain(game.loader_version.as_deref());
+    for version in versions {
+        if !plausible(version) {
+            return Err(ImageError::Invalid(format!(
+                "the export names the version {}, which isn't one",
+                lodestone_image::display_text(version)
             )));
         }
     }
@@ -429,28 +482,49 @@ fn carried_mod_names(image: &Image, linked: &[Image], carried: &HashSet<String>)
     names
 }
 
+/// The withheld reason of a file an import couldn't download and had no bytes for.
+pub const NOT_DOWNLOADED: &str = "not_downloaded";
+
 /// `image` with every Modrinth, CurseForge or base source that no download in this import
-/// confirmed (`verified`, by [`download_key`]) recorded as an `object`: those bytes came
-/// from the export or were in the store already, and nothing says they are that project's
-/// file, so nothing may record them as one.
-fn without_unconfirmed_sources(image: &Image, verified: &HashSet<(String, String)>) -> Image {
+/// confirmed (`verified`, by [`download_key`]) recorded as an `object` when `has_object`
+/// says the store has its bytes: those came from the export or were in the store already,
+/// and nothing says they are that project's file, so nothing may record them as one. One
+/// whose bytes the store lacks (its download failed, and the export didn't carry it) is
+/// withheld as [`NOT_DOWNLOADED`] instead: an `object` the store can't back can't be
+/// saved, and a restore leaves a withheld file as it is.
+fn without_unconfirmed_sources(
+    image: &Image,
+    verified: &HashSet<(String, String)>,
+    has_object: &dyn Fn(&Entry) -> bool,
+) -> Image {
     let mut image = image.clone();
-    for entry in &mut image.entries {
-        if !matches!(entry.source, Source::Object {}) && !verified.contains(&download_key(entry)) {
-            entry.source = Source::Object {};
+    let mut not_downloaded = Vec::new();
+    image.entries.retain_mut(|entry| {
+        if matches!(entry.source, Source::Object {}) || verified.contains(&download_key(entry)) {
+            return true;
         }
-    }
+        if has_object(entry) {
+            entry.source = Source::Object {};
+            true
+        } else {
+            not_downloaded.push(lodestone_image::Withheld {
+                path: entry.path.to_string(),
+                reason: lodestone_image::WithheldReason::Other(NOT_DOWNLOADED.into()),
+            });
+            false
+        }
+    });
+    image.withheld.extend(not_downloaded);
     image
 }
 
 /// Whether the file at `path` is one a loader loads: anything under `mods/` at any depth
-/// (Quilt loads subfolders, old Forge `mods/<version>/`) or `coremods/` (old Forge).
+/// (Quilt loads subfolders, old Forge `mods/<version>/`) or `coremods/` (old Forge), the
+/// folder spelled any way a case-insensitive disk takes for it (`MODS/`, `modſ/`).
 fn is_mod_path(path: &CanonicalPath) -> bool {
     let mut parts = path.components();
     let first = parts.next().unwrap_or_default();
-    parts.next().is_some()
-        && (first.eq_ignore_ascii_case(ContentKind::Mod.dir())
-            || first.eq_ignore_ascii_case("coremods"))
+    parts.next().is_some() && in_names(first, &[ContentKind::Mod.dir(), "coremods"])
 }
 
 /// How a mod file is named to the user: its path under `mods/` (`sodium.jar`,
@@ -459,7 +533,7 @@ fn mod_name(path: &CanonicalPath) -> String {
     let text = path.as_str();
     let under = text
         .split_once('/')
-        .filter(|(first, _)| first.eq_ignore_ascii_case(ContentKind::Mod.dir()))
+        .filter(|(first, _)| same_name(first, ContentKind::Mod.dir()))
         .map_or(text, |(_, rest)| rest);
     enabled_name(under)
 }
@@ -508,6 +582,7 @@ pub fn inspect(path: &Path) -> Result<ImportPreview, ImageError> {
     let linked = container.linked();
     let entries = placed_entries(image, linked);
     check_entries(&entries)?;
+    check_game(&image.game)?;
     wanted_downloads(&entries, true)?;
     let shown = |text: &str| lodestone_image::display_text(text).into_owned();
     let mods = entries
@@ -598,6 +673,7 @@ pub async fn import_file(
     let linked = opened.linked().to_vec();
     let entries = placed_entries(&image, &linked);
     check_entries(&entries)?;
+    check_game(&image.game)?;
     wanted_downloads(&entries, sources.curseforge.is_some())?;
     let store = images.store().clone();
     check_room(space_needed(opened.unpacked_bytes(), &entries))?;
@@ -636,11 +712,12 @@ pub async fn import_file(
     }
     // The snapshot kept of what they were sent claims no source this import didn't confirm,
     // so a later restore of it can't record the sender's file as a project's either.
+    let has_object = |entry: &Entry| store.has_object(&entry.sha256, entry.size);
     let mut kept_linked: Vec<Image> = linked
         .iter()
-        .map(|content| without_unconfirmed_sources(content, &verified))
+        .map(|content| without_unconfirmed_sources(content, &verified, &has_object))
         .collect();
-    let mut kept = without_unconfirmed_sources(&image, &verified);
+    let mut kept = without_unconfirmed_sources(&image, &verified, &has_object);
     for content in &mut kept_linked {
         content.seal();
     }
@@ -735,9 +812,50 @@ async fn download_urls(
 enum Missed {
     /// It wasn't downloaded (the server refused, the network failed, or the bytes aren't
     /// the ones the export names): the entry stays unconfirmed, and the import goes on.
-    NotDownloaded(String),
+    /// `answered` is whether a server answered at all ([`DownloadError::Failed`]).
+    ///
+    /// [`DownloadError::Failed`]: crate::game::download::DownloadError::Failed
+    NotDownloaded { problem: String, answered: bool },
     /// The import must stop: cancelled, or the store or the disk failed.
     Stop(ImageError),
+}
+
+/// Stops an import's downloads early. Once [`NO_ANSWER_IN_A_ROW`] downloads in a row got
+/// no answer at all (no network, or a blocked host: each takes every retry, and a blocked
+/// connection minutes), or one failed so the import must stop, no new download starts;
+/// those count as not downloaded, so an import offline ends in moments with the files it
+/// couldn't get listed, rather than after hours of retries.
+#[derive(Default)]
+struct Breaker {
+    unanswered_in_a_row: AtomicUsize,
+    /// No new download starts.
+    tripped: AtomicBool,
+    /// A download failed so that the import stops.
+    stopped: AtomicBool,
+}
+
+/// See [`Breaker`]: as many as run at once, so a whole round of them failed.
+const NO_ANSWER_IN_A_ROW: usize = IMPORT_DOWNLOADS;
+
+impl Breaker {
+    fn open(&self) -> bool {
+        self.tripped.load(Ordering::Relaxed)
+    }
+
+    fn answered(&self) {
+        self.unanswered_in_a_row.store(0, Ordering::Relaxed);
+    }
+
+    fn unanswered(&self) {
+        if self.unanswered_in_a_row.fetch_add(1, Ordering::Relaxed) + 1 >= NO_ANSWER_IN_A_ROW {
+            self.tripped.store(true, Ordering::Relaxed);
+        }
+    }
+
+    fn trip(&self) {
+        self.stopped.store(true, Ordering::Relaxed);
+        self.tripped.store(true, Ordering::Relaxed);
+    }
 }
 
 /// Downloads `entry` from `url` into the store (through `temp`), checking its size,
@@ -785,16 +903,29 @@ async fn download_into_store(
         }
         Err(e) => {
             let _ = std::fs::remove_file(&temp);
-            return Err(Missed::NotDownloaded(format!(
-                "{shown} couldn't be downloaded: {e}"
-            )));
+            let answered = !matches!(
+                e,
+                DownloadError::Failed {
+                    answered: false,
+                    ..
+                }
+            );
+            return Err(Missed::NotDownloaded {
+                problem: format!("{shown} couldn't be downloaded: {e}"),
+                answered,
+            });
         }
     }
     let (sender, receiver) = futures::channel::oneshot::channel();
     let (store, entry) = (store.clone(), entry.clone());
+    // A thread per file, at most IMPORT_DOWNLOADS at once: launcher-core has no blocking
+    // pool of its own, and hashing a jar takes far longer than starting a thread.
     std::thread::spawn(move || {
-        let _ = sender.send(check_and_store(&store, &entry, &temp, &shown));
+        let checked = check_and_store(&store, &entry, &temp, &shown);
+        // Deleted before the result is sent: once every result is in, the staging folder
+        // becomes the instance, and the download mustn't be left in it.
         let _ = std::fs::remove_file(&temp);
+        let _ = sender.send(checked);
     });
     receiver.await.unwrap_or_else(|_| {
         Err(Missed::Stop(ImageError::Invalid(
@@ -816,9 +947,10 @@ fn check_and_store(
         let file = std::fs::File::open(temp).map_err(read)?;
         let found = sha512_of(std::io::BufReader::new(file)).map_err(read)?;
         if !found.eq_ignore_ascii_case(sha512) {
-            return Err(Missed::NotDownloaded(format!(
-                "{shown} didn't download as the export says (SHA-512)"
-            )));
+            return Err(Missed::NotDownloaded {
+                problem: format!("{shown} didn't download as the export says (SHA-512)"),
+                answered: true,
+            });
         }
     }
     let put = store
@@ -827,9 +959,10 @@ fn check_and_store(
     if put.sha256 != entry.sha256 || put.size != entry.size {
         // The store keeps the bytes it was given, which nothing names: a collection
         // removes them.
-        return Err(Missed::NotDownloaded(format!(
-            "{shown} didn't download as the export says (SHA-256)"
-        )));
+        return Err(Missed::NotDownloaded {
+            problem: format!("{shown} didn't download as the export says (SHA-256)"),
+            answered: true,
+        });
     }
     Ok(())
 }
@@ -852,8 +985,9 @@ struct Built {
 /// file and claimed source is downloaded once. A file that wasn't downloaded (no URL, a
 /// download that failed, or bytes that aren't the ones named) is still placed when the
 /// store has its bytes (the export carries them, or the store had them before), but as a
-/// plain file: `content.json` learns no source for it. The rest are left out. Only
-/// cancelling, or a failure of the store or the disk, stops the import.
+/// plain file: `content.json` learns no source for it. The rest are left out. Once the
+/// downloads get no answer at all, the rest aren't tried ([`Breaker`]). Only cancelling,
+/// or a failure of the store or the disk, stops the import.
 #[allow(clippy::too_many_arguments)]
 async fn build(
     images: &Arc<Images>,
@@ -884,28 +1018,54 @@ async fn build(
             .map(|(_, e, _)| e.size)
             .fold(0, u64::saturating_add),
     );
+    let breaker = Breaker::default();
+    let breaker = &breaker;
     let results: Vec<Result<Option<(String, String)>, ImageError>> =
         futures::stream::iter(downloads)
             .map(|(n, entry, url)| async move {
                 if cancel.is_cancelled() {
                     return Err(ImageError::Cancelled);
                 }
+                if breaker.open() {
+                    // Not started: counted as not downloaded, or the import is stopping.
+                    progress.add_bytes(entry.size);
+                    progress.file_done();
+                    return Ok(None);
+                }
                 let temp = staging.join(format!(".lodestone-download-{n}"));
                 let stored = download_into_store(sources, store, &entry, url, temp, cancel).await;
                 progress.add_bytes(entry.size);
                 progress.file_done();
                 match stored {
-                    Ok(()) => Ok(Some(download_key(&entry))),
-                    Err(Missed::NotDownloaded(problem)) => {
+                    Ok(()) => {
+                        breaker.answered();
+                        Ok(Some(download_key(&entry)))
+                    }
+                    Err(Missed::NotDownloaded { problem, answered }) => {
                         super::warn("images.import", "", &problem);
+                        if answered {
+                            breaker.answered();
+                        } else {
+                            breaker.unanswered();
+                        }
                         Ok(None)
                     }
-                    Err(Missed::Stop(e)) => Err(e),
+                    Err(Missed::Stop(e)) => {
+                        breaker.trip();
+                        Err(e)
+                    }
                 }
             })
             .buffer_unordered(IMPORT_DOWNLOADS)
             .collect()
             .await;
+    if breaker.open() && !breaker.stopped.load(Ordering::Relaxed) {
+        super::warn(
+            "images.import",
+            "",
+            "the downloads got no answer, so the rest weren't tried",
+        );
+    }
     // The downloads that succeeded: the sources this import confirmed. Cancelling wins
     // over another failure, so a cancelled import says so.
     let mut verified = HashSet::new();
@@ -927,12 +1087,15 @@ async fn build(
     if let Some(e) = stopped {
         return Err(e);
     }
+    // Every unconfirmed file becomes a plain one here; those the store lacks are left out
+    // just below.
     let mut placed = without_unconfirmed_sources(
         &Image {
             entries: entries.to_vec(),
             ..Image::new(Kind::Full, image.game.clone())
         },
         &verified,
+        &|_| true,
     );
     let mut left_out = Vec::new();
     placed.entries.retain(|e| {
@@ -1000,7 +1163,33 @@ pub fn shown_name(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::names_modrinth_file;
+    use super::{check_game, names_modrinth_file};
+
+    #[test]
+    fn only_plausible_versions_are_taken() {
+        let game = |minecraft: &str, loader: Option<&str>| lodestone_image::Game {
+            minecraft: minecraft.into(),
+            loader: lodestone_image::Loader::Fabric,
+            loader_version: loader.map(str::to_string),
+        };
+        for ok in [
+            game("1.21.1", Some("0.16.10")),
+            game("24w14a", None),
+            game("1.14 Pre-Release 2", Some("1.20.1-47.2.0")),
+            game("b1.7.3", Some("0.26.0-beta.1+build.3")),
+        ] {
+            assert!(check_game(&ok).is_ok(), "{ok:?}");
+        }
+        for bad in [
+            game("1.21.1 (checked by Lodestone: no mods)", None),
+            game("1.21.1\u{202E}", None),
+            game("", None),
+            game("1.21.1", Some("0.16\n10")),
+            game(&"1".repeat(65), None),
+        ] {
+            assert!(check_game(&bad).is_err(), "{bad:?}");
+        }
+    }
 
     #[test]
     fn only_a_canonical_url_of_the_named_project_and_version_passes() {

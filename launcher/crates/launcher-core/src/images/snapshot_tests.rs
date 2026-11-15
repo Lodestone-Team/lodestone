@@ -714,6 +714,51 @@ fn an_instance_put_back_from_the_trash_takes_its_snapshots_back() {
 }
 
 #[test]
+fn storage_clean_up_keeps_the_snapshots_of_an_instance_put_back_before_anything_looked() {
+    let s = Setup::new();
+    s.world("World", b"r");
+    s.images.record_now(s.id(), "Created").unwrap();
+    let record = s.snapshot("Keep");
+    s.images.set_pinned(s.id(), &record.id, true).unwrap();
+    let folder = s.store.dir(s.id());
+    let trash = s.data.root().join("trash-copy");
+    std::fs::rename(&folder, &trash).unwrap();
+    s.images.delete_instance(s.id()).unwrap();
+    // Put back while the Launcher runs: nothing has looked at it yet.
+    std::fs::rename(&trash, &folder).unwrap();
+    assert!(
+        s.images.retired_folders().len() == 1,
+        "still a retired folder on disk"
+    );
+
+    let cleaned = s.images.clean_up(&[s.id().to_string()]).unwrap();
+    assert_eq!(cleaned.retired, 0, "never taken for a deleted instance's");
+    assert_eq!(cleaned.records, 0, "a pinned manual snapshot stays");
+    assert_eq!(s.records().len(), 1);
+    assert!(s.records()[0].pinned);
+    assert!(s.images.retired_folders().is_empty(), "taken back");
+    s.nothing_missing();
+}
+
+#[test]
+fn the_deleted_list_leaves_out_an_instance_that_is_back() {
+    let s = Setup::new();
+    s.world("World", b"r");
+    s.images.record_now(s.id(), "Created").unwrap();
+    let record = s.snapshot("Keep");
+    let folder = s.store.dir(s.id());
+    let trash = s.data.root().join("trash-copy");
+    std::fs::rename(&folder, &trash).unwrap();
+    s.images.delete_instance(s.id()).unwrap();
+    std::fs::rename(&trash, &folder).unwrap();
+
+    // The list comes first, before the instance's own snapshots were opened.
+    assert!(s.images.deleted_snapshots().unwrap().is_empty());
+    assert!(s.images.retired_folders().is_empty(), "taken back");
+    assert_eq!(s.records(), [record]);
+}
+
+#[test]
 fn a_crash_while_taking_snapshots_back_retires_them_again() {
     let s = Setup::new();
     s.world("World", b"r");

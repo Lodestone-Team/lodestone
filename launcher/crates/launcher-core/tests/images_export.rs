@@ -14,6 +14,7 @@ use launcher_core::game::download::{CancelToken, Downloader, Progress, recording
 use launcher_core::game::loaders::{LoaderChoice, LoaderKind};
 use launcher_core::http;
 use launcher_core::images::export::{self, PRIVATE_FILES, Sources};
+use launcher_core::images::restore::RestoreScope;
 use launcher_core::images::{Images, SnapshotKind, Take};
 use launcher_core::instances::{Instance, InstanceStore};
 use launcher_core::paths::DataDir;
@@ -357,6 +358,11 @@ fn an_import_makes_a_new_instance_and_downloads_the_references() {
         history.images[0].label.as_deref(),
         Some("Made from a snapshot")
     );
+    assert_eq!(
+        history.images.len(),
+        1,
+        "the sender's content image, kept for the snapshot, isn't this instance's history"
+    );
     let snapshots = other.images.snapshots(&made.id).unwrap();
     assert_eq!(snapshots.records.len(), 1);
     assert_eq!(snapshots.records[0].kind, SnapshotKind::Imported);
@@ -612,6 +618,52 @@ fn a_download_that_fails_leaves_the_file_out_and_the_import_goes_on() {
         fs::read(game.join("config/sodium.json")).unwrap(),
         b"{\"fps\":true}"
     );
+    // The snapshot of what they were sent is kept, the file it lacks withheld as not
+    // downloaded: never an object the store can't back.
+    let id = imported.instance.id.clone();
+    let snapshots = other.images.snapshots(&id).unwrap();
+    assert_eq!(snapshots.records.len(), 1);
+    let kept = &snapshots.records[0];
+    assert_eq!(kept.kind, SnapshotKind::Imported);
+    let content = other
+        .images
+        .store()
+        .load_manifest(&id, kept.content.as_deref().unwrap())
+        .unwrap();
+    assert!(
+        content
+            .entries
+            .iter()
+            .all(|e| e.path.as_str() != "mods/sodium.jar")
+    );
+    assert_eq!(
+        content.withheld,
+        [lodestone_image::Withheld {
+            path: "mods/sodium.jar".into(),
+            reason: lodestone_image::WithheldReason::Other(export::NOT_DOWNLOADED.into()),
+        }]
+    );
+    // Going back to it puts the rest back and leaves the file it never had as it is.
+    fs::create_dir_all(game.join("mods")).unwrap();
+    fs::write(game.join("mods/sodium.jar"), b"found it myself").unwrap();
+    fs::write(game.join("config/sodium.json"), b"changed").unwrap();
+    other
+        .images
+        .restore(
+            &id,
+            &kept.id,
+            &RestoreScope::WorldsAndContent(vec!["World".into()]),
+            NEVER,
+        )
+        .unwrap();
+    assert_eq!(
+        fs::read(game.join("mods/sodium.jar")).unwrap(),
+        b"found it myself"
+    );
+    assert_eq!(
+        fs::read(game.join("config/sodium.json")).unwrap(),
+        b"{\"fps\":true}"
+    );
     // A store that has the bytes already places them, as a plain file.
     let third = elsewhere();
     third.images.store().put_bytes(SODIUM).unwrap();
@@ -626,6 +678,86 @@ fn a_download_that_fails_leaves_the_file_out_and_the_import_goes_on() {
             .get("mods/sodium.jar")
             .is_none_or(|e| e.modrinth.is_none())
     );
+}
+
+#[test]
+fn downloads_that_get_no_answer_stop_being_tried() {
+    // A host that takes every connection and drops it at once, counting them: as a
+    // network that blocks the CDN looks to the downloader.
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = url::Url::parse(&format!("http://{}/", listener.local_addr().unwrap())).unwrap();
+    let accepted = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    {
+        let accepted = accepted.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                accepted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                drop(stream);
+            }
+        });
+    }
+    let other = elsewhere();
+    let file = other.data.root().join("many.lodeimg");
+    const MODS: usize = 60;
+    let jars: Vec<(String, Vec<u8>, lodestone_image::Source, Option<String>)> = (0..MODS)
+        .map(|n| {
+            let bytes = format!("mod number {n}").into_bytes();
+            let source = lodestone_image::Source::Modrinth {
+                project: format!("Proj{n}"),
+                version: format!("v{n}"),
+                url: format!("https://cdn.modrinth.com/data/Proj{n}/versions/v{n}/m{n}.jar"),
+            };
+            let sha512 = hex_sha512(&bytes);
+            (format!("mods/m{n}.jar"), bytes, source, Some(sha512))
+        })
+        .collect();
+    let entries: Vec<(&str, &[u8], lodestone_image::Source, Option<String>)> = jars
+        .iter()
+        .map(|(path, bytes, source, sha)| {
+            (path.as_str(), bytes.as_slice(), source.clone(), sha.clone())
+        })
+        .collect();
+    hostile_export(
+        &other.data.root().join("sender"),
+        lodestone_image::Loader::Fabric,
+        &entries,
+        &file,
+    );
+    let modrinth = launcher_core::content::Modrinth::with_urls(
+        http::default_client().unwrap(),
+        base.join("v2").unwrap(),
+        Some(base),
+    );
+    // Every try, as the Launcher makes them.
+    let downloader = Downloader::new(http::download_client().unwrap(), recording_sleep().0);
+    let imported = block_on(export::import_file(
+        &other.images,
+        Sources {
+            downloader: &downloader,
+            modrinth: &modrinth,
+            curseforge: None,
+        },
+        &file,
+        None,
+        None,
+        &|_| Ok(()),
+        &Progress::default(),
+        &CancelToken::new(),
+    ))
+    .unwrap();
+    assert_eq!(imported.left_out.len(), MODS, "nothing could be had");
+    // A round of downloads that got no answer (and those already under way), each with its
+    // tries; never every file's.
+    let tries = accepted.load(std::sync::atomic::Ordering::SeqCst);
+    let attempts = launcher_core::game::download::DEFAULT_ATTEMPTS as usize;
+    assert!(tries > 0);
+    assert!(
+        tries <= 2 * 8 * attempts,
+        "{tries} connections for {MODS} files"
+    );
+    // The snapshot of what they were sent is kept, every file withheld.
+    let snapshots = other.images.snapshots(&imported.instance.id).unwrap();
+    assert_eq!(snapshots.records.len(), 1);
 }
 
 #[test]
@@ -882,6 +1014,45 @@ fn mods_below_the_mods_folder_count_and_carried_ones_are_named() {
     let mut carried = preview.carried_mods.clone();
     carried.sort();
     assert_eq!(carried, ["1.21.1/evil.jar", "coremods/old.jar"]);
+}
+
+#[test]
+fn a_mods_folder_spelled_another_way_is_still_a_mods_folder() {
+    let other = elsewhere();
+    // Upper case: the same folder on most players' disks, and counted as mods.
+    let upper = other.data.root().join("upper.lodeimg");
+    hostile_export(
+        &other.data.root().join("sender-upper"),
+        lodestone_image::Loader::Fabric,
+        &[(
+            "MODS/x.jar",
+            b"a jar from the sender",
+            lodestone_image::Source::Object {},
+            None,
+        )],
+        &upper,
+    );
+    let preview = export::inspect(&upper).unwrap();
+    assert_eq!(preview.mods, ["x.jar"]);
+    assert_eq!(preview.carried_mods, ["x.jar"]);
+    // A long s: `modſ/` is `mods/` on APFS, where a loader would load it, yet no letter
+    // comparison sees it. Refused outright.
+    let long_s = other.data.root().join("long-s.lodeimg");
+    hostile_export(
+        &other.data.root().join("sender-long-s"),
+        lodestone_image::Loader::Fabric,
+        &[(
+            "mod\u{17f}/evil.jar",
+            b"a jar from the sender",
+            lodestone_image::Source::Object {},
+            None,
+        )],
+        &long_s,
+    );
+    let before = instance_count(&other);
+    assert!(export::inspect(&long_s).is_err());
+    assert!(import(&other, &long_s, true).is_err());
+    assert_eq!(instance_count(&other), before);
 }
 
 #[test]

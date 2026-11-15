@@ -555,8 +555,9 @@ fn folded(part: &str) -> Cow<'_, str> {
 }
 
 /// Whether two names are one on a disk that ignores letter case (over-folding, like
-/// [`case_collisions`]: `ſ` meets `s`).
-pub(crate) fn same_name(a: &str, b: &str) -> bool {
+/// [`case_collisions`]: `ſ` meets `s`). Public so callers recognise a folder (`mods/`)
+/// however an untrusted path spells it: `modſ/` is `mods/` on APFS.
+pub fn same_name(a: &str, b: &str) -> bool {
     a == b || folded(a) == folded(b)
 }
 
@@ -570,8 +571,9 @@ pub(crate) fn ends_with_name(part: &str, suffix: &str) -> bool {
     folded(part).ends_with(suffix)
 }
 
-/// Whether `part` is one of `names` (lower-case ASCII), ignoring letter case.
-pub(crate) fn in_names(part: &str, names: &[&str]) -> bool {
+/// Whether `part` is one of `names` (lower-case ASCII), ignoring letter case as
+/// [`same_name`] does.
+pub fn in_names(part: &str, names: &[&str]) -> bool {
     let part = folded(part);
     names.iter().any(|name| part == *name)
 }

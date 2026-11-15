@@ -36,7 +36,7 @@ use std::collections::BTreeSet;
 
 use lodestone_image::CanonicalPath;
 use lodestone_image::layout::CLIENT_GAME_FOLDER;
-use lodestone_image::paths::always_excluded;
+use lodestone_image::paths::{always_excluded, in_names, same_name};
 use lodestone_image::store::snapshot::Candidate;
 
 /// The version of these rules. A baseline taken under other rules is out of date (see
@@ -129,9 +129,9 @@ fn is_content_parts(parts: &[&str]) -> bool {
     if parts.is_empty() || parts.iter().any(|part| is_lodestone_name(part)) {
         return false;
     }
-    CONTENT_FOLDERS
-        .iter()
-        .any(|folder| parts[0].eq_ignore_ascii_case(folder))
+    // Folded as a case-insensitive disk folds (`modſ` is `mods` on APFS), so no spelling
+    // of a content folder passes for something else.
+    in_names(parts[0], &CONTENT_FOLDERS)
 }
 
 /// Whether a pack file at `parts` (relative to the game folder) is kept out of the
@@ -143,11 +143,9 @@ pub fn never_pack_content(parts: &[&str]) -> bool {
     };
     parts
         .iter()
-        .any(|part| is_lodestone_name(part) || part.eq_ignore_ascii_case("session.lock"))
-        || NEVER_PACK_FOLDERS
-            .iter()
-            .any(|folder| first.eq_ignore_ascii_case(folder))
-        || (parts.len() == 1 && GAME_FILES.iter().any(|f| first.eq_ignore_ascii_case(f)))
+        .any(|part| is_lodestone_name(part) || same_name(part, "session.lock"))
+        || in_names(first, &NEVER_PACK_FOLDERS)
+        || (parts.len() == 1 && in_names(first, &GAME_FILES))
 }
 
 /// One instance's content rules: the content folders, and the files its packs wrote
@@ -331,6 +329,7 @@ mod tests {
             "mods/sodium.jar",
             "mods/sodium.jar.disabled",
             "MODS/Sodium.JAR",
+            "modſ/evil.jar",
             "mods/sub/x.jar",
             "config/sodium-options.json",
             "Config/x/y.toml",

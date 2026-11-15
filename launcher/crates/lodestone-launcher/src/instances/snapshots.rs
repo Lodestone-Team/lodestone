@@ -11,7 +11,7 @@ use std::{
     path::PathBuf,
     sync::{
         Arc,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicU64, Ordering},
     },
     time::Duration,
 };
@@ -22,6 +22,7 @@ use gpui::{
     FileDragPaths, FocusHandle, Focusable, IntoElement, Render, SharedString, Task, Window, div,
     prelude::*,
 };
+use launcher_core::game::download::CancelToken;
 use launcher_core::images::export::{self, ExportReport, ImportPreview};
 use launcher_core::images::{
     ContentDiff, RestorePreview, RestoreScope, SnapshotKind, SnapshotRecord, Take,
@@ -55,7 +56,8 @@ pub fn when(created: i64) -> String {
     format::day_and_time(time, chrono::Local::now().date_naive())
 }
 
-/// The badge a snapshot's row shows, if any: why it was taken, or that it is pinned.
+/// The badge a snapshot's row shows, if any: why it was taken, or that it is pinned. A
+/// safety snapshot has none: its name ("Before going back to “…”") says why already.
 pub fn badge(record: &SnapshotRecord) -> Option<M> {
     if record.pinned {
         return Some(M::BadgePinned);
@@ -64,7 +66,7 @@ pub fn badge(record: &SnapshotRecord) -> Option<M> {
         SnapshotKind::Manual => None,
         SnapshotKind::BeforeChange => Some(M::BadgeAutomatic),
         SnapshotKind::AfterPlay => Some(M::BadgeAfterPlaying),
-        SnapshotKind::BeforeRestore => Some(M::BadgeBeforeRestore),
+        SnapshotKind::BeforeRestore => None,
         SnapshotKind::Imported => Some(M::BadgeImported),
     }
 }
@@ -72,13 +74,24 @@ pub fn badge(record: &SnapshotRecord) -> Option<M> {
 /// "Monday 14:30 · Survival Island, Castle Build · 412 MB, 38 MB new · With mods": a
 /// snapshot's details, its worlds by their own names (as the restore dialog and the Worlds
 /// tab show them), else by their folders, and whether it holds the mods (a full image).
+/// Worlds of one name ("New World", the game's default) are told apart by their folders.
 pub fn details(record: &SnapshotRecord) -> String {
     let mut parts = vec![when(record.created)];
     if !record.worlds.is_empty() {
+        let names: Vec<String> = record.worlds.iter().map(|w| record.world_name(w)).collect();
         let worlds: Vec<String> = record
             .worlds
             .iter()
-            .map(|w| launcher_core::images::display_text(&record.world_name(w)).into_owned())
+            .zip(&names)
+            .map(|(folder, name)| {
+                let shared = names.iter().filter(|other| *other == name).count() > 1;
+                let shown = if shared && name != folder {
+                    format!("{name} ({folder})")
+                } else {
+                    name.clone()
+                };
+                launcher_core::images::display_text(&shown).into_owned()
+            })
             .collect();
         parts.push(format::list(&worlds));
     }
@@ -297,18 +310,32 @@ impl Instances {
     }
 
     /// Sets whether the instance takes a snapshot after each play session: `None`
-    /// follows Settings › Instance defaults.
+    /// follows Settings › Instance defaults. A failure is also shown, as the toggle only
+    /// springs back.
     pub fn set_snapshot_after_play(
         &mut self,
         id: &str,
         after_play: Option<bool>,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
-        let mut instance = self.store.get(id).map_err(|e| e.to_string())?;
-        let mut settings = instance.snapshots.unwrap_or_default();
-        settings.after_play = after_play;
-        instance.snapshots = (!settings.is_empty()).then_some(settings);
-        self.save(&instance, cx)
+        let saved = self
+            .store
+            .get(id)
+            .map_err(|e| e.to_string())
+            .and_then(|mut instance| {
+                let mut settings = instance.snapshots.unwrap_or_default();
+                settings.after_play = after_play;
+                instance.snapshots = (!settings.is_empty()).then_some(settings);
+                self.save(&instance, cx)
+            });
+        if let Err(err) = &saved {
+            cx.emit(super::InstancesEvent::Notice {
+                title: t(M::SnapshotsNotChanged).into(),
+                message: err.clone().into(),
+                about: super::About::Instance(id.to_string()),
+            });
+        }
+        saved
     }
 
     /// Where exported snapshot files are written before they are dragged out or saved:
@@ -359,6 +386,8 @@ enum State {
     Working(M),
     /// Export: the file is ready to drag or save.
     Exported(ExportReport),
+    /// Finished, with what to say about it (a restore in place).
+    Done(SharedString),
     Failed(SharedString),
 }
 
@@ -387,9 +416,12 @@ pub struct SnapshotDialog {
     import_progress: Option<Arc<launcher_core::game::download::Progress>>,
     /// Import: the free space on the instances' disk, read with the file.
     import_free: Option<u64>,
-    /// Export: set when the dialog goes, so a file nobody waits for any more stops being
-    /// written.
-    export_cancel: Arc<AtomicBool>,
+    /// Cancels the work under way: Cancel does, and so does the dialog going (an export
+    /// nobody waits for any more stops being written). A new one for each piece of work.
+    cancel: CancelToken,
+    /// Cancel was pressed: the work stops at its next check (a restore's swap, once
+    /// started, finishes).
+    stopping: bool,
     focus: FocusHandle,
     _work: Option<Task<()>>,
     _ticker: Option<Task<()>>,
@@ -400,7 +432,7 @@ impl EventEmitter<SnapshotDismissed> for SnapshotDialog {}
 impl Drop for SnapshotDialog {
     fn drop(&mut self) {
         // An export left before it is written stops (its partial file is removed).
-        self.export_cancel.store(true, Ordering::Relaxed);
+        self.cancel.cancel();
     }
 }
 
@@ -445,7 +477,8 @@ impl SnapshotDialog {
             progress: Arc::new((AtomicU64::new(0), AtomicU64::new(0))),
             import_progress: None,
             import_free: None,
-            export_cancel: Arc::new(AtomicBool::new(false)),
+            cancel: CancelToken::new(),
+            stopping: false,
             focus: cx.focus_handle(),
             _work: None,
             _ticker: None,
@@ -591,27 +624,35 @@ impl SnapshotDialog {
             .is_some_and(|id| self.instances.read(cx).is_active(id))
     }
 
-    /// Runs `work` in the background with progress. Then, on the main thread, `after`
-    /// brings the instances up to date with what it did (the snapshot list, a new
-    /// instance), and `done` updates the dialog. `after` runs even when the dialog has
-    /// gone: the work can't be stopped once it has started.
+    /// Runs `work` in the background with progress and a token Cancel cancels. Then, on
+    /// the main thread, `after` brings the instances up to date with what it did (the
+    /// snapshot list, a new instance), and `done` updates the dialog. `after` runs even
+    /// when the dialog has gone.
     fn run<T: Send + 'static>(
         &mut self,
         label: M,
-        work: impl FnOnce(&(dyn Fn(u64, u64) + Sync)) -> Result<T, String> + Send + 'static,
+        work: impl FnOnce(&(dyn Fn(u64, u64) + Sync), &CancelToken) -> Result<T, String>
+        + Send
+        + 'static,
         after: impl FnOnce(&mut Instances, &T, &mut Context<Instances>) + 'static,
         done: impl FnOnce(&mut Self, T, &mut Context<Self>) + 'static,
         cx: &mut Context<Self>,
     ) {
         self.state = State::Working(label);
+        self.stopping = false;
+        self.cancel = CancelToken::new();
         self.progress.0.store(0, Ordering::Relaxed);
         self.progress.1.store(0, Ordering::Relaxed);
         let progress = self.progress.clone();
+        let cancel = self.cancel.clone();
         let job = cx.background_spawn(async move {
-            work(&move |done, total| {
-                progress.0.store(done, Ordering::Relaxed);
-                progress.1.store(total, Ordering::Relaxed);
-            })
+            work(
+                &move |done, total| {
+                    progress.0.store(done, Ordering::Relaxed);
+                    progress.1.store(total, Ordering::Relaxed);
+                },
+                &cancel,
+            )
         });
         let instances = self.instances.clone();
         cx.spawn(async move |this, cx| {
@@ -620,6 +661,7 @@ impl SnapshotDialog {
                 instances.update(cx, |instances, cx| after(instances, value, cx));
             }
             this.update(cx, |this, cx| {
+                this.stopping = false;
                 match result {
                     Ok(value) => {
                         this.state = State::Ready;
@@ -636,11 +678,22 @@ impl SnapshotDialog {
         cx.notify();
     }
 
-    /// Whether closing now would cut work short: taking, restoring or importing can't be
-    /// stopped, and the dialog shows how it ends; reading or writing a file to share, or
-    /// deleting, can be left.
+    /// Whether closing now would cut work short: taking, restoring or importing goes on
+    /// until it ends or Cancel stops it, and the dialog shows how it ends; reading or
+    /// writing a file to share, or deleting, can be left.
     fn busy(&self) -> bool {
         busy(&self.state)
+    }
+
+    /// Cancel: closes the dialog, or, while work it shows runs, stops that work (the
+    /// dialog then says it stopped). Deleting is short and can't be stopped.
+    fn cancel_or_close(&mut self, cx: &mut Context<Self>) {
+        if !self.busy() {
+            return cx.emit(SnapshotDismissed);
+        }
+        self.cancel.cancel();
+        self.stopping = true;
+        cx.notify();
     }
 
     fn take(&mut self, cx: &mut Context<Self>) {
@@ -652,6 +705,12 @@ impl SnapshotDialog {
             return cx.notify();
         }
         let instances = self.instances.read(cx);
+        // A modpack update or an install half done would be recorded as the mods the
+        // worlds ran with.
+        if instances.files_or_pack_busy(&id) {
+            self.state = State::Failed(t(crate::i18n::InstancesMsg::FilesBusy).into());
+            return cx.notify();
+        }
         let images = instances.images();
         // Play waits until the work is done, even if the dialog is closed meanwhile.
         let busy = instances.mark_files_busy(&id);
@@ -661,7 +720,7 @@ impl SnapshotDialog {
         let instance = id.clone();
         self.run(
             M::TakingSnapshot,
-            move |progress| {
+            move |progress, cancel| {
                 let _busy = busy;
                 images
                     .take_snapshot(
@@ -671,7 +730,7 @@ impl SnapshotDialog {
                             name: Some(typed),
                             full: everything,
                             progress,
-                            cancel: launcher_core::images::NEVER,
+                            cancel: &|| cancel.is_cancelled(),
                         },
                     )
                     .map_err(|err| err.to_string())
@@ -716,18 +775,14 @@ impl SnapshotDialog {
             || serde_json::json!({ "instance": id, "snapshot": snapshot.id }),
         );
         let instance = id.clone();
+        let snapshot_name = snapshot.name_shown();
         match scope {
             Some(scope) => self.run(
                 M::RestoringSnapshot,
-                move |_| {
+                move |_, cancel| {
                     let _busy = busy;
                     images
-                        .restore(
-                            &instance,
-                            &snapshot.id,
-                            &scope,
-                            launcher_core::images::NEVER,
-                        )
+                        .restore(&instance, &snapshot.id, &scope, &|| cancel.is_cancelled())
                         .map_err(|err| err.to_string())
                 },
                 move |instances, restored, cx| {
@@ -744,20 +799,19 @@ impl SnapshotDialog {
                         });
                     }
                 },
-                |_, _, cx| cx.emit(SnapshotDismissed),
+                // Stays open to say it worked: the files changed where the dialog can't
+                // show it.
+                move |this, _, _| {
+                    this.state = State::Done(tr!(M::SnapshotRestored, name = snapshot_name).into())
+                },
                 cx,
             ),
             None => self.run(
                 M::ImportingSnapshot,
-                move |_| {
+                move |_, cancel| {
                     drop(busy);
                     images
-                        .restore_as_new(
-                            &instance,
-                            &snapshot.id,
-                            &name,
-                            launcher_core::images::NEVER,
-                        )
+                        .restore_as_new(&instance, &snapshot.id, &name, &|| cancel.is_cancelled())
                         .map_err(|err| err.to_string())
                 },
                 |instances, made, cx| {
@@ -793,17 +847,15 @@ impl SnapshotDialog {
                 file_safe(&snapshot.name),
                 export::EXTENSION
             ));
-        let cancel = self.export_cancel.clone();
         launcher_core::trace::emit(
             "snapshot.export",
             || serde_json::json!({ "snapshot": snapshot.id }),
         );
         self.run(
             M::PreparingFile,
-            move |_| {
-                let stop = || cancel.load(Ordering::Relaxed);
+            move |_, cancel| {
                 images
-                    .export_snapshot(&id, &snapshot.id, &file, &stop)
+                    .export_snapshot(&id, &snapshot.id, &file, &|| cancel.is_cancelled())
                     .map_err(|err| err.to_string())
             },
             |_, _, _| {},
@@ -860,7 +912,7 @@ impl SnapshotDialog {
         let instance = id.clone();
         self.run(
             M::DeletingSnapshot,
-            move |_| {
+            move |_, _| {
                 images
                     .delete_snapshot(&instance, &snapshot.id)
                     .map_err(|err| err.to_string())
@@ -888,11 +940,10 @@ impl SnapshotDialog {
         launcher_core::trace::emit("snapshot.import", || serde_json::json!({}));
         self.run(
             M::ImportingSnapshot,
-            move |_| {
+            move |_, cancel| {
                 let Some(modrinth) = modrinth else {
                     return Err(t(M::ImportNeedsModrinth).to_string());
                 };
-                let cancel = launcher_core::game::download::CancelToken::new();
                 futures::executor::block_on(launcher_core::http::in_http_runtime(
                     export::import_file(
                         &images,
@@ -906,7 +957,7 @@ impl SnapshotDialog {
                         expected.as_deref(),
                         &room,
                         &progress,
-                        &cancel,
+                        cancel,
                     ),
                 ))
                 .map_err(|err| match err {
@@ -921,8 +972,9 @@ impl SnapshotDialog {
             |instances, imported, cx| {
                 instances.reload(cx);
                 instances.select(&imported.instance.id, cx);
-                // Files that couldn't be fetched (CurseForge didn't answer, a file without
-                // its hash): the new instance lacks them, so say which.
+                // Files no download confirmed (it failed, or wasn't possible) whose bytes
+                // neither the file nor the store had: the new instance lacks them, so say
+                // which.
                 if !imported.left_out.is_empty() {
                     let names: Vec<String> = imported
                         .left_out
@@ -956,7 +1008,7 @@ impl SnapshotDialog {
         }
     }
 
-    fn render_progress(&self, label: M) -> impl IntoElement + use<> {
+    fn render_progress(&self, label: &'static str) -> impl IntoElement + use<> {
         let (done, total) = match &self.import_progress {
             Some(progress) => {
                 let now = progress.snapshot();
@@ -982,7 +1034,7 @@ impl SnapshotDialog {
                     .items_center()
                     .text_color(colors::GRAY_400)
                     .child(LoadingDots)
-                    .child(t(label)),
+                    .child(label),
             )
             .when_some(fraction, |this, fraction| {
                 this.child(
@@ -1042,10 +1094,19 @@ impl SnapshotDialog {
                         world.level_name.as_deref().unwrap_or(&world.name),
                     )
                     .into_owned();
-                    let detail = if world.exists_now {
+                    let size = if world.exists_now {
                         format::bytes(world.size)
                     } else {
                         tr!(M::WorldGoneNow, size = format::bytes(world.size))
+                    };
+                    // The folder too when the world's own name differs, as the Worlds tab
+                    // shows it: worlds often share a name ("New World", the default).
+                    let detail = match world.level_name.as_deref() {
+                        Some(level) if level != world.name => format!(
+                            "{} · {size}",
+                            launcher_core::images::display_text(&world.name)
+                        ),
+                        _ => size,
                     };
                     rows.push(
                         div()
@@ -1110,7 +1171,10 @@ impl SnapshotDialog {
                             )
                             .child(muted(t(M::RestoreModsToo))),
                     );
-                    let changes = restore_changes(diff);
+                    let mut changes = restore_changes(diff);
+                    if let Some((_, Some(version))) = &diff.loader_version {
+                        changes.push(tr!(M::RestoreLoaderChange, version = version));
+                    }
                     if !changes.is_empty() {
                         differs = differs.child(muted(t(M::RestoreModsTooChanges)));
                     }
@@ -1158,14 +1222,19 @@ impl SnapshotDialog {
             return div().into_any_element();
         };
         let mut body = div().flex().flex_col().gap_3();
+        // The sender wrote both versions: shown so nothing in them can look like more.
         let loader = match &preview.loader_version {
-            Some(version) => format!("{} {version}", loader_name(&preview.loader)),
+            Some(version) => format!(
+                "{} {}",
+                loader_name(&preview.loader),
+                launcher_core::images::display_text(version)
+            ),
             None => loader_name(&preview.loader),
         };
         body = body.child(div().font_weight(weights::BOLD.into()).child(tr!(
             M::ImportFrom,
             name = preview.name_shown,
-            version = preview.minecraft,
+            version = launcher_core::images::display_text(&preview.minecraft),
             loader = loader
         )));
         if !preview.worlds.is_empty() {
@@ -1457,7 +1526,14 @@ impl Render for SnapshotDialog {
             .text_size(theme::text_size(text::MEDIUM));
         let working = matches!(self.state, State::Working(_));
         match (&self.mode, &self.state) {
-            (_, State::Working(label)) => body = body.child(self.render_progress(*label)),
+            (_, State::Working(label)) => {
+                let label = if self.stopping {
+                    t(crate::i18n::InstancesMsg::CancellingNote)
+                } else {
+                    t(*label)
+                };
+                body = body.child(self.render_progress(label));
+            }
             (Mode::Export, State::Exported(report)) => {
                 let report = report.clone();
                 body = body.child(self.render_file(&report, cx));
@@ -1481,6 +1557,7 @@ impl Render for SnapshotDialog {
                             ),
                     );
             }
+            (_, State::Done(message)) => body = body.child(message.clone()),
             (Mode::Restore, _) => body = body.child(self.render_restore(cx)),
             (Mode::Delete, _) => body = body.child(muted(t(M::DeleteSnapshotBody))),
             (Mode::Import, _) => body = body.child(self.render_import()),
@@ -1494,7 +1571,9 @@ impl Render for SnapshotDialog {
                     .child(error.clone()),
             );
         }
+        let done = matches!(self.state, State::Done(_));
         let primary: Option<(SharedString, ButtonVariant)> = match self.mode {
+            _ if done => None,
             Mode::Take => Some((t(M::TakeSnapshot).into(), ButtonVariant::Primary)),
             Mode::Restore => Some((t(M::RestoreButton).into(), ButtonVariant::Primary)),
             Mode::Delete => Some((t(CommonMsg::Delete).into(), ButtonVariant::Danger)),
@@ -1512,11 +1591,17 @@ impl Render for SnapshotDialog {
                 }),
                 Mode::Export => false,
             };
-        // While work that can't be stopped runs, there is no way to close: no ×, Escape or
-        // click outside, and Cancel is off.
+        // While work runs, there is no way to close: no ×, Escape or click outside. Cancel
+        // stops the work, and the dialog says how it ended.
         let busy = self.busy();
+        // A restore's four choices fit on one line.
+        let width = if self.mode == Mode::Restore {
+            680.
+        } else {
+            560.
+        };
         Dialog::new("snapshot-dialog", self.title(), self.focus.clone())
-            .width(px(560.))
+            .width(px(width))
             .when(!busy, |dialog| {
                 dialog.on_close({
                     let entity = entity.clone();
@@ -1527,19 +1612,15 @@ impl Render for SnapshotDialog {
             .footer(
                 Button::new(
                     "snapshot-cancel",
-                    t(if self.mode == Mode::Export {
+                    t(if self.mode == Mode::Export || done {
                         CommonMsg::Close
                     } else {
                         CommonMsg::Cancel
                     }),
                 )
                 .variant(ButtonVariant::Ghost)
-                .disabled(busy)
-                .on_click(cx.listener(|this, _, _, cx| {
-                    if !this.busy() {
-                        cx.emit(SnapshotDismissed)
-                    }
-                })),
+                .disabled(self.stopping)
+                .on_click(cx.listener(|this, _, _, cx| this.cancel_or_close(cx))),
             )
             .when_some(primary, |dialog, (label, variant)| {
                 dialog.footer(
@@ -1647,6 +1728,28 @@ mod tests {
             ..configs
         };
         assert!(mods_differ(&loader));
+    }
+
+    #[test]
+    fn worlds_of_one_name_are_told_apart_by_their_folders() {
+        let record: SnapshotRecord = serde_json::from_value(serde_json::json!({
+            "id": "20261108-143000-aaaa",
+            "image": "a".repeat(64),
+            "kind": "manual",
+            "name": "Snapshot",
+            "created": 0,
+            "worlds": ["New World", "New World (1)", "Castle"],
+            "world_details": [
+                { "name": "New World", "level_name": "New World" },
+                { "name": "New World (1)", "level_name": "New World" },
+                { "name": "Castle", "level_name": "Castle Build" },
+            ],
+        }))
+        .unwrap();
+        let details = details(&record);
+        assert!(details.contains("New World (New World (1))"), "{details}");
+        assert!(details.contains("Castle Build"), "{details}");
+        assert!(!details.contains("Castle Build (Castle)"), "{details}");
     }
 
     #[test]

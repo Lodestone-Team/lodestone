@@ -249,7 +249,7 @@ pub fn backup(call: Call, cx: &mut App) -> Reply {
         &call,
         label,
         Some(&target.instance),
-        move |progress| {
+        move |progress, cancel| {
             let _busy = busy;
             let record = images
                 .take_snapshot(
@@ -259,7 +259,7 @@ pub fn backup(call: Call, cx: &mut App) -> Reply {
                         name: Some(name),
                         full: false,
                         progress,
-                        cancel: launcher_core::images::NEVER,
+                        cancel: &|| cancel.is_cancelled(),
                     },
                 )
                 .map_err(super::snapshots::image_error)?;
@@ -379,15 +379,16 @@ fn restore_found(
         &call,
         label,
         Some(&target.instance),
-        move |_| {
+        move |_, cancel| {
             let _busy = busy;
+            let stop = || cancel.is_cancelled();
             if replace {
                 let restored = images
                     .restore(
                         &instance,
                         &snapshot.id,
                         &RestoreScope::Worlds(vec![folder.clone()]),
-                        launcher_core::images::NEVER,
+                        &stop,
                     )
                     .map_err(super::snapshots::image_error)?;
                 Ok(json!({
@@ -397,12 +398,7 @@ fn restore_found(
                 }))
             } else {
                 let copy = images
-                    .restore_world_copy(
-                        &instance,
-                        &snapshot.id,
-                        &folder,
-                        launcher_core::images::NEVER,
-                    )
+                    .restore_world_copy(&instance, &snapshot.id, &folder, &stop)
                     .map_err(super::snapshots::image_error)?;
                 Ok(json!({ "world": copy, "from": snapshot.id }))
             }

@@ -22,7 +22,7 @@ use serde_json::{Value, json};
 use super::{
     Call, Control, Reply, api_error,
     instances::{params, tri},
-    jobs::{JobSpec, Progress},
+    jobs::{Cancel, JobSpec, Progress},
     ready,
 };
 
@@ -230,25 +230,34 @@ pub(super) fn refresh(control: &Control, instance: &str, cx: &mut App) {
         .update(cx, |instances, cx| instances.load_snapshots(&id, cx));
 }
 
-/// Runs `work` as a snapshots job, with byte progress.
+/// Runs `work` as a snapshots job, with byte progress, that `jobs.cancel` can cancel:
+/// `work` is given the job's token, which a snapshot, a restore's safety snapshot and
+/// staging, an export and an import all stop at (a restore's swap itself never does).
 pub(super) fn job(
     call: &Call,
     label: String,
     instance: Option<&Instance>,
-    work: impl FnOnce(&(dyn Fn(u64, u64) + Sync)) -> Result<Value, ErrorObject> + Send + 'static,
+    work: impl FnOnce(&(dyn Fn(u64, u64) + Sync), &CancelToken) -> Result<Value, ErrorObject>
+    + Send
+    + 'static,
     after: impl FnOnce(&Control, &Value, &mut App) + 'static,
     cx: &mut App,
 ) -> Reply {
     let progress = Arc::new(Downloads::default());
     let report = progress.clone();
+    let cancel = CancelToken::new();
+    let job_cancel = cancel.clone();
     let background = cx.background_spawn(async move {
-        work(&move |done, total| {
-            report.set(ProgressSnapshot {
-                bytes_done: done,
-                bytes_total: total,
-                ..ProgressSnapshot::default()
-            })
-        })
+        work(
+            &move |done, total| {
+                report.set(ProgressSnapshot {
+                    bytes_done: done,
+                    bytes_total: total,
+                    ..ProgressSnapshot::default()
+                })
+            },
+            &cancel,
+        )
     });
     let control = call.control.clone();
     let task = cx.spawn(async move |cx| {
@@ -258,7 +267,9 @@ pub(super) fn job(
         }
         result
     });
-    let mut spec = JobSpec::new("snapshots", label).progress(Progress::Files(progress));
+    let mut spec = JobSpec::new("snapshots", label)
+        .progress(Progress::Files(progress))
+        .cancel(Cancel::Token(job_cancel));
     if let Some(instance) = instance {
         spec = spec.instance(instance);
     }
@@ -356,7 +367,7 @@ pub fn create(call: Call, cx: &mut App) -> Reply {
         &call,
         label,
         Some(&instance),
-        move |progress| {
+        move |progress, cancel| {
             let _busy = busy;
             let record = images
                 .take_snapshot(
@@ -366,7 +377,7 @@ pub fn create(call: Call, cx: &mut App) -> Reply {
                         name: params.name,
                         full: params.everything,
                         progress,
-                        cancel: launcher_core::images::NEVER,
+                        cancel: &|| cancel.is_cancelled(),
                     },
                 )
                 .map_err(image_error)?
@@ -505,10 +516,10 @@ fn restore_found(
                 &call,
                 label,
                 Some(&instance),
-                move |_| {
+                move |_, cancel| {
                     let _busy = busy;
                     let restored = images
-                        .restore(&target, &snapshot.id, &scope, launcher_core::images::NEVER)
+                        .restore(&target, &snapshot.id, &scope, &|| cancel.is_cancelled())
                         .map_err(image_error)?;
                     Ok(json!({
                         "restored": snapshot.id,
@@ -560,9 +571,9 @@ fn restore_found(
                 &call,
                 label,
                 None,
-                move |_| {
+                move |_, cancel| {
                     let made = images
-                        .restore_as_new(&source, &snapshot.id, &name, launcher_core::images::NEVER)
+                        .restore_as_new(&source, &snapshot.id, &name, &|| cancel.is_cancelled())
                         .map_err(image_error)?;
                     Ok(json!({ "instance": made.id, "name": made.name }))
                 },
@@ -625,9 +636,9 @@ fn export_found(
         &call,
         label,
         Some(&instance),
-        move |_| {
+        move |_, cancel| {
             let report = images
-                .export_snapshot(&id, &snapshot.id, &path, launcher_core::images::NEVER)
+                .export_snapshot(&id, &snapshot.id, &path, &|| cancel.is_cancelled())
                 .map_err(image_error)?;
             Ok(json!({
                 "path": report.file,
@@ -653,12 +664,48 @@ struct ImportParams {
 }
 
 /// `snapshots.import`: what an image file holds (`preview`), or a new instance from it.
-/// One with mods needs confirm.
+/// One with mods needs confirm. The file is read in the background: it comes from
+/// someone else, and its manifests can be large.
 pub fn import(call: Call, cx: &mut App) -> Reply {
     let params: ImportParams = params!(call);
     let path = tri!(path_param(&call));
     // Reads the zip's directory and manifests only; the files are checked as they unpack.
-    let preview = tri!(export::inspect(&path).map_err(image_error));
+    let inspected = {
+        let path = path.clone();
+        cx.background_spawn(async move { export::inspect(&path).map_err(image_error) })
+    };
+    cx.spawn(async move |cx| {
+        let preview = inspected.await?;
+        let reply = cx.update(|cx| import_inspected(call, params, path, preview, cx));
+        reply.await
+    })
+}
+
+/// The most names a confirm lists: a file from someone else can name a million mods.
+const LISTED_NAMES: usize = 8;
+
+/// `names` joined for a confirm, at most [`LISTED_NAMES`] of them and `…` for the rest.
+fn listed(names: &[String]) -> String {
+    let mut text = names
+        .iter()
+        .take(LISTED_NAMES)
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .join(", ");
+    if names.len() > LISTED_NAMES {
+        text.push_str(", …");
+    }
+    text
+}
+
+/// [`import`] once the file is read.
+fn import_inspected(
+    call: Call,
+    params: ImportParams,
+    path: PathBuf,
+    preview: export::ImportPreview,
+    cx: &mut App,
+) -> Reply {
     if params.preview {
         return ready(Ok(serde_json::to_value(&preview).unwrap_or(Value::Null)));
     }
@@ -669,13 +716,13 @@ pub fn import(call: Call, cx: &mut App) -> Reply {
             format!(
                 "; {} of them come from whoever made the file, not from Modrinth or CurseForge ({})",
                 preview.carried_mods.len(),
-                preview.carried_mods.join(", ")
+                listed(&preview.carried_mods)
             )
         };
         tri!(call.confirm(format!(
             "makes an instance with {} mods ({}){carried}: programs that run when the game starts. Only use files from people the user trusts",
             preview.mods.len(),
-            preview.mods.join(", ")
+            listed(&preview.mods)
         )));
     }
     let instances = call.control.instances.read(cx);
@@ -696,9 +743,8 @@ pub fn import(call: Call, cx: &mut App) -> Reply {
         &call,
         label,
         None,
-        move |_| {
+        move |_, cancel| {
             let progress = Downloads::default();
-            let cancel = CancelToken::new();
             let imported = futures::executor::block_on(launcher_core::http::in_http_runtime(
                 export::import_file(
                     &images,
@@ -712,7 +758,7 @@ pub fn import(call: Call, cx: &mut App) -> Reply {
                     Some(&expected),
                     &room,
                     &progress,
-                    &cancel,
+                    cancel,
                 ),
             ))
             .map_err(image_error)?;
@@ -904,6 +950,17 @@ mod tests {
         assert!(settings.is_empty());
         apply_policy(&mut settings, &json!({ "after_play": false })).unwrap();
         assert_eq!(settings.after_play, Some(false));
+    }
+
+    #[test]
+    fn a_confirm_lists_a_few_names_however_many_the_file_has() {
+        let names: Vec<String> = (0..100_000).map(|n| format!("m{n}.jar")).collect();
+        let text = listed(&names);
+        assert!(text.starts_with("m0.jar, m1.jar"));
+        assert!(text.ends_with(", …"));
+        assert_eq!(text.matches(".jar").count(), LISTED_NAMES);
+        assert_eq!(listed(&names[..2]), "m0.jar, m1.jar");
+        assert_eq!(listed(&[]), "");
     }
 
     #[test]

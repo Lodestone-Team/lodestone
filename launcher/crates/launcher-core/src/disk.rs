@@ -329,8 +329,10 @@ pub struct ImagesUsage {
 }
 
 /// Counts the snapshots in the image store at `root` (see [`ImagesUsage`]); `bytes` is
-/// left to the caller.
-fn images_usage(root: &Path) -> ImagesUsage {
+/// left to the caller. A retired folder of an instance in `instances` that came back (put
+/// back from the Trash, not yet taken back) counts as that instance's, as the clean-up
+/// treats it.
+fn images_usage(root: &Path, instances: &[Instance]) -> ImagesUsage {
     use crate::images::snapshots::SnapshotKind;
     #[derive(serde::Deserialize)]
     struct Records {
@@ -346,7 +348,14 @@ fn images_usage(root: &Path) -> ImagesUsage {
     let mut usage = ImagesUsage::default();
     for entry in read_dir(&root.join("images")) {
         let dir = entry.path();
-        let retired = dir.join(crate::images::retired::RETIRED_FILE).is_file();
+        let retired = dir.join(crate::images::retired::RETIRED_FILE).is_file() && {
+            let marker = crate::images::retired::read_marker(&dir);
+            let created = instances
+                .iter()
+                .find(|i| i.id == marker.former_id)
+                .map(|i| i.created);
+            !crate::images::retired::returns_to(&root.join("images"), &marker, created)
+        };
         if retired {
             usage.retired_instances += 1;
         }
@@ -478,7 +487,7 @@ fn scan_on(
     report.cache = sizer.size(&data.cache_dir())?;
     report.images = ImagesUsage {
         bytes: sizer.size(&data.image_store_dir())?,
-        ..images_usage(&data.image_store_dir())
+        ..images_usage(&data.image_store_dir(), instances)
     };
 
     // Everything else at the top of the data directory.
@@ -1724,7 +1733,11 @@ mod tests {
 
     #[test]
     fn the_image_store_is_counted_apart_with_its_snapshots() {
-        let (_tmp, data, instances) = fixture();
+        let (_tmp, data, mut instances) = fixture();
+        let mut back = instances[0].clone();
+        back.id = "fab2".into();
+        back.created = 1_700_000_123;
+        instances.push(back);
         let before = scan(&data, &instances, &Cancel::new()).unwrap();
         assert_eq!(before.images, ImagesUsage::default());
         let images = data.image_store_dir().join("images");
@@ -1756,6 +1769,22 @@ mod tests {
             &retired.join(crate::images::snapshots::RECORDS_FILE),
             &records(&[("manual", true)]),
         );
+        // the snapshots of a live instance put back from the Trash (its id and creation
+        // time, no images of its own yet): still its own, so only its automatic one goes
+        let came_back = images.join("_deleted_fedcba9876543210");
+        write(
+            &came_back.join(crate::images::retired::RETIRED_FILE),
+            serde_json::to_string(&serde_json::json!({
+                "former_id": "fab2",
+                "instance_created": instances[1].created,
+            }))
+            .unwrap()
+            .as_bytes(),
+        );
+        write(
+            &came_back.join(crate::images::snapshots::RECORDS_FILE),
+            &records(&[("manual", true), ("before_change", false)]),
+        );
         // a list that can't be read counts nothing, and isn't an error
         write(
             &images
@@ -1774,8 +1803,8 @@ mod tests {
                 bytes: Sizer::new(&Cancel::new())
                     .size(&data.image_store_dir())
                     .unwrap(),
-                snapshots: 6,
-                removable: 3,
+                snapshots: 8,
+                removable: 4,
                 retired_instances: 1,
             }
         );

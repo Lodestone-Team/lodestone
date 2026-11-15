@@ -780,6 +780,13 @@ impl Images {
             return Ok(());
         }
         let root = self.instances().dir(instance);
+        if !root.join("instance.json").is_file() {
+            // Not there, or on a drive that isn't plugged in: the journal stays, and so does
+            // Play's refusal, until the folder is back.
+            return Err(ImageError::Invalid(
+                "A restore of this instance didn't finish, and its folder can't be reached. Reconnect the drive it is on, or restart the Launcher".into(),
+            ));
+        }
         match swap::recover_one(&root, &journal) {
             Ok(_) => {
                 swap::remove_leftovers(&root);
@@ -913,10 +920,7 @@ fn plan_scope(
                 let safety_content = safety.content_entries(&ctx.scope).unwrap_or_default();
                 for entry in content.iter().chain(safety_content.iter()) {
                     let first = entry.path.components().next().unwrap_or_default();
-                    if !CONTENT_FOLDERS
-                        .iter()
-                        .any(|folder| first.eq_ignore_ascii_case(folder))
-                    {
+                    if !lodestone_image::paths::in_names(first, &CONTENT_FOLDERS) {
                         owned.insert(disk_of(&entry.path));
                     }
                 }

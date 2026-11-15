@@ -687,7 +687,7 @@
         srow(is("SnapshotAfterPlay"), is("SnapshotAfterPlayHint"), toggle(false)),
         h("div.lx-row", h("div.lx-row-main", h("div.lx-row-t", tx("Before 1.21 update")), h("div.lx-row-s", tx("Nov 8, 2026"), sep(), tx("World"), sep(), is("SnapshotSizes", { total: "412 MB", new: "38 MB" }))), h("div.lx-row-a", btn(is("RestoreEllipsis"), { sm: true, on: () => ctx.open("snapshotRestore") }), btn(is("ExportEllipsis"), { sm: true, on: () => ctx.open("snapshotExport") }), gbtn(is("PinSnapshot")), gbtn(cm("Delete"), () => ctx.open("snapshotDelete")))),
         h("div.lx-row", h("div.lx-row-main", h("div.lx-row-t", tx("Before updating Sodium"), sep(), is("BadgeAutomatic")), h("div.lx-row-s", tx("Nov 9, 2026"), sep(), is("SnapshotSizes", { total: "410 MB", new: "2 MB" }))), h("div.lx-row-a", btn(is("RestoreEllipsis"), { sm: true }), btn(is("ExportEllipsis"), { sm: true }), gbtn(is("UnpinSnapshot")), gbtn(cm("Delete")))),
-        h("div.lx-row", h("div.lx-row-main", h("div.lx-row-t", tx("After playing"), sep(), is("BadgeAfterPlaying"), sep(), is("BadgeBeforeRestore"), sep(), is("BadgeImported"), sep(), is("BadgePinned")))),
+        h("div.lx-row", h("div.lx-row-main", h("div.lx-row-t", tx("After playing"), sep(), is("BadgeAfterPlaying"), sep(), is("BadgeImported"), sep(), is("BadgePinned")))),
         srow(isp("UnreadableImages", { count: 1 }), is("UnreadableImagesHint"), gbtn(is("DeleteUnreadable"))),
         h("div.lx-muted", is("SnapshotKeepHint", { last: 5, days: 7, weeks: 4 }))),
         h("div", { style: { marginTop: "10px", display: "flex", gap: "8px" } }, btn(is("TakeSnapshotEllipsis"), { on: () => ctx.open("snapshotTake") })),

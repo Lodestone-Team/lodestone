@@ -2198,7 +2198,9 @@ the world backup zips is read or converted.
   **Server updates: milestone 4's second half is to call it in `apply_sync`** in place of
   `record_before_change(BEFORE_SERVER_UPDATE)` (that call is still what `servers/mod.rs`
   makes), and to stop the sync when it fails, as a modpack update does; this milestone only
-  removed `apply_sync`'s `backup_worlds` argument. A change of the instance's game saved from the Settings tab,
+  removed `apply_sync`'s `backup_worlds` argument. Until then a server sync takes no world
+  snapshot, only the content record before it, which is less than main had (a zip of the
+  worlds): milestone 4 must add the call before a release. A change of the instance's game saved from the Settings tab,
   Undo or the CLI (`Instances::save_settings`, `instances set-loader-version`;
   `game_change`: a new loader version, whatever other fields change with it) takes the
   snapshot in the background first and saves `instance.json` after, with the instance's
@@ -2241,8 +2243,14 @@ the world backup zips is read or converted.
   written, and the marker deleted last. Until the marker goes the folder is still a
   deleted instance's: a crash part way leaves a marked folder under the id, which the
   guard retires and takes back at once. A new instance that only reuses the id has
-  another `created` time and never does. Restoring a deleted instance's snapshot into a
-  new instance from the list isn't done.
+  another `created` time and never does. Until it is taken back, the folder of an
+  instance that is back (put back while the Launcher runs, nothing has looked yet:
+  `retired::returns_to`, the same test) is still the instance's: Storage's clean-up takes
+  back each live instance's snapshots before it deletes anything and never deletes such
+  a folder, the deleted instances' list takes them back first and leaves them out, and
+  Storage's counts count them as the live instance's, so a pinned or manual snapshot of
+  an instance that is back is never deleted as a deleted instance's. Restoring a deleted
+  instance's snapshot into a new instance from the list isn't done.
 - **Storage.** `disk::Report.images` (`ImagesUsage`: the store folder's size, snapshot
   count, how many the clean-up removes, retired instances), read from the lists and
   markers without locks; the store is no longer "Other". "Remove" (`Clean::Snapshots`,
@@ -2319,7 +2327,11 @@ the world backup zips is read or converted.
   cleared. Then a journal is undone (or, when done, only cleaned up:
   the journal lists what the restore replaced, `replaced`, and anything else in the old
   folder, written meanwhile into an owned folder, is kept aside as below), and a journal
-  whose instance folder isn't there stays, logged. Work folders no journal names
+  whose instance folder isn't there stays, logged. `swap::recover_one` refuses outright,
+  keeping the journal, when the instance folder can't be reached (a drive unplugged under
+  a link): a missing old folder there would read as "nothing to undo". Play's retry and a
+  restore's own recovery also refuse while the instance has no `instance.json`, so Play
+  keeps refusing until the folder is back. Work folders no journal names
   (`swap::remove_leftovers`) are never simply deleted when they may hold the instance's
   files: a staging folder goes (a crash while staging leaves only copies from the store)
   except what a rollback set aside in it (`.rollback-<n>/`), and an old folder, which only
@@ -2423,7 +2435,11 @@ the world backup zips is read or converted.
   id once. Each distinct file and claimed source is downloaded once, eight at a time; a
   file naming more than 20,000 downloads is refused when it is opened, by the preview and
   by the import before anything is unpacked (`MAX_DOWNLOADS`), so a file listing a million
-  references asks nothing of Modrinth or CurseForge. **A download that fails doesn't stop
+  references asks nothing of Modrinth or CurseForge. Once eight downloads in a row got no
+  answer at all (`DownloadError::Failed { answered: false }`: no network, a blocked host,
+  each after every retry), no new download starts and the rest count as not downloaded,
+  so an import offline ends in moments rather than after hours of retries (`Breaker`); a
+  failure that stops the import stops new downloads too. **A download that fails doesn't stop
   the import** (a version its author deleted, a CDN error after the downloader's tries,
   bytes that don't match the SHA-512 or SHA-256): it is logged, and the entry is one that
   wasn't downloaded, as is one without a URL (a failed CurseForge lookup). Only Cancel, or
@@ -2433,7 +2449,13 @@ the world backup zips is read or converted.
   and the imported snapshot kept of the file records its source as `object` too
   (`without_unconfirmed_sources`, both images re-sealed), so a later restore can't record
   it as a project's file either; the rest are left out and listed, and the window says
-  which in a notice after the import. The preview's `mods` are every file under `mods/`
+  which in a notice after the import. In the kept snapshot those are withheld, reason
+  `not_downloaded` (`export::NOT_DOWNLOADED`), not `object` entries the store can't back
+  (which couldn't be saved): a restore of it leaves those paths as they are. The sender's
+  content image the kept snapshot links to isn't a version of this instance's content:
+  the content history leaves out content images only imported snapshots link to, and
+  one the instance already has under the same id (the placed content exactly the
+  sender's) isn't saved over. The preview's `mods` are every file under `mods/`
   at any depth (Quilt loads subfolders, old Forge `mods/<version>/`) and in `coremods/`,
   and `carried_mods` the mod files, in the image and in its content link each (a data
   image's entry hides its link's at the same path, but a later restore of the content can
@@ -2449,10 +2471,14 @@ the world backup zips is read or converted.
   Collections stay held off (and the write counted) until that snapshot's manifests are
   saved: until then no manifest names the objects only it uses (its worlds), and a long
   import may have unpacked them longer ago than a collection's grace.
-  Known limit: files that weren't downloaded when it was imported aren't in the store, so
-  restoring "Everything" or "As a new instance" from that snapshot is refused, saying
-  that N of its files couldn't be downloaded when it was imported (rather than that the
-  store lost them). The dialogs list at most eight names of each kind ("…" for more): a
+  Every path is also refused whose top-level folder is a content folder or `saves`
+  spelled with other than ASCII letters (`modſ/`, a long s, is `mods/` on APFS, and a
+  loader would load from it, while a comparison of letters misses it); and wherever a
+  folder is recognised (the preview's mods, the content scope, a restore's owned paths) it
+  is compared as a case-insensitive disk folds (`lodestone_image::paths::same_name`,
+  `in_names`), not only ASCII letter case. The Minecraft and loader versions must be
+  plausible version ids (letters, digits and ` .-_+`, at most 64 bytes): the dialog
+  shows them, through `display_text`, and the instance keeps them. The dialogs list at most eight names of each kind ("…" for more): a
   file from someone else can name a million.
 - **LDS codes stay as they are, with no decode-to-image function.** `LDS1:` and `LDS2:` already encode an image whose files can
   all be downloaded: the base (a Modrinth pack's project and version: the image's
@@ -2478,9 +2504,11 @@ the world backup zips is read or converted.
   world from one puts back the old folder name. Renaming no longer moves a backups folder.
 - **The UI.** Settings › Snapshots: "Take snapshot…", the after-play toggle (following the
   global default, which its hint says, until changed; then the instance's own, with "Use
-  the default"), a row per snapshot (name, a badge: Automatic, After playing, Before a
-  restore, Imported, Pinned; time, worlds by their own names, sizes) with Restore…,
-  Export…, Pin or Unpin and Delete (a pin or delete that fails is a notice), a row for
+  the default"; a toggle whose save fails is a notice), a row per snapshot (name, a badge:
+  Automatic, After playing, Imported, Pinned, none for a safety snapshot, whose name says
+  why; time, worlds by their own names, with their folders when two share a name, sizes)
+  with Restore…, Export…, Pin or Unpin and Delete (a pin or delete that fails is a
+  notice), a row for
   images that can't be read with Delete (asking a second time: they go for good), and the
   retention line. A row's details leave out "0 bytes new" and say "With mods" for a full
   image. The list follows the store: `Images::watch_snapshots` sends the instance's id
@@ -2495,7 +2523,16 @@ the world backup zips is read or converted.
   that can't be downloaded, disk space and what is free, name: the file's name, which
   exports make "<instance> - <snapshot>"). A restore opens on a choice it offers (as a new
   instance when the snapshot has no worlds and can't put content back); as a new instance
-  it is named "<instance> (<snapshot>)"; work that reports no size shows no bar. The
+  it is named "<instance> (<snapshot>)"; work that reports no size shows no bar. A
+  world's row shows its folder beside its size when its own name differs ("New World" is
+  the game's default, so several often share it). "Only the worlds" names a loader
+  version the mods choice would go back to among what it would change. An in-place
+  restore that finishes stays open saying "Restored “<name>”." with Close. While taking,
+  restoring or importing, the dialog can't be closed (no ×, Escape or click outside), but
+  Cancel stops the work at its next check ("Cancelling…"; a restore's swap, once started,
+  finishes) and the dialog says how it ended; deleting is short and can't be stopped,
+  and an export stops when the dialog goes. The restore dialog is wider (680 px), so its
+  four choices fit on one line. The
   Worlds tab's "Back up" takes a manual snapshot named after the world (of every world:
   a snapshot holds the instance's data), with the bytes it reads as the job's progress and
   its Cancel stopping it ("Restore as copy" and "Replace world…" stop on Cancel too, while
@@ -2503,13 +2540,17 @@ the world backup zips is read or converted.
   the world, each with the world's own size there and "with N other worlds", with
   "Restore as copy" and "Replace world…" (a world-only restore). `.lodeimg` files open
   the import dialog when dropped or picked with Import…; a `.lodesnap` is refused as no
-  modpack.
+  modpack, whose message says snapshots shared from Lodestone end in `.lodeimg`.
 - **Control API and CLI.** `snapshots.list` (`deleted`), `snapshots.create` (`name`,
   `everything`), `snapshots.restore` (`scope` worlds, worlds_and_mods, everything or new;
   `worlds`, `name`, `preview`; confirm in place), `snapshots.export`, `snapshots.import`
   (`preview`, `name`; confirm with mods), `snapshots.delete`, `snapshots.pin`,
   `snapshots.policy`; `worlds.backups`, `worlds.backup` and `worlds.restore` (`snapshot`,
-  `mode`) work on snapshots. Records carry `world_details`; `snapshots.export`'s reply
+  `mode`) work on snapshots. Every snapshot job (`snapshots.create`, `restore`, `export`,
+  `import`, `worlds.backup`, `worlds.restore`) can be cancelled with `jobs.cancel`, as in
+  the window. `snapshots.import` reads the file in the background (its manifests come
+  from someone else and can be large), and its confirm names at most eight mods of each
+  kind, with "…" for more, and the full counts. Records carry `world_details`; `snapshots.export`'s reply
   has `not_downloadable`; a restore whose `kept_aside` is set also shows the window's
   notice. The handlers that name a snapshot (`snapshots.restore`, `export`, `delete`,
   `pin`, `worlds.restore`) read the snapshots, and `snapshots.restore` its preview, in the
@@ -2522,6 +2563,9 @@ the world backup zips is read or converted.
 - **Not in M5:** a content history view (the CLI's `content history` stays the only one),
   restoring a deleted instance's snapshot into a new instance (they come back with the
   instance when it is put back from the Trash), restoring from images moved between computers
-  other than `.lodeimg` imports (milestone 6). **The shared crate is unchanged**: no
-  additive function was needed (restores and imports report progress per download, not per
-  byte placed).
+  other than `.lodeimg` imports (milestone 6). **The shared crate changed only additively**:
+  `paths::same_name` and `paths::in_names` (crate-private before) are public, so the
+  Launcher recognises a folder however an untrusted path spells it. Restores and imports
+  report progress per download, not per byte placed. In launcher-core,
+  `DownloadError::Failed` gained `answered` (whether a server answered the last try),
+  which imports' `Breaker` reads.

@@ -13,8 +13,8 @@
 //!    and creation time, when it was deleted);
 //! 2. the folder is renamed to `images/_deleted_<16 hex>/` (`_` never starts an id the
 //!    Launcher makes);
-//! 3. its content state, stat caches and restore journal are deleted, and the content
-//!    images no snapshot links to.
+//! 3. its content state and stat caches are deleted, and the content images no snapshot
+//!    links to. A restore journal stays: it comes back with the instance.
 //!
 //! A folder without snapshots is deleted outright, as before. A crash after step 1 leaves a
 //! marked folder under a live id: the marker wins over everything else there (the guard
@@ -27,7 +27,9 @@
 //! An instance that comes back (put back from the Trash: the same id and `created` time)
 //! takes its snapshots back ([`Images::readopt_locked`]) the first time the store looks at
 //! it, before it has images of its own. A new instance that only reuses the id has another
-//! `created` time and never does.
+//! `created` time and never does. Until then its folder is still the instance's: the
+//! deleted instances' list, Storage's counts and its clean-up take it as the live
+//! instance's ([`returns_to`]), so nothing deletes a snapshot of an instance that is back.
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -276,7 +278,13 @@ impl Images {
     /// an unfinished restore's journal (`restore-journal.json`): retiring keeps it, and
     /// until they are taken back no other check sees it. For Play's gate.
     pub(crate) fn retired_journal(&self, instance: &str) -> bool {
-        if self.retired_folders().is_empty() {
+        // Usually the instance has images of its own: a stat, before reading anything.
+        if self
+            .store()
+            .instance_dir(instance)
+            .is_ok_and(|dir| dir.exists())
+            || self.retired_folders().is_empty()
+        {
             return false;
         }
         let Ok(found) = self.instances().get(instance) else {
@@ -329,8 +337,12 @@ impl Images {
     /// The deleted instances whose snapshots are kept, most recently deleted first.
     /// Blocking.
     pub fn deleted_snapshots(&self) -> Result<Vec<Retired>, ImageError> {
+        self.readopt_returned();
         let mut retired = Vec::new();
         for folder in self.retired_folders() {
+            if self.returned(&folder) {
+                continue;
+            }
             let slot = self.slot(&folder);
             let _record = slot.lock_record();
             let Ok(_writing) = self.enter() else {
@@ -376,6 +388,9 @@ impl Images {
             }
             let slot = self.slot(id);
             let _record = slot.lock_record();
+            // An instance put back from the Trash while the Launcher ran takes its
+            // snapshots back first: they are its own, not a deleted instance's.
+            self.readopt_before_journal_check(id);
             let _writing = self.enter()?;
             let Ok(mut records) = self.reconciled_locked(id) else {
                 continue;
@@ -396,6 +411,10 @@ impl Images {
             }
         }
         for folder in self.retired_folders() {
+            // Still a live instance's when taking it back failed: never deleted here.
+            if self.returned(&folder) {
+                continue;
+            }
             let slot = self.slot(&folder);
             let _record = slot.lock_record();
             let _writing = self.enter()?;
@@ -410,6 +429,37 @@ impl Images {
         Ok(cleaned)
     }
 
+    /// Whether the retired `folder` belongs to an instance that is back
+    /// ([`returns_to`] with the instance of its marker's id).
+    fn returned(&self, folder: &str) -> bool {
+        let images_dir = self.store().images_dir();
+        let marker = read_marker(&images_dir.join(folder));
+        if marker.former_id.is_empty() || !valid_instance_id(&marker.former_id) {
+            return false;
+        }
+        let created = self
+            .instances()
+            .get(&marker.former_id)
+            .ok()
+            .map(|i| i.created);
+        returns_to(&images_dir, &marker, created)
+    }
+
+    /// Takes back the snapshots of every instance that is back ([`Self::returned`]),
+    /// under each instance's record lock. What fails is only noted, and the folder stays
+    /// the live instance's ([`Self::returned`] keeps the callers off it).
+    fn readopt_returned(&self) {
+        for folder in self.retired_folders() {
+            if !self.returned(&folder) {
+                continue;
+            }
+            let id = read_marker(&self.store().images_dir().join(&folder)).former_id;
+            let slot = self.slot(&id);
+            let _record = slot.lock_record();
+            self.readopt_before_journal_check(&id);
+        }
+    }
+
     /// A collection now, on this thread (Settings › Storage, which then measures what it
     /// freed). Waits for one running in the background. Blocking.
     pub fn collect_now(&self) -> Result<(), ImageError> {
@@ -422,8 +472,22 @@ impl Images {
     }
 }
 
+/// Whether a retired folder with `marker` is a live instance's that came back (put back
+/// from the Trash) and hasn't taken its snapshots back yet: the instance with the marker's
+/// id was created at `created`, the marker's time, and has no images of its own in
+/// `images_dir`. [`Images::readopt_locked`] takes exactly such a folder back. Lock-free,
+/// for Storage's counts too.
+pub(crate) fn returns_to(images_dir: &Path, marker: &RetiredMarker, created: Option<u64>) -> bool {
+    !marker.former_id.is_empty()
+        && valid_instance_id(&marker.former_id)
+        && !marker.former_id.starts_with(RETIRED_PREFIX)
+        && created.is_some()
+        && marker.instance_created == created
+        && !images_dir.join(&marker.former_id).exists()
+}
+
 /// The marker in `dir`; the default (no name, no time) when it is damaged.
-fn read_marker(dir: &Path) -> RetiredMarker {
+pub(crate) fn read_marker(dir: &Path) -> RetiredMarker {
     let path = dir.join(RETIRED_FILE);
     let readable = std::fs::metadata(&path).is_ok_and(|m| m.len() <= MAX_MARKER_BYTES);
     readable

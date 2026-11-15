@@ -197,7 +197,6 @@ pub fn text(message: M) -> &'static str {
         }
         M::BadgeAutomatic => "Automatique",
         M::BadgeAfterPlaying => "Après une partie",
-        M::BadgeBeforeRestore => "Avant une restauration",
         M::BadgeImported => "Importé",
         M::BadgePinned => "Épinglé",
         M::RestoreEllipsis => "Restaurer…",
@@ -464,6 +463,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::SnapshotsNotChanged => "Les instantanés n’ont pas pu être modifiés",
         M::RestoreKeptAsideTitle => "Des fichiers gênaient la restauration",
+        M::SnapshotRestored => "« {name} » a été restauré.",
         M::ImportLeftOutTitle => "Certains fichiers n’ont pas été importés",
         M::ImportLeftOut => {
             "Ils n’ont pas pu être téléchargés, donc la nouvelle instance ne les a pas\u{a0}: {files}."

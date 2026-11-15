@@ -223,7 +223,6 @@ crate::i18n::messages! {
         /// Badges on a snapshot's row.
         BadgeAutomatic = "Automatic",
         BadgeAfterPlaying = "After playing",
-        BadgeBeforeRestore = "Before a restore",
         BadgeImported = "Imported",
         BadgePinned = "Pinned",
         /// A snapshot row's buttons.
@@ -513,6 +512,8 @@ crate::i18n::messages! {
         RemoveAddedModpackNote = "Removes the files the pack added. Files you changed stay.",
         SnapshotsNotChanged = "The snapshots couldn't be changed",
         RestoreKeptAsideTitle = "Some files were in the restore's way",
+        /// {name} is the snapshot's name.
+        SnapshotRestored = "Restored “{name}”.",
         ImportLeftOutTitle = "Some files weren't imported",
         /// {files} is a list of files.
         ImportLeftOut = "They couldn't be downloaded, so the new instance doesn't have them: {files}.",

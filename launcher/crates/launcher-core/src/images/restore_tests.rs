@@ -1049,3 +1049,88 @@ fn a_full_snapshot_restores_everything_without_a_link() {
     assert_eq!(s.read("mods/a.jar").unwrap(), b"mod v1");
     assert_eq!(s.read("saves/World/region/r.0.0.mca").unwrap(), b"w1");
 }
+
+#[test]
+fn a_retry_while_the_instance_folder_cant_be_reached_keeps_the_journal() {
+    let (s, _) = played();
+    let root = s.store.dir(s.id());
+    let before = files(&root);
+    let suffix = swap::random_suffix();
+    let staging = root.join(format!("{}{suffix}", swap::STAGING_PREFIX));
+    std::fs::create_dir_all(staging.join("minecraft/saves/World")).unwrap();
+    std::fs::write(staging.join("minecraft/saves/World/level.dat"), b"new").unwrap();
+    let replaced: HashSet<String> = ["minecraft/saves/World/level.dat".to_string()].into();
+    let mut staged = Staged::new(
+        &root,
+        suffix,
+        &["minecraft/saves/World".to_string()],
+        &replaced,
+        &["minecraft/saves/World/level.dat".to_string()],
+    )
+    .unwrap();
+    staged.faults.fail_after = Some(1);
+    staged.faults.break_rollback = true;
+    let journal = s
+        .images
+        .store()
+        .instance_dir(s.id())
+        .unwrap()
+        .join(swap::JOURNAL_FILE);
+    assert!(matches!(staged.swap(&journal), Err(SwapError::Broken(_))));
+    // The drive holding the instance is unplugged: its folder can't be reached.
+    let away = root.with_extension("unplugged");
+    std::fs::rename(&root, &away).unwrap();
+    let retried = s
+        .images
+        .retry_unfinished_restore(s.id(), std::time::Duration::from_secs(1));
+    assert!(retried.is_err(), "Play keeps refusing");
+    assert!(journal.exists(), "the journal stays");
+    assert!(
+        swap::recover_one(&away.with_extension("missing"), &journal).is_err(),
+        "nothing to undo is never assumed of a folder that isn't there"
+    );
+    assert!(journal.exists());
+    std::fs::rename(&away, &root).unwrap();
+    // Plugged back in: the next start undoes the swap.
+    s.images.recover_restores();
+    s.images.empty_restore_trash(None);
+    assert!(!journal.exists());
+    assert_eq!(files(&root), before);
+}
+
+#[test]
+fn a_cancelled_snapshot_or_restore_changes_nothing() {
+    let (s, record) = played();
+    s.write("saves/World/region/r.0.0.mca", b"later");
+    let before = files(&s.store.dir(s.id()));
+    let records = s.records();
+    let cancelled: &(dyn Fn() -> bool + Sync) = &|| true;
+    let taken = s.images.take_snapshot(
+        s.id(),
+        Take {
+            cancel: cancelled,
+            ..Take::new(SnapshotKind::Manual, "Stopped")
+        },
+    );
+    assert!(matches!(taken, Err(ImageError::Cancelled)), "{taken:?}");
+    assert_eq!(s.records(), records, "no snapshot recorded");
+    let restored = s.images.restore(
+        s.id(),
+        &record.id,
+        &RestoreScope::Worlds(vec!["World".into()]),
+        cancelled,
+    );
+    assert!(
+        matches!(restored, Err(ImageError::Cancelled)),
+        "{restored:?}"
+    );
+    let journal = s
+        .images
+        .store()
+        .instance_dir(s.id())
+        .unwrap()
+        .join(swap::JOURNAL_FILE);
+    assert!(!journal.exists());
+    s.images.empty_restore_trash(None);
+    assert_eq!(files(&s.store.dir(s.id())), before);
+}

@@ -190,7 +190,6 @@ pub fn text(message: M) -> &'static str {
         }
         M::BadgeAutomatic => "自动",
         M::BadgeAfterPlaying => "游戏后",
-        M::BadgeBeforeRestore => "恢复前",
         M::BadgeImported => "已导入",
         M::BadgePinned => "已固定",
         M::RestoreEllipsis => "恢复…",
@@ -414,6 +413,7 @@ pub fn text(message: M) -> &'static str {
         M::RemoveAddedModpackNote => "移除该整合包添加的文件。你修改过的文件会保留。",
         M::SnapshotsNotChanged => "无法更改快照",
         M::RestoreKeptAsideTitle => "有些文件妨碍了恢复",
+        M::SnapshotRestored => "已恢复“{name}”。",
         M::ImportLeftOutTitle => "部分文件未导入",
         M::ImportLeftOut => "这些文件无法下载，因此新实例中没有它们：{files}。",
         M::RestoreKeptAside => "恢复期间写入的文件保存在 {folder}。",

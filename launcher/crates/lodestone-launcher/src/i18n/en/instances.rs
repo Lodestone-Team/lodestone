@@ -170,7 +170,7 @@ crate::i18n::messages! {
 
         // Modpacks.
         NotAModpack = "Not a modpack",
-        NotMrpack = "{name} isn't a modpack. Modrinth modpacks end in .mrpack, and CurseForge modpacks are .zip files with a manifest.json in them.",
+        NotMrpack = "{name} isn't a modpack. Modrinth modpacks end in .mrpack, and CurseForge modpacks are .zip files with a manifest.json in them. Snapshots shared from Lodestone end in .lodeimg.",
         /// A CurseForge modpack while this build can't reach CurseForge (no API key).
         CurseForgeUnreachable = "This is a CurseForge modpack, and this copy of Lodestone Launcher can't reach CurseForge.",
         CurseForgePackOnWebsite = "This modpack can only be downloaded from CurseForge's website. Download it there, then drop the .zip on Lodestone Launcher.",

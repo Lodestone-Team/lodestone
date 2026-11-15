@@ -137,7 +137,7 @@ pub fn text(message: M) -> &'static str {
 
         M::NotAModpack => "不是模組包",
         M::NotMrpack => {
-            "{name} 不是模組包。Modrinth 模組包的副檔名為 .mrpack，CurseForge 模組包是含有 manifest.json 的 .zip 檔案。"
+            "{name} 不是模組包。Modrinth 模組包的副檔名為 .mrpack，CurseForge 模組包是含有 manifest.json 的 .zip 檔案。從 Lodestone 分享的快照副檔名為 .lodeimg。"
         }
         M::CurseForgeUnreachable => {
             "這是 CurseForge 模組包，而此 Lodestone Launcher 無法連線至 CurseForge。"

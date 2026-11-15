@@ -91,8 +91,17 @@ impl Images {
             return Ok(History::default());
         }
         let current = loaded.state.current;
+        let sent = sent_content(
+            &self
+                .load_records(instance)
+                .ok()
+                .flatten()
+                .unwrap_or_default(),
+            current.as_deref(),
+        );
         let images = newest_content_first(&listing.content, current.as_deref())
             .into_iter()
+            .filter(|header| !sent.contains(&header.id))
             .filter_map(|header| {
                 let image = self.store().load_manifest(instance, &header.id).ok()?;
                 Some(HistoryEntry {
@@ -110,6 +119,30 @@ impl Images {
             .collect();
         Ok(History { current, images })
     }
+}
+
+/// The content images only imported snapshots link to (other than `current`): what
+/// someone else's instance had, with their labels and times, kept so the snapshot can be
+/// restored, but never a version of this instance's content, so its history leaves them
+/// out.
+fn sent_content(
+    records: &[super::snapshots::SnapshotRecord],
+    current: Option<&str>,
+) -> std::collections::HashSet<String> {
+    use super::snapshots::SnapshotKind;
+    let own: std::collections::HashSet<&str> = records
+        .iter()
+        .filter(|r| r.kind != SnapshotKind::Imported)
+        .filter_map(|r| r.content.as_deref())
+        .chain(current)
+        .collect();
+    records
+        .iter()
+        .filter(|r| r.kind == SnapshotKind::Imported)
+        .filter_map(|r| r.content.as_deref())
+        .filter(|id| !own.contains(id))
+        .map(str::to_string)
+        .collect()
 }
 
 #[cfg(test)]
