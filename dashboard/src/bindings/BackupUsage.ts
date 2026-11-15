@@ -10,7 +10,7 @@ export type BackupUsage = {
  */
 total_bytes: number, 
 /**
- * The compressed size of the objects this server's backups use.
+ * The compressed size of the files this server's backups use (shared ones once).
  */
 stored_bytes: number, 
 /**

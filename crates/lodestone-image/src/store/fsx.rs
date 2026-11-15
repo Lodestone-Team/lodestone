@@ -46,6 +46,29 @@ pub(crate) fn temp_path(dir: &Path) -> PathBuf {
     dir.join(format!("{TEMP_PREFIX}{}{TEMP_SUFFIX}", random_suffix()))
 }
 
+/// What a collection names a file it set aside to delete: `<name>.collecting-<16 hex>`.
+const ASIDE_INFIX: &str = ".collecting-";
+
+/// The name a collection moves the store file at `path` to while it decides whether to
+/// delete it. Unlike a temporary name, it keeps the file's own name, so a crash between
+/// the two renames can be undone ([`aside_original`]) instead of losing a file a claim
+/// had just touched.
+pub(crate) fn aside_path(path: &Path) -> io::Result<PathBuf> {
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| io::Error::other("a store file without a name"))?;
+    Ok(path.with_file_name(format!("{name}{ASIDE_INFIX}{}", random_suffix())))
+}
+
+/// The name of the file a collection set aside as `name`, if `name` is one
+/// ([`aside_path`]).
+pub(crate) fn aside_original(name: &str) -> Option<&str> {
+    let (original, suffix) = name.rsplit_once(ASIDE_INFIX)?;
+    let hex = suffix.len() == 16 && suffix.bytes().all(|b| b.is_ascii_hexdigit());
+    (hex && !original.is_empty()).then_some(original)
+}
+
 /// Creates a new temporary file in `dir`, which must exist. Never opens an existing file.
 pub(crate) fn create_temp(dir: &Path) -> io::Result<(File, PathBuf)> {
     let mut last = None;

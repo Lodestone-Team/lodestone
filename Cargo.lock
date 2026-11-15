@@ -3141,6 +3141,7 @@ dependencies = [
  "libc",
  "local-ip-address",
  "lodestone_connect",
+ "lodestone_image",
  "lodestone_minecraft",
  "lodestone_trace",
  "rand 0.10.3",
@@ -3182,7 +3183,6 @@ dependencies = [
  "whoami",
  "windows-sys 0.61.2",
  "zip",
- "zstd",
 ]
 
 [[package]]
@@ -3193,7 +3193,6 @@ dependencies = [
  "ring",
  "serde",
  "serde_json",
- "sha1 0.10.7",
  "tempfile",
  "thiserror 2.0.21",
  "walkdir",

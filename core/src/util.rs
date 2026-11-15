@@ -6,6 +6,8 @@ use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::sync::LazyLock;
 use std::time::Duration;
 
+pub mod disk;
+
 use rand::distr::Alphanumeric;
 use rand::RngExt;
 use std::path::{Path, PathBuf};
@@ -286,7 +288,7 @@ impl UnzipLimits {
     const DEFAULT: UnzipLimits = UnzipLimits {
         max_bytes: MAX_UNZIP_BYTES,
         max_entries: MAX_UNZIP_ENTRIES,
-        free_space: crate::backups::store::free_space,
+        free_space: disk::free_space,
     };
 }
 
@@ -295,7 +297,7 @@ impl UnzipLimits {
 /// downloads also always leave free). Extraction stops with an error, before writing it,
 /// at the first entry or byte that would go past either.
 ///
-/// [`FREE_SPACE_MARGIN`]: crate::backups::store::FREE_SPACE_MARGIN
+/// [`FREE_SPACE_MARGIN`]: disk::FREE_SPACE_MARGIN
 struct UnzipBudget {
     archive_name: String,
     max_bytes: u64,
@@ -355,7 +357,7 @@ impl UnzipBudget {
 
     /// `so_far` when `bytes` counts what was extracted so far, so the archive needs more.
     fn check_bytes(&self, bytes: u64, so_far: bool) -> Result<(), Error> {
-        use crate::backups::store::{format_bytes, FREE_SPACE_MARGIN};
+        use crate::util::disk::{format_bytes, FREE_SPACE_MARGIN};
         if bytes > self.max_bytes {
             return Err(Error {
                 kind: ErrorKind::BadRequest,
@@ -656,7 +658,7 @@ fn copy_file_into_zip<W: Write + std::io::Seek>(
 
 /// Zips `files` into `dest`. Symbolic links inside folders are skipped, so a link cannot
 /// pull files from outside the folder into the archive.
-fn zip_files_in(
+pub(crate) fn zip_files_in(
     files: &[impl AsRef<Path>],
     dest: &Path,
     overwrite_dest: bool,
@@ -826,6 +828,24 @@ pub fn scoped_join_win_safe<R: AsRef<Path>, U: AsRef<Path>>(
     }
     Ok(ret)
 }
+
+/// Folds a file name the way a disk that ignores letter case might (Unicode lower case of
+/// the upper case), for checks that guard names: `ſ` folds to `s`, as NTFS upper-cases it
+/// to `S`, so `.lodeſtone_config` is `.lodestone_config`. Over-folding (`ß` meets `ss`) is
+/// the safe side for a guard.
+pub fn fold_name(name: &str) -> String {
+    if name.is_ascii() {
+        name.to_ascii_lowercase()
+    } else {
+        name.to_uppercase().to_lowercase()
+    }
+}
+
+/// 16 random hex digits, for temporary and restore folder names.
+pub fn random_suffix() -> String {
+    format!("{:016x}", rand::rng().random::<u64>())
+}
+
 pub mod fs {
     use std::path::Path;
 
@@ -926,6 +946,64 @@ pub mod fs {
         })
     }
 
+    /// Creates a temporary file in `dir` named `<prefix>…<suffix>`, for a file that is put
+    /// in place under its real name once it is whole. Unlike tempfile's default (owner
+    /// only), it has the mode a plain file create gives (0o666 less the umask), so the file
+    /// put in place can be read like any other file in the server folder (by an SFTP
+    /// account in the group, say). Blocking.
+    pub fn temp_file_in(
+        dir: &Path,
+        prefix: &str,
+        suffix: &str,
+    ) -> std::io::Result<tempfile::NamedTempFile> {
+        let mut builder = tempfile::Builder::new();
+        builder.prefix(prefix).suffix(suffix);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            builder.permissions(std::fs::Permissions::from_mode(0o666));
+        }
+        builder.tempfile_in(dir)
+    }
+
+    /// Moves the file `from` to `to`, never replacing what is at `to`: fails with
+    /// `AlreadyExists` when something has that name (a link isn't followed). `std::fs::rename`
+    /// replaces a file silently, so the move is a hard link and then removing `from`; a crash
+    /// between them leaves the file under both names, never under neither. On a disk without
+    /// hard links (FAT, some network shares) it falls back to a rename once `to` is checked
+    /// to be free, which leaves a short race with another writer of the same name. Blocking.
+    pub fn move_no_replace(from: &Path, to: &Path) -> std::io::Result<()> {
+        match std::fs::hard_link(from, to) {
+            Ok(()) => {
+                if let Err(e) = std::fs::remove_file(from) {
+                    tracing::warn!("Could not remove {}: {e}", from.display());
+                }
+                Ok(())
+            }
+            Err(e) if links_unsupported(&e) => {
+                if std::fs::symlink_metadata(to).is_ok() {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::AlreadyExists,
+                        format!("{} already exists", to.display()),
+                    ));
+                }
+                std::fs::rename(from, to)
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Whether a hard link failed because the disk can't make one, rather than because of
+    /// the files: unsupported, across disks, refused by the file system (Linux on FAT says
+    /// EPERM), or Windows' ERROR_INVALID_FUNCTION (FAT, some shares).
+    fn links_unsupported(e: &std::io::Error) -> bool {
+        use std::io::ErrorKind;
+        matches!(
+            e.kind(),
+            ErrorKind::Unsupported | ErrorKind::CrossesDevices | ErrorKind::PermissionDenied
+        ) || (cfg!(windows) && e.raw_os_error() == Some(1))
+    }
+
     /// Creates a new, empty file, never replacing one that is already there: "New file" with
     /// the name of an existing file used to empty it. Fails with a `Conflict` error when
     /// something already has that name (a file, a folder or a symbolic link, which isn't
@@ -997,6 +1075,35 @@ mod tests {
 
     // Every test gets its own temporary folder instead of the global `path_to_tmp()`, which
     // is shared by all tests in the process and races when they run in parallel.
+
+    /// A file put in place from a temporary one has the mode a plain create gives, not
+    /// tempfile's owner-only 0o600.
+    #[cfg(unix)]
+    #[test]
+    fn temporary_files_get_the_mode_of_a_plain_create() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let plain = dir.path().join("plain");
+        std::fs::File::create(&plain).unwrap();
+        let temp = super::fs::temp_file_in(dir.path(), ".lodestone-upload-", ".tmp").unwrap();
+        let mode = |path: &Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(temp.path()), mode(&plain));
+        let name = temp
+            .path()
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
+        assert!(name.starts_with(".lodestone-upload-") && name.ends_with(".tmp"));
+    }
+
+    #[test]
+    fn names_fold_the_way_a_case_insensitive_disk_might() {
+        assert_eq!(super::fold_name(".LODESTONE_Config"), ".lodestone_config");
+        assert_eq!(super::fold_name(".lodeſtone_config"), ".lodestone_config");
+        assert_eq!(super::fold_name("Straße"), "strasse");
+    }
 
     fn read(path: impl AsRef<Path>) -> String {
         std::fs::read_to_string(path).unwrap().trim().to_string()
@@ -1256,7 +1363,7 @@ mod tests {
     /// for a zip before anything is extracted (LS-87).
     #[test]
     fn an_archive_that_does_not_fit_on_the_disk_is_refused() {
-        use crate::backups::store::FREE_SPACE_MARGIN;
+        use crate::util::disk::FREE_SPACE_MARGIN;
         let temp = tempfile::tempdir().unwrap();
         let tmp = temp.path().join("tmp");
         let dest = temp.path().join("dest");

@@ -25,12 +25,13 @@ use ts_rs::TS;
 
 use crate::{
     auth::user::{User, UserAction},
-    backups::store::require_free_space,
     error::{Error, ErrorKind},
     events::{new_fs_event, Event, FSOperation, FSTarget, ProgressionEventID},
     prelude::{lodestone_path, path_to_stores, path_to_tmp},
     types::InstanceUuid,
-    util::{list_dir, rand_alphanumeric, resolve_path_conflict, zip_files},
+    util::{
+        disk::require_free_space, list_dir, rand_alphanumeric, resolve_path_conflict, zip_files,
+    },
     AppState,
 };
 
@@ -1194,7 +1195,7 @@ mod tests {
             "/home/u/.lodestone/local_claim/abc/result.json",
             "/home/u/.lodestone/playit.toml",
             "/home/u/.lodestone/tls/key.pem",
-            "/home/u/.lodestone/backups/servers/x/restore-journal.json",
+            "/home/u/.lodestone/backups/images/x/restore-journal.json",
             "/home/u/.lodestone/backups/objects/ab/abcd",
         ] {
             assert!(

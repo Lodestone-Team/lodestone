@@ -1,8 +1,7 @@
 //! Reading one whole-number field (a schema or document version) of a JSON object without
 //! building the rest.
 //!
-//! A manifest's schema, or an old file's version, decides how the rest is read, so it is
-//! read first. Deserializing even a one-field struct with a `serde_json::Value` would build
+//! A manifest's schema decides whether the rest is read at all, so it is read first. Deserializing even a one-field struct with a `serde_json::Value` would build
 //! whatever that field holds as a tree of values (72 bytes each), so a field holding an
 //! array of millions of zeros would cost tens of times the input's size before anything
 //! refused it. Here every value but the probed field's number is skipped with

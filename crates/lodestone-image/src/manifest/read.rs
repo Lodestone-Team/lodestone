@@ -220,16 +220,6 @@ impl<'de> Visitor<'de> for Capped<'_> {
     }
 }
 
-/// Reads any JSON value within `budget` and [`MAX_UNKNOWN_DEPTH`], as unknown fields are
-/// read: for JSON that is kept as it was (an old instance's settings, a delta's unknown
-/// fields) and comes from elsewhere.
-pub(crate) fn capped_value<'de, D: Deserializer<'de>>(
-    deserializer: D,
-    budget: &mut UnknownBudget,
-) -> Result<Value, D::Error> {
-    Capped { budget, depth: 0 }.deserialize(deserializer)
-}
-
 /// Reads a list of at most `max` items (`null` is the empty list), failing as soon as the
 /// list passes the bound.
 pub(super) struct Bounded<T> {

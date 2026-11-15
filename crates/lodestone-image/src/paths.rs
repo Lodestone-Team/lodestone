@@ -399,9 +399,9 @@ fn changed_by_nfc(c: char) -> bool {
     )
 }
 
-/// Top-level folders that are never recorded: logs, crash reports, caches, natives,
-/// profiler output, and the Launcher's snapshot staging.
-const EXCLUDED_TOP_FOLDERS: [&str; 9] = [
+/// Top-level folders that are never recorded: logs, crash reports, caches, natives and
+/// profiler output.
+const EXCLUDED_TOP_FOLDERS: [&str; 8] = [
     "logs",
     "crash-reports",
     "cache",
@@ -410,7 +410,6 @@ const EXCLUDED_TOP_FOLDERS: [&str; 9] = [
     ".fabric",
     ".mixin.out",
     "debug",
-    ".lodestone-snapshot",
 ];
 
 /// Whether `path` is never recorded in an image (and never placed from one), whatever the
@@ -420,9 +419,13 @@ const EXCLUDED_TOP_FOLDERS: [&str; 9] = [
 ///   `logs`, `crash-reports`, `cache`, `.cache`, `natives`, `.fabric`, `.mixin.out`,
 ///   `debug`), which only matter to the running game;
 /// - `session.lock` at any depth, a running game's lock on a world;
-/// - Lodestone's working folders: `.lodestone-restore*` at any depth, the Launcher's
-///   `.lodestone-snapshot` staging, and the modpack store's `objects`, `staging` and
-///   `snapshot` folders in `.lodestone_modpack/`;
+/// - Lodestone's working files: any name starting with `.lodestone-` at any depth (a
+///   restore's folders, uploads and downloads in flight, the Launcher's
+///   `.lodestone-snapshot` staging; Lodestone's lasting files are named `.lodestone_…`),
+///   and the modpack updater's working files in `.lodestone_modpack/`: its `staging` and
+///   `snapshot` folders and its journal `update.json`. The journal describes the files on
+///   disk at the moment it was written; put back by a restore over other files, it would
+///   have the updater's recovery remove the wrong ones at the next start;
 /// - `.lodestone_config`, a server's identity.
 pub fn always_excluded(path: &CanonicalPath) -> bool {
     let parts: Vec<&str> = path.components().collect();
@@ -435,7 +438,7 @@ pub fn always_excluded(path: &CanonicalPath) -> bool {
 pub(crate) fn excluded_parts(parts: &[&str]) -> bool {
     if parts
         .iter()
-        .any(|part| starts_with_name(part, ".lodestone-restore"))
+        .any(|part| starts_with_name(part, ".lodestone-"))
     {
         return true;
     }
@@ -448,8 +451,9 @@ pub(crate) fn excluded_parts(parts: &[&str]) -> bool {
     match parts {
         [only] => same_name(only, ".lodestone_config"),
         [top, _, ..] if in_names(top, &EXCLUDED_TOP_FOLDERS) => true,
+        [top, journal] if same_name(top, ".lodestone_modpack") => same_name(journal, "update.json"),
         [top, folder, _, ..] if same_name(top, ".lodestone_modpack") => {
-            in_names(folder, &["objects", "staging", "snapshot"])
+            in_names(folder, &["staging", "snapshot"])
         }
         _ => false,
     }
@@ -649,7 +653,7 @@ mod tests {
             "saves/世界/level.dat",
             "saves/Мир/level.dat",
             "saves/दुनिया/level.dat",
-            ".lodestone_modpack/record.json",
+            ".lodestone_modpack/update.json",
             "a.b.c",
             "...x",
             "nulls.txt",
@@ -717,7 +721,7 @@ mod tests {
         // never-recorded file there (git's CVE-2014-9390 for `.git`).
         for (path, c) in [
             ("\u{200C}.lodestone_config", '\u{200C}'),
-            (".lodestone\u{200D}_modpack/record.json", '\u{200D}'),
+            (".lodestone\u{200D}_modpack/update.json", '\u{200D}'),
             ("\u{FEFF}session.lock", '\u{FEFF}'),
             ("lo\u{200B}gs/latest.log", '\u{200B}'),
             ("sa\u{200E}ves/w/level.dat", '\u{200E}'),
@@ -879,10 +883,18 @@ mod tests {
             ("saves/w/.lodestone-restore-old-1/x", true),
             (".lodestone_config", true),
             ("world/.lodestone_config", false),
-            (".lodestone_modpack/objects/ab/cd", true),
+            (".lodestone_modpack/objects/ab/cd", false),
+            ("config/.lodestone-upload-0123456789abcdef.tmp", true),
             (".lodestone_modpack/staging/x", true),
             (".lodestone_modpack/snapshot/x", true),
-            (".lodestone_modpack/record.json", false),
+            (".lodestone_modpack/update.json", true),
+            (".lodestone_modpack/notified.json", false),
+            (".lodestone_modpack/interrupted-1/mods/a.jar", false),
+            ("mods/.lodestone-download-0123.tmp", true),
+            ("mods/.lodestone-enable-0123.tmp", true),
+            ("config/.lodestone-replaced-x/a.toml", true),
+            (".lodestone_whatever/a", false),
+            (".lodestonex/a", false),
             ("mods/a.jar", false),
             ("config/cache/x", false),
             // Whatever the letter case: on most disks these are the same files.
@@ -894,9 +906,11 @@ mod tests {
             ("SESSION.LOCK", true),
             (".LODESTONE-RESTORE-x/y", true),
             ("mods/.Lodestone-Restore-old/a.jar", true),
-            (".LODESTONE_MODPACK/Objects/ab/cd", true),
+            (".LODESTONE_MODPACK/Staging/ab/cd", true),
+            ("config/.LODESTONE-UPLOAD-x.tmp", true),
             (".lodeſtone_config", true),
-            (".LODESTONE_MODPACK/record.json", false),
+            (".LODESTONE_MODPACK/Update.JSON", true),
+            ("mods/.Lodestone-Download-x.tmp", true),
         ];
         for (path, excluded) in cases {
             assert_eq!(always_excluded(&p(path)), excluded, "{path}");
@@ -1001,9 +1015,9 @@ mod tests {
     #[test]
     fn lodestone_paths() {
         assert!(is_lodestone_path(&p(".lodestone_config")));
-        assert!(is_lodestone_path(&p(".lodestone_modpack/record.json")));
+        assert!(is_lodestone_path(&p(".lodestone_modpack/update.json")));
         assert!(!is_lodestone_path(&p("mods/.lodestone_client_mods.json")));
-        assert!(is_lodestone_path(&p(".LODESTONE_MODPACK/record.json")));
+        assert!(is_lodestone_path(&p(".LODESTONE_MODPACK/update.json")));
         assert!(is_lodestone_path(&p(".Lodestone-anything")));
     }
 

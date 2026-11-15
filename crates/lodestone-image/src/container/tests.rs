@@ -4,6 +4,7 @@ use crate::manifest::tests::{fabric, path};
 use crate::manifest::{Entry, Kind, World};
 use crate::settings::{ClientSettings, StoredFile};
 use crate::store::cdc::tests::region_like;
+use crate::store::chunklist::ChunkRef;
 use crate::store::materialize::{materialize, MaterializeOptions};
 use crate::store::tests::{encodings, store};
 use crate::store::{Encoding, NEVER};
@@ -586,54 +587,6 @@ fn the_free_space_hook_can_refuse() {
     assert!(matches!(error, ContainerError::NoRoom(_)));
     assert_eq!(*asked.lock().unwrap(), container.unpacked_bytes());
     assert!(!target.root().join("objects").exists());
-}
-
-/// A large file the core stored whole travels as its chunk list, cut as any store cuts
-/// it, so the same image gives the same export from a store that keeps it whole and one
-/// that keeps it chunked; and the export imports and places as usual.
-#[test]
-fn a_whole_large_object_exports_as_its_chunk_list() {
-    let big = region_like(31, 5 << 20);
-    let sha256 = sha256_hex(&big);
-    let mut image = Image::new(Kind::Content, fabric());
-    image.entries.push(Entry::new(
-        path("mods/big.jar"),
-        big.len() as u64,
-        sha256.clone(),
-        Source::Object {},
-    ));
-    image.seal();
-
-    let (dir, chunked) = store(Encoding::Raw);
-    chunked.put_bytes(&big).unwrap();
-    let (_whole_dir, whole) = store(Encoding::Raw);
-    // As the core's backups wrote it (raw here, for a store without zstd).
-    let object = whole.object_path(&sha256).unwrap();
-    fs::create_dir_all(object.parent().unwrap()).unwrap();
-    fs::write(&object, &big).unwrap();
-    assert_eq!(
-        whole.object_form(&sha256, big.len() as u64).unwrap(),
-        ObjectForm::Whole
-    );
-
-    let from_chunked = dir.path().join("chunked.zip");
-    let from_whole = dir.path().join("whole.zip");
-    let a = export(&chunked, &image, &[], &from_chunked, NEVER).unwrap();
-    let b = export(&whole, &image, &[], &from_whole, NEVER).unwrap();
-    assert_eq!(a, b);
-    assert!(b.chunks > 1);
-    assert_eq!(
-        fs::read(&from_chunked).unwrap(),
-        fs::read(&from_whole).unwrap()
-    );
-
-    let mut container = open(&from_whole, &Limits::default()).unwrap();
-    let (_t, target) = store(Encoding::Raw);
-    container.import_objects(&target, &no_check, NEVER).unwrap();
-    assert_eq!(
-        target.read_object_bytes(&sha256, big.len() as u64).unwrap(),
-        big
-    );
 }
 
 /// Entries can share one object, and a list can repeat one chunk, so a tiny export can

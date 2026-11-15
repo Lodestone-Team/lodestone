@@ -10,7 +10,7 @@
 //! refers to an earlier image, so deleting one image never breaks another.
 //!
 //! - [`manifest`]: the image and its parts, and reading a manifest safely
-//!   ([`Image::from_json`]): unknown fields are kept, newer schemas are refused.
+//!   ([`Image::from_json`]): unknown fields are kept, other schemas are refused.
 //! - [`identity`]: an image's id is the SHA-256 of its canonical form, so the same files,
 //!   sources, base, game and settings give the same id wherever they were recorded
 //!   ([`Image::seal`], [`Image::verify`]).
@@ -25,10 +25,18 @@
 //! - [`mod@view`]: the server's and the client's view of an image, computed and canonical, and
 //!   the check that the two views lose nothing.
 //! - [`delta`]: the changes between any two images, and applying them.
+//! - [`store`]: the content-addressed store on one machine: objects, manifests and stat
+//!   caches, snapshots of a folder into it, placing an image's files on a disk, and
+//!   collecting what no image names.
+//! - [`container`]: export files, one zip carrying an image to another computer, and the
+//!   strict reader that takes one in.
+//! - [`hex`]: hex digests.
 //!
-//! The crate makes no network calls and touches no files: callers walk folders, download
-//! and store objects. Untrusted input (a manifest from another computer, a path from a
-//! disk) never panics; it gives an error.
+//! The crate makes no network calls: callers download. [`store`] and [`container`] read and
+//! write files, walk folders and flush disks, so they block: call them on a blocking
+//! thread, never on an async or UI thread. The rest touches no files. Untrusted input (a
+//! manifest from another computer, a path from a disk, an export) never panics; it gives
+//! an error.
 
 pub mod container;
 pub mod delta;
@@ -36,7 +44,6 @@ pub mod env;
 pub mod hex;
 pub mod identity;
 pub mod layout;
-pub mod legacy;
 pub mod manifest;
 pub mod paths;
 pub mod settings;

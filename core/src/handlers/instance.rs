@@ -153,15 +153,24 @@ pub async fn create_minecraft_instance(
 }
 
 /// A step that runs after a new Minecraft instance is set up and before it is added, such
-/// as installing a modpack. It gets the instance folder and the creation's progression
-/// event, and returns an extra message for the end of the creation.
+/// as installing a modpack. It gets the instance folder, the creation's progression event
+/// and the new instance's uuid, and returns an extra message for the end of the creation.
 pub(super) type PostSetupStep = Box<
-    dyn FnOnce(PathBuf, ProgressionEventID) -> BoxFuture<'static, Result<Option<String>, Error>>
+    dyn FnOnce(
+            PathBuf,
+            ProgressionEventID,
+            InstanceUuid,
+        ) -> BoxFuture<'static, Result<Option<String>, Error>>
         + Send,
 >;
 
+/// The progress of recording a new server's first content image, on top of the creation's
+/// `total_progress`.
+const RECORD_PROGRESS: f64 = 1.0;
+
 /// Creates the folder of a new Minecraft instance and sets it up in the background, with
-/// progression events, like `POST /instance/create/{game_type}`. On failure the folder is
+/// progression events (`total_progress` for setting it up; recording its first content
+/// image adds [`RECORD_PROGRESS`]), like `POST /instance/create/{game_type}`. On failure the folder is
 /// removed. Returns the new instance's UUID right away.
 pub(super) async fn spawn_minecraft_instance_creation(
     state: AppState,
@@ -200,7 +209,7 @@ pub(super) async fn spawn_minecraft_instance_creation(
         async move {
             let (progression_start_event, event_id) = Event::new_progression_event_start(
                 title,
-                Some(total_progress),
+                Some(total_progress + RECORD_PROGRESS),
                 Some(ProgressionStartValue::InstanceCreation {
                     instance_uuid: uuid.clone(),
                 }),
@@ -220,7 +229,8 @@ pub(super) async fn spawn_minecraft_instance_creation(
                 let Some(post_setup) = post_setup else {
                     return Ok((instance, None));
                 };
-                let message = post_setup(setup_path.clone(), event_id.clone()).await?;
+                let message =
+                    post_setup(setup_path.clone(), event_id.clone(), uuid.clone()).await?;
                 // read the instance again: the step may have changed its files
                 drop(instance);
                 let instance = minecraft::MinecraftInstance::restore(
@@ -233,22 +243,8 @@ pub(super) async fn spawn_minecraft_instance_creation(
                 Ok::<_, Error>((instance, message))
             }
             .await;
-            let minecraft_instance = match created {
-                Ok((v, message)) => {
-                    let message = match message {
-                        Some(extra) => format!("Server created successfully. {extra}"),
-                        None => "Server created successfully".to_string(),
-                    };
-                    event_broadcaster.send(Event::new_progression_event_end(
-                        event_id,
-                        true,
-                        Some(&message),
-                        Some(ProgressionEndValue::InstanceCreation(
-                            v.get_instance_info().await,
-                        )),
-                    ));
-                    v
-                }
+            let (minecraft_instance, message) = match created {
+                Ok(created) => created,
                 Err(e) => {
                     event_broadcaster.send(Event::new_progression_event_end(
                         event_id,
@@ -257,6 +253,15 @@ pub(super) async fn spawn_minecraft_instance_creation(
                         None,
                     ));
                     remove_failed_instance_dir(setup_path).await;
+                    // what a modpack's setup recorded before the failure (its pack.json and
+                    // first image), whose objects would otherwise never be collected
+                    match state.images.delete_instance(&uuid).await {
+                        Ok(()) => state.images.request_gc(),
+                        Err(e) => error!(
+                            "Failed to delete the images of the failed server {uuid}: {}",
+                            e.source
+                        ),
+                    }
                     return;
                 }
             };
@@ -283,12 +288,61 @@ pub(super) async fn spawn_minecraft_instance_creation(
                 // the instance is still usable by the owner and admins
                 error!("Failed to update permissions: {:?}", e);
             }
+            // before the server is listed, so nothing starts or changes it first
+            record_created(&state, &uuid, &minecraft_instance, &event_id).await;
+            let info = minecraft_instance.get_instance_info().await;
             state
                 .instances
                 .insert(uuid.clone(), minecraft_instance.into());
+            let message = match message {
+                Some(extra) => format!("Server created successfully. {extra}"),
+                None => "Server created successfully".to_string(),
+            };
+            event_broadcaster.send(Event::new_progression_event_end(
+                event_id,
+                true,
+                Some(&message),
+                Some(ProgressionEndValue::InstanceCreation(info)),
+            ));
         }
     });
     Ok(instance_uuid)
+}
+
+/// The first content image of a server just created, before it is listed: "Created
+/// <name>", unless its setup already recorded one (a modpack's "Installed <pack>"). It
+/// reads and stores every content file (all of an imported server's), so it first says so
+/// on the creation's progression event `event_id` ([`RECORD_PROGRESS`]). A failure is only
+/// logged: its first content image is then recorded when it stops, or at the next startup
+/// (see `ImageService::server_stopped` and `startup_sweep`).
+async fn record_created(
+    state: &AppState,
+    uuid: &InstanceUuid,
+    instance: &minecraft::MinecraftInstance,
+    event_id: &ProgressionEventID,
+) {
+    state
+        .event_broadcaster
+        .send(Event::new_progression_event_update(
+            event_id,
+            "Recording the server's content",
+            RECORD_PROGRESS,
+        ));
+    if state.images.current_content(uuid).await.is_some() {
+        return;
+    }
+    let ctx = crate::images::context_with_policy(state.images.root(), instance).await;
+    let name = instance.name().await;
+    if let Err(e) = state
+        .images
+        .record_now(ctx, format!("Created {name}"))
+        .await
+    {
+        tracing::warn!(
+            "Failed to record the content of the new server {uuid}: {}",
+            e.source
+        );
+    }
 }
 
 pub async fn delete_instance(
@@ -450,3 +504,6 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+pub(crate) mod content_images_tests;

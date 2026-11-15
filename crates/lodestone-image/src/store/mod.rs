@@ -3,22 +3,22 @@
 //!
 //! ```text
 //! <root>/
-//!   objects/ab/<sha256>              whole files (up to 1 MiB, and large files the core
-//!                                    stored whole): only ever the file's own bytes
+//!   objects/ab/<sha256>              whole files of up to 1 MiB: only ever the file's
+//!                                    own bytes
 //!   lists/ab/<sha256>                chunk lists of larger files
 //!   chunks/ab/<sha256>               the chunks of large files (see `cdc`, `chunklist`)
 //!   images/<instance>/<id>.json      one manifest per image
 //!   images/<instance>/stat-cache.json   what the last snapshot read (`statcache`)
-//!   images/collection.lock           held by GC, and by older formats' writers (`gc`)
+//!   images/<instance>/stat-cache.<name>.json   the same for snapshots of another part
+//!                                    of the folder ([`Store::load_stat_cache_named`])
+//!   images/collection.lock           held by GC, and by callers holding it off (`gc`)
 //!   objects/.incoming-<16 hex>.tmp   writes in flight (also in lists/, chunks/ and
 //!                                    images/…/), swept once an hour old
 //! ```
 //!
-//! A name in `objects/` never holds anything but that file's bytes, because released
-//! Launchers share the folder and read any file there as the file it names (they skip
-//! storing a file whose object is there, and restore by copying the object). Chunk lists
-//! live in `lists/`, which no released program reads; a file is present when `objects/`
-//! has it whole or `lists/` has its list.
+//! A name in `objects/` never holds anything but that file's bytes, and chunk lists live
+//! in `lists/`, so nothing has to tell one from the other by its contents: a file of up to
+//! 1 MiB is present when `objects/` has it, a larger one when `lists/` has its list.
 //!
 //! Objects are named by the SHA-256 of the file they stand for; how their bytes sit on
 //! disk is the store's [`Encoding`]. Every write goes to a temporary file that is written
@@ -41,8 +41,6 @@
 //! - [`snapshot`]: walking a folder into an image's entries.
 //! - [`materialize`]: placing an image's files into a staging folder.
 //! - [`gc`]: deleting what no manifest uses.
-//! - [`guard`]: keeping released Lodestones that share the folder from collecting what
-//!   images use.
 //! - [`excludes`]: an image's exclude patterns.
 //!
 //! Unlike the rest of the crate, this module reads and writes files. Everything here
@@ -54,7 +52,6 @@ pub mod encoding;
 pub mod excludes;
 pub(crate) mod fsx;
 pub mod gc;
-pub mod guard;
 pub mod materialize;
 pub mod snapshot;
 pub mod statcache;
@@ -63,11 +60,11 @@ use std::collections::{BTreeSet, HashMap};
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
 
 use crate::sha256::Sha256;
+use serde::Deserialize;
 
 use crate::hex::{is_sha256, sha256_hex};
 use crate::identity::IdentityError;
@@ -104,6 +101,23 @@ const CLAIM_STILL_GOOD: Duration = Duration::from_secs(300);
 /// Recent claims remembered at most; past this, saving claims everything again.
 const MAX_REMEMBERED_CLAIMS: usize = 2_000_000;
 const STAT_CACHE_FILE: &str = "stat-cache.json";
+/// The stat cache [`Store::load_stat_cache`] and [`Store::save_stat_cache`] use.
+pub const DATA_STAT_CACHE: &str = "data";
+
+/// The file of the stat cache called `name` in an instance's folder: `stat-cache.json` for
+/// [`DATA_STAT_CACHE`], `stat-cache.<name>.json` for any other name of 1 to 32 lowercase
+/// letters, digits and `-`. `None` for other names. None of them is a manifest's name
+/// (`<sha256>.json`).
+pub fn stat_cache_file(name: &str) -> Option<String> {
+    if name == DATA_STAT_CACHE {
+        return Some(STAT_CACHE_FILE.to_string());
+    }
+    let valid = (1..=32).contains(&name.len())
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
+    valid.then(|| format!("stat-cache.{name}.json"))
+}
 
 /// A claimed object: its SHA-256 as bytes (half a hex string's size) and its size.
 type ClaimKey = ([u8; 32], u64);
@@ -244,12 +258,26 @@ pub struct ManifestListing {
     pub unreadable: Vec<(String, String)>,
 }
 
+/// What listing an instance's images needs of a manifest, read without its entries
+/// ([`Store::load_header`]): a backup's data image lists every file of the server, and
+/// retention and the history only need these.
+///
+/// It isn't checked against its id (that needs every entry), so it is for choosing what to
+/// keep and what to list, never for what a restore places: load the manifest for that.
+/// `kind` and `content` are part of the id, so they never change for an id; `parent`,
+/// `created` and `label` are informational and change when an image is saved again.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManifestHeader {
+    pub id: String,
+    pub kind: crate::manifest::Kind,
+    pub parent: Option<String>,
+    pub created: i64,
+    pub label: Option<String>,
+    pub content: Option<String>,
+}
+
 /// A store at a folder, with one encoding. Cheap to make; nothing is read or created until
 /// used. Shared between threads freely: writes of the same object at once are safe.
-///
-/// Before its first write, a store makes sure its folder has the downgrade guard
-/// ([`guard`]), so a released Lodestone that shares the folder never collects what images
-/// use.
 #[derive(Debug)]
 pub struct Store {
     root: PathBuf,
@@ -262,8 +290,6 @@ pub struct Store {
     /// right after a snapshot doesn't claim them all again. Timed by the wall clock, as
     /// objects age, not by `Instant`, which stops while a Mac sleeps.
     claimed: Mutex<HashMap<ClaimKey, SystemTime>>,
-    /// Whether the downgrade guard is known to be in place.
-    guarded: AtomicBool,
 }
 
 /// Whether `id` can name an instance's folder: 1 to 100 ASCII letters, digits, `-` and
@@ -288,19 +314,7 @@ impl Store {
             encoding,
             unsynced: Mutex::new(BTreeSet::new()),
             claimed: Mutex::new(HashMap::new()),
-            guarded: AtomicBool::new(false),
         }
-    }
-
-    /// Makes sure the downgrade guard ([`guard`]) is in the store's folder before anything
-    /// else is written there. Once per value.
-    fn ensure_guard(&self) -> Result<(), StoreError> {
-        if self.guarded.load(Ordering::Acquire) {
-            return Ok(());
-        }
-        guard::ensure(&self.root).map_err(io_err("Failed to write the store's downgrade guard"))?;
-        self.guarded.store(true, Ordering::Release);
-        Ok(())
     }
 
     pub fn root(&self) -> &Path {
@@ -457,11 +471,14 @@ impl Store {
     }
 
     /// The object for a file of `size` bytes, if it looks present (see
-    /// [`Store::has_object`]): the whole file in `objects/`, or its chunk list in `lists/`.
+    /// [`Store::has_object`]): the whole file in `objects/` for a file of up to 1 MiB, its
+    /// chunk list in `lists/` for a larger one. The store writes nothing else, so a whole
+    /// object is never looked for a large file, nor a list for a small one.
     fn presence(&self, sha256: &str, size: u64) -> Option<Presence> {
-        let path = self.object_path(sha256).ok()?;
-        if decoded_len(self.encoding, &path) == Some(size) {
-            return Some(Presence::Whole(path));
+        if size <= CHUNKED_ABOVE {
+            let path = self.object_path(sha256).ok()?;
+            return (decoded_len(self.encoding, &path) == Some(size))
+                .then_some(Presence::Whole(path));
         }
         let path = self.list_path(sha256).ok()?;
         let list = self.list_for(&path, size).ok()??;
@@ -738,7 +755,6 @@ impl Store {
         sha256: &str,
         size: u64,
     ) -> Result<Option<u64>, StoreError> {
-        self.ensure_guard()?;
         let dir = self.area_dir(Area::Objects);
         fs::create_dir_all(&dir).map_err(io_err("Failed to create the store"))?;
         let temp = fsx::temp_path(&dir);
@@ -789,7 +805,6 @@ impl Store {
         if self.reuse(&path, bytes.len() as u64) {
             return Ok(0);
         }
-        self.ensure_guard()?;
         let dir = self.area_dir(area);
         fs::create_dir_all(&dir).map_err(io_err("Failed to create the store"))?;
         let (file, temp) =
@@ -1048,7 +1063,6 @@ impl Store {
             .map_err(|e| StoreError::Manifest(ManifestError::Invalid(e)))?;
         image.verify()?;
         let path = self.manifest_path(instance, &image.id)?;
-        self.ensure_guard()?;
         for entry in &image.entries {
             if !self.claim_for_save(&entry.sha256, entry.size)
                 && entry.source == (Source::Object {})
@@ -1095,23 +1109,81 @@ impl Store {
         Ok(image)
     }
 
-    /// Every manifest of an instance that can be read, and those that can't.
-    pub fn list_manifests(&self, instance: &str) -> Result<ManifestListing, StoreError> {
+    /// Reads what listing needs of one manifest ([`ManifestHeader`]), skipping its entries
+    /// without building them. Refuses a schema other than this one's and a manifest whose
+    /// `id` isn't the one in its name; nothing else is checked.
+    pub fn load_header(&self, instance: &str, id: &str) -> Result<ManifestHeader, StoreError> {
+        // Every field named, without `#[serde(flatten)]`, so serde skips the rest (the
+        // entries) as it reads them instead of keeping them.
+        #[derive(Deserialize)]
+        struct Probe {
+            schema: u64,
+            id: String,
+            kind: crate::manifest::Kind,
+            #[serde(default)]
+            parent: Option<String>,
+            #[serde(default)]
+            created: i64,
+            #[serde(default)]
+            label: Option<String>,
+            #[serde(default)]
+            content: Option<String>,
+        }
+        let path = self.manifest_path(instance, id)?;
+        let bytes = read_capped(&path, MAX_MANIFEST_BYTES)?;
+        let probe: Probe = serde_json::from_slice(&bytes)
+            .map_err(|e| StoreError::Manifest(ManifestError::Json(e.to_string())))?;
+        if probe.schema != u64::from(crate::manifest::SCHEMA) {
+            return Err(StoreError::Manifest(ManifestError::Invalid(format!(
+                "schema {} isn't {}",
+                probe.schema,
+                crate::manifest::SCHEMA
+            ))));
+        }
+        if probe.id != id {
+            return Err(StoreError::Identity(IdentityError::Mismatch {
+                claimed: id.to_string(),
+                actual: probe.id,
+            }));
+        }
+        Ok(ManifestHeader {
+            id: probe.id,
+            kind: probe.kind,
+            parent: probe.parent,
+            created: probe.created,
+            label: probe.label,
+            content: probe.content,
+        })
+    }
+
+    /// The ids of an instance's manifests (the files named `<id>.json` in its folder), in
+    /// no order. Nothing is read.
+    pub fn manifest_ids(&self, instance: &str) -> Result<Vec<String>, StoreError> {
         let dir = self.instance_dir(instance)?;
-        let mut listing = ManifestListing::default();
         let entries = match fs::read_dir(&dir) {
             Ok(entries) => entries,
-            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(listing),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
             Err(e) => return Err(io_err("Failed to list the images")(e)),
         };
-        for entry in entries.flatten() {
-            let name = entry.file_name();
-            let Some(id) = name.to_str().and_then(manifest_id) else {
-                continue;
-            };
-            match self.load_manifest(instance, id) {
+        Ok(entries
+            .flatten()
+            .filter_map(|entry| {
+                entry
+                    .file_name()
+                    .to_str()
+                    .and_then(manifest_id)
+                    .map(str::to_string)
+            })
+            .collect())
+    }
+
+    /// Every manifest of an instance that can be read, and those that can't.
+    pub fn list_manifests(&self, instance: &str) -> Result<ManifestListing, StoreError> {
+        let mut listing = ManifestListing::default();
+        for id in self.manifest_ids(instance)? {
+            match self.load_manifest(instance, &id) {
                 Ok(image) => listing.images.push(image),
-                Err(e) => listing.unreadable.push((id.to_string(), e.to_string())),
+                Err(e) => listing.unreadable.push((id, e.to_string())),
             }
         }
         listing
@@ -1152,65 +1224,107 @@ impl Store {
     /// The instance's stat cache; empty when there is none or it can't be read (then every
     /// file is hashed again, which is only slower).
     pub fn load_stat_cache(&self, instance: &str) -> StatCache {
-        self.instance_dir(instance)
-            .ok()
-            .and_then(|dir| read_capped(&dir.join(STAT_CACHE_FILE), MAX_MANIFEST_BYTES).ok())
-            .and_then(|bytes| StatCache::from_json(&bytes))
-            .unwrap_or_default()
+        self.load_stat_cache_named(instance, DATA_STAT_CACHE)
     }
 
     /// Saves the instance's stat cache, replacing the last one.
     pub fn save_stat_cache(&self, instance: &str, cache: &StatCache) -> Result<(), StoreError> {
+        self.save_stat_cache_named(instance, DATA_STAT_CACHE, cache)
+    }
+
+    /// One of the instance's named stat caches ([`stat_cache_file`]); empty when there is
+    /// none, it can't be read or the name isn't one.
+    ///
+    /// An instance whose snapshots cover different parts of its folder keeps a cache per
+    /// part: the core's content images walk only mods and configs, and a cache they saved
+    /// over the backups' one would make the next backup hash every world again.
+    pub fn load_stat_cache_named(&self, instance: &str, name: &str) -> StatCache {
+        let Some(file) = stat_cache_file(name) else {
+            return StatCache::default();
+        };
+        self.instance_dir(instance)
+            .ok()
+            .and_then(|dir| read_capped(&dir.join(file), MAX_MANIFEST_BYTES).ok())
+            .and_then(|bytes| StatCache::from_json(&bytes))
+            .unwrap_or_default()
+    }
+
+    /// Saves one of the instance's named stat caches, replacing the last one of that name.
+    pub fn save_stat_cache_named(
+        &self,
+        instance: &str,
+        name: &str,
+        cache: &StatCache,
+    ) -> Result<(), StoreError> {
+        let file = stat_cache_file(name).ok_or_else(|| StoreError::Io {
+            what: format!("{name:?} isn't a stat cache name"),
+            source: io::Error::from(io::ErrorKind::InvalidInput),
+        })?;
         let dir = self.instance_dir(instance)?;
         fs::create_dir_all(&dir).map_err(io_err("Failed to create the image folder"))?;
-        write_atomic(&dir, &dir.join(STAT_CACHE_FILE), &cache.to_json())
+        write_atomic(&dir, &dir.join(file), &cache.to_json())
     }
 
     /// Deletes temporary files older than `max_age` (left by a crash) in `objects/`,
-    /// `lists/`, `chunks/` and every instance's folder. Returns how many.
-    ///
-    /// Also the Launcher's snapshot store's objects in flight (`objects/ab/.<sha256>.<tag>`,
-    /// `.<sha256>.import`) once they are older than both `max_age` and
-    /// [`LEGACY_TEMP_MAX_AGE`], its own rule: once a folder has the downgrade guard, its old
-    /// collector never sweeps again, and this is the only cleanup left.
+    /// `lists/`, `chunks/` and every instance's folder, and puts back files a collection
+    /// set aside when it stopped half way (a crash between its two renames; what nothing
+    /// uses goes at the next collection). Returns how many temporary files it deleted.
+    /// Waits for a collection that is running, whose set-aside files are its own.
     pub fn sweep_temp(&self, max_age: Duration) -> u64 {
+        match self.hold_off_collection() {
+            Ok(_hold) => self.sweep_temp_held(max_age),
+            // without the lock, only what no collection can be using
+            Err(_) => self.sweep_dirs(max_age, false),
+        }
+    }
+
+    /// [`Self::sweep_temp`] for a caller that holds collections off or is the collection.
+    pub(crate) fn sweep_temp_held(&self, max_age: Duration) -> u64 {
+        self.sweep_dirs(max_age, true)
+    }
+
+    fn sweep_dirs(&self, max_age: Duration, put_back: bool) -> u64 {
         let mut dirs = Vec::new();
         let tops = Area::ALL
             .iter()
-            .map(|area| (self.area_dir(*area), *area == Area::Objects))
-            .chain([(self.images_dir(), false)]);
-        for (top, objects) in tops {
+            .map(|area| self.area_dir(*area))
+            .chain([self.images_dir()]);
+        for top in tops {
             if let Ok(entries) = fs::read_dir(&top) {
                 dirs.extend(
                     entries
                         .flatten()
                         .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
-                        .map(|e| (e.path(), objects)),
+                        .map(|e| e.path()),
                 );
             }
-            dirs.push((top, false));
+            dirs.push(top);
         }
         let now = SystemTime::now();
         let mut removed = 0;
-        for (dir, objects) in dirs {
+        for dir in dirs {
             let Ok(entries) = fs::read_dir(&dir) else {
                 continue;
             };
             for entry in entries.flatten() {
-                let name = entry.file_name();
-                let Some(name) = name.to_str() else { continue };
-                let older_than = if fsx::is_temp_name(name) {
-                    max_age
-                } else if objects && is_legacy_temp_name(name) {
-                    max_age.max(LEGACY_TEMP_MAX_AGE)
-                } else {
+                let file_name = entry.file_name();
+                let Some(name) = file_name.to_str() else {
                     continue;
                 };
+                if let Some(original) = fsx::aside_original(name) {
+                    if put_back {
+                        put_back_aside(&entry.path(), &dir.join(original));
+                    }
+                    continue;
+                }
+                if !fsx::is_temp_name(name) {
+                    continue;
+                }
                 let old = entry
                     .metadata()
                     .ok()
                     .and_then(|m| fsx::age(&m, now))
-                    .is_some_and(|age| age >= older_than);
+                    .is_some_and(|age| age >= max_age);
                 if old && fsx::remove_file_forced(&entry.path()).is_ok() {
                     removed += 1;
                 }
@@ -1220,20 +1334,15 @@ impl Store {
     }
 }
 
-/// How old the Launcher's snapshot store's objects in flight must be before they are
-/// swept: its own collector's rule (a day).
-pub const LEGACY_TEMP_MAX_AGE: Duration = Duration::from_secs(24 * 3600);
-
-/// Whether `name` is one of the Launcher's snapshot store's objects in flight:
-/// `.<sha256>.<tag>` (a tag of letters and digits, such as 16 hex digits or `import`).
-fn is_legacy_temp_name(name: &str) -> bool {
-    let Some(rest) = name.strip_prefix('.') else {
-        return false;
-    };
-    let Some((sha256, tag)) = rest.split_once('.') else {
-        return false;
-    };
-    is_sha256(sha256) && !tag.is_empty() && tag.bytes().all(|b| b.is_ascii_alphanumeric())
+/// Puts back the file a collection set aside at `aside` under its own name `original`, or
+/// deletes it when a file of that name is there again (written since, with the same bytes,
+/// since a store file's name is its hash).
+fn put_back_aside(aside: &Path, original: &Path) {
+    if fs::symlink_metadata(original).is_ok() {
+        let _ = fsx::remove_file_forced(aside);
+    } else {
+        let _ = fs::rename(aside, original);
+    }
 }
 
 /// Whether a claim made at `when` still vouches for its object at `now`: less than
@@ -1435,12 +1544,8 @@ impl ObjectWriter<'_> {
                     });
                     Ok(())
                 })?;
-                let object = store.area_path(Area::Objects, &sha256)?;
-                // A whole copy (the core's, from before chunking) is as good as a list.
-                if !store.reuse(&object, size) {
-                    let list = ChunkList { size, chunks }.encode();
-                    added += store.write_area(Area::Lists, &sha256, &list)?;
-                }
+                let list = ChunkList { size, chunks }.encode();
+                added += store.write_area(Area::Lists, &sha256, &list)?;
             }
         }
         Ok(Stored {

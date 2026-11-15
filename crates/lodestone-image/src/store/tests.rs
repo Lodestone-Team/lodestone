@@ -176,98 +176,6 @@ fn a_changed_block_stores_only_nearby_chunks() {
     assert!(ratio < 0.53, "two versions take {ratio:.3} of their size");
 }
 
-#[cfg(feature = "zstd")]
-mod core_compatibility {
-    use super::*;
-    use std::io::BufWriter;
-
-    /// An object written exactly the way `core/src/backups/store.rs` writes one (its
-    /// `store_object` and `digest`): a stream encoder at level 3 with a checksum, the
-    /// content size and the pledged size, fed in pieces of `(size + 1)` clamped to 8 KiB
-    /// to 1 MiB.
-    fn core_object(path: &Path, data: &[u8]) {
-        let file = File::create(path).unwrap();
-        let mut encoder = zstd::stream::write::Encoder::new(BufWriter::new(file), 3).unwrap();
-        encoder.include_checksum(true).unwrap();
-        encoder.include_contentsize(true).unwrap();
-        encoder
-            .set_pledged_src_size(Some(data.len() as u64))
-            .unwrap();
-        let size = data.len() as u64;
-        let mut buffer = vec![0u8; (size.saturating_add(1)).clamp(8 * 1024, 1 << 20) as usize];
-        let mut reader = io::Cursor::new(data);
-        loop {
-            let n = reader.read(&mut buffer).unwrap();
-            if n == 0 {
-                break;
-            }
-            encoder.write_all(&buffer[..n]).unwrap();
-        }
-        encoder
-            .finish()
-            .unwrap()
-            .into_inner()
-            .unwrap()
-            .sync_all()
-            .unwrap();
-    }
-
-    #[test]
-    fn small_objects_are_the_cores_byte_for_byte() {
-        let (dir, store) = store(Encoding::Zstd);
-        for data in [
-            Vec::new(),
-            b"x".to_vec(),
-            TestRng::new(2).bytes(5000),
-            region_like(3, 300_000),
-            region_like(4, 1 << 20),
-        ] {
-            let stored = store.put_bytes(&data).unwrap();
-            let core = dir.path().join("core-object");
-            core_object(&core, &data);
-            assert_eq!(
-                fs::read(store.object_path(&stored.sha256).unwrap()).unwrap(),
-                fs::read(&core).unwrap(),
-                "{} bytes",
-                data.len()
-            );
-        }
-    }
-
-    #[test]
-    fn the_cores_large_whole_objects_read_in_place() {
-        let (_dir, store) = store(Encoding::Zstd);
-        let data = region_like(5, 3_000_000);
-        let sha256 = sha256_hex(&data);
-        let path = store.object_path(&sha256).unwrap();
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        core_object(&path, &data);
-        assert!(store.has_object(&sha256, data.len() as u64));
-        assert_eq!(
-            store.object_form(&sha256, data.len() as u64).unwrap(),
-            ObjectForm::Whole
-        );
-        assert_eq!(
-            store.read_object_bytes(&sha256, data.len() as u64).unwrap(),
-            data
-        );
-        // Storing the same file again keeps the whole object rather than adding a list.
-        let again = store.put_bytes(&data).unwrap();
-        assert_eq!(
-            store.object_form(&sha256, data.len() as u64).unwrap(),
-            ObjectForm::Whole
-        );
-        assert!(
-            again.added_bytes > 0,
-            "its chunks are stored, the object isn't"
-        );
-        assert_eq!(
-            store.read_object_bytes(&sha256, data.len() as u64).unwrap(),
-            data
-        );
-    }
-}
-
 #[test]
 fn reads_check_every_byte() {
     for encoding in encodings() {
@@ -811,7 +719,29 @@ fn manifests_round_trip_and_are_checked() {
     assert!(listing
         .unreadable
         .iter()
-        .any(|(id, why)| id == &newer && why.contains("newer")));
+        .any(|(id, why)| id == &newer && why.contains("schema 3")));
+
+    // Headers: what listing needs, without the entries; the same refusals of a newer
+    // schema, another id's manifest and garbage.
+    let header = store.load_header("server-1", &image.id).unwrap();
+    assert_eq!(header.id, image.id);
+    assert_eq!(header.kind, Kind::Data);
+    assert_eq!(header.label.as_deref(), Some("second"));
+    assert_eq!(header.created, 20);
+    assert_eq!(header.content, None);
+    for id in [&wrong_id, &newer, &garbage] {
+        assert!(store.load_header("server-1", id).is_err(), "{id}");
+    }
+    let mut ids = store.manifest_ids("server-1").unwrap();
+    ids.sort();
+    let mut all = vec![
+        image.id.clone(),
+        wrong_id.clone(),
+        newer.clone(),
+        garbage.clone(),
+    ];
+    all.sort();
+    assert_eq!(ids, all);
 
     assert!(store.delete_manifest("server-1", &image.id).unwrap());
     assert!(!store.delete_manifest("server-1", &image.id).unwrap());
@@ -878,6 +808,35 @@ fn stat_caches_persist_per_instance() {
     assert_eq!(store.load_stat_cache("a"), StatCache::default());
     // It isn't a manifest.
     assert!(store.list_manifests("a").unwrap().unreadable.is_empty());
+}
+
+#[test]
+fn named_stat_caches_are_kept_apart() {
+    let (_dir, store) = store(Encoding::Raw);
+    let mut data = StatCache::new(1);
+    data.insert("world/level.dat".into(), 3, 1, sha256_hex(b"world"));
+    let mut content = StatCache::new(2);
+    content.insert("mods/a.jar".into(), 3, 1, sha256_hex(b"mod"));
+    store.save_stat_cache("a", &data).unwrap();
+    store
+        .save_stat_cache_named("a", "content", &content)
+        .unwrap();
+    // Saving one never replaces the other.
+    assert_eq!(store.load_stat_cache("a"), data);
+    assert_eq!(store.load_stat_cache_named("a", DATA_STAT_CACHE), data);
+    assert_eq!(store.load_stat_cache_named("a", "content"), content);
+    let dir = store.instance_dir("a").unwrap();
+    assert!(dir.join("stat-cache.content.json").is_file());
+    assert!(dir.join(STAT_CACHE_FILE).is_file());
+    // Names that could reach another file aren't names.
+    for bad in ["", "../x", "Content", "a.b", "a/b", &"x".repeat(33)] {
+        assert_eq!(stat_cache_file(bad), None, "{bad:?}");
+        assert_eq!(store.load_stat_cache_named("a", bad), StatCache::default());
+        assert!(store.save_stat_cache_named("a", bad, &content).is_err());
+    }
+    // Neither is a manifest.
+    let listing = store.list_manifests("a").unwrap();
+    assert!(listing.images.is_empty() && listing.unreadable.is_empty());
 }
 
 /// How fast a large new file goes into the store, flushes and all: run by hand
@@ -990,14 +949,4 @@ fn unknown_fields_named_after_known_ones_are_never_saved() {
     image.seal();
     assert!(store.save_manifest("x", &image).is_err());
     assert!(store.list_manifests("x").unwrap().images.is_empty());
-}
-
-#[test]
-fn the_downgrade_guard_is_written_before_anything_else() {
-    let (_dir, store) = store(Encoding::Raw);
-    assert!(!store.root().exists());
-    store.put_bytes(b"first object").unwrap();
-    for (path, contents) in guard::guard_files(store.root()) {
-        assert_eq!(fs::read_to_string(path).unwrap(), contents);
-    }
 }

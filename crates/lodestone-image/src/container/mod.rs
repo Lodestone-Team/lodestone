@@ -10,15 +10,13 @@
 //! chunks/<sha256>       the chunks those lists name
 //! ```
 //!
-//! A file over 1 MiB always travels as its chunk list, even when the store keeps it whole
-//! (the core's large files from before chunking): it is cut on the way out exactly as a
-//! store cuts it, so the same image gives the same export from any store.
+//! A file over 1 MiB travels as its chunk list, as the store keeps it, so the same image
+//! gives the same export from any store.
 //!
 //! Files with any other source travel as references (a Modrinth or CurseForge version, the
 //! base pack), so an export of a modded instance is mostly its worlds and configs.
 //!
-//! An export comes from another computer, so reading one trusts nothing, with the same rules
-//! as the Launcher's `.lodesnap` reader: only the names above, no name twice, local headers
+//! An export comes from another computer, so reading one trusts nothing: only the names above, no name twice, local headers
 //! that match the central directory, at most [`Limits::max_entries`] entries and
 //! [`Limits::max_total_bytes`] unpacked, no image whose files add up to more than
 //! [`Limits::max_total_bytes`] either (entries can share one object, and a list can repeat
@@ -39,8 +37,8 @@ use crate::sha256::Sha256;
 use crate::hex::{is_sha256, sha256_hex};
 use crate::identity::IdentityError;
 use crate::manifest::{Image, ManifestError, Source};
-use crate::store::cdc::{Chunker, MAX_CHUNK};
-use crate::store::chunklist::{ChunkList, ChunkRef, CHUNKED_ABOVE};
+use crate::store::cdc::MAX_CHUNK;
+use crate::store::chunklist::{ChunkList, CHUNKED_ABOVE};
 use crate::store::{
     hex_digest, manifest_id, Cancel, ObjectForm, Store, StoreError, MAX_MANIFEST_BYTES,
 };
@@ -244,35 +242,6 @@ fn write_zip(
             return Err(ContainerError::Cancelled);
         }
         match store.object_form(sha256, size)? {
-            ObjectForm::Whole if size > CHUNKED_ABOVE => {
-                // Stored whole (the core's, from before chunking): cut as a store would,
-                // listing the chunks first and then writing them, reading the object
-                // twice (and checking its hash each time) rather than holding it.
-                let mut chunks = Vec::new();
-                cut_whole(store, sha256, size, cancel, &mut |chunk| {
-                    chunks.push(ChunkRef {
-                        sha256: sha256_hex(chunk),
-                        // Chunks are at most 256 KiB.
-                        size: u32::try_from(chunk.len()).unwrap_or(u32::MAX),
-                    });
-                    Ok(())
-                })?;
-                let encoded = ChunkList { size, chunks }.encode();
-                zip.start_file(format!("objects/{sha256}"), options(encoded.len() as u64))
-                    .map_err(zip_err)?;
-                zip.write_all(&encoded).map_err(io)?;
-                cut_whole(store, sha256, size, cancel, &mut |chunk| {
-                    let chunk_sha = sha256_hex(chunk);
-                    if written_chunks.insert(chunk_sha.clone()) {
-                        zip.start_file(format!("chunks/{chunk_sha}"), options(chunk.len() as u64))
-                            .map_err(zip_err)?;
-                        zip.write_all(chunk).map_err(io)?;
-                        report.chunks += 1;
-                        report.bytes = report.bytes.saturating_add(chunk.len() as u64);
-                    }
-                    Ok(())
-                })?;
-            }
             ObjectForm::Whole => {
                 zip.start_file(format!("objects/{sha256}"), options(size))
                     .map_err(zip_err)?;
@@ -318,58 +287,6 @@ fn write_zip(
         .map_err(|e| io(e.into_error()))?;
     file.sync_all().map_err(io)?;
     Ok(report)
-}
-
-/// Reads the whole object `sha256` (checking its hash) and cuts it into chunks as the store
-/// cuts a large file, giving each chunk to `emit` in order.
-fn cut_whole(
-    store: &Store,
-    sha256: &str,
-    size: u64,
-    cancel: Cancel,
-    emit: &mut dyn FnMut(&[u8]) -> Result<(), ContainerError>,
-) -> Result<(), ContainerError> {
-    /// A writer that cuts what it is given, keeping the first error `emit` gave.
-    struct Cutter<'e> {
-        chunker: Chunker,
-        emit: &'e mut dyn FnMut(&[u8]) -> Result<(), ContainerError>,
-        failed: Option<ContainerError>,
-    }
-    impl Write for Cutter<'_> {
-        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-            let Cutter {
-                chunker,
-                emit,
-                failed,
-            } = self;
-            if failed.is_some() {
-                return Err(io::Error::other("an earlier chunk failed"));
-            }
-            match chunker.push(bytes, &mut **emit) {
-                Ok(()) => Ok(bytes.len()),
-                Err(e) => {
-                    *failed = Some(e);
-                    Err(io::Error::other("a chunk failed"))
-                }
-            }
-        }
-
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-    }
-    let mut cutter = Cutter {
-        chunker: Chunker::new(),
-        emit,
-        failed: None,
-    };
-    let read = store.read_object(sha256, size, &mut cutter, cancel);
-    if let Some(failed) = cutter.failed.take() {
-        return Err(failed);
-    }
-    read?;
-    let Cutter { chunker, emit, .. } = cutter;
-    chunker.finish(emit)
 }
 
 /// How an export holds one object. A chunk list is only checked by [`open`], not kept: a

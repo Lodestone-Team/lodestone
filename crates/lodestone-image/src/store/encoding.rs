@@ -4,8 +4,7 @@
 //! its plain bytes whatever the encoding, and moving an object between stores re-encodes
 //! it. The Launcher stores plain files ([`Encoding::Raw`]), which APFS can clone into an
 //! instance folder; the core stores zstd frames (`Encoding::Zstd`, behind the `zstd`
-//! feature), written exactly as its backup store has always written them, so the core's
-//! existing objects are readable in place.
+//! feature), since its backups hold whole worlds and compress well.
 
 use std::fs::File;
 use std::io::{self, BufWriter, Read, Write};
@@ -17,7 +16,7 @@ pub enum Encoding {
     /// Plain files, as they are.
     Raw,
     /// One zstd frame per object: level 3, with a checksum and the content size in the
-    /// frame header, the settings of the core's backup store.
+    /// frame header.
     #[cfg(feature = "zstd")]
     Zstd,
 }

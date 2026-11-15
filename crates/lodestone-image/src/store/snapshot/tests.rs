@@ -312,6 +312,34 @@ fn links_bad_names_and_unreadable_files_are_withheld() {
     assert_eq!(paths(&snapshot), want);
 }
 
+/// A folder that can't be listed is withheld under its canonical path, as a file in it
+/// would be: on a server, `world/datapacks` is `saves/world/datapacks`.
+#[cfg(unix)]
+#[test]
+fn an_unlistable_folder_is_withheld_by_its_canonical_path() {
+    use std::os::unix::fs::PermissionsExt;
+    let (dir, store) = store(Encoding::Raw);
+    let root = dir.path().join("server");
+    write(&root, "world/level.dat", b"level");
+    write(&root, "world/datapacks/a.zip", b"a");
+    let locked = root.join("world/datapacks");
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+    if fs::read_dir(&locked).is_ok() {
+        // running as root, which lists every folder
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+        return;
+    }
+    let layout = DiskLayout::Server(ServerLayout::new("world", [], false).unwrap());
+    let snapshot = snapshot(&store, &root, &layout, &SnapshotOptions::default());
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+    let snapshot = snapshot.unwrap();
+    assert_eq!(
+        withheld(&snapshot),
+        [("saves/world/datapacks", "unreadable")]
+    );
+    assert_eq!(paths(&snapshot), ["saves/world/level.dat"]);
+}
+
 #[test]
 fn the_stat_cache_skips_unchanged_files() {
     for encoding in encodings() {
@@ -638,6 +666,89 @@ fn a_path_too_long_to_withhold_is_reported_instead() {
     // An image with what was withheld stays valid.
     let mut image = Image::new(Kind::Data, crate::manifest::tests::fabric());
     image.withheld = withheld;
+    image.seal();
+    image.validate().unwrap();
+}
+
+#[test]
+fn a_filter_narrows_the_snapshot_quietly() {
+    let (dir, store) = store(Encoding::Raw);
+    let root = dir.path().join("server");
+    write(&root, "server.properties", b"level-name=world");
+    write(&root, "mods/a.jar", b"mod");
+    write(&root, "mods/bad:name.jar", b"bad");
+    write(&root, "config/a.toml", b"config");
+    write(&root, "world/level.dat", b"overworld");
+    write(&root, "world/DIM-1/region/r.0.0.mca", b"stale");
+    write(&root, "world_nether/DIM-1/region/r.0.0.mca", b"nether");
+    write(&root, "world_nether/level.dat", b"nether level");
+    write(&root, "saves/oops.txt", b"x");
+    let layout = DiskLayout::Server(ServerLayout::new("world", [], true).unwrap());
+    let offered = Mutex::new(Vec::new());
+    let filter = |candidate: &Candidate| {
+        if let Ok(mut offered) = offered.lock() {
+            offered.push((candidate.disk.to_string(), candidate.is_dir));
+        }
+        let top = candidate.disk.split('/').next().unwrap_or("");
+        matches!(top, "mods" | "config" | "server.properties")
+    };
+    let options = SnapshotOptions {
+        filter: Some(&filter),
+        ..SnapshotOptions::default()
+    };
+    let snapshot = snapshot(&store, &root, &layout, &options).unwrap();
+    assert_eq!(
+        paths(&snapshot),
+        vec!["config/a.toml", "mods/a.jar", "server.properties"]
+    );
+    // Only what the filter takes is withheld.
+    assert_eq!(withheld(&snapshot), vec![("mods/bad:name.jar", "bad_name")]);
+    // Folders turned down aren't walked.
+    let offered = offered.into_inner().unwrap();
+    assert!(offered.contains(&("world".to_string(), true)));
+    assert!(!offered.iter().any(|(disk, _)| disk.starts_with("world/")));
+    assert!(!offered
+        .iter()
+        .any(|(disk, _)| disk.starts_with("world_nether/")));
+}
+
+#[test]
+fn files_the_layout_cant_name_are_withheld_and_bad_folders_not_walked() {
+    let (dir, store) = store(Encoding::Raw);
+    let root = dir.path().join("server");
+    write(&root, "server.properties", b"level-name=world");
+    write(&root, "world/level.dat", b"overworld");
+    // A vanilla dimension left in a split level, a folder named saves, client-only files
+    // on a server, a name no canonical path has, and a folder withheld for its name.
+    write(&root, "world/DIM-1/region/r.0.0.mca", b"stale");
+    write(&root, "saves/oops.txt", b"x");
+    write(&root, "options.txt", b"fov:90");
+    write(&root, "resourcepacks/pack.zip", b"zip");
+    write(&root, "notes?.txt", b"q");
+    write(&root, "aux/inner/deep.txt", b"aux");
+    write(&root, "logs/latest.log", b"log");
+    let layout = DiskLayout::Server(ServerLayout::new("world", [], true).unwrap());
+    let snapshot = snapshot(&store, &root, &layout, &SnapshotOptions::default()).unwrap();
+    assert_eq!(
+        paths(&snapshot),
+        vec!["saves/world/level.dat", "server.properties"]
+    );
+    // A file the layout can't place back is withheld on its own; a folder whose name no
+    // canonical path can have is one record, and nothing inside it is walked.
+    assert_eq!(
+        withheld(&snapshot),
+        vec![
+            ("aux", "bad_name"),
+            ("notes?.txt", "bad_name"),
+            ("options.txt", "bad_name"),
+            ("resourcepacks/pack.zip", "bad_name"),
+            ("saves/oops.txt", "bad_name"),
+            ("world/DIM-1/region/r.0.0.mca", "bad_name"),
+        ]
+    );
+    // The image stays valid.
+    let mut image = Image::new(Kind::Data, fabric());
+    snapshot.fill(&mut image);
     image.seal();
     image.validate().unwrap();
 }

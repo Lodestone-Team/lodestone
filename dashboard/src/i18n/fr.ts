@@ -1236,7 +1236,8 @@ export const fr: Messages = {
     'Modrinth indique que les joueurs peuvent rejoindre sans ce mod, mais sur Fabric, les mods de ce genre les en empêchent souvent : les joueurs le reçoivent donc. Décochez-le pour le retirer.',
   'mods.forPlayers.marked':
     'Les joueurs recevront {name} la prochaine fois qu’ils rejoindront',
-  'mods.forPlayers.unmarked': 'Les joueurs ne reçoivent plus {name} en rejoignant',
+  'mods.forPlayers.unmarked':
+    'Les joueurs ne reçoivent plus {name} en rejoignant',
   'mods.forPlayers.failed': 'Impossible de modifier {name} : {error}',
   'mods.versionType.release': 'stable',
   'mods.versionType.beta': 'bêta',
@@ -1333,11 +1334,7 @@ export const fr: Messages = {
   'mods.modpack.historyFailed':
     'Impossible de charger l’historique du modpack : {error}',
   'mods.modpack.historyEmpty':
-    'Rien n’est encore enregistré. Les prochaines mises à jour pourront être annulées.',
-  'mods.modpack.kind.install': 'Installé',
-  'mods.modpack.kind.baseline': 'Premier enregistrement',
-  'mods.modpack.kind.update': 'Mis à jour',
-  'mods.modpack.kind.restore': '{version} restauré',
+    'Rien n’est encore enregistré. Les prochaines modifications pourront être annulées.',
   'mods.modpack.current': 'Actuelle',
   'mods.modpack.restore': 'Restaurer',
   'mods.modpack.restoreMissing':
@@ -1345,18 +1342,19 @@ export const fr: Messages = {
   'mods.modpack.restoreTitle': 'Restaurer cette version ?',
   'mods.modpack.updateTitle': 'Mettre à jour le modpack ?',
   'mods.modpack.update': 'Mettre à jour',
-  'mods.modpack.restored': '{pack} {version} restauré.',
+  'mods.modpack.restored': '« {change} » restauré.',
   'mods.modpack.updated': '{pack} mis à jour vers {version}.',
-  'mods.modpack.restoreFailed': 'Impossible de restaurer le modpack : {error}',
+  'mods.modpack.restoreFailed':
+    'Impossible de restaurer cette version : {error}',
   'mods.modpack.updateFailed':
     'Impossible de mettre à jour le modpack : {error}',
-  'mods.modpack.storeSize':
-    'Pour annuler les mises à jour, Lodestone conserve {size} de fichiers qui ne peuvent pas être retéléchargés.',
-  'mods.modpack.since': 'depuis {version}',
+  'mods.modpack.since': 'depuis le {date}',
   'mods.modpack.sinceTooltip':
-    'Ce fichier est arrivé avec la version {version} du modpack.',
+    'Ce fichier est tel qu’il était après « {change} ».',
   'mods.modpack.unknownVersion': 'version inconnue',
   'mods.modpack.dialog.intro': '{pack} passe de {from} à {to}.',
+  'mods.modpack.dialog.restoreIntro':
+    'Les mods et les configurations reviennent à leur état après « {change} ».',
   'mods.modpack.dialog.reinstall':
     'Le serveur passe à {software}, qui est réinstallé.',
   'mods.modpack.dialog.kept':
@@ -1377,10 +1375,6 @@ export const fr: Messages = {
   'mods.modpack.removed': {
     one: '{count} fichier supprimé',
     other: '{count} fichiers supprimés',
-  },
-  'mods.modpack.keptCount': {
-    one: '{count} fichier modifié conservé',
-    other: '{count} fichiers modifiés conservés',
   },
   'mods.modpack.moreChanges': {
     one: 'et {count} autre',

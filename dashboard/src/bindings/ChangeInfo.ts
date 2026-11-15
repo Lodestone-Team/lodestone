@@ -4,7 +4,7 @@ import type { ChangeKind } from './ChangeKind';
 export type ChangeInfo = {
   kind: ChangeKind;
   /**
-   * The file's path on disk after the change (before it, for a removed file).
+   * The file's path after the change (before it, for a removed file).
    */
   path: string;
   /**

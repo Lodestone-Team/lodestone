@@ -11,6 +11,7 @@ use tokio::sync::{broadcast, mpsc};
 
 use crate::error::{Error, ErrorKind};
 use crate::events::{CausedBy, Event, EventInner, InstanceEvent, InstanceEventInner};
+use crate::images::{ImageService, InstanceContext};
 use crate::implementations::minecraft::line_parser::{
     parse_player_joined, parse_player_left, parse_player_msg, parse_server_started,
     parse_system_msg, PlayerMessage,
@@ -292,6 +293,8 @@ impl MinecraftInstance {
         state.try_transition(
             action,
             Some(&|new_state| {
+                // before the event, so whoever waits for it sees the stop's record pending
+                self.content_after_state_change(previous, new_state);
                 self.event_broadcaster
                     .send(self.state_event(&name, new_state, caused_by, details))
             }),
@@ -368,6 +371,7 @@ impl MinecraftInstance {
             return false;
         }
         self.note_state_change(*state, new_state);
+        self.content_after_state_change(*state, new_state);
         *state = new_state;
         self.event_broadcaster
             .send(self.state_event(&name, new_state, caused_by, details));
@@ -848,9 +852,28 @@ impl MinecraftInstance {
                 crate::shutdown::refuse_start()?;
                 guard
             };
+            // With nothing changing the server now, record what changed outside Lodestone.
+            let images = crate::images::global();
+            if let Some(images) = &images {
+                self.check_content_before_start(images).await;
+            }
             // Subscribe first, so a server that exits right away can't be missed.
             let rx = block.then(|| self.event_broadcaster.subscribe());
-            let generation = self.begin_start(&cause_by).await?;
+            // Before the state leaves Stopped: the stop of a run that ends at once must
+            // come after this, or it would leave the server noted as running.
+            let noted = match &images {
+                Some(images) => images.server_started(&self.uuid).await,
+                None => false,
+            };
+            let generation = match self.begin_start(&cause_by).await {
+                Ok(generation) => generation,
+                Err(e) => {
+                    if let (Some(images), true) = (&images, noted) {
+                        images.start_refused(&self.uuid).await;
+                    }
+                    return Err(e);
+                }
+            };
             drop(version_guard);
             // Again, now that the state says Starting: the shutdown, once begun, either sees
             // this server starting (and kills it), or began first and is refused here.
@@ -874,6 +897,117 @@ impl MinecraftInstance {
                 None => Ok(()),
             }
         })
+    }
+}
+
+/// How long a start waits for the record of the server's last stop (see
+/// [`MinecraftInstance::content_after_state_change`]) before checking its content anyway.
+const STOP_RECORD_WAIT: Duration = crate::images::check::GATE_WAIT;
+
+/// Content images around starts and stops (`docs/instance-images.md`, "When images are
+/// recorded"; `crate::images::check`). None of this ever fails or holds up the state
+/// machine: errors are logged.
+impl MinecraftInstance {
+    /// The server as images see it now, with its backup policy's excludes.
+    async fn image_context(&self, images: &ImageService) -> InstanceContext {
+        crate::images::context_with_policy(images.root(), self).await
+    }
+
+    /// Before a start, with starts held off: waits a while for the record of the last
+    /// stop, then records anything queued and whatever changed outside Lodestone
+    /// ([`ImageService::before_start`]). Never fails the start.
+    ///
+    /// When the last run was never taken in (the core stopped while the server ran, and
+    /// this start came before the startup sweep reached it), what that run wrote is taken
+    /// into the baseline instead ([`ImageService::after_restart`]), as the sweep would:
+    /// comparing would record it as "Changed outside Lodestone".
+    pub(crate) async fn check_content_before_start(&self, images: &std::sync::Arc<ImageService>) {
+        if !ImageService::accepts(&self.uuid) {
+            return;
+        }
+        if !images.wait_for_stops(&self.uuid, STOP_RECORD_WAIT).await {
+            warn!(
+                "The content of {} is still being recorded after its last stop; checking it anyway",
+                self.uuid
+            );
+        }
+        let ctx = self.image_context(images).await;
+        if ctx.running {
+            // a start of a server that runs already, which is refused right after this:
+            // its files are the server's own until it stops
+            return;
+        }
+        let (root, uuid) = (images.root().to_path_buf(), self.uuid.clone());
+        let last_run_taken_in =
+            tokio::task::spawn_blocking(move || crate::images::state::load(&root, &uuid))
+                .await
+                .map(|state| state.running_since.is_none())
+                .unwrap_or(true);
+        if !last_run_taken_in {
+            // In its own task, so a start that stops waiting never cuts a record short.
+            let task = tokio::spawn({
+                let images = images.clone();
+                async move { images.after_restart(ctx).await }
+            });
+            match tokio::time::timeout(STOP_RECORD_WAIT, task).await {
+                Ok(Ok(Ok(()))) => {}
+                Ok(Ok(Err(e))) => warn!(
+                    "Failed to update the content of {} before it starts: {}",
+                    self.uuid, e.source
+                ),
+                Ok(Err(e)) => warn!(
+                    "Failed to update the content of {} before it starts: {e}",
+                    self.uuid
+                ),
+                Err(_) => warn!(
+                    "The content of {} is still being updated; starting it meanwhile",
+                    self.uuid
+                ),
+            }
+            return;
+        }
+        if let Err(e) = images.before_start(ctx).await {
+            warn!(
+                "Failed to check the content of {} before it starts: {}",
+                self.uuid, e.source
+            );
+        }
+    }
+
+    /// Called with the state lock held at every state change: when the server stops
+    /// (normally, by crashing, or killed; or a start that never launched), takes its
+    /// content baseline again in the background, so what it wrote while it ran makes no
+    /// image ([`ImageService::server_stopped`]).
+    fn content_after_state_change(&self, previous: State, new: State) {
+        let stopped = |state: State| matches!(state, State::Stopped | State::Error);
+        if !stopped(new) || stopped(previous) {
+            return;
+        }
+        if let Some(images) = crate::images::global() {
+            self.content_after_stop(images);
+        }
+    }
+
+    /// [`Self::content_after_state_change`] once the server stopped, with `images`.
+    pub(crate) fn content_after_stop(&self, images: std::sync::Arc<ImageService>) {
+        if !ImageService::accepts(&self.uuid) {
+            return;
+        }
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
+        let pending = images.begin_stop(&self.uuid);
+        let this = self.clone();
+        runtime.spawn(async move {
+            let _pending = pending;
+            let ctx = this.image_context(&images).await;
+            if let Err(e) = images.server_stopped(ctx).await {
+                warn!(
+                    "Failed to update the content of {} after it stopped: {}",
+                    this.uuid, e.source
+                );
+            }
+        });
     }
 }
 

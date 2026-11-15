@@ -8,6 +8,7 @@ use reqwest::{Method, StatusCode};
 use serde_json::{json, Value};
 
 use super::*;
+use crate::backups::RestoreScope;
 use crate::{
     auth::{permission::UserPermission, user::User},
     events::CausedBy,
@@ -191,10 +192,11 @@ impl Core {
         std::fs::write(path, contents).unwrap();
     }
 
+    /// The server's image folder, which holds its backups' records and policy.
     fn server_backups(&self) -> PathBuf {
         self.dir
             .path()
-            .join("backups/servers")
+            .join("backups/images")
             .join(self.uuid.as_ref())
     }
 }
@@ -329,7 +331,7 @@ async fn the_policy_is_read_validated_and_saved() {
     // `policy` isn't taken for a backup id
     let (status, _) = core.call(Method::DELETE, "/policy", &owner, None).await;
     assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED);
-    assert!(core.server_backups().join("policy.json").is_file());
+    assert!(core.server_backups().join("backup-policy.json").is_file());
 }
 
 #[tokio::test]
@@ -753,22 +755,30 @@ async fn a_full_scan_that_found_nothing_is_recorded() {
     let core = core().await;
     let owner = core.owner().await;
     let instance = minecraft(&core.state, &core.uuid).unwrap();
-    let count = core.server_backups().join("full-scan.count");
+    let store = core.state.backups.store().clone();
     core.state
         .backups
         .scheduled_backup(&core.state, instance.clone())
         .await
         .unwrap();
-    assert_eq!(std::fs::read_to_string(&count).unwrap(), "0");
+    assert_eq!(
+        store.load_records(&core.uuid).unwrap().scheduled_since_full,
+        0
+    );
     // the 10th scheduled backup since the full scan is due to be one
-    std::fs::write(&count, "9").unwrap();
+    let mut records = store.load_records(&core.uuid).unwrap();
+    records.scheduled_since_full = 9;
+    store.save_records(&core.uuid, &records).unwrap();
     core.state
         .backups
         .scheduled_backup(&core.state, instance)
         .await
         .unwrap();
     assert_eq!(core.list(&owner).await.backups.len(), 1, "nothing changed");
-    assert_eq!(std::fs::read_to_string(&count).unwrap(), "0");
+    assert_eq!(
+        store.load_records(&core.uuid).unwrap().scheduled_since_full,
+        0
+    );
 }
 
 /// The handler checks the stop and start permissions only for a server it sees running;
@@ -778,12 +788,7 @@ async fn a_server_that_started_meanwhile_is_not_stopped() {
     let core = core().await;
     let owner = core.owner().await;
     let id = core.backup(&owner, None).await;
-    let manifest = core
-        .state
-        .backups
-        .load_manifest(&core.uuid, &id)
-        .await
-        .unwrap();
+    let backup = core.state.backups.load(&core.uuid, &id).await.unwrap();
     let instance = minecraft(&core.state, &core.uuid).unwrap();
     instance.set_state_for_test(InstanceState::Running).await;
     let request = RestoreRequest {
@@ -798,7 +803,7 @@ async fn a_server_that_started_meanwhile_is_not_stopped() {
         .start_restore(
             &core.state,
             instance.clone(),
-            manifest,
+            backup,
             request,
             false,
             None,
@@ -827,12 +832,7 @@ async fn a_restore_keeps_the_policy_it_was_checked_with() {
         ..Default::default()
     };
     store.save_policy(&core.uuid, &excluding_jars).unwrap();
-    let manifest = core
-        .state
-        .backups
-        .load_manifest(&core.uuid, &id)
-        .await
-        .unwrap();
+    let backup = core.state.backups.load(&core.uuid, &id).await.unwrap();
     let uuid = core.uuid.clone();
     let check: DiffCheck = Arc::new(move |diff: &RestoreDiff| {
         assert!(!diff.changed.iter().any(|path| path == "server.jar"));
@@ -846,7 +846,7 @@ async fn a_restore_keeps_the_policy_it_was_checked_with() {
         .start_restore(
             &core.state,
             instance,
-            manifest,
+            backup,
             RestoreRequest {
                 scope: RestoreScope::Everything,
                 stop: false,
@@ -873,12 +873,7 @@ async fn the_check_after_stopping_uses_the_exclude_it_was_checked_with() {
     let owner = core.owner().await;
     let id = core.backup(&owner, None).await;
     core.write("plugins/new.jar", "written after the backup");
-    let manifest = core
-        .state
-        .backups
-        .load_manifest(&core.uuid, &id)
-        .await
-        .unwrap();
+    let backup = core.state.backups.load(&core.uuid, &id).await.unwrap();
     let store = core.state.backups.store().clone();
     let uuid = core.uuid.clone();
     let removed: Arc<std::sync::Mutex<Vec<Vec<String>>>> = Default::default();
@@ -902,7 +897,7 @@ async fn the_check_after_stopping_uses_the_exclude_it_was_checked_with() {
         .start_restore(
             &core.state,
             instance,
-            manifest,
+            backup,
             RestoreRequest {
                 scope: RestoreScope::Everything,
                 stop: false,
@@ -933,10 +928,14 @@ async fn the_check_after_stopping_uses_the_exclude_it_was_checked_with() {
     let safety = core
         .state
         .backups
-        .load_manifest(&core.uuid, &safety.id)
+        .load(&core.uuid, &safety.id)
         .await
         .unwrap();
-    assert!(safety.files.iter().any(|f| f.path == "plugins/new.jar"));
+    assert!(safety
+        .image
+        .entries
+        .iter()
+        .any(|e| e.path.as_str() == "plugins/new.jar"));
 }
 
 /// A server that stopped moments ago (it may have crashed, and restart in 5 seconds) isn't
@@ -1229,4 +1228,192 @@ async fn an_unreadable_protected_file_still_needs_global_file_permission() {
     assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
     assert!(body.to_string().contains("protected"), "{body}");
     assert_eq!(core.read("world/pack.jar"), "jar");
+}
+
+/// Every object, list and chunk of the store made old enough for a collection to take.
+fn age_store(root: &std::path::Path) {
+    for area in ["objects", "lists", "chunks"] {
+        for entry in walkdir::WalkDir::new(root.join(area))
+            .min_depth(2)
+            .into_iter()
+            .flatten()
+        {
+            if entry.file_type().is_file() {
+                let mut permissions = entry.metadata().unwrap().permissions();
+                #[allow(clippy::permissions_set_readonly_false)]
+                permissions.set_readonly(false);
+                std::fs::set_permissions(entry.path(), permissions).unwrap();
+                std::fs::File::options()
+                    .write(true)
+                    .open(entry.path())
+                    .unwrap()
+                    .set_modified(
+                        std::time::SystemTime::now() - std::time::Duration::from_secs(3 * 3600),
+                    )
+                    .unwrap();
+            }
+        }
+    }
+}
+
+/// A backup is a data image linked to the server's content image (recorded first when the
+/// server had none); "world and its mods" restores the level and that content, and the
+/// restored content is recorded as a content image of its own.
+#[tokio::test]
+async fn the_world_and_its_mods_are_restored_and_recorded() {
+    let core = core().await;
+    let owner = core.owner().await;
+    core.write("mods/a.jar", "mod a v1");
+    let id = core.backup(&owner, Some("Base")).await;
+    let backup = core.state.backups.load(&core.uuid, &id).await.unwrap();
+    let current = core.state.images.current_content(&core.uuid).await;
+    assert!(current.is_some());
+    assert_eq!(backup.image.content, current);
+    assert_eq!(backup.image.kind, lodestone_image::Kind::Data);
+    let content = backup.content.clone().unwrap();
+    assert!(content
+        .entries
+        .iter()
+        .any(|e| e.path.as_str() == "mods/a.jar"));
+
+    core.write("mods/a.jar", "mod a v2");
+    core.write("mods/b.jar", "mod b");
+    core.write("world/level.dat", "level v2");
+    core.write("notes.txt", "notes");
+    let (status, body) = core
+        .call(
+            Method::POST,
+            &format!("/{id}/restore"),
+            &owner,
+            Some(json!({ "scope": "world_and_mods", "safety_backup": false })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    core.wait_idle(&owner).await;
+    assert_eq!(core.read("mods/a.jar"), "mod a v1");
+    assert!(!core.root.join("mods/b.jar").exists());
+    assert_eq!(core.read("world/level.dat"), "level v1");
+    assert_eq!(core.read("notes.txt"), "notes");
+    let restored = core.state.images.current_content(&core.uuid).await.unwrap();
+    let image = core
+        .state
+        .images
+        .store()
+        .load_manifest(core.uuid.as_ref(), &restored)
+        .unwrap();
+    assert!(image
+        .label
+        .as_deref()
+        .is_some_and(|label| label.contains("Restored backup “Base”")));
+    // the content is the backup's again, so it is the same image
+    assert_eq!(image.id, content.id);
+
+    // a backup with no world is refused for this scope before anything starts
+    let mut records = core.state.backups.store().load_records(&core.uuid).unwrap();
+    records.backups[0].level = None;
+    core.state
+        .backups
+        .store()
+        .save_records(&core.uuid, &records)
+        .unwrap();
+    let (status, _) = core
+        .call(
+            Method::POST,
+            &format!("/{id}/restore"),
+            &owner,
+            Some(json!({ "scope": "world_and_mods" })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+/// Backups of a server that didn't change between them are one image; it goes with the
+/// last of them.
+#[tokio::test]
+async fn backups_of_an_unchanged_server_share_one_image() {
+    let core = core().await;
+    let owner = core.owner().await;
+    let instance = minecraft(&core.state, &core.uuid).unwrap();
+    core.state
+        .backups
+        .scheduled_backup(&core.state, instance)
+        .await
+        .unwrap();
+    let named = core.backup(&owner, Some("Named")).await;
+    let records = core.state.backups.store().load_records(&core.uuid).unwrap();
+    assert_eq!(records.backups.len(), 2);
+    let image = records.backups[0].image.clone();
+    assert_eq!(records.backups[1].image, image);
+    let store = core.state.images.store();
+    let manifest = store.manifest_path(core.uuid.as_ref(), &image).unwrap();
+
+    let (status, _) = core
+        .call(Method::DELETE, &format!("/{named}"), &owner, None)
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(manifest.is_file());
+    let last = core.list(&owner).await.backups[0].id.clone();
+    let (status, _) = core
+        .call(Method::DELETE, &format!("/{last}"), &owner, None)
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!manifest.is_file());
+    // the content image the backups linked to is still the server's current one
+    let current = core.state.images.current_content(&core.uuid).await.unwrap();
+    assert!(store
+        .manifest_path(core.uuid.as_ref(), &current)
+        .unwrap()
+        .is_file());
+}
+
+/// Collections running all through a backup never take a file it names: the backup holds
+/// them off until its image is saved, and then its image names them.
+#[tokio::test]
+async fn collections_during_a_backup_never_take_its_files() {
+    let core = core().await;
+    let owner = core.owner().await;
+    let first = core.backup(&owner, None).await;
+    let store = core.state.images.store();
+    age_store(store.root());
+    core.write("world/level.dat", "level v2");
+    // the first backup is deleted, so its files are free for a collection to take
+    let (status, _) = core
+        .call(Method::DELETE, &format!("/{first}"), &owner, None)
+        .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let collector = {
+        let (stop, images) = (stop.clone(), core.state.images.clone());
+        std::thread::spawn(move || {
+            let mut runs = 0;
+            while !stop.load(std::sync::atomic::Ordering::SeqCst) {
+                images.collect_blocking().unwrap();
+                runs += 1;
+            }
+            runs
+        })
+    };
+    let instance = minecraft(&core.state, &core.uuid).unwrap();
+    core.state
+        .backups
+        .scheduled_backup(&core.state, instance)
+        .await
+        .unwrap();
+    stop.store(true, std::sync::atomic::Ordering::SeqCst);
+    assert!(collector.join().unwrap() > 0);
+
+    let id = core.list(&owner).await.backups[0].id.clone();
+    let backup = core.state.backups.load(&core.uuid, &id).await.unwrap();
+    assert!(lodestone_image::store::materialize::missing_objects(
+        &store,
+        &backup.image,
+        lodestone_image::store::materialize::Selection::All
+    )
+    .is_empty());
+    for entry in &backup.image.entries {
+        store
+            .verify_object(&entry.sha256, entry.size, lodestone_image::store::NEVER)
+            .unwrap();
+    }
 }

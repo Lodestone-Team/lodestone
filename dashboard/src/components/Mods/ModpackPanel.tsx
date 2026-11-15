@@ -27,7 +27,7 @@ import {
   updateModpack,
   uploadModpack,
 } from 'data/Mods';
-import { t as translate, useI18n } from 'i18n';
+import { formatDate, t as translate, useI18n } from 'i18n';
 import { useRef, useState } from 'react';
 import { toast } from 'react-toastify';
 import { cn, errorToString } from 'utils/util';
@@ -36,7 +36,8 @@ import { cn, errorToString } from 'utils/util';
  * The modpack of a server made from one (Mods tab, above the mods): which
  * version it runs, whether a newer one is out (the core checks on its own, and
  * on "Check for an update"), an update from Modrinth or an .mrpack file, and
- * the history: a timeline of every install, update and restore, with what each
+ * the history: a timeline of the server's content images (every install,
+ * update and restore, and every change to its mods and configs), with what each
  * changed and a button to go back to it. The core works out what an update or
  * restore changes first; the dialog shows that and runs it once confirmed.
  */
@@ -67,10 +68,7 @@ const fileName = (path: string) => path.split('/').pop() ?? path;
 const shortList = (paths: string[], shown = 8) =>
   paths.slice(0, shown).join(', ') + (paths.length > shown ? ', …' : '');
 
-const entryVersion = (entry: HistoryEntryInfo) =>
-  entry.version_number ?? translate('mods.modpack.unknownVersion');
-
-/** "since 6.4.0" for a file of the mods folder: the version it came with. */
+/** "since 3 Mar 2026" for a file of the mods folder: the entry it came with. */
 export const blameLabel = (
   history: ModpackHistory | undefined,
   directory: string,
@@ -84,10 +82,9 @@ export const blameLabel = (
   const id = history.blame[`${directory}/${enabled}`];
   const entry = history.entries.find((e) => e.id === id);
   if (!entry) return null;
-  const version = entryVersion(entry);
   return {
-    label: translate('mods.modpack.since', { version }),
-    tooltip: translate('mods.modpack.sinceTooltip', { version }),
+    label: translate('mods.modpack.since', { date: formatDate(entry.time) }),
+    tooltip: translate('mods.modpack.sinceTooltip', { change: entry.label }),
   };
 };
 
@@ -170,53 +167,26 @@ const ChangeList = ({ entry }: { entry: HistoryEntryInfo }) => {
           })}
         </div>
       )}
-      {entry.kept.length > 0 && (
-        <div className="text-white/50">
-          {t('mods.modpack.dialog.kept', { files: shortList(entry.kept) })}
-        </div>
-      )}
     </div>
   );
 };
 
 const HistoryRow = ({
-  history,
   entry,
   last,
   canWrite,
   busy,
   onRestore,
 }: {
-  history: ModpackHistory;
   entry: HistoryEntryInfo;
   last: boolean;
   canWrite: boolean;
   busy: boolean;
-  onRestore: (entryId: number) => void;
+  onRestore: (entryId: string) => void;
 }) => {
   const { t, formatDateTime } = useI18n();
   const [open, setOpen] = useState(entry.current);
-  const [changelogOpen, setChangelogOpen] = useState(false);
-  const hasChanges =
-    entry.changes.length > 0 ||
-    entry.kept.length > 0 ||
-    entry.changelog !== null;
-  const kind =
-    entry.kind.type === 'install'
-      ? t('mods.modpack.kind.install')
-      : entry.kind.type === 'baseline'
-        ? t('mods.modpack.kind.baseline')
-        : entry.kind.type === 'restore'
-          ? t('mods.modpack.kind.restore', {
-              version: (() => {
-                const to = entry.kind.to;
-                const target = history.entries.find((e) => e.id === to);
-                return target
-                  ? entryVersion(target)
-                  : t('mods.modpack.unknownVersion');
-              })(),
-            })
-          : t('mods.modpack.kind.update');
+  const hasChanges = entry.changes.length > 0;
   const missing = entry.missing > 0;
   return (
     <div className="flex flex-row gap-2.5">
@@ -245,10 +215,7 @@ const HistoryRow = ({
                   className="w-2.5 text-white/50"
                 />
               )}
-              <span className="font-bold text-gray-300">
-                {entryVersion(entry)}
-              </span>
-              <span className="text-white/75">{kind}</span>
+              <span className="font-bold text-gray-300">{entry.label}</span>
               {entry.current && (
                 <span className="rounded-xs border border-green/40 px-1.5 text-caption font-bold text-green">
                   {t('mods.modpack.current')}
@@ -262,11 +229,6 @@ const HistoryRow = ({
                 Minecraft {entry.game_version} · {loaderTitle(entry.loader)}{' '}
                 {entry.loader_version ?? ''}
               </span>
-              {entry.kept.length > 0 && (
-                <span>
-                  {t('mods.modpack.keptCount', { count: entry.kept.length })}
-                </span>
-              )}
             </div>
           </div>
           {!entry.current && (
@@ -282,18 +244,7 @@ const HistoryRow = ({
             </span>
           )}
         </div>
-        {open && (entry.changes.length > 0 || entry.kept.length > 0) && (
-          <ChangeList entry={entry} />
-        )}
-        {open && entry.changelog && (
-          <div className="mt-1 flex flex-col gap-1">
-            <WhatsNewToggle
-              open={changelogOpen}
-              onToggle={() => setChangelogOpen(!changelogOpen)}
-            />
-            {changelogOpen && <ChangelogBox changelog={entry.changelog} />}
-          </div>
-        )}
+        {open && hasChanges && <ChangeList entry={entry} />}
       </div>
     </div>
   );
@@ -302,10 +253,13 @@ const HistoryRow = ({
 const PlanBody = ({
   plan,
   current,
+  restoring,
   stopped,
 }: {
   plan: ModpackUpdatePlan;
   current: string;
+  /** a restore names the entry it goes back to (the target's name) */
+  restoring: boolean;
   stopped: boolean;
 }) => {
   const { t } = useI18n();
@@ -322,11 +276,13 @@ const PlanBody = ({
   return (
     <span className="flex flex-col gap-2 text-medium text-white/75">
       <span>
-        {t('mods.modpack.dialog.intro', {
-          pack: target.name,
-          from: current,
-          to: target.version_number ?? t('mods.modpack.unknownVersion'),
-        })}
+        {restoring
+          ? t('mods.modpack.dialog.restoreIntro', { change: target.name })
+          : t('mods.modpack.dialog.intro', {
+              pack: target.name,
+              from: current,
+              to: target.version_number ?? t('mods.modpack.unknownVersion'),
+            })}
       </span>
       {target.unsupported_reason && (
         <span className="text-red-200">
@@ -382,7 +338,7 @@ export default function ModpackPanel({
   /** the timeline starts open (for stories) */
   initialHistoryOpen?: boolean;
 }) {
-  const { t, formatBytes } = useI18n();
+  const { t } = useI18n();
   const queryClient = useQueryClient();
   const origin = instance.modpack;
   const uuid = instance.uuid;
@@ -476,13 +432,9 @@ export default function ModpackPanel({
         .map(([key, count]) => translate(key, { count }));
       toast.success(
         [
-          translate(
-            restore ? 'mods.modpack.restored' : 'mods.modpack.updated',
-            {
-              pack: target.name,
-              version,
-            }
-          ),
+          restore
+            ? translate('mods.modpack.restored', { change: target.name })
+            : translate('mods.modpack.updated', { pack: target.name, version }),
           counts.join(', '),
           done.skipped ?? '',
         ]
@@ -536,6 +488,7 @@ export default function ModpackPanel({
           <PlanBody
             plan={pending.plan}
             current={origin.version_number ?? t('mods.modpack.unknownVersion')}
+            restoring={restoring}
             stopped={stopped}
           />
         )}
@@ -639,7 +592,6 @@ export default function ModpackPanel({
               {history.entries.map((entry, index) => (
                 <HistoryRow
                   key={entry.id}
-                  history={history}
                   entry={entry}
                   last={index === history.entries.length - 1}
                   canWrite={canWrite}
@@ -649,13 +601,6 @@ export default function ModpackPanel({
                   }
                 />
               ))}
-              {history.stored_bytes > 0 && (
-                <div className="pt-2 text-small text-white/30">
-                  {t('mods.modpack.storeSize', {
-                    size: formatBytes(history.stored_bytes),
-                  })}
-                </div>
-              )}
             </>
           )}
         </div>

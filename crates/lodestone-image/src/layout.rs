@@ -104,6 +104,66 @@ impl ServerLayout {
         })
     }
 
+    /// The layout of a server folder from what is in it: `level_name` (the `level-name`
+    /// property), the names at its top level, and the top-level folders holding a
+    /// `level.dat`. Returns it with whether the level is a world images can name.
+    ///
+    /// The worlds are the level and every other top-level folder with a `level.dat` (not a
+    /// split level's own `_nether` and `_the_end` folders), each added only if the layout
+    /// still holds with it: a folder that can't be a world (`mods/level.dat`), or one whose
+    /// name differs only in letter case from a world already taken (`survival` beside
+    /// `Survival`, possible on Linux), doesn't keep the others from being worlds; its files
+    /// are then layout conflicts, withheld. When the level can't be a world (no
+    /// `level_name`, or one like `worlds/survival`), the layout gets a level no top-level
+    /// name has (see [`ServerLayout::unused_level`]), so every file keeps its disk path.
+    ///
+    /// The core's backups and its content images both decide a server's worlds this way,
+    /// so a backup and the content image it links to agree.
+    pub fn discover(
+        level_name: Option<&str>,
+        top_names: &BTreeSet<String>,
+        folders_with_level_dat: &BTreeSet<String>,
+        split: bool,
+    ) -> Result<(ServerLayout, bool), PathError> {
+        let real_level = level_name
+            .filter(|level| ServerLayout::new(level.to_string(), [], split).is_ok())
+            .map(str::to_string);
+        let level_is_world = real_level.is_some();
+        let level = real_level.unwrap_or_else(|| Self::unused_level(top_names));
+        let mut layout = ServerLayout::new(level.clone(), [], split)?;
+        let mut others: Vec<String> = Vec::new();
+        for world in folders_with_level_dat {
+            if world.contains('/') || *world == level {
+                continue;
+            }
+            let mut with = others.clone();
+            with.push(world.clone());
+            if let Ok(bigger) = ServerLayout::new(level.clone(), with.iter().cloned(), split) {
+                others = with;
+                layout = bigger;
+            }
+        }
+        Ok((layout, level_is_world))
+    }
+
+    /// A level name that no top-level file or folder has, nor its split folders, compared
+    /// ignoring letter case as the layout compares world names (a server's `World/` is in
+    /// a level named `world` on most disks): `world`, else `world1`, `world2`…
+    pub fn unused_level(top_names: &BTreeSet<String>) -> String {
+        let taken = |name: &str| top_names.iter().any(|top| same_name(top, name));
+        let free = |name: &str| {
+            !taken(name) && !taken(&format!("{name}_nether")) && !taken(&format!("{name}_the_end"))
+        };
+        if free("world") {
+            return "world".to_string();
+        }
+        // There are fewer top-level names than numbers to try, so this ends.
+        (1u64..)
+            .map(|n| format!("world{n}"))
+            .find(|name| free(name))
+            .unwrap_or_else(|| "world".to_string())
+    }
+
     pub fn level_name(&self) -> &str {
         &self.level_name
     }
@@ -820,5 +880,45 @@ mod tests {
                 }
             }
         }
+    }
+
+    fn names(items: &[&str]) -> BTreeSet<String> {
+        items.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn discovering_a_server_layout() {
+        // The level and other folders with a level.dat are worlds; a split level's own
+        // folders and folders that can't be worlds aren't.
+        let tops = names(&["world", "world_nether", "creative", "mods", "logs"]);
+        let with_level = names(&["world", "world_nether", "creative", "mods"]);
+        let (layout, level_is_world) =
+            ServerLayout::discover(Some("world"), &tops, &with_level, true).unwrap();
+        assert!(level_is_world);
+        assert!(layout.is_split());
+        assert_eq!(
+            layout.worlds().collect::<Vec<_>>(),
+            vec!["creative", "world"]
+        );
+
+        // A level that can't be a world folder gets one no top-level name has.
+        let tops = names(&["World", "world1_nether", "server.properties"]);
+        let (layout, level_is_world) =
+            ServerLayout::discover(Some("worlds/survival"), &tops, &BTreeSet::new(), false)
+                .unwrap();
+        assert!(!level_is_world);
+        assert_eq!(layout.level_name(), "world2");
+        let (layout, _) =
+            ServerLayout::discover(None, &BTreeSet::new(), &BTreeSet::new(), false).unwrap();
+        assert_eq!(layout.level_name(), "world");
+
+        // Of two folders differing only in case, the first is a world and the other isn't.
+        let with_level = names(&["Survival", "survival"]);
+        let (layout, _) =
+            ServerLayout::discover(Some("world"), &with_level, &with_level, false).unwrap();
+        assert_eq!(
+            layout.worlds().collect::<Vec<_>>(),
+            vec!["Survival", "world"]
+        );
     }
 }

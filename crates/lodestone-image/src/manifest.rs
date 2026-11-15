@@ -6,8 +6,8 @@
 //! verifies; informational values it doesn't know (a withheld reason, an `env_from` input,
 //! a loader) are kept as text. Values that change what a file is or where it comes from (an
 //! unknown `source`, `kind`, `base` or `env` value) can't be guessed and make the manifest
-//! invalid, and a newer schema is refused with [`ManifestError::NewerSchema`], so nothing
-//! acts on a manifest it only half understands.
+//! invalid, and another schema is refused with [`ManifestError::UnsupportedSchema`], so
+//! nothing acts on a manifest it only half understands.
 //!
 //! Only the image and its entries have room for unknown fields. Anywhere else (the game,
 //! the producer, the base, a source, an env, a world, a withheld file) an unknown field
@@ -37,8 +37,8 @@ pub(crate) use probe::{whole_number_field, ProbeError};
 
 pub use read::MAX_SETTING_ITEMS;
 pub(crate) use read::{
-    bounded_list, capped_fields, capped_value, entry_list, null_as_default, setting_list,
-    setting_map, ENTRY_FIELDS, IMAGE_FIELDS,
+    bounded_list, capped_fields, entry_list, null_as_default, setting_list, setting_map,
+    ENTRY_FIELDS, IMAGE_FIELDS,
 };
 pub use read::{
     prescan, UnknownBudget, ENTRIES_UNKNOWN, ENTRY_MAP_COST, ENTRY_UNKNOWN, IMAGE_UNKNOWN,
@@ -79,10 +79,8 @@ pub const MODRINTH_CDN: &str = "https://cdn.modrinth.com/";
 pub enum ManifestError {
     #[error("the manifest isn't readable JSON: {0}")]
     Json(String),
-    #[error("the manifest has schema {found}, newer than schema {SCHEMA} that this version reads")]
-    NewerSchema { found: u64 },
-    #[error("the manifest has schema {found}; older formats have their own readers")]
-    OlderSchema { found: u64 },
+    #[error("the manifest has schema {found}; this version reads schema {SCHEMA}")]
+    UnsupportedSchema { found: u64 },
     #[error("the manifest is invalid: {0}")]
     Invalid(String),
 }
@@ -204,6 +202,29 @@ pub enum Source {
     },
     /// Bytes only this store has. Carried as the object.
     Object {},
+}
+
+impl Source {
+    /// The `modrinth` source of a file downloaded from `url`, when it is a Modrinth CDN
+    /// file URL (`https://cdn.modrinth.com/data/<project>/versions/<version>/<file>`):
+    /// project and version come from the URL. `None` for anything else, which callers
+    /// record as an `object`. The entry still needs the file's `sha512`.
+    pub fn modrinth_from_url(url: &str) -> Option<Source> {
+        let rest = url.strip_prefix(MODRINTH_CDN)?.strip_prefix("data/")?;
+        let mut parts = rest.split('/');
+        let project = parts.next().filter(|p| !p.is_empty())?;
+        (parts.next()? == "versions").then_some(())?;
+        let version = parts.next().filter(|v| !v.is_empty())?;
+        parts.next().filter(|file| !file.is_empty())?;
+        if url.chars().any(|c| c.is_control() || c.is_whitespace()) {
+            return None;
+        }
+        Some(Source::Modrinth {
+            project: project.to_string(),
+            version: version.to_string(),
+            url: url.to_string(),
+        })
+    }
 }
 
 /// One file of an image. Read by hand, so unknown fields are kept within a budget
@@ -343,8 +364,6 @@ open_enum! {
         Unreadable => "unreadable",
         /// Its name isn't a valid canonical path.
         BadName => "bad_name",
-        /// Left out by the image's excludes.
-        Excluded => "excluded",
         /// Changed while being read, every try.
         KeptChanging => "kept_changing",
     }
@@ -510,11 +529,8 @@ impl Image {
                 return Err(ManifestError::Invalid("schema isn't a number".into()))
             }
         };
-        if schema > u64::from(SCHEMA) {
-            return Err(ManifestError::NewerSchema { found: schema });
-        }
-        if schema < u64::from(SCHEMA) {
-            return Err(ManifestError::OlderSchema { found: schema });
+        if schema != u64::from(SCHEMA) {
+            return Err(ManifestError::UnsupportedSchema { found: schema });
         }
         let mut image: Image =
             serde_json::from_slice(bytes).map_err(|e| ManifestError::Invalid(e.to_string()))?;
@@ -1019,11 +1035,11 @@ pub(crate) mod tests {
     fn schema_is_checked_first() {
         assert_eq!(
             Image::from_json(br#"{"schema": 3, "anything": "goes"}"#),
-            Err(ManifestError::NewerSchema { found: 3 })
+            Err(ManifestError::UnsupportedSchema { found: 3 })
         );
         assert_eq!(
             Image::from_json(br#"{"schema": 1, "files": []}"#),
-            Err(ManifestError::OlderSchema { found: 1 })
+            Err(ManifestError::UnsupportedSchema { found: 1 })
         );
         assert!(matches!(
             Image::from_json(br#"{"kind": "content"}"#),
@@ -1252,5 +1268,31 @@ pub(crate) mod tests {
         .unwrap();
         assert_eq!(parsed.mode, 0o644);
         assert_eq!(parsed.env, Env::UNKNOWN);
+    }
+
+    #[test]
+    fn modrinth_sources_come_from_cdn_urls() {
+        let url = "https://cdn.modrinth.com/data/AANobbMI/versions/u1OtTp2l/sodium.jar";
+        assert_eq!(
+            Source::modrinth_from_url(url),
+            Some(Source::Modrinth {
+                project: "AANobbMI".into(),
+                version: "u1OtTp2l".into(),
+                url: url.into(),
+            })
+        );
+        for other in [
+            "https://cdn.modrinth.com/data/AANobbMI/versions/u1OtTp2l/",
+            "https://example.com/data/a/versions/b/x.jar",
+            "http://cdn.modrinth.com/data/a/versions/b/x.jar",
+            "https://cdn.modrinth.com/data/a/versions/b/x\ny.jar",
+            "https://cdn.modrinth.com/data/AANobbMI/files/u1OtTp2l/x.jar",
+            "https://cdn.modrinth.com.evil.example/data/a/versions/b/x.jar",
+            "https://cdn.modrinth.com/data//versions/b/x.jar",
+            "https://cdn.modrinth.com/data/a/versions/b/x y.jar",
+            "",
+        ] {
+            assert_eq!(Source::modrinth_from_url(other), None, "{other:?}");
+        }
     }
 }

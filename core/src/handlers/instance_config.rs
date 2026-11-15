@@ -10,6 +10,7 @@ use super::util::{get_instance, require_code_execution};
 use crate::{
     auth::user::UserAction,
     error::{Error, ErrorKind},
+    implementations::minecraft::server_properties,
     traits::t_configurable::{
         manifest::{ConfigurableManifest, ConfigurableValue},
         TConfigurable,
@@ -72,9 +73,24 @@ pub async fn set_instance_setting(
     }
     let instance = get_instance(&state, &uuid)?;
 
+    // `server.properties` is content; the command line, JVM and Java settings are this
+    // core's own (`.lodestone_minecraft_config.json`) and never in an image
+    let op = if section_id == server_properties::SECTION_ID {
+        Some(
+            state
+                .images
+                .begin(&uuid, format!("Changed {setting_id}"))
+                .await,
+        )
+    } else {
+        None
+    };
     instance
         .update_configurable(&section_id, &setting_id, value)
         .await?;
+    if let Some(op) = op {
+        op.succeed();
+    }
 
     Ok(Json(()))
 }
@@ -139,7 +155,22 @@ pub async fn change_version(
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(&UserAction::AccessSetting(uuid.clone()), state.safe_mode())?;
     let instance = get_instance(&state, &uuid)?;
-    instance.change_version(new_version).await?;
+    instance.change_version(new_version.clone()).await?;
+    // Recorded at once rather than merged: the image's game version is the new one. The
+    // change itself succeeded, so a failed record is only logged (the check before the
+    // next start records it then).
+    if let Some(ctx) = crate::images::context_of(&state, &uuid).await {
+        if let Err(e) = state
+            .images
+            .record_now(ctx, format!("Changed Minecraft version to {new_version}"))
+            .await
+        {
+            tracing::warn!(
+                "Failed to record the content of {uuid} after its version changed: {}",
+                e.source
+            );
+        }
+    }
     Ok(Json(()))
 }
 

@@ -652,7 +652,7 @@ async fn import_server(
     };
     let title = format!("Importing Minecraft server {}", request.name);
     let event_broadcaster = state.event_broadcaster.clone();
-    let post_setup: PostSetupStep = Box::new(move |root, event_id| {
+    let post_setup: PostSetupStep = Box::new(move |root, event_id, _uuid| {
         Box::pin(async move {
             let message = tokio::task::spawn_blocking({
                 let root = root.clone();

@@ -406,7 +406,7 @@ pub(crate) mod tests {
             entry("saves/world/level.dat", EnvInputs::default()),
             entry("saves/world/DIM-1/region/r.0.0.mca", EnvInputs::default()),
             // The server's own: never to players.
-            entry(".lodestone_modpack/record.json", EnvInputs::default()),
+            entry(".lodestone_modpack/notified.json", EnvInputs::default()),
             entry("plugins/x.jar", EnvInputs::default()),
             entry("usercache.json", EnvInputs::default()),
         ];
@@ -449,7 +449,7 @@ pub(crate) mod tests {
         assert_eq!(
             paths(&server),
             [
-                ".lodestone_modpack/record.json",
+                ".lodestone_modpack/notified.json",
                 "config/jei/jei-client.ini",
                 "config/ledger.toml",
                 "defaultconfigs/server.toml",
@@ -570,7 +570,7 @@ pub(crate) mod tests {
         let mut image = fabric_pack();
         let client_before = view(&image, Side::Client, RULES).unwrap();
         for path in [
-            ".lodestone_modpack/history.json",
+            ".lodestone_modpack/notes.json",
             ".LODESTONE_extra",
             "Plugins/y.jar",
             "bukkit.yml",
@@ -773,7 +773,7 @@ pub(crate) mod tests {
     /// marks included: the two views and the local entries always give the image back.
     #[test]
     fn lossless_for_random_images() {
-        let mut rng = crate::legacy::TestRng::new(0x1055_1e55);
+        let mut rng = crate::store::cdc::tests::TestRng::new(0x1055_1e55);
         let paths = [
             "mods/a.jar",
             "mods/b.jar",
@@ -792,8 +792,8 @@ pub(crate) mod tests {
             "shaderpacks/s.zip",
             "screenshots/1.png",
             "saves/loose.txt",
-            ".lodestone_modpack/record.json",
-            ".lodestone_modpack/history.json",
+            ".lodestone_modpack/notified.json",
+            ".lodestone_modpack/notes.json",
             "plugins/p.jar",
             "Plugins/q.jar",
             "bukkit.yml",
@@ -815,7 +815,7 @@ pub(crate) mod tests {
             Some(EnvValue::Unsupported),
             Some(EnvValue::Unknown),
         ];
-        let side_values = |rng: &mut crate::legacy::TestRng| {
+        let side_values = |rng: &mut crate::store::cdc::tests::TestRng| {
             (rng.below(3) > 0).then(|| SideValues::new(*rng.pick(&values), *rng.pick(&values)))
         };
         for case in 0..3000 {

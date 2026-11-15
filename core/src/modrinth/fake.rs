@@ -1,7 +1,7 @@
 //! An in-memory [`ModrinthApi`] for tests.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use color_eyre::eyre::eyre;
@@ -137,6 +137,8 @@ pub struct FakeModrinth {
     client_sides: Mutex<HashMap<String, String>>,
     /// Icons of projects; none when not set.
     icons: Mutex<HashMap<String, String>>,
+    /// When set, every download waits for a permit of it (to hold a download midway).
+    stall: Mutex<Option<Arc<tokio::sync::Semaphore>>>,
 }
 
 fn not_found() -> Error {
@@ -153,6 +155,14 @@ impl FakeModrinth {
 
     pub fn add_file(&self, url: &str, content: Vec<u8>) {
         self.files.lock().unwrap().insert(url.into(), content);
+    }
+
+    /// Makes every download wait, after it is noted in [`Self::downloaded`], until the
+    /// returned semaphore gives it a permit.
+    pub fn stall_downloads(&self) -> Arc<tokio::sync::Semaphore> {
+        let gate = Arc::new(tokio::sync::Semaphore::new(0));
+        *self.stall.lock().unwrap() = Some(gate.clone());
+        gate
     }
 
     fn all(&self) -> Vec<FakeVersion> {
@@ -333,6 +343,10 @@ impl ModrinthApi for FakeModrinth {
         max_bytes: u64,
     ) -> Result<FileHashes, Error> {
         self.downloaded.lock().unwrap().push(url.to_string());
+        let stall = self.stall.lock().unwrap().clone();
+        if let Some(stall) = stall {
+            stall.acquire().await.unwrap().forget();
+        }
         let content = self
             .all()
             .into_iter()

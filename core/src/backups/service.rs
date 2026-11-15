@@ -1,5 +1,17 @@
-//! [`BackupService`]: the locks, jobs and cancellation around the store, and the operations
+//! [`BackupService`]: the locks, jobs and cancellation around backups, and the operations
 //! the HTTP handlers and the scheduler call.
+//!
+//! A backup is a data image of the server in the core's image store, owned by
+//! [`ImageService`], plus its record in `backups.json` (see [`super::store`]). A backup is
+//! written in this order: the image's objects (the snapshot), its manifest (the store makes
+//! the objects durable first), then the record, both under the instance's image lock. A
+//! crash before the record leaves a manifest no record names, which is listed as a manual
+//! backup again before a retention or a delete picks anything ([`reconcile_records`]): an
+//! image holds a whole copy of the server and is never thrown away for lack of a record.
+//! Deleting is the mirror image: the manifest first (once no other record names it), then
+//! the record, then pruning the content images nothing links to any more, then a
+//! collection. A crash between leaves a record whose image is gone, which the same pass
+//! drops, so a deleted backup never comes back.
 //!
 //! Locks, outermost first:
 //! - the server's job mutex: one backup or restore per server at a time (`try_lock`, so a
@@ -7,18 +19,22 @@
 //! - for a restore, the server's mods lock, like a modpack update;
 //! - `lock_stopped` on the instance while a stopped server is backed up or restored, so it
 //!   can't start meanwhile;
-//! - the store lock: jobs share it; garbage collection takes it alone, and only when it is
-//!   free (`try_write`), so it never holds up a job: otherwise it is marked pending and runs
-//!   when the lock is next let go (by a job, a download or GC itself);
-//! - the server's manifests mutex, around every manifest write and delete.
+//! - for a restore that changes content, its content operation ([`ImageService::begin`]),
+//!   so no content image is recorded from half-swapped files;
+//! - the instance's image lock ([`ImageService::instance_lock`]), around every write of the
+//!   records and the manifests.
 //!
-//! A job takes its guards once ([`JobGuards`]) and a restore's safety backup runs inside
-//! the restore's guards ([`BackupService::create_locked`]): neither `lock_stopped` nor the
-//! job mutex is re-entrant.
+//! A job holds the image store's collections off ([`ImageStore::hold_off_collection`])
+//! while it relies on objects nothing has claimed: a backup between its snapshot and its
+//! save, a restore while it reads the image (whose backup may be deleted meanwhile), a
+//! download while it zips. A collection then waits for it; it never runs halfway through.
+//!
+//! A job takes its guards once ([`JobGuards`]) and a restore's safety backup runs inside the
+//! restore's guards ([`BackupService::create_locked`]): neither `lock_stopped` nor the job
+//! mutex is re-entrant.
 
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 
@@ -26,7 +42,10 @@ use async_trait::async_trait;
 use chrono::Utc;
 use color_eyre::eyre::{eyre, Context};
 use dashmap::DashMap;
-use tokio::sync::{Mutex, OwnedMutexGuard, OwnedRwLockReadGuard, RwLock};
+use lodestone_image::store::gc::CollectionHold;
+use lodestone_image::store::{ObjectForm, Store as ImageStore};
+use lodestone_image::{Image, Kind, WithheldReason};
+use tokio::sync::{Mutex, OwnedMutexGuard};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 use tracing::{error, info, warn};
@@ -36,6 +55,8 @@ use crate::event_broadcaster::EventBroadcaster;
 use crate::events::{
     CausedBy, Event, ProgressionEndValue, ProgressionEventID, ProgressionStartValue,
 };
+use crate::images::recorder::INITIAL_LABEL;
+use crate::images::{blocking, ImageService, InstanceContext, Operation};
 use crate::implementations::minecraft::MinecraftInstance;
 use crate::prelude::GameInstance;
 use crate::traits::t_configurable::{GameType, TConfigurable};
@@ -45,38 +66,44 @@ use crate::types::{DotLodestoneConfig, InstanceUuid};
 use crate::AppState;
 
 use super::live::{with_saving_off, InstanceLines, Limits, LiveServer};
-use super::pattern::Matcher;
-use super::restore::{self, Pin, RestoreDiff, RestorePlan, SwapError};
+use super::restore::{self, Pin, RestoreDiff, RestorePlan, Source, SwapError};
 use super::retention::{self, LastAttempt, RetentionItem};
-use super::store::{
-    cancelled, check_backup_name, checked_level_name, err, free_space, new_backup_id,
-    require_free_space, valid_backup_id, BackupMeta, Prefetched, Scan, ScanRequest, Store,
-};
+use super::store::{cancelled, check_backup_name, err, new_backup_id, valid_backup_id, Store};
+use super::take::{self, needs_full_scan, Meta, Prepared, Request};
 use super::types::{
-    BackupInfo, BackupKind, BackupList, BackupPolicy, BackupUsage, FileEntry, JobKind, Manifest,
-    RestoreRequest, RestoreScope, RunningJob, SkipReason, MAX_NAME_LEN,
+    BackupInfo, BackupKind, BackupList, BackupPolicy, BackupRecord, BackupUsage, JobKind, Records,
+    RestoreRequest, RestoreScope, RunningJob, MAX_NAME_LEN,
 };
+use crate::util::disk::{free_space, require_free_space};
 
 /// At most one manual backup per server in this time.
 const MANUAL_BACKUP_INTERVAL: Duration = Duration::from_secs(60);
 /// How long a restore waits for the Mods tab (or a modpack update) to let go of the server.
 const MODS_LOCK_WAIT: Duration = Duration::from_secs(5);
+/// How long a backup waits for the content gate to record the content changes queued before
+/// it, so it links to the content the server has. Past this (a long modpack update holds the
+/// content), it links to the content image recorded before. A record that got the gate runs
+/// to its end, however long it takes.
+const FLUSH_WAIT: Duration = Duration::from_secs(10);
 /// Progress updates are sent at most this often, unless they move a whole percent.
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(500);
-/// The world folder when server.properties has no `level-name`.
-const DEFAULT_LEVEL_NAME: &str = "world";
 
 fn conflict(message: impl Into<String>) -> Error {
     err(ErrorKind::Conflict, message)
 }
 
-/// Runs blocking store work off the async runtime.
-async fn blocking<T: Send + 'static>(
-    work: impl FnOnce() -> Result<T, Error> + Send + 'static,
-) -> Result<T, Error> {
-    tokio::task::spawn_blocking(work)
-        .await
-        .map_err(|e| Error::from(eyre!("A backup task failed: {e}")))?
+fn not_found() -> Error {
+    err(ErrorKind::NotFound, "Backup not found")
+}
+
+/// Holds the image store's collections off (see the module), waiting for one that runs.
+async fn hold_off_collection(store: Arc<ImageStore>) -> Result<CollectionHold, Error> {
+    blocking(move || {
+        store
+            .hold_off_collection()
+            .map_err(|e| err(ErrorKind::Internal, format!("{e}")))
+    })
+    .await
 }
 
 /// A per-server lock from `map`, made on first use. Locks nobody holds are forgotten, so
@@ -108,26 +135,6 @@ pub struct JobGuards {
     stopped: Option<OwnedMutexGuard<()>>,
     /// The server's mods lock, for a restore.
     _mods: Option<OwnedMutexGuard<()>>,
-    /// The shared store lock. Dropped before retention and GC.
-    store: Option<StoreGuard>,
-}
-
-/// A share of the store lock ([`BackupService::store_read`]). When it is let go, the GC
-/// that waited for it runs ([`BackupService::after_job`]), whoever held it: a backup, a
-/// restore, a download, or a request that was dropped half way.
-pub struct StoreGuard {
-    guard: Option<OwnedRwLockReadGuard<()>>,
-    service: Arc<BackupService>,
-}
-
-impl Drop for StoreGuard {
-    fn drop(&mut self) {
-        drop(self.guard.take());
-        // GC runs on the runtime, which is gone only when everything is shutting down
-        if tokio::runtime::Handle::try_current().is_ok() {
-            self.service.after_job();
-        }
-    }
 }
 
 /// A running backup or restore: its progression event and what `GET …/backups` shows.
@@ -297,177 +304,86 @@ impl Phase {
 pub struct Created {
     /// The new backup, or the newest one when nothing had changed since it.
     pub id: String,
-    /// The new backup's manifest; `None` when nothing had changed.
-    pub manifest: Option<Manifest>,
+    /// The new backup's image; `None` when nothing had changed.
+    pub image: Option<Image>,
     /// Files that couldn't be read.
     pub unreadable: usize,
     pub live: bool,
     pub quiesced: bool,
 }
 
-/// What the blocking part of a backup produced.
-enum Copied {
-    /// Nothing changed since the backup `id`. `scheduled_since_full` is what to record
-    /// ([`Scan::scheduled_since_full_after`]):
-    /// a full scan counts even when it saved nothing.
-    Unchanged {
-        id: String,
-        scheduled_since_full: Option<usize>,
-    },
-    Finished {
-        manifest: Box<Manifest>,
-        unreadable: usize,
-        /// What to record once the manifest is saved.
-        scheduled_since_full: Option<usize>,
-    },
-}
-
-/// Everything the blocking part of a backup needs, owned, so it can move to a blocking
-/// thread (and keep running there, to its next cancellation check, if the async side is
-/// dropped).
-struct CopyWork {
-    store: Store,
-    root: PathBuf,
-    uuid: InstanceUuid,
-    kind: BackupKind,
-    exclude: Matcher,
-    /// Write nothing when nothing changed (scheduled backups and unnamed manual ones; see
-    /// [`CopyWork::skips_unchanged`]).
-    skip_unchanged: bool,
-    meta: BackupMeta,
-    phase: Phase,
-    /// What [`CopyWork::prefetch`] read.
-    prefetched: Option<Prefetched>,
-}
-
-impl CopyWork {
-    /// For a live backup, before saving is turned off: when there is a lot to read, reads it
-    /// now with [`Store::prefetch`] (the first 70 % of the phase), so that saving stays off
-    /// only while what changed since is read.
-    fn prefetch(mut self, cancel: &dyn Fn() -> bool) -> Result<CopyWork, Error> {
-        let scan = self.store.scan(
-            ScanRequest {
-                server_root: &self.root,
-                uuid: &self.uuid,
-                kind: self.kind,
-                exclude: &self.exclude,
-            },
-            cancel,
-        )?;
-        if !scan.worth_prefetching() {
-            return Ok(self);
-        }
-        let reading = self.phase.job.phase(self.phase.base, self.phase.span * 0.7);
-        reading.begin();
-        reading.report(0.0, Some("Copying files"));
-        let prefetched = self.store.prefetch(
-            &scan,
-            &mut |done, total| reading.report(100.0 * done as f64 / total.max(1) as f64, None),
-            cancel,
-        )?;
-        self.prefetched = Some(prefetched);
-        self.phase = self
-            .phase
-            .job
-            .phase(reading.base + reading.span, self.phase.span * 0.3);
-        Ok(self)
-    }
-
-    /// Whether to write nothing because nothing changed since `previous`, the newest backup.
-    ///
-    /// An unnamed manual backup is skipped only when `previous` is one retention never
-    /// deletes (manual or pinned). Otherwise the state the person asked to keep would live
-    /// only in, say, a scheduled backup that cleanup deletes hours later; a manual backup is
-    /// written instead, which costs just its manifest since the files are already stored.
-    fn skips_unchanged(&self, previous: &Manifest) -> bool {
-        self.skip_unchanged
-            && (self.kind != BackupKind::Manual
-                || retention::never_deleted(previous.kind, previous.pinned))
-    }
-
-    /// Walk 5 %, copy 90 % (the manifest write is the last 5 %).
-    fn run(mut self, quiesced: bool, cancel: &dyn Fn() -> bool) -> Result<Copied, Error> {
-        let started = Instant::now();
-        self.phase.report(0.0, Some("Looking for changed files"));
-        let scan = self.store.scan_with(
-            ScanRequest {
-                server_root: &self.root,
-                uuid: &self.uuid,
-                kind: self.kind,
-                exclude: &self.exclude,
-            },
-            self.prefetched.as_ref(),
-            cancel,
-        )?;
-        let unchanged = |work: &CopyWork, scan: &Scan| {
-            scan.previous
-                .as_ref()
-                .filter(|previous| work.skips_unchanged(previous))
-                .map(|previous| Copied::Unchanged {
-                    id: previous.id.clone(),
-                    scheduled_since_full: scan.scheduled_since_full_after(false),
-                })
-        };
-        if !scan.maybe_changed() {
-            if let Some(unchanged) = unchanged(&self, &scan) {
-                return Ok(unchanged);
-            }
-        }
-        self.phase.begin();
-        self.phase.report(5.0, Some("Copying files"));
-        require_free_space(self.store.root(), scan.bytes_to_store(), "for a backup")?;
-        let phase = self.phase.clone();
-        let copied = self.store.copy(
-            &scan,
-            &mut |done, total| {
-                let share = if total == 0 {
-                    1.0
-                } else {
-                    done as f64 / total as f64
-                };
-                phase.report(5.0 + 90.0 * share, None);
-            },
-            cancel,
-        )?;
-        if copied.unchanged_since(scan.previous.as_ref()) {
-            if let Some(unchanged) = unchanged(&self, &scan) {
-                return Ok(unchanged);
-            }
-        }
-        let unreadable = copied.unreadable_count();
-        let scheduled_since_full = scan.scheduled_since_full_after(true);
-        self.meta.quiesced = quiesced;
-        let manifest = self.store.finish(
-            self.meta,
-            &scan,
-            copied,
-            started.elapsed().as_millis() as u64,
-        );
-        Ok(Copied::Finished {
-            manifest: Box::new(manifest),
-            unreadable,
-            scheduled_since_full,
+/// The number of files an image withheld because they couldn't be read.
+fn unreadable_in(image: &Image) -> usize {
+    image
+        .withheld
+        .iter()
+        .filter(|w| {
+            w.reason == WithheldReason::Unreadable || w.reason == WithheldReason::KeptChanging
         })
+        .count()
+}
+
+/// Whether a backup of `kind` named `name` writes nothing when nothing changed since
+/// `previous`, the newest backup: scheduled backups, and unnamed manual ones.
+///
+/// An unnamed manual backup is skipped only when `previous` is one retention never deletes
+/// (manual or pinned). Otherwise the state the person asked to keep would live only in,
+/// say, a scheduled backup that cleanup deletes hours later; a manual backup is written
+/// instead, which costs only its record, since the image is the same.
+fn skips_unchanged(kind: BackupKind, named: bool, previous: &BackupRecord) -> bool {
+    match kind {
+        BackupKind::Scheduled => true,
+        BackupKind::Manual => !named && retention::never_deleted(previous.kind, previous.pinned),
+        BackupKind::BeforeRestore => false,
     }
 }
 
-/// What the list and retention need of a server's backups, cached until one changes.
-#[derive(Default)]
-struct Summary {
-    /// Newest first.
-    backups: Vec<BackupInfo>,
-    /// Every object the server's backups use.
-    hashes: HashSet<String>,
+/// The label a backup's image gets: its name, or what kind of backup it is.
+fn image_label(kind: BackupKind, name: Option<&str>) -> String {
+    match (name, kind) {
+        (Some(name), _) => name.to_string(),
+        (None, BackupKind::Manual) => "Backup".to_string(),
+        (None, BackupKind::Scheduled) => "Scheduled backup".to_string(),
+        (None, BackupKind::BeforeRestore) => "Before a restore".to_string(),
+    }
 }
 
-impl Summary {
-    /// The newest Scheduled or Manual backup's time, which the schedule counts from.
-    fn newest_for_schedule(&self) -> Option<i64> {
-        self.backups
-            .iter()
-            .filter(|b| matches!(b.kind, BackupKind::Scheduled | BackupKind::Manual))
-            .map(|b| b.created)
-            .max()
+/// A backup as a restore or a download reads it: its record, its data image, and the
+/// content image the data image links to, if it is still there.
+#[derive(Debug, Clone)]
+pub struct Backup {
+    pub record: BackupRecord,
+    pub image: Image,
+    pub content: Option<Image>,
+}
+
+impl Backup {
+    fn source(&self) -> Source<'_> {
+        Source {
+            image: &self.image,
+            level: self.record.level.as_deref(),
+            content: self.content.as_ref(),
+        }
+    }
+
+    /// Whether the backup's server splits its level the Paper way, from the image.
+    fn splits_worlds(&self) -> bool {
+        self.image
+            .settings
+            .server
+            .as_ref()
+            .and_then(|s| s.flavour.as_ref())
+            .is_some_and(|f| f.splits_worlds())
+    }
+
+    /// Every file of the backup, where a new server gets it ([`restore::all_files`]).
+    pub fn files_on_disk(&self) -> Result<Vec<restore::Target>, Error> {
+        let layout = restore::image_layout(
+            &self.image,
+            self.record.level.as_deref(),
+            self.splits_worlds(),
+        )?;
+        restore::all_files(&self.image, &layout)
     }
 }
 
@@ -553,18 +469,14 @@ fn start_again_after(
     matches!(failure, RestoreFailure::Unchanged(_)) && was_running && start_after && !shutting_down
 }
 
-/// The name of the safety backup a restore of `manifest` takes first: "Before restoring
+/// The name of the safety backup a restore of `record` takes first: "Before restoring
 /// “…”" with the backup's name, or its date when it has none. The name is shortened to fit
 /// [`MAX_NAME_LEN`], since the wrapper adds 19 characters to a name that may already be that
 /// long, and restoring a safety backup nests them; a name that didn't fit would only be
-/// refused after every file was copied.
-fn safety_backup_name(manifest: &Manifest) -> String {
-    let label = manifest.name.clone().unwrap_or_else(|| {
-        chrono::DateTime::from_timestamp(manifest.created, 0)
-            .map(|t| t.format("%Y-%m-%d %H:%M UTC").to_string())
-            .unwrap_or_else(|| manifest.id.clone())
-    });
+/// refused after every file was read.
+fn safety_backup_name(record: &BackupRecord) -> String {
     let wrap = |label: &str| format!("Before restoring “{label}”");
+    let label = backup_label(record);
     let room = MAX_NAME_LEN - wrap("").chars().count();
     if label.chars().count() <= room {
         return wrap(&label);
@@ -573,26 +485,175 @@ fn safety_backup_name(manifest: &Manifest) -> String {
     wrap(&format!("{}…", cut.trim_end()))
 }
 
-/// The files a restore with `plan` replaces that its safety backup `safety` couldn't read,
-/// so has no copy of as they are now (at most an older one, carried over). The restore
-/// would delete them for good, so it is refused instead.
-fn not_in_safety_backup<'a>(plan: &RestorePlan, safety: &'a Manifest) -> Vec<&'a str> {
+/// A backup as messages name it: its name, or its date.
+fn backup_label(record: &BackupRecord) -> String {
+    record.name.clone().unwrap_or_else(|| {
+        chrono::DateTime::from_timestamp(record.created, 0)
+            .map(|t| t.format("%Y-%m-%d %H:%M UTC").to_string())
+            .unwrap_or_else(|| record.id.clone())
+    })
+}
+
+/// The files a restore with `plan` replaces that its safety backup's image `safety`
+/// couldn't read, so has no copy of. The restore would delete them for good, so it is
+/// refused instead.
+fn not_in_safety_backup<'a>(plan: &RestorePlan, safety: &'a Image) -> Vec<&'a str> {
     safety
-        .skipped
+        .withheld
         .iter()
-        .filter(|s| matches!(s.reason, SkipReason::Unreadable | SkipReason::KeptChanging))
-        .filter(|s| plan.owns(&s.path))
-        .map(|s| s.path.as_str())
+        .filter(|w| {
+            w.reason == WithheldReason::Unreadable || w.reason == WithheldReason::KeptChanging
+        })
+        .filter(|w| plan.replaces(&w.path))
+        .map(|w| w.path.as_str())
         .collect()
 }
 
-/// Server backups: the store, its locks, the running jobs and the scheduler's state.
+/// The backup's copy of the server's settings (`.lodestone_minecraft_config.json`), as
+/// JSON: `None` when the backup has none. Blocking.
+fn backup_settings(
+    store: &ImageStore,
+    backup: &Backup,
+) -> Result<Option<serde_json::Value>, Error> {
+    /// A settings file is a few KiB; anything this large is damaged.
+    const MAX_CONFIG_BYTES: u64 = 4 << 20;
+    let files = backup.files_on_disk()?;
+    let Some(config) = files.iter().find(|f| f.disk == restore::CONFIG_FILE) else {
+        return Ok(None);
+    };
+    if config.entry.size > MAX_CONFIG_BYTES {
+        return Err(eyre!("its settings file is too large").into());
+    }
+    let bytes = store
+        .read_object_bytes(&config.entry.sha256, config.entry.size)
+        .map_err(|e| eyre!("Failed to read its settings: {e}"))?;
+    Ok(Some(
+        serde_json::from_slice(&bytes).context("Its settings file is damaged")?,
+    ))
+}
+
+/// The stored size of an object (its whole file, or its chunk list and chunks): what a
+/// backup's files take on disk. 0 when it isn't there.
+fn stored_size(store: &ImageStore, sha256: &str, size: u64) -> u64 {
+    let file_len = |path: Result<PathBuf, _>| {
+        path.ok()
+            .and_then(|p| std::fs::metadata(p).ok())
+            .map_or(0, |m| m.len())
+    };
+    match store.object_form(sha256, size) {
+        Ok(ObjectForm::Whole) => file_len(store.object_path(sha256)),
+        Ok(ObjectForm::Chunked(list)) => {
+            let mut seen = HashSet::new();
+            list.chunks
+                .iter()
+                .filter(|chunk| seen.insert(chunk.sha256.as_str()))
+                .map(|chunk| file_len(store.chunk_path(&chunk.sha256)))
+                .fold(file_len(store.list_path(sha256)), u64::saturating_add)
+        }
+        Err(_) => 0,
+    }
+}
+
+/// Brings the records in line with the images, both ways. A record whose image is gone is
+/// dropped: what a crash in the middle of a delete leaves (the manifest goes first). A data
+/// or full image no record names gets a record, so it is a backup again: what a crash
+/// between a backup's manifest and its record leaves, or every backup when `backups.json`
+/// went missing. An image holds a whole copy of the server, so it is never deleted just
+/// because the list doesn't name it. The record is a manual backup (retention never deletes
+/// those) named by the image's label, at the image's time, with no server name (whoever
+/// needs one takes the server's current name), with its world as the level when it has
+/// exactly one. Returns whether it changed anything; the caller saves the records. A
+/// manifest that can't be read is left as it is, and nothing changes when the images can't
+/// be listed. Blocking; the caller holds the instance's lock.
+fn reconcile_records(store: &ImageStore, uuid: &InstanceUuid, records: &mut Records) -> bool {
+    let Ok(ids) = store.manifest_ids(uuid.as_ref()) else {
+        return false;
+    };
+    let present: HashSet<&str> = ids.iter().map(String::as_str).collect();
+    let before = records.backups.len();
+    records.backups.retain(|record| {
+        let there = present.contains(record.image.as_str());
+        if !there {
+            info!(
+                "Dropped the backup {} of {uuid}, whose image is gone",
+                record.id
+            );
+        }
+        there
+    });
+    let mut changed = records.backups.len() != before;
+    for id in &ids {
+        let id = id.as_str();
+        if records.names_image(id) {
+            continue;
+        }
+        match store.load_header(uuid.as_ref(), id) {
+            Ok(header) if header.kind != Kind::Content => {}
+            _ => continue,
+        }
+        let image = match store.load_manifest(uuid.as_ref(), id) {
+            Ok(image) => image,
+            Err(e) => {
+                warn!("The image {id} of {uuid} names no backup and can't be read: {e}");
+                continue;
+            }
+        };
+        let created = chrono::DateTime::from_timestamp(image.created, 0).unwrap_or_default();
+        let name = image.label.as_deref().and_then(|label| {
+            let clean: String = label
+                .chars()
+                .filter(|c| !c.is_control())
+                .take(MAX_NAME_LEN)
+                .collect();
+            check_backup_name(&clean).ok().flatten()
+        });
+        let level = match image.worlds.as_slice() {
+            [world] => Some(world.name.clone()),
+            _ => None,
+        };
+        records.backups.push(BackupRecord {
+            id: new_backup_id(created),
+            image: image.id.clone(),
+            name,
+            kind: BackupKind::Manual,
+            created: image.created,
+            pinned: false,
+            live: false,
+            quiesced: image.worlds.iter().all(|w| w.quiesced != Some(false)),
+            level,
+            instance_name: String::new(),
+            game_version: image.game.minecraft.clone(),
+            file_count: image.entries.len() as u64,
+            withheld_count: image.withheld.len() as u64,
+            total_bytes: image
+                .entries
+                .iter()
+                .map(|e| e.size)
+                .fold(0, u64::saturating_add),
+            new_bytes: 0,
+            stored_bytes: 0,
+            duration_ms: 0,
+        });
+        info!("Listed the image {id} of {uuid}, which no backup named, as a backup");
+        changed = true;
+    }
+    changed
+}
+
+/// The objects a server's backups use, by the images they were worked out from, for the
+/// usage the list shows.
+struct UsedObjects {
+    images: Vec<String>,
+    /// SHA-256 to size.
+    objects: Arc<HashMap<String, u64>>,
+}
+
+/// Server backups: the jobs, their locks and the scheduler's state.
 pub struct BackupService {
+    images: Arc<ImageService>,
     store: Store,
     instances_dir: PathBuf,
-    store_lock: Arc<RwLock<()>>,
     jobs: StdMutex<HashMap<InstanceUuid, Arc<Mutex<()>>>>,
-    manifest_locks: StdMutex<HashMap<InstanceUuid, Arc<Mutex<()>>>>,
     running: StdMutex<HashMap<InstanceUuid, Job>>,
     last_manual: StdMutex<HashMap<InstanceUuid, Instant>>,
     schedule: StdMutex<HashMap<InstanceUuid, ScheduleState>>,
@@ -602,11 +663,8 @@ pub struct BackupService {
     /// The `lock_stopped` guards of servers whose restore couldn't be undone: they can't
     /// start until the core restarts and repairs them.
     broken: StdMutex<HashMap<InstanceUuid, OwnedMutexGuard<()>>>,
-    gc_pending: AtomicBool,
-    cache: StdMutex<HashMap<InstanceUuid, Arc<Summary>>>,
-    /// Bumped whenever a summary is dropped, so a summary read before can't be cached.
-    cache_generation: AtomicU64,
-    /// Compressed object sizes. Objects only go away in GC, which clears this.
+    used: StdMutex<HashMap<InstanceUuid, UsedObjects>>,
+    /// Stored sizes of objects, which never change for an object.
     object_sizes: StdMutex<HashMap<String, u64>>,
     cancel: CancellationToken,
     tracker: TaskTracker,
@@ -615,23 +673,20 @@ pub struct BackupService {
 }
 
 impl BackupService {
-    /// A service for the store at `root` (`<lodestone>/backups`), for the servers in
-    /// `instances_dir`. Nothing is read until it is used.
-    pub fn new(root: PathBuf, instances_dir: PathBuf) -> BackupService {
+    /// A service for the servers in `instances_dir`, keeping their backups in the image
+    /// store of `images`. Nothing is read until it is used.
+    pub fn new(images: Arc<ImageService>, instances_dir: PathBuf) -> BackupService {
         BackupService {
-            store: Store::new(root),
+            store: Store::new(images.root().to_path_buf()),
+            images,
             instances_dir,
-            store_lock: Arc::new(RwLock::new(())),
             jobs: Default::default(),
-            manifest_locks: Default::default(),
             running: Default::default(),
             last_manual: Default::default(),
             schedule: Default::default(),
             unrepaired: Default::default(),
             broken: Default::default(),
-            gc_pending: AtomicBool::new(false),
-            cache: Default::default(),
-            cache_generation: AtomicU64::new(0),
+            used: Default::default(),
             object_sizes: Default::default(),
             cancel: CancellationToken::new(),
             tracker: TaskTracker::new(),
@@ -641,6 +696,10 @@ impl BackupService {
 
     pub fn store(&self) -> &Store {
         &self.store
+    }
+
+    fn image_store(&self) -> Arc<ImageStore> {
+        self.images.store()
     }
 
     /// Resolves once a server's schedule was saved since the last call (or is, if none
@@ -721,6 +780,12 @@ impl BackupService {
     }
 
     /// Whether a backup or restore of the server is running.
+    /// Whether a backup is being restored into the server (in place) now.
+    pub fn restoring(&self, uuid: &InstanceUuid) -> bool {
+        self.running_job(uuid)
+            .is_some_and(|job| job.kind == JobKind::Restore)
+    }
+
     pub fn job_running(&self, uuid: &InstanceUuid) -> bool {
         lock_in(&self.jobs, uuid).try_lock().is_err()
     }
@@ -728,17 +793,6 @@ impl BackupService {
     fn lock_job(&self, uuid: &InstanceUuid) -> Result<OwnedMutexGuard<()>, Error> {
         self.try_lock_job(uuid)
             .ok_or_else(|| conflict("A backup or restore of this server is already running"))
-    }
-
-    async fn lock_manifests(&self, uuid: &InstanceUuid) -> OwnedMutexGuard<()> {
-        lock_in(&self.manifest_locks, uuid).lock_owned().await
-    }
-
-    async fn store_read(self: &Arc<Self>) -> StoreGuard {
-        StoreGuard {
-            guard: Some(self.store_lock.clone().read_owned().await),
-            service: self.clone(),
-        }
     }
 
     /// The job mutex, and `lock_stopped` when the server is stopped. A running server is
@@ -763,7 +817,6 @@ impl BackupService {
             _job: job,
             stopped,
             _mods: None,
-            store: None,
         })
     }
 
@@ -790,77 +843,107 @@ impl BackupService {
     }
 
     // -----------------------------------------------------------------------------------
-    // Cache
+    // Reading
 
-    fn invalidate(&self, uuid: &InstanceUuid) {
-        self.cache_generation.fetch_add(1, Ordering::SeqCst);
-        self.cache
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(uuid);
+    /// The server's backups.
+    pub async fn records(&self, uuid: &InstanceUuid) -> Result<Records, Error> {
+        let store = self.store.clone();
+        let uuid = uuid.clone();
+        blocking(move || store.load_records(&uuid)).await
     }
 
-    async fn summary(&self, uuid: &InstanceUuid) -> Result<Arc<Summary>, Error> {
-        if let Some(summary) = self
-            .cache
+    /// The objects the server's backups use, worked out again only when its backups name
+    /// other images than last time.
+    async fn used_objects(
+        &self,
+        uuid: &InstanceUuid,
+        records: &Records,
+    ) -> Result<Arc<HashMap<String, u64>>, Error> {
+        let mut images: Vec<String> = records.backups.iter().map(|b| b.image.clone()).collect();
+        images.sort();
+        images.dedup();
+        if let Some(used) = self
+            .used
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .get(uuid)
+            .filter(|used| used.images == images)
         {
-            return Ok(summary.clone());
+            return Ok(used.objects.clone());
         }
-        let generation = self.cache_generation.load(Ordering::SeqCst);
-        let store = self.store.clone();
-        let id = uuid.clone();
-        let summary = blocking(move || {
-            let manifests = store.list_manifests(&id)?;
-            let mut hashes = HashSet::new();
-            for m in &manifests {
-                hashes.extend(m.files.iter().map(|f| f.sha256.clone()));
+        let store = self.image_store();
+        let (id, wanted) = (uuid.clone(), images.clone());
+        let objects = blocking(move || {
+            let mut objects = HashMap::new();
+            for image in &wanted {
+                match store.load_manifest(id.as_ref(), image) {
+                    Ok(image) => objects.extend(
+                        image
+                            .entries
+                            .into_iter()
+                            .map(|entry| (entry.sha256, entry.size)),
+                    ),
+                    Err(e) => warn!("Failed to read the backup image {image} of {id}: {e}"),
+                }
             }
-            Ok(Summary {
-                backups: manifests.iter().map(BackupInfo::from).collect(),
-                hashes,
-            })
+            Ok(Arc::new(objects))
         })
         .await?;
-        let summary = Arc::new(summary);
-        if self.cache_generation.load(Ordering::SeqCst) == generation {
-            self.cache
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .insert(uuid.clone(), summary.clone());
-        }
-        Ok(summary)
+        self.used.lock().unwrap_or_else(|e| e.into_inner()).insert(
+            uuid.clone(),
+            UsedObjects {
+                images,
+                objects: objects.clone(),
+            },
+        );
+        Ok(objects)
     }
 
-    async fn usage(self: &Arc<Self>, summary: Arc<Summary>) -> Result<BackupUsage, Error> {
+    async fn usage(
+        self: &Arc<Self>,
+        uuid: &InstanceUuid,
+        records: &Records,
+    ) -> Result<BackupUsage, Error> {
+        let objects = self.used_objects(uuid, records).await?;
+        let total_bytes = records
+            .backups
+            .iter()
+            .map(|b| b.total_bytes)
+            .fold(0, u64::saturating_add);
         let this = self.clone();
         blocking(move || {
-            let mut stored_bytes = 0;
-            let mut missing = Vec::new();
+            let store = this.image_store();
+            let mut stored_bytes = 0u64;
+            let mut found = Vec::new();
             {
                 let sizes = this.object_sizes.lock().unwrap_or_else(|e| e.into_inner());
-                for hash in &summary.hashes {
-                    match sizes.get(hash) {
-                        Some(size) => stored_bytes += size,
-                        None => missing.push(hash.clone()),
+                for (sha256, size) in objects.iter() {
+                    match sizes.get(sha256) {
+                        Some(stored) => stored_bytes = stored_bytes.saturating_add(*stored),
+                        None => found.push((sha256.clone(), *size)),
                     }
                 }
             }
-            let mut found = Vec::new();
-            for hash in missing {
-                if let Some(size) = this.store.object_stored_size(&hash) {
-                    stored_bytes += size;
-                    found.push((hash, size));
-                }
+            let found: Vec<(String, u64)> = found
+                .into_iter()
+                .map(|(sha256, size)| {
+                    let stored = stored_size(&store, &sha256, size);
+                    (sha256, stored)
+                })
+                .collect();
+            stored_bytes = found
+                .iter()
+                .map(|(_, stored)| *stored)
+                .fold(stored_bytes, u64::saturating_add);
+            let mut sizes = this.object_sizes.lock().unwrap_or_else(|e| e.into_inner());
+            // a bound, not an eviction policy: it is only a cache
+            if sizes.len() > 1_000_000 {
+                sizes.clear();
             }
-            this.object_sizes
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .extend(found);
+            sizes.extend(found.into_iter().filter(|(_, stored)| *stored > 0));
+            drop(sizes);
             Ok(BackupUsage {
-                total_bytes: summary.backups.iter().map(|b| b.total_bytes).sum(),
+                total_bytes,
                 stored_bytes,
                 disk_free: free_space(this.store.root()),
             })
@@ -868,24 +951,25 @@ impl BackupService {
         .await
     }
 
-    // -----------------------------------------------------------------------------------
-    // Reading
-
     /// `GET /instance/{uuid}/backups`.
     pub async fn list(self: &Arc<Self>, uuid: &InstanceUuid) -> Result<BackupList, Error> {
-        self.store.server_dir(uuid)?;
-        let summary = self.summary(uuid).await?;
+        self.store.instance_dir(uuid)?;
+        let records = self.records(uuid).await?;
         let policy = self.policy(uuid).await?;
-        let usage = self.usage(summary.clone()).await?;
+        let usage = self.usage(uuid, &records).await?;
         let last_attempt = self.schedule_state(uuid).last_attempt;
         let next_scheduled = retention::next_due(
             &policy,
-            summary.newest_for_schedule(),
+            newest_for_schedule(&records),
             last_attempt,
             Utc::now().timestamp(),
         );
         Ok(BackupList {
-            backups: summary.backups.clone(),
+            backups: records
+                .newest_first()
+                .into_iter()
+                .map(BackupInfo::from)
+                .collect(),
             policy,
             running: self.running_job(uuid),
             usage,
@@ -893,14 +977,36 @@ impl BackupService {
         })
     }
 
-    /// A backup's manifest: NotFound when there is no such backup.
-    pub async fn load_manifest(&self, uuid: &InstanceUuid, id: &str) -> Result<Manifest, Error> {
+    /// A backup with its images: NotFound when there is no such backup, or its image is
+    /// gone.
+    pub async fn load(&self, uuid: &InstanceUuid, id: &str) -> Result<Backup, Error> {
         if !valid_backup_id(id) {
-            return Err(err(ErrorKind::NotFound, "Backup not found"));
+            return Err(not_found());
         }
-        let store = self.store.clone();
-        let (uuid, id) = (uuid.clone(), id.to_string());
-        blocking(move || store.load_manifest(&uuid, &id)).await
+        let records = self.records(uuid).await?;
+        let record = records.get(id).cloned().ok_or_else(not_found)?;
+        let store = self.image_store();
+        let uuid = uuid.clone();
+        blocking(move || {
+            let image = store
+                .load_manifest(uuid.as_ref(), &record.image)
+                .map_err(|e| {
+                    err(
+                        ErrorKind::NotFound,
+                        format!("The backup's image can't be read: {e}"),
+                    )
+                })?;
+            let content = image
+                .content
+                .as_deref()
+                .and_then(|content| store.load_manifest(uuid.as_ref(), content).ok());
+            Ok(Backup {
+                record,
+                image,
+                content,
+            })
+        })
+        .await
     }
 
     pub async fn policy(&self, uuid: &InstanceUuid) -> Result<BackupPolicy, Error> {
@@ -921,12 +1027,30 @@ impl BackupService {
         policy
             .validate()
             .map_err(|e| err(ErrorKind::BadRequest, e))?;
-        let _manifests = self.lock_manifests(uuid).await;
         let store = self.store.clone();
         let (id, saved) = (uuid.clone(), policy.clone());
         blocking(move || store.save_policy(&id, &saved)).await?;
         self.schedule_changed.notify_one();
         Ok(policy)
+    }
+
+    /// Changes the server's records under its image lock: `change` edits them and returns
+    /// what to answer; they are saved when it succeeds.
+    async fn change_records<T: Send + 'static>(
+        &self,
+        uuid: &InstanceUuid,
+        change: impl FnOnce(&mut Records) -> Result<T, Error> + Send + 'static,
+    ) -> Result<T, Error> {
+        let _lock = self.images.instance_lock(uuid).await;
+        let store = self.store.clone();
+        let uuid = uuid.clone();
+        blocking(move || {
+            let mut records = store.load_records(&uuid)?;
+            let answer = change(&mut records)?;
+            store.save_records(&uuid, &records)?;
+            Ok(answer)
+        })
+        .await
     }
 
     /// `PATCH /instance/{uuid}/backups/{id}`: renames (`Some(None)` clears the name) and
@@ -945,95 +1069,165 @@ impl BackupService {
             Some(None) => Some(None),
             None => None,
         };
-        let _manifests = self.lock_manifests(uuid).await;
-        let mut manifest = self.load_manifest(uuid, id).await?;
-        if let Some(name) = name {
-            manifest.name = name;
+        if !valid_backup_id(id) {
+            return Err(not_found());
         }
-        if let Some(pinned) = pinned {
-            manifest.pinned = pinned;
-        }
-        let store = self.store.clone();
-        let saved = manifest.clone();
-        blocking(move || store.save_manifest(&saved)).await?;
-        self.invalidate(uuid);
-        Ok(BackupInfo::from(&manifest))
+        let id = id.to_string();
+        self.change_records(uuid, move |records| {
+            let record = records
+                .backups
+                .iter_mut()
+                .find(|b| b.id == id)
+                .ok_or_else(not_found)?;
+            if let Some(name) = name {
+                record.name = name;
+            }
+            if let Some(pinned) = pinned {
+                record.pinned = pinned;
+            }
+            Ok(BackupInfo::from(&*record))
+        })
+        .await
     }
 
-    /// `DELETE /instance/{uuid}/backups/{id}`: removes the manifest; its objects go at the
-    /// next GC.
-    pub async fn delete(self: &Arc<Self>, uuid: &InstanceUuid, id: &str) -> Result<(), Error> {
-        if !valid_backup_id(id) {
-            return Err(err(ErrorKind::NotFound, "Backup not found"));
-        }
-        {
-            let _manifests = self.lock_manifests(uuid).await;
+    /// Deletes the backups of the server `select` picks from its records (read under the
+    /// instance's image lock, so a backup pinned meanwhile is never picked from an older
+    /// list, and reconciled with the images first, [`reconcile_records`]): each of their
+    /// images no other record names, then their records, then prunes the content images
+    /// nothing links to and, when an image went, asks for a collection (retention runs
+    /// after every backup, and most runs delete nothing; a collection reads every manifest
+    /// of every server). A backup whose image couldn't be deleted
+    /// keeps its record and is listed as before. Returns the ids it deleted, and the first
+    /// failure.
+    async fn delete_backups(
+        &self,
+        uuid: &InstanceUuid,
+        select: impl FnOnce(&Records) -> HashSet<String> + Send + 'static,
+    ) -> Result<(Vec<String>, Option<Error>), Error> {
+        let (deleted, failure, removed) = {
+            let _lock = self.images.instance_lock(uuid).await;
             let store = self.store.clone();
-            let (uuid, id) = (uuid.clone(), id.to_string());
-            blocking(move || store.delete_manifest(&uuid, &id)).await?;
+            let images = self.image_store();
+            let uuid = uuid.clone();
+            blocking(move || {
+                let mut records = store.load_records(&uuid)?;
+                // Before anything is chosen: a missing list must never make every backup
+                // look like a leftover.
+                let reconciled = reconcile_records(&images, &uuid, &mut records);
+                let ids = select(&records);
+                let mut deleted = HashSet::new();
+                let mut failure = None;
+                // whether an image went, which leaves objects for a collection
+                let mut removed = false;
+                for record in records.backups.iter().filter(|b| ids.contains(&b.id)) {
+                    let shared = records
+                        .backups
+                        .iter()
+                        .any(|b| b.image == record.image && !ids.contains(&b.id));
+                    if !shared {
+                        match images.delete_manifest(uuid.as_ref(), &record.image) {
+                            Ok(gone) => removed |= gone,
+                            Err(e) => {
+                                warn!("Failed to delete the image {} of {uuid}: {e}", record.image);
+                                failure.get_or_insert_with(|| {
+                                    Error::from(eyre!(
+                                        "Failed to delete the backup {}: {e}",
+                                        record.id
+                                    ))
+                                });
+                                continue;
+                            }
+                        }
+                    }
+                    deleted.insert(record.id.clone());
+                }
+                records.backups.retain(|b| !deleted.contains(&b.id));
+                if reconciled || !deleted.is_empty() {
+                    store.save_records(&uuid, &records)?;
+                }
+                Ok((deleted.into_iter().collect::<Vec<_>>(), failure, removed))
+            })
+            .await?
+        };
+        let pruned = match self.images.prune(uuid).await {
+            Ok(pruned) => pruned,
+            Err(e) => {
+                warn!("Failed to prune the images of {uuid}: {}", e.source);
+                0
+            }
+        };
+        if removed || pruned > 0 {
+            self.images.request_gc();
         }
-        self.invalidate(uuid);
-        self.request_gc();
+        Ok((deleted, failure))
+    }
+
+    /// `DELETE /instance/{uuid}/backups/{id}`: removes the backup; its files go at the next
+    /// collection, unless another backup uses them.
+    pub async fn delete(&self, uuid: &InstanceUuid, id: &str) -> Result<(), Error> {
+        if !valid_backup_id(id) {
+            return Err(not_found());
+        }
+        let id = id.to_string();
+        let (deleted, failure) = self
+            .delete_backups(uuid, move |_| HashSet::from([id]))
+            .await?;
+        if let Some(failure) = failure {
+            return Err(failure);
+        }
+        if deleted.is_empty() {
+            return Err(not_found());
+        }
         Ok(())
     }
 
-    /// When a server is deleted: deletes all its backups and policy. The caller holds the
-    /// server's job mutex.
-    pub async fn delete_server(self: &Arc<Self>, uuid: &InstanceUuid) -> Result<(), Error> {
-        {
-            let _manifests = self.lock_manifests(uuid).await;
-            let store = self.store.clone();
-            let uuid = uuid.clone();
-            blocking(move || store.delete_server(&uuid)).await?;
-        }
-        self.invalidate(uuid);
+    /// When a server is deleted: deletes all its backups, its policy and its other images
+    /// (the server's image folder). The caller holds the server's job mutex.
+    pub async fn delete_server(&self, uuid: &InstanceUuid) -> Result<(), Error> {
+        self.store.instance_dir(uuid)?;
+        self.images.delete_instance(uuid).await?;
         self.schedule
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .remove(uuid);
-        self.request_gc();
+        self.used
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(uuid);
+        self.images.request_gc();
         Ok(())
     }
 
     // -----------------------------------------------------------------------------------
-    // Retention and garbage collection
+    // Retention
 
     /// Deletes the backups the server's retention doesn't keep. `just_created` is never
     /// deleted.
     async fn apply_retention(&self, uuid: &InstanceUuid, just_created: Option<&str>) {
         let result = async {
             let policy = self.policy(uuid).await?;
-            let _manifests = self.lock_manifests(uuid).await;
-            let summary = self.summary(uuid).await?;
-            let items: Vec<RetentionItem> = summary
-                .backups
-                .iter()
-                .map(|b| RetentionItem {
-                    id: &b.id,
-                    kind: b.kind,
-                    created: b.created,
-                    pinned: b.pinned,
-                })
-                .collect();
-            let doomed =
-                retention::to_delete(&items, Utc::now().timestamp(), &policy, just_created);
-            if doomed.is_empty() {
-                return Ok(());
+            let now = Utc::now().timestamp();
+            let just_created = just_created.map(str::to_string);
+            let doomed = move |records: &Records| -> HashSet<String> {
+                let items: Vec<RetentionItem> = records
+                    .backups
+                    .iter()
+                    .map(|b| RetentionItem {
+                        id: &b.id,
+                        kind: b.kind,
+                        created: b.created,
+                        pinned: b.pinned,
+                    })
+                    .collect();
+                retention::to_delete(&items, now, &policy, just_created.as_deref())
+                    .into_iter()
+                    .collect()
+            };
+            let (deleted, failure) = self.delete_backups(uuid, doomed).await?;
+            for id in deleted {
+                info!("Deleted old backup {id} of {uuid}");
             }
-            let store = self.store.clone();
-            let id = uuid.clone();
-            blocking(move || {
-                for backup in doomed {
-                    match store.delete_manifest(&id, &backup) {
-                        Ok(()) => info!("Deleted old backup {backup} of {id}"),
-                        Err(e) => warn!("Failed to delete old backup {backup}: {}", e.source),
-                    }
-                }
-                Ok(())
-            })
-            .await?;
-            self.invalidate(uuid);
-            Ok::<_, Error>(())
+            failure.map_or(Ok(()), Err)
         }
         .await;
         if let Err(e) = result {
@@ -1044,121 +1238,122 @@ impl BackupService {
         }
     }
 
-    /// Runs garbage collection now if no job uses the store, else when the next job ends.
-    pub fn request_gc(self: &Arc<Self>) {
-        if self.cancel.is_cancelled() {
-            return;
-        }
-        let guard = match self.store_lock.clone().try_write_owned() {
-            Ok(guard) => guard,
-            Err(_) => {
-                self.gc_pending.store(true, Ordering::SeqCst);
-                // the holder may have let go (and found nothing pending) in between
-                match self.store_lock.clone().try_write_owned() {
-                    Ok(guard) => guard,
-                    Err(_) => return,
-                }
-            }
-        };
-        self.gc_pending.store(false, Ordering::SeqCst);
-        let this = self.clone();
-        self.tracker.spawn(async move {
-            let store = this.store.clone();
-            let result = blocking(move || {
-                let _alone = guard;
-                store.gc()
-            })
-            .await;
-            this.object_sizes
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .clear();
-            // a GC asked for while this one ran (backups deleted meanwhile)
-            this.after_job();
-            match result {
-                Ok(report) if report.objects_removed > 0 || report.temp_removed > 0 => info!(
-                    "Backup cleanup removed {} unused files ({} bytes)",
-                    report.objects_removed + report.temp_removed,
-                    report.bytes_removed
-                ),
-                Ok(_) => {}
-                Err(e) => warn!("Backup cleanup failed: {}", e.source),
-            }
-        });
-    }
-
-    /// When the store lock was let go: the GC that waited for it.
-    fn after_job(self: &Arc<Self>) {
-        if self.gc_pending.load(Ordering::SeqCst) {
-            self.request_gc();
-        }
-    }
-
     // -----------------------------------------------------------------------------------
     // Taking a backup
 
-    /// Takes a backup inside `guards`: live (saving paused) when they don't hold
-    /// `lock_stopped`. The store guard must be held.
+    /// Brings the server's content image up to date, so a backup links to the content it
+    /// has. For a stopped server that is the check before a start (what is queued, then what
+    /// changed outside Lodestone; see `MinecraftInstance::check_content_before_start`), and
+    /// its first content image when it has none. A running server's own writes never make a
+    /// content image, so for one only what is queued is recorded. Waits at most about
+    /// [`FLUSH_WAIT`] for an operation in progress; a failure is only logged, since the backup
+    /// has every file anyway.
+    async fn record_content(&self, instance: &MinecraftInstance, policy_exclude: &[String]) {
+        let ctx = InstanceContext::of(instance, policy_exclude.to_vec()).await;
+        let uuid = ctx.uuid.clone();
+        // The waits bound only getting the content gate: a record that has it runs to its
+        // end, so it never loses the labels it took.
+        let recorded = if ctx.running {
+            self.images
+                .flush_within(ctx, Some(FLUSH_WAIT))
+                .await
+                .map(|_| ())
+        } else {
+            // logs its own failures, and waits for an operation in progress a while
+            instance.check_content_before_start(&self.images).await;
+            if self.images.current_content(&uuid).await.is_none() {
+                self.images
+                    .record_now_within(ctx, INITIAL_LABEL.to_string(), Some(FLUSH_WAIT))
+                    .await
+                    .map(|_| ())
+            } else {
+                Ok(())
+            }
+        };
+        if let Err(e) = recorded {
+            warn!(
+                "Backing up {uuid} without recording its content first: {}",
+                e.source
+            );
+        }
+    }
+
+    /// Takes a backup inside `guards`, with collections held off by `hold`: live (saving
+    /// paused) when they don't hold `lock_stopped`.
     ///
-    /// `exclude` is what to leave out; `None` reads the server's policy. A restore's safety
-    /// backup passes the exclude its permission check used, since the check after stopping
-    /// compares against the safety backup's files.
+    /// `policy_exclude` is what to leave out; `None` reads the server's policy. A restore's
+    /// safety backup passes the patterns its plan used, so the safety backup has every file
+    /// the restore replaces.
     #[allow(clippy::too_many_arguments)]
     async fn create_locked(
         &self,
         state: &AppState,
         guards: &JobGuards,
+        _hold: &CollectionHold,
         instance: &MinecraftInstance,
         kind: BackupKind,
         name: Option<String>,
-        exclude: Option<Matcher>,
+        policy_exclude: Option<Vec<String>>,
         phase: Phase,
     ) -> Result<Created, Error> {
-        debug_assert!(guards.store.is_some());
         let uuid = instance.uuid().await;
-        let root = instance.path().await;
         let instance_name = instance.name().await;
-        let (game_version, flavour) = instance.server_software().await;
-        let level_name = instance
-            .server_properties()
-            .await
-            .ok()
-            .and_then(|p| p.get("level-name").map(str::to_string))
-            .filter(|name| !name.is_empty())
-            .unwrap_or_else(|| DEFAULT_LEVEL_NAME.to_string());
-        let exclude = match exclude {
+        let policy_exclude = match policy_exclude {
             Some(exclude) => exclude,
-            None => Matcher::new(&self.policy(&uuid).await?.exclude),
+            None => self.policy(&uuid).await?.exclude,
         };
+        let ctx = InstanceContext::of(instance, policy_exclude).await;
         let live = guards.stopped.is_none();
-        let now = Utc::now();
-        let skip_unchanged =
-            kind == BackupKind::Scheduled || (kind == BackupKind::Manual && name.is_none());
-        let work = CopyWork {
-            store: self.store.clone(),
-            root,
+        let records = self.records(&uuid).await?;
+        let full_scan = needs_full_scan(
+            kind == BackupKind::Scheduled,
+            records.backups.is_empty(),
+            records.scheduled_since_full,
+        );
+        let request = Request {
             uuid: uuid.clone(),
-            kind,
-            exclude,
-            skip_unchanged,
-            meta: BackupMeta {
-                id: new_backup_id(now),
-                instance_uuid: uuid.clone(),
-                instance_name: instance_name.clone(),
-                game_version,
-                flavour: flavour.to_string(),
-                name,
-                kind,
-                created: now.timestamp(),
-                live,
-                quiesced: true,
-                level_name: checked_level_name(&level_name),
-            },
-            phase: phase.clone(),
-            prefetched: None,
+            root: ctx.root.clone(),
+            game_version: ctx.game_version.clone(),
+            flavour: ctx.flavour.clone(),
+            level_name: ctx.level_name.clone(),
+            policy_exclude: ctx.policy_exclude.clone(),
+            full_scan,
+            threads: if live { 1 } else { 0 },
+        };
+        let store = self.image_store();
+        let prepared = {
+            let store = store.clone();
+            blocking(move || Prepared::new(&store, request)).await?
         };
 
-        let (copied, quiesced) = if live {
+        // Walk 5 %, read 90 %, save 5 %. Started (for a scheduled backup) once there is
+        // something to read.
+        let take = |prepared: Prepared, phase: Phase, token: CancellationToken| {
+            let store = store.clone();
+            blocking(move || {
+                phase.report(0.0, Some("Looking for changed files"));
+                let taken = prepared.take(
+                    &store,
+                    &|to_read| {
+                        if to_read > 0 {
+                            phase.begin();
+                        }
+                        phase.report(5.0, Some("Copying files"));
+                    },
+                    &|done, total| {
+                        let share = if total == 0 {
+                            1.0
+                        } else {
+                            done as f64 / total as f64
+                        };
+                        phase.report(5.0 + 90.0 * share, None);
+                    },
+                    &|| token.is_cancelled(),
+                )?;
+                Ok((prepared, taken))
+            })
+        };
+        let ((prepared, taken), quiesced) = if live {
             let console = |message: &str| {
                 state.event_broadcaster.send(Event::new_system_message(
                     uuid.clone(),
@@ -1168,8 +1363,32 @@ impl BackupService {
             };
             console("Backing up…");
             let token = self.cancel.clone();
-            let result = match blocking(move || work.prefetch(&|| token.is_cancelled())).await {
-                Ok(work) => {
+            let reading = phase.job.phase(phase.base, phase.span * 0.7);
+            let rest = phase
+                .job
+                .phase(phase.base + phase.span * 0.7, phase.span * 0.3);
+            let prefetched = {
+                let (store, reading) = (store.clone(), reading.clone());
+                let mut prepared = prepared;
+                blocking(move || {
+                    let read_ahead = prepared.prefetch(
+                        &store,
+                        &|done, total| {
+                            reading.begin();
+                            reading.report(
+                                100.0 * done as f64 / total.max(1) as f64,
+                                Some("Copying files"),
+                            );
+                        },
+                        &|| token.is_cancelled(),
+                    )?;
+                    Ok((prepared, read_ahead))
+                })
+                .await
+            };
+            let result = match prefetched {
+                Ok((prepared, read_ahead)) => {
+                    let phase = if read_ahead { rest } else { phase.clone() };
                     let mut lines =
                         InstanceLines::new(state.event_broadcaster.subscribe(), uuid.clone());
                     let marker = self.store.marker_path(&uuid)?;
@@ -1179,9 +1398,7 @@ impl BackupService {
                         &marker,
                         Limits::default(),
                         &self.cancel,
-                        |quiesced, token| async move {
-                            blocking(move || work.run(quiesced, &|| token.is_cancelled())).await
-                        },
+                        |_, token| take(prepared, phase, token),
                     )
                     .await
                 }
@@ -1194,72 +1411,172 @@ impl BackupService {
             });
             result?
         } else {
-            let token = self.cancel.clone();
-            let copied = blocking(move || work.run(true, &|| token.is_cancelled())).await?;
-            (copied, true)
+            (
+                take(prepared, phase.clone(), self.cancel.clone()).await?,
+                true,
+            )
         };
 
-        let (mut manifest, unreadable, scheduled_since_full) = match copied {
-            Copied::Unchanged {
-                id,
-                scheduled_since_full,
-            } => {
-                self.record_scheduled_since_full(&uuid, scheduled_since_full)
-                    .await;
-                self.mark_backed_up(&uuid);
-                return Ok(Created {
-                    id,
-                    manifest: None,
-                    unreadable: 0,
-                    live,
-                    quiesced,
-                });
-            }
-            Copied::Finished {
-                manifest,
-                unreadable,
-                scheduled_since_full,
-            } => (*manifest, unreadable, scheduled_since_full),
-        };
-        // the copy knew whether the server saved, but not whether it stopped meanwhile
-        manifest.quiesced = quiesced;
         phase.report(95.0, Some("Saving the backup"));
+        let saved = self
+            .save(
+                &uuid,
+                &instance_name,
+                kind,
+                name,
+                live,
+                quiesced,
+                &prepared,
+                &taken,
+            )
+            .await?;
+        // the stat cache only makes the next backup faster
+        let cache = taken.snapshot.cache;
+        let id = uuid.clone();
+        if let Err(e) = blocking(move || {
+            store
+                .save_stat_cache(id.as_ref(), &cache)
+                .map_err(|e| err(ErrorKind::Internal, format!("{e}")))
+        })
+        .await
         {
-            let _manifests = self.lock_manifests(&uuid).await;
-            let store = self.store.clone();
-            let saved = manifest.clone();
-            blocking(move || store.save_manifest(&saved)).await?;
+            warn!(
+                "Failed to save the backup stat cache of {uuid}: {}",
+                e.source
+            );
         }
-        self.record_scheduled_since_full(&uuid, scheduled_since_full)
-            .await;
-        self.invalidate(&uuid);
         self.mark_backed_up(&uuid);
+        if saved.image.is_some() {
+            phase.begin();
+        }
         phase.report(100.0, None);
         Ok(Created {
-            id: manifest.id.clone(),
-            manifest: Some(manifest),
-            unreadable,
+            unreadable: saved.image.as_ref().map_or(0, unreadable_in),
+            id: saved.id,
+            image: saved.image,
             live,
             quiesced,
         })
     }
 
-    /// Records how many scheduled backups were saved since the last full scan. A failure
-    /// only makes the next full scan come early or late, so it is logged, not returned.
-    async fn record_scheduled_since_full(&self, uuid: &InstanceUuid, count: Option<usize>) {
-        let Some(count) = count else {
-            return;
+    /// Builds the backup's image and saves it and its record, under the instance's image
+    /// lock (so the content image it links to can't be pruned in between); or, when nothing
+    /// changed and the backup skips that ([`skips_unchanged`]), saves nothing but the count
+    /// of scheduled backups since a full scan.
+    #[allow(clippy::too_many_arguments)]
+    async fn save(
+        &self,
+        uuid: &InstanceUuid,
+        instance_name: &str,
+        kind: BackupKind,
+        name: Option<String>,
+        live: bool,
+        quiesced: bool,
+        prepared: &Prepared,
+        taken: &take::Taken,
+    ) -> Result<Saved, Error> {
+        let _lock = self.images.instance_lock(uuid).await;
+        let content = self.images.current_content(uuid).await;
+        let records = self.records(uuid).await?;
+        let previous = records.newest_first().first().map(|r| (*r).clone());
+        let previous_image = match &previous {
+            Some(previous) => {
+                let store = self.image_store();
+                let (id, image) = (uuid.clone(), previous.image.clone());
+                blocking(move || Ok(store.load_manifest(id.as_ref(), &image).ok())).await?
+            }
+            None => None,
+        };
+        let now = Utc::now();
+        let image = take::build(
+            prepared,
+            taken,
+            Meta {
+                label: image_label(kind, name.as_deref()),
+                created: now.timestamp(),
+                quiesced,
+                content,
+                parent: previous.as_ref().map(|p| p.image.clone()),
+            },
+        )?;
+        let full_scan = prepared.request.full_scan;
+        let scheduled_since_full = |saved: bool, records: &Records| {
+            if full_scan {
+                0
+            } else if saved && kind == BackupKind::Scheduled {
+                records.scheduled_since_full + 1
+            } else {
+                records.scheduled_since_full
+            }
+        };
+        if let Some(previous) = previous
+            .as_ref()
+            .filter(|p| p.image == image.id && skips_unchanged(kind, name.is_some(), p))
+        {
+            let mut records = records.clone();
+            let count = scheduled_since_full(false, &records);
+            if count != records.scheduled_since_full {
+                records.scheduled_since_full = count;
+                let store = self.store.clone();
+                let id = uuid.clone();
+                // only makes the next full scan come early or late
+                if let Err(e) = blocking(move || store.save_records(&id, &records)).await {
+                    warn!("Failed to record the backup scans of {uuid}: {}", e.source);
+                }
+            }
+            return Ok(Saved {
+                id: previous.id.clone(),
+                image: None,
+            });
+        }
+        let record = BackupRecord {
+            id: new_backup_id(now),
+            image: image.id.clone(),
+            name,
+            kind,
+            created: now.timestamp(),
+            pinned: false,
+            live,
+            quiesced,
+            level: prepared.level_in(&image),
+            instance_name: instance_name.to_string(),
+            game_version: prepared.request.game_version.clone(),
+            file_count: image.entries.len() as u64,
+            withheld_count: image.withheld.len() as u64,
+            total_bytes: image
+                .entries
+                .iter()
+                .map(|e| e.size)
+                .fold(0, u64::saturating_add),
+            new_bytes: take::new_bytes(&image, previous_image.as_ref()),
+            stored_bytes: taken.snapshot.bytes_added,
+            duration_ms: taken.duration_ms,
         };
         let store = self.store.clone();
-        let id = uuid.clone();
-        if let Err(e) = blocking(move || store.record_scheduled_since_full_scan(&id, count)).await {
-            warn!("Failed to record the backup scans of {uuid}: {}", e.source);
-        }
+        let images = self.image_store();
+        let (id, to_save) = (uuid.clone(), image.clone());
+        let mut records = records;
+        records.scheduled_since_full = scheduled_since_full(true, &records);
+        records.backups.push(record.clone());
+        blocking(move || {
+            images.save_manifest(id.as_ref(), &to_save).map_err(|e| {
+                err(
+                    ErrorKind::Internal,
+                    format!("Failed to save the backup's image: {e}"),
+                )
+            })?;
+            store.save_records(&id, &records)
+        })
+        .await?;
+        Ok(Saved {
+            id: record.id,
+            image: Some(image),
+        })
     }
 
     /// The end message of a backup.
     fn backup_message(server_name: &str, created: &Created) -> String {
-        if created.manifest.is_none() {
+        if created.image.is_none() {
             return "Nothing changed since the last backup".to_string();
         }
         let mut message = format!("Backed up {server_name}");
@@ -1298,7 +1615,7 @@ impl BackupService {
             None => None,
         };
         let uuid = instance.uuid().await;
-        self.store.server_dir(&uuid)?;
+        self.store.instance_dir(&uuid)?;
         let recent = self
             .last_manual
             .lock()
@@ -1311,7 +1628,7 @@ impl BackupService {
                 "Wait a minute between manual backups",
             ));
         }
-        let mut guards = self.take_guards(&instance, "backing it up").await?;
+        let guards = self.take_guards(&instance, "backing it up").await?;
         self.last_manual
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -1331,17 +1648,8 @@ impl BackupService {
         let task_id = job.task_id();
         let (this, state) = (self.clone(), state.clone());
         self.tracker.spawn(async move {
-            guards.store = Some(this.store_read().await);
             let result = this
-                .create_locked(
-                    &state,
-                    &guards,
-                    &instance,
-                    BackupKind::Manual,
-                    name,
-                    None,
-                    job.phase(0.0, 100.0),
-                )
+                .backup_now(&state, &guards, &instance, BackupKind::Manual, name, &job)
                 .await;
             drop(guards);
             let (success, message, backup_id) = match &result {
@@ -1367,17 +1675,44 @@ impl BackupService {
         Ok(task_id)
     }
 
+    /// A manual or scheduled backup inside `guards`: brings the content image up to date
+    /// ([`Self::record_content`]), holds collections off, and backs up.
+    async fn backup_now(
+        &self,
+        state: &AppState,
+        guards: &JobGuards,
+        instance: &MinecraftInstance,
+        kind: BackupKind,
+        name: Option<String>,
+        job: &Job,
+    ) -> Result<Created, Error> {
+        let uuid = instance.uuid().await;
+        let policy = self.policy(&uuid).await?;
+        self.record_content(instance, &policy.exclude).await;
+        let hold = hold_off_collection(self.image_store()).await?;
+        self.create_locked(
+            state,
+            guards,
+            &hold,
+            instance,
+            kind,
+            name,
+            Some(policy.exclude),
+            job.phase(0.0, 100.0),
+        )
+        .await
+    }
+
     /// A scheduled backup, run to the end. Sends no events when nothing changed. Then
-    /// applies retention and runs GC.
+    /// applies retention.
     pub async fn scheduled_backup(
         self: &Arc<Self>,
         state: &AppState,
         instance: MinecraftInstance,
     ) -> Result<(), Error> {
         let uuid = instance.uuid().await;
-        self.store.server_dir(&uuid)?;
-        let mut guards = self.take_guards(&instance, "backing it up").await?;
-        guards.store = Some(self.store_read().await);
+        self.store.instance_dir(&uuid)?;
+        let guards = self.take_guards(&instance, "backing it up").await?;
         let server_name = instance.name().await;
         let job = Job::new(
             state.event_broadcaster.clone(),
@@ -1390,15 +1725,7 @@ impl BackupService {
         );
         self.register(&uuid, &job);
         let result = self
-            .create_locked(
-                state,
-                &guards,
-                &instance,
-                BackupKind::Scheduled,
-                None,
-                None,
-                job.phase(0.0, 100.0),
-            )
+            .backup_now(state, &guards, &instance, BackupKind::Scheduled, None, &job)
             .await;
         drop(guards);
         match &result {
@@ -1433,12 +1760,10 @@ impl BackupService {
         }
         self.unregister(&uuid);
         if let Ok(Created {
-            manifest: Some(manifest),
-            ..
+            image: Some(_), id, ..
         }) = &result
         {
-            self.apply_retention(&uuid, Some(&manifest.id)).await;
-            self.request_gc();
+            self.apply_retention(&uuid, Some(id)).await;
         }
         result.map(|_| ())
     }
@@ -1490,8 +1815,8 @@ impl BackupService {
         if !policy.enabled {
             return false;
         }
-        let newest = match self.summary(uuid).await {
-            Ok(summary) => summary.newest_for_schedule(),
+        let newest = match self.records(uuid).await {
+            Ok(records) => newest_for_schedule(&records),
             Err(e) => {
                 warn!("Failed to read the backups of {uuid}: {}", e.source);
                 return false;
@@ -1517,14 +1842,14 @@ impl BackupService {
         self: &Arc<Self>,
         state: &AppState,
         instance: MinecraftInstance,
-        manifest: Manifest,
+        backup: Backup,
         request: RestoreRequest,
         may_stop: bool,
         check: Option<DiffCheck>,
         caused_by: CausedBy,
     ) -> Result<String, Error> {
         let uuid = instance.uuid().await;
-        self.store.server_dir(&uuid)?;
+        self.store.instance_dir(&uuid)?;
         let was_running = match instance.state().await {
             State::Running if !may_stop => {
                 return Err(conflict(
@@ -1549,21 +1874,19 @@ impl BackupService {
             _job: job_guard,
             stopped: None,
             _mods: Some(mods),
-            store: Some(self.store_read().await),
         };
         if !was_running {
             guards.stopped = Some(instance.lock_stopped("restoring a backup").await?);
         }
-        let root = instance.path().await;
         // the restore keeps using this policy: the check holds only for what it excludes
-        let policy = self.policy(&uuid).await?;
-        let exclude = Matcher::new(&policy.exclude);
+        let policy_exclude = self.policy(&uuid).await?.exclude;
         // checked now, so a refusal is the response; checked again once the server is
         // stopped, against what is then on disk
+        let plan = self
+            .plan(&instance, &backup, request.scope, &policy_exclude)
+            .await?;
         if let Some(check) = &check {
-            let diff = self
-                .diff(&root, &uuid, &manifest, request.scope, &exclude, None)
-                .await?;
+            let diff = self.diff(&instance, plan.clone(), None).await?;
             check(&diff)?;
         }
 
@@ -1582,15 +1905,16 @@ impl BackupService {
         let task_id = job.task_id();
         let (this, state) = (self.clone(), state.clone());
         self.tracker.spawn(async move {
-            let backup_id = manifest.id.clone();
+            let backup_id = backup.record.id.clone();
             let result = this
                 .restore_locked(
                     &state,
                     guards,
                     &instance,
-                    manifest,
+                    backup,
                     &request,
-                    exclude,
+                    policy_exclude,
+                    plan,
                     check,
                     was_running,
                     &caused_by,
@@ -1614,46 +1938,53 @@ impl BackupService {
             this.unregister(&uuid);
             if let Some(safety) = safety {
                 this.apply_retention(&uuid, Some(&safety)).await;
-                this.request_gc();
             }
         });
         Ok(task_id)
     }
 
-    /// What restoring `manifest` would change, against `current` (a manifest's files) or,
-    /// without it, the files as they are now.
+    /// What restoring `backup` into the server would replace, as it is on disk now.
+    async fn plan(
+        &self,
+        instance: &MinecraftInstance,
+        backup: &Backup,
+        scope: RestoreScope,
+        policy_exclude: &[String],
+    ) -> Result<RestorePlan, Error> {
+        let ctx = InstanceContext::of(instance, policy_exclude.to_vec()).await;
+        let store = self.image_store();
+        let backup = backup.clone();
+        blocking(move || restore::plan(&store, &ctx, &backup.source(), scope)).await
+    }
+
+    /// What `plan` would change, with the server's files hashed from `current` (the safety
+    /// backup's image) or, without it, from the stat cache and the files themselves.
     async fn diff(
         &self,
-        root: &Path,
-        uuid: &InstanceUuid,
-        manifest: &Manifest,
-        scope: RestoreScope,
-        exclude: &Matcher,
-        current: Option<Vec<FileEntry>>,
+        instance: &MinecraftInstance,
+        plan: RestorePlan,
+        current: Option<&Image>,
     ) -> Result<RestoreDiff, Error> {
-        let store = self.store.clone();
-        let (root, uuid, manifest, exclude) = (
-            root.to_path_buf(),
-            uuid.clone(),
-            manifest.clone(),
-            exclude.clone(),
-        );
+        let hashes: Option<HashMap<String, String>> = current.map(|image| {
+            image
+                .entries
+                .iter()
+                .map(|e| (e.path.to_string(), e.sha256.clone()))
+                .collect()
+        });
+        let uuid = instance.uuid().await;
+        let root = instance.path().await;
+        let store = self.image_store();
         let token = self.cancel.clone();
         blocking(move || {
-            let plan = restore::plan(&root, &manifest, scope, &exclude)?;
-            let current = match current {
-                Some(files) => files,
-                None => store.hash_current(
-                    ScanRequest {
-                        server_root: &root,
-                        uuid: &uuid,
-                        kind: BackupKind::Manual,
-                        exclude: &exclude,
-                    },
-                    &|| token.is_cancelled(),
-                )?,
+            let hashes = match hashes {
+                Some(hashes) => hashes,
+                None => {
+                    let cache = store.load_stat_cache(uuid.as_ref());
+                    restore::hash_current(&root, &plan, &cache, &|| token.is_cancelled())?
+                }
             };
-            restore::diff(&root, &plan, &current, &exclude)
+            Ok(restore::diff(&plan, &hashes))
         })
         .await
     }
@@ -1670,9 +2001,10 @@ impl BackupService {
         state: &AppState,
         mut guards: JobGuards,
         instance: &MinecraftInstance,
-        manifest: Manifest,
+        backup: Backup,
         request: &RestoreRequest,
-        exclude: Matcher,
+        policy_exclude: Vec<String>,
+        checked: RestorePlan,
         check: Option<DiffCheck>,
         was_running: bool,
         caused_by: &CausedBy,
@@ -1689,16 +2021,17 @@ impl BackupService {
                 state,
                 &mut guards,
                 instance,
-                manifest,
+                &backup,
                 request,
-                exclude,
+                &policy_exclude,
+                &checked,
                 check,
                 was_running,
                 job,
             )
             .await;
-        let safety_id = match swapped {
-            Ok(safety_id) => safety_id,
+        let (safety_id, operation) = match swapped {
+            Ok(swapped) => swapped,
             Err(failure) => {
                 let start_again = start_again_after(
                     &failure,
@@ -1726,7 +2059,6 @@ impl BackupService {
                 });
             }
         };
-        self.invalidate(&uuid);
         if let Err(e) = instance.reload_from_disk().await {
             return Err(err(
                 ErrorKind::Internal,
@@ -1735,6 +2067,17 @@ impl BackupService {
                     e.source
                 ),
             ));
+        }
+        if let Some(operation) = operation {
+            self.follow_restored_pack(instance, &backup).await;
+            // the content as restored, before the server can start and change it
+            let ctx = InstanceContext::of(instance, policy_exclude).await;
+            if let Err(e) = operation.succeed_and_record(ctx).await {
+                warn!(
+                    "Failed to record the restored content of {uuid}: {}",
+                    e.source
+                );
+            }
         }
         drop(guards);
 
@@ -1747,30 +2090,81 @@ impl BackupService {
         Ok((message, safety_id))
     }
 
+    /// After a restore that put back a backup's content: `pack.json` (with the images, so no
+    /// restore brings it back) follows the base of the backup's content image
+    /// ([`crate::modpack::pack_info::follow_base`]), so the next modpack update compares
+    /// against the pack those files came from, and the restore's content image gets the
+    /// right base. The modpack origin came back with the settings.
+    async fn follow_restored_pack(&self, instance: &MinecraftInstance, backup: &Backup) {
+        let Some(content) = &backup.content else {
+            return;
+        };
+        let uuid = instance.uuid().await;
+        crate::modpack::pack_info::follow_base(&self.images, &uuid, content.base.clone()).await;
+    }
+
     /// [`Self::restore_locked`] from the stopped server to the swap. Returns the safety
-    /// backup's id.
+    /// backup's id and the content operation the restore holds when it changed content (to
+    /// succeed once the server's settings are read again).
     #[allow(clippy::too_many_arguments)]
     async fn swap_in(
         self: &Arc<Self>,
         state: &AppState,
         guards: &mut JobGuards,
         instance: &MinecraftInstance,
-        manifest: Manifest,
+        backup: &Backup,
         request: &RestoreRequest,
-        exclude: Matcher,
+        policy_exclude: &[String],
+        checked: &RestorePlan,
         check: Option<DiffCheck>,
         was_running: bool,
         job: &Job,
-    ) -> Result<Option<String>, RestoreFailure> {
+    ) -> Result<(Option<String>, Option<Operation>), RestoreFailure> {
         let uuid = instance.uuid().await;
         let root = instance.path().await;
         if was_running {
             guards.stopped = Some(instance.lock_stopped("restoring a backup").await?);
         }
-        let plan = {
-            let (root, manifest, exclude) = (root.clone(), manifest.clone(), exclude.clone());
-            let scope = request.scope;
-            blocking(move || restore::plan(&root, &manifest, scope, &exclude)).await?
+        // the content image first, so the safety backup links to the content as it is; then
+        // the restore holds the content until its own image is recorded
+        self.record_content(instance, policy_exclude).await;
+        let operation = match request.scope {
+            RestoreScope::World => None,
+            RestoreScope::Everything | RestoreScope::WorldAndMods => Some(
+                self.images
+                    .begin(
+                        &uuid,
+                        format!("Restored backup “{}”", backup_label(&backup.record)),
+                    )
+                    .await,
+            ),
+        };
+        let hold = hold_off_collection(self.image_store()).await?;
+        let plan = self
+            .plan(instance, backup, request.scope, policy_exclude)
+            .await?;
+        // A "world and its mods" restore leaves the server's settings file: what it says
+        // about the software and content (the Minecraft version, the server software and its
+        // loader version, the Java it runs on, the modpack origin) comes from the backup's
+        // copy, since the restore puts back the backup's server software and mods. Without it
+        // a Forge server restored from an older build would start the newer build's
+        // libraries, which are gone. The swap takes it on as it finishes (and a recovery
+        // that finds the swap done does). Read while the hold keeps the backup's objects: it
+        // may be deleted meanwhile.
+        let software = if request.scope == RestoreScope::WorldAndMods {
+            let (store, backup) = (self.image_store(), backup.clone());
+            match blocking(move || backup_settings(&store, &backup)).await {
+                Ok(settings) => settings,
+                Err(e) => {
+                    warn!(
+                        "Failed to read the server software in the backup of {uuid}: {}",
+                        e.source
+                    );
+                    None
+                }
+            }
+        } else {
+            None
         };
         let needed = plan.total_bytes();
         {
@@ -1785,15 +2179,16 @@ impl BackupService {
                 .create_locked(
                     state,
                     guards,
+                    &hold,
                     instance,
                     BackupKind::BeforeRestore,
-                    Some(safety_backup_name(&manifest)),
+                    Some(safety_backup_name(&backup.record)),
                     // the check below compares against these files, under this exclude
-                    Some(exclude.clone()),
+                    Some(policy_exclude.to_vec()),
                     job.phase(0.0, safety_share),
                 )
                 .await?;
-            if let Some(safety) = &created.manifest {
+            if let Some(safety) = &created.image {
                 let missing = not_in_safety_backup(&plan, safety);
                 if let Some(first) = missing.first() {
                     let others = match missing.len() - 1 {
@@ -1809,21 +2204,20 @@ impl BackupService {
                     .into());
                 }
             }
-            created.manifest
+            Some((created.id, created.image))
         } else {
             None
         };
-        let safety_id = safety.as_ref().map(|m| m.id.clone());
+        let safety_id = safety.as_ref().map(|(id, _)| id.clone());
 
         // a server that was stopped all along was checked against these same files, under
-        // `lock_stopped`; without a safety backup, don't hash it all again
-        let check = check.filter(|_| was_running || safety.is_some());
+        // `lock_stopped`; without a safety backup, don't hash it all again, unless the plan
+        // changed since (a Files API change, or another level-name, between the two)
+        let check = check.filter(|_| was_running || safety.is_some() || !plan.same_as(checked));
         if let Some(check) = &check {
             job.report(safety_share, Some("Checking what the restore changes"));
-            let current = safety.as_ref().map(|m| m.files.clone());
-            let diff = self
-                .diff(&root, &uuid, &manifest, plan.scope, &exclude, current)
-                .await?;
+            let current = safety.as_ref().and_then(|(_, image)| image.as_ref());
+            let diff = self.diff(instance, plan.clone(), current).await?;
             check(&diff)?;
         }
         if safety.is_some() {
@@ -1840,18 +2234,16 @@ impl BackupService {
             java_cmd: Some(config.java_cmd),
             cmd_args: Some(config.cmd_args),
         };
-        let staged = {
-            let store = self.store.clone();
-            let (root, manifest) = (root.clone(), manifest.clone());
+        let mut staged = {
+            let store = self.image_store();
+            let root = root.clone();
             let phase = job.phase(safety_share, 90.0 - safety_share);
             let token = self.cancel.clone();
             blocking(move || {
                 restore::stage(
                     &store,
-                    &manifest,
                     &root,
                     &plan,
-                    &exclude,
                     &pin,
                     &mut |done, total| {
                         let share = if total == 0 {
@@ -1866,6 +2258,7 @@ impl BackupService {
             })
             .await?
         };
+        drop(hold);
         if self.cancel.is_cancelled() {
             blocking(move || {
                 staged.discard();
@@ -1875,12 +2268,15 @@ impl BackupService {
             return Err(cancelled().into());
         }
 
+        if let Some(software) = software {
+            staged.take_on_software(software);
+        }
         // from here on the restore isn't cancellable: it is short, and half a swap is worse
         job.report(90.0, Some("Putting the files in place"));
         let journal = self.store.journal_path(&uuid)?;
         let joined = tokio::task::spawn_blocking(move || staged.swap(&journal)).await;
         match swap_outcome(joined) {
-            Ok(()) => Ok(safety_id),
+            Ok(()) => Ok((safety_id, operation)),
             Err(SwapOutcome::RolledBack(e)) => Err(RestoreFailure::Unchanged(e)),
             Err(SwapOutcome::Broken(e)) => {
                 error!("The restore of {uuid} could not be undone: {}", e.source);
@@ -1910,10 +2306,12 @@ impl BackupService {
     pub async fn start_restore_as_new(
         self: &Arc<Self>,
         state: &AppState,
-        manifest: Manifest,
+        backup: Backup,
         request: NewServerRequest,
     ) -> Result<String, Error> {
         crate::implementations::minecraft::validate_new_instance_name(&request.name)?;
+        let files = backup.files_on_disk()?;
+        let base = backup.content.as_ref().and_then(|c| c.base.clone());
         let new_uuid = InstanceUuid::default();
         let job = Job::new(
             state.event_broadcaster.clone(),
@@ -1928,7 +2326,6 @@ impl BackupService {
         let task_id = job.task_id();
         let (this, state) = (self.clone(), state.clone());
         self.tracker.spawn(async move {
-            let _store = this.store_read().await;
             let port = {
                 let mut ports = state.port_manager.lock().await;
                 let port = ports.next_free(25565);
@@ -1940,7 +2337,7 @@ impl BackupService {
             };
             let result = match port {
                 Some(port) => {
-                    this.restore_as_new_locked(&state, &manifest, &request, &new_uuid, port, &job)
+                    this.restore_as_new_locked(&state, files, &request, &new_uuid, port, &job)
                         .await
                 }
                 None => Err(conflict("No free port is left for the new server")),
@@ -1969,6 +2366,27 @@ impl BackupService {
                         error!("Failed to update permissions: {:?}", e);
                     }
                     let info = instance.get_instance_info().await;
+                    let policy_exclude = this
+                        .policy(&new_uuid)
+                        .await
+                        .map(|p| p.exclude)
+                        .unwrap_or_default();
+                    // The pack its content is built on and its first content image, as a
+                    // new server gets, before any client can see it: nothing else can then
+                    // start it or change its content first.
+                    crate::modpack::pack_info::follow_base(&this.images, &new_uuid, base.clone())
+                        .await;
+                    let ctx = InstanceContext::of(&instance, policy_exclude).await;
+                    if let Err(e) = this
+                        .images
+                        .record_now(ctx, format!("Created {}", request.name))
+                        .await
+                    {
+                        warn!(
+                            "Failed to record the content of the new server {new_uuid}: {}",
+                            e.source
+                        );
+                    }
                     state.instances.insert(new_uuid.clone(), instance.into());
                     job.end(
                         true,
@@ -1997,14 +2415,18 @@ impl BackupService {
     async fn restore_as_new_locked(
         &self,
         state: &AppState,
-        manifest: &Manifest,
+        files: Vec<restore::Target>,
         request: &NewServerRequest,
         new_uuid: &InstanceUuid,
         port: u32,
         job: &Job,
     ) -> Result<MinecraftInstance, Error> {
+        let hold = hold_off_collection(self.image_store()).await?;
         let instances_dir = self.instances_dir.clone();
-        let total = manifest.total_bytes;
+        let total = files
+            .iter()
+            .map(|f| f.entry.size)
+            .fold(0, u64::saturating_add);
         {
             let dir = instances_dir.clone();
             blocking(move || require_free_space(&dir, total, "to restore")).await?;
@@ -2020,16 +2442,15 @@ impl BackupService {
         let final_dir =
             crate::handlers::instance::instance_setup_path(&instances_dir, &request.name, new_uuid);
         let written = {
-            let store = self.store.clone();
-            let (manifest, staging, final_dir) =
-                (manifest.clone(), staging.clone(), final_dir.clone());
+            let store = self.image_store();
+            let (staging, final_dir) = (staging.clone(), final_dir.clone());
             let dot_config = dot_config.clone();
             let phase = job.phase(0.0, 95.0);
             let token = self.cancel.clone();
             blocking(move || {
                 restore::stage_all(
                     &store,
-                    &manifest,
+                    &files,
                     &staging,
                     &mut |done, total| {
                         let share = if total == 0 {
@@ -2073,6 +2494,7 @@ impl BackupService {
             })
             .await
         };
+        drop(hold);
         written?;
         job.report(95.0, Some("Loading the new server"));
         match MinecraftInstance::restore(
@@ -2094,10 +2516,10 @@ impl BackupService {
     // -----------------------------------------------------------------------------------
     // Download
 
-    /// Zips a backup into a new temporary folder in `tmp_dir`, from verified objects.
-    /// Returns the zip, the folder that owns it and its size.
+    /// Zips a backup into a new temporary folder in `tmp_dir`, laid out as a server folder,
+    /// from verified objects. Returns the zip, the folder that owns it and its size.
     ///
-    /// Stops at the next object once `cancel` (a child of [`Self::cancel_token`]) is
+    /// Stops at the next file once `cancel` (a child of [`Self::cancel_token`]) is
     /// cancelled: the handler does that when the request is dropped.
     pub async fn zip(
         self: &Arc<Self>,
@@ -2107,30 +2529,45 @@ impl BackupService {
         file_name: String,
         cancel: CancellationToken,
     ) -> Result<(PathBuf, tempfile::TempDir, u64), Error> {
-        let _store = self.store_read().await;
-        let manifest = self.load_manifest(uuid, id).await?;
-        let store = self.store.clone();
+        let hold = hold_off_collection(self.image_store()).await?;
+        let backup = self.load(uuid, id).await?;
+        let files = backup.files_on_disk()?;
+        let store = self.image_store();
         let token = cancel;
-        blocking(move || {
-            require_free_space(&tmp_dir, manifest.total_bytes, "to download the backup")?;
+        let zipped = blocking(move || {
+            let total = files
+                .iter()
+                .map(|f| f.entry.size)
+                .fold(0, u64::saturating_add);
+            require_free_space(&tmp_dir, total, "to download the backup")?;
             std::fs::create_dir_all(&tmp_dir).context("Failed to create the temporary folder")?;
             let temp_dir =
                 tempfile::tempdir_in(&tmp_dir).context("Failed to create a temporary folder")?;
             let out = temp_dir.path().join(&file_name);
             let file = std::fs::File::create(&out).context("Failed to create the zip")?;
             let mut zip = zip::ZipWriter::new(std::io::BufWriter::new(file));
-            for entry in &manifest.files {
+            for file in &files {
+                if token.is_cancelled() {
+                    return Err(cancelled());
+                }
                 let options = zip::write::SimpleFileOptions::default()
                     .compression_method(zip::CompressionMethod::Deflated)
-                    .large_file(entry.size >= u32::MAX as u64)
-                    .unix_permissions(if entry.executable { 0o755 } else { 0o644 });
-                zip.start_file(entry.path.as_str(), options)
+                    .large_file(file.entry.size >= u32::MAX as u64)
+                    .unix_permissions(lodestone_image::store::materialize::placed_mode(
+                        file.entry.mode,
+                    ));
+                zip.start_file(file.disk.as_str(), options)
                     .context("Failed to write the zip")?;
                 store
-                    .read_object(&entry.sha256, entry.size, &mut zip, &|| {
+                    .read_object(&file.entry.sha256, file.entry.size, &mut zip, &|| {
                         token.is_cancelled()
                     })
-                    .map_err(|e| e.into_error(&manifest.id, &entry.path))?;
+                    .map_err(|e| {
+                        err(
+                            ErrorKind::Internal,
+                            format!("The backup's copy of {} can't be read: {e}", file.disk),
+                        )
+                    })?;
             }
             let mut writer = zip.finish().context("Failed to write the zip")?;
             std::io::Write::flush(&mut writer).context("Failed to write the zip")?;
@@ -2140,189 +2577,27 @@ impl BackupService {
                 .len();
             Ok((out, temp_dir, size))
         })
-        .await
+        .await;
+        drop(hold);
+        zipped
     }
+}
+
+/// What [`BackupService::save`] did: the backup's id, and its image when it saved one.
+struct Saved {
+    id: String,
+    image: Option<Image>,
+}
+
+/// The newest Scheduled or Manual backup's time, which the schedule counts from.
+fn newest_for_schedule(records: &Records) -> Option<i64> {
+    records
+        .backups
+        .iter()
+        .filter(|b| matches!(b.kind, BackupKind::Scheduled | BackupKind::Manual))
+        .map(|b| b.created)
+        .max()
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::backups::store::tests::{age, backup, meta, setup, uuid, write, NO_CANCEL};
-    use crate::test_util::wait_until;
-
-    /// Runs an unnamed backup of `root` the way [`BackupService::create_locked`] does,
-    /// without a server, and saves its manifest when it made one.
-    fn copy(store: &Store, root: &Path, id: &str, kind: BackupKind) -> Copied {
-        let (broadcaster, _) = EventBroadcaster::new(8);
-        let job = Job::new(
-            broadcaster,
-            JobKind::Backup,
-            "Backing up".to_string(),
-            ProgressionStartValue::Backup {
-                instance_uuid: uuid(),
-            },
-            CausedBy::System,
-        );
-        let work = CopyWork {
-            store: store.clone(),
-            root: root.to_path_buf(),
-            uuid: uuid(),
-            kind,
-            exclude: Matcher::new(&[]),
-            skip_unchanged: true,
-            meta: meta(id, kind),
-            phase: job.phase(0.0, 100.0),
-            prefetched: None,
-        };
-        let copied = work.run(true, NO_CANCEL).unwrap();
-        if let Copied::Finished { manifest, .. } = &copied {
-            store.save_manifest(manifest).unwrap();
-        }
-        copied
-    }
-
-    fn unchanged_id(copied: &Copied) -> Option<&str> {
-        match copied {
-            Copied::Unchanged { id, .. } => Some(id),
-            Copied::Finished { .. } => None,
-        }
-    }
-
-    /// "Back up now" (an unnamed manual backup) with nothing changed since a scheduled
-    /// backup still makes a manual one, so retention can't delete the only copy of what the
-    /// person asked to keep. After a manual or pinned backup, it is skipped as before.
-    #[test]
-    fn an_unnamed_manual_backup_is_skipped_only_after_one_that_is_kept() {
-        let (_dir, store, root) = setup();
-        write(&root, "world/level.dat", b"level");
-        age(&root, "world/level.dat");
-        let first = copy(&store, &root, "20260101-000000-aaaa", BackupKind::Scheduled);
-        assert!(unchanged_id(&first).is_none());
-
-        // nothing changed, but the newest backup is a scheduled one cleanup may delete
-        let manual = copy(&store, &root, "20260101-000100-bbbb", BackupKind::Manual);
-        assert!(unchanged_id(&manual).is_none());
-        let Copied::Finished { manifest, .. } = &manual else {
-            unreachable!()
-        };
-        assert_eq!(manifest.kind, BackupKind::Manual);
-
-        // now the newest backup is manual: nothing more to keep
-        let again = copy(&store, &root, "20260101-000200-cccc", BackupKind::Manual);
-        assert_eq!(unchanged_id(&again), Some("20260101-000100-bbbb"));
-        // and scheduled backups skip whatever the newest backup is
-        let scheduled = copy(&store, &root, "20260101-000300-dddd", BackupKind::Scheduled);
-        assert_eq!(unchanged_id(&scheduled), Some("20260101-000100-bbbb"));
-
-        // a pinned scheduled backup is kept too
-        write(&root, "world/level.dat", b"level 2");
-        age(&root, "world/level.dat");
-        let mut pinned = backup(
-            &store,
-            &root,
-            "20260101-000400-eeee",
-            BackupKind::Scheduled,
-            &Matcher::new(&[]),
-        );
-        pinned.pinned = true;
-        store.save_manifest(&pinned).unwrap();
-        let after_pinned = copy(&store, &root, "20260101-000500-ffff", BackupKind::Manual);
-        assert_eq!(unchanged_id(&after_pinned), Some("20260101-000400-eeee"));
-    }
-
-    /// Restoring a safety backup nests the names; each one still fits, and a short name is
-    /// kept whole.
-    #[test]
-    fn safety_backup_names_fit() {
-        let (_dir, store, root) = setup();
-        write(&root, "world/level.dat", b"level");
-        let mut manifest = backup(
-            &store,
-            &root,
-            "20260101-000000-aaaa",
-            BackupKind::Manual,
-            &Matcher::new(&[]),
-        );
-        manifest.created = 1_767_225_600;
-        assert_eq!(
-            safety_backup_name(&manifest),
-            "Before restoring “2026-01-01 00:00 UTC”"
-        );
-        for _ in 0..10 {
-            let name = safety_backup_name(&manifest);
-            assert!(name.chars().count() <= MAX_NAME_LEN, "{name}");
-            assert_eq!(check_backup_name(&name), Ok(Some(name.clone())));
-            manifest.name = Some(name);
-        }
-        let name = manifest.name.unwrap();
-        assert!(
-            name.starts_with("Before restoring “Before restoring “"),
-            "{name}"
-        );
-        assert!(name.ends_with("…”"), "{name}");
-    }
-
-    fn service(dir: &Path) -> Arc<BackupService> {
-        Arc::new(BackupService::new(
-            dir.join("backups"),
-            dir.join("instances"),
-        ))
-    }
-
-    #[test]
-    fn a_failed_restore_starts_the_server_again_only_when_nothing_changed() {
-        let unchanged = RestoreFailure::Unchanged(err(ErrorKind::Conflict, "no space"));
-        let broken = RestoreFailure::Broken(err(ErrorKind::Internal, "broken"));
-        assert!(start_again_after(&unchanged, true, true, false));
-        // the swap couldn't be undone: the server must stay down
-        assert!(!start_again_after(&broken, true, true, false));
-        // it wasn't running, or wasn't to start after, or Lodestone is shutting down
-        assert!(!start_again_after(&unchanged, false, true, false));
-        assert!(!start_again_after(&unchanged, true, false, false));
-        assert!(!start_again_after(&unchanged, true, true, true));
-        // `?` on an ordinary error means nothing changed yet
-        let failure: RestoreFailure = err(ErrorKind::Internal, "x").into();
-        assert!(matches!(failure, RestoreFailure::Unchanged(_)));
-    }
-
-    /// A swap whose task panicked may have stopped half way through its renames: it is
-    /// broken (the journal stays and the server stays locked), never started again.
-    #[tokio::test]
-    async fn a_swap_that_panicked_is_broken() {
-        let joined = tokio::task::spawn_blocking(|| -> Result<(), SwapError> {
-            panic!("half way through the renames")
-        })
-        .await;
-        assert!(joined.is_err());
-        assert!(matches!(swap_outcome(joined), Err(SwapOutcome::Broken(_))));
-
-        let rolled_back = Ok(Err(SwapError::RolledBack(err(ErrorKind::Internal, "x"))));
-        assert!(matches!(
-            swap_outcome(rolled_back),
-            Err(SwapOutcome::RolledBack(_))
-        ));
-        let broken = Ok(Err(SwapError::Broken(err(ErrorKind::Internal, "x"))));
-        assert!(matches!(swap_outcome(broken), Err(SwapOutcome::Broken(_))));
-        assert!(swap_outcome(Ok(Ok(()))).is_ok());
-    }
-
-    /// A download (or anything else) holding the store when a backup is deleted: the GC
-    /// runs once it lets go, without waiting for another backup.
-    #[tokio::test]
-    async fn a_gc_that_had_to_wait_runs_when_the_store_is_let_go() {
-        let dir = tempfile::tempdir().unwrap();
-        let service = service(dir.path());
-        let unused = service.store().object_path(&"ab".repeat(32));
-        std::fs::create_dir_all(unused.parent().unwrap()).unwrap();
-        std::fs::write(&unused, b"left by a deleted backup").unwrap();
-
-        let held = service.store_read().await;
-        service.request_gc();
-        assert!(service.gc_pending.load(Ordering::SeqCst));
-        tokio::time::sleep(Duration::from_millis(50)).await;
-        assert!(unused.exists());
-        drop(held);
-        wait_until("the GC ran", || async { !unused.exists() }).await;
-        assert!(!service.gc_pending.load(Ordering::SeqCst));
-    }
-}
+mod tests;

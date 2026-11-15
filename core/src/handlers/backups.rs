@@ -6,7 +6,7 @@
 //! | `POST /instance/{uuid}/backups` | AccessSetting |
 //! | `PATCH /instance/{uuid}/backups/{id}` | AccessSetting; unpinning also WriteInstanceFile |
 //! | `DELETE /instance/{uuid}/backups/{id}` | WriteInstanceFile |
-//! | `POST /instance/{uuid}/backups/{id}/restore` | WriteInstanceFile, StopInstance and StartInstance when it stops and starts the server, and WriteGlobalFile or owner rights for what it changes |
+//! | `POST /instance/{uuid}/backups/{id}/restore` | WriteInstanceFile, StopInstance and StartInstance when it stops and starts the server, and WriteGlobalFile or owner rights for what it changes. Everything and `world_and_mods` can change the server's Minecraft and loader version to the backup's (with the server software they put back), which needs no AccessSetting |
 //! | `POST /instance/{uuid}/backups/{id}/restore_as_new` | CreateInstance, ReadInstanceFile, and WriteGlobalFile or owner rights for what the backup holds |
 //! | `POST /instance/{uuid}/backups/{id}/download` | ReadInstanceFile |
 //! | `GET /instance/{uuid}/backups/policy` | ReadInstanceFile |
@@ -33,7 +33,7 @@ use ts_rs::TS;
 use crate::auth::user::{User, UserAction};
 use crate::backups::restore::RestoreDiff;
 use crate::backups::service::{DiffCheck, NewServerRequest};
-use crate::backups::{BackupInfo, BackupList, BackupPolicy, RestoreRequest, RestoreScope};
+use crate::backups::{BackupInfo, BackupList, BackupPolicy, RestoreRequest};
 use crate::error::{Error, ErrorKind};
 use crate::event_broadcaster::EventBroadcaster;
 use crate::events::{new_fs_event, Event, FSOperation, FSTarget, ProgressionEventID};
@@ -46,7 +46,7 @@ use crate::AppState;
 
 use super::global_fs::{register_download, DownloadScope};
 use super::instance::sanitize_instance_dir_name;
-use super::instance_fs::is_protected;
+use super::instance_fs::{is_instance_protected, is_protected};
 use super::util::{get_instance, is_code_path, require_code_write, AuthedUser};
 
 /// `POST /instance/{uuid}/backups`.
@@ -162,7 +162,7 @@ async fn update_backup(
             .await?;
     }
     minecraft(&state, &uuid)?;
-    state.backups.store().server_dir(&uuid)?;
+    state.backups.store().instance_dir(&uuid)?;
     Ok(Json(
         state
             .backups
@@ -180,7 +180,7 @@ async fn delete_backup(
         .require(&state, UserAction::WriteInstanceFile(uuid.clone()))
         .await?;
     minecraft(&state, &uuid)?;
-    state.backups.store().server_dir(&uuid)?;
+    state.backups.store().instance_dir(&uuid)?;
     state.backups.delete(&uuid, &id).await?;
     Ok(Json(serde_json::json!({})))
 }
@@ -213,21 +213,29 @@ async fn put_policy(
     Ok(Json(state.backups.set_policy(&uuid, policy).await?))
 }
 
+/// Whether a user without `WriteGlobalFile` may not have a restore add, change or remove
+/// `path` (relative to the server folder): the file API's rule for a server's files,
+/// Lodestone's own `.lodestone*` files included.
+fn restore_protected(path: &str, is_dir: bool) -> bool {
+    is_instance_protected(FsPath::new(""), FsPath::new(path), is_dir)
+}
+
 /// The rule for what an in-place restore changes: like the file API, adding, changing or
-/// removing protected files and folders (jars, the mods folder, the config) needs
-/// `WriteGlobalFile`, and adding or changing scripts needs the owner with code execution on.
+/// removing protected files and folders (jars, the mods folder, the config, Lodestone's
+/// own files) needs `WriteGlobalFile`, and adding or changing scripts needs the owner with
+/// code execution on.
 fn check_restore_diff(state: &AppState, user: &User, diff: &RestoreDiff) -> Result<(), Error> {
     let touches_protected = diff
         .added
         .iter()
         .chain(&diff.changed)
         .chain(&diff.removed)
-        .any(|path| is_protected(FsPath::new(path), false))
+        .any(|path| restore_protected(path, false))
         || diff
             .created_dirs
             .iter()
             .chain(&diff.removed_dirs)
-            .any(|path| is_protected(FsPath::new(path), true));
+            .any(|path| restore_protected(path, true));
     if touches_protected && can_write_global_files(state, user).is_err() {
         return Err(denied(
             "Restoring this backup changes protected files (such as .jar files or the mods folder), which needs permission to change global files",
@@ -258,20 +266,14 @@ async fn restore_backup(
         .require(&state, UserAction::WriteInstanceFile(uuid.clone()))
         .await?;
     let instance = minecraft(&state, &uuid)?;
-    state.backups.store().server_dir(&uuid)?;
-    let manifest = state.backups.load_manifest(&uuid, &id).await?;
-    if request.scope == RestoreScope::World {
-        let has_world = manifest
-            .level_name
-            .as_deref()
-            .is_some_and(|level| super::server_content::world_folder(level).is_ok());
-        if !has_world {
-            return Err(Error {
-                kind: ErrorKind::BadRequest,
-                source: eyre!("This backup has no world"),
-            });
-        }
-    }
+    state.backups.store().instance_dir(&uuid)?;
+    let backup = state.backups.load(&uuid, &id).await?;
+    // before the server is stopped for it; the plan checks again
+    crate::backups::restore::check_scope(
+        request.scope,
+        backup.record.level.is_some(),
+        backup.content.is_some(),
+    )?;
     // what this checks holds only while the server's state stays as it is now: the
     // service refuses a server that started meanwhile (`may_stop`)
     let runs = instance.state().await == InstanceState::Running;
@@ -304,7 +306,7 @@ async fn restore_backup(
         .start_restore(
             &state,
             instance,
-            manifest,
+            backup,
             request,
             runs,
             check,
@@ -326,14 +328,15 @@ async fn restore_as_new(
     requester
         .require(&state, UserAction::ReadInstanceFile(uuid.clone()))
         .await?;
-    minecraft(&state, &uuid)?;
-    state.backups.store().server_dir(&uuid)?;
-    let manifest = state.backups.load_manifest(&uuid, &id).await?;
+    let instance = minecraft(&state, &uuid)?;
+    state.backups.store().instance_dir(&uuid)?;
+    let backup = state.backups.load(&uuid, &id).await?;
+    let files = backup.files_on_disk()?;
     let user = &requester.0;
     // what the new server gets, the requester could otherwise only put there with these
-    let protected = manifest.files.iter().any(|file| {
-        let path = FsPath::new(&file.path);
-        is_protected(path, false)
+    let protected = files.iter().any(|file| {
+        let path = FsPath::new(&file.disk);
+        restore_protected(&file.disk, false)
             || path
                 .ancestors()
                 .skip(1)
@@ -345,28 +348,35 @@ async fn restore_as_new(
             "This backup has protected files (such as .jar files or the mods folder), so restoring it as a new server needs permission to change global files",
         ));
     }
-    if manifest
-        .files
+    if files
         .iter()
-        .any(|file| is_code_path(FsPath::new(&file.path), false))
+        .any(|file| is_code_path(FsPath::new(&file.disk), false))
     {
         require_code_write(&state, user)?;
     }
-    let name = body
+    let name = match body
         .and_then(|Json(body)| body.name)
         .map(|name| name.trim().to_string())
         .filter(|name| !name.is_empty())
-        .unwrap_or_else(|| {
-            let base: String = manifest.instance_name.chars().take(89).collect();
+    {
+        Some(name) => name,
+        None => {
+            // a backup listed again after its record was lost has no server name
+            let mut base = backup.record.instance_name.trim().to_string();
+            if base.is_empty() {
+                base = instance.name().await;
+            }
+            let base: String = base.chars().take(89).collect();
             format!("{} (restored)", base.trim())
-        });
+        }
+    };
     let keep_command_line =
         can_write_global_files(&state, user).is_ok() && state.code_execution_enabled();
     let task_id = state
         .backups
         .start_restore_as_new(
             &state,
-            manifest,
+            backup,
             NewServerRequest {
                 name,
                 keep_command_line,
@@ -424,7 +434,7 @@ async fn download_backup(
         .require(&state, UserAction::ReadInstanceFile(uuid.clone()))
         .await?;
     let instance = minecraft(&state, &uuid)?;
-    state.backups.store().server_dir(&uuid)?;
+    state.backups.store().instance_dir(&uuid)?;
     let name = instance.name().await;
     if !crate::backups::store::valid_backup_id(&id) {
         return Err(Error {
