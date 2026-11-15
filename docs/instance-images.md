@@ -8,10 +8,10 @@ each do part of the job:
 | Today | Becomes |
 | --- | --- |
 | Core backups (`core/src/backups`) | Data images |
-| Launcher snapshots, `.lodesnap` (`launcher-core/src/snapshots.rs`) | Images; `.lodesnap` export becomes an image export |
+| Launcher snapshots, `.lodesnap`, world backup zips (were `launcher-core/src/snapshots.rs`, `worlds.rs`) | Data and full images in the Launcher's image store; the export is an image export, `.lodeimg` (done in M5) |
 | Core modpack record and history (`.lodestone_modpack/`) | The base and the lineage of content images |
 | Launcher `modpack.json` and its update plan | `modpack.json` stays as the updater's current state and names the base; the history is the lineage of content images |
-| `LDS2:` share codes (`launcher-core/src/content/share.rs`) | A text encoding of an image whose files can all be downloaded |
+| `LDS2:` share codes (`launcher-core/src/content/share.rs`) | A text encoding of an image whose files can all be downloaded (the format stays: see "M5 decisions") |
 | The server's client pack (`core/src/mods/client.rs`) | The client view of the server's content image (the `.mrpack` client pack stays for other launchers) |
 
 Images replace these formats outright. Nothing reads, converts or keeps working data in
@@ -410,14 +410,16 @@ Content-addressed, shared by every instance on one machine:
 <root>/images/<instance>/pack.json                  the core: the pack a server is built on, and its files
 <root>/images/<instance>/backups.json               the core: the server's backups, each naming its data image
 <root>/images/<instance>/backup-policy.json         the core: the backups' schedule, retention and excludes
-<root>/images/<instance>/restore-journal.json       the core: a restore's swap in progress
+<root>/images/<instance>/restore-journal.json       the core and the Launcher: a restore's swap in progress
+<root>/images/<instance>/snapshots.json             the Launcher: the instance's snapshots, each naming its image
+<root>/images/_deleted_<16 hex>/                    the Launcher: a deleted instance's snapshots, with retired.json
 <root>/images/<instance>/save-off.marker            the core: a live backup has the server's saving off
 <root>/images/collection.lock                       held by GC (see below)
 <root>/{objects,lists,chunks,images/<instance>}/.incoming-<16 hex>.tmp    writes in flight
 ```
 
 The core's root is its backup folder (`<lodestone>/backups`); the Launcher's is
-`<data>/image-store/`, beside its snapshot store (see "Launcher store decisions").
+`<data>/image-store/` (see "Launcher store decisions" and "M5 decisions").
 
 - Objects are named by the SHA-256 of their uncompressed bytes. Encoding belongs to the
   store, not the manifest: the core stores zstd frames (level 3, checksum and content size
@@ -582,7 +584,7 @@ The core's root is its backup folder (`<lodestone>/backups`); the Launcher's is
 | Core | Backup (scheduled or manual) | Data image, linked to the current content image |
 | Launcher | A Launcher action: install or remove content, apply a server update, update the pack, loader version change, instance creation or import; the first start with images, for each instance from before (see "First images" in "Launcher store decisions") | Content image per operation |
 | Launcher | Game about to launch, if a quick check finds content changed by hand | Content image |
-| Launcher | Snapshot on demand; before risky operations (content updates, modpack updates, server updates, loader version changes); after a play session only if the user turns it on | Data or full image |
+| Launcher | Snapshot on demand; before risky operations (content updates, modpack updates, server updates, loader version changes); after a play session only if the user turns it on (off by default); the safety snapshot before a restore | Data or full image (see "M5 decisions") |
 
 One image per operation, not per file: a job (Update all) is one image, and changes
 within a few seconds of it are merged in. An image is written only after the operation
@@ -603,7 +605,9 @@ outside Lodestone and the backup excludes didn't change).
   shared.
 - Data images: the core's backup rules (keep last N, hourly, daily, weekly buckets;
   manual and pinned never deleted; safety images before a restore kept 30 days), never
-  the content lineage's. The Launcher offers the same, per instance.
+  the content lineage's. The Launcher offers the same, per instance: its own snapshots
+  (before a change, after playing) keep the newest 5, one a day for 7 days and one a week
+  for 4 weeks by default; the user's own, imported and pinned ones are never deleted.
 - A player whose image was pruned sends a summary of what it has (paths and hashes), and
   the core computes the delta from that.
 
@@ -641,10 +645,11 @@ Works for Fabric, Quilt, Forge and NeoForge servers.
 | Everything | The whole image (the core's current Everything scope) |
 | As new | A new server or instance beside the original |
 
-When the current content differs from a world's linked content, the restore will say what
-differs and offer to restore it too (the Launcher's restore, M5; the core's world restore
+When the current content differs from a world's linked content, the restore says what
+differs and offers to restore it too (the Launcher's restore, M5; the core's world restore
 doesn't yet). Restore uses the core's journaled swap (staging,
-rename aside, roll back on error, replay at startup); the Launcher adopts the same journal.
+rename aside, roll back on error, replay at startup); the Launcher has the same journal
+(`restore-journal.json`, recovered when it starts, before anything can be played).
 
 ## Sharing
 
@@ -682,8 +687,8 @@ names anything by it.
 - Launcher to Host: "Host this" sends the image; the core makes a server from its server view.
 - Host to Launcher: "Download this world" sends a data image; the Launcher builds the linked
   content image.
-- Launcher to Launcher: share an image file, or an `LDS2:`-style code when every file can be
-  downloaded.
+- Launcher to Launcher: share an image file (`.lodeimg`, an exported snapshot, M5), or an
+  `LDS2:` code when every file can be downloaded.
 
 ## Security
 
@@ -705,8 +710,8 @@ names anything by it.
   `management-server-secret`) in its data and content images, and the config files in
   each plugin's folder (database passwords, bot tokens) in its content images. That is fine
   in the local store. The objects endpoint (M3) serves only objects the requested client
-  view names, never any object of the store by its hash; an export that leaves the
-  computer (M6) must strip or withhold those files.
+  view names, never any object of the store by its hash; an export of a server that leaves
+  the computer (M6) must strip or withhold those files.
 - The core's history API returns labels and paths as they are; a client that shows them
   writes their control and direction characters visibly (as `display_text` does).
 - A Launcher content image takes the whole `config/` folder and every file a pack lists.
@@ -716,11 +721,13 @@ names anything by it.
   only on Unix (mode 0700) and in the default data folder on Windows (its user profile's
   permissions); a data folder moved elsewhere (another drive, an exFAT disk) has whatever
   protection its new place gives, like the rest of the data folder (`accounts.json`
-  included). Any image that leaves the computer (milestone 4's second half, and milestone
-  6) must strip or withhold such files. Pack files never include the files the game
-  writes, `command_history.txt` (commands typed, a server's `/login` password among them)
-  and `hotbar.nbt` included, and an image that leaves the computer must never carry those
-  either.
+  included). Any image that leaves the computer must strip or withhold such files: the
+  Launcher's snapshot export (M5) takes out `command_history.txt`, `hotbar.nbt` and the
+  account files of known account switchers and names them in `excludes` ("M5 decisions",
+  best effort); milestone 4's second half and milestone 6 must do the same. Pack files
+  never include the files the game writes, `command_history.txt` (commands typed, a
+  server's `/login` password among them) and `hotbar.nbt` included, and an image that
+  leaves the computer must never carry those either.
 
 ## Milestones
 
@@ -739,9 +746,10 @@ names anything by it.
 5. Launcher: snapshots become images (exports drop downloadable jars), `LDS2:` as an
    encoding; world snapshots on demand and before risky operations, after sessions
    optional; restore with linked content. No `.lodesnap` import and no conversion of the
-   old snapshot store or world backup zips: they are removed.
+   old snapshot store or world backup zips: they are removed. (Done: see "M5 decisions".
+   It also has the full-image option.)
 6. Moving images between computers (Host to Host, Launcher to Host, Host to Launcher,
-   Launcher to Launcher) and a full-image option in the UI.
+   Launcher to Launcher).
 
 Nothing converts old data in any milestone.
 
@@ -1175,19 +1183,16 @@ Decisions the first half of milestone 4 made where this document left the Launch
 behaviour open. The core's M2 decisions are the model; where the Launcher's case is the
 same, it does the same. The code is `launcher/crates/launcher-core/src/images/`.
 
-- **One store, apart from snapshots.** The Launcher's image store is `<data>/image-store/`
-  (`DataDir::image_store_dir`), one for every instance on the machine, plain encoding (zstd
-  isn't in the Launcher's lockfile; APFS clones files into it where it can). It sits beside
-  the snapshot store (`<data>/snapshots/`), never inside it: each store has its own objects
-  and its own collector, and neither collector reads the other's folder, so neither can
-  delete what the other names (tested with both collectors over old objects). Nothing is
+- **One store.** The Launcher's image store is `<data>/image-store/`
+  (`DataDir::image_store_dir`), one for every instance on the machine and for its content
+  images and snapshots alike (milestone 5 removed the old snapshot store), plain encoding
+  (zstd isn't in the Launcher's lockfile; APFS clones files into it where it can). Nothing is
   created until the first write, which makes the store's folder readable by its owner only
   (mode 0700 on Unix): the Launcher's own files are, and an object taken from a 0600 mod
   config would otherwise be readable by anyone who can reach the data folder. On Windows the
   folder gets the data folder's permissions (a user profile's, by default), and a data
   folder moved to another drive or an exFAT disk gets what that place gives. Settings ›
-  Storage counts it under "Other" until milestone 5 replaces the snapshot store with
-  images.
+  Storage counts it with the instances, as its Snapshots row ("M5 decisions").
 - **Suspending for a data move.** A data move carries the store like everything else.
   First `Images::settle` writes what was queued, then `Images::suspend` stops every write
   to the store and waits for the running ones to end: a record (however long the first
@@ -1233,8 +1238,8 @@ same, it does the same. The code is `launcher/crates/launcher-core/src/images/`.
   found by an ordered lookup, not a set of every folder), so a pack of deep paths can't
   make each record or check build gigabytes. Data packs belong to their world (`saves/`):
   adding, enabling or removing one in the Worlds tab or the CLI makes no content image,
-  and they go into data images from milestone 5. Known limit, for milestones 4b and
-  5: a file outside the content folders that no pack lists (a script added by hand) is not
+  and they go into data images (snapshots). Known limit, for milestone 4b: a file outside
+  the content folders that no pack lists (a script added by hand) is not
   content, so a restore leaves it alone and a server's client view is compared without it.
   The rules have a version (`SCOPE_RULES`, 2): a baseline taken under other rules is
   recorded again, without a label, rather than compared.
@@ -1376,18 +1381,16 @@ same, it does the same. The code is `launcher/crates/launcher-core/src/images/`.
   (20 instances of 1 to 2 GB each take some 30 GB), in the background and without asking.
   The free-space check counts every image record under way, so records of several instances at
   once (this pass, imports, merged records) stop short of filling the disk together (they
-  leave 1 GiB), and an instance that didn't fit is tried again at the next start. Milestone 5's storage
-  view shows the store's size.
+  leave 1 GiB), and an instance that didn't fit is tried again at the next start. Settings ›
+  Storage shows the store's size.
 - **Free space.** Before a record copies anything it reserves what it will read, process
   wide (`Images::reserve_space`), and is refused (no image; tried again later, as any
   failed record) when the free space can't hold that, what the records under way have
-  reserved, and 1 GiB to spare, as the snapshot store keeps: most records are work nobody
+  reserved, and 1 GiB to spare: most records are work nobody
   asked for, and the game's world saves need the room more. It is conservative: a record
   under way counts in full though part of it is already written, and an object APFS
-  clones (a whole file of 1 MiB or less) counts whole though it costs almost nothing. The
-  reservation is the image store's own: the snapshot store, until milestone 5 replaces it,
-  checks for its own 1 GiB spare separately, without counting records under way, so a
-  snapshot taken during a big record can eat into the spare the two would otherwise keep.
+  clones (a whole file of 1 MiB or less) counts whole though it costs almost nothing.
+  Snapshots, restores and imports reserve through the same count.
 - **Records before a change.** `Images::record_before_change` runs before a modpack update
   ("Before a modpack update") and before a server's mods are brought in step ("Before a
   server update"): what is queued, else "Changed by hand" (or "Changed while the game ran
@@ -1397,7 +1400,8 @@ same, it does the same. The code is `launcher/crates/launcher-core/src/images/`.
   it for me" search is saved (the app and the CLI say to finish it first, as they say to
   stop the game): the search has mods turned off, the record before the update would take
   them as changed by hand, and the search's end would restore files the update replaced. Milestone 4's second half keeps this hook when server images replace the client pack
-  sync (`servers/mod.rs`, `apply_sync`).
+  sync (`servers/mod.rs`, `apply_sync`), as `Images::before_risky_change(RiskyChange::
+  ServerUpdate)`, which records this and takes a snapshot ("M5 decisions").
 - **Triggers and labels.** Each begins its operation right before files change and
   succeeds once they did. An action that changes nothing when it fails (one file renamed,
   added or moved to the Trash) records nothing on failure. A removal whose file went to the
@@ -1455,14 +1459,11 @@ same, it does the same. The code is `launcher/crates/launcher-core/src/images/`.
   `KEEP_CONTENT`, `newest_content_first` and `join_labels` are the shared crate's
   (`lodestone_image::lineage`), so both programs keep and list content images alike.
 - **Retention.** Under the instance's record lock after every record that wrote an image:
-  keep every data and full image and its `content` link (so pruning is ready for milestone
-  5's snapshots; deleting an instance's images is not, see "Deleting and reused ids"), the
-  images held with `Images::keep_while` (for milestone 5's restores), the
+  keep every data and full image and its `content` link (snapshots: their own retention
+  deletes them), the images held with `Images::keep_while` (a restore's), the
   current image and its parent, and the newest 30 content images by `newest_content_first`;
-  delete the other content manifests. While a manifest can't be read, nothing is deleted,
-  and nothing shows it yet: milestone 5's history should surface an unreadable manifest so
-  the user can delete it (until then each record reads every manifest's header, and the
-  store keeps growing).
+  delete the other content manifests. While a manifest can't be read, nothing is deleted;
+  the Snapshots list shows how many can't be read, with a button to delete them.
 - **Deleting and reused ids.** Instance ids are folder names and a deleted instance's id
   goes to the next instance of the same name. Deleting an instance (after its folder went to
   the Trash) deletes `images/<id>/` and asks for a collection, so restoring it from the
@@ -1483,14 +1484,10 @@ same, it does the same. The code is `launcher/crates/launcher-core/src/images/`.
   instances folder itself is missing (a drive that isn't there), and never for a link or
   junction whose target can't be reached (a pack kept on an unplugged drive). Otherwise its
   manifests would keep its objects from every collection. Ids the store can't name (a
-  Windows device name such as `con`) record nothing. Each of these deletes all of
-  `images/<id>/`, which today holds only content images. Milestone 5 must change them
-  (`Images::wipe_locked`, `delete_instance`, `forget_deleted` and the id-reuse guard)
-  before data images move into this store: a deleted instance, or a folder renamed in
-  Finder or briefly removed by a sync tool, must not take its backups with it. Data and full
-  images, and the content images they link to, should stay until the user deletes them, as
-  the snapshot store keeps a deleted instance's snapshots until Settings › Storage cleans
-  them up.
+  Windows device name such as `con`) record nothing. Each of these retires `images/<id>/`
+  (milestone 5): a folder with snapshots is set aside as `images/_deleted_<16 hex>/` with
+  its snapshots and the content they link to, until the user deletes them; one without is
+  deleted, as before ("M5 decisions", Retiring).
 - **Cost.** A record after a Mods action re-reads only changed files, but the snapshot
   claims every cached file and stats each chunk of a big file: for a 900 MB pack (300 mods
   of 3 MiB, chunked) that is about 190 ms of planning, and a record after a mod update
@@ -1501,9 +1498,10 @@ same, it does the same. The code is `launcher/crates/launcher-core/src/images/`.
   cache of hashes and Modrinth and CurseForge identities for listing, updates and exports,
   which records read for sources and sides. The added-packs file is what removing an added
   pack takes off. The modpack update's copy of the files it touches
-  (`backups/modpack-update/<time>/`) is its rollback when it fails part way, and its world
-  zips and the snapshot store with `.lodesnap` stay until milestone 5 replaces them. The
-  Launcher had no content history of its own, so nothing was removed.
+  (`backups/modpack-update/<time>/`) is its rollback when it fails part way. Its world zips,
+  the snapshot store and `.lodesnap` were removed by milestone 5: the snapshot before the
+  update holds the worlds. The Launcher had no content history of its own, so nothing was
+  removed then.
 - **The CLI.** `lodestone-launcher-cli content history <instance>` (method
   `content.history`, read-only) lists the content images newest first: `{instance, current,
   images: [{id, created, label, label_shown, parent, current, minecraft, loader,
@@ -1513,4 +1511,213 @@ same, it does the same. The code is `launcher/crates/launcher-core/src/images/`.
   instance is `not_found`; one without images has an empty list. It waits at most 3 s for
   a record of the instance under way (the first image of a big pack can take minutes),
   then lists without it: the newest image may be missing then. The window shows no
-  history yet: milestone 5 adds history and restore.
+  content history: milestone 5 added snapshots and their restore, not a history view.
+
+### M5 decisions
+
+Decisions milestone 5 made where this document left the Launcher's snapshots open. The core's
+backups ("M2 decisions", Backups) are the model; the code is
+`launcher/crates/launcher-core/src/images/` (`snapshots.rs`, `retention.rs`, `retired.rs`,
+`restore.rs`, `swap.rs`, `export.rs`). Nothing of the old snapshot store, `.lodesnap` or
+the world backup zips is read or converted.
+
+- **A snapshot is a data image linked to content.** It holds everything in the game folder
+  that isn't content (`ContentScope::data_accepts`: worlds, `options.txt`, `servers.dat`,
+  screenshots, a script no pack lists; Lodestone's own names never), and its `content` is
+  the instance's current content image, brought up to date first. A folder is skipped only
+  when all of it is content, so a folder holding some pack files is walked for the rest;
+  content and data never overlap and together are everything a plain walk takes (tested).
+  "Include mods and configs" takes a full image of the whole game folder instead, with its
+  base and the files' Modrinth and CurseForge sources; so does every snapshot whose
+  content couldn't be brought up to date (recording failed, the store is suspended for
+  content, a "Find it for me" search has mods renamed), so a snapshot always holds or
+  links what was on disk. The image's worlds get `level_name`, `data_version`,
+  `game_version`, `last_played`, `size` (from its entries) and `quiesced: true` (the game
+  never runs during a snapshot: they are refused while it does). It uses the `data` stat
+  cache, and the free-space check every record uses (what it reads, the records under
+  way, 1 GiB to spare).
+- **The content step, per kind.** Before a modpack update or a server update (and before a
+  restore that puts content back) the content record is `record_before_change` ("Before a
+  modpack update", "Before a server update", "Before going back to a snapshot"), which
+  takes in what the game wrote, since those changes merge configs. Otherwise (manual,
+  after playing, a content update, a loader change, a world-only restore's safety
+  snapshot) it is the quick check: what is queued, then "Changed by hand", or the first
+  image of an instance with none.
+- **Records.** `images/<id>/snapshots.json` (`version`, the instance's name for a deleted
+  instance's marker, and per snapshot: `id` `YYYYMMDD-HHMMSS-xxxx`, `image`, `kind`,
+  `name`, `created`, `pinned`, `full`, `worlds`, `content`, `files`, `withheld`, `bytes`,
+  `new_bytes`), written whole through the store's temporary names. Several records can
+  name one image; a data image's manifest is deleted only with the last record naming it.
+  Read with bounds (16 MiB, 10,000 records, every id a SHA-256 or a record id's shape).
+  Kinds: `manual` (the user, "Back up" in the Worlds tab, the CLI), `before_change`,
+  `after_play`, `before_restore`, `imported`. A name is the user's, cut to 200 characters,
+  or the label of an automatic one; labels are plain English data like content labels:
+  "Before updating <pack> to <version>", "Before updating from <server>", "Before
+  updating <title>" or "Before updating N mods", "Before changing <loader> to
+  <version>", "After playing", "Before going back to “<name>”", "Backed up <world>",
+  "Snapshot" when unnamed.
+- **Reconcile, and a damaged list.** Before listing, retention, a delete or a pin, under
+  the record lock: a record whose manifest is gone is dropped; a data or full manifest no
+  record names is listed as a manual snapshot named by its label. Unlike the core, whose
+  unreadable `backups.json` is an error, a `snapshots.json` that is there but isn't a list
+  is renamed `snapshots.damaged-<unix>.json` and rebuilt that way: kinds and pins are lost,
+  never a snapshot, and the user isn't stuck with a list that never opens.
+- **Order of writes.** Objects, the manifest (retried once when a collection took an object
+  meanwhile; an image another record already names isn't saved again), the record, the
+  stat cache, retention. An instance whose first image store write is a snapshot gets its
+  `content-state.json` (naming the instance) first, so the id-reuse guard never takes the
+  snapshot for an earlier instance's. An automatic snapshot whose image is the newest
+  record's writes only the stat cache; a manual one records again, sharing the image.
+- **Retention.** `retention::data_to_delete`, the core's `to_delete` with the Launcher's
+  kinds: manual, imported and pinned are never deleted; `before_change` and `after_play` are
+  one pool, the newest `keep_last`, then the newest per UTC day and per ISO week
+  (`DEFAULT_POLICY` 5, 7 and 4; per instance in `instance.json`'s `snapshots`, each at most
+  1,000); `before_restore` kept 30 days, the newest 5 older ones, and the newest when it is
+  newer than every other record. Within one second, records keep the order they were
+  taken (an id's random part says nothing). A snapshot a restore is reading is held
+  (`keep_while`) and never deleted meanwhile. Deleting goes image, then record, then
+  pruning, then a collection (at most every 15 minutes for retention, at once for the
+  user's delete).
+- **After a play session**, off by default: `InstanceDefaults::snapshot_after_play`
+  (Settings › Instance defaults) unless the instance's `snapshots.after_play` says
+  otherwise. `Images::session_ended_with` takes it on the session's own thread after the
+  baseline, unless another session began. Known limit: with Settings › After launch set
+  to quit, or when the Launcher dies while the game runs, no end is seen and none is
+  taken.
+- **Before risky changes**, one hook: `Images::before_risky_change(instance, RiskyChange)`
+  (`ModpackUpdate`, `ServerUpdate`, `ContentUpdate`, `LoaderChange`), which records the
+  content as above and takes an automatic snapshot. A failure is logged and the change goes
+  on, as for the content record. Modpack updates call it in place of
+  `record_before_change`, and no longer zip worlds (`update::apply` lost `backup_worlds`;
+  its rollback copy of changed files stays); Update all, one update and their CurseForge
+  halves call it once per job, as does the control API's `content.update`. **Server
+  updates: milestone 4's second half calls it in `apply_sync`** in place of
+  `record_before_change(BEFORE_SERVER_UPDATE)`; this milestone only removed `apply_sync`'s
+  `backup_worlds` argument. A loader version change from the Settings tab, Undo or the CLI
+  (`Instances::save_settings`; only the loader version, a loader there) takes the snapshot
+  in the background first and saves `instance.json` after, with the instance's files busy
+  meanwhile so Play waits, and the list showing the new version; a change saved meanwhile
+  wins and this one is dropped. A pack's or server's update saves with `Instances::save`:
+  it took its own snapshot.
+- **Retiring instead of wiping.** Deleting an instance, forgetting one deleted outside the
+  Launcher and the id-reuse guard all retire `images/<id>/` when it holds a snapshot (a data
+  or full manifest, one that can't be read, or records): `retired.json` (`former_id`,
+  `name`, `instance_created`, `deleted`) is written into it, it is renamed
+  `images/_deleted_<16 hex>/` (`_` never starts an id the Launcher makes), and its state,
+  stat caches, journal and the content images no snapshot links to are deleted. One
+  without snapshots is deleted as before. The marker wins over everything: a crash before
+  the rename leaves a marked folder that the guard and the next forgetting retire, never
+  one taken for the new instance's. Retired folders are never forgotten, are marked by
+  every collection, and are listed (`Images::deleted_snapshots`, `snapshots list
+  --deleted`); Settings › Storage's clean-up deletes them. Readopting a deleted instance's
+  snapshots (restoring one into a new instance from the list) isn't done.
+- **Storage.** `disk::Report.images` (`ImagesUsage`: the store folder's size, snapshot
+  count, how many the clean-up removes, retired instances), read from the lists and
+  markers without locks; the store is no longer "Other". "Remove" (`Clean::Snapshots`,
+  `disk::clean_snapshots`) deletes the snapshots the Launcher took on its own (not pinned)
+  and every retired folder, then collects at once and reports what the store shrank by;
+  files from the last hour go at a later collection (the grace), which the dialog says.
+  At startup, in the background, a leftover `<data>/snapshots/` with `objects/` or
+  `instances/` (the old store) is deleted, with a trace line; old world backup zips in
+  `instances/<id>/backups/<world>/` are left alone, unread, under the instance's other
+  files.
+- **Restore.** Scopes `Worlds`, `WorldsAndContent`, `Everything`, plus `restore_as_new` and
+  `restore_world_copy` (the Worlds tab's "Restore as copy": the world placed beside the
+  others as "<world> (restored <date>)", nothing replaced, no safety snapshot). An
+  in-place restore, under the record lock and inside a counted write: refused while the
+  game runs; for content scopes, while a search is saved, for a snapshot of another
+  Minecraft version or loader (only "as a new instance"), and for a data image whose
+  content link is gone. Then the safety snapshot (refused when it fails). It owns
+  `minecraft/saves/<world>` per chosen world; content scopes add every content folder and
+  each file outside them that the snapshot's or the current content lists; everything owns
+  each top-level name of the game folder (on disk or in the snapshot) but the
+  always-left-out folders and Lodestone's names. What it replaces is what the safety
+  snapshot holds under those paths, less what the target withheld or left out by its
+  excludes; everything else inside them is carried back (`session.lock`, links, files no
+  snapshot took, folders it changes nothing in). A file it would replace that the safety
+  snapshot withheld as unreadable or changing refuses the restore. Files are staged with
+  `materialize` into `<instance>/.lodestone-restore-staging-<16>/` while collections are
+  held off. The store keeps every object its manifests name, so a missing one means the
+  store lost it: the restore is refused, naming it, rather than downloading (only imports
+  download).
+- **The swap is Launcher-local** (`images/swap.rs`): the core's journal and rollback,
+  without server software adoption, Paper's split worlds and pinned settings, which would
+  make a shared version conflict with milestone 3's work on the crate. Renames use the
+  Launcher's `fsx::rename` (about 2 s of retries on Windows, not the core's 10 s budget).
+  `Images::recover_restores` runs on the window's thread right after the images open, before
+  anything can be played: a journal is undone (or, when done, only cleaned up), work
+  folders no journal names are deleted, and a journal whose instance folder isn't there
+  stays, logged. One that can't be undone stays for the next start (the Launcher doesn't
+  lock the instance meanwhile).
+- **After a restore of content**, before its content record ("Went back to snapshot
+  “<name>”", with the record lock still held): `instance.json` takes the snapshot's loader
+  version; `content.json` learns each restored file's Modrinth or CurseForge source
+  (keeping an entry with the same SHA-512); a `modpack.json` of the same pack whose version
+  differs from the snapshot's base takes the base's version (version number and date
+  cleared until the next check fills them) and as its files the paths it lists that the
+  snapshot also has, with their restored SHA-1. The updater never removes a file it doesn't
+  list, so a pack file only the older version had is treated as the user's: approximate,
+  never destructive. Added packs forget files that are gone.
+- **The differing-content offer.** `preview_restore` compares the current content image with
+  the snapshot's content (the link, or a full image's content files), by enabled name: one
+  Modrinth project removed and added is one update, turning a file off or on is an update,
+  and the loader versions are compared. The dialog says "These worlds last ran with other
+  mods: …" with a toggle that switches to the worlds and their mods.
+- **Exports** (`.lodeimg`, `export::EXTENSION`): `container::export` of the snapshot's image
+  (labelled with its name, no parent) and its content image, after `PRIVATE_FILES`
+  (`command_history.txt`, `hotbar.nbt`, `ias.json` at any depth: In-Game Account Switcher,
+  `essential/microsoft_accounts.json` and `essential/mojang_accounts.json`: Essential) are
+  removed from both and added to their `excludes`, both re-sealed. Best effort: an
+  unlisted account switcher's file still travels; the dialog lists what was left out.
+  Written to `<data>/cache/snapshot-exports/` for dragging out or Save as (Storage's cache
+  clean-up removes them), or where the CLI says.
+- **Imports** make a new instance: `container::open`, then entries with Lodestone's names or
+  paths the client can't place are refused, then the caller's free-space check for
+  everything (unpacked objects, the files, downloads, 1 GiB), then `import_objects`; files
+  the store lacks are downloaded (Modrinth through its CDN URL check, SHA-1, SHA-256 and
+  SHA-512 checked; CurseForge through the API's download URL when the author allows it)
+  into the store; the rest are left out and listed. Everything the store has is placed
+  into a new staging instance; `instance.json` gets the game, the recommended memory and
+  default launch settings (images carry none); `content.json` the sources. It is recorded
+  "Made from a snapshot", and the imported image (with its content) is kept as an
+  `imported` snapshot. An import of an image whose CurseForge files couldn't be
+  downloaded can't later restore "everything" from that snapshot (those objects are
+  missing).
+- **LDS codes stay as they are.** `LDS1:` and `LDS2:` already encode an image whose files can
+  all be downloaded: the base (a Modrinth pack's project and version: the image's
+  `modrinth_pack`), each Modrinth file as project and version (an entry with a `modrinth`
+  source, its hashes coming from Modrinth when installing and every download checked
+  against its SHA-512), the pack's files the instance removed (`removed`), files turned off
+  or on (the `.disabled` name), the resource pack order and the shader (client settings).
+  A code can be made when every file is the base's or Modrinth's; others are listed as
+  left out, as before. The producer keeps reading `content.json` and the listing, since it
+  matches files Modrinth knows by hash, which recording never does. Codes people already
+  pass around keep working; no image-shaped code was added.
+- **World identity is the folder name.** After a world is renamed, the Worlds tab no longer
+  lists its older snapshots under it; they stay in the Snapshots list, and restoring the
+  world from one puts back the old folder name. Renaming no longer moves a backups folder.
+- **The UI.** Settings › Snapshots: "Take snapshot…", the after-play toggle (following the
+  global default until changed), a row per snapshot (name, a badge: Automatic, After
+  playing, Before a restore, Imported, Pinned; time, worlds, sizes) with Restore…,
+  Export…, Pin or Unpin and Delete, a row for images that can't be read with Delete, and
+  the retention line. One dialog takes, restores (Only the worlds with world checkboxes,
+  The worlds and their mods, Everything, As a new instance), exports (drag out or Save
+  as…), deletes and imports (game, worlds, mods with the trust warning, downloads, files
+  that can't be downloaded, disk space, name). The Worlds tab's "Back up" takes a manual
+  snapshot named after the world; its Backups panel lists the snapshots holding the world
+  with "Restore as copy" and "Replace world…" (a world-only restore). `.lodeimg` files open
+  the import dialog when dropped or picked with Import…; a `.lodesnap` is refused as no
+  modpack.
+- **Control API and CLI.** `snapshots.list` (`deleted`), `snapshots.create` (`name`,
+  `everything`), `snapshots.restore` (`scope` worlds, worlds_and_mods, everything or new;
+  `worlds`, `name`, `preview`; confirm in place), `snapshots.export`, `snapshots.import`
+  (`preview`, `name`; confirm with mods), `snapshots.delete`, `snapshots.pin`,
+  `snapshots.policy`; `worlds.backups`, `worlds.backup` and `worlds.restore` (`snapshot`,
+  `mode`) work on snapshots. `snapshots.revert`, `worlds.delete_backup` and the modpack
+  update's `backup_worlds` are gone; the CLI follows (`snapshots restore`, `pin`, `unpin`,
+  `policy`; no `worlds delete-backup`, no `--no-backup-worlds`).
+- **Not in M5:** a content history view (the CLI's `content history` stays the only one),
+  readopting a deleted instance's snapshots, restoring from images moved between computers
+  other than `.lodeimg` imports (milestone 6). **The shared crate is unchanged**: no
+  additive function was needed (restores and imports report progress per download, not per
+  byte placed).
