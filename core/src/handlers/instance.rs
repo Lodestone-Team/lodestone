@@ -164,8 +164,13 @@ pub(super) type PostSetupStep = Box<
         + Send,
 >;
 
+/// The progress of recording a new server's first content image, on top of the creation's
+/// `total_progress`.
+const RECORD_PROGRESS: f64 = 1.0;
+
 /// Creates the folder of a new Minecraft instance and sets it up in the background, with
-/// progression events, like `POST /instance/create/{game_type}`. On failure the folder is
+/// progression events (`total_progress` for setting it up; recording its first content
+/// image adds [`RECORD_PROGRESS`]), like `POST /instance/create/{game_type}`. On failure the folder is
 /// removed. Returns the new instance's UUID right away.
 pub(super) async fn spawn_minecraft_instance_creation(
     state: AppState,
@@ -204,7 +209,7 @@ pub(super) async fn spawn_minecraft_instance_creation(
         async move {
             let (progression_start_event, event_id) = Event::new_progression_event_start(
                 title,
-                Some(total_progress),
+                Some(total_progress + RECORD_PROGRESS),
                 Some(ProgressionStartValue::InstanceCreation {
                     instance_uuid: uuid.clone(),
                 }),
@@ -284,7 +289,7 @@ pub(super) async fn spawn_minecraft_instance_creation(
                 error!("Failed to update permissions: {:?}", e);
             }
             // before the server is listed, so nothing starts or changes it first
-            record_created(&state, &uuid, &minecraft_instance).await;
+            record_created(&state, &uuid, &minecraft_instance, &event_id).await;
             let info = minecraft_instance.get_instance_info().await;
             state
                 .instances
@@ -305,14 +310,24 @@ pub(super) async fn spawn_minecraft_instance_creation(
 }
 
 /// The first content image of a server just created, before it is listed: "Created
-/// <name>", unless its setup already recorded one (a modpack's "Installed <pack>"). A
-/// failure is only logged: its first content image is then recorded when it stops, or at
-/// the next startup (see `ImageService::server_stopped` and `startup_sweep`).
+/// <name>", unless its setup already recorded one (a modpack's "Installed <pack>"). It
+/// reads and stores every content file (all of an imported server's), so it first says so
+/// on the creation's progression event `event_id` ([`RECORD_PROGRESS`]). A failure is only
+/// logged: its first content image is then recorded when it stops, or at the next startup
+/// (see `ImageService::server_stopped` and `startup_sweep`).
 async fn record_created(
     state: &AppState,
     uuid: &InstanceUuid,
     instance: &minecraft::MinecraftInstance,
+    event_id: &ProgressionEventID,
 ) {
+    state
+        .event_broadcaster
+        .send(Event::new_progression_event_update(
+            event_id,
+            "Recording the server's content",
+            RECORD_PROGRESS,
+        ));
     if state.images.current_content(uuid).await.is_some() {
         return;
     }

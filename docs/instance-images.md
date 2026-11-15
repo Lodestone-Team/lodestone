@@ -588,7 +588,7 @@ rewrites at startup) don't make content images of their own; snapshots and backu
 them, and they join the next content image an operation records. The one image that takes
 them in before an operation is the core's record before a modpack update or restore, which
 must hold every file the change replaces ("Before a modpack update" or "Before a modpack
-restore" when nothing changed outside Lodestone).
+restore" when nothing changed outside Lodestone and the backup excludes didn't change).
 
 ## Retention
 
@@ -778,7 +778,10 @@ of M2 adds its own subsection.
   files half written; the record of its own label, after it succeeded, takes them whole; when
   a record of another operation took them in whole before the job succeeded, the job's record
   finds nothing changed and adds the job's label to that image, saving its manifest again
-  under the same id, so "Added JEI" isn't lost). A
+  under the same id, so "Added JEI" isn't lost; only when a new image was recorded after the
+  job began, though: otherwise the job changed no content, such as an unzip of a world or a
+  copy into a folder the policy excludes, and its label is dropped like any operation's that
+  changed nothing). A
   modpack update or restore begins with `ImageService::begin_exclusive`, which waits for
   every Files API operation (not the jobs, which hold no gate) and keeps new ones out, so
   none lands between its last check of the files and their placement; placing a new file
@@ -787,8 +790,10 @@ of M2 adds its own subsection.
   time (`flush_within`, `record_now_within`); once a record has the gate it runs to its
   end, so it never loses the labels it took. Successes are merged until 3 s pass without one, or 30 s after the first at the
   latest; a failed operation (dropped without `succeed`) records nothing. A record snapshots
-  the content scope with the policy's translated excludes (written into the image's
-  `excludes`) and the `content` stat cache, on one thread while the server runs; the image's
+  the content scope with the policy's translated excludes that can reach content (written
+  into the image's `excludes`; a pattern anchored under a path where nothing is content, a
+  world's `saves/<level>/…` or `/logs/`, is left out, so editing it changes no content
+  image) and the `content` stat cache, on one thread while the server runs; the image's
   game is the server's (Paper and Spigot: `vanilla`), its settings only the flavour for now,
   and its `parent` the current image. Recording the same contents again writes no manifest.
   Every file is listed as an entry, the pack's too, with explicit sources: `modrinth` for a pack download whose bytes are the pack's (or a file whose
@@ -818,8 +823,8 @@ of M2 adds its own subsection.
   file's size and modification time with the baseline (no file is read), under the canonical
   excludes the baseline was taken under (kept with it in `content-state.json`), and records
   "Changed outside Lodestone" when they differ; when they don't but the backup policy's
-  excludes changed since (which changes what an image holds, and its id), it records
-  "Changed the backup excludes". It waits at most 10 s for the last stop's
+  excludes that can reach content changed since (which changes what an image holds, and its
+  id), it records "Changed the backup excludes". It waits at most 10 s for the last stop's
   content work and then at most 10 s for an operation in progress, and never fails a
   start; but a record that already has the gate when that wait ends (a merged record that
   began just before) runs to its end first, since noting the start takes the instance's lock
@@ -897,7 +902,9 @@ of M2 adds its own subsection.
     lock, which a start takes before the content gate.
   - A new server (created, or imported): "Created <name>" once it is set up and before it is
     listed (and before its creation's end event), so nothing starts or changes it first,
-    unless its setup recorded an image already (a modpack's install).
+    unless its setup recorded an image already (a modpack's install). It reads every content
+    file (all of an imported server's), so the creation's progression says "Recording the
+    server's content" first, a step of its own in the total.
 - **Merged labels stay each operation's.** What succeeds within the merge window is one image
   labelled with each operation's label in order ("Edited a; Edited b"), cut at the label limit,
   rather than a count: the history then says what happened.
@@ -983,7 +990,9 @@ of M2 adds its own subsection.
   collection waits for it rather than the job retrying.
 - **Shutdown.** Once the core's servers have stopped, it waits up to 6 s
   (`ImageService::settle`) for each one's stop work (the baseline taken again,
-  `running_since` cleared) and records what is still queued in the merge window, since the
+  `running_since` cleared), takes the content gate alone, so a record already running (the
+  merge window's, which took its labels off the queue) and an operation in progress end
+  first, and records what is still queued in the merge window, since the
   process exits right after: otherwise the next start would take the server for one that
   died while running and fold a change made while Lodestone was down into the baseline,
   instead of recording "Changed outside Lodestone". A record still running at the limit is
@@ -1068,9 +1077,10 @@ of M2 adds its own subsection.
   `pack.json` are written. An update or restore holds the server stopped and its mods lock,
   puts back an update that was interrupted, and records the content as it is
   (`ImageService::record_before_change`: what is queued, else "Changed outside Lodestone"
-  when the quick check finds a change since the last record or stop, else "Before a modpack
-  update" or "Before a modpack restore" for what the server wrote while it ran or a file
-  that couldn't be read before; nothing when the content is the current image; a server
+  when the quick check finds a change since the last record or stop, else "Changed the backup
+  excludes" when only the policy's excludes that can reach content did, else "Before a
+  modpack update" or "Before a modpack restore" for what the server wrote while it ran or a
+  file that couldn't be read before; nothing when the content is the current image; a server
   without an image gets its first), so every file the change takes off the server is in an
   image; a restore is refused when that record fails, an update goes on (it compares the
   files themselves). A restore of a version that isn't in the history is refused before
@@ -1103,8 +1113,9 @@ of M2 adds its own subsection.
   a file that differs or is missing is replaced or added from the image store (which checks
   every byte against its SHA-256), or downloaded again when the store lost it and the entry
   is a Modrinth file with its SHA-1 and SHA-512; a file only the current image has is
-  removed. Files neither image lists (left out by excludes, withheld, not content) are never
-  touched; a file on disk the target would replace that the current image doesn't have (it
+  removed, unless the target left it out by its `excludes` or withheld it (or a folder it is
+  in): the target has no copy of it, so it says nothing about it. Files neither image lists
+  (left out by excludes, withheld, not content) are never touched; a file on disk the target would replace that the current image doesn't have (it
   withheld it, or it appeared since) stops the restore, since no image could undo it, and so
   does a folder or link where a file goes. Collections are held
   off while files are copied out of the store. When the target's game differs, its loader

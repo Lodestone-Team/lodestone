@@ -152,9 +152,11 @@ impl ImageService {
     /// the server wrote while it ran (which otherwise only joins the next operation's image):
     /// a restore must be able to give those files back. The image is labelled by what is
     /// queued; else "Changed outside Lodestone" when the quick check finds content changed
-    /// since the last record or stop; else `label`, which names the change about to be
-    /// made (the difference is then what the server wrote while it ran, or a file that
-    /// couldn't be read at the last record); a server without an image gets its first.
+    /// since the last record or stop; else "Changed the backup excludes" when only the
+    /// policy's excludes did (those that can reach content); else `label`, which names the
+    /// change about to be made (the difference is then what the server wrote while it ran,
+    /// or a file that couldn't be read at the last record); a server without an image gets
+    /// its first.
     /// Nothing new is recorded when the content is the current image.
     pub async fn record_before_change(
         self: &Arc<Self>,

@@ -140,6 +140,18 @@ impl Planner {
         label: &str,
         parent: Option<&Image>,
     ) -> Image {
+        self.image_with(files, created, label, parent, |_| {})
+    }
+
+    /// [`Self::image`], changed by `edit` before it is sealed.
+    fn image_with(
+        &self,
+        files: &[(&str, &[u8])],
+        created: i64,
+        label: &str,
+        parent: Option<&Image>,
+        edit: impl FnOnce(&mut Image),
+    ) -> Image {
         let mut image = Image::new(
             Kind::Content,
             crate::images::layout::game_of("1.20.1", &fabric()),
@@ -155,6 +167,7 @@ impl Planner {
         }
         image.created = created;
         image.label = Some(label.to_string());
+        edit(&mut image);
         image.normalize();
         image.seal();
         image.parent = parent.map(|p| p.id.clone());
@@ -293,6 +306,45 @@ fn a_restore_puts_back_mods_and_configs_only() {
     assert!(!actions(&plan)
         .iter()
         .any(|(path, _)| path == "mods/gone.jar"));
+}
+
+#[test]
+fn a_restore_keeps_what_the_target_left_out_or_withheld() {
+    use lodestone_image::manifest::{Withheld, WithheldReason};
+    let p = Planner::new();
+    // The target left config/keep/ out (the policy excluded it then), couldn't read
+    // config/secret.toml, and couldn't list config/locked/.
+    let target = p.image_with(&[("mods/a.jar", b"a")], 1, "Target", None, |image| {
+        image.excludes = vec!["config/keep/".into()];
+        image.withheld = vec![
+            Withheld {
+                path: "config/secret.toml".into(),
+                reason: WithheldReason::Unreadable,
+            },
+            Withheld {
+                path: "config/locked".into(),
+                reason: WithheldReason::Unreadable,
+            },
+        ];
+    });
+    let files: [(&str, &[u8]); 5] = [
+        ("mods/a.jar", b"a"),
+        ("config/keep/user.toml", b"user"),
+        ("config/secret.toml", b"secret"),
+        ("config/locked/x.toml", b"x"),
+        ("config/other.toml", b"other"),
+    ];
+    let current = p.image(&files, 2, "Current", Some(&target));
+    for (path, bytes) in files {
+        write(&p.root, path, bytes);
+    }
+    let plan = p.plan(&current.id, &target.id, true).unwrap();
+    // Only the file the target had no copy of on purpose is left; config/other.toml it
+    // simply didn't have.
+    assert_eq!(
+        actions(&plan),
+        vec![("config/other.toml".to_string(), FileAction::Remove)]
+    );
 }
 
 #[test]

@@ -146,6 +146,10 @@ pub(crate) struct Slot {
     /// Around saving manifests, moving the pointer and pruning.
     pub(crate) lock: Arc<Mutex<()>>,
     pub(crate) pending: StdMutex<recorder::Pending>,
+    /// How many new images records have written since the core started: a job's label is
+    /// added to an image only if one was written after the job began
+    /// ([`recorder::Queued::job`]).
+    pub(crate) new_images: std::sync::atomic::AtomicU64,
     /// How many stops' content work hasn't finished ([`ImageService::begin_stop`]).
     stops: tokio::sync::watch::Sender<usize>,
 }
@@ -156,6 +160,7 @@ impl Default for Slot {
             gate: Default::default(),
             lock: Default::default(),
             pending: Default::default(),
+            new_images: Default::default(),
             stops: tokio::sync::watch::Sender::new(0),
         }
     }
@@ -299,35 +304,53 @@ impl ImageService {
     }
 
     /// For the core's shutdown, once its servers have stopped: waits for each instance's
-    /// stop work (the baseline taken again, `running_since` cleared) and records what is
-    /// queued in the merge window, all within `max`. The process exits right after the
-    /// shutdown, which would otherwise cut that work off: the next start would take the
-    /// server for one that died while running, and fold a change made while Lodestone was
-    /// down into the baseline instead of recording it as changed outside Lodestone.
-    /// A record still running at `max` is cut off, which is the same as a crash in the
-    /// middle of it: its manifest is written last, so nothing is half recorded, and the
-    /// change is recorded as changed outside Lodestone before the server next starts.
+    /// stop work (the baseline taken again, `running_since` cleared), for a record that is
+    /// already running (the merge window's, say, which has taken its labels off the queue)
+    /// and for an operation in progress, and records what is queued, all within `max`. The
+    /// process exits right after the shutdown, which would otherwise cut that work off:
+    /// the next start would take the server for one that died while running, and fold a
+    /// change made while Lodestone was down into the baseline instead of recording it as
+    /// changed outside Lodestone. A record still running at `max` is cut off, which is the
+    /// same as a crash in the middle of it: its manifest is written last, so nothing is
+    /// half recorded, and the change is recorded as changed outside Lodestone before the
+    /// server next starts.
     pub async fn settle(self: &Arc<Self>, uuids: Vec<InstanceUuid>, max: std::time::Duration) {
         let deadline = tokio::time::Instant::now() + max;
         let settles = uuids.into_iter().filter(Self::accepts).map(|uuid| {
             let this = self.clone();
             async move {
-                let left = deadline.saturating_duration_since(tokio::time::Instant::now());
-                if !this.wait_for_stops(&uuid, left).await {
-                    warn!("The content of {uuid} was still being updated at shutdown");
-                    return;
-                }
-                let Some(ctx) = this.context(&uuid).await else {
-                    return;
+                let settle = async {
+                    let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+                    if !this.wait_for_stops(&uuid, left).await {
+                        warn!("The content of {uuid} was still being updated at shutdown");
+                        return;
+                    }
+                    let Some(ctx) = this.context(&uuid).await else {
+                        return;
+                    };
+                    // The gate alone: a record already running (the merge window's, which
+                    // has taken its labels off the queue) ends first, and so does an
+                    // operation in progress.
+                    let slot = this.slot(&uuid);
+                    let _gate = slot.gate.clone().write_owned().await;
+                    let _lock = slot.lock.clone().lock_owned().await;
+                    let queued = !slot
+                        .pending
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .is_empty();
+                    if !queued {
+                        return;
+                    }
+                    if let Err(e) = this.record_held(&slot, ctx, None, 0).await {
+                        warn!(
+                            "Failed to record the content of {uuid} at shutdown: {}",
+                            e.source
+                        );
+                    }
                 };
-                let left = deadline.saturating_duration_since(tokio::time::Instant::now());
-                match tokio::time::timeout(left, this.flush_within(ctx, Some(left))).await {
-                    Ok(Ok(_)) => {}
-                    Ok(Err(e)) => warn!(
-                        "Failed to record the content of {uuid} at shutdown: {}",
-                        e.source
-                    ),
-                    Err(_) => warn!("Recording the content of {uuid} took too long at shutdown"),
+                if tokio::time::timeout_at(deadline, settle).await.is_err() {
+                    warn!("Recording the content of {uuid} took too long at shutdown");
                 }
             }
         });

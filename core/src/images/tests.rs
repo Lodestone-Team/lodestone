@@ -589,6 +589,133 @@ async fn a_job_whose_files_another_record_took_adds_its_label_to_that_image() {
 }
 
 #[tokio::test]
+async fn a_job_that_changed_no_content_labels_nothing() {
+    let s = setup_with(ManualClock::new());
+    fabric_server(&s.root);
+    let ctx = context(&s.root, fabric());
+    let created = s
+        .images
+        .record_now(ctx.clone(), "Created".into())
+        .await
+        .unwrap()
+        .unwrap();
+    let label = |id: &str| {
+        s.manifests()
+            .into_iter()
+            .find(|i| i.id == id)
+            .unwrap()
+            .label
+    };
+
+    // An unzip that wrote only world files: no new image was recorded since it began, so
+    // its record finds nothing changed and drops its label.
+    let unzip = s.images.begin_job(&uuid(), "Unzipped world.zip");
+    write(&s.root, "world/region/r.0.0.mca", b"unzipped region");
+    unzip.succeed();
+    let again = s.images.flush(ctx.clone()).await.unwrap().unwrap();
+    assert!(!again.changed);
+    assert_eq!(again.id, created.id);
+    assert_eq!(label(&created.id).as_deref(), Some("Created"));
+
+    // A copy into a folder the policy excludes changes no content either.
+    let mut excluding = ctx.clone();
+    excluding.policy_exclude = vec!["config/dynmap/".into()];
+    let excluded = s
+        .images
+        .record_now(excluding.clone(), "Excluded dynmap".into())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(excluded.changed);
+    let copy = s.images.begin_job(&uuid(), "Copied tiles to config/dynmap");
+    write(&s.root, "config/dynmap/tiles/a.png", b"tile");
+    copy.succeed();
+    let again = s.images.flush(excluding).await.unwrap().unwrap();
+    assert!(!again.changed);
+    assert_eq!(label(&excluded.id).as_deref(), Some("Excluded dynmap"));
+}
+
+#[tokio::test]
+async fn excludes_that_reach_no_content_change_no_content_image() {
+    let s = setup();
+    fabric_server(&s.root);
+    let mut ctx = context(&s.root, fabric());
+    let first = s
+        .images
+        .record_now(ctx.clone(), INITIAL.into())
+        .await
+        .unwrap()
+        .unwrap();
+
+    // World and log excludes can't match a content file: no image, the same id.
+    ctx.policy_exclude = vec!["world/playerdata/".into(), "/logs/".into()];
+    assert_eq!(s.images.before_start(ctx.clone()).await.unwrap(), None);
+    assert_eq!(s.manifests().len(), 1);
+    assert!(s.state().excludes.is_empty());
+    let again = s
+        .images
+        .record_now(ctx.clone(), "Again".into())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!again.changed);
+    assert_eq!(again.id, first.id);
+    assert!(s
+        .images
+        .store()
+        .load_manifest(UUID, &first.id)
+        .unwrap()
+        .excludes
+        .is_empty());
+
+    // One that can is recorded, and only it is kept.
+    ctx.policy_exclude.push("config/*.txt".into());
+    let recorded = s.images.before_start(ctx.clone()).await.unwrap().unwrap();
+    assert!(recorded.changed);
+    let image = s.images.store().load_manifest(UUID, &recorded.id).unwrap();
+    assert_eq!(image.label.as_deref(), Some(recorder::EXCLUDES_LABEL));
+    assert_eq!(image.excludes, ["config/*.txt"]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_shutdown_waits_for_a_record_already_running() {
+    // The clock never moves, so only the flush below records.
+    let s = setup_with(ManualClock::new());
+    fabric_server(&s.root);
+    let ctx = context(&s.root, fabric());
+    s.images.set_instances(fixed(&ctx));
+    s.images
+        .record_now(ctx.clone(), "one".into())
+        .await
+        .unwrap();
+    // Enough files that the record takes a while.
+    for i in 0..2000 {
+        write(
+            &s.root,
+            &format!("mods/m{i}.jar"),
+            format!("mod {i}").as_bytes(),
+        );
+    }
+    s.images.begin(&uuid(), "Added many").await.succeed();
+    let record = tokio::spawn({
+        let images = s.images.clone();
+        let ctx = ctx.clone();
+        async move { images.flush(ctx).await }
+    });
+    // The record has taken the labels off the queue (it may be running still).
+    wait_until("the record takes the labels", || async {
+        s.images.slot(&uuid()).pending.lock().unwrap().is_empty()
+    })
+    .await;
+    s.images.settle(vec![uuid()], Duration::from_secs(60)).await;
+    // The shutdown waited for it: its image is the current one.
+    let current = s.state().current.unwrap();
+    let image = s.images.store().load_manifest(UUID, &current).unwrap();
+    assert_eq!(image.label.as_deref(), Some("Added many"));
+    assert!(record.await.unwrap().unwrap().unwrap().changed);
+}
+
+#[tokio::test]
 async fn the_shutdown_waits_for_stop_work_and_records_what_is_queued() {
     // The clock never moves, so the merge window never closes on its own.
     let s = setup_with(ManualClock::new());

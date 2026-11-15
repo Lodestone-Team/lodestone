@@ -28,6 +28,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -46,7 +47,7 @@ use super::base::{BaseFile, BaseInfo};
 use super::env::{self, JarFacts, ModrinthHint};
 use super::excludes::canonical_excludes;
 use super::layout::{game_of, server_layout, server_settings, InstanceContext};
-use super::scope::{content_filter, SCOPE_RULES};
+use super::scope::{content_filter, exclude_reaches_content, SCOPE_RULES};
 use super::state::ContentState;
 use super::{blocking, ImageService, Slot};
 
@@ -79,10 +80,14 @@ pub struct Recorded {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Queued {
     pub(crate) label: String,
-    /// Whether a job queued it ([`ImageService::begin_job`]). A job holds no gate, so a
-    /// record of another operation can take in its finished files before it succeeds;
-    /// its own record then finds nothing changed and adds its label to that image.
-    pub(crate) job: bool,
+    /// For a job's label ([`ImageService::begin_job`]): how many new images the instance
+    /// had recorded when the job began (`Slot::new_images`). A job holds no gate, so a
+    /// record of another operation can take in its finished files before it succeeds; its
+    /// own record then finds nothing changed and adds its label to that image, but only
+    /// when a new image was recorded after it began. Otherwise the job changed no content
+    /// (an unzip of a world, a copy into a folder the policy excludes) and its label is
+    /// dropped, as any operation's that changed nothing.
+    pub(crate) job: Option<u64>,
 }
 
 /// Labels waiting to be recorded, and when they came.
@@ -96,7 +101,7 @@ pub(crate) struct Pending {
 }
 
 impl Pending {
-    pub(crate) fn push(&mut self, label: String, job: bool, now: Instant) {
+    pub(crate) fn push(&mut self, label: String, job: Option<u64>, now: Instant) {
         if !label.is_empty() {
             self.labels.push(Queued { label, job });
         }
@@ -157,6 +162,8 @@ pub struct Operation {
     uuid: InstanceUuid,
     label: String,
     gate: Option<Gate>,
+    /// For a job: `Slot::new_images` when it began.
+    began: Option<u64>,
 }
 
 impl Operation {
@@ -164,8 +171,12 @@ impl Operation {
     /// the merge window.
     pub fn succeed(mut self) {
         if let Some(service) = self.service.take() {
-            let job = self.gate.is_none();
-            service.queue(&self.uuid, std::mem::take(&mut self.label), job, true);
+            service.queue(
+                &self.uuid,
+                std::mem::take(&mut self.label),
+                self.began,
+                true,
+            );
         }
     }
 
@@ -185,8 +196,12 @@ impl Operation {
         let Some(service) = self.service.take() else {
             return Ok(None);
         };
-        let job = self.gate.is_none();
-        service.queue(&self.uuid, std::mem::take(&mut self.label), job, false);
+        service.queue(
+            &self.uuid,
+            std::mem::take(&mut self.label),
+            self.began,
+            false,
+        );
         // The record takes the gate alone: let go of this operation's share first.
         drop(self.gate.take());
         service.record(ctx, None, None).await
@@ -208,6 +223,7 @@ impl ImageService {
                 uuid: uuid.clone(),
                 label,
                 gate: None,
+                began: None,
             };
         }
         let gate = self.slot(uuid).gate.clone().read_owned().await;
@@ -216,6 +232,7 @@ impl ImageService {
             uuid: uuid.clone(),
             label,
             gate: Some(Gate::Shared(gate)),
+            began: None,
         }
     }
 
@@ -225,11 +242,13 @@ impl ImageService {
     /// runs meanwhile may take the job's files half written; the record of the job's own
     /// label, queued when it succeeds, takes them whole.
     pub fn begin_job(self: &Arc<Self>, uuid: &InstanceUuid, label: impl Into<String>) -> Operation {
+        let accepted = Self::accepts(uuid);
         Operation {
-            service: Self::accepts(uuid).then(|| self.clone()),
+            service: accepted.then(|| self.clone()),
             uuid: uuid.clone(),
             label: label.into(),
             gate: None,
+            began: accepted.then(|| self.slot(uuid).new_images.load(Ordering::SeqCst)),
         }
     }
 
@@ -255,12 +274,13 @@ impl ImageService {
             uuid: uuid.clone(),
             label,
             gate,
+            began: None,
         }
     }
 
     /// Queues a label (`job`: from a job); with `spawn`, makes sure a task records it when
     /// it is due.
-    fn queue(self: &Arc<Self>, uuid: &InstanceUuid, label: String, job: bool, spawn: bool) {
+    fn queue(self: &Arc<Self>, uuid: &InstanceUuid, label: String, job: Option<u64>, spawn: bool) {
         let slot = self.slot(uuid);
         let now = self.clock.now();
         let start = {
@@ -410,10 +430,23 @@ impl ImageService {
             .unwrap_or_else(|e| e.into_inner())
             .take();
         if labels.is_empty() {
-            labels.extend(fallback.map(|label| Queued { label, job: false }));
+            labels.extend(fallback.map(|label| Queued { label, job: None }));
         }
         match self.record_locked(&ctx, &labels, threads).await {
-            Ok(recorded) => Ok(recorded),
+            Ok(recorded) => {
+                if recorded.changed {
+                    slot.new_images.fetch_add(1, Ordering::SeqCst);
+                } else {
+                    let recorded_since = slot.new_images.load(Ordering::SeqCst);
+                    let jobs: Vec<String> = labels
+                        .iter()
+                        .filter(|q| q.job.is_some_and(|began| recorded_since > began))
+                        .map(|q| q.label.clone())
+                        .collect();
+                    self.add_job_labels(&ctx, &recorded.id, jobs).await;
+                }
+                Ok(recorded)
+            }
             Err(e) => {
                 slot.pending
                     .lock()
@@ -475,7 +508,6 @@ impl ImageService {
                 // Nothing changed: keep the image's time, take the baseline again.
                 next.recorded = state.recorded;
                 self.save_state(ctx, next, snapshot).await?;
-                self.add_job_labels(ctx, &image.id, labels).await;
                 return Ok(Recorded {
                     id: image.id,
                     parent: image.parent,
@@ -545,18 +577,13 @@ impl ImageService {
         .await
     }
 
-    /// A record that found nothing changed, with labels jobs queued: another operation's
-    /// record took in the jobs' finished files before they succeeded, so the current image
-    /// `id` holds what they did. Their labels are added to its label (the label isn't part
-    /// of the id, so the manifest is saved again under the same id), rather than lost. A
-    /// failure is only logged: the files are recorded either way. Called with the instance's
-    /// lock held.
-    async fn add_job_labels(&self, ctx: &InstanceContext, id: &str, labels: &[Queued]) {
-        let jobs: Vec<String> = labels
-            .iter()
-            .filter(|q| q.job)
-            .map(|q| q.label.clone())
-            .collect();
+    /// A record that found nothing changed, with the labels `jobs` of jobs a new image was
+    /// recorded after they began ([`Queued::job`]): that record took in the jobs' finished
+    /// files before they succeeded, so the current image `id` holds what they did. Their
+    /// labels are added to its label (the label isn't part of the id, so the manifest is
+    /// saved again under the same id), rather than lost. A failure is only logged: the
+    /// files are recorded either way. Called with the instance's lock held.
+    async fn add_job_labels(&self, ctx: &InstanceContext, id: &str, jobs: Vec<String>) {
         if jobs.is_empty() {
             return;
         }
@@ -675,15 +702,18 @@ struct Built {
     hints: BTreeMap<String, ModrinthHint>,
 }
 
-/// The server's disk layout and canonical excludes, for its content: blocking. The
-/// excludes are sorted and without duplicates, as an image keeps them, so they compare
-/// equal to the ones a record saved with its baseline.
+/// The server's disk layout and canonical excludes, for its content: blocking. Only the
+/// excludes that can reach a content file ([`exclude_reaches_content`]): a world's, say,
+/// change neither what a content image holds nor its id. They are sorted and without
+/// duplicates, as an image keeps them, so they compare equal to the ones a record saved
+/// with its baseline.
 pub(crate) fn content_scope(ctx: &InstanceContext) -> Result<(DiskLayout, Vec<String>), Error> {
     let (layout, _) = server_layout(&ctx.root, &ctx.level_name, &ctx.flavour)?;
     let mut excludes = match &layout {
         DiskLayout::Server(server) => canonical_excludes(&ctx.policy_exclude, server).canonical,
         DiskLayout::Client => Vec::new(),
     };
+    excludes.retain(|pattern| exclude_reaches_content(pattern));
     excludes.sort();
     excludes.dedup();
     Ok((layout, excludes))
@@ -939,9 +969,9 @@ mod tests {
         let start = Instant::now();
         let mut pending = Pending::default();
         assert_eq!(pending.deadline(), None);
-        pending.push("a".into(), false, start);
+        pending.push("a".into(), None, start);
         assert_eq!(pending.deadline(), Some(start + MERGE_WINDOW));
-        pending.push("b".into(), true, start + Duration::from_secs(2));
+        pending.push("b".into(), Some(0), start + Duration::from_secs(2));
         assert_eq!(
             pending.deadline(),
             Some(start + Duration::from_secs(2) + MERGE_WINDOW)
@@ -953,7 +983,7 @@ mod tests {
         for second in 0..40 {
             busy.push(
                 format!("{second}"),
-                false,
+                None,
                 start + Duration::from_secs(second),
             );
         }
@@ -965,11 +995,11 @@ mod tests {
             label: label.into(),
             job,
         };
-        busy.push("later".into(), true, start);
-        busy.restore(vec![queued("first", false)], start);
+        busy.push("later".into(), Some(0), start);
+        busy.restore(vec![queued("first", None)], start);
         assert_eq!(
             busy.take(),
-            vec![queued("first", false), queued("later", true)]
+            vec![queued("first", None), queued("later", Some(0))]
         );
     }
 }

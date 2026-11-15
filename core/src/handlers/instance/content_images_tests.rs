@@ -887,12 +887,14 @@ async fn settings_and_the_resource_pack_record_but_local_settings_dont() {
 #[tokio::test]
 async fn a_new_server_gets_its_first_image_once() {
     let core = core(Kind::Fabric).await;
-    super::record_created(&core.state, &core.uuid, &core.instance()).await;
+    let (_, event_id) =
+        crate::events::Event::new_progression_event_start("Creating", None, None, CausedBy::System);
+    super::record_created(&core.state, &core.uuid, &core.instance(), &event_id).await;
     let image = core.current().await;
     assert_eq!(image.label.as_deref(), Some("Created Test SMP"));
     // a setup that recorded already (a modpack's install) keeps its image
     write(&core.root, "config/later.toml", b"x");
-    super::record_created(&core.state, &core.uuid, &core.instance()).await;
+    super::record_created(&core.state, &core.uuid, &core.instance(), &event_id).await;
     assert_eq!(core.manifests().len(), 1);
 }
 
@@ -1175,4 +1177,43 @@ async fn a_slow_install_holds_up_no_record_or_files_api_change() {
         .is_some_and(|label| label.contains("Added Title of slow")));
     assert!(!paths(&image).iter().any(|p| p.contains(".lodestone")));
     assert!(!core.pending());
+}
+
+#[tokio::test]
+async fn a_new_server_says_it_is_recording_its_content() {
+    use crate::events::{Event, EventInner, ProgressionEventInner};
+    let core = core(Kind::Fabric).await;
+    assert!(core
+        .state
+        .images
+        .current_content(&core.uuid)
+        .await
+        .is_none());
+    let mut events = core.state.event_broadcaster.subscribe();
+    let (_, event_id) =
+        Event::new_progression_event_start("Importing", Some(21.0), None, CausedBy::System);
+    super::record_created(&core.state, &core.uuid, &core.instance(), &event_id).await;
+    let mut said = Vec::new();
+    while let Ok(event) = events.try_recv() {
+        if let EventInner::ProgressionEvent(event) = event.event_inner {
+            if let ProgressionEventInner::ProgressionUpdate {
+                progress_message,
+                progress,
+            } = event.progression_event_inner()
+            {
+                said.push((progress_message.clone(), *progress));
+            }
+        }
+    }
+    assert_eq!(
+        said,
+        [(
+            "Recording the server's content".to_string(),
+            super::RECORD_PROGRESS
+        )]
+    );
+    assert_eq!(
+        core.current().await.label.as_deref(),
+        Some("Created Test SMP")
+    );
 }

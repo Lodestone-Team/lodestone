@@ -117,6 +117,34 @@ pub fn content_filter(candidate: &Candidate) -> bool {
     }
 }
 
+/// Whether the canonical exclude `pattern` (`lodestone_image::store::excludes` syntax)
+/// could match a content file or a folder that can hold one. False only for a pattern
+/// anchored under a literal path where nothing is content (a world's `saves/<level>/…`,
+/// `/logs/`, a plugin's data folder): a content image's excludes leave such patterns out, so
+/// editing them in the backup policy changes neither a content image's id nor the check
+/// before a start. Names match ignoring letter case here, so the answer may only err
+/// towards true.
+pub fn exclude_reaches_content(pattern: &str) -> bool {
+    let body = pattern.trim_start_matches('/').trim_end_matches('/');
+    let anchored = pattern.starts_with('/') || body.contains('/');
+    if !anchored {
+        // A name at any depth.
+        return true;
+    }
+    let parts: Vec<&str> = body.split('/').collect();
+    let literal = parts.iter().take_while(|part| !part.contains('*')).count();
+    if literal == 0 {
+        return true;
+    }
+    let prefix = &parts[..literal];
+    if literal == parts.len() && !pattern.ends_with('/') && is_content_parts(prefix, false) {
+        // The file itself.
+        return true;
+    }
+    // The folder, or anything under it.
+    is_content_parts(prefix, true)
+}
+
 fn is_content_parts(parts: &[&str], is_dir: bool) -> bool {
     if parts.is_empty() || parts.iter().any(|part| is_lodestone_name(part)) {
         return false;
@@ -244,6 +272,45 @@ mod tests {
             ("config", true),
         ] {
             assert_eq!(is_content(&p(folder), true), content, "{folder}/");
+        }
+    }
+
+    #[test]
+    fn excludes_that_can_reach_content() {
+        for yes in [
+            "dynmap",
+            "*.log",
+            "**/cache/",
+            "**",
+            // A name at any depth: `config/logs/` too.
+            "logs/",
+            "/server.jar",
+            "mods/",
+            "mods/*.disabled",
+            "config/dynmap/",
+            "/config",
+            "plugins/",
+            "plugins/*/config.yml",
+            "plugins/Essentials/config.yml",
+            "plugins/Essentials",
+            "*/x.toml",
+        ] {
+            assert!(exclude_reaches_content(yes), "{yes}");
+        }
+        for no in [
+            "saves/world/playerdata/",
+            "saves/world/**",
+            "saves/*/region",
+            "/logs",
+            "/logs/",
+            "dynmap/web/tiles/",
+            "plugins/Essentials/userdata/",
+            "plugins/CoreProtect/database.db",
+            "/server.jar/",
+            "/.lodestone_modpack/",
+            "/eula.txt",
+        ] {
+            assert!(!exclude_reaches_content(no), "{no}");
         }
     }
 

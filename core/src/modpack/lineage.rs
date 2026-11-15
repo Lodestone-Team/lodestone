@@ -581,8 +581,9 @@ pub fn check_in_history(store: &Store, uuid: &InstanceUuid, target: &str) -> Res
 /// the target has it. A file the target has that the current image doesn't, or with other
 /// contents, is added or replaced from the image store (or downloaded again from Modrinth
 /// when the store lost it); a file the current image has that the target doesn't is
-/// removed. Files neither image lists (left out by the backup policy's excludes, withheld,
-/// or not content at all) are never touched. Reads manifests and looks at the server's
+/// removed, unless the target left it out by its excludes or withheld it (it has no copy
+/// of it, so it says nothing about it). Files neither image lists (left out by the backup
+/// policy's excludes, withheld, or not content at all) are never touched. Reads manifests and looks at the server's
 /// files, so call it on a blocking thread.
 #[allow(clippy::too_many_arguments)]
 pub fn plan_restore(
@@ -650,8 +651,30 @@ pub fn plan_restore(
         action,
         expected,
     };
+    // A file the target left out on purpose (its excludes) or couldn't read (withheld: a
+    // path there can stand for a whole folder) isn't one it had no copy of: the target
+    // says nothing about it, so it is left as it is.
+    let left_out = lodestone_image::store::excludes::Excludes::new(&target_image.excludes);
+    let withheld: HashSet<&str> = target_image
+        .withheld
+        .iter()
+        .map(|w| w.path.as_str())
+        .collect();
+    let is_withheld = |path: &str| {
+        withheld.contains(path)
+            || path
+                .match_indices('/')
+                .any(|(at, _)| withheld.contains(&path[..at]))
+    };
+    let target_says_nothing = |disk: &str, entry: &Entry| {
+        let path = entry.path.as_str();
+        left_out.excludes(path, false) || is_withheld(path) || is_withheld(disk)
+    };
     for (disk, entry) in &have {
-        if !wanted.contains_key(disk) && matches!(there(disk), There::File) {
+        if !wanted.contains_key(disk)
+            && !target_says_nothing(disk, entry)
+            && matches!(there(disk), There::File)
+        {
             plan.plan.changes.push(change(
                 disk,
                 FileAction::Remove,
