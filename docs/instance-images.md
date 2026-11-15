@@ -310,7 +310,8 @@ other files by a restore, it would have the updater's recovery remove the wrong 
 ```
 view(image, side, rules) = entries with env[side] ≠ unsupported that the side can hold
                            (configs only when marked shared with players)
-                         + the side's share of the base
+                         + the side's share of the base, less the side's share of
+                           `removed` (on the client, only paths it could carry: no configs)
                          + the side's settings
                          + { side, projected_from: image id, rules }
 ```
@@ -337,11 +338,19 @@ view(image, side, rules) = entries with env[side] ≠ unsupported that the side 
   the same view), its informational fields dropped as any view's are: a view received from
   elsewhere is checked by comparing its id with its own view's.
 - A view keeps the image's base, game, `removed`, worlds, content link, excludes, withheld
-  files and unknown fields, and none of its informational fields (`parent`, `created`,
+  files and unknown fields (the client view only part of `removed`: below), and none of its informational fields (`parent`, `created`,
   `producer`, `label`, entries' `modified`). World files go to both views, so the server
   view of a Launcher snapshot is what "Host this" makes; the server-to-player flow uses
   the content image, which has no worlds.
 
+- The client view's `removed` keeps only the paths the client view could carry a file at:
+  none the client can't hold, none of Lodestone's own files, a server's state or disabled
+  files (as above), and no configs, since a removed path has no entry an owner could have
+  marked shared (`lodestone_image::view::in_client_removed`). Players get a pack's configs
+  from the pack, not the server, so a pack config the server deleted stays on players'
+  machines as the pack shipped it, just as an edit to it never reaches them; a change to
+  `removed` that only touches such paths leaves the client view's id as it was. The server
+  view keeps all of `removed`, so a restore keeps the deletion, and losslessness holds.
 - Client view rule: everything that is not client-unsupported goes to players, so
   `optional` mods (JEI) are included and players can always join. The owner's mark
   forces a mod in; Modrinth's `server_only` and `client: unsupported` keep it out.
@@ -751,8 +760,9 @@ with the view's entries over them by path:
    Modrinth launcher installs a pack for a client); a `loader` base or none has no files.
    The core never sends a `curseforge_pack` base today; a client that gets one refuses the
    view and tells the player it can't install it;
-2. less every path in `removed` (pack files the server deleted, disabled or replaced under
-   another name);
+2. less every path in the view's `removed` (pack files the server deleted, disabled or
+   replaced under another name; a client view's never names a config, so the pack's
+   configs stay: "Views");
 3. then every entry of the view, placed over whatever the base put at its path.
 
 A core content image lists every content file the server has (pack files too, with their
@@ -1454,7 +1464,12 @@ player" has the protocol itself).
   but without the pack's file list, which only the `.mrpack` has; it keeps the restored
   image's `removed` instead (`BaseInfo::removed`), and the recorder keeps those paths in
   `removed` by the same rules while they are still gone, until an install or update
-  writes the pack's files again. With the file list unknown, which of the files the
+  writes the pack's files again. The image's `removed` takes in the pack's configs the
+  server deleted as well (the server's own record, which a restore follows), but the
+  client view leaves configs out of its `removed` ("Views"), so players keep the pack's
+  copies: a server deleting `config/xaerominimap.txt`, which a pack's `overrides/` put on
+  both sides, or a config the server rebuilds at start, never takes the pack's settings
+  off players' machines. With the file list unknown, which of the files the
   server has are the pack's isn't known either, so `pack.json` also keeps every path the
   restored image carried (`BaseInfo::paths`), and the recorder treats them as it would
   pack files: one the owner deletes, disables or renames after the restore goes into

@@ -870,6 +870,150 @@ async fn a_player_of_a_pack_server_installs_the_pack_less_what_the_server_took_o
     );
 }
 
+/// A pack's configs come from the pack, not the server: the owner deleting one the pack
+/// put on both sides (`overrides/config/xaerominimap.txt`, a client-only mod's settings)
+/// is in the server's image (`removed`), so a restore keeps it deleted, but not in the
+/// client view, whose id doesn't change: players keep the pack's copy, as they do when
+/// the owner edits it. A pack mod the owner deletes is still taken out.
+#[tokio::test]
+async fn a_pack_config_the_server_deleted_stays_with_players() {
+    use crate::images::base::{save_base, BaseFile, BaseInfo};
+    let core = content::core(Kind::Fabric).await;
+    let sha1 = |bytes: &[u8]| {
+        use sha1::Digest;
+        sha1::Sha1::digest(bytes)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
+    };
+    let both = lodestone_image::Env::new(EnvValue::Required, EnvValue::Required);
+    let pack_file = |bytes: &[u8], download: bool| BaseFile {
+        sha1: sha1(bytes),
+        env: Some(both),
+        modrinth_url: download.then(|| {
+            format!(
+                "https://cdn.modrinth.com/data/AAAAAAAA/versions/BBBBBBBB/{}.jar",
+                sha1(bytes)
+            )
+        }),
+        sha512: download.then(|| "e".repeat(128)),
+        ..Default::default()
+    };
+    let info = BaseInfo {
+        base: Some(lodestone_image::Base::ModrinthPack {
+            project: "pack".into(),
+            version: "1.0.0".into(),
+            sha512: "c".repeat(128),
+        }),
+        files: BTreeMap::from([
+            ("mods/pack.jar".into(), pack_file(b"pack mod", true)),
+            (
+                "config/xaerominimap.txt".into(),
+                pack_file(b"minimap settings", false),
+            ),
+            (
+                "defaultconfigs/keys.toml".into(),
+                pack_file(b"pack keys", false),
+            ),
+        ]),
+        removed: Vec::new(),
+        paths: Vec::new(),
+    };
+    save_base(core.state.images().root(), &core.uuid, &info).unwrap();
+    write(&core.root, "mods/pack.jar", b"pack mod");
+    write(&core.root, "config/xaerominimap.txt", b"minimap settings");
+    write(&core.root, "defaultconfigs/keys.toml", b"pack keys");
+    let share: Vec<(&str, &[u8])> = vec![
+        ("mods/pack.jar", b"pack mod"),
+        ("config/xaerominimap.txt", b"minimap settings"),
+        ("defaultconfigs/keys.toml", b"pack keys"),
+    ];
+    let hash = |bytes: &[u8]| sha256_hex(bytes);
+    let everything = BTreeMap::from([
+        (
+            "minecraft/config/xaerominimap.txt".to_string(),
+            hash(b"minimap settings"),
+        ),
+        (
+            "minecraft/defaultconfigs/keys.toml".to_string(),
+            hash(b"pack keys"),
+        ),
+        // the test core's own mod
+        ("minecraft/mods/base.jar".to_string(), hash(b"base mod")),
+        ("minecraft/mods/pack.jar".to_string(), hash(b"pack mod")),
+    ]);
+
+    let player = Player::new(&core, vec![b"pack mod".to_vec()]);
+    let Answer::View(view) = player.image(&[]).await else {
+        panic!("the whole view");
+    };
+    assert!(view.removed.is_empty());
+    assert!(player.fetch(&view).await);
+    assert_eq!(player.install(&view, &share), everything);
+
+    // The owner deletes the pack's configs from the server.
+    std::fs::remove_file(core.root.join("config/xaerominimap.txt")).unwrap();
+    std::fs::remove_file(core.root.join("defaultconfigs/keys.toml")).unwrap();
+    let ctx = crate::images::context_of(&core.state, &core.uuid)
+        .await
+        .unwrap();
+    let recorded = core
+        .state
+        .images
+        .record_now(ctx, "Deleted Configs".into())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(recorded.changed);
+    let image = core
+        .state
+        .images()
+        .store()
+        .load_manifest(core.uuid.as_ref(), &recorded.id)
+        .unwrap();
+    let removed: Vec<&str> = image.removed.iter().map(|p| p.as_str()).collect();
+    assert_eq!(
+        removed,
+        ["config/xaerominimap.txt", "defaultconfigs/keys.toml"],
+        "the server's image keeps the deletion"
+    );
+    let Answer::Current(current) = player.image(&[&view.id]).await else {
+        panic!("the client view didn't change");
+    };
+    assert_eq!(current, view.id);
+    let Answer::View(again) = player.image(&[]).await else {
+        panic!("the whole view");
+    };
+    assert!(again.removed.is_empty());
+    assert_eq!(
+        player.install(&again, &share),
+        everything,
+        "players keep the pack's configs"
+    );
+
+    // A pack mod the owner deletes is still taken out of players' installs.
+    std::fs::remove_file(core.root.join("mods/pack.jar")).unwrap();
+    let ctx = crate::images::context_of(&core.state, &core.uuid)
+        .await
+        .unwrap();
+    core.state
+        .images
+        .record_now(ctx, "Deleted Pack Mod".into())
+        .await
+        .unwrap();
+    let next = match player.image(&[&view.id]).await {
+        Answer::Delta(delta, current) => apply_received(&view, &delta, &current),
+        Answer::View(next) => *next,
+        Answer::Current(_) => panic!("the view changed"),
+    };
+    let removed: Vec<&str> = next.removed.iter().map(|p| p.as_str()).collect();
+    assert_eq!(removed, ["mods/pack.jar"]);
+    assert!(player.fetch(&next).await);
+    let mut without_mod = everything.clone();
+    without_mod.remove("minecraft/mods/pack.jar");
+    assert_eq!(player.install(&next, &share), without_mod);
+}
+
 /// An object the current view names that the store lost (deleted when found damaged): the
 /// server says so with a 503 and stores it again from its disk in the background, and the
 /// player gets it on a later try.
