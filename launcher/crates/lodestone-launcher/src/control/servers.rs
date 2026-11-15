@@ -436,16 +436,20 @@ pub fn cores_sign_out(call: Call, cx: &mut App) -> Reply {
     })))
 }
 
-/// The page's notice, to tell a new one from the old.
-fn notice_of(servers: &Servers) -> Option<(SharedString, SharedString)> {
+/// The page's notice, to tell a new one from the old, with its error code.
+fn notice_of(servers: &Servers) -> Option<(SharedString, SharedString, &'static str)> {
     servers.notice.as_ref().map(|notice| {
         let (title, message) = notice.text();
-        (title.into(), message.into())
+        (
+            title.into(),
+            message.into(),
+            notice.code.unwrap_or(codes::FAILED),
+        )
     })
 }
 
-fn notice_error(notice: &(SharedString, SharedString)) -> ErrorObject {
-    api_error(codes::FAILED, format!("{}: {}", notice.0, notice.1))
+fn notice_error(notice: &(SharedString, SharedString, &'static str)) -> ErrorObject {
+    api_error(notice.2, format!("{}: {}", notice.0, notice.1))
 }
 
 /// Starts or stops a server and waits for the core's answer.
@@ -508,20 +512,55 @@ struct JoinParams {
     accept_advisory: bool,
 }
 
-fn advisory_json(prompt: &crate::servers::AdvisoryPrompt) -> Value {
-    let advisory = &prompt.advisory;
+/// What a server's image installs, for the control API.
+fn summary_json(summary: &launcher_core::cores::image_sync::plan::Summary) -> Value {
     json!({
+        "base": summary.base.as_ref().map(|(pack, version)| json!({ "name": pack, "version": version })),
+        "minecraft": summary.minecraft,
+        "loader": summary.loader,
+        "added_mods": summary.added_mods,
+        "server_only": summary.server_only,
+        "missing": missing_json(&summary.missing),
+        "curseforge": summary.curseforge_listed,
+    })
+}
+
+/// Files a server's view can't give, with why (in English, as a word the API keeps).
+fn missing_json(missing: &[(String, launcher_core::cores::image_sync::WithheldReason)]) -> Value {
+    Value::Array(
+        missing
+            .iter()
+            .map(|(path, reason)| json!({ "path": path, "reason": reason.as_str() }))
+            .collect(),
+    )
+}
+
+/// The advisory (and what a server's image installs), for the control API.
+pub(crate) fn advisory_json(prompt: &crate::servers::AdvisoryPrompt) -> Value {
+    let mut data = json!({
         "core_name": prompt.core_name,
         "server_name": prompt.server_name,
         "update": prompt.update,
-        "on_modrinth": advisory.on_modrinth.iter().map(|m| json!({ "path": m.path, "project": m.project, "version": m.version })).collect::<Vec<_>>(),
-        "uploaded": advisory.uploaded,
-        "scripts": advisory.scripts,
-        "configs": advisory.configs,
-        "other": advisory.other,
-        "unchecked": advisory.unchecked,
         "explanation": trust_explanation(),
-    })
+    });
+    if let Some(advisory) = &prompt.advisory {
+        data["on_modrinth"] = json!(
+            advisory
+                .on_modrinth
+                .iter()
+                .map(|m| json!({ "path": m.path, "project": m.project, "version": m.version }))
+                .collect::<Vec<_>>()
+        );
+        data["uploaded"] = json!(advisory.uploaded);
+        data["scripts"] = json!(advisory.scripts);
+        data["configs"] = json!(advisory.configs);
+        data["other"] = json!(advisory.other);
+        data["unchecked"] = json!(advisory.unchecked);
+    }
+    if let Some(summary) = &prompt.summary {
+        data["summary"] = summary_json(summary);
+    }
+    data
 }
 
 fn changes_json(prompt: &crate::servers::UpdatePrompt) -> Value {
@@ -532,6 +571,9 @@ fn changes_json(prompt: &crate::servers::UpdatePrompt) -> Value {
         "updated": prompt.changes.updated,
         "removed": prompt.changes.removed,
         "other": prompt.changes.other,
+        "missing": missing_json(&prompt.missing),
+        "curseforge": prompt.curseforge,
+        "loader": prompt.loader,
     })
 }
 
@@ -547,7 +589,8 @@ fn handle_advisory(
     if prompt.server_name != server_name {
         return None;
     }
-    if accept {
+    // from a trusted core, only what a new instance gets is shown: install it
+    if accept || prompt.advisory.is_none() {
         servers.answer_advisory(AdvisoryAnswer::InstallOnce, cx);
         return Some(Ok(()));
     }

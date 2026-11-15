@@ -239,6 +239,44 @@ pub fn text(message: M) -> &'static str {
         }
         M::InstallThisTime => "僅這次安裝",
         M::TrustAndInstall => "信任 {core} 並安裝",
+        M::BusyPreparing => "正在等待伺服器準備檔案…",
+        M::InstallTitle => "安裝 {name} 的檔案？",
+        M::InstallIntro => {
+            "{core} 上 {server} 的新實例將取得 Minecraft {version}（{loader}），以及來自伺服器的這些檔案。"
+        }
+        M::SummaryBase => "模組包：{pack} {version}",
+        M::SummaryAddedMods => "伺服器新增的模組（{count}）",
+        M::SummaryServerOnly => "只有伺服器才有的檔案（{count}）",
+        M::MissingTitle => "伺服器無法分享的檔案（{count}）",
+        M::MissingNote => "你將沒有這些檔案，缺少它們可能無法加入。請詢問伺服器的擁有者。",
+        M::MissingLine => "{name}（{reason}）",
+        M::WithheldSymlink => "它是一個連結",
+        M::WithheldUnreadable => "無法讀取",
+        M::WithheldBadName => "其名稱無法分享",
+        M::WithheldKeptChanging => "它一直在變化",
+        M::WithheldCurseForge => "CurseForge 不允許",
+        M::WithheldOther => "未分享",
+        M::CurseForgeTitle => "請自行從 CurseForge 下載（{count}）",
+        M::CurseForgeNote => "它們的作者不允許其他應用程式下載。",
+        M::Install => "安裝",
+        M::ChangeLoader => "載入器：{loader}",
+        M::ErrUpdateLodestone => {
+            "此伺服器執行的是較新版本的 Lodestone。請更新 Lodestone Launcher 後再加入。"
+        }
+        M::ErrPrepareFailed => "伺服器無法準備其檔案。請幾分鐘後再試。",
+        M::ErrStillPreparing => "伺服器仍在準備其檔案。請幾分鐘後再試。",
+        M::ErrFileFailed => "伺服器無法傳送 {path}。請稍後再試。",
+        M::ErrViewChanged => "下載期間伺服器的檔案有所變更。請再按一次「開始遊戲」。",
+        M::ErrBasePackGone => {
+            "伺服器的模組包已不在 Modrinth 上，因此無法下載其檔案。請伺服器的擁有者更新模組包。"
+        }
+        M::ErrGameChanged => {
+            "伺服器現在執行 {game}，而此實例適用於 {instance}。請為該伺服器建立新的實例。"
+        }
+        M::ErrCurseForgeBase => {
+            "伺服器以 CurseForge 模組包為基礎，Lodestone Launcher 暫時無法從伺服器安裝。"
+        }
+        M::ErrRefused => "伺服器傳送了 Lodestone Launcher 不會安裝的檔案：{detail}",
 
         M::KeyDays90 => "90 天",
         M::KeyYear => "1 年",
@@ -455,6 +493,10 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::Players => ["{count} 位玩家"; 2],
         P::ReadyBodySkipped => {
             ["Minecraft {version}，使用 {loader}，並包含伺服器的模組和設定檔。模組包中有 {count} 個檔案被略過。按下「開始遊戲」即可加入。";
+                2]
+        }
+        P::ReadyBodyMissing => {
+            ["Minecraft {version}（{loader}），以及伺服器的檔案。缺少 {count} 個伺服器無法分享的檔案。按「開始遊戲」即可加入。";
                 2]
         }
         P::ModsAdded => ["新增 {count} 個"; 2],

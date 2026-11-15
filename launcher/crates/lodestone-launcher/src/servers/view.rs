@@ -9,9 +9,13 @@ use gpui::{
     AnimationExt as _, AnyElement, App, Context, Entity, IntoElement, Render, SharedString,
     Subscription, Window, div, prelude::*,
 };
+use launcher_core::cores::image_sync::WithheldReason;
 use launcher_core::cores::{
     CoreError, CoreProduct, LaunchedBy, ServerInstance, ServerLoader, ServerState,
-    client::display_address, local_claim::ClaimError, sync::PackChanges, trust::Advisory,
+    client::display_address,
+    image_sync::plan::{PackChanges, Summary},
+    local_claim::ClaimError,
+    trust::Advisory,
 };
 use launcher_core::ui_skin::SurfaceId;
 use launcher_core::wording;
@@ -19,7 +23,7 @@ use launcher_core::wording;
 use super::{
     AdvisoryAnswer, AdvisoryPrompt, CertPrompt, CoreEntry, CoreStatus, NoticeKind, Servers,
     TrustPrompt, UpdatePrompt, core_error, loader_label, local::FoundCore, power_state,
-    status_label, trust_explanation,
+    status_label, trust_explanation, withheld_reason,
 };
 use crate::{
     components::{
@@ -1454,7 +1458,7 @@ impl Render for ServersOverlay {
             Some(dialog.clone().into_any_element())
         }));
         children.extend(slot_layers(&servers.advisory, advisory, window, |prompt| {
-            Some(advisory_dialog(entity, prompt).into_any_element())
+            advisory_dialog(entity, prompt).map(IntoElement::into_any_element)
         }));
         children.extend(slot_layers(
             &servers.trust_prompt,
@@ -1505,6 +1509,9 @@ fn update_dialog(servers: &Entity<Servers>, prompt: &UpdatePrompt) -> AnyElement
             lines.push(tr!(message, name = name));
         }
     }
+    if let Some(loader) = &prompt.loader {
+        lines.push(tr!(M::ChangeLoader, loader = loader));
+    }
     let update = servers.clone();
     let play = servers.clone();
     let cancel = servers.clone();
@@ -1528,7 +1535,8 @@ fn update_dialog(servers: &Entity<Servers>, prompt: &UpdatePrompt) -> AnyElement
                 small(line)
                     .font_family(fonts::mono())
                     .text_color(crate::theme::ink::text())
-            })),
+            }))
+            .children(missing_block(&prompt.missing, &prompt.curseforge)),
     )
     .footer(
         Button::new("update-and-play", t(M::UpdateAndPlay))
@@ -1545,6 +1553,134 @@ fn update_dialog(servers: &Entity<Servers>, prompt: &UpdatePrompt) -> AnyElement
             .on_click(move |_, _, cx| cancel.update(cx, |this, cx| this.cancel_prompt(cx))),
     )
     .into_any_element()
+}
+
+/// Files a server's view can't give the player, with why, and CurseForge files the player
+/// downloads by hand: shown before anything is installed.
+fn missing_block(missing: &[(String, WithheldReason)], curseforge: &[String]) -> Option<gpui::Div> {
+    const SHOWN: usize = 8;
+    if missing.is_empty() && curseforge.is_empty() {
+        return None;
+    }
+    let more = |count: usize| {
+        (count > SHOWN)
+            .then(|| small(trn!(P::AndMore, count - SHOWN)).text_color(crate::theme::ink::muted()))
+    };
+    let mono = |text: String| {
+        small(text)
+            .font_family(fonts::mono())
+            .text_color(crate::theme::ink::text())
+    };
+    Some(
+        div()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .px_3()
+            .py_2()
+            .rounded(radius::LG)
+            .border_1()
+            .border_color(colors::YELLOW.opacity(40))
+            .bg(colors::YELLOW.opacity(8))
+            .when(!missing.is_empty(), |this| {
+                this.child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_2()
+                        .child(Icon::TriangleExclamation.render(px(14.), colors::YELLOW))
+                        .child(
+                            small(tr!(
+                                M::MissingTitle,
+                                count = format::number(missing.len() as u64)
+                            ))
+                            .font_weight(weights::BOLD.into())
+                            .text_color(colors::YELLOW),
+                        ),
+                )
+                .children(missing.iter().take(SHOWN).map(|(path, reason)| {
+                    mono(tr!(
+                        M::MissingLine,
+                        name = path,
+                        reason = withheld_reason(reason)
+                    ))
+                }))
+                .children(more(missing.len()))
+                .child(small(t(M::MissingNote)).text_color(crate::theme::ink::secondary()))
+            })
+            .when(!curseforge.is_empty(), |this| {
+                this.child(
+                    small(tr!(
+                        M::CurseForgeTitle,
+                        count = format::number(curseforge.len() as u64)
+                    ))
+                    .font_weight(weights::BOLD.into())
+                    .text_color(colors::YELLOW),
+                )
+                .children(curseforge.iter().take(SHOWN).map(|path| mono(path.clone())))
+                .children(more(curseforge.len()))
+                .child(small(t(M::CurseForgeNote)).text_color(crate::theme::ink::secondary()))
+            }),
+    )
+}
+
+/// What a server's image installs: its modpack, the mods it added, the files only it
+/// has, and what the player won't get.
+fn summary_block(summary: &Summary) -> gpui::Div {
+    const SHOWN: usize = 8;
+    let more = |count: usize| {
+        (count > SHOWN)
+            .then(|| small(trn!(P::AndMore, count - SHOWN)).text_color(crate::theme::ink::muted()))
+    };
+    let section = |title: String, items: &[String]| {
+        (!items.is_empty()).then(|| {
+            div()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(
+                    small(title)
+                        .font_weight(weights::BOLD.into())
+                        .text_color(crate::theme::ink::secondary()),
+                )
+                .children(items.iter().take(SHOWN).map(|item| {
+                    small(file_label(item))
+                        .font_family(fonts::mono())
+                        .truncate()
+                        .text_color(crate::theme::ink::text())
+                }))
+                .children(more(items.len()))
+        })
+    };
+    div()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .px_3()
+        .py_2()
+        .rounded(radius::LG)
+        .border_1()
+        .border_color(crate::theme::ink::border())
+        .bg(colors::GRAY_900)
+        .children(summary.base.as_ref().map(|(pack, version)| {
+            small(tr!(M::SummaryBase, pack = pack, version = version))
+                .text_color(crate::theme::ink::text())
+        }))
+        .children(section(
+            tr!(
+                M::SummaryAddedMods,
+                count = format::number(summary.added_mods.len() as u64)
+            ),
+            &summary.added_mods,
+        ))
+        .children(section(
+            tr!(
+                M::SummaryServerOnly,
+                count = format::number(summary.server_only.len() as u64)
+            ),
+            &summary.server_only,
+        ))
 }
 
 fn paragraph(value: impl Into<SharedString>) -> gpui::Div {
@@ -1691,10 +1827,68 @@ fn file_label(path: &str) -> String {
     path.strip_prefix("mods/").unwrap_or(path).to_string()
 }
 
-/// "This server's mods will run on your Mac".
-fn advisory_dialog(servers: &Entity<Servers>, prompt: &AdvisoryPrompt) -> Dialog {
+/// What a new instance gets from a server's image, when its core is trusted for mods:
+/// Install or Cancel.
+fn install_dialog(servers: &Entity<Servers>, prompt: &AdvisoryPrompt, summary: &Summary) -> Dialog {
+    let close = servers.clone();
+    let cancel = servers.clone();
+    let install = servers.clone();
+    Dialog::new(
+        "server-install",
+        tr!(M::InstallTitle, name = prompt.server_name),
+        prompt.focus.clone(),
+    )
+    .width(px(600.))
+    .on_close(move |_, cx| {
+        close.update(cx, |this, cx| {
+            this.answer_advisory(AdvisoryAnswer::Cancel, cx)
+        })
+    })
+    .child(
+        div()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .child(paragraph(tr!(
+                M::InstallIntro,
+                server = prompt.server_name,
+                core = prompt.core_name,
+                version = summary.minecraft,
+                loader = summary.loader
+            )))
+            .child(summary_block(summary))
+            .children(missing_block(&summary.missing, &summary.curseforge_listed)),
+    )
+    .footer(
+        Button::new("server-install-yes", t(M::Install))
+            .variant(ButtonVariant::Primary)
+            .on_click(move |_, _, cx| {
+                install.update(cx, |this, cx| {
+                    this.answer_advisory(AdvisoryAnswer::InstallOnce, cx)
+                })
+            }),
+    )
+    .footer(
+        Button::new("server-install-cancel", t(CommonMsg::Cancel))
+            .variant(ButtonVariant::Ghost)
+            .on_click(move |_, _, cx| {
+                cancel.update(cx, |this, cx| {
+                    this.answer_advisory(AdvisoryAnswer::Cancel, cx)
+                })
+            }),
+    )
+}
+
+/// "This server's mods will run on your Mac", with what a server's image installs when
+/// it is one; or, from a trusted core, only what a new instance gets.
+fn advisory_dialog(servers: &Entity<Servers>, prompt: &AdvisoryPrompt) -> Option<Dialog> {
     const SHOWN: usize = 8;
-    let advisory = &prompt.advisory;
+    let Some(advisory) = &prompt.advisory else {
+        return prompt
+            .summary
+            .as_ref()
+            .map(|summary| install_dialog(servers, prompt, summary));
+    };
     let close = servers.clone();
     let cancel = servers.clone();
     let once = servers.clone();
@@ -1784,87 +1978,93 @@ fn advisory_dialog(servers: &Entity<Servers>, prompt: &AdvisoryPrompt) -> Dialog
         core = prompt.core_name
     );
     let trust_label = tr!(M::TrustAndInstall, core = prompt.core_name);
-    Dialog::new(
-        "mod-advisory",
-        tr!(M::AdvisoryTitle, computer = t(CommonMsg::ThisComputer)),
-        prompt.focus.clone(),
-    )
-    .width(px(600.))
-    .on_close(move |_, cx| {
-        close.update(cx, |this, cx| {
-            this.answer_advisory(AdvisoryAnswer::Cancel, cx)
-        })
-    })
-    .child(
-        div()
-            .flex()
-            .flex_col()
-            .gap_3()
-            .child(paragraph(intro))
-            .when(advisory.unchecked, |this| {
-                this.child(small(t(M::ModrinthUnreachable)).text_color(colors::YELLOW))
+    let dialog =
+        Dialog::new(
+            "mod-advisory",
+            tr!(M::AdvisoryTitle, computer = t(CommonMsg::ThisComputer)),
+            prompt.focus.clone(),
+        )
+        .width(px(600.))
+        .on_close(move |_, cx| {
+            close.update(cx, |this, cx| {
+                this.answer_advisory(AdvisoryAnswer::Cancel, cx)
             })
-            .children(uploaded)
-            .children(on_modrinth)
-            .children(other_files(advisory).map(|files| {
-                small(tr!(
-                    if advisory.scripts > 0 {
-                        M::AlsoFilesScripts
-                    } else {
-                        M::AlsoFiles
-                    },
-                    files = files
-                ))
-                .text_color(crate::theme::ink::secondary())
-            }))
-            .child(
-                paragraph(tr!(M::OnlyIfYouTrust, core = prompt.core_name))
-                    .font_weight(weights::BOLD.into())
-                    .text_color(crate::theme::ink::text()),
-            )
-            .child(
-                small(tr!(
-                    M::AdvisoryTrustNote,
-                    button = trust_label,
-                    explanation = trust_explanation()
-                ))
-                .text_color(crate::theme::ink::muted()),
-            ),
-    )
-    // one footer item that wraps: the trust button holds the core's name
-    .footer(
-        div()
-            .flex()
-            .flex_row()
-            .flex_wrap()
-            .gap_2()
-            .child(
-                Button::new("advisory-once", t(M::InstallThisTime))
-                    .variant(ButtonVariant::Secondary)
-                    .on_click(move |_, _, cx| {
-                        once.update(cx, |this, cx| {
-                            this.answer_advisory(AdvisoryAnswer::InstallOnce, cx)
-                        })
-                    }),
-            )
-            .child(
-                Button::new("advisory-trust", trust_label)
-                    .variant(ButtonVariant::Ghost)
-                    .on_click(move |_, _, cx| {
-                        trust.update(cx, |this, cx| {
-                            this.answer_advisory(AdvisoryAnswer::TrustAndInstall, cx)
-                        })
-                    }),
-            )
-            // the safe answer, so the one that stands out, though last like any Cancel
-            .child(
-                Button::new("advisory-cancel", t(CommonMsg::Cancel))
-                    .variant(ButtonVariant::Primary)
-                    .on_click(move |_, _, cx| {
-                        cancel.update(cx, |this, cx| {
-                            this.answer_advisory(AdvisoryAnswer::Cancel, cx)
-                        })
-                    }),
-            ),
-    )
+        })
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_3()
+                .child(paragraph(intro))
+                .children(prompt.summary.as_ref().map(summary_block))
+                .children(prompt.summary.as_ref().and_then(|summary| {
+                    missing_block(&summary.missing, &summary.curseforge_listed)
+                }))
+                .when(advisory.unchecked, |this| {
+                    this.child(small(t(M::ModrinthUnreachable)).text_color(colors::YELLOW))
+                })
+                .children(uploaded)
+                .children(on_modrinth)
+                .children(other_files(advisory).map(|files| {
+                    small(tr!(
+                        if advisory.scripts > 0 {
+                            M::AlsoFilesScripts
+                        } else {
+                            M::AlsoFiles
+                        },
+                        files = files
+                    ))
+                    .text_color(crate::theme::ink::secondary())
+                }))
+                .child(
+                    paragraph(tr!(M::OnlyIfYouTrust, core = prompt.core_name))
+                        .font_weight(weights::BOLD.into())
+                        .text_color(crate::theme::ink::text()),
+                )
+                .child(
+                    small(tr!(
+                        M::AdvisoryTrustNote,
+                        button = trust_label,
+                        explanation = trust_explanation()
+                    ))
+                    .text_color(crate::theme::ink::muted()),
+                ),
+        )
+        // one footer item that wraps: the trust button holds the core's name
+        .footer(
+            div()
+                .flex()
+                .flex_row()
+                .flex_wrap()
+                .gap_2()
+                .child(
+                    Button::new("advisory-once", t(M::InstallThisTime))
+                        .variant(ButtonVariant::Secondary)
+                        .on_click(move |_, _, cx| {
+                            once.update(cx, |this, cx| {
+                                this.answer_advisory(AdvisoryAnswer::InstallOnce, cx)
+                            })
+                        }),
+                )
+                .child(
+                    Button::new("advisory-trust", trust_label)
+                        .variant(ButtonVariant::Ghost)
+                        .on_click(move |_, _, cx| {
+                            trust.update(cx, |this, cx| {
+                                this.answer_advisory(AdvisoryAnswer::TrustAndInstall, cx)
+                            })
+                        }),
+                )
+                // the safe answer, so the one that stands out, though last like any Cancel
+                .child(
+                    Button::new("advisory-cancel", t(CommonMsg::Cancel))
+                        .variant(ButtonVariant::Primary)
+                        .on_click(move |_, _, cx| {
+                            cancel.update(cx, |this, cx| {
+                                this.answer_advisory(AdvisoryAnswer::Cancel, cx)
+                            })
+                        }),
+                ),
+        );
+    Some(dialog)
 }

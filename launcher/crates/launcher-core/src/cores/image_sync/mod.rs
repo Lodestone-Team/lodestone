@@ -37,6 +37,8 @@ pub mod prepare;
 pub mod received;
 pub mod views;
 
+pub use lodestone_image::WithheldReason;
+
 use super::player_image::ImageError;
 use crate::modpack::ModpackError;
 

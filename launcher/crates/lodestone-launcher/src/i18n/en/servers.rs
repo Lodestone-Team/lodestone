@@ -238,6 +238,46 @@ crate::i18n::messages! {
         InstallThisTime = "Install this time",
         TrustAndInstall = "Trust {core} and install",
 
+        // ===== A server's image: what it installs, and what went wrong =====
+        /// The server records its files the first time a player asks: minutes for a big server.
+        BusyPreparing = "Waiting for the server to prepare its files…",
+        InstallTitle = "Install {name}'s files?",
+        /// {loader} is the loader and its version: "Fabric 0.16.10", or "Vanilla".
+        InstallIntro = "A new instance for {server} on {core} gets Minecraft {version} with {loader}, and these files from the server.",
+        /// The modpack a server is built on, and its version.
+        SummaryBase = "Modpack: {pack} {version}",
+        SummaryAddedMods = "Mods the server added ({count})",
+        /// Files the server uploaded or changed, which only it can send.
+        SummaryServerOnly = "Files only the server has ({count})",
+        MissingTitle = "Files the server couldn't share ({count})",
+        MissingNote = "You won't have these, and may not be able to join without them. Ask the server's owner.",
+        /// A file the server couldn't share, and why: "mods/a.jar (it is a link)".
+        MissingLine = "{name} ({reason})",
+        /// Why a file couldn't be shared: parts of MissingLine.
+        WithheldSymlink = "it is a link",
+        WithheldUnreadable = "it couldn't be read",
+        WithheldBadName = "its name can't be shared",
+        WithheldKeptChanging = "it kept changing",
+        WithheldCurseForge = "CurseForge doesn't allow it",
+        WithheldOther = "not shared",
+        CurseForgeTitle = "Download these from CurseForge yourself ({count})",
+        CurseForgeNote = "Their authors don't let other apps download them.",
+        Install = "Install",
+        /// The loader version an update brings: "Fabric 0.16.11".
+        ChangeLoader = "Loader: {loader}",
+        /// Why a server's files couldn't be installed.
+        ErrUpdateLodestone = "This server runs a newer Lodestone. Update Lodestone Launcher to join it.",
+        ErrPrepareFailed = "The server couldn't prepare its files. Try again in a few minutes.",
+        ErrStillPreparing = "The server is still preparing its files. Try again in a few minutes.",
+        ErrFileFailed = "The server couldn't send {path}. Try again later.",
+        ErrViewChanged = "The server's files changed while they downloaded. Press Play again.",
+        ErrBasePackGone = "The server's modpack is no longer on Modrinth, so its files can't be downloaded. Ask the server's owner to update the modpack.",
+        /// {game} and {instance} are "Minecraft 1.21.1 with Fabric 0.16.10".
+        ErrGameChanged = "The server now runs {game}, and this instance is for {instance}. Make a new instance for the server.",
+        ErrCurseForgeBase = "The server is built on a CurseForge modpack, which Lodestone Launcher can't install from a server yet.",
+        /// {detail} says what, in English.
+        ErrRefused = "The server sent files Lodestone Launcher won't install: {detail}",
+
         // ===== "Add host" and signing in =====
         /// How long the device's key lasts.
         KeyDays90 = "90 days",
@@ -451,6 +491,11 @@ crate::i18n::messages! {
         ReadyBodySkipped = (
             "Minecraft {version} with {loader}, and the server's mods and configs. {count} file of the pack was left out. Press Play to join.",
             "Minecraft {version} with {loader}, and the server's mods and configs. {count} files of the pack were left out. Press Play to join."
+        ),
+        /// A new instance from a server's files, some of which the server couldn't share.
+        ReadyBodyMissing = (
+            "Minecraft {version} with {loader}, and the server's files. {count} file the server couldn't share is missing. Press Play to join.",
+            "Minecraft {version} with {loader}, and the server's files. {count} files the server couldn't share are missing. Press Play to join."
         ),
         /// Parts of DifferentModsBody's {changes}: mods added to the instance.
         ModsAdded = ("{count} added", "{count} added"),

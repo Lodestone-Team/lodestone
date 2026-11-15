@@ -36,7 +36,10 @@ use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
     rc::Rc,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 
@@ -45,6 +48,7 @@ use gpui::{
     Task,
 };
 use http_client::HttpClient;
+use launcher_core::cores::image_sync::WithheldReason;
 use launcher_core::{
     Secret,
     content::install::InstallProgress,
@@ -53,17 +57,30 @@ use launcher_core::{
         ServerState,
         admin::{InstanceState, instances::Power},
         client::display_address,
+        image_sync::{
+            SyncError,
+            apply::{before_server_update, build_instance, mark_applied, update_instance},
+            base::prune_cache,
+            plan::{PackChanges, Summary},
+            prepare::{Lookup, Prepared, Ready, Target, prepare},
+            views::KeptViews,
+        },
         join::join_target,
         link::{self, ServerLink},
+        player_image::{ImageError, ServerImage},
         store::{self, SavedCore, ServersFile},
-        sync::{self, PackChanges},
+        sync,
         tls::{CertificatePin, PinnedHttp},
         trust::{self, Advisory, PullKind, PulledFile},
     },
-    game::{download::CancelToken, loaders::LoaderChoice},
+    game::{
+        download::{CancelToken, Downloader},
+        loaders::LoaderChoice,
+    },
     instances::Loader,
     modpack::{
-        self, ModpackError, PackInfo,
+        self, ModpackError, ModpackRecord, PackInfo,
+        fetch::Sources,
         import::{self, ImportOptions},
         update::{self, UpdatePlan},
     },
@@ -199,6 +216,10 @@ pub enum NoticeKind {
 pub struct Notice {
     text: Rc<dyn Fn() -> (String, String)>,
     pub kind: NoticeKind,
+    /// The control API's error code for a failure that has its own
+    /// (`launcher_control::protocol::codes`), such as a server that needs a newer
+    /// Lodestone.
+    pub code: Option<&'static str>,
 }
 
 impl Notice {
@@ -207,6 +228,7 @@ impl Notice {
         Self {
             text: Rc::new(text),
             kind: NoticeKind::Warning,
+            code: None,
         }
     }
 
@@ -283,7 +305,13 @@ fn pinned_http(pin: Option<&CertificatePin>) -> Option<Arc<PinnedHttp>> {
 /// What a server row (or a linked instance's Play) is doing.
 #[derive(Clone, Debug)]
 pub enum Busy {
-    /// Downloading the server's pack.
+    /// Asking the server for its image (`creating` for a new instance); `preparing` once
+    /// the server says it is still preparing its files.
+    Asking {
+        preparing: Arc<AtomicBool>,
+        creating: bool,
+    },
+    /// Downloading the server's `.mrpack` client pack (a core older than milestone 3).
     Fetching,
     Creating(Arc<InstallProgress>),
     CheckingMods,
@@ -307,7 +335,11 @@ impl Busy {
             }
         };
         match self {
-            Busy::Fetching => t(M::BusyFetching).into(),
+            Busy::Asking { preparing, .. } if preparing.load(Ordering::Relaxed) => {
+                t(M::BusyPreparing).into()
+            }
+            Busy::Asking { creating: true, .. } | Busy::Fetching => t(M::BusyFetching).into(),
+            Busy::Asking { .. } => t(M::BusyChecking).into(),
             Busy::Creating(progress) => files(progress, M::BusyCreating, M::BusyCreatingFiles),
             Busy::CheckingMods => t(M::BusyChecking).into(),
             Busy::UpdatingMods(progress) => files(progress, M::BusyUpdating, M::BusyUpdatingFiles),
@@ -317,7 +349,18 @@ impl Busy {
     }
 }
 
-/// A server's pack that was downloaded and read, before the instance is made.
+/// A server's image that was read and planned, before the instance is made or updated.
+pub struct PendingImage {
+    core: String,
+    server: ServerInstance,
+    /// The instance to update; `None` for a new one.
+    instance_id: Option<String>,
+    ready: Arc<Ready>,
+    image: ServerImage,
+}
+
+/// A server's `.mrpack` client pack that was downloaded and read, before the instance is
+/// made: a core older than milestone 3.
 pub struct PendingCreate {
     core: String,
     server: ServerInstance,
@@ -327,7 +370,8 @@ pub struct PendingCreate {
     loader: Option<LoaderChoice>,
 }
 
-/// An update that brings an instance's mods in step with its server's pack.
+/// An update that brings an instance's mods in step with its server's `.mrpack` client
+/// pack: a core older than milestone 3.
 pub struct PendingSync {
     core: String,
     server: ServerInstance,
@@ -339,6 +383,10 @@ pub struct PendingSync {
 
 /// An install from a core that waits for the user.
 pub enum PendingPull {
+    /// A new instance from the server's image.
+    CreateImage(PendingImage),
+    /// An instance brought in step with the server's image.
+    SyncImage(PendingImage),
     Create(PendingCreate),
     Sync(PendingSync),
 }
@@ -346,31 +394,67 @@ pub enum PendingPull {
 impl PendingPull {
     fn core(&self) -> &str {
         match self {
+            PendingPull::CreateImage(p) | PendingPull::SyncImage(p) => &p.core,
             PendingPull::Create(p) => &p.core,
             PendingPull::Sync(p) => &p.core,
         }
     }
 
-    /// The client pack's ETag, which trust in a friend-list server is tied to.
-    fn etag(&self) -> Option<&str> {
+    fn server(&self) -> &ServerInstance {
         match self {
+            PendingPull::CreateImage(p) | PendingPull::SyncImage(p) => &p.server,
+            PendingPull::Create(p) => &p.server,
+            PendingPull::Sync(p) => &p.server,
+        }
+    }
+
+    /// What trust in a friend-list server is tied to: the server's view (or a client
+    /// pack's ETag, for a core older than milestone 3).
+    fn trust_key(&self) -> Option<&str> {
+        match self {
+            PendingPull::CreateImage(p) | PendingPull::SyncImage(p) => {
+                Some(p.ready.plan.view.id.as_str())
+            }
             PendingPull::Create(p) => p.etag.as_deref(),
             PendingPull::Sync(p) => p.etag.as_deref(),
         }
     }
 
     fn row(&self) -> RowKey {
+        (self.core().to_string(), self.server().uuid.clone())
+    }
+
+    /// What will be installed, for a server's image.
+    fn summary(&self) -> Option<Summary> {
         match self {
-            PendingPull::Create(p) => (p.core.clone(), p.server.uuid.clone()),
-            PendingPull::Sync(p) => (p.core.clone(), p.server.uuid.clone()),
+            PendingPull::CreateImage(p) | PendingPull::SyncImage(p) => {
+                Some(p.ready.plan.summary.clone())
+            }
+            PendingPull::Create(_) | PendingPull::Sync(_) => None,
         }
     }
 
-    /// Removes the downloaded pack.
+    /// The files installing writes, for the advisory.
+    fn pulls(&self) -> Vec<PulledFile> {
+        match self {
+            PendingPull::CreateImage(p) | PendingPull::SyncImage(p) => {
+                cores::image_sync::plan::pulls(&p.ready.plan.update)
+            }
+            PendingPull::Create(p) => sync::pack_pulls(&p.pack),
+            PendingPull::Sync(p) => sync::plan_pulls(&p.plan),
+        }
+    }
+
+    fn is_update(&self) -> bool {
+        matches!(self, PendingPull::SyncImage(_) | PendingPull::Sync(_))
+    }
+
+    /// Removes the downloaded pack, if any.
     fn discard(&self) {
         let path = match self {
             PendingPull::Create(p) => &p.pack_path,
             PendingPull::Sync(p) => &p.pack_path,
+            PendingPull::CreateImage(_) | PendingPull::SyncImage(_) => return,
         };
         let _ = std::fs::remove_file(path);
     }
@@ -382,16 +466,27 @@ pub struct UpdatePrompt {
     pub server: ServerInstance,
     pub instance_id: String,
     pub changes: PackChanges,
-    pending: Option<PendingSync>,
+    /// Files the server has that its view can't give: shown path and why.
+    pub missing: Vec<(String, WithheldReason)>,
+    /// CurseForge files to download by hand.
+    pub curseforge: Vec<String>,
+    /// The loader version the update brings ("Fabric 0.16.11"), when it changes.
+    pub loader: Option<String>,
+    pending: Option<PendingPull>,
     pub focus: FocusHandle,
 }
 
-/// "This server's mods will run on your Mac": before installing code from a core that
-/// isn't trusted for mods.
+/// What will be installed from a server: before a new instance is made from its image,
+/// and, from a core that isn't trusted for mods, before any of its mods are installed
+/// ("This server's mods will run on your Mac").
 pub struct AdvisoryPrompt {
     pub core_name: String,
     pub server_name: String,
-    pub advisory: Advisory,
+    /// What the advisory lists; `None` when the core is trusted for mods (only what will
+    /// be installed is shown, for a new instance).
+    pub advisory: Option<Advisory>,
+    /// What a server's image installs: base pack, game, mods, missing files.
+    pub summary: Option<Summary>,
     /// An update of an existing instance, rather than a new one.
     pub update: bool,
     pending: Option<PendingPull>,
@@ -1582,6 +1677,12 @@ impl Servers {
                 }
             }
             PullError::Cancelled => {}
+            err if needs_update(&err) => {
+                self.fail(move || (title(), err.to_string()), cx);
+                if let Some(notice) = &mut self.notice {
+                    notice.code = Some(launcher_control::protocol::codes::UPDATE_REQUIRED);
+                }
+            }
             err => self.fail(move || (title(), err.to_string()), cx),
         }
     }
@@ -1743,6 +1844,8 @@ impl Servers {
         if path.exists() {
             std::fs::remove_file(&path).map_err(|err| tr!(M::UnlinkFailed, error = err))?;
         }
+        // the server's views it kept are of no use without the link
+        KeptViews::open(&dir).clear();
         self.instance_links.remove(instance_id);
         self.links.retain(|_, id| id != instance_id);
         self.links_revision += 1;
@@ -1781,10 +1884,108 @@ impl Servers {
         }));
     }
 
+    /// A server's image as this launcher reaches it: through its core (signed in when it
+    /// has a key), or a friend's tunnel while it is open.
+    fn server_image(&self, core_uuid: &str, server: &ServerInstance) -> Option<ServerImage> {
+        let (client, key) = self.pull_client(core_uuid)?;
+        ServerImage::new(client, key, &server.uuid).ok()
+    }
+
+    /// What looking up a view's files needs, for a background task.
+    fn lookup_parts(&self, cx: &Context<Self>) -> LookupParts {
+        let instances = self.instances.read(cx);
+        LookupParts {
+            modrinth: instances.modrinth(),
+            curseforge: instances.curseforge(),
+            downloader: instances.content_downloader(),
+            cache: instances.server_pack_cache(),
+        }
+    }
+
     /// "Create matching instance": a launcher instance with the server's Minecraft
-    /// version and loader. A server with a client pack gets it through the modpack
-    /// import, after the advisory when the core isn't trusted for mods.
+    /// version and loader, made from the server's image. What will be installed is shown
+    /// first, with the advisory when the core isn't trusted for mods. A core older than
+    /// milestone 3 serves no image (404): its `.mrpack` client pack is imported instead.
     pub fn create_instance(
+        &mut self,
+        core_uuid: &str,
+        server: ServerInstance,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(image) = self.server_image(core_uuid, &server) else {
+            return;
+        };
+        // listed publicly without its files: the owner shares nothing to install
+        if server.has_client_pack.is_none() {
+            return self.create_plain(core_uuid, &server, cx);
+        }
+        let row: RowKey = (core_uuid.to_string(), server.uuid.clone());
+        if self.busy.contains_key(&row) {
+            return;
+        }
+        let preparing = Arc::new(AtomicBool::new(false));
+        self.busy.insert(
+            row.clone(),
+            Busy::Asking {
+                preparing: preparing.clone(),
+                creating: true,
+            },
+        );
+        self.tick_while_busy(row.clone(), cx);
+        let lookup = self.lookup_parts(cx);
+        let name = server.name.clone();
+        let asked = image.clone();
+        let work = cx.background_spawn(async move {
+            let target = Target {
+                existing: None,
+                applied: None,
+                name: &name,
+            };
+            prepare(
+                &asked,
+                target,
+                lookup.lookup(),
+                &|| preparing.store(true, Ordering::Relaxed),
+                &InstallProgress::default(),
+                &CancelToken::new(),
+            )
+            .await
+        });
+        let core_uuid = core_uuid.to_string();
+        self.tasks.push(cx.spawn(async move |this, cx| {
+            let result = work.await;
+            this.update(cx, |this, cx| {
+                this.busy.remove(&row);
+                match result {
+                    Ok(Prepared::Ready(ready)) => {
+                        let pending = PendingPull::CreateImage(PendingImage {
+                            core: core_uuid.clone(),
+                            server,
+                            instance_id: None,
+                            ready: Arc::new(*ready),
+                            image,
+                        });
+                        this.gate(pending, PullKind::ClientPack, cx);
+                    }
+                    Ok(Prepared::Current) => this.create_plain(&core_uuid, &server, cx),
+                    Err(SyncError::Image(ImageError::OlderCore)) if server.has_pack() => {
+                        this.create_from_pack(&core_uuid, server, cx)
+                    }
+                    Err(SyncError::Image(ImageError::OlderCore)) => {
+                        this.create_plain(&core_uuid, &server, cx)
+                    }
+                    Err(err) => this.fail_core(&core_uuid, create_failed, err, cx),
+                }
+                cx.notify();
+            })
+            .ok();
+        }));
+        cx.notify();
+    }
+
+    /// "Create matching instance" for a core older than milestone 3: the server's
+    /// `.mrpack` client pack, through the modpack import.
+    fn create_from_pack(
         &mut self,
         core_uuid: &str,
         server: ServerInstance,
@@ -1793,9 +1994,6 @@ impl Servers {
         let Some((client, key)) = self.pull_client(core_uuid) else {
             return;
         };
-        if !server.has_pack() {
-            return self.create_plain(core_uuid, &server, cx);
-        }
         let row: RowKey = (core_uuid.to_string(), server.uuid.clone());
         self.busy.insert(row.clone(), Busy::Fetching);
         let dir = self.instances.read(cx).store().root().to_path_buf();
@@ -1851,7 +2049,7 @@ impl Servers {
         cx.notify();
     }
 
-    /// A matching instance without the server's pack (it needs no client mods).
+    /// A matching instance without the server's files (it shares none).
     fn create_plain(&mut self, core_uuid: &str, server: &ServerInstance, cx: &mut Context<Self>) {
         let loader = match sync::loader_for(None, server) {
             Ok(loader) => loader,
@@ -1879,6 +2077,22 @@ impl Servers {
         }
     }
 
+    /// The link from an instance to `server` on the core (or friend's server) `core_uuid`.
+    fn server_link(&self, core_uuid: &str, server: &ServerInstance) -> Option<ServerLink> {
+        let core_url = match self.core_index(core_uuid) {
+            Some(index) => display_address(&self.cores[index].url),
+            None => self.friends.get(core_uuid)?.saved.link.clone(),
+        };
+        Some(ServerLink {
+            core_uuid: core_uuid.to_string(),
+            core_url,
+            server_uuid: server.uuid.clone(),
+            server_name: server.name.clone(),
+            pack_etag: None,
+            view: None,
+        })
+    }
+
     /// Records that `instance_id` was made for `server`.
     fn link_instance(
         &mut self,
@@ -1888,60 +2102,78 @@ impl Servers {
         etag: Option<String>,
         cx: &mut Context<Self>,
     ) {
-        let core_url = match self.core_index(core_uuid) {
-            Some(index) => display_address(&self.cores[index].url),
-            None => match self.friends.get(core_uuid) {
-                Some(friend) => friend.saved.link.clone(),
-                None => return,
-            },
+        let Some(link) = self.server_link(core_uuid, server) else {
+            return;
         };
         let link = ServerLink {
-            core_uuid: core_uuid.to_string(),
-            core_url,
-            server_uuid: server.uuid.clone(),
-            server_name: server.name.clone(),
             pack_etag: etag,
+            ..link
         };
         let instance_dir = self.instances.read(cx).content_dirs(instance_id).instance;
         if let Err(err) = link::save_link(&instance_dir, &link) {
             let err = err.to_string();
             return self.fail(move || (t(M::LinkFailed).into(), err.clone()), cx);
         }
+        self.remember_link(instance_id, link, cx);
+    }
+
+    /// Notes the link an instance has (saved already).
+    fn remember_link(&mut self, instance_id: &str, link: ServerLink, cx: &mut Context<Self>) {
+        let core_uuid = link.core_uuid.clone();
         self.links.insert(
             (link.core_uuid.clone(), link.server_uuid.clone()),
             instance_id.to_string(),
         );
         self.instance_links.insert(instance_id.to_string(), link);
         self.links_revision += 1;
-        self.friend_linked(core_uuid, instance_id, cx);
+        self.friend_linked(&core_uuid, instance_id, cx);
         cx.notify();
     }
 
-    /// Installs `pending` from its core, after the advisory unless the user trusts the
-    /// core for mods.
+    /// Installs `pending` from its core: after the advisory unless the user trusts the
+    /// core for mods, and for a new instance from a server's image after showing what
+    /// will be installed in any case.
     fn gate(&mut self, pending: PendingPull, kind: PullKind, cx: &mut Context<Self>) {
         let source = match self.core_index(pending.core()) {
             Some(index) => Some((
                 trust::needs_advisory(&self.cores[index].saved, kind),
                 self.cores[index].saved.name.clone(),
             )),
-            None => self.friend_pull_source(pending.core(), kind, pending.etag()),
+            None => self.friend_pull_source(pending.core(), kind, pending.trust_key()),
         };
         let Some((needs_advisory, core_name)) = source else {
             pending.discard();
             return;
         };
-        if !needs_advisory {
+        // a new instance from an image shows what it gets, unless that is nothing
+        let shows_summary = matches!(
+            &pending,
+            PendingPull::CreateImage(p) if p.ready.plan.update.changes_files()
+        );
+        if !needs_advisory && !shows_summary {
             return self.install(pending, cx);
         }
-        let files: Vec<PulledFile> = match &pending {
-            PendingPull::Create(p) => sync::pack_pulls(&p.pack),
-            PendingPull::Sync(p) => sync::plan_pulls(&p.plan),
-        };
-        let server_name = match &pending {
-            PendingPull::Create(p) => p.server.name.clone(),
-            PendingPull::Sync(p) => p.server.name.clone(),
-        };
+        let server_name = pending.server().name.clone();
+        let summary = pending.summary();
+        let update = pending.is_update();
+        if !needs_advisory {
+            let focus = cx.focus_handle();
+            self.advisory.open(
+                AdvisoryPrompt {
+                    core_name,
+                    server_name,
+                    advisory: None,
+                    summary,
+                    update,
+                    pending: Some(pending),
+                    focus,
+                },
+                cx,
+            );
+            cx.notify();
+            return;
+        }
+        let files = pending.pulls();
         let row = pending.row();
         self.busy.insert(row.clone(), Busy::CheckingMods);
         let api = self.instances.read(cx).modrinth();
@@ -1951,13 +2183,13 @@ impl Servers {
             let advisory = work.await;
             this.update(cx, |this, cx| {
                 this.busy.remove(&row);
-                let update = matches!(pending, PendingPull::Sync(_));
                 let focus = cx.focus_handle();
                 this.advisory.open(
                     AdvisoryPrompt {
                         core_name,
                         server_name,
-                        advisory,
+                        advisory: Some(advisory),
+                        summary,
                         update,
                         pending: Some(pending),
                         focus,
@@ -1970,7 +2202,7 @@ impl Servers {
         cx.notify();
     }
 
-    /// The answer to the advisory.
+    /// The answer to the advisory, or to what a new instance gets.
     pub fn answer_advisory(&mut self, answer: AdvisoryAnswer, cx: &mut Context<Self>) {
         let Some(prompt) = self.advisory.close(cx) else {
             return;
@@ -1992,8 +2224,8 @@ impl Servers {
                     self.save();
                 } else {
                     let core = pending.core().to_string();
-                    let etag = pending.etag().map(str::to_string);
-                    self.trust_friend(&core, etag.as_deref());
+                    let key = pending.trust_key().map(str::to_string);
+                    self.trust_friend(&core, key.as_deref());
                 }
                 self.install(pending, cx);
             }
@@ -2003,12 +2235,89 @@ impl Servers {
 
     fn install(&mut self, pending: PendingPull, cx: &mut Context<Self>) {
         match pending {
+            PendingPull::CreateImage(pending) => self.build_from_image(pending, cx),
+            PendingPull::SyncImage(pending) => self.apply_server_update(pending, cx),
             PendingPull::Create(pending) => self.import_pack(pending, cx),
-            PendingPull::Sync(pending) => self.apply_sync(pending, cx),
+            PendingPull::Sync(pending) => self.apply_pack_sync(pending, cx),
         }
     }
 
-    /// Makes the instance from the server's pack, through the modpack import.
+    /// Makes the instance from the server's image ("Created from <server>").
+    fn build_from_image(&mut self, pending: PendingImage, cx: &mut Context<Self>) {
+        let Some(link) = self.server_link(&pending.core, &pending.server) else {
+            return;
+        };
+        let row: RowKey = (pending.core.clone(), pending.server.uuid.clone());
+        let store = self.instances.read(cx).store();
+        let images = self.instances.read(cx).images();
+        let lookup = self.lookup_parts(cx);
+        let progress = Arc::new(InstallProgress::default());
+        self.busy
+            .insert(row.clone(), Busy::Creating(progress.clone()));
+        self.tick_while_busy(row.clone(), cx);
+        let name = pending.server.name.clone();
+        let created = launcher_core::images::labels::created_from_server(&name);
+        let ready = pending.ready.clone();
+        let image = pending.image.clone();
+        let work = cx.background_spawn(async move {
+            let sources = lookup.sources(&ready, &image);
+            let result = build_instance(
+                &store,
+                &sources,
+                &ready.plan,
+                &name,
+                link,
+                &progress,
+                &CancelToken::new(),
+            )
+            .await;
+            if let Ok(instance) = &result {
+                crate::instances::record_created_later(&images, &instance.id, &created);
+                prune_cache(&lookup.cache);
+            }
+            result
+        });
+        self.tasks.push(cx.spawn(async move |this, cx| {
+            let result = work.await;
+            this.update(cx, |this, cx| {
+                this.busy.remove(&row);
+                match result {
+                    Ok(instance) => {
+                        this.instances.update(cx, |instances, cx| {
+                            instances.reload(cx);
+                            instances.select(&instance.id, cx);
+                        });
+                        let missing = pending.ready.plan.summary.missing.len()
+                            + pending.ready.plan.summary.curseforge_listed.len();
+                        let name = instance.name.clone();
+                        let version = instance.game_version.clone();
+                        let loader = instance.loader_label();
+                        this.notice = Some(Notice::success(move || {
+                            let body = match missing {
+                                0 => tr!(M::ReadyBody, version = version, loader = loader),
+                                n => {
+                                    trn!(P::ReadyBodyMissing, n, version = version, loader = loader)
+                                }
+                            };
+                            (tr!(M::ReadyTitle, name = name), body)
+                        }));
+                        // after the notice: a friend's server's Play goes on from here
+                        let dir = this.instances.read(cx).content_dirs(&instance.id).instance;
+                        if let Some(link) = link::load_link(&dir) {
+                            this.remember_link(&instance.id, link, cx);
+                        }
+                    }
+                    Err(err) => this.fail_core(&pending.core, create_failed, err, cx),
+                }
+                cx.notify();
+            })
+            .ok();
+        }));
+        cx.notify();
+    }
+
+    /// Makes the instance from the server's `.mrpack` client pack, through the modpack
+    /// import (a core older than milestone 3).
     fn import_pack(&mut self, pending: PendingCreate, cx: &mut Context<Self>) {
         let row: RowKey = (pending.core.clone(), pending.server.uuid.clone());
         let instances = self.instances.read(cx);
@@ -2089,9 +2398,11 @@ impl Servers {
         cx.notify();
     }
 
-    /// Play: checks that the instance's mods match the server's, then joins.
+    /// Play: asks the server whether the instance has its current files, brings it in
+    /// step when not (after asking), then joins. A core older than milestone 3 is asked
+    /// for its `.mrpack` client pack instead.
     pub fn play(&mut self, core_uuid: &str, server: ServerInstance, cx: &mut Context<Self>) {
-        let Some((client, key)) = self.pull_client(core_uuid) else {
+        let Some(image) = self.server_image(core_uuid, &server) else {
             return;
         };
         let Some(instance_id) = self.linked_instance(core_uuid, &server.uuid).cloned() else {
@@ -2101,15 +2412,137 @@ impl Servers {
             cx.emit(ServersEvent::OpenInstance(instance_id));
             return;
         }
-        if !server.has_pack() {
-            return self.join(core_uuid, &server, &instance_id, cx);
+        let row: RowKey = (core_uuid.to_string(), server.uuid.clone());
+        if self.busy.contains_key(&row) {
+            return;
         }
+        let preparing = Arc::new(AtomicBool::new(false));
+        self.busy.insert(
+            row.clone(),
+            Busy::Asking {
+                preparing: preparing.clone(),
+                creating: false,
+            },
+        );
+        self.tick_while_busy(row.clone(), cx);
+        let instances = self.instances.read(cx);
+        let dirs = instances.content_dirs(&instance_id);
+        let store = instances.store();
+        let images = instances.images();
+        let lookup = self.lookup_parts(cx);
+        let image_id = instance_id.clone();
+        let name = server.name.clone();
+        let asked = image.clone();
+        let check = cx.background_spawn(async move {
+            let instance = store
+                .get(&image_id)
+                .map_err(|err| SyncError::Io(err.to_string()))?;
+            let link = link::load_link(&dirs.instance).unwrap_or_default();
+            let target = Target {
+                existing: Some((&dirs, &instance)),
+                applied: link.view.as_deref(),
+                name: &name,
+            };
+            let prepared = prepare(
+                &asked,
+                target,
+                lookup.lookup(),
+                &|| preparing.store(true, Ordering::Relaxed),
+                &InstallProgress::default(),
+                &CancelToken::new(),
+            )
+            .await?;
+            match prepared {
+                Prepared::Current => Ok(ImageCheck::InStep),
+                Prepared::Ready(ready) if !ready.changes(Some(&instance)) => {
+                    // the files are the view's already: the record names its files (a
+                    // change of which files are content, recorded without a label), and
+                    // the link the view
+                    let record = &ready.plan.update.record;
+                    if ModpackRecord::load(&dirs.instance).as_ref() != Some(record) {
+                        let operation = images.begin_rescope(&image_id);
+                        let saved = record.save(&dirs.instance);
+                        operation.finish(&saved);
+                    }
+                    mark_applied(&dirs, &ready.plan.view)?;
+                    Ok(ImageCheck::InStep)
+                }
+                Prepared::Ready(ready) => Ok(ImageCheck::Changed(ready)),
+            }
+        });
+        let core_uuid = core_uuid.to_string();
+        self.tasks.push(cx.spawn(async move |this, cx| {
+            let result = check.await;
+            this.update(cx, |this, cx| {
+                this.busy.remove(&row);
+                match result {
+                    Ok(ImageCheck::InStep) => this.join(&core_uuid, &server, &instance_id, cx),
+                    Ok(ImageCheck::Changed(ready)) => {
+                        let instance = this.instances.read(cx).store().get(&instance_id).ok();
+                        let summary = &ready.plan.summary;
+                        let new_loader = ready.plan.loader.as_ref().map(|l| l.version.clone());
+                        let loader = (instance.and_then(|i| i.loader_version) != new_loader)
+                            .then(|| summary.loader.clone());
+                        let focus = cx.focus_handle();
+                        this.prompt.open(
+                            UpdatePrompt {
+                                core: core_uuid.clone(),
+                                server: server.clone(),
+                                instance_id: instance_id.clone(),
+                                changes: summary.changes.clone(),
+                                missing: summary.missing.clone(),
+                                curseforge: summary.curseforge_listed.clone(),
+                                loader,
+                                pending: Some(PendingPull::SyncImage(PendingImage {
+                                    core: core_uuid.clone(),
+                                    server,
+                                    instance_id: Some(instance_id),
+                                    ready: Arc::new(*ready),
+                                    image,
+                                })),
+                                focus,
+                            },
+                            cx,
+                        );
+                    }
+                    Err(SyncError::Image(ImageError::OlderCore)) => {
+                        let had_pack = this
+                            .instance_links
+                            .get(&instance_id)
+                            .is_some_and(|link| link.pack_etag.is_some());
+                        if had_pack || server.has_pack() {
+                            this.play_with_pack(&core_uuid, server, cx)
+                        } else {
+                            this.join(&core_uuid, &server, &instance_id, cx)
+                        }
+                    }
+                    Err(err) => {
+                        this.fail_core(&core_uuid, || t(M::CheckModsFailed).into(), err, cx)
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        }));
+        cx.notify();
+    }
+
+    /// Play for a core older than milestone 3: checks the instance's mods against the
+    /// server's `.mrpack` client pack, then joins.
+    fn play_with_pack(&mut self, core_uuid: &str, server: ServerInstance, cx: &mut Context<Self>) {
+        let Some((client, key)) = self.pull_client(core_uuid) else {
+            return;
+        };
+        let Some(instance_id) = self.linked_instance(core_uuid, &server.uuid).cloned() else {
+            return;
+        };
         let row: RowKey = (core_uuid.to_string(), server.uuid.clone());
         if self.busy.contains_key(&row) {
             return;
         }
         self.busy.insert(row.clone(), Busy::CheckingMods);
         let dirs = self.instances.read(cx).content_dirs(&instance_id);
+        let store = self.instances.read(cx).store();
         let images = self.instances.read(cx).images();
         let image_id = instance_id.clone();
         let check_server = server.clone();
@@ -2132,13 +2565,17 @@ impl Servers {
                 PackFetch::NoMods(_) | PackFetch::NotModified => return Ok(Check::InStep),
             };
             let pack_path = sync::write_pack(&dirs.instance, &bytes)?;
-            let planned = modpack::read_pack(&pack_path)
-                .map_err(PullError::from)
-                .and_then(|pack| {
-                    let loader =
-                        sync::loader_for(Some(&pack), &check_server).map_err(PullError::Other)?;
-                    Ok(sync::plan(&dirs, &pack, loader))
-                });
+            let instance = store
+                .get(&image_id)
+                .map_err(|e| PullError::Other(e.to_string()));
+            let planned = instance.and_then(|instance| {
+                let pack = modpack::read_pack(&pack_path).map_err(PullError::from)?;
+                let loader =
+                    sync::loader_for(Some(&pack), &check_server).map_err(PullError::Other)?;
+                let plan = sync::plan(&dirs, &pack, loader);
+                same_game(&instance, &plan)?;
+                Ok(plan)
+            });
             let plan = match planned {
                 Ok(plan) => plan,
                 Err(err) => {
@@ -2179,14 +2616,17 @@ impl Servers {
                                 server: server.clone(),
                                 instance_id: instance_id.clone(),
                                 changes,
-                                pending: Some(PendingSync {
+                                missing: Vec::new(),
+                                curseforge: Vec::new(),
+                                loader: None,
+                                pending: Some(PendingPull::Sync(PendingSync {
                                     core: core_uuid.clone(),
                                     server,
                                     instance_id,
                                     pack_path,
                                     plan: Arc::new(plan),
                                     etag,
-                                }),
+                                })),
                                 focus,
                             },
                             cx,
@@ -2321,42 +2761,173 @@ impl Servers {
                 prompt.server.clone(),
                 prompt.instance_id.clone(),
             );
-            let _ = std::fs::remove_file(&pending.pack_path);
+            pending.discard();
             return self.join(&core, &server, &instance_id, cx);
         }
-        self.gate(PendingPull::Sync(pending), PullKind::ModSync, cx);
+        self.gate(pending, PullKind::ModSync, cx);
     }
 
     pub fn cancel_prompt(&mut self, cx: &mut Context<Self>) {
         if let Some(pending) = self.prompt.close(cx).and_then(|p| p.pending.take()) {
-            let _ = std::fs::remove_file(&pending.pack_path);
-            self.friend_cancelled(&pending.core, cx);
+            pending.discard();
+            let core = pending.core().to_string();
+            self.friend_cancelled(&core, cx);
         }
         cx.notify();
     }
 
-    /// Brings the instance's mods in step through the modpack update, then joins.
-    fn apply_sync(&mut self, pending: PendingSync, cx: &mut Context<Self>) {
-        let row: RowKey = (pending.core.clone(), pending.server.uuid.clone());
-        if self.instances.read(cx).is_active(&pending.instance_id) {
-            let _ = std::fs::remove_file(&pending.pack_path);
-            return self.fail(
-                || (t(M::UpdateModsFailed).into(), t(M::StopGameFirst).into()),
-                cx,
-            );
+    /// Why an instance's files can't change now: its game runs, or a "Find it for me"
+    /// search has its mods turned off.
+    fn files_held(&self, instance_id: &str, cx: &Context<Self>) -> Option<M> {
+        let instances = self.instances.read(cx);
+        if instances.is_active(instance_id) {
+            Some(M::StopGameFirst)
+        } else if instances.finder_saved(instance_id) {
+            // A saved "Find it for me" search has mods turned off (see
+            // Instances::finder_saved).
+            Some(M::FinishFinderFirst)
+        } else {
+            None
         }
-        // A saved "Find it for me" search has mods turned off (see Instances::finder_saved).
-        if self.instances.read(cx).finder_saved(&pending.instance_id) {
-            let _ = std::fs::remove_file(&pending.pack_path);
-            return self.fail(
-                || {
-                    (
-                        t(M::UpdateModsFailed).into(),
-                        t(M::FinishFinderFirst).into(),
-                    )
-                },
-                cx,
+    }
+
+    /// Brings the instance in step with the server's image ("Updated from <server>"),
+    /// then joins. Everything the update replaces is recorded first ("Before a server
+    /// update"); the loader version follows the server's.
+    fn apply_server_update(&mut self, pending: PendingImage, cx: &mut Context<Self>) {
+        let Some(instance_id) = pending.instance_id.clone() else {
+            return;
+        };
+        if let Some(why) = self.files_held(&instance_id, cx) {
+            return self.fail(move || (t(M::UpdateModsFailed).into(), t(why).into()), cx);
+        }
+        let row: RowKey = (pending.core.clone(), pending.server.uuid.clone());
+        let lookup = self.lookup_parts(cx);
+        let instances = self.instances.read(cx);
+        let dirs = instances.content_dirs(&instance_id);
+        let images = instances.images();
+        let progress = Arc::new(InstallProgress::default());
+        self.busy
+            .insert(row.clone(), Busy::UpdatingMods(progress.clone()));
+        self.tick_while_busy(row.clone(), cx);
+        let image_id = instance_id.clone();
+        let server_name = pending.server.name.clone();
+        let ready = pending.ready.clone();
+        let image = pending.image.clone();
+        // Play waits from the record before the update until the loader it brings is saved,
+        // so the check before a launch never takes a half-applied update for a change made by
+        // hand.
+        let busy = self.instances.read(cx).mark_files_busy(&instance_id);
+        let update_dirs = dirs.clone();
+        let work = cx.background_spawn(async move {
+            before_server_update(&images, &image_id, &server_name);
+            let operation = images.begin(
+                &image_id,
+                launcher_core::images::labels::server_updated(&server_name),
             );
+            let sources = lookup.sources(&ready, &image);
+            let applied = update_instance(
+                &sources,
+                &update_dirs,
+                &ready.plan,
+                &progress,
+                &CancelToken::new(),
+            )
+            .await;
+            // The files changed (all of them, or part way): the operation succeeds whatever
+            // happens next. On success it does once the loader version is saved, so the
+            // image has it.
+            match applied {
+                Ok(_) => {
+                    prune_cache(&lookup.cache);
+                    (Ok(()), Some(operation))
+                }
+                Err(err) => {
+                    operation.succeed_part_way();
+                    (Err(PullError::from(err)), None)
+                }
+            }
+        });
+        self.tasks.push(cx.spawn(async move |this, cx| {
+            let (result, mut operation) = work.await;
+            this.update(cx, |this, cx| {
+                this.busy.remove(&row);
+                let busy = busy;
+                if let Err(err) = result {
+                    return this.fail_core(
+                        &pending.core,
+                        || t(M::UpdateModsFailed).into(),
+                        err,
+                        cx,
+                    );
+                }
+                // only the loader version follows the server: never the Minecraft version
+                // or the loader, which the plan checked are the instance's
+                let version = pending
+                    .ready
+                    .plan
+                    .loader
+                    .as_ref()
+                    .map(|l| l.version.clone());
+                let saved = this.save_loader_version(&instance_id, version, cx);
+                if let Some(operation) = operation.take() {
+                    operation.succeed();
+                }
+                // the view is applied once everything else is written
+                let saved = saved.and_then(|()| {
+                    mark_applied(&dirs, &pending.ready.plan.view).map_err(|e| e.to_string())
+                });
+                // Joining plays the instance: its files are done.
+                drop(busy);
+                match saved {
+                    Ok(()) => this.join(&pending.core, &pending.server, &instance_id, cx),
+                    Err(err) => this.fail(
+                        move || {
+                            (
+                                t(M::UpdateInstanceFailed).into(),
+                                tr!(M::InstanceNotSaved, error = err),
+                            )
+                        },
+                        cx,
+                    ),
+                }
+                cx.notify();
+            })
+            .ok();
+        }));
+        cx.notify();
+    }
+
+    /// Saves the loader version an update brought; the Settings tab shows the loader the
+    /// instance runs.
+    fn save_loader_version(
+        &mut self,
+        instance_id: &str,
+        version: Option<String>,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        self.instances.update(cx, |instances, cx| {
+            let mut instance = instances
+                .store()
+                .get(instance_id)
+                .map_err(|e| e.to_string())?;
+            if instance.loader_version == version {
+                return Ok(());
+            }
+            instance.loader_version = version;
+            instances.save(&instance, cx)?;
+            cx.emit(InstancesEvent::LoaderChanged(instance.id.clone()));
+            Ok(())
+        })
+    }
+
+    /// Brings the instance's mods in step through the modpack update, then joins (a core
+    /// older than milestone 3).
+    fn apply_pack_sync(&mut self, pending: PendingSync, cx: &mut Context<Self>) {
+        let row: RowKey = (pending.core.clone(), pending.server.uuid.clone());
+        if let Some(why) = self.files_held(&pending.instance_id, cx) {
+            let _ = std::fs::remove_file(&pending.pack_path);
+            return self.fail(move || (t(M::UpdateModsFailed).into(), t(why).into()), cx);
         }
         let instances = self.instances.read(cx);
         let api = instances.modrinth();
@@ -2380,15 +2951,7 @@ impl Servers {
             .read(cx)
             .mark_files_busy(&pending.instance_id);
         let work = cx.background_spawn(async move {
-            // Milestone 4's second half replaces this client pack sync with server images;
-            // the records around it stay: everything the update replaces is in an image
-            // first, and the update is an operation of its own.
-            if let Err(err) = images.record_before_change(
-                &image_id,
-                launcher_core::images::labels::BEFORE_SERVER_UPDATE,
-            ) {
-                log::warn!("Couldn't record the content of {image_id}: {err}");
-            }
+            before_server_update(&images, &image_id, &server_name);
             let operation = images.begin(
                 &image_id,
                 launcher_core::images::labels::server_updated(&server_name),
@@ -2436,43 +2999,10 @@ impl Servers {
                 let busy = busy;
                 match result {
                     Ok(()) => {
-                        // the loader and Minecraft version follow the server's pack
-                        let plan = &pending.plan;
-                        let saved: Result<(), String> =
-                            this.instances.update(cx, |instances, cx| {
-                                let mut instance = instances
-                                    .store()
-                                    .get(&pending.instance_id)
-                                    .map_err(|e| e.to_string())?;
-                                let before = (
-                                    instance.game_version.clone(),
-                                    instance.loader,
-                                    instance.loader_version.clone(),
-                                );
-                                instance.game_version = plan.game_version.clone();
-                                instance.loader =
-                                    Loader::from_kind(plan.loader.as_ref().map(|l| l.kind));
-                                instance.loader_version =
-                                    plan.loader.as_ref().map(|l| l.version.clone());
-                                let saved = instances.save(&instance, cx);
-                                // after the loader the server's pack brings is saved
-                                if let Some(operation) = operation.take() {
-                                    operation.succeed();
-                                }
-                                saved?;
-                                // its Settings tab shows the loader it was built with
-                                if before
-                                    != (
-                                        instance.game_version.clone(),
-                                        instance.loader,
-                                        instance.loader_version.clone(),
-                                    )
-                                {
-                                    cx.emit(InstancesEvent::LoaderChanged(instance.id.clone()));
-                                }
-                                Ok(())
-                            });
-                        // The instance couldn't be read: the files changed all the same.
+                        // only the loader version follows the server's pack (the plan was
+                        // refused for another Minecraft version or loader)
+                        let version = pending.plan.loader.as_ref().map(|l| l.version.clone());
+                        let saved = this.save_loader_version(&pending.instance_id, version, cx);
                         if let Some(operation) = operation.take() {
                             operation.succeed();
                         }
@@ -2814,11 +3344,29 @@ impl Servers {
         changes: PackChanges,
         cx: &mut Context<Self>,
     ) {
+        self.preview_update(core, server, instance_id, changes, Vec::new(), None, cx);
+    }
+
+    /// The update prompt with files the server can't send and a new loader version.
+    #[allow(clippy::too_many_arguments)]
+    pub fn preview_update(
+        &mut self,
+        core: &str,
+        server: ServerInstance,
+        instance_id: &str,
+        changes: PackChanges,
+        missing: Vec<(String, WithheldReason)>,
+        loader: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
         let prompt = UpdatePrompt {
             core: core.into(),
             server,
             instance_id: instance_id.into(),
             changes,
+            missing,
+            curseforge: Vec::new(),
+            loader,
             pending: None,
             focus: cx.focus_handle(),
         };
@@ -2829,13 +3377,15 @@ impl Servers {
         &mut self,
         core_name: &str,
         server_name: &str,
-        advisory: Advisory,
+        advisory: Option<Advisory>,
+        summary: Option<Summary>,
         cx: &mut Context<Self>,
     ) {
         let prompt = AdvisoryPrompt {
             core_name: core_name.into(),
             server_name: server_name.into(),
             advisory,
+            summary,
             update: false,
             pending: None,
             focus: cx.focus_handle(),
@@ -2890,6 +3440,43 @@ enum Check {
     Changed(Box<(PathBuf, UpdatePlan, Option<String>)>),
 }
 
+/// What Play found asking a server for its image.
+enum ImageCheck {
+    InStep,
+    Changed(Box<Ready>),
+}
+
+/// What looking up a view's files needs, owned, for a background task.
+struct LookupParts {
+    modrinth: Option<Arc<launcher_core::content::Modrinth>>,
+    curseforge: Option<Arc<launcher_core::content::CurseForge>>,
+    downloader: Downloader,
+    cache: PathBuf,
+}
+
+impl LookupParts {
+    fn lookup(&self) -> Lookup<'_> {
+        Lookup {
+            modrinth: self.modrinth.as_deref(),
+            curseforge: self.curseforge.as_deref(),
+            downloader: &self.downloader,
+            cache: &self.cache,
+        }
+    }
+
+    fn sources<'a>(&'a self, ready: &'a Ready, image: &'a ServerImage) -> Sources<'a> {
+        Sources {
+            platforms: launcher_core::content::Platforms::new(
+                self.modrinth.as_deref(),
+                self.curseforge.as_deref(),
+            ),
+            downloader: &self.downloader,
+            pack: ready.base.as_ref().map(|b| b.path.as_path()),
+            objects: Some(image),
+        }
+    }
+}
+
 /// Why adding a core stopped.
 enum AddFailure {
     /// The certificate needs the user's decision.
@@ -2939,6 +3526,8 @@ async fn certificate_outcome(err: CoreError, http: &Arc<dyn HttpClient>, url: Ur
 #[derive(Debug)]
 pub enum PullError {
     Core(CoreError),
+    /// A server's image couldn't be installed.
+    Sync(SyncError),
     Cancelled,
     Other(String),
 }
@@ -2946,6 +3535,18 @@ pub enum PullError {
 impl From<CoreError> for PullError {
     fn from(err: CoreError) -> Self {
         PullError::Core(err)
+    }
+}
+
+impl From<SyncError> for PullError {
+    fn from(err: SyncError) -> Self {
+        match err {
+            SyncError::Cancelled
+            | SyncError::Image(ImageError::Cancelled)
+            | SyncError::Modpack(ModpackError::Cancelled) => PullError::Cancelled,
+            SyncError::Image(ImageError::Core(err)) => PullError::Core(err),
+            err => PullError::Sync(err),
+        }
     }
 }
 
@@ -2963,10 +3564,79 @@ impl std::fmt::Display for PullError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             PullError::Core(err) => f.write_str(&core_error(err)),
+            PullError::Sync(err) => f.write_str(&sync_error(err)),
             PullError::Cancelled => f.write_str(t(M::Cancelled)),
             PullError::Other(err) => f.write_str(err),
         }
     }
+}
+
+/// Refuses a server's `.mrpack` client pack for another Minecraft version or loader than
+/// the instance has: those are fixed when an instance is made, for a core older than
+/// milestone 3 as for a server's image.
+fn same_game(
+    instance: &launcher_core::instances::Instance,
+    plan: &UpdatePlan,
+) -> Result<(), PullError> {
+    let loader = Loader::from_kind(plan.loader.as_ref().map(|l| l.kind));
+    if instance.game_version == plan.game_version && instance.loader == loader {
+        return Ok(());
+    }
+    let label = plan.loader.as_ref().map_or_else(
+        || "Vanilla".to_string(),
+        |l| format!("{} {}", l.kind.label(), l.version),
+    );
+    Err(PullError::Sync(SyncError::GameChanged {
+        game: format!("Minecraft {} with {label}", plan.game_version),
+        instance: format!(
+            "Minecraft {} with {}",
+            instance.game_version,
+            instance.loader_label()
+        ),
+    }))
+}
+
+/// Why a server's image couldn't be installed, for people.
+pub fn sync_error(err: &SyncError) -> String {
+    match err {
+        SyncError::UpdateLodestone | SyncError::Image(ImageError::UpdateLodestone) => {
+            t(M::ErrUpdateLodestone).into()
+        }
+        SyncError::Image(ImageError::PrepareFailed { .. }) => t(M::ErrPrepareFailed).into(),
+        SyncError::Image(ImageError::StillPreparing) => t(M::ErrStillPreparing).into(),
+        SyncError::Image(ImageError::FileFailed { path }) => tr!(M::ErrFileFailed, path = path),
+        SyncError::Image(ImageError::ViewChanged) => t(M::ErrViewChanged).into(),
+        SyncError::Image(ImageError::Core(err)) => core_error(err),
+        SyncError::BasePackGone { .. } => t(M::ErrBasePackGone).into(),
+        SyncError::GameChanged { game, instance } => {
+            tr!(M::ErrGameChanged, game = game, instance = instance)
+        }
+        SyncError::CurseForgeBase => t(M::ErrCurseForgeBase).into(),
+        SyncError::Refused(detail) => tr!(M::ErrRefused, detail = detail),
+        SyncError::Image(ImageError::Invalid(detail)) => tr!(M::ErrRefused, detail = detail),
+        err => err.to_string(),
+    }
+}
+
+/// Why a withheld file wasn't shared, for people.
+pub fn withheld_reason(reason: &WithheldReason) -> String {
+    t(match reason {
+        WithheldReason::Symlink => M::WithheldSymlink,
+        WithheldReason::Unreadable => M::WithheldUnreadable,
+        WithheldReason::BadName => M::WithheldBadName,
+        WithheldReason::KeptChanging => M::WithheldKeptChanging,
+        WithheldReason::CurseforgeNotDownloadable => M::WithheldCurseForge,
+        _ => M::WithheldOther,
+    })
+    .into()
+}
+
+/// Whether a failure means the server needs a newer Lodestone.
+fn needs_update(err: &PullError) -> bool {
+    matches!(
+        err,
+        PullError::Sync(SyncError::UpdateLodestone | SyncError::Image(ImageError::UpdateLodestone))
+    )
 }
 
 /// The title of a failed "Create matching instance".

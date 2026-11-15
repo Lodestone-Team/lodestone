@@ -317,6 +317,9 @@ pub mod codes {
     pub const MODS_CHANGED: &str = "mods_changed";
     /// Hosting a server accepts Minecraft's EULA, which only the user can do.
     pub const EULA_REQUIRED: &str = "eula_required";
+    /// The server runs a newer Lodestone, whose files this launcher can't check: update
+    /// Lodestone Launcher to join it. Nothing was installed.
+    pub const UPDATE_REQUIRED: &str = "update_required";
     /// The instance (or the launcher) is busy: the game runs, or a job does.
     pub const BUSY: &str = "busy";
     /// The change conflicts with what is there, such as a name in use.
@@ -392,6 +395,11 @@ pub mod codes {
             EULA_REQUIRED,
             6,
             "Minecraft's EULA must be accepted by the user.",
+        ),
+        (
+            UPDATE_REQUIRED,
+            1,
+            "The server runs a newer Lodestone: update Lodestone Launcher to join it.",
         ),
         (BUSY, 7, "The game or another job is running."),
         (CONFLICT, 7, "Conflicts with what is there."),

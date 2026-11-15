@@ -49,6 +49,7 @@ fn record() -> ModpackRecord {
         files: BTreeMap::new(),
         curseforge: None,
         pack_sha512: None,
+        from_server: false,
     }
 }
 
