@@ -70,6 +70,8 @@ impl Global for ShareCache {}
 
 /// Keeps (or, with `None`, forgets) an instance's share status for the next opening.
 fn remember_share(uuid: &str, share: Option<&InstanceShare>, cx: &mut App) {
+    // the Discord status follows (when the owner turned its invites on)
+    crate::discord::share_changed(uuid, share, cx);
     let cache = &mut cx.default_global::<ShareCache>().0;
     match share {
         Some(share) => {

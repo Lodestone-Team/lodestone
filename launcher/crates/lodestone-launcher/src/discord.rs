@@ -646,6 +646,8 @@ fn build_activity(
                 small_text: small_text.and_then(ipc::field),
             },
             buttons,
+            party: None,
+            secrets: None,
         },
         states: states.len(),
     }

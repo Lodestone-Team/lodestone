@@ -77,6 +77,10 @@ pub struct PrefsData {
     /// ([`launcher_core::cores::connect_service`]).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub connect_service: Option<String>,
+    /// Settings › Profile › Discord: a shared server's invite in the owner's Discord
+    /// status, for Discord's game invites ([`crate::discord`]). Off unless turned on:
+    /// the invite goes through Discord.
+    pub discord_invites: bool,
 }
 
 impl PrefsData {
@@ -120,6 +124,7 @@ impl Default for PrefsData {
             file_list_width: None,
             editor_wrap: true,
             connect_service: None,
+            discord_invites: false,
         }
     }
 }
@@ -241,6 +246,7 @@ mod tests {
             file_list_width: Some(340.),
             editor_wrap: false,
             connect_service: Some("https://connect-dev.lodestone.cc".into()),
+            discord_invites: true,
         };
         save(&path, &data).unwrap();
         assert_eq!(load(&path), data);

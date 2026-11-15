@@ -43,6 +43,12 @@ fn main() {
     if let Some(link) = link {
         let _ = links.sender().unbounded_send(link);
     }
+    // Invites Discord hands over (a friend's hosted server's Join), into the same
+    // channel; and the command Discord starts the launcher with for them.
+    if !scene {
+        lodestone_launcher::discord_join::start(links.sender());
+        lodestone_launcher::discord_join::register();
+    }
     let app = gpui_platform::application().with_assets(Assets);
     let sender = links.sender();
     app.on_open_urls(move |urls| {

@@ -143,6 +143,9 @@ pub struct HostState {
     /// Sharing with friends: only for this computer's core, signed in as its owner
     /// (set by the window, `crate::app`).
     pub friends: Option<Entity<crate::friends::FriendSharing>>,
+    /// Discord's game invites for shared servers: only for this computer's core,
+    /// signed in as its owner (set by the window, `crate::app`).
+    pub discord: Option<Entity<crate::discord::DiscordInvites>>,
     /// The window's toasts, which the shell draws over the page (see [`Self::toast`]).
     pub toasts: Entity<Toasts>,
     _stream: Option<LiveStream>,
@@ -178,6 +181,7 @@ impl HostState {
             share_start: false,
             page_scroll: gpui::ScrollHandle::new(),
             friends: None,
+            discord: None,
             own_file_toasts: OwnFileToasts::default(),
             mod_updates: Default::default(),
             #[cfg(feature = "screenshot")]

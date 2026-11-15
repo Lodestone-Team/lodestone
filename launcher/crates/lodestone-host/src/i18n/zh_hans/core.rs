@@ -178,6 +178,14 @@ pub fn text(message: M) -> &'static str {
         M::StartAtLogin => "登录时打开 Lodestone Host",
         M::StartAtLoginHint => "登录这台电脑时，它会在后台打开，并启动设为自动启动的服务器。",
         M::StartAtLoginFailed => "无法更改启动设置：{error}",
+        M::DiscordSection => "Discord",
+        M::DiscordInvites => "共享服务器的 Discord 邀请",
+        M::DiscordInvitesHint => {
+            "服务器通过邀请链接共享时，你的 Discord 状态会显示它，并带有“请求加入”，你也可以在 Discord 聊天中邀请他人。邀请（包括密钥）会经由 Discord 发给你邀请或允许加入的每个人：和链接一样，拿到它的人都能加入。"
+        }
+        M::DiscordHosting => "正在托管 {name}",
+        M::DiscordAsksToJoin => "{name} 请求通过 Discord 加入 {server}",
+        M::DiscordLetJoin => "允许加入",
         M::Language => "语言",
         M::LanguageAuto => "系统默认（{language}）",
         M::Theme => "主题",

@@ -92,8 +92,9 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// What [`host_loop`] is told.
+/// What [`host_loop`] is told. A few a minute at most, so the size doesn't matter.
 #[derive(Clone, Debug, PartialEq)]
+#[allow(clippy::large_enum_variant)]
 pub enum HostCommand {
     /// The status to show, or none (closes the connection, which clears it).
     Show(Option<Activity>),
@@ -259,7 +260,11 @@ fn register(client_id: &str, link: &str) -> std::io::Result<bool> {
     let command = format!("\"{exe}\" {link}");
     let root = format!("Software\\Classes\\discord-{client_id}");
     let values = [
-        (root.clone(), "", format!("URL:Run game {client_id} protocol")),
+        (
+            root.clone(),
+            "",
+            format!("URL:Run game {client_id} protocol"),
+        ),
         (root.clone(), "URL Protocol", String::new()),
         (format!("{root}\\DefaultIcon"), "", exe),
         (format!("{root}\\shell\\open\\command"), "", command),
@@ -427,7 +432,10 @@ mod tests {
         let parsed = invite(&link);
         let secret = join_secret(&parsed).expect("a secret");
         assert!(secret.len() <= MAX_TEXT, "{secret}");
-        assert!(secret.starts_with("1/connect.lodestone.cc/7KQ2M9XB4D/"), "{secret}");
+        assert!(
+            secret.starts_with("1/connect.lodestone.cc/7KQ2M9XB4D/"),
+            "{secret}"
+        );
         let back = invite_from_secret(&secret).expect("the invite again");
         assert_eq!(back.link(), link);
         // a test service, by address
@@ -475,9 +483,12 @@ mod tests {
         std::thread::scope(|scope| {
             let listener = &listener;
             let worker = scope.spawn(move || {
-                host_loop(rx, 9, || listener.connect("42"), |r| {
-                    requests_tx.send(r).unwrap()
-                })
+                host_loop(
+                    rx,
+                    9,
+                    || listener.connect("42"),
+                    |r| requests_tx.send(r).unwrap(),
+                )
             });
             commands.send(HostCommand::Show(Some(hosting(1)))).unwrap();
             let mut discord = listener.accept();

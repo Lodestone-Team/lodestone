@@ -16,6 +16,7 @@
 
 pub mod app;
 pub mod core_process;
+pub mod discord;
 pub mod friends;
 pub mod i18n;
 pub mod instance_icons;

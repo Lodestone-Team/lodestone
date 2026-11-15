@@ -220,6 +220,14 @@ pub fn text(message: M) -> &'static str {
             "Il s’ouvre en arrière-plan quand vous ouvrez votre session sur cet ordinateur, et démarre les serveurs réglés pour démarrer automatiquement."
         }
         M::StartAtLoginFailed => "Impossible de modifier le réglage de démarrage : {error}",
+        M::DiscordSection => "Discord",
+        M::DiscordInvites => "Invitations Discord pour les serveurs partagés",
+        M::DiscordInvitesHint => {
+            "Quand un serveur est partagé avec un lien d’invitation, votre statut Discord l’affiche, avec « Demander à rejoindre », et vous pouvez inviter des gens depuis les discussions Discord. L’invitation, clé comprise, passe par Discord jusqu’à tous ceux que vous invitez ou acceptez : quiconque l’a peut rejoindre, comme avec le lien."
+        }
+        M::DiscordHosting => "Héberge {name}",
+        M::DiscordAsksToJoin => "{name} demande à rejoindre {server} sur Discord",
+        M::DiscordLetJoin => "Accepter",
         M::Language => "Langue",
         M::LanguageAuto => "Langue du système ({language})",
         M::Theme => "Thème",

@@ -2,7 +2,8 @@
 //! page at connect.lodestone.cc opens (see `servers::friends`), and
 //! `lodestone://friend?link=<percent-encoded friend link>`, which its friend link page
 //! opens (see `servers::friend_list`): that one opens Add friend with the link's card,
-//! and never adds anyone by itself.
+//! and never adds anyone by itself. `lodestone://discord` is the command Discord
+//! starts the launcher with for a join (see `discord_join`); it opens nothing.
 //!
 //! - macOS hands the link to the running app (starting it first if needed), through
 //!   GPUI's open-URLs callback. The app bundle declares the `lodestone` URL scheme

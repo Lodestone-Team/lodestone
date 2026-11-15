@@ -74,6 +74,12 @@ pub struct Activity {
 
 /// The group the status's person is in. Discord shows the size after the state
 /// line ("(2 of 20)").
+///
+/// Never add `privacy`: a public party sets the activity's PARTY_PRIVACY_FRIENDS or
+/// PARTY_PRIVACY_VOICE_CHANNEL flag, with which Discord gives the join secret (the
+/// invite, key included) to any friend who asks for it, without the host letting
+/// them in. Without it Discord marks the status JOIN only (`flags: 2`): people get
+/// "Ask to Join", and the secret only on an accepted request or an invite card.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Party {
     /// 2 to 128 characters; only the application sees it.
@@ -616,12 +622,11 @@ pub(crate) mod fake {
     /// A connected pair: the client's connection and the fake Discord.
     pub fn pair() -> (Connection<TcpStream>, FakeDiscord) {
         let listener = Listener::new();
-        let server = std::thread::scope(|scope| {
+        std::thread::scope(|scope| {
             let accept = scope.spawn(|| listener.accept());
             let client = listener.connect("42").expect("the handshake");
             (client, accept.join().expect("the fake"))
-        });
-        server
+        })
     }
 }
 
@@ -763,8 +768,12 @@ mod tests {
             let (op, hello) = read_frame(&mut stream).unwrap();
             assert_eq!(op, OP_HANDSHAKE);
             assert_eq!(hello["client_id"], "42");
-            write_frame(&mut stream, OP_FRAME, &json!({ "evt": "READY", "cmd": "DISPATCH" }))
-                .unwrap();
+            write_frame(
+                &mut stream,
+                OP_FRAME,
+                &json!({ "evt": "READY", "cmd": "DISPATCH" }),
+            )
+            .unwrap();
             let (_, command) = read_frame(&mut stream).unwrap();
             assert_eq!(command["cmd"], "SET_ACTIVITY");
             assert_eq!(command["args"]["activity"]["details"], "Hello");
@@ -799,6 +808,11 @@ mod tests {
                 "secrets": { "join": link },
             })
         );
+        // only `id` and `size`: no `privacy` (see `Party`)
+        let party = serde_json::to_value(Party::new("instance-1", 3, 20)).unwrap();
+        let mut fields: Vec<&String> = party.as_object().unwrap().keys().collect();
+        fields.sort();
+        assert_eq!(fields, ["id", "size"]);
         // what Discord refuses (checked against the Discord app)
         assert_eq!(Party::new("p", 1, 2), None);
         assert_eq!(Secrets::join("j".repeat(129)), None);
@@ -846,9 +860,12 @@ mod tests {
         });
         assert_eq!(
             Event::from_frame(&refused),
-            Some(Event::SubscribeRefused("Invalid event: NOT_AN_EVENT".into()))
+            Some(Event::SubscribeRefused(
+                "Invalid event: NOT_AN_EVENT".into()
+            ))
         );
-        let answer = json!({ "cmd": "SUBSCRIBE", "data": { "evt": "ACTIVITY_JOIN" }, "nonce": "1" });
+        let answer =
+            json!({ "cmd": "SUBSCRIBE", "data": { "evt": "ACTIVITY_JOIN" }, "nonce": "1" });
         assert_eq!(Event::from_frame(&answer), None);
     }
 
@@ -887,7 +904,9 @@ mod tests {
             }));
             discord
         });
-        let err = client.set_activity(1, Some(&Activity::default())).unwrap_err();
+        let err = client
+            .set_activity(1, Some(&Activity::default()))
+            .unwrap_err();
         assert!(err.to_string().contains("buttons"), "{err}");
         drop(server.join());
     }

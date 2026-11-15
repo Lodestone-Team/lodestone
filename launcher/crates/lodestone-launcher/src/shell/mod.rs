@@ -1705,6 +1705,12 @@ impl LauncherShell {
     /// Opens a friend's invite link (`lodestone://join?…` or the https link) in the
     /// join dialog.
     pub fn open_invite(&mut self, link: String, cx: &mut Context<Self>) {
+        // Discord started the launcher for a join: Discord hands the invite over once
+        // the launcher is connected
+        if crate::discord_join::is_wake_link(&link) {
+            crate::discord_join::wake();
+            return;
+        }
         // a friend link opens Add friend, with the link's card; nothing is added yet
         if crate::deep_link::is_friend_link(&link) {
             self.servers

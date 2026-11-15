@@ -1,5 +1,6 @@
 //! Settings › Profile: the signed-in user's name and password, the Host's appearance
-//! (language, theme, zoom, console colours), their API keys and Minecraft accounts,
+//! (language, theme, zoom, console colours), opening at sign-in, Discord invites for
+//! shared servers, their API keys and Minecraft accounts,
 //! after the dashboard's `pages/settings/profile.tsx` (`launcher/docs/host-parity.md`,
 //! §7.3 and §1.8). The appearance is saved on this computer ([`crate::prefs`]).
 
@@ -318,6 +319,27 @@ impl ProfilePage {
             .map(IntoElement::into_any_element)
     }
 
+    /// Settings › Profile › Discord: a shared server's invite in the owner's Discord
+    /// status (`crate::discord`). Only for this computer's core, as its owner.
+    fn discord(&self, query: &SettingsQuery, cx: &mut Context<Self>) -> Option<AnyElement> {
+        self.state.read(cx).discord.as_ref()?;
+        let on = Prefs::get(cx).discord_invites;
+        query
+            .section(t(CoreMsg::DiscordSection), None)
+            .card([SettingRow::new(t(CoreMsg::DiscordInvites))
+                .hint(t(CoreMsg::DiscordInvitesHint))
+                .child(
+                    Toggle::new("discord-invites", on)
+                        .label(t(CoreMsg::DiscordInvites))
+                        .on_change(|value, _, cx| {
+                            let value = *value;
+                            Prefs::update(cx, |p| p.discord_invites = value)
+                        }),
+                )])
+            .finish()
+            .map(IntoElement::into_any_element)
+    }
+
     fn appearance(&self, query: &SettingsQuery, cx: &mut Context<Self>) -> Option<AnyElement> {
         let prefs = Prefs::get(cx).clone();
         let language = self.dropdown(
@@ -446,6 +468,7 @@ impl Render for ProfilePage {
             .map(IntoElement::into_any_element);
         let appearance = self.appearance(&query, cx);
         let startup = self.startup(&query, cx);
+        let discord = self.discord(&query, cx);
         // the API keys and accounts are drawn by views of their own, which match
         // what is typed themselves; their count is added here for the status line
         if query.is_active() {
@@ -464,6 +487,7 @@ impl Render for ProfilePage {
                 .chain(account)
                 .chain(appearance)
                 .chain(startup)
+                .chain(discord)
                 .chain([
                     self.api_keys.clone().into_any_element(),
                     self.links.clone().into_any_element(),

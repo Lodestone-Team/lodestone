@@ -679,20 +679,18 @@ impl LauncherShell {
                       disabled: bool,
                       set: fn(&mut launcher_core::settings::DiscordSettings, bool),
                       cx: &mut Context<Self>| {
-            SettingRow::new(t(label))
-                .hint(t(hint))
-                .child(
-                    Toggle::new(id, on)
-                        .label(t(label))
-                        .disabled(disabled)
-                        .on_change(cx.listener(move |this, value: &bool, _, cx| {
-                            let mut settings = this.instances.read(cx).discord_settings();
-                            set(&mut settings, *value);
-                            this.instances.update(cx, |instances, cx| {
-                                instances.set_discord_settings(settings, cx)
-                            });
-                        })),
-                )
+            SettingRow::new(t(label)).hint(t(hint)).child(
+                Toggle::new(id, on)
+                    .label(t(label))
+                    .disabled(disabled)
+                    .on_change(cx.listener(move |this, value: &bool, _, cx| {
+                        let mut settings = this.instances.read(cx).discord_settings();
+                        set(&mut settings, *value);
+                        this.instances.update(cx, |instances, cx| {
+                            instances.set_discord_settings(settings, cx)
+                        });
+                    })),
+            )
         };
         let mut rows = vec![toggle(
             "discord-enabled",
@@ -747,9 +745,7 @@ impl LauncherShell {
             Status::Connected => Some(t(M::DiscordConnected)),
         };
         if let Some(note) = note {
-            rows.push(
-                SettingRow::new(t(M::DiscordSection)).hint(note),
-            );
+            rows.push(SettingRow::new(t(M::DiscordSection)).hint(note));
         }
         rows
     }
