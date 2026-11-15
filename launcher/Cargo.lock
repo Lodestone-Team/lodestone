@@ -3145,6 +3145,7 @@ dependencies = [
  "base64",
  "chrono",
  "dirs",
+ "embed-resource",
  "futures",
  "gpui",
  "gpui_platform",
