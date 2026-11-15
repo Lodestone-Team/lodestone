@@ -1,0 +1,10 @@
+{
+  "status": 200,
+  "headers": {
+    "x-lodestone-view": "436e0adbbfd631ff0f0d7c3b19edc80befcc32a299e26596233252b44b85186e",
+    "x-lodestone-answer": "delta",
+    "x-lodestone-rules": "1",
+    "content-type": "application/json",
+    "etag": "\"436e0adbbfd631ff0f0d7c3b19edc80befcc32a299e26596233252b44b85186e\""
+  }
+}
