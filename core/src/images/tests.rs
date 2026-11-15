@@ -104,20 +104,20 @@ fn paths(image: &Image) -> Vec<&str> {
 }
 
 /// A clock tests move by hand.
-struct ManualClock {
+pub(crate) struct ManualClock {
     base: Instant,
     offset: watch::Sender<Duration>,
 }
 
 impl ManualClock {
-    fn new() -> Arc<ManualClock> {
+    pub(crate) fn new() -> Arc<ManualClock> {
         Arc::new(ManualClock {
             base: Instant::now(),
             offset: watch::channel(Duration::ZERO).0,
         })
     }
 
-    fn advance(&self, by: Duration) {
+    pub(crate) fn advance(&self, by: Duration) {
         self.offset.send_modify(|offset| *offset += by);
     }
 }
@@ -433,7 +433,7 @@ async fn the_quick_check_sees_changes_and_absorbs_what_a_server_writes() {
     let store = s.images.store();
     let changed = |store: &Store| {
         let (layout, excludes) = recorder::content_scope(&ctx).unwrap();
-        check::quick_changed(store, &s.root, &layout, &excludes, &s.state().baseline).unwrap()
+        check::quick_changed(store, &ctx, &layout, &excludes, &s.state().baseline).unwrap()
     };
     assert!(!changed(&store));
     // Worlds, logs and Lodestone's own files aren't content.
@@ -1300,6 +1300,44 @@ async fn deleting_an_instance_forgets_its_images() {
     s.images.delete_instance(&uuid()).await.unwrap();
 }
 
+/// A level that `level-name` puts inside a content folder isn't content: its files (player
+/// data among them) never reach a content image, nor so players; and the check before a
+/// start agrees, so it finds nothing changed.
+#[tokio::test]
+async fn a_level_inside_a_content_folder_stays_out_of_content() {
+    let s = setup();
+    fabric_server(&s.root);
+    write(&s.root, "server.properties", b"level-name=mods/survival\n");
+    write(&s.root, "mods/survival/level.dat", b"level");
+    write(
+        &s.root,
+        "mods/survival/playerdata/p.dat",
+        b"a player's inventory",
+    );
+    let mut ctx = context(&s.root, fabric());
+    ctx.level_name = "mods/survival".into();
+    s.images
+        .record_now(ctx.clone(), INITIAL.into())
+        .await
+        .unwrap();
+    let image = &s.manifests()[0];
+    assert!(paths(image).contains(&"mods/a.jar"));
+    assert!(
+        !paths(image).iter().any(|p| p.starts_with("mods/survival")),
+        "{:?}",
+        paths(image)
+    );
+    let (layout, excludes) = recorder::content_scope(&ctx).unwrap();
+    assert!(!check::quick_changed(
+        &s.images.store(),
+        &ctx,
+        &layout,
+        &excludes,
+        &s.state().baseline
+    )
+    .unwrap());
+}
+
 #[tokio::test]
 async fn pack_files_get_their_sources_and_env() {
     let s = setup();
@@ -1307,6 +1345,17 @@ async fn pack_files_get_their_sources_and_env() {
     write(&s.root, "mods/pack-mod.jar", b"from the pack");
     write(&s.root, "config/pack.toml", b"pack override");
     write(&s.root, "config/changed.toml", b"changed by the owner");
+    write(&s.root, "mods/disabled.jar.disabled", b"disabled pack mod");
+    // a pack mod the server has as a symbolic link: withheld, but the server has it
+    #[cfg(unix)]
+    {
+        write(&s.root, "shared/linked.jar", b"linked pack mod");
+        std::os::unix::fs::symlink(
+            s.root.join("shared/linked.jar"),
+            s.root.join("mods/linked.jar"),
+        )
+        .unwrap();
+    }
     let sha1 = |bytes: &[u8]| {
         use sha1::Digest;
         sha1::Sha1::digest(bytes)
@@ -1351,7 +1400,39 @@ async fn pack_files_get_their_sources_and_env() {
                     ..Default::default()
                 },
             ),
+            (
+                "mods/linked.jar".to_string(),
+                base::BaseFile {
+                    sha1: sha1(b"linked pack mod"),
+                    ..Default::default()
+                },
+            ),
+            // what the owner took out since: deleted, disabled
+            (
+                "mods/gone.jar".to_string(),
+                base::BaseFile {
+                    sha1: sha1(b"gone"),
+                    ..Default::default()
+                },
+            ),
+            (
+                "mods/disabled.jar".to_string(),
+                base::BaseFile {
+                    sha1: sha1(b"disabled pack mod"),
+                    ..Default::default()
+                },
+            ),
+            // not content, so the image says nothing of it either way
+            (
+                "plugins/pack/deep/data.db".to_string(),
+                base::BaseFile {
+                    sha1: sha1(b"data"),
+                    ..Default::default()
+                },
+            ),
         ]),
+        removed: Vec::new(),
+        paths: Vec::new(),
     };
     base::save_base(s.images.root(), &uuid(), &info).unwrap();
     s.images
@@ -1376,6 +1457,33 @@ async fn pack_files_get_their_sources_and_env() {
     assert_eq!(entry("config/pack.toml").source, Source::Base {});
     assert_eq!(entry("config/changed.toml").source, Source::Object {});
     assert_eq!(entry("mods/a.jar").source, Source::Object {});
+    // the disabled pack mod is still the pack's file, under its disabled name
+    assert_eq!(entry("mods/disabled.jar.disabled").source, Source::Base {});
+    // the pack's files the server no longer has where the pack put them are removed
+    let removed: Vec<&str> = image.removed.iter().map(|p| p.as_str()).collect();
+    assert_eq!(removed, ["mods/disabled.jar", "mods/gone.jar"]);
+    // a withheld pack file isn't removed: the server has it
+    #[cfg(unix)]
+    assert!(image.withheld.iter().any(|w| w.path == "mods/linked.jar"));
+
+    // a pack with no base (uploaded, not on Modrinth) has nothing to remove from
+    let mut no_base = info.clone();
+    no_base.base = None;
+    base::save_base(s.images.root(), &uuid(), &no_base).unwrap();
+    write(&s.root, "mods/new.jar", b"a change, so a new image");
+    let recorded = s
+        .images
+        .record_now(context(&s.root, fabric()), "Added".into())
+        .await
+        .unwrap()
+        .unwrap();
+    let image = s
+        .manifests()
+        .into_iter()
+        .find(|m| m.id == recorded.id)
+        .unwrap();
+    assert_eq!(image.base, None);
+    assert!(image.removed.is_empty());
 }
 
 #[tokio::test]

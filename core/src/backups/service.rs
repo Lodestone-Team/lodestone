@@ -2100,7 +2100,7 @@ impl BackupService {
             return;
         };
         let uuid = instance.uuid().await;
-        crate::modpack::pack_info::follow_base(&self.images, &uuid, content.base.clone()).await;
+        crate::modpack::pack_info::follow_base(&self.images, &uuid, content).await;
     }
 
     /// [`Self::restore_locked`] from the stopped server to the swap. Returns the safety
@@ -2311,7 +2311,7 @@ impl BackupService {
     ) -> Result<String, Error> {
         crate::implementations::minecraft::validate_new_instance_name(&request.name)?;
         let files = backup.files_on_disk()?;
-        let base = backup.content.as_ref().and_then(|c| c.base.clone());
+        let content = backup.content.clone();
         let new_uuid = InstanceUuid::default();
         let job = Job::new(
             state.event_broadcaster.clone(),
@@ -2374,8 +2374,10 @@ impl BackupService {
                     // The pack its content is built on and its first content image, as a
                     // new server gets, before any client can see it: nothing else can then
                     // start it or change its content first.
-                    crate::modpack::pack_info::follow_base(&this.images, &new_uuid, base.clone())
-                        .await;
+                    if let Some(content) = &content {
+                        crate::modpack::pack_info::follow_base(&this.images, &new_uuid, content)
+                            .await;
+                    }
                     let ctx = InstanceContext::of(&instance, policy_exclude).await;
                     if let Err(e) = this
                         .images

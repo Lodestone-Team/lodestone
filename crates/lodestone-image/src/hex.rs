@@ -7,6 +7,34 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
     lower_hex(&Sha256::digest(bytes))
 }
 
+/// A SHA-256 taken a piece at a time, as lowercase hex: for a caller that streams a file
+/// instead of holding it whole (the core checks a large file it sends a player as its
+/// chunks go). Uses ring, like every hash this crate takes.
+#[derive(Clone)]
+pub struct Sha256Hasher(Sha256);
+
+impl Default for Sha256Hasher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Sha256Hasher {
+    pub fn new() -> Self {
+        Self(Sha256::new())
+    }
+
+    pub fn update(&mut self, bytes: &[u8]) {
+        self.0.update(bytes);
+    }
+
+    /// The hash of everything given to [`Sha256Hasher::update`], as 64 lowercase hex
+    /// characters.
+    pub fn finish_hex(self) -> String {
+        lower_hex(&self.0.finalize())
+    }
+}
+
 /// `bytes` as lowercase hex, two characters each.
 pub(crate) fn lower_hex(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len() * 2);
@@ -74,6 +102,17 @@ mod tests {
             sha256_hex(b""),
             "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         );
+    }
+
+    #[test]
+    fn hasher_in_pieces() {
+        let long = vec![b'x'; 300_000];
+        let mut hasher = Sha256Hasher::new();
+        for piece in long.chunks(4097) {
+            hasher.update(piece);
+        }
+        assert_eq!(hasher.finish_hex(), sha256_hex(&long));
+        assert_eq!(Sha256Hasher::default().finish_hex(), sha256_hex(b""));
     }
 
     #[test]

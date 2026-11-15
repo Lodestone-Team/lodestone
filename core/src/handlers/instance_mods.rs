@@ -434,13 +434,19 @@ async fn delete_mod(
 #[ts(export)]
 pub struct SetClientMark {
     /// Whether players need the mod: `true` marks it, `false` takes the mark off and
-    /// leaves it out of the client pack (where Modrinth says players can join without it).
+    /// leaves it out of the client pack (where Modrinth says players can join without it)
+    /// and of the client view (where nothing else, the pack, Modrinth or the jar, says
+    /// players need it).
     pub required: bool,
 }
 
 /// `PUT /instance/{uuid}/mods/{file_name}/client`: marks a mod as needed by players, so
-/// the client pack gives it to them (with the mods it needs), or leaves it out.
-/// Players' copies change the next time they join; the server needs no restart.
+/// the client pack gives it to them (with the mods it needs), or leaves it out. The client
+/// view players get as an instance image (`crate::handlers::player_image`) follows the same
+/// mark once the next content image is recorded: "For players" always puts the mod in, and
+/// "Not for players" takes it out where nothing else says players need it
+/// (`crate::images::env::inputs`). Players' copies change the next time they join; the
+/// server needs no restart.
 async fn set_client_mark(
     State(state): State<AppState>,
     Path((uuid, file_name)): Path<(InstanceUuid, String)>,

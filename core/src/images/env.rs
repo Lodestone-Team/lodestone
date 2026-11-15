@@ -5,17 +5,28 @@
 //! them):
 //!
 //! 1. `owner_mark`: the "For players" marks (`mods/.lodestone_client_mods.json`, see
-//!    `mods::client`): marked for players is client `required`, left out is `unsupported`.
+//!    `mods::client`): marked for players is client `required`; left out ("Not for
+//!    players") is `unsupported` only where nothing else says players need the mod (see
+//!    [`inputs`]), as in the client pack and the Mods tab.
 //! 2. `base_pack`: the pack index's `env`, from `pack.json` ([`super::base`]), for files the
 //!    pack wrote and that still have the pack's bytes (the recorder decides that).
 //! 3. `modrinth_environment` and `modrinth_project`: what Modrinth said about the file's
 //!    version, keyed by the file's SHA-512, as Lodestone learned it while installing or
 //!    listing mods ([`ModrinthHints`]) and kept with the instance's content state.
-//! 4. `jar_environment`: what the jar itself says (`fabric.mod.json`), scanned once per
-//!    jar contents and kept in memory ([`JarScans`]).
+//! 4. `jar_environment`: what the jar itself says (`fabric.mod.json` `environment`,
+//!    `quilt.mod.json` `minecraft.environment`, a Forge or NeoForge `mods.toml`'s
+//!    `clientSideOnly` and `displayTest`: `lodestone_minecraft::jar::mods_toml_environment`),
+//!    scanned once per jar contents and kept in memory ([`JarScans`]).
 //!
 //! An input that isn't known stays unknown. Asking Modrinth here would hold up a record and
 //! make image ids depend on the network's timing, so nothing here does.
+//!
+//! So a file's sides are settled when its image is recorded, and the client view a server
+//! serves its players (`super::serve`) is a pure function of the image: nothing is looked up
+//! while answering a player. What Modrinth says about a jar later (a Mods-tab listing) takes
+//! effect at the next record. A side nothing knows stays `unknown`, and the client view
+//! carries everything not `unsupported` on clients: a mod nobody can place goes to players
+//! (they can always join), and the owner's "Not for players" mark takes it out.
 
 use std::collections::HashMap;
 use std::sync::Mutex as StdMutex;
@@ -231,6 +242,14 @@ async fn read_marks(path: &std::path::Path) -> ClientMarks {
 }
 
 /// A file's inputs from what is known of it.
+///
+/// The owner's "Not for players" is the marks file's `excluded`, which in the marks' own
+/// model (`mods::client::base_requirement`) only decides a mod whose sides leave players
+/// free: one Modrinth calls optional, or one nothing knows about. A mod that the pack's
+/// index, Modrinth or the jar says players need stays needed, and the Mods tab shows it
+/// going to players whatever the box says. So the mark counts here only when the other
+/// inputs don't make the client side `required`; otherwise unmarking a mod once marked for
+/// players (which leaves it `excluded`) would take a mod both sides need from players.
 pub fn inputs(
     facts: Option<&JarFacts>,
     base_pack: Option<lodestone_image::Env>,
@@ -238,13 +257,23 @@ pub fn inputs(
 ) -> EnvInputs {
     let (modrinth_environment, modrinth_project) =
         hint.map(ModrinthHint::inputs).unwrap_or((None, None));
-    EnvInputs {
-        owner_mark: facts.and_then(|f| f.mark),
+    let mut inputs = EnvInputs {
+        owner_mark: None,
         base_pack: base_pack.map(SideValues::from),
         modrinth_environment,
         modrinth_project,
         jar: facts.and_then(|f| f.jar),
-    }
+    };
+    inputs.owner_mark = match facts.and_then(|f| f.mark) {
+        Some(OwnerMark::NotForPlayers)
+            if lodestone_image::env::resolve(&inputs).0.client
+                == lodestone_image::EnvValue::Required =>
+        {
+            None
+        }
+        mark => mark,
+    };
+    inputs
 }
 
 #[cfg(test)]
@@ -277,6 +306,55 @@ mod tests {
         assert_eq!(from, vec![EnvFrom::BasePack, EnvFrom::OwnerMark]);
         // Nothing known is unknown.
         assert_eq!(resolve(&inputs(None, None, None)).0, Env::UNKNOWN);
+    }
+
+    #[test]
+    fn not_for_players_decides_only_what_leaves_players_free() {
+        let not_for_players = JarFacts {
+            sha512: None,
+            mark: Some(OwnerMark::NotForPlayers),
+            jar: None,
+        };
+        let sides = |client: &str| ModrinthHint {
+            client_side: Some(client.into()),
+            server_side: Some("required".into()),
+            ..ModrinthHint::default()
+        };
+        // Optional for players, or nothing known: the mark takes it off players.
+        for hint in [Some(sides("optional")), None] {
+            let (env, from) = resolve(&inputs(Some(&not_for_players), None, hint.as_ref()));
+            assert_eq!(env.client, EnvValue::Unsupported, "{hint:?}");
+            assert!(from.contains(&EnvFrom::OwnerMark));
+        }
+        // Needed by players by Modrinth, the pack or the jar: the mark changes nothing (a
+        // mod marked for players and then unmarked is left `excluded` in the marks file).
+        let (env, from) = resolve(&inputs(
+            Some(&not_for_players),
+            None,
+            Some(&sides("required")),
+        ));
+        assert_eq!(env.client, EnvValue::Required);
+        assert!(!from.contains(&EnvFrom::OwnerMark));
+        let pack = Env::new(EnvValue::Required, EnvValue::Required);
+        let (env, _) = resolve(&inputs(Some(&not_for_players), Some(pack), None));
+        assert_eq!(env.client, EnvValue::Required);
+        let client_jar = JarFacts {
+            jar: Some(JarEnvironment::Client),
+            ..not_for_players.clone()
+        };
+        let (env, _) = resolve(&inputs(Some(&client_jar), None, None));
+        assert_eq!(env.client, EnvValue::Required);
+        // "For players" always counts.
+        let for_players = JarFacts {
+            mark: Some(OwnerMark::ForPlayers),
+            ..not_for_players
+        };
+        let (env, _) = resolve(&inputs(
+            Some(&for_players),
+            None,
+            Some(&sides("unsupported")),
+        ));
+        assert_eq!(env.client, EnvValue::Required);
     }
 
     #[test]

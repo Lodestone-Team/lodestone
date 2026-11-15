@@ -23,8 +23,8 @@ use std::{
 };
 
 use axum::{
-    extract::{connect_info::Connected, ConnectInfo, Path as UrlPath, State},
-    http::HeaderMap,
+    extract::{connect_info::Connected, ConnectInfo, Path as UrlPath, Query, State},
+    http::{HeaderMap, Method},
     response::Response,
     routing::get,
     serve::IncomingStream,
@@ -47,9 +47,11 @@ use tokio::sync::{mpsc, Mutex};
 use tracing::{info, warn};
 
 use super::{game_port_open, shared_server_of, SHARED_SCOPE};
+use crate::images::objects::ClientKey;
 use crate::{
     error::{Error, ErrorKind},
     handlers::{
+        player_image::{image_response, object_response, ImageQuery},
         public_instances::{pack_response, public_instance},
         util::get_instance,
     },
@@ -873,7 +875,10 @@ struct FriendRoutes {
 ///
 /// - `GET /api/v1/friend/servers`: their [`SharedServer`]s;
 /// - `GET /api/v1/public/instances`: those instances, as the public list shows them;
-/// - `GET /api/v1/public/instances/{uuid}/client-pack`: a shared instance's client pack.
+/// - `GET /api/v1/public/instances/{uuid}/client-pack`: a shared instance's client pack;
+/// - `GET /api/v1/public/instances/{uuid}/image` and
+///   `GET`/`HEAD /api/v1/public/instances/{uuid}/objects/{sha256}`: a shared instance's
+///   client view, deltas and objects (`crate::handlers::player_image`).
 ///
 /// Everything else is 404.
 pub(crate) fn friend_router(state: AppState, access: Access) -> Router {
@@ -883,6 +888,14 @@ pub(crate) fn friend_router(state: AppState, access: Access) -> Router {
         .route(
             "/api/v1/public/instances/{uuid}/client-pack",
             get(get_friend_pack),
+        )
+        .route(
+            "/api/v1/public/instances/{uuid}/image",
+            get(get_friend_image),
+        )
+        .route(
+            "/api/v1/public/instances/{uuid}/objects/{sha256}",
+            get(get_friend_object),
         )
         .with_state(FriendRoutes { state, access })
 }
@@ -941,15 +954,55 @@ async fn get_friend_list(
     })
 }
 
+/// Whether `friend` may reach the instance `uuid`, and it is there.
+fn friend_allows(
+    routes: &FriendRoutes,
+    friend: &PublicKey,
+    uuid: &InstanceUuid,
+) -> Result<(), Error> {
+    if !may_reach(&routes.access, friend, uuid) {
+        return Err(not_found());
+    }
+    get_instance(&routes.state, uuid)?;
+    Ok(())
+}
+
 async fn get_friend_pack(
     State(routes): State<FriendRoutes>,
     ConnectInfo(FriendPeer(friend)): ConnectInfo<FriendPeer>,
     UrlPath(uuid): UrlPath<InstanceUuid>,
     headers: HeaderMap,
 ) -> Result<Response, Error> {
-    if !may_reach(&routes.access, &friend, &uuid) {
-        return Err(not_found());
-    }
-    get_instance(&routes.state, &uuid)?;
+    friend_allows(&routes, &friend, &uuid)?;
     pack_response(&routes.state, &uuid, &headers).await
+}
+
+async fn get_friend_image(
+    State(routes): State<FriendRoutes>,
+    ConnectInfo(FriendPeer(friend)): ConnectInfo<FriendPeer>,
+    UrlPath(uuid): UrlPath<InstanceUuid>,
+    Query(query): Query<ImageQuery>,
+) -> Result<Response, Error> {
+    friend_allows(&routes, &friend, &uuid)?;
+    image_response(&routes.state, &uuid, query).await
+}
+
+async fn get_friend_object(
+    State(routes): State<FriendRoutes>,
+    ConnectInfo(FriendPeer(friend)): ConnectInfo<FriendPeer>,
+    UrlPath((uuid, sha256)): UrlPath<(InstanceUuid, String)>,
+    method: Method,
+    headers: HeaderMap,
+) -> Result<Response, Error> {
+    friend_allows(&routes, &friend, &uuid)?;
+    let client = ClientKey::Friend(friend.0);
+    object_response(
+        &routes.state,
+        &uuid,
+        &sha256,
+        &method,
+        &headers,
+        Some(client),
+    )
+    .await
 }

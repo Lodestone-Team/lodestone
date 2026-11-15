@@ -4,6 +4,8 @@
 //! view(image, side, rules) = entries with env[side] ≠ unsupported that the side can hold
 //!                            (on the client, configs only when marked for players)
 //!                          + the base (each side reads its own share of the pack)
+//!                          + the base files the image removed (on the client, only
+//!                            where the client view could carry a file: never configs)
 //!                          + the side's settings
 //!                          + { side, projected_from: image id, rules }
 //! ```
@@ -20,7 +22,9 @@
 //!   ([`is_server_state`]: Bukkit plugins and their settings, the player-name caches,
 //!   Forge's start scripts, the server jars in `versions/` and at the top level), nor
 //!   disabled files and Lodestone's bookkeeping deeper down
-//!   ([`is_inactive_or_bookkeeping`]).
+//!   ([`is_inactive_or_bookkeeping`]). Its `removed` keeps only paths it could carry
+//!   itself ([`in_client_removed`]), so a pack config the server deleted stays on players'
+//!   machines as the pack shipped it.
 //!
 //! Views are computed, never edited, and canonical: entries sorted, no timestamps, and
 //! none of the image's informational fields (label, producer, parent, created). So the same
@@ -122,6 +126,16 @@ pub fn is_inactive_or_bookkeeping(path: &CanonicalPath) -> bool {
     false
 }
 
+/// Whether the client view may carry a file at `path` at all, whatever its entry says: a
+/// place a client can hold, and none of Lodestone's own files, a server's state or a file
+/// nothing loads.
+fn client_may_hold(path: &CanonicalPath) -> bool {
+    placement(path).allows(Side::Client)
+        && !is_lodestone_path(path)
+        && !is_server_state(path)
+        && !is_inactive_or_bookkeeping(path)
+}
+
 /// Whether `entry` belongs in `side`'s view (rules 1).
 pub fn in_view(entry: &Entry, side: Side) -> bool {
     if !placement(&entry.path).allows(side) || !entry.env.allows(side) {
@@ -130,11 +144,32 @@ pub fn in_view(entry: &Entry, side: Side) -> bool {
     match side {
         Side::Server => true,
         Side::Client => {
-            !is_lodestone_path(&entry.path)
-                && !is_server_state(&entry.path)
-                && !is_inactive_or_bookkeeping(&entry.path)
-                && (!is_config(&entry.path) || marked_for_players(entry))
+            client_may_hold(&entry.path) && (!is_config(&entry.path) || marked_for_players(entry))
         }
+    }
+}
+
+/// Whether the client view keeps `path` of the image's `removed` (rules 1): only where the
+/// client view itself could carry a file, so the view takes out of the base only what it
+/// governs. Configs never count, since a removed path has no entry an owner could have
+/// marked: players get the pack's configs, not the server's ("the player gets the pack's
+/// version"), so a server deleting a pack config (Xaero's minimap settings that `overrides/`
+/// put on both sides) leaves the pack's copy on players' machines, just as editing it
+/// would. The server view keeps every removed path, and the image keeps them all.
+pub fn in_client_removed(path: &CanonicalPath) -> bool {
+    client_may_hold(path) && !is_config(path)
+}
+
+/// `side`'s share of an image's `removed`: all of it on the server, what
+/// [`in_client_removed`] keeps on the client.
+fn removed_for(removed: &[CanonicalPath], side: Side) -> Vec<CanonicalPath> {
+    match side {
+        Side::Server => removed.to_vec(),
+        Side::Client => removed
+            .iter()
+            .filter(|path| in_client_removed(path))
+            .cloned()
+            .collect(),
     }
 }
 
@@ -175,6 +210,32 @@ pub fn view(image: &Image, side: Side, rules: u32) -> Result<Image, ViewError> {
     Ok(project(image, side, rules, Some(source_id)))
 }
 
+/// Checks a view received from elsewhere, whole or as the result of applying a delta to a
+/// view (a server's answer to its players): it must be `side`'s view and nothing more. Its
+/// side is `side`, its rules are known ([`ViewError::UnsupportedRules`] otherwise: it was
+/// made by a newer version, whose user should update), it hashes to its id, and its own
+/// view gives it back, so it carries nothing `side`'s view never does (Lodestone's own
+/// files, a server's state, configs not shared with players). A delta's `apply` checks
+/// only the result's id, so a delta must be checked this way too once applied. The caller
+/// also compares the id with the one it was told to expect.
+pub fn check_received(image: &Image, side: Side) -> Result<(), ViewError> {
+    match image.side {
+        Some(received) if received == side => {}
+        Some(other) => return Err(ViewError::AlreadyView(other)),
+        None => return Err(ViewError::Mismatch("it isn't a view".into())),
+    }
+    check_rules(image.rules)?;
+    image
+        .verify()
+        .map_err(|e| ViewError::Mismatch(e.to_string()))?;
+    if view(image, side, image.rules)?.id != image.id {
+        return Err(ViewError::Mismatch(format!(
+            "it carries what the {side:?} side's view doesn't"
+        )));
+    }
+    Ok(())
+}
+
 /// `side`'s view of `image`, sealed: only what the view carries, and none of the
 /// informational fields (parent, created, producer, label, each entry's `modified`).
 fn project(image: &Image, side: Side, rules: u32, projected_from: Option<String>) -> Image {
@@ -199,7 +260,7 @@ fn project(image: &Image, side: Side, rules: u32, projected_from: Option<String>
         game: image.game.clone(),
         settings: image.settings.for_side(side),
         entries,
-        removed: image.removed.clone(),
+        removed: removed_for(&image.removed, side),
         worlds: image.worlds.clone(),
         content: image.content.clone(),
         excludes: image.excludes.clone(),
@@ -224,7 +285,8 @@ pub fn local_entries(image: &Image) -> Vec<Entry> {
 }
 
 /// Puts an image back together from its server view, its client view and the entries no
-/// view carries ([`local_entries`]). Errors when the views don't come from one image or
+/// view carries ([`local_entries`]). The image's `removed` is the server view's, which keeps
+/// all of it; the client view's must be its client share. Errors when the views don't come from one image or
 /// the result's id isn't the one they were projected from.
 pub fn reassemble(server: &Image, client: &Image, local: &[Entry]) -> Result<Image, ViewError> {
     let mismatch = |what: &str| Err(ViewError::Mismatch(what.to_string()));
@@ -241,7 +303,7 @@ pub fn reassemble(server: &Image, client: &Image, local: &[Entry]) -> Result<Ima
         && server.kind == client.kind
         && server.base == client.base
         && server.game == client.game
-        && server.removed == client.removed
+        && removed_for(&server.removed, Side::Client) == client.removed
         && server.worlds == client.worlds
         && server.content == client.content
         && server.excludes == client.excludes
@@ -507,6 +569,54 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn the_client_view_takes_out_of_the_base_only_what_it_could_carry() {
+        let mut image = fabric_pack();
+        image.removed = [
+            // A pack mod the server deleted: players lose it too.
+            "mods/pack-mod.jar",
+            "resourcepacks/old.zip",
+            // Pack configs the server deleted: players keep the pack's copies.
+            "config/xaerominimap.txt",
+            "defaultconfigs/sodium-options.json",
+            "kubejs/client_scripts/keys.js",
+            // Paths the client view never carries.
+            "server.properties",
+            "plugins/old.jar",
+            ".lodestone_modpack/pack.json",
+            "mods/old.jar.disabled",
+        ]
+        .into_iter()
+        .map(|p| CanonicalPath::new(p).unwrap())
+        .collect();
+        image.seal();
+        let client = view(&image, Side::Client, RULES).unwrap();
+        let removed: Vec<&str> = client.removed.iter().map(|p| p.as_str()).collect();
+        assert_eq!(removed, ["mods/pack-mod.jar", "resourcepacks/old.zip"]);
+        // The server view and the image keep every removed path, and nothing is lost.
+        let server = view(&image, Side::Server, RULES).unwrap();
+        assert_eq!(server.removed, image.removed);
+        check_lossless(&image).unwrap();
+        // A view of the client view gives it back, so a player accepts it.
+        check_received(&client, Side::Client).unwrap();
+        // A server deleting a pack config leaves the client view's id as it was.
+        let mut more = image.clone();
+        more.removed
+            .push(CanonicalPath::new("config/other.toml").unwrap());
+        more.seal();
+        assert_eq!(view(&more, Side::Client, RULES).unwrap().id, client.id);
+        // A client view whose `removed` names a config isn't one this rule makes.
+        let mut forged = client.clone();
+        forged
+            .removed
+            .push(CanonicalPath::new("config/xaerominimap.txt").unwrap());
+        forged.seal();
+        assert!(check_received(&forged, Side::Client).is_err());
+        // Views whose `removed` don't match the rule don't reassemble.
+        let local = local_entries(&image);
+        assert!(reassemble(&server, &forged, &local).is_err());
+    }
+
+    #[test]
     fn views_are_canonical() {
         let image = fabric_pack();
         let client = view(&image, Side::Client, RULES).unwrap();
@@ -708,6 +818,75 @@ pub(crate) mod tests {
         labelled.entries[0].modified = Some(9);
         let checked = view(&labelled, Side::Client, RULES).unwrap();
         assert_eq!(checked, client);
+    }
+
+    /// What a player receives, whole or as a delta applied to a view it has, must be the
+    /// client view and nothing more: `apply` alone checks only the result's id.
+    #[test]
+    fn received_views_are_checked() {
+        let image = fabric_pack();
+        let client = view(&image, Side::Client, RULES).unwrap();
+        assert_eq!(check_received(&client, Side::Client), Ok(()));
+        let server = view(&image, Side::Server, RULES).unwrap();
+        assert_eq!(check_received(&server, Side::Server), Ok(()));
+        assert_eq!(
+            check_received(&server, Side::Client),
+            Err(ViewError::AlreadyView(Side::Server))
+        );
+        assert!(matches!(
+            check_received(&image, Side::Client),
+            Err(ViewError::Mismatch(_))
+        ));
+
+        let hostile = |change: &dyn Fn(&mut Image)| {
+            let mut target = client.clone();
+            change(&mut target);
+            target.seal();
+            // a delta to it applies cleanly...
+            let delta = crate::delta::diff(&client, &target);
+            let delta =
+                crate::delta::Delta::from_json(&serde_json::to_vec(&delta).unwrap()).unwrap();
+            let applied = crate::delta::apply(&client, &delta).unwrap();
+            assert_eq!(applied.id, target.id);
+            // ...and only the check refuses it
+            check_received(&applied, Side::Client)
+        };
+        for path in [
+            "server.properties",
+            ".lodestone_x/y.json",
+            "mods/.lodestone_client_mods.json",
+            "config/secret.toml",
+            "mods/b.jar.disabled",
+        ] {
+            assert!(
+                matches!(
+                    hostile(&|t: &mut Image| t.entries.push(object_entry(path))),
+                    Err(ViewError::Mismatch(_))
+                ),
+                "{path}"
+            );
+        }
+        assert_eq!(
+            hostile(&|t: &mut Image| t.side = Some(Side::Server)),
+            Err(ViewError::AlreadyView(Side::Server))
+        );
+        assert_eq!(
+            hostile(&|t: &mut Image| t.rules = RULES + 1),
+            Err(ViewError::UnsupportedRules(RULES + 1))
+        );
+        // a change a client view may carry passes
+        assert_eq!(
+            hostile(&|t: &mut Image| t.entries.push(object_entry("mods/new.jar"))),
+            Ok(())
+        );
+
+        // bytes that don't hash to the id
+        let mut forged = client.clone();
+        forged.entries.pop();
+        assert!(matches!(
+            check_received(&forged, Side::Client),
+            Err(ViewError::Mismatch(_))
+        ));
     }
 
     #[test]
