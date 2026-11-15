@@ -278,20 +278,22 @@ impl Images {
     }
 
     /// Takes the queued labels and records (see the module), for a caller holding the
-    /// instance's record lock. `fallback` labels the image when nothing is queued (`""`
-    /// records with no label at all); with neither, nothing is recorded. On failure the
-    /// labels go back on the queue, unless the instance is gone.
+    /// instance's record lock. `label` follows the queued labels in the image's label, and
+    /// makes a record happen when nothing is queued (`""` records with no label of its
+    /// own); with neither, nothing is recorded. It is never added to an image that holds
+    /// the same contents already. On failure the queued labels go back on the queue, unless
+    /// the instance is gone.
     pub(crate) fn record_held(
         &self,
         slot: &Slot,
         instance: &str,
-        fallback: Option<&str>,
+        label: Option<&str>,
     ) -> Result<Option<Recorded>, ImageError> {
         let labels = slot.pending().take();
-        if labels.is_empty() && fallback.is_none() {
+        if labels.is_empty() && label.is_none() {
             return Ok(None);
         }
-        match self.record_locked(slot, instance, &labels, fallback) {
+        match self.record_locked(slot, instance, &labels, label) {
             Ok(recorded) => Ok(Some(recorded)),
             Err(ImageError::Gone(id)) => Err(ImageError::Gone(id)),
             Err(e) => {
@@ -306,15 +308,15 @@ impl Images {
         slot: &Slot,
         instance: &str,
         labels: &[Queued],
-        fallback: Option<&str>,
+        own: Option<&str>,
     ) -> Result<Recorded, ImageError> {
         let ctx = InstanceContext::load(self.instances(), instance)?;
         let state = self.guarded_state(&ctx)?;
-        let texts: Vec<String> = if labels.is_empty() {
-            fallback.map(str::to_string).into_iter().collect()
-        } else {
-            labels.iter().map(|q| q.label.clone()).collect()
-        };
+        let texts: Vec<String> = labels
+            .iter()
+            .map(|q| q.label.clone())
+            .chain(own.map(str::to_string))
+            .collect();
         let label = join_labels(&texts);
         let mut retried = false;
         loop {

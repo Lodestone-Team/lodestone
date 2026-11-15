@@ -580,6 +580,8 @@ impl ModFinder {
             // Nothing is off yet: there is nothing to put back.
             State::Reading => cx.emit(ModFinderClosed),
             State::Ready if !self.resumed => {
+                // No mod was turned off yet: forgetting the search changes no content, so
+                // it is no operation of the instance's content images.
                 let dirs = self.dirs.clone();
                 cx.background_spawn(async move { mod_finder::forget(&dirs) })
                     .detach();

@@ -865,6 +865,8 @@ pub fn remove(call: Call, cx: &mut App) -> Reply {
     )
 }
 
+/// Turns `item` on or off. [`change_items`] makes each call an operation of the
+/// instance's content images.
 fn set_enabled(
     dirs: &InstanceDirs,
     target: &Target,

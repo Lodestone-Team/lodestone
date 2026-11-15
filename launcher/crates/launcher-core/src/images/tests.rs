@@ -139,6 +139,20 @@ fn operations_within_the_window_are_one_image() {
 }
 
 #[test]
+fn a_record_now_keeps_what_is_queued_and_its_own_label() {
+    let s = Setup::new();
+    let op = s.images.begin(s.id(), "Added a.jar");
+    s.write("mods/a.jar", b"a");
+    op.succeed();
+    s.images.record_now(s.id(), "Created Pack").unwrap();
+    assert_eq!(s.labels(), ["Added a.jar; Created Pack"]);
+    // Its own label never joins an image that holds the same contents already.
+    let same = s.images.record_now(s.id(), "Again").unwrap().unwrap();
+    assert!(!same.changed);
+    assert_eq!(s.labels(), ["Added a.jar; Created Pack"]);
+}
+
+#[test]
 fn only_success_records_and_a_change_of_nothing_is_dropped() {
     let s = Setup::new();
     s.images.record_now(s.id(), "Created Pack").unwrap();
