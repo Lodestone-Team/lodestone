@@ -2936,11 +2936,22 @@ impl InstanceSettings {
         query: &SettingsQuery,
         cx: &mut Context<Self>,
     ) -> Option<gpui::Div> {
-        use super::snapshots::{SnapshotRequest, SnapshotRequested, contents_line, when};
+        use super::snapshots::{SnapshotRequest, SnapshotRequested, badge, details};
         let id = self.instance_id.clone();
-        let rows = self.instances.update(cx, |instances, cx| {
-            instances.snapshot_rows(&id, cx).map(<[_]>::to_vec)
-        });
+        let (list, after_play, own_after_play, policy) =
+            self.instances.update(cx, |instances, cx| {
+                let list = instances.snapshot_list(&id, cx).cloned();
+                let after_play = instances.snapshot_after_play(&id);
+                let instance = instances.list().iter().find(|i| i.id == id).cloned();
+                let settings = instance.as_ref().and_then(|i| i.snapshots);
+                let policy = launcher_core::images::SnapshotPolicy::of(settings.as_ref());
+                (
+                    list,
+                    after_play,
+                    settings.and_then(|s| s.after_play),
+                    policy,
+                )
+            });
         let take = Button::new("take-snapshot", t(M::TakeSnapshotEllipsis))
             .variant(ButtonVariant::Secondary)
             .size(ButtonSize::Slim)
@@ -2953,59 +2964,129 @@ impl InstanceSettings {
             SettingRow::new(t(M::TakeSnapshotTitle))
                 .hint(t(M::SnapshotsHint))
                 .child(take),
+            SettingRow::new(t(M::SnapshotAfterPlay))
+                .hint(t(M::SnapshotAfterPlayHint))
+                .child(
+                    Toggle::new("snapshot-after-play", after_play)
+                        .label(t(M::SnapshotAfterPlay))
+                        .on_change(cx.listener(move |this, value: &bool, _, cx| {
+                            let id = this.instance_id.clone();
+                            let value = *value;
+                            this.instances.update(cx, |instances, cx| {
+                                // Back to following Settings › Instances when it matches.
+                                let follows = instances.defaults().snapshot_after_play == value;
+                                let own = (!follows || own_after_play.is_some()).then_some(value);
+                                if let Err(err) = instances.set_snapshot_after_play(&id, own, cx) {
+                                    log::warn!("Couldn't save the snapshot setting: {err}");
+                                }
+                            });
+                        })),
+                ),
         ];
-        match rows {
+        match list {
             None => items.push(SettingRow::new(t(M::NoSnapshots))),
-            Some(rows) if rows.is_empty() => items.push(SettingRow::new(t(M::NoSnapshots))),
-            Some(rows) => {
-                for (index, row) in rows.into_iter().enumerate() {
-                    let name = row.name.clone();
-                    let hint = format!(
-                        "{} · {} · {}",
-                        when(row.created),
-                        tr!(
-                            M::SnapshotSizes,
-                            total = crate::i18n::format::bytes(row.total_bytes),
-                            new = crate::i18n::format::bytes(row.new_bytes)
-                        ),
-                        contents_line(&row.parts)
-                    );
+            Some(list) => {
+                if list.records.is_empty() {
+                    items.push(SettingRow::new(t(M::NoSnapshots)));
+                }
+                for (index, record) in list.records.into_iter().enumerate() {
                     let request = |make: fn(String, String) -> SnapshotRequest| {
                         let instance = id.clone();
-                        let snapshot = row.id.clone();
+                        let snapshot = record.id.clone();
                         cx.listener(move |_, _, _, cx| {
                             cx.emit(SnapshotRequested(make(instance.clone(), snapshot.clone())))
                         })
                     };
+                    let pin = {
+                        let (instance, snapshot, pinned) =
+                            (id.clone(), record.id.clone(), !record.pinned);
+                        cx.listener(move |this, _, _, cx| {
+                            this.instances.update(cx, |instances, cx| {
+                                instances.pin_snapshot(&instance, &snapshot, pinned, cx)
+                            })
+                        })
+                    };
+                    let name = match badge(&record) {
+                        Some(badge) => format!("{} · {}", record.name_shown(), t(badge)),
+                        None => record.name_shown(),
+                    };
                     items.push(
-                        SettingRow::new(name).hint(hint).child(
-                            div()
-                                .flex()
-                                .flex_row()
-                                .gap_1()
-                                .child(
-                                    Button::new(("snapshot-revert", index), t(M::RevertEllipsis))
+                        SettingRow::new(name)
+                            .key(("snapshot-row", index))
+                            .hint(details(&record))
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_row()
+                                    .gap_1()
+                                    .child(
+                                        Button::new(
+                                            ("snapshot-restore", index),
+                                            t(M::RestoreEllipsis),
+                                        )
                                         .variant(ButtonVariant::Secondary)
                                         .size(ButtonSize::Slim)
-                                        .on_click(request(SnapshotRequest::Revert)),
-                                )
-                                .child(
-                                    Button::new(("snapshot-share", index), t(M::ShareEllipsis))
+                                        .on_click(request(SnapshotRequest::Restore)),
+                                    )
+                                    .child(
+                                        Button::new(
+                                            ("snapshot-export", index),
+                                            t(M::ExportEllipsis),
+                                        )
                                         .variant(ButtonVariant::Secondary)
                                         .size(ButtonSize::Slim)
-                                        .on_click(request(SnapshotRequest::Share)),
-                                )
-                                .child(
-                                    Button::new(("snapshot-delete", index), t(CommonMsg::Delete))
+                                        .on_click(request(SnapshotRequest::Export)),
+                                    )
+                                    .child(
+                                        Button::new(
+                                            ("snapshot-pin", index),
+                                            t(if record.pinned {
+                                                M::UnpinSnapshot
+                                            } else {
+                                                M::PinSnapshot
+                                            }),
+                                        )
+                                        .variant(ButtonVariant::Ghost)
+                                        .size(ButtonSize::Slim)
+                                        .on_click(pin),
+                                    )
+                                    .child(
+                                        Button::new(
+                                            ("snapshot-delete", index),
+                                            t(CommonMsg::Delete),
+                                        )
                                         .variant(ButtonVariant::Ghost)
                                         .size(ButtonSize::Slim)
                                         .on_click(request(SnapshotRequest::Delete)),
-                                ),
-                        ),
+                                    ),
+                            ),
+                    );
+                }
+                if list.unreadable > 0 {
+                    items.push(
+                        SettingRow::new(trn!(P::UnreadableImages, list.unreadable))
+                            .hint(t(M::UnreadableImagesHint))
+                            .child(
+                                Button::new("snapshot-delete-unreadable", t(M::DeleteUnreadable))
+                                    .variant(ButtonVariant::Ghost)
+                                    .size(ButtonSize::Slim)
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        let id = this.instance_id.clone();
+                                        this.instances.update(cx, |instances, cx| {
+                                            instances.delete_unreadable_images(&id, cx)
+                                        })
+                                    })),
+                            ),
                     );
                 }
             }
         }
+        items.push(SettingRow::new(tr!(
+            M::SnapshotKeepHint,
+            last = policy.keep_last,
+            days = policy.keep_daily,
+            weeks = policy.keep_weekly
+        )));
         query
             .section(t(M::InstanceSnapshots), None)
             .card(items)

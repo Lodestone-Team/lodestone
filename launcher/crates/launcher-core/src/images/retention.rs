@@ -117,15 +117,18 @@ pub fn data_to_delete(
             .map(|r| r.id.as_str()),
     );
     keep_bucketed(&past, policy.keep_daily, &mut keep, |t| t.div_euclid(86400));
-    keep_bucketed(&past, policy.keep_weekly, &mut keep, |t| {
-        match DateTime::from_timestamp(t, 0) {
+    keep_bucketed(
+        &past,
+        policy.keep_weekly,
+        &mut keep,
+        |t| match DateTime::from_timestamp(t, 0) {
             Some(date) => {
                 let week = date.iso_week();
                 i64::from(week.year()) * 100 + i64::from(week.week())
             }
             None => t.div_euclid(7 * 86400),
-        }
-    });
+        },
+    );
 
     let mut before_restore: Vec<&SnapshotRecord> = records
         .iter()
@@ -354,13 +357,9 @@ mod tests {
         let mut records: Vec<SnapshotRecord> = (0..10)
             .map(|i| record(&format!("h{i}"), SnapshotKind::BeforeChange, now - i * HOUR))
             .collect();
-        records.extend((1..=40).map(|d| {
-            record(
-                &format!("d{d:02}"),
-                SnapshotKind::AfterPlay,
-                now - d * DAY,
-            )
-        }));
+        records.extend(
+            (1..=40).map(|d| record(&format!("d{d:02}"), SnapshotKind::AfterPlay, now - d * DAY)),
+        );
         let deleted = data_to_delete(&records, now, &DEFAULT_POLICY, None);
         let kept: Vec<&str> = records
             .iter()

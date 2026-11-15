@@ -1,14 +1,19 @@
-//! Snapshots, as an instance's Settings tab has them: list, take, go back to, write to a
-//! `.lodesnap` file, delete, and make a new instance from a file.
+//! Snapshots, as an instance's Settings tab has them: list, take, restore (or preview what a
+//! restore does), export as an image file, make a new instance from one, delete, pin, and
+//! the instance's snapshot settings. Snapshots are images in the image store
+//! (`launcher_core::images`).
 
 use std::{path::PathBuf, sync::Arc};
 
 use gpui::{App, AppContext as _};
 use launcher_control::{ErrorObject, codes};
 use launcher_core::{
-    game::download::{Progress as Downloads, ProgressSnapshot},
-    instances::Instance,
-    snapshots::{self, Category, Selection, Snapshot, SnapshotError, Store},
+    game::download::{CancelToken, Progress as Downloads, ProgressSnapshot},
+    images::{
+        ImageError, Images, RestoreScope, SnapshotKind, SnapshotPolicy, SnapshotRecord, Take,
+        export,
+    },
+    instances::{Instance, SnapshotSettings},
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -19,109 +24,76 @@ use super::{
     jobs::{JobSpec, Progress},
     ready,
 };
-use crate::instances::snapshots::display_name;
 
-fn snapshot_error(err: SnapshotError) -> ErrorObject {
+pub(super) fn image_error(err: ImageError) -> ErrorObject {
     match err {
-        SnapshotError::NotFound(id) => {
-            api_error(codes::NOT_FOUND, format!("No snapshot \"{id}\"."))
+        ImageError::NoSnapshot(_) | ImageError::Gone(_) => {
+            api_error(codes::NOT_FOUND, err.to_string())
         }
-        SnapshotError::Invalid(_) | SnapshotError::TooNew => {
-            api_error(codes::INVALID_PARAMS, err.to_string())
-        }
+        ImageError::Running => api_error(codes::BUSY, err.to_string()),
+        ImageError::Cancelled => api_error(codes::CANCELLED, err.to_string()),
+        ImageError::Invalid(_) => api_error(codes::INVALID_PARAMS, err.to_string()),
         other => api_error(codes::FAILED, other.to_string()),
     }
 }
 
-fn snapshot_json(snapshot: &Snapshot) -> Value {
+fn kind_name(kind: SnapshotKind) -> &'static str {
+    match kind {
+        SnapshotKind::Manual => "manual",
+        SnapshotKind::BeforeChange => "before_change",
+        SnapshotKind::AfterPlay => "after_play",
+        SnapshotKind::BeforeRestore => "before_restore",
+        SnapshotKind::Imported => "imported",
+    }
+}
+
+pub(super) fn record_json(record: &SnapshotRecord) -> Value {
     json!({
-        "id": snapshot.id,
-        "name": display_name(&snapshot.name, snapshot.note.as_deref(), snapshot.automatic),
-        "created": snapshot.created,
-        "automatic": snapshot.automatic,
-        "launcher_version": snapshot.launcher_version,
-        "minecraft": snapshot.instance.game_version,
-        "total_bytes": snapshot.total_bytes,
-        "new_bytes": snapshot.new_bytes,
-        "files": snapshot.files.len(),
-        "parts": snapshot.summary(),
-        "settings": snapshot.selection.categories.contains(&Category::Settings),
+        "id": record.id,
+        "image": record.image,
+        "name": record.name,
+        "name_shown": record.name_shown(),
+        "kind": kind_name(record.kind),
+        "created": record.created,
+        "pinned": record.pinned,
+        "full": record.full,
+        "worlds": record.worlds,
+        "content": record.content,
+        "files": record.files,
+        "withheld": record.withheld,
+        "bytes": record.bytes,
+        "new_bytes": record.new_bytes,
     })
 }
 
-/// The parts to take or put back: `include` (category ids) and `worlds` (folder names;
-/// none: all). Without `include`, `default`.
-fn selection(params: &Value, default: Selection) -> Result<Selection, ErrorObject> {
-    let worlds: Vec<String> = params
-        .get("worlds")
-        .and_then(Value::as_array)
-        .map(|list| {
-            list.iter()
-                .filter_map(Value::as_str)
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default();
-    let Some(include) = params.get("include").and_then(Value::as_array) else {
-        return Ok(Selection {
-            worlds: worlds.into_iter().collect(),
-            ..default
-        });
-    };
-    let mut categories = std::collections::BTreeSet::new();
-    for id in include {
-        let id = id.as_str().unwrap_or_default();
-        let category = Category::from_id(id).ok_or_else(|| {
-            let ids: Vec<&str> = Category::ALL.iter().map(|c| c.id()).collect();
-            api_error(
-                codes::INVALID_PARAMS,
-                format!("No part \"{id}\": use {}.", ids.join(", ")),
-            )
-        })?;
-        categories.insert(category);
-    }
-    if !worlds.is_empty() {
-        categories.insert(Category::Worlds);
-    }
-    if categories.is_empty() {
-        return Err(api_error(
-            codes::INVALID_PARAMS,
-            "Include at least one part.",
-        ));
-    }
-    Ok(Selection {
-        categories,
-        worlds: worlds.into_iter().collect(),
+fn policy_json(policy: &SnapshotPolicy, after_play: bool) -> Value {
+    json!({
+        "after_play": after_play,
+        "keep_last": policy.keep_last,
+        "keep_daily": policy.keep_daily,
+        "keep_weekly": policy.keep_weekly,
     })
 }
 
-/// What "Take snapshot…" chooses at first: everything but screenshots and other files.
-fn default_take() -> Selection {
-    let mut selection = Selection::all();
-    selection.categories.remove(&Category::Screenshots);
-    selection.categories.remove(&Category::Other);
-    selection
-}
-
-fn store(control: &Control, cx: &App) -> Store {
-    control.instances.read(cx).snapshot_store()
-}
-
-/// The snapshot `params.snapshot` names: its id, its name, or `latest`.
-fn find(store: &Store, instance: &Instance, reference: &str) -> Result<Snapshot, ErrorObject> {
-    let list = store.list(&instance.id);
+/// The snapshot `reference` names among `records` (newest first): its id, its name, or
+/// `latest`.
+pub(super) fn find(
+    records: &[SnapshotRecord],
+    instance: &Instance,
+    reference: &str,
+) -> Result<SnapshotRecord, ErrorObject> {
     if reference == "latest" {
-        return list.into_iter().next().ok_or_else(|| {
+        return records.first().cloned().ok_or_else(|| {
             api_error(
                 codes::NOT_FOUND,
                 format!("{} has no snapshots.", instance.name),
             )
         });
     }
-    if let Some(found) = list.iter().find(|s| s.id == reference) {
+    if let Some(found) = records.iter().find(|s| s.id == reference) {
         return Ok(found.clone());
     }
-    let named: Vec<&Snapshot> = list
+    let named: Vec<&SnapshotRecord> = records
         .iter()
         .filter(|s| s.name.eq_ignore_ascii_case(reference))
         .collect();
@@ -136,6 +108,16 @@ fn find(store: &Store, instance: &Instance, reference: &str) -> Result<Snapshot,
             format!("Several snapshots are named \"{reference}\": use an id."),
         )),
     }
+}
+
+/// The instance's snapshot `reference`, read now (blocking: the records file).
+pub(super) fn find_now(
+    images: &Images,
+    instance: &Instance,
+    reference: &str,
+) -> Result<SnapshotRecord, ErrorObject> {
+    let records = images.snapshots(&instance.id).map_err(image_error)?.records;
+    find(&records, instance, reference)
 }
 
 fn snapshot_param(call: &Call) -> Result<String, ErrorObject> {
@@ -168,7 +150,7 @@ fn path_param(call: &Call) -> Result<PathBuf, ErrorObject> {
 }
 
 /// Reads the instance's snapshots again in the window.
-fn refresh(control: &Control, instance: &str, cx: &mut App) {
+pub(super) fn refresh(control: &Control, instance: &str, cx: &mut App) {
     let id = instance.to_string();
     control
         .instances
@@ -176,7 +158,7 @@ fn refresh(control: &Control, instance: &str, cx: &mut App) {
 }
 
 /// Runs `work` as a snapshots job, with byte progress.
-fn job(
+pub(super) fn job(
     call: &Call,
     label: String,
     instance: Option<&Instance>,
@@ -212,8 +194,8 @@ fn job(
     control.reply_job(call, id, cx)
 }
 
-/// One snapshot job per instance at a time.
-fn idle(control: &Control, instance: &Instance, cx: &App) -> Result<(), ErrorObject> {
+/// One snapshot job per instance at a time, and none while its game runs.
+pub(super) fn idle(control: &Control, instance: &Instance, cx: &App) -> Result<(), ErrorObject> {
     control.idle(instance, cx)?;
     if let Some(job) = control.jobs.borrow().running_for("snapshots", &instance.id) {
         return Err(api_error(
@@ -227,15 +209,46 @@ fn idle(control: &Control, instance: &Instance, cx: &App) -> Result<(), ErrorObj
     Ok(())
 }
 
-/// `snapshots.list`: an instance's snapshots, newest first.
+#[derive(Deserialize)]
+struct ListParams {
+    /// The deleted instances' snapshots instead.
+    #[serde(default)]
+    deleted: bool,
+}
+
+/// `snapshots.list`: an instance's snapshots, newest first, its images that can't be read
+/// and its snapshot settings; or, with `deleted`, every deleted instance's snapshots.
 pub fn list(call: Call, cx: &mut App) -> Reply {
+    let params: ListParams = params!(call);
+    let images = call.control.instances.read(cx).images();
+    if params.deleted {
+        return cx.background_spawn(async move {
+            let retired = images.deleted_snapshots().map_err(image_error)?;
+            Ok(json!({
+                "deleted": retired.iter().map(|r| json!({
+                    "folder": r.folder,
+                    "former_id": r.marker.former_id,
+                    "name": r.marker.name,
+                    "deleted": r.marker.deleted,
+                    "snapshots": r.records.iter().map(record_json).collect::<Vec<_>>(),
+                })).collect::<Vec<_>>(),
+            }))
+        });
+    }
     let instance = tri!(call.control.instance_param(&call, cx));
-    let store = store(&call.control, cx);
+    let after_play = call
+        .control
+        .instances
+        .read(cx)
+        .snapshot_after_play(&instance.id);
+    let policy = SnapshotPolicy::of(instance.snapshots.as_ref());
     cx.background_spawn(async move {
-        let list = store.list(&instance.id);
+        let found = images.snapshots(&instance.id).map_err(image_error)?;
         Ok(json!({
             "instance": instance.id,
-            "snapshots": list.iter().map(snapshot_json).collect::<Vec<_>>(),
+            "snapshots": found.records.iter().map(record_json).collect::<Vec<_>>(),
+            "unreadable": found.unreadable.iter().map(|(image, why)| json!({ "image": image, "error": why })).collect::<Vec<_>>(),
+            "policy": policy_json(&policy, after_play),
         }))
     })
 }
@@ -244,8 +257,9 @@ pub fn list(call: Call, cx: &mut App) -> Reply {
 struct CreateParams {
     #[serde(default)]
     name: Option<String>,
+    /// A full image: mods and configs too, not only what the content image links.
     #[serde(default)]
-    note: Option<String>,
+    everything: bool,
 }
 
 /// `snapshots.create`: takes a snapshot.
@@ -253,116 +267,187 @@ pub fn create(call: Call, cx: &mut App) -> Reply {
     let params: CreateParams = params!(call);
     let instance = tri!(call.control.instance_param(&call, cx));
     tri!(idle(&call.control, &instance, cx));
-    let selection = tri!(selection(&call.params, default_take()));
-    let store = store(&call.control, cx);
-    let dir = call.control.instances.read(cx).store().dir(&instance.id);
-    let name = params
-        .name
-        .filter(|n| !n.trim().is_empty())
-        .unwrap_or_else(|| {
-            crate::i18n::format::short_date(chrono::Local::now().date_naive(), true)
-        });
+    let instances = call.control.instances.read(cx);
+    let images = instances.images();
+    let busy = instances.mark_files_busy(&instance.id);
     launcher_core::trace::emit("snapshot.create", || json!({ "instance": instance.id }));
     let label = format!("Taking a snapshot of {}", instance.name);
     let id = instance.id.clone();
-    let taken = instance.clone();
+    let taken = instance.id.clone();
     job(
         &call,
         label,
         Some(&instance),
         move |progress| {
-            store
-                .create(
+            let _busy = busy;
+            let record = images
+                .take_snapshot(
                     &taken,
-                    &dir,
-                    &name,
-                    params.note,
-                    &selection,
-                    false,
-                    progress,
+                    Take {
+                        kind: SnapshotKind::Manual,
+                        name: params.name,
+                        full: params.everything,
+                        progress,
+                        cancel: launcher_core::images::NEVER,
+                    },
                 )
-                .map(|s| snapshot_json(&s))
-                .map_err(snapshot_error)
+                .map_err(image_error)?
+                .ok_or_else(|| api_error(codes::FAILED, "No snapshot was taken."))?;
+            Ok(record_json(&record))
         },
         move |control, _, cx| refresh(control, &id, cx),
         cx,
     )
 }
 
-/// `snapshots.revert`: puts back the chosen parts of a snapshot, after an automatic
-/// snapshot of them.
-pub fn revert(call: Call, cx: &mut App) -> Reply {
-    let instance = tri!(call.control.instance_param(&call, cx));
-    let store = store(&call.control, cx);
-    let snapshot = tri!(find(&store, &instance, &tri!(snapshot_param(&call))));
-    let selection = tri!(selection(&call.params, snapshot.selection.clone()));
-    let parts: Vec<&str> = selection.categories.iter().map(|c| c.id()).collect();
-    tri!(call.confirm(format!(
-        "replaces {} of \"{}\" with the snapshot \"{}\" (an automatic snapshot of them is taken first)",
-        parts.join(", "),
-        instance.name,
-        snapshot.name
-    )));
-    tri!(idle(&call.control, &instance, cx));
-    let dir = call.control.instances.read(cx).store().dir(&instance.id);
-    launcher_core::trace::emit(
-        "snapshot.revert",
-        || json!({ "instance": instance.id, "snapshot": snapshot.id }),
-    );
-    let label = format!("Going back to {} in {}", snapshot.name, instance.name);
-    let current = instance.clone();
-    let id = instance.id.clone();
-    let images = call.control.instances.read(cx).images();
-    job(
-        &call,
-        label,
-        Some(&instance),
-        move |progress| {
-            let operation = images.begin(
-                &current.id,
-                launcher_core::images::labels::reverted(&snapshot.name),
-            );
-            let reverted = store
-                .revert(&snapshot, &current, &dir, &selection, progress)
-                .map_err(snapshot_error);
-            operation.finish_partly(&reverted);
-            let (settings, safety) = reverted?;
-            Ok(json!({
-                "reverted_to": snapshot.id,
-                "safety_snapshot": snapshot_json(&safety),
-                "settings": settings.map(|s| serde_json::to_value(s).unwrap_or(Value::Null)),
-            }))
-        },
-        move |control, value, cx| {
-            let settings = value
-                .get("settings")
-                .filter(|s| !s.is_null())
-                .and_then(|s| serde_json::from_value::<Instance>(s.clone()).ok());
-            control.instances.update(cx, |instances, cx| {
-                if let Some(settings) = settings {
-                    let _ = instances.apply_reverted_settings(settings, cx);
-                } else {
-                    instances.reload(cx);
-                }
-            });
-            refresh(control, &id, cx);
-        },
-        cx,
-    )
+#[derive(Deserialize)]
+struct RestoreParams {
+    /// `worlds`, `worlds_and_mods`, `everything` or `new`.
+    scope: String,
+    /// The worlds (folders) for `worlds` and `worlds_and_mods`; all of the snapshot's
+    /// without it.
+    #[serde(default)]
+    worlds: Vec<String>,
+    /// The new instance's name, for `new`.
+    #[serde(default)]
+    name: Option<String>,
+    /// Only say what the restore would do.
+    #[serde(default)]
+    preview: bool,
 }
 
-/// `snapshots.export`: writes a snapshot to a `.lodesnap` file.
+/// `snapshots.restore`: what restoring a snapshot does (`preview`), or the restore: its
+/// worlds, the worlds and their mods, everything, or as a new instance. In place it takes
+/// a safety snapshot first and needs confirm.
+pub fn restore(call: Call, cx: &mut App) -> Reply {
+    let params: RestoreParams = params!(call);
+    let instance = tri!(call.control.instance_param(&call, cx));
+    let images = call.control.instances.read(cx).images();
+    let snapshot = tri!(find_now(&images, &instance, &tri!(snapshot_param(&call))));
+    let preview = tri!(
+        images
+            .preview_restore(&instance.id, &snapshot.id)
+            .map_err(image_error)
+    );
+    if params.preview {
+        return ready(Ok(json!({
+            "snapshot": record_json(&snapshot),
+            "preview": serde_json::to_value(&preview).unwrap_or(Value::Null),
+        })));
+    }
+    let worlds = if params.worlds.is_empty() {
+        preview.worlds.iter().map(|w| w.name.clone()).collect()
+    } else {
+        params.worlds.clone()
+    };
+    let scope = match params.scope.as_str() {
+        "worlds" => Some(RestoreScope::Worlds(worlds)),
+        "worlds_and_mods" => Some(RestoreScope::WorldsAndContent(worlds)),
+        "everything" => Some(RestoreScope::Everything),
+        "new" => None,
+        other => {
+            return ready(Err(api_error(
+                codes::INVALID_PARAMS,
+                format!("No scope \"{other}\": worlds, worlds_and_mods, everything or new."),
+            )));
+        }
+    };
+    tri!(idle(&call.control, &instance, cx));
+    let id = instance.id.clone();
+    match scope {
+        Some(scope) => {
+            let what = match &scope {
+                RestoreScope::Worlds(w) => format!("the worlds {}", w.join(", ")),
+                RestoreScope::WorldsAndContent(w) => {
+                    format!("the worlds {} and the mods and configs", w.join(", "))
+                }
+                RestoreScope::Everything => "the whole game folder".to_string(),
+            };
+            tri!(call.confirm(format!(
+                "replaces {what} of \"{}\" with the snapshot \"{}\" (a safety snapshot of them is taken first)",
+                instance.name,
+                snapshot.name_shown()
+            )));
+            let busy = call
+                .control
+                .instances
+                .read(cx)
+                .mark_files_busy(&instance.id);
+            launcher_core::trace::emit(
+                "snapshot.restore",
+                || json!({ "instance": instance.id, "snapshot": snapshot.id }),
+            );
+            let label = format!("Restoring {} in {}", snapshot.name_shown(), instance.name);
+            let target = instance.id.clone();
+            job(
+                &call,
+                label,
+                Some(&instance),
+                move |_| {
+                    let _busy = busy;
+                    let restored = images
+                        .restore(&target, &snapshot.id, &scope, launcher_core::images::NEVER)
+                        .map_err(image_error)?;
+                    Ok(json!({
+                        "restored": snapshot.id,
+                        "safety_snapshot": restored.safety.as_ref().map(record_json),
+                        "loader_version": restored.instance.as_ref().and_then(|i| i.loader_version.clone()),
+                        "recorded": restored.recorded.as_ref().map(|r| r.id.clone()),
+                    }))
+                },
+                move |control, value, cx| {
+                    let loader = value.get("loader_version").is_some_and(|v| !v.is_null());
+                    control.instances.update(cx, |instances, cx| {
+                        instances.reload(cx);
+                        if loader {
+                            cx.emit(crate::instances::InstancesEvent::LoaderChanged(id.clone()));
+                        }
+                    });
+                    refresh(control, &id, cx);
+                },
+                cx,
+            )
+        }
+        None => {
+            let name = params
+                .name
+                .filter(|n| !n.trim().is_empty())
+                .unwrap_or_else(|| format!("{} ({})", instance.name, snapshot.name));
+            let label = format!("Making an instance from {}", snapshot.name_shown());
+            let source = instance.id.clone();
+            job(
+                &call,
+                label,
+                None,
+                move |_| {
+                    let made = images
+                        .restore_as_new(&source, &snapshot.id, &name, launcher_core::images::NEVER)
+                        .map_err(image_error)?;
+                    Ok(json!({ "instance": made.id, "name": made.name }))
+                },
+                |control, _, cx| {
+                    control
+                        .instances
+                        .update(cx, |instances, cx| instances.reload(cx))
+                },
+                cx,
+            )
+        }
+    }
+}
+
+/// `snapshots.export`: writes a snapshot as an image file (`.lodeimg`).
 pub fn export(call: Call, cx: &mut App) -> Reply {
     let instance = tri!(call.control.instance_param(&call, cx));
-    let store = store(&call.control, cx);
-    let snapshot = tri!(find(&store, &instance, &tri!(snapshot_param(&call))));
+    let images = call.control.instances.read(cx).images();
+    let snapshot = tri!(find_now(&images, &instance, &tri!(snapshot_param(&call))));
     let mut path = tri!(path_param(&call));
     if path.is_dir() {
         path = path.join(format!(
             "{} - {}.{}",
             instance.name.replace(['/', '\\', ':'], "_"),
             snapshot.name.replace(['/', '\\', ':'], "_"),
-            snapshots::EXTENSION
+            export::EXTENSION
         ));
     }
     if path.exists() && !super::confirmed(&call.params) {
@@ -375,89 +460,95 @@ pub fn export(call: Call, cx: &mut App) -> Reply {
         )));
     }
     launcher_core::trace::emit("snapshot.export", || json!({ "snapshot": snapshot.id }));
-    let label = format!("Writing {}", snapshot.name);
+    let label = format!("Writing {}", snapshot.name_shown());
+    let id = instance.id.clone();
     job(
         &call,
         label,
         Some(&instance),
-        move |progress| {
-            store
-                .export(&snapshot, &path, progress)
-                .map_err(snapshot_error)?;
-            let bytes = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-            Ok(json!({ "path": path, "bytes": bytes, "snapshot": snapshot.id }))
+        move |_| {
+            let report = images
+                .export_snapshot(&id, &snapshot.id, &path, launcher_core::images::NEVER)
+                .map_err(image_error)?;
+            Ok(json!({
+                "path": report.file,
+                "bytes": report.bytes,
+                "snapshot": snapshot.id,
+                "objects": report.objects,
+                "references": report.references,
+                "left_out": report.left_out,
+            }))
         },
         |_, _, _| {},
         cx,
     )
 }
 
-/// `snapshots.import`: what a `.lodesnap` file holds (`preview`), or a new instance
-/// from it. One with mods, or with launch settings and the settings part, needs confirm.
+#[derive(Deserialize)]
+struct ImportParams {
+    #[serde(default)]
+    preview: bool,
+    #[serde(default)]
+    name: Option<String>,
+}
+
+/// `snapshots.import`: what an image file holds (`preview`), or a new instance from it.
+/// One with mods needs confirm.
 pub fn import(call: Call, cx: &mut App) -> Reply {
+    let params: ImportParams = params!(call);
     let path = tri!(path_param(&call));
-    // Reads the zip's directory and manifest only; the files are checked as they unpack.
-    let snapshot = tri!(snapshots::inspect(&path).map_err(snapshot_error));
-    let mut preview = snapshot_json(&snapshot);
-    preview["instance_name"] = json!(snapshot.instance.name);
-    preview["loader"] = json!(snapshot.instance.loader);
-    preview["mods"] = json!(snapshot.mods());
-    // Applied only with the settings part: its own Java, arguments, environment, memory.
-    preview["launch_settings"] = json!(snapshot.sets_launch_settings());
-    if call.params.get("preview").and_then(Value::as_bool) == Some(true) {
-        return ready(Ok(preview));
+    // Reads the zip's directory and manifests only; the files are checked as they unpack.
+    let preview = tri!(export::inspect(&path).map_err(image_error));
+    if params.preview {
+        return ready(Ok(serde_json::to_value(&preview).unwrap_or(Value::Null)));
     }
-    let selection = tri!(selection(&call.params, snapshot.selection.clone()));
-    let mods = if selection.categories.contains(&Category::Mods) {
-        snapshot.mods()
-    } else {
-        Vec::new()
-    };
-    // The sender's launch settings come only with "settings", and can run code too.
-    let launch_settings =
-        selection.categories.contains(&Category::Settings) && snapshot.sets_launch_settings();
-    // One confirmation naming everything that runs code: "confirm" is a single flag, so
-    // asking twice would let a --yes given for the mods pass the settings unheard.
-    let mut risks = Vec::new();
-    if !mods.is_empty() {
-        risks.push(format!(
-            "{} mods ({}): programs that run when the game starts",
-            mods.len(),
-            mods.join(", ")
-        ));
-    }
-    if launch_settings {
-        risks.push(
-            "the snapshot's launch settings (its own Java, Java or game arguments, environment variables or memory), which can run programs when the game starts; leaving out the settings part leaves them out"
-                .to_string(),
-        );
-    }
-    if !risks.is_empty() {
+    if !preview.mods.is_empty() {
         tri!(call.confirm(format!(
-            "makes an instance with {}. Only use snapshots from people the user trusts",
-            risks.join("; and ")
+            "makes an instance with {} mods ({}): programs that run when the game starts. Only use files from people the user trusts",
+            preview.mods.len(),
+            preview.mods.join(", ")
         )));
     }
     let instances = call.control.instances.read(cx);
-    let store = instances.snapshot_store();
-    let instance_store = instances.store();
     let images = instances.images();
-    launcher_core::trace::emit("snapshot.import", || json!({ "mods": mods.len() }));
-    let label = format!("Making an instance from {}", snapshot.instance.name);
+    let downloader = instances.content_downloader();
+    let modrinth = tri!(instances.modrinth().ok_or_else(|| api_error(
+        codes::UNAVAILABLE,
+        "Modrinth can't be reached, so the file's mods can't be downloaded."
+    )));
+    let curseforge = instances.curseforge();
+    let room = export::room_on(instances.store().root().to_path_buf());
+    launcher_core::trace::emit("snapshot.import", || json!({ "mods": preview.mods.len() }));
+    let label = format!("Making an instance from {}", preview.name_shown);
+    let name = params.name;
     job(
         &call,
         label,
         None,
-        move |progress| {
-            let instance = store
-                .import_as_instance(&instance_store, &path, &selection, progress)
-                .map_err(snapshot_error)?;
-            crate::instances::record_created_later(
-                &images,
-                &instance.id,
-                launcher_core::images::labels::FROM_SNAPSHOT,
-            );
-            Ok(json!({ "instance": instance.id, "name": instance.name }))
+        move |_| {
+            let progress = Downloads::default();
+            let cancel = CancelToken::new();
+            let imported = futures::executor::block_on(launcher_core::http::in_http_runtime(
+                export::import_file(
+                    &images,
+                    export::Sources {
+                        downloader: &downloader,
+                        modrinth: &modrinth,
+                        curseforge: curseforge.as_deref(),
+                    },
+                    &path,
+                    name.as_deref(),
+                    &room,
+                    &progress,
+                    &cancel,
+                ),
+            ))
+            .map_err(image_error)?;
+            Ok(json!({
+                "instance": imported.instance.id,
+                "name": imported.instance.name,
+                "left_out": imported.left_out,
+            }))
         },
         |control, _, cx| {
             control
@@ -468,27 +559,110 @@ pub fn import(call: Call, cx: &mut App) -> Reply {
     )
 }
 
-/// `snapshots.delete`: deletes a snapshot, and the files no other one uses.
+/// `snapshots.delete`: deletes a snapshot (its image too, when no other snapshot uses it).
 pub fn delete(call: Call, cx: &mut App) -> Reply {
     let instance = tri!(call.control.instance_param(&call, cx));
-    let store = store(&call.control, cx);
-    let snapshot = tri!(find(&store, &instance, &tri!(snapshot_param(&call))));
+    let images = call.control.instances.read(cx).images();
+    let snapshot = tri!(find_now(&images, &instance, &tri!(snapshot_param(&call))));
     tri!(call.confirm(format!(
         "deletes the snapshot \"{}\" of \"{}\", for good",
-        snapshot.name, instance.name
+        snapshot.name_shown(),
+        instance.name
     )));
     launcher_core::trace::emit("snapshot.delete", || json!({ "snapshot": snapshot.id }));
-    // In the background: freeing the files waits for snapshot jobs of other instances
-    // that are storing files, which can take minutes.
     let deleting = cx.background_spawn({
         let instance = instance.id.clone();
         let id = snapshot.id.clone();
-        async move { store.delete(&instance, &id) }
+        async move { images.delete_snapshot(&instance, &id) }
     });
     let control = call.control.clone();
     cx.spawn(async move |cx| {
-        let freed = deleting.await.map_err(snapshot_error)?;
+        deleting.await.map_err(image_error)?;
         cx.update(|cx| refresh(&control, &instance.id, cx));
-        Ok(json!({ "deleted": snapshot.id, "freed_bytes": freed }))
+        Ok(json!({ "deleted": snapshot.id }))
     })
+}
+
+#[derive(Deserialize)]
+struct PinParams {
+    #[serde(default = "yes")]
+    pinned: bool,
+}
+
+fn yes() -> bool {
+    true
+}
+
+/// `snapshots.pin`: pins (or with `pinned: false` unpins) a snapshot, which retention and
+/// Storage's clean-up then never delete.
+pub fn pin(call: Call, cx: &mut App) -> Reply {
+    let params: PinParams = params!(call);
+    let instance = tri!(call.control.instance_param(&call, cx));
+    let images = call.control.instances.read(cx).images();
+    let snapshot = tri!(find_now(&images, &instance, &tri!(snapshot_param(&call))));
+    let pinning = cx.background_spawn({
+        let instance = instance.id.clone();
+        let id = snapshot.id.clone();
+        async move { images.set_pinned(&instance, &id, params.pinned) }
+    });
+    let control = call.control.clone();
+    cx.spawn(async move |cx| {
+        pinning.await.map_err(image_error)?;
+        cx.update(|cx| refresh(&control, &instance.id, cx));
+        Ok(json!({ "snapshot": snapshot.id, "pinned": params.pinned }))
+    })
+}
+
+/// `snapshots.policy`: the instance's snapshot settings, changing those given: `after_play`
+/// (`null` or `"default"` follows Settings › Instances) and how many automatic snapshots
+/// are kept (`keep_last`, `keep_daily`, `keep_weekly`; at most 1000, `null` or
+/// `"default"` for the default).
+pub fn policy(call: Call, cx: &mut App) -> Reply {
+    let instance = tri!(call.control.instance_param(&call, cx));
+    let mut settings = instance.snapshots.unwrap_or_default();
+    let mut changed = false;
+    if let Some(value) = call.params.get("after_play") {
+        settings.after_play = value.as_bool();
+        changed = true;
+    }
+    for (key, field) in [
+        ("keep_last", &mut settings.keep_last),
+        ("keep_daily", &mut settings.keep_daily),
+        ("keep_weekly", &mut settings.keep_weekly),
+    ] {
+        if let Some(value) = call.params.get(key) {
+            *field = match value {
+                Value::Null => None,
+                Value::String(text) if text == "default" => None,
+                other => match other.as_u64().and_then(|n| u32::try_from(n).ok()) {
+                    Some(n) if n <= SnapshotSettings::MAX_KEEP => Some(n),
+                    _ => {
+                        return ready(Err(api_error(
+                            codes::INVALID_PARAMS,
+                            format!(
+                                "{key} is a number from 0 to {}, or default.",
+                                SnapshotSettings::MAX_KEEP
+                            ),
+                        )));
+                    }
+                },
+            };
+            changed = true;
+        }
+    }
+    let control = call.control.clone();
+    if changed {
+        let mut updated = instance.clone();
+        updated.snapshots = (!settings.is_empty()).then_some(settings);
+        let saved = control
+            .instances
+            .update(cx, |instances, cx| instances.save(&updated, cx));
+        tri!(saved.map_err(|err| api_error(codes::FAILED, err)));
+    }
+    let after_play = control.instances.read(cx).snapshot_after_play(&instance.id);
+    let policy = SnapshotPolicy::of(Some(&settings));
+    ready(Ok(json!({
+        "instance": instance.id,
+        "policy": policy_json(&policy, after_play),
+    })))
 }

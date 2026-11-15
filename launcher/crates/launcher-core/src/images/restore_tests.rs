@@ -105,7 +105,10 @@ fn only_the_worlds_puts_back_those_worlds_alone() {
     s.restore(&safety.id, RestoreScope::Worlds(vec!["World".into()]))
         .unwrap();
     assert_eq!(s.read("saves/World/region/r.0.0.mca").unwrap(), b"world v2");
-    assert_eq!(s.read("saves/World/region/r.1.0.mca").unwrap(), b"new region");
+    assert_eq!(
+        s.read("saves/World/region/r.1.0.mca").unwrap(),
+        b"new region"
+    );
 }
 
 #[test]
@@ -147,7 +150,12 @@ fn the_worlds_and_their_mods_put_back_the_linked_content() {
     // The safety snapshot links the content as it was before.
     let safety = restored.safety.unwrap();
     let before = s.image(safety.content.as_deref().unwrap());
-    assert!(before.entries.iter().any(|e| e.path.as_str() == "mods/b.jar"));
+    assert!(
+        before
+            .entries
+            .iter()
+            .any(|e| e.path.as_str() == "mods/b.jar")
+    );
 }
 
 #[test]
@@ -159,7 +167,11 @@ fn everything_puts_back_the_whole_game_folder() {
     assert_eq!(s.read("mods/b.jar"), None);
     assert_eq!(s.read("options.txt").unwrap(), b"fov:70");
     assert_eq!(s.read("saves/Other/region/r.0.0.mca").unwrap(), b"other v1");
-    assert_eq!(s.read("saves/Added/level.dat"), None, "a world added since goes");
+    assert_eq!(
+        s.read("saves/Added/level.dat"),
+        None,
+        "a world added since goes"
+    );
     // What no snapshot takes stays.
     assert_eq!(s.read("logs/latest.log").unwrap(), b"a log");
     assert_eq!(s.read("saves/World/session.lock").unwrap(), b"lock");
@@ -236,10 +248,7 @@ fn restores_are_refused_when_they_would_be_unsafe() {
         .dir(s.id())
         .join(crate::content::mod_finder::FILE_NAME);
     std::fs::write(&finder, b"{}").unwrap();
-    assert!(
-        s.restore(&record.id, RestoreScope::Everything)
-            .is_err()
-    );
+    assert!(s.restore(&record.id, RestoreScope::Everything).is_err());
     // Worlds alone are fine then.
     s.restore(&record.id, RestoreScope::Worlds(vec!["World".into()]))
         .unwrap();
@@ -251,8 +260,11 @@ fn restores_are_refused_when_they_would_be_unsafe() {
     let preview = s.images.preview_restore(s.id(), &record.id).unwrap();
     assert!(preview.other_game);
     assert!(
-        s.restore(&record.id, RestoreScope::WorldsAndContent(vec!["World".into()]))
-            .is_err()
+        s.restore(
+            &record.id,
+            RestoreScope::WorldsAndContent(vec!["World".into()])
+        )
+        .is_err()
     );
     s.restore(&record.id, RestoreScope::Worlds(vec!["World".into()]))
         .unwrap();
@@ -326,7 +338,10 @@ fn swap_fixture(root: &Path) -> (Staged, BTreeMap<String, Vec<u8>>) {
     let before = files(root);
     let suffix = swap::random_suffix();
     let staging = format!("{}{suffix}", swap::STAGING_PREFIX);
-    write(&format!("{staging}/minecraft/saves/World/level.dat"), b"new level");
+    write(
+        &format!("{staging}/minecraft/saves/World/level.dat"),
+        b"new level",
+    );
     write(
         &format!("{staging}/minecraft/saves/World/region/r.0.0.mca"),
         b"new region",
@@ -395,7 +410,11 @@ fn a_crash_at_any_rename_is_undone_at_the_next_start() {
         assert!(phase.is_some());
         assert!(!journal.exists());
         swap::remove_leftovers(&root);
-        assert_eq!(files(&root), before, "after a crash after {crash_after} renames");
+        assert_eq!(
+            files(&root),
+            before,
+            "after a crash after {crash_after} renames"
+        );
         // Again: nothing to do.
         assert_eq!(swap::recover_one(&root, &journal).unwrap(), None);
     }
@@ -463,7 +482,12 @@ fn an_interrupted_restore_is_recovered_when_the_launcher_starts() {
     assert!(recovery.broken.is_empty());
     assert_eq!(files(&root), before);
     // A staging folder a crash left before any journal is deleted too.
-    std::fs::create_dir_all(root.join(format!("{}{}", swap::STAGING_PREFIX, swap::random_suffix()))).unwrap();
+    std::fs::create_dir_all(root.join(format!(
+        "{}{}",
+        swap::STAGING_PREFIX,
+        swap::random_suffix()
+    )))
+    .unwrap();
     s.images.recover_restores();
     assert_eq!(files(&root), before);
 }
@@ -548,8 +572,11 @@ fn a_full_snapshot_restores_everything_without_a_link() {
         .unwrap();
     s.write("mods/a.jar", b"mod v2");
     s.write("saves/World/region/r.0.0.mca", b"w2");
-    s.restore(&full.id, RestoreScope::WorldsAndContent(vec!["World".into()]))
-        .unwrap();
+    s.restore(
+        &full.id,
+        RestoreScope::WorldsAndContent(vec!["World".into()]),
+    )
+    .unwrap();
     assert_eq!(s.read("mods/a.jar").unwrap(), b"mod v1");
     assert_eq!(s.read("saves/World/region/r.0.0.mca").unwrap(), b"w1");
 }

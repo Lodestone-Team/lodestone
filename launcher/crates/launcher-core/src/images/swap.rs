@@ -125,7 +125,8 @@ pub(crate) fn random_suffix() -> String {
 
 /// `rel` (a `/`-separated relative path) under `base`.
 pub(crate) fn join_rel(base: &Path, rel: &str) -> PathBuf {
-    rel.split('/').fold(base.to_path_buf(), |path, part| path.join(part))
+    rel.split('/')
+        .fold(base.to_path_buf(), |path, part| path.join(part))
 }
 
 /// Whether `rel` is a plain relative path into the game folder, as a journal must hold:
@@ -136,10 +137,7 @@ pub(crate) fn valid_rel_path(rel: &str) -> bool {
         && rel.len() <= 8192
         && rel.split('/').skip(1).count() > 0
         && parts.all(|part| {
-            !part.is_empty()
-                && part != "."
-                && part != ".."
-                && !part.contains(['\\', ':', '\0'])
+            !part.is_empty() && part != "." && part != ".." && !part.contains(['\\', ':', '\0'])
         })
 }
 
@@ -296,7 +294,12 @@ impl Staged {
     }
 
     /// Rolls back a swap that failed after the journal was written.
-    fn undo(&self, journal_path: &Path, journal: &Journal, error: ImageError) -> Result<(), SwapError> {
+    fn undo(
+        &self,
+        journal_path: &Path,
+        journal: &Journal,
+        error: ImageError,
+    ) -> Result<(), SwapError> {
         #[cfg(test)]
         let undone = if self.faults.break_rollback {
             Err(vec!["broken on purpose".to_string()])
@@ -361,15 +364,15 @@ impl Staged {
             }
             renames += 1;
             if let Some(parent) = to.parent() {
-                fs::create_dir_all(parent)
-                    .map_err(|e| MoveError::Failed(io_error(format!("Failed to move {what}"))(e)))?;
+                fs::create_dir_all(parent).map_err(|e| {
+                    MoveError::Failed(io_error(format!("Failed to move {what}"))(e))
+                })?;
             }
             crate::fsx::rename(from, to)
                 .map_err(|e| MoveError::Failed(io_error(format!("Failed to move {what}"))(e)))
         };
-        fs::create_dir(&old_dir).map_err(|e| {
-            MoveError::Failed(io_error("Failed to create the restore's folder")(e))
-        })?;
+        fs::create_dir(&old_dir)
+            .map_err(|e| MoveError::Failed(io_error("Failed to create the restore's folder")(e)))?;
         for entry in self.owned.iter().filter(|e| e.had_old) {
             rename(
                 &join_rel(&self.root, &entry.path),
@@ -480,7 +483,10 @@ fn remove_journal(path: &Path) {
         super::warn(
             "images.restore",
             "",
-            &format!("Failed to delete the restore journal {}: {e}", path.display()),
+            &format!(
+                "Failed to delete the restore journal {}: {e}",
+                path.display()
+            ),
         );
     }
 }
@@ -517,7 +523,10 @@ pub(crate) fn rollback(root: &Path, journal: &Journal) -> Result<(), Vec<String>
         return Err(vec!["the journal names invalid folders".to_string()]);
     }
     if let Some(bad) = journal.entries.iter().find(|e| !valid_rel_path(&e.path)) {
-        return Err(vec![format!("the journal has an invalid path {:?}", bad.path)]);
+        return Err(vec![format!(
+            "the journal has an invalid path {:?}",
+            bad.path
+        )]);
     }
     let staging_dir = root.join(format!("{STAGING_PREFIX}{}", journal.staging));
     let old_dir = root.join(format!("{OLD_PREFIX}{}", journal.old));

@@ -1,14 +1,13 @@
 //! Instance images in the Launcher (`docs/instance-images.md`): content images of each
 //! instance, recorded as the Launcher changes its mods, packs and configs and before the
-//! game launches, kept in one image store for every instance on the machine.
+//! game launches, and its snapshots (data and full images), kept in one image store for
+//! every instance on the machine.
 //!
 //! The store is `<data>/image-store/` ([`crate::paths::DataDir::image_store_dir`]): plain
 //! files (the Launcher has no zstd; APFS clones them where it can), `objects/`, `lists/`,
-//! `chunks/` and `images/<instance>/`. It sits beside the snapshot store
-//! (`<data>/snapshots/`, [`crate::snapshots`]), never inside it: each has its own objects
-//! and its own collector, and neither collector reads the other's folder, so neither can
-//! delete what the other names. The image store's only collector is its own GC
-//! ([`Images::request_gc`]).
+//! `chunks/` and `images/<instance>/`. Its only collector is its own GC
+//! ([`Images::request_gc`]), which marks every manifest: content images, snapshots and the
+//! content they link to, and deleted instances' snapshots ([`retired`]).
 //!
 //! - [`recorder`]: operations ([`Images::begin`]), merging what succeeds within a few
 //!   seconds into one image, and recording a content image.
@@ -19,6 +18,9 @@
 //! - [`state`]: the current content image and the baseline. [`labels`]: what each action
 //!   calls its image.
 //! - [`retention`]: which manifests to keep. [`history`]: listing an instance's images.
+//! - [`snapshots`]: taking snapshots and their records; [`restore`] and [`swap`]: going
+//!   back to one; [`export`]: sharing one as a file; [`retired`]: deleted instances'
+//!   snapshots.
 //!
 //! Everything here blocks (it reads and hashes files) except [`Images::begin`] and
 //! [`recorder::Operation`]'s success, which only queue a label: call the rest on a
@@ -43,8 +45,8 @@ pub mod export;
 pub mod history;
 pub mod labels;
 pub mod recorder;
-pub mod retention;
 pub mod restore;
+pub mod retention;
 pub mod retired;
 pub mod scope;
 pub mod snapshots;
@@ -73,9 +75,12 @@ use crate::paths::DataDir;
 
 pub use check::Checked;
 pub use history::{History, HistoryEntry};
+/// For the app, which shows labels and names from images and passes no way to cancel.
+pub use lodestone_image::display_text;
+pub use lodestone_image::store::{Cancel, NEVER};
 pub use recorder::{Operation, Recorded};
-pub use retention::{DEFAULT_POLICY, KEEP_CONTENT, Keep, SnapshotPolicy};
 pub use restore::{ContentDiff, RestorePreview, RestoreScope, Restored, WorldChange};
+pub use retention::{DEFAULT_POLICY, KEEP_CONTENT, Keep, SnapshotPolicy};
 pub use retired::{CleanedUp, Retired, RetiredMarker};
 pub use snapshots::{RiskyChange, SnapshotKind, SnapshotRecord, Snapshots, Take};
 

@@ -58,7 +58,11 @@ fn a_snapshot_is_a_data_image_linked_to_the_current_content() {
     s.write("options.txt", b"fov:90");
     s.world("World", b"region bytes");
     s.write("screenshots/a.png", b"png");
-    let created = s.images.record_now(s.id(), "Created Pack").unwrap().unwrap();
+    let created = s
+        .images
+        .record_now(s.id(), "Created Pack")
+        .unwrap()
+        .unwrap();
     let record = s.snapshot("Before 1.21");
     assert_eq!(record.kind, SnapshotKind::Manual);
     assert_eq!(record.name, "Before 1.21");
@@ -189,10 +193,7 @@ fn a_snapshot_before_a_pack_update_holds_what_the_game_wrote() {
     s.images.record_now(s.id(), "Installed FO 6.3").unwrap();
     // The game rewrites a config while it runs; its session's end takes the baseline
     // again without an image.
-    assert!(matches!(
-        s.images.before_launch(s.id()),
-        Checked::Unchanged
-    ));
+    assert!(matches!(s.images.before_launch(s.id()), Checked::Unchanged));
     s.write("config/a.toml", b"rewritten by the game");
     s.images.end_session(s.id());
     let before = s.state().current.unwrap();
@@ -285,7 +286,11 @@ fn records_follow_the_manifests() {
     assert!(listed.iter().all(|r| r.kind == SnapshotKind::Manual));
     let names: Vec<&str> = listed.iter().map(|r| r.name.as_str()).collect();
     assert!(names.contains(&"First") && names.contains(&"Second"));
-    assert!(listed.iter().any(|r| r.image == first.image && r.files == 2));
+    assert!(
+        listed
+            .iter()
+            .any(|r| r.image == first.image && r.files == 2)
+    );
 
     // A record whose image is gone is dropped.
     s.images
@@ -372,7 +377,10 @@ fn retention_thins_automatic_snapshots_and_keeps_the_rest() {
     s.images.record_now(s.id(), "Created").unwrap();
     let manual = s.snapshot("Mine");
     for i in 0..5 {
-        s.write("saves/World/region/r.0.0.mca", format!("change {i}").as_bytes());
+        s.write(
+            "saves/World/region/r.0.0.mca",
+            format!("change {i}").as_bytes(),
+        );
         s.images
             .before_risky_change(
                 s.id(),
@@ -389,7 +397,10 @@ fn retention_thins_automatic_snapshots_and_keeps_the_rest() {
         .filter(|r| r.kind == SnapshotKind::BeforeChange)
         .map(|r| r.name.as_str())
         .collect();
-    assert_eq!(automatic, ["Before updating Mod 4", "Before updating Mod 3"]);
+    assert_eq!(
+        automatic,
+        ["Before updating Mod 4", "Before updating Mod 3"]
+    );
     assert!(records.iter().any(|r| r.id == manual.id));
     // Each record left names an image that is there; the deleted ones' images went.
     let images: Vec<String> = s.images.store().manifest_ids(s.id()).unwrap();
@@ -566,7 +577,10 @@ fn a_crash_between_the_marker_and_the_rename_still_retires() {
     // instance is still there (the guard runs) or gone (forgetting runs).
     let dir = s.images.store().instance_dir(s.id()).unwrap();
     std::fs::write(dir.join(retired::RETIRED_FILE), br#"{"former_id":"pack"}"#).unwrap();
-    assert!(s.records().is_empty(), "a marked folder is never the instance's");
+    assert!(
+        s.records().is_empty(),
+        "a marked folder is never the instance's"
+    );
     assert_eq!(s.images.forget_deleted().unwrap(), 1);
     assert!(!dir.exists());
     let retired = s.images.deleted_snapshots().unwrap();

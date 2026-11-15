@@ -28,8 +28,9 @@ use launcher_core::{
     content::{InstanceDirs, packs::Compatibility},
     datapacks::{self, PackState, WorldDataPacks},
     game::download::{CancelToken, Progress},
+    images::{ImageError, Images, RestoreScope, SnapshotKind, SnapshotRecord, Take, labels},
     screenshots::{self, Screenshot},
-    worlds::{self, Backup, RestoreMode, World, WorldError},
+    worlds::{self, World, WorldError},
 };
 use lodestone_minecraft::{
     level::GameMode,
@@ -117,6 +118,54 @@ pub enum Section {
 }
 
 /// What the Worlds tab asks the window to confirm.
+/// A snapshot that holds a world, as its backups panel lists it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Backup {
+    /// The snapshot's id.
+    pub snapshot: String,
+    /// Its name, written visibly.
+    pub name: String,
+    /// Unix seconds.
+    pub created: i64,
+    /// The bytes of the snapshot's files.
+    pub bytes: u64,
+}
+
+/// The snapshots of `records` that hold each world of `list`, by world folder.
+fn backups_of(list: &[World], records: &[SnapshotRecord]) -> HashMap<String, Vec<Backup>> {
+    list.iter()
+        .map(|world| {
+            let held = records
+                .iter()
+                .filter(|r| r.worlds.iter().any(|w| *w == world.folder))
+                .map(|r| Backup {
+                    snapshot: r.id.clone(),
+                    name: r.name_shown(),
+                    created: r.created,
+                    bytes: r.bytes,
+                })
+                .collect();
+            (world.folder.clone(), held)
+        })
+        .collect()
+}
+
+/// The instance id of the instance folder `dirs` is.
+fn id_of(dirs: &InstanceDirs) -> String {
+    dirs.instance
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
+/// A snapshot's failure, as a world job's.
+fn world_error(err: ImageError) -> WorldError {
+    match err {
+        ImageError::Cancelled => WorldError::Cancelled,
+        other => WorldError::Invalid(other.to_string()),
+    }
+}
+
 pub enum WorldsEvent {
     Delete {
         folder: String,
@@ -136,7 +185,6 @@ pub enum JobLabel {
     Restoring,
     Replacing,
     MovingToTrash(String),
-    MovingBackupToTrash,
     Renaming,
     Exporting(String),
     Importing,
@@ -153,7 +201,6 @@ impl JobLabel {
             JobLabel::Restoring => t(M::RestoringBackup).to_string(),
             JobLabel::Replacing => t(M::ReplacingWorld).to_string(),
             JobLabel::MovingToTrash(name) => tr!(M::MovingToTrash, name = name, trash = trash),
-            JobLabel::MovingBackupToTrash => tr!(M::MovingBackupToTrash, trash = trash),
             JobLabel::Renaming => t(M::Renaming).to_string(),
             JobLabel::Exporting(name) => tr!(M::Exporting, name = name),
             JobLabel::Importing => t(M::ImportingWorlds).to_string(),
@@ -402,6 +449,7 @@ impl WorldsView {
         if !matches!(self.worlds, Load::Ready(_)) {
             self.worlds = Load::Loading;
         }
+        let images = self.instances.read(cx).images();
         let work = cx.background_spawn(async move {
             let list = worlds::list(&dirs);
             let icons: Vec<(String, image::RgbaImage)> = list
@@ -411,10 +459,11 @@ impl WorldsView {
                     Some((w.folder.clone(), icon))
                 })
                 .collect();
-            let backups: HashMap<String, Vec<Backup>> = list
-                .iter()
-                .map(|w| (w.folder.clone(), worlds::backups(&dirs, &w.folder)))
-                .collect();
+            let records = images
+                .snapshots(&id_of(&dirs))
+                .map(|found| found.records)
+                .unwrap_or_default();
+            let backups = backups_of(&list, &records);
             (list, icons, backups)
         });
         self.load_task = Some(cx.spawn(async move |this, cx| {
@@ -546,66 +595,78 @@ impl WorldsView {
         cx.notify();
     }
 
+    /// Backs the world up: a manual snapshot named after it.
     pub fn back_up(&mut self, folder: String, name: String, cx: &mut Context<Self>) {
         self.expanded = Some(folder.clone());
+        let (images, instance) = self.images_of(cx);
         self.run(
             JobLabel::BackingUp(name.clone()),
-            move |dirs, progress, cancel| {
-                let backup = worlds::backup(dirs, &folder, progress, cancel)?;
-                Ok(tr!(
-                    M::BackedUp,
-                    name = name,
-                    size = format::bytes(backup.size)
-                ))
+            move |_, _, _| {
+                images
+                    .take_snapshot(
+                        &instance,
+                        Take::new(SnapshotKind::Manual, labels::backed_up(&name)),
+                    )
+                    .map_err(world_error)?;
+                Ok(tr!(M::BackedUp, name = name))
             },
             cx,
         );
     }
 
     pub fn restore_copy(&mut self, folder: String, backup: Backup, cx: &mut Context<Self>) {
+        let (images, instance) = self.images_of(cx);
         self.run(
             JobLabel::Restoring,
-            move |dirs, progress, cancel| {
-                let restored = worlds::restore_with(
-                    dirs,
-                    &folder,
-                    &backup.path,
-                    RestoreMode::Copy,
-                    |_| Ok(()),
-                    progress,
-                    cancel,
-                )?;
-                Ok(tr!(M::RestoredAsCopy, folder = restored.folder))
+            move |_, _, _| {
+                let copy = images
+                    .restore_world_copy(
+                        &instance,
+                        &backup.snapshot,
+                        &folder,
+                        launcher_core::images::NEVER,
+                    )
+                    .map_err(world_error)?;
+                Ok(tr!(M::RestoredAsCopy, folder = copy))
             },
             cx,
         );
     }
 
-    /// Replaces the world with a backup (after the window's confirmation).
+    /// Puts the world back from a snapshot, in its place (after the window's
+    /// confirmation), after a safety snapshot.
     pub fn restore_replace(&mut self, folder: String, backup: Backup, cx: &mut Context<Self>) {
+        let (images, instance) = self.images_of(cx);
         self.run(
             JobLabel::Replacing,
-            move |dirs, progress, cancel| {
-                let restored = worlds::restore(
-                    dirs,
-                    &folder,
-                    &backup.path,
-                    RestoreMode::Replace,
-                    progress,
-                    cancel,
-                )?;
-                Ok(match restored.safety_backup {
+            move |_, _, _| {
+                let restored = images
+                    .restore(
+                        &instance,
+                        &backup.snapshot,
+                        &RestoreScope::Worlds(vec![folder.clone()]),
+                        launcher_core::images::NEVER,
+                    )
+                    .map_err(world_error)?;
+                Ok(match restored.safety {
                     Some(safety) => tr!(
                         M::RestoredWithSafety,
-                        folder = restored.folder,
-                        backup = safety.file_name,
-                        trash = t(CommonMsg::TheTrash)
+                        folder = folder,
+                        snapshot = safety.name_shown()
                     ),
-                    None => tr!(M::Restored, folder = restored.folder),
+                    None => tr!(M::Restored, folder = folder),
                 })
             },
             cx,
         );
+    }
+
+    /// The image store and the shown instance, for a job.
+    fn images_of(&self, cx: &gpui::App) -> (Arc<Images>, String) {
+        (
+            self.instances.read(cx).images(),
+            self.instance_id.clone().unwrap_or_default(),
+        )
     }
 
     /// Moves the world to the Trash (after the window's confirmation).
@@ -615,21 +676,6 @@ impl WorldsView {
             move |dirs, _, _| {
                 worlds::delete(dirs, &folder)?;
                 Ok(tr!(M::InTrash, name = name, trash = t(CommonMsg::TheTrash)))
-            },
-            cx,
-        );
-    }
-
-    pub fn delete_backup(&mut self, backup: Backup, cx: &mut Context<Self>) {
-        self.run(
-            JobLabel::MovingBackupToTrash,
-            move |dirs, _, _| {
-                worlds::delete_backup(dirs, &backup.path)?;
-                Ok(tr!(
-                    M::InTrash,
-                    name = backup.file_name,
-                    trash = t(CommonMsg::TheTrash)
-                ))
             },
             cx,
         );
@@ -1264,10 +1310,14 @@ impl WorldsView {
                 Some((w.folder.clone(), crate::images::render_image(icon)))
             })
             .collect();
-        self.backups = list
-            .iter()
-            .map(|w| (w.folder.clone(), worlds::backups(&dirs, &w.folder)))
-            .collect();
+        let records = self
+            .instances
+            .read(cx)
+            .images()
+            .snapshots(&id_of(&dirs))
+            .map(|found| found.records)
+            .unwrap_or_default();
+        self.backups = backups_of(&list, &records);
         self.worlds = Load::Ready(list);
         let shots = screenshots::list(&dirs);
         for shot in &shots {
@@ -2135,16 +2185,13 @@ impl WorldsView {
         }
         for (index, backup) in backups.iter().enumerate() {
             let id = world_index * 1000 + index;
-            let date = backup
-                .created
-                .map(when)
-                .unwrap_or_else(|| backup.file_name.clone());
+            let date = super::snapshots::when(backup.created);
             list = list.child(
                 div()
                     .id(("backup-row", id))
                     .accessible(
                         Role::Group,
-                        format!("backup-{}", backup.file_name),
+                        format!("backup-{}", backup.snapshot),
                         date.clone(),
                     )
                     .flex()
@@ -2166,13 +2213,9 @@ impl WorldsView {
                                     .child(date),
                             )
                             .child(
-                                small(format!(
-                                    "{} · {}",
-                                    backup.file_name,
-                                    format::bytes(backup.size)
-                                ))
-                                .truncate()
-                                .text_color(crate::theme::ink::muted()),
+                                small(format!("{} · {}", backup.name, format::bytes(backup.bytes)))
+                                    .truncate()
+                                    .text_color(crate::theme::ink::muted()),
                             ),
                     )
                     .child(
@@ -2203,27 +2246,6 @@ impl WorldsView {
                                             backup: backup.clone(),
                                         });
                                     }
-                                })
-                            }),
-                    )
-                    .child(
-                        Button::new(("reveal-backup", id), t(CommonMsg::ShowInFileManager))
-                            .variant(ButtonVariant::Ghost)
-                            .size(ButtonSize::Slim)
-                            .on_click({
-                                let path = backup.path.clone();
-                                move |_, _, cx| cx.reveal_path(&path)
-                            }),
-                    )
-                    .child(
-                        Button::new(("delete-backup", id), t(CommonMsg::Delete))
-                            .variant(ButtonVariant::Danger)
-                            .size(ButtonSize::Slim)
-                            .disabled(busy)
-                            .on_click({
-                                let backup = backup.clone();
-                                cx.listener(move |this, _, _, cx| {
-                                    this.delete_backup(backup.clone(), cx)
                                 })
                             }),
                     ),

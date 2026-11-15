@@ -91,7 +91,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::ReplaceWorldTitle => "Remplacer {name} par cette sauvegarde\u{202F}?",
         M::ReplaceWorldBody => {
-            "{name} revient à son état de la sauvegarde ({when}). Tout ce qui a changé depuis est perdu dans le monde, mais il est d’abord sauvegardé et le dossier actuel est placé dans {trash}."
+            "{name} revient à son état de la sauvegarde ({when}). Un instantané du monde tel qu’il est maintenant est pris d’abord et gardé 30\u{a0}jours."
         }
         M::BackUpAndReplace => "Sauvegarder et remplacer",
         M::RemoveAccountTitle => "Retirer {name}\u{202F}?",
@@ -157,9 +157,8 @@ pub fn text(message: M) -> &'static str {
         M::KeptFiles => "Gardés tels que vous les avez modifiés ({count})",
         M::WrittenFiles => "Configurations et autres fichiers écrits ({count})",
         M::ModpackUpdateSafety => {
-            "Vos propres mods, vos mondes et vos configurations modifiées ne sont pas touchés. Chaque fichier remplacé ou supprimé est d’abord enregistré dans le dossier de sauvegardes de l’instance."
+            "Vos propres mods, mondes et configurations modifiées ne sont pas touchés. Un instantané de l’instance est pris d’abord, et chaque fichier remplacé ou supprimé est gardé dans le dossier de sauvegardes de l’instance."
         }
-        M::BackUpEveryWorld => "Sauvegarder d’abord tous les mondes",
 
         M::SaveChangesTitle => "Enregistrer vos modifications\u{202F}?",
         M::UnsavedDefaultsBody => {
@@ -858,10 +857,12 @@ pub fn text(message: M) -> &'static str {
         M::StorageRuntimes => "Environnements Java",
         M::StorageCache => "Cache",
         M::StorageSnapshots => "Instantanés",
-        M::StorageSnapshotsHint => "{count} instantanés · {size} récupérables",
-        M::StorageCleanSnapshotsTitle => "Supprimer les instantanés automatiques\u{a0}?",
+        M::StorageSnapshotsHint => {
+            "{count}\u{a0}instantanés et l’historique du contenu de chaque instance · {removable} peuvent être supprimés"
+        }
+        M::StorageCleanSnapshotsTitle => "Supprimer les instantanés pris par le Launcher\u{a0}?",
         M::StorageCleanSnapshotsBody => {
-            "Libère {size}. Supprime les instantanés pris avant un retour en arrière, ceux des instances supprimées et les fichiers créés pour le partage."
+            "Cela supprime {count}\u{a0}instantanés\u{a0}: ceux pris par le Launcher et ceux des instances supprimées. Les vôtres et les épinglés restent. Les fichiers de la dernière heure sont libérés au prochain nettoyage."
         }
         M::StorageLeftovers => "Téléchargements et importations inachevés",
         M::StorageCleanLeftoversTitle => "Supprimer les téléchargements inachevés\u{a0}?",

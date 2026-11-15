@@ -119,7 +119,7 @@ crate::i18n::messages! {
         DeleteInstanceBody = "The instance's folder, with its worlds, mods and settings, moves to {trash}. You can put it back from there.",
         ReplaceWorldTitle = "Replace {name} with this backup?",
         /// {when} is when the backup was made: "today, 14:05".
-        ReplaceWorldBody = "{name} goes back to how it was {when}. Everything since is lost from the world, but it is backed up first and the current folder goes to {trash}.",
+        ReplaceWorldBody = "{name} goes back to how it was {when}. A snapshot of the world as it is now is taken first and kept for 30 days.",
         BackUpAndReplace = "Back up and replace",
         RemoveAccountTitle = "Remove {name}?",
         RemoveAccountBody = "Lodestone Launcher forgets this account and deletes its saved sign-in from your {keychain}. You can add it again later.",
@@ -171,8 +171,7 @@ crate::i18n::messages! {
         ReplacedOwnFiles = "Your files the pack now provides ({count})",
         KeptFiles = "Kept as you changed them ({count})",
         WrittenFiles = "Configs and other files written ({count})",
-        ModpackUpdateSafety = "Your own mods, worlds and changed configs aren't touched. Every file that is replaced or removed is saved in the instance's backups folder first.",
-        BackUpEveryWorld = "Back up every world first",
+        ModpackUpdateSafety = "Your own mods, worlds and changed configs aren't touched. A snapshot of the instance is taken first, and every file that is replaced or removed is saved in the instance's backups folder.",
 
         // Unsaved settings.
         SaveChangesTitle = "Save your changes?",
@@ -814,9 +813,11 @@ crate::i18n::messages! {
         StorageCleanLeftoversTitle = "Remove unfinished downloads?",
         StorageCleanLeftoversBody = "This frees {size}. These are files of modpack downloads and imports that didn't finish.",
         StorageSnapshots = "Snapshots",
-        StorageSnapshotsHint = "{count} snapshots · {size} can be freed",
-        StorageCleanSnapshotsTitle = "Remove automatic snapshots?",
-        StorageCleanSnapshotsBody = "This frees {size}. It removes the snapshots taken before going back, those of deleted instances, and files made to share.",
+        /// {count} is how many snapshots there are, {removable} how many the clean-up removes.
+        StorageSnapshotsHint = "{count} snapshots and each instance's content history · {removable} can be removed",
+        StorageCleanSnapshotsTitle = "Remove the Launcher's own snapshots?",
+        /// {count} is how many snapshots go.
+        StorageCleanSnapshotsBody = "This removes {count} snapshots: the ones the Launcher took on its own, and those of deleted instances. Yours and pinned ones stay. Files from the last hour are freed at the next clean-up.",
         StorageOther = "Settings and other files",
         StorageCacheAndLogs = "Cache and logs",
         /// Settings > Storage: the section with the data folder's path.

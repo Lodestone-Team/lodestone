@@ -18,16 +18,15 @@ pub fn text(message: M) -> &'static str {
         M::RestoringBackup => "Restauration de la sauvegarde",
         M::ReplacingWorld => "Remplacement du monde par la sauvegarde",
         M::MovingToTrash => "Déplacement de {name} dans {trash}",
-        M::MovingBackupToTrash => "Déplacement de la sauvegarde dans {trash}",
         M::Renaming => "Renommage",
         M::Exporting => "Exportation de {name}",
         M::ImportingWorlds => "Importation des mondes",
 
-        M::BackedUp => "{name} sauvegardé ({size}).",
+        M::BackedUp => "{name} sauvegardé.",
         M::RestoredAsCopy => "Restauré en tant que nouveau monde, {folder}.",
         M::Restored => "{folder} restauré.",
         M::RestoredWithSafety => {
-            "{folder} restauré. Le monde tel qu’il était est sauvegardé sous {backup}, et dans {trash}."
+            "{folder} restauré. Le monde tel qu’il était est dans l’instantané «\u{a0}{snapshot}\u{a0}»."
         }
         M::InTrash => "{name} est dans {trash}.",
         M::RenamedTo => "Renommé en {name}.",
@@ -53,7 +52,7 @@ pub fn text(message: M) -> &'static str {
         M::Export => "Exporter…",
         M::DeleteWorld => "Supprimer…",
         M::NoBackupsYet => {
-            "Aucune sauvegarde pour l’instant. «\u{a0}Sauvegarder\u{a0}» enregistre le monde dans un zip, dans le dossier backups de l’instance."
+            "Aucun instantané de ce monde pour l’instant. «\u{a0}Sauvegarder\u{a0}» en prend un\u{a0}; Paramètres › Instantanés les liste tous."
         }
         M::RestoreAsCopy => "Restaurer une copie",
         M::ReplaceWorld => "Remplacer le monde…",

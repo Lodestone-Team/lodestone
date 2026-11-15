@@ -108,10 +108,15 @@ fn fixture() -> (Fixture, launcher_core::images::SnapshotRecord) {
         },
     );
     known.save(&dir).unwrap();
-    f.images.record_now(&f.instance.id, "Created Survival").unwrap();
+    f.images
+        .record_now(&f.instance.id, "Created Survival")
+        .unwrap();
     let record = f
         .images
-        .take_snapshot(&f.instance.id, Take::new(SnapshotKind::Manual, "Before the end"))
+        .take_snapshot(
+            &f.instance.id,
+            Take::new(SnapshotKind::Manual, "Before the end"),
+        )
         .unwrap()
         .unwrap();
     (f, record)
@@ -143,7 +148,11 @@ fn zip_names(path: &Path) -> Vec<String> {
 fn zip_read(path: &Path, name: &str) -> Vec<u8> {
     let mut archive = zip::ZipArchive::new(fs::File::open(path).unwrap()).unwrap();
     let mut bytes = Vec::new();
-    archive.by_name(name).unwrap().read_to_end(&mut bytes).unwrap();
+    archive
+        .by_name(name)
+        .unwrap()
+        .read_to_end(&mut bytes)
+        .unwrap();
     bytes
 }
 
@@ -183,7 +192,11 @@ fn downloader() -> Downloader {
     Downloader::new(http::download_client().unwrap(), recording_sleep().0).with_attempts(1)
 }
 
-fn import(f: &Fixture, path: &Path, room: bool) -> Result<export::Imported, launcher_core::images::ImageError> {
+fn import(
+    f: &Fixture,
+    path: &Path,
+    room: bool,
+) -> Result<export::Imported, launcher_core::images::ImageError> {
     let modrinth = f.mock.client();
     let downloader = downloader();
     let check = |bytes: u64| {
@@ -215,7 +228,11 @@ fn instance_count(f: &Fixture) -> usize {
 #[test]
 fn an_export_carries_references_not_jars_and_never_private_files() {
     let (f, record) = fixture();
-    let file = f.data.root().join("out").join(format!("Survival.{}", export::EXTENSION));
+    let file = f
+        .data
+        .root()
+        .join("out")
+        .join(format!("Survival.{}", export::EXTENSION));
     let report = f
         .images
         .export_snapshot(&f.instance.id, &record.id, &file, NEVER)
@@ -235,7 +252,11 @@ fn an_export_carries_references_not_jars_and_never_private_files() {
         !names.contains(&format!("objects/{}", hex_sha256(SODIUM))),
         "the Modrinth jar travels as a reference"
     );
-    for private in [&b"/login hunter2"[..], b"hotbars", b"{\"accounts\":\"token\"}"] {
+    for private in [
+        &b"/login hunter2"[..],
+        b"hotbars",
+        b"{\"accounts\":\"token\"}",
+    ] {
         assert!(!names.contains(&format!("objects/{}", hex_sha256(private))));
     }
     assert!(names.contains(&format!("objects/{}", hex_sha256(b"region bytes"))));
@@ -275,7 +296,10 @@ fn an_import_makes_a_new_instance_and_downloads_the_references() {
     assert_eq!(made.java_override, None);
     let game = other.store.game_dir(&made.id);
     assert_eq!(fs::read(game.join("mods/sodium.jar")).unwrap(), SODIUM);
-    assert_eq!(fs::read(game.join("config/sodium.json")).unwrap(), b"{\"fps\":true}");
+    assert_eq!(
+        fs::read(game.join("config/sodium.json")).unwrap(),
+        b"{\"fps\":true}"
+    );
     assert_eq!(
         fs::read(game.join("saves/World/region/r.0.0.mca")).unwrap(),
         b"region bytes"
@@ -295,7 +319,10 @@ fn an_import_makes_a_new_instance_and_downloads_the_references() {
     );
     // Recorded, and the imported image is a snapshot to go back to.
     let history = other.images.history(&made.id).unwrap();
-    assert_eq!(history.images[0].label.as_deref(), Some("Made from a snapshot"));
+    assert_eq!(
+        history.images[0].label.as_deref(),
+        Some("Made from a snapshot")
+    );
     let snapshots = other.images.snapshots(&made.id).unwrap();
     assert_eq!(snapshots.records.len(), 1);
     assert_eq!(snapshots.records[0].kind, SnapshotKind::Imported);
@@ -370,12 +397,23 @@ fn hostile_exports_are_refused_before_anything_is_placed() {
     rewrite_zip(
         &good,
         &bad,
-        |name, bytes| Some(if name == region { b"region BYTES".to_vec() } else { bytes }),
+        |name, bytes| {
+            Some(if name == region {
+                b"region BYTES".to_vec()
+            } else {
+                bytes
+            })
+        },
         &[],
     );
     assert!(import(&other, &bad, true).is_err());
     // An object nothing names.
-    rewrite_zip(&good, &bad, |_, b| Some(b), &[(&format!("objects/{}", hex_sha256(b"x")), b"x")]);
+    rewrite_zip(
+        &good,
+        &bad,
+        |_, b| Some(b),
+        &[(&format!("objects/{}", hex_sha256(b"x")), b"x")],
+    );
     assert!(export::inspect(&bad).is_err());
     assert!(import(&other, &bad, true).is_err());
     // A name outside the layout.
@@ -391,7 +429,8 @@ fn hostile_exports_are_refused_before_anything_is_placed() {
 
     // An image naming one of Lodestone's own files.
     let store_dir = other.data.root().join("elsewhere");
-    let store = lodestone_image::store::Store::new(&store_dir, lodestone_image::store::Encoding::Raw);
+    let store =
+        lodestone_image::store::Store::new(&store_dir, lodestone_image::store::Encoding::Raw);
     let stored = store.put_bytes(b"sneaky").unwrap();
     let mut image = lodestone_image::Image::new(
         lodestone_image::Kind::Full,

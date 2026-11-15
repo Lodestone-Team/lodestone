@@ -246,7 +246,7 @@ enum Modal {
     ReplaceWorld {
         folder: String,
         name: String,
-        backup: launcher_core::worlds::Backup,
+        backup: crate::instances::worlds::Backup,
         focus: FocusHandle,
     },
     /// What a modpack update will do, before it does it.
@@ -1020,8 +1020,7 @@ impl LauncherShell {
                         .whitespace_normal()
                         .text_size(theme::text_size(text::SMALL))
                         .child(t(M::ModpackUpdateSafety)),
-                )
-
+                ),
         )
         .footer(
             Button::new("confirm-modpack-update", t(CommonMsg::Update))
@@ -1098,10 +1097,7 @@ impl LauncherShell {
                 focus,
             } => {
                 let (folder, backup) = (folder.clone(), backup.clone());
-                let when = backup
-                    .created
-                    .map(crate::instances::worlds::when)
-                    .unwrap_or_else(|| backup.file_name.clone());
+                let when = crate::instances::snapshots::when(backup.created);
                 Dialog::new(
                     "replace-world",
                     tr!(M::ReplaceWorldTitle, name = name),
@@ -1116,7 +1112,6 @@ impl LauncherShell {
                             M::ReplaceWorldBody,
                             name = name,
                             when = when.to_lowercase(),
-                            trash = t(CommonMsg::TheTrash),
                         )),
                 )
                 .footer(

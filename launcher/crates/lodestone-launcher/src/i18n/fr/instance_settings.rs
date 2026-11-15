@@ -161,53 +161,89 @@ pub fn text(message: M) -> &'static str {
         M::TakeSnapshotTitle => "Prendre un instantané",
         M::TakeSnapshot => "Prendre l’instantané",
         M::SnapshotName => "Nom",
-        M::WhatToInclude => "Contenu à inclure",
-        M::WhatToRestore => "Contenu à restaurer",
-        M::PartMods => "Mods",
-        M::PartResourcePacks => "Packs de ressources",
-        M::PartShaderPacks => "Packs de shaders",
-        M::PartConfigs => "Configurations et options",
-        M::PartWorlds => "Mondes",
-        M::PartScreenshots => "Captures d’écran",
-        M::PartSettings => "Paramètres de l’instance",
-        M::PartOther => "Autres fichiers",
         M::NoSnapshots => "Aucun instantané pour l’instant.",
         M::SnapshotSizes => "{total}, dont {new} nouveaux",
-        M::BeforeGoingBack => "Avant le retour à «\u{a0}{name}\u{a0}»",
-        M::RevertEllipsis => "Restaurer…",
-        M::RevertTitle => "Revenir à {name}\u{a0}?",
-        M::RevertBody => {
-            "Les parties choisies sont remplacées par celles de l’instantané. Un instantané en est pris avant, pour pouvoir revenir en arrière."
-        }
-        M::Revert => "Restaurer",
-        M::ShareEllipsis => "Partager…",
-        M::ShareSnapshotTitle => "Partager {name}",
         M::PreparingFile => "Préparation du fichier…",
         M::DragToShare => "Faites glisser le fichier dans une autre app, ou\u{a0}:",
         M::SaveAsEllipsis => "Enregistrer sous…",
         M::ShowInFolder => "Afficher dans le dossier",
         M::DeleteSnapshotTitle => "Supprimer {name}\u{a0}?",
         M::DeleteSnapshotBody => {
-            "Les fichiers qu’aucun autre instantané n’utilise sont supprimés. Cette action est définitive."
+            "L’instantané est supprimé. Ses fichiers partent au prochain nettoyage, sauf si un autre instantané les utilise. Cette action est irréversible."
         }
         M::TakingSnapshot => "Prise de l’instantané…",
-        M::RevertingSnapshot => "Restauration de l’instantané…",
         M::ImportingSnapshot => "Création de l’instance…",
         M::ReadingSnapshot => "Lecture de l’instantané…",
         M::ImportSnapshotTitle => "Nouvelle instance depuis un instantané",
-        M::SnapshotFrom => "{name} · Minecraft {version}",
-        M::SnapshotModsWarning => {
-            "Il contient {count} mods\u{a0}: des programmes qui s’exécutent au lancement du jeu. N’utilisez que des instantanés de personnes de confiance."
-        }
-        M::SnapshotLaunchSettingsWarning => {
-            "Ses paramètres d’instance changent le lancement du jeu\u{a0}: Java, ses arguments, les variables d’environnement ou la mémoire. Ils peuvent aussi exécuter des programmes, et ne sont donc utilisés que si Paramètres de l’instance est choisi. Ne le choisissez que pour des instantanés de personnes de confiance."
-        }
         M::CreateInstanceButton => "Créer l’instance",
         M::SnapshotGameRunning => "Arrêtez d’abord le jeu.",
-        M::ChooseSomething => "Choisissez au moins une partie.",
-        M::SnapshotTaken => "Instantané pris.",
-        M::SnapshotReverted => "Instantané restauré.",
-        M::SnapshotsHint => "Des copies de cette instance, pour revenir en arrière ou partager.",
+        M::SnapshotsHint => {
+            "Des copies des mondes et fichiers de cette instance, pour revenir en arrière ou partager."
+        }
+        M::SnapshotIncludeEverything => "Inclure les mods et les configurations",
+        M::SnapshotIncludeEverythingHint => {
+            "Sans cela, l’instantané garde les mondes et les autres fichiers, et retient les mods avec lesquels ils tournaient."
+        }
+        M::SnapshotAfterPlay => "Prendre un instantané après chaque partie",
+        M::SnapshotAfterPlayHint => {
+            "Copie les mondes après chaque partie. Désactivé sauf si vous l’activez."
+        }
+        M::SnapshotKeepHint => {
+            "Les instantanés pris par le Launcher sont gardés un temps\u{a0}: les {last} derniers, un par jour pendant {days} jours et un par semaine pendant {weeks} semaines. Les vôtres restent jusqu’à ce que vous les supprimiez."
+        }
+        M::BadgeAutomatic => "Automatique",
+        M::BadgeAfterPlaying => "Après une partie",
+        M::BadgeBeforeRestore => "Avant une restauration",
+        M::BadgeImported => "Importé",
+        M::BadgePinned => "Épinglé",
+        M::RestoreEllipsis => "Restaurer…",
+        M::ExportEllipsis => "Exporter…",
+        M::PinSnapshot => "Épingler",
+        M::UnpinSnapshot => "Désépingler",
+        M::UnreadableImagesHint => {
+            "L’ancien historique du contenu n’est pas nettoyé tant qu’une image est illisible."
+        }
+        M::DeleteUnreadable => "Les supprimer",
+        M::RestoreTitle => "Restaurer {name}",
+        M::RestoreWorldsOnly => "Les mondes seulement",
+        M::RestoreWorldsAndMods => "Les mondes et leurs mods",
+        M::RestoreEverything => "Tout",
+        M::RestoreAsNew => "Comme nouvelle instance",
+        M::RestoreAsNewName => "Nom de la nouvelle instance",
+        M::RestoreEverythingHint => {
+            "Tout le dossier du jeu revient à l’instantané\u{a0}: mondes, mods, configurations et options. Les mondes créés depuis sont supprimés."
+        }
+        M::WorldGoneNow => "{size} · plus dans l’instance",
+        M::ModsDiffer => "Ces mondes ont tourné avec d’autres mods\u{a0}: {changes}.",
+        M::RestoreModsToo => "Remettre aussi leurs mods",
+        M::RestoreLoaderChange => "Le chargeur revient à la version {version}.",
+        M::RestoreSafety => {
+            "Un instantané de ce qui est remplacé est pris d’abord et gardé 30 jours."
+        }
+        M::RestoreOtherGame => {
+            "Cet instantané est d’une autre version de Minecraft ou d’un autre chargeur\u{a0}: il ne peut devenir qu’une nouvelle instance."
+        }
+        M::RestoreButton => "Restaurer",
+        M::RestoringSnapshot => "Restauration de l’instantané…",
+        M::DeletingSnapshot => "Suppression de l’instantané…",
+        M::ChooseWorld => "Choisissez au moins un monde.",
+        M::ExportTitle => "Exporter {name}",
+        M::ExportNote => {
+            "Les mods et packs de Modrinth et CurseForge sont listés, pas copiés\u{a0}: ils sont téléchargés à nouveau à l’importation."
+        }
+        M::ExportLeftOut => {
+            "Laissés de côté, car ils peuvent contenir des mots de passe et des connexions\u{a0}: {files}."
+        }
+        M::ImportFrom => "{name} · Minecraft {version} · {loader}",
+        M::ImportWorlds => "Mondes\u{a0}: {worlds}",
+        M::ImportDownloads => "{size} à télécharger depuis Modrinth et CurseForge.",
+        M::ImportNotDownloadable => {
+            "Leurs auteurs n’autorisent pas le téléchargement, ils sont donc laissés de côté\u{a0}: {files}."
+        }
+        M::ImportSpace => "Nécessite {size} d’espace disque.",
+        M::ImportNeedsModrinth => {
+            "Modrinth est injoignable\u{a0}: les mods du fichier ne peuvent pas être téléchargés."
+        }
         M::VerifyGameFiles => "Vérifier les fichiers du jeu",
         M::VerifyHint => "Retélécharge les fichiers manquants ou endommagés.",
         M::Verify => "Vérifier",
@@ -432,6 +468,18 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::ShareAddedCount => ["{count} ajouté", "{count} ajoutés"],
         P::ShareRemovedCount => ["{count} retiré", "{count} retirés"],
         P::ShareChangedCount => ["{count} modifié", "{count} modifiés"],
+        P::UnreadableImages => [
+            "{count}\u{a0}image illisible",
+            "{count}\u{a0}images illisibles",
+        ],
+        P::RestoreMissing => [
+            "Le stockage des images a perdu {count} de ses fichiers\u{a0}: il ne peut pas être remis en entier.",
+            "Le stockage des images a perdu {count} de ses fichiers\u{a0}: il ne peut pas être remis en entier.",
+        ],
+        P::ImportModsWarning => [
+            "Il contient {count}\u{a0}mod\u{a0}: un programme qui s’exécute au démarrage du jeu. N’importez que des fichiers de personnes de confiance.",
+            "Il contient {count}\u{a0}mods\u{a0}: des programmes qui s’exécutent au démarrage du jeu. N’importez que des fichiers de personnes de confiance.",
+        ],
         P::ShareToggledCount => [
             "{count} activé ou désactivé",
             "{count} activés ou désactivés",

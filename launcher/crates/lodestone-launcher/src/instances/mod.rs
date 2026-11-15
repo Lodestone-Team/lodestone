@@ -426,11 +426,11 @@ pub enum InstancesEvent {
         about: About,
     },
     /// The instance's loader or Minecraft version was changed outside its Settings tab:
-    /// by a modpack update, to match its linked server's pack, or by reverting a
+    /// by a modpack update, to match its linked server's pack, or by restoring a
     /// snapshot's mods. The user never changes them in place; a copy with another
     /// version or loader is a new instance.
     LoaderChanged(String),
-    /// A `.lodesnap` file was dropped or picked: offer to make an instance from it.
+    /// An image file (`.lodeimg`) was dropped or picked: offer to make an instance from it.
     ImportSnapshot(std::path::PathBuf),
     /// A game's window opened: the log said so, or it has run for
     /// [`WINDOW_WAIT`] without saying. Sent once per run.
@@ -558,11 +558,11 @@ pub struct Instances {
     /// The instance each finished "Copy with another version or loader" job made, by
     /// job id.
     copies: HashMap<u64, String>,
+    /// Each instance's snapshots, newest first, once read (see snapshots.rs).
+    snapshot_rows: HashMap<String, snapshots::SnapshotList>,
+    snapshot_tasks: HashMap<String, Task<()>>,
     /// Files of an imported CurseForge pack the user downloads from curseforge.com, by
     /// instance; the Content tab takes them when it shows that instance.
-    /// Each instance's snapshots, newest first, once read (see snapshots.rs).
-    snapshot_rows: HashMap<String, Vec<snapshots::SnapshotRow>>,
-    snapshot_tasks: HashMap<String, Task<()>>,
     pending_downloads:
         HashMap<String, Vec<launcher_core::content::curseforge_install::CfPlannedFile>>,
     /// Modpack updates in progress, by instance.
@@ -640,12 +640,15 @@ impl Instances {
             );
         }
         // Instances deleted outside the Launcher (in Finder or Explorer) since it last ran:
-        // their images would keep their files from every collection.
+        // their images would keep their files from every collection. And the snapshot
+        // store of Launchers from before images, which nothing reads any more.
         let forgetting = images.clone();
+        let old_store = data_dir.clone();
         cx.background_spawn(async move {
             if let Err(err) = forgetting.forget_deleted() {
                 log::warn!("Couldn't forget the images of deleted instances: {err}");
             }
+            launcher_core::disk::remove_old_snapshot_store(&old_store);
         })
         .detach();
         // What succeeded in the last few seconds is recorded before the process ends,

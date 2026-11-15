@@ -46,7 +46,9 @@ use lodestone_image::store::materialize::{
     MaterializeError, MaterializeOptions, Selection, materialize,
 };
 use lodestone_image::store::snapshot::Candidate;
-use lodestone_image::{Base, CanonicalPath, DiskLayout, Entry, Game, Image, Kind, Source, WithheldReason};
+use lodestone_image::{
+    Base, CanonicalPath, DiskLayout, Entry, Game, Image, Kind, Source, WithheldReason,
+};
 use serde::Serialize;
 
 use super::context::InstanceContext;
@@ -460,7 +462,10 @@ impl Images {
                 return Err(e);
             }
         };
-        let journal = self.store().instance_dir(instance)?.join(swap::JOURNAL_FILE);
+        let journal = self
+            .store()
+            .instance_dir(instance)?
+            .join(swap::JOURNAL_FILE);
         match staged.swap(&journal) {
             Ok(()) => {}
             Err(SwapError::RolledBack(e)) | Err(SwapError::Broken(e)) => return Err(e),
@@ -542,7 +547,8 @@ impl Images {
             let target = self.target(instance, &record)?;
             if target.image.kind == Kind::Data && target.content.is_none() {
                 return Err(ImageError::Invalid(
-                    "The content this snapshot ran with is gone, so it can't make a new instance".into(),
+                    "The content this snapshot ran with is gone, so it can't make a new instance"
+                        .into(),
                 ));
             }
             let entries = target.all_entries();
@@ -649,8 +655,14 @@ impl Images {
             let staged = staging.join(CLIENT_GAME_FOLDER).join("saves").join(world);
             crate::fsx::rename(&staged, saves.join(&folder))
                 .map_err(ImageError::io("Failed to place the restored world"))?;
-            let name = found.level_name.clone().unwrap_or_else(|| world.to_string());
-            crate::worlds::set_level_name(&saves.join(&folder), &format!("{name} (restored {today})"));
+            let name = found
+                .level_name
+                .clone()
+                .unwrap_or_else(|| world.to_string());
+            crate::worlds::set_level_name(
+                &saves.join(&folder),
+                &format!("{name} (restored {today})"),
+            );
             Ok(folder)
         })();
         let _ = super::remove_tree(&staging);
@@ -820,7 +832,13 @@ fn stage(
         durable: true,
         cancel,
     };
-    match materialize(images.store(), &image, &DiskLayout::Client, staging, &options) {
+    match materialize(
+        images.store(),
+        &image,
+        &DiskLayout::Client,
+        staging,
+        &options,
+    ) {
         Ok(_) => Ok(()),
         Err(MaterializeError::Cancelled) => Err(ImageError::Cancelled),
         Err(MaterializeError::Missing(paths)) => Err(ImageError::Invalid(format!(
@@ -962,7 +980,9 @@ fn follow_base(dirs: &InstanceDirs, base: Option<&Base>, entries: &[Entry]) -> R
         .map(|e| e.path.as_str().to_ascii_lowercase())
         .collect();
     let game: PathBuf = dirs.game.clone();
-    record.files.retain(|path, _| restored.contains(&path.to_ascii_lowercase()));
+    record
+        .files
+        .retain(|path, _| restored.contains(&path.to_ascii_lowercase()));
     for (path, file) in record.files.iter_mut() {
         let on_disk = swap::join_rel(&game, path);
         if let Ok(sha1) = crate::game::download::sha1_of(&on_disk) {

@@ -211,8 +211,8 @@ pub const SCENES: &[&str] = &[
     "focus-escape-prompt",
     "snapshots",
     "snapshot-take",
-    "snapshot-revert",
-    "snapshot-share",
+    "snapshot-restore",
+    "snapshot-export",
     "snapshot-delete",
     "snapshot-import",
 ];
@@ -798,6 +798,7 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
                 }
                 if name == "Survival 1.20.1" && is_worlds_scene(scene) {
                     worlds::fill(&store.dir(&instance.id));
+                    snapshots::fill_worlds(&data_dir, &instance);
                 }
                 if name == "Survival 1.20.1" && scene.starts_with("modpack-add") {
                     modpacks::fill_server(&store.dir(&instance.id), scene);
@@ -1831,11 +1832,11 @@ fn storage_report() -> launcher_core::disk::Report {
             old_bytes: 9 * MB,
             old_files: 61,
         },
-        snapshots: launcher_core::snapshots::Usage {
+        images: launcher_core::disk::ImagesUsage {
             bytes: 186 * MB,
             snapshots: 7,
-            removable_snapshots: 2,
-            removable_bytes: 41 * MB,
+            removable: 3,
+            retired_instances: 1,
         },
         other: 400_000,
     }

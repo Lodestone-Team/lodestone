@@ -335,10 +335,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
             "{count} fichier du pack a été ignoré\u{a0}: {path}.",
             "{count} fichiers du pack ont été ignorés, par exemple {path}.",
         ],
-        P::WorldsBackedUp => [
-            "{count} monde a d’abord été sauvegardé.",
-            "{count} mondes ont d’abord été sauvegardés.",
-        ],
         P::DownloadingFiles => [
             "Téléchargement de {count} fichier",
             "Téléchargement de {count} fichiers",

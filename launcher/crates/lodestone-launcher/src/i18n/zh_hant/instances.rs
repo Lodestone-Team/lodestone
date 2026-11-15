@@ -272,7 +272,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
             ["有 {count} 個檔案需要從 CurseForge 網站下載：實例的「內容」分頁會列出它們。"; 2]
         }
         P::PackFilesLeftOut => ["模組包中有 {count} 個檔案被略過，例如 {path}。"; 2],
-        P::WorldsBackedUp => ["已先備份 {count} 個世界。"; 2],
         P::DownloadingFiles => ["正在下載 {count} 個檔案"; 2],
         P::CopyModsLeftBehind => ["{count} 個模組未複製：{names}。"; 2],
         P::CopyDependenciesMissing => ["{count} 個所需的前置模組無法安裝：{names}。"; 2],

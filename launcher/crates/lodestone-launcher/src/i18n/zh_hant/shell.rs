@@ -83,7 +83,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::ReplaceWorldTitle => "用這個備份取代「{name}」？",
         M::ReplaceWorldBody => {
-            "「{name}」會回到{when} 時的狀態。之後的所有變更都會從世界中遺失，但會先備份，目前的資料夾會移到{trash}。"
+            "「{name}」會回到{when} 時的狀態。會先為現在的世界拍攝快照，並保留 30 天。"
         }
         M::BackUpAndReplace => "備份並取代",
         M::RemoveAccountTitle => "移除「{name}」？",
@@ -139,9 +139,8 @@ pub fn text(message: M) -> &'static str {
         M::KeptFiles => "保留你的變更（{count}）",
         M::WrittenFiles => "寫入的設定檔和其他檔案（{count}）",
         M::ModpackUpdateSafety => {
-            "你自己的模組、世界和變更過的設定檔不會受到影響。每個被取代或移除的檔案都會先儲存到實例的備份資料夾。"
+            "你自己的模組、世界和修改過的設定不會被更動。會先為實例拍攝快照，被取代或刪除的每個檔案都會保存在實例的備份資料夾中。"
         }
-        M::BackUpEveryWorld => "先備份所有世界",
 
         M::SaveChangesTitle => "要儲存變更嗎？",
         M::UnsavedDefaultsBody => "你變更了實例預設設定。要儲存還是捨棄？",
@@ -730,10 +729,10 @@ pub fn text(message: M) -> &'static str {
         M::StorageRuntimes => "Java 執行環境",
         M::StorageCache => "快取",
         M::StorageSnapshots => "快照",
-        M::StorageSnapshotsHint => "{count} 個快照 · 可釋放 {size}",
-        M::StorageCleanSnapshotsTitle => "移除自動快照？",
+        M::StorageSnapshotsHint => "{count} 個快照和每個實例的內容歷史 · 可刪除 {removable} 個",
+        M::StorageCleanSnapshotsTitle => "刪除啟動器自動拍攝的快照？",
         M::StorageCleanSnapshotsBody => {
-            "這會釋放 {size}。將移除回復前自動拍攝的快照、已刪除實例的快照以及為分享而產生的檔案。"
+            "將刪除 {count} 個快照：啟動器自動拍攝的快照，以及已刪除實例的快照。你自己拍攝的和已釘選的快照會保留。最近一小時內的檔案會在下次清理時釋放。"
         }
         M::StorageLeftovers => "未完成的下載和匯入",
         M::StorageCleanLeftoversTitle => "移除未完成的下載？",

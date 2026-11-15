@@ -726,62 +726,6 @@ pub(super) fn age_objects(dir: &Path) -> Vec<PathBuf> {
     files
 }
 
-#[test]
-fn the_image_store_and_the_snapshot_store_never_collect_each_others_objects() {
-    let s = Setup::new();
-    s.write("mods/a.jar", b"the same mod in both stores");
-    s.write("saves/world/level.dat", b"a world only snapshots take");
-    let recorded = s
-        .images
-        .record_now(s.id(), "Created Pack")
-        .unwrap()
-        .unwrap();
-    let snapshots = crate::snapshots::Store::new(&s.data);
-    let instance = s.store.get(s.id()).unwrap();
-    snapshots
-        .create(
-            &instance,
-            &s.store.dir(s.id()),
-            "Before",
-            None,
-            &crate::snapshots::Selection::all(),
-            false,
-            &|_, _| {},
-        )
-        .unwrap();
-    let image_objects = age_objects(&s.data.image_store_dir().join("objects"));
-    let snapshot_objects = age_objects(&s.data.root().join("snapshots").join("objects"));
-    assert!(!image_objects.is_empty());
-    assert!(snapshot_objects.len() >= 2);
-
-    // Each collector keeps what its own manifests name, and never looks at the other.
-    snapshots.collect_garbage();
-    s.images
-        .store()
-        .gc(&lodestone_image::store::gc::GcOptions::default())
-        .unwrap();
-    assert!(image_objects.iter().all(|p| p.exists()));
-    assert!(snapshot_objects.iter().all(|p| p.exists()));
-
-    // With the content image gone, the image store's collector takes its object; the
-    // snapshot's copy of the same bytes stays. (Deleting asks for a collection in the
-    // background too; this one waits for it.)
-    s.images.delete_instance(s.id()).unwrap();
-    s.images
-        .store()
-        .gc(&lodestone_image::store::gc::GcOptions::default())
-        .unwrap();
-    assert!(image_objects.iter().all(|p| !p.exists()));
-    assert!(snapshot_objects.iter().all(|p| p.exists()));
-    // And the other way round.
-    for snapshot in snapshots.list(s.id()) {
-        snapshots.delete(s.id(), &snapshot.id).unwrap();
-    }
-    let _ = recorded;
-    snapshots.collect_garbage();
-    assert!(snapshot_objects.iter().all(|p| !p.exists()));
-}
-
 #[cfg(unix)]
 #[test]
 fn links_and_bad_names_are_withheld_not_followed() {

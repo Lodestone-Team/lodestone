@@ -345,7 +345,9 @@ impl Images {
                 super::warn(
                     "images.snapshot",
                     instance,
-                    &format!("the content couldn't be recorded first, so the snapshot holds everything: {e}"),
+                    &format!(
+                        "the content couldn't be recorded first, so the snapshot holds everything: {e}"
+                    ),
                 );
                 false
             }
@@ -366,7 +368,11 @@ impl Images {
             let (image, snapshot) =
                 self.build_snapshot(&ctx, &take, content.clone(), &records, &name)?;
             let automatic = take.kind.automatic();
-            if automatic && records.first().is_some_and(|newest| newest.image == image.id) {
+            if automatic
+                && records
+                    .first()
+                    .is_some_and(|newest| newest.image == image.id)
+            {
                 // Nothing changed since the newest snapshot: only the stat cache.
                 self.save_data_cache(instance, &snapshot);
                 return Ok(None);
@@ -481,10 +487,7 @@ impl Images {
                 world.level_name = summary.name;
                 world.data_version = summary.data_version;
                 world.game_version = summary.version_name;
-                world.last_played = summary
-                    .last_played
-                    .filter(|ms| *ms > 0)
-                    .map(|ms| ms / 1000);
+                world.last_played = summary.last_played.filter(|ms| *ms > 0).map(|ms| ms / 1000);
             }
         }
         image.created = chrono::Utc::now().timestamp();
@@ -783,7 +786,9 @@ impl Images {
         match std::fs::rename(&path, &aside) {
             Ok(()) => Ok(()),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(e) => Err(ImageError::io("Couldn't set the damaged snapshot list aside")(e)),
+            Err(e) => Err(ImageError::io(
+                "Couldn't set the damaged snapshot list aside",
+            )(e)),
         }
     }
 

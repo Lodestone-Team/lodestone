@@ -331,7 +331,6 @@ crate::i18n::messages! {
             "{count} file of the pack was left out: {path}.",
             "{count} files of the pack were left out, such as {path}."
         ),
-        WorldsBackedUp = ("{count} world was backed up first.", "{count} worlds were backed up first."),
         /// A modpack's progress.
         DownloadingFiles = ("Downloading {count} file", "Downloading {count} files"),
         /// After a copy's "ready" message; {names} is a list of mods.

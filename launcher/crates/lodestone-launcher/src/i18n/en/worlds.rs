@@ -17,18 +17,17 @@ crate::i18n::messages! {
         RestoringBackup = "Restoring the backup",
         ReplacingWorld = "Replacing the world with the backup",
         MovingToTrash = "Moving {name} to {trash}",
-        MovingBackupToTrash = "Moving the backup to {trash}",
         Renaming = "Renaming",
         Exporting = "Exporting {name}",
         ImportingWorlds = "Importing worlds",
 
         // How it went.
-        BackedUp = "Backed up {name} ({size}).",
+        BackedUp = "Backed up {name}.",
         /// {folder} is the new world's folder.
         RestoredAsCopy = "Restored as a new world, {folder}.",
         Restored = "Restored {folder}.",
-        /// {backup} is the file name of a backup of the world as it was.
-        RestoredWithSafety = "Restored {folder}. The world as it was is backed up as {backup}, and in {trash}.",
+        /// {snapshot} is the name of the snapshot of the world as it was.
+        RestoredWithSafety = "Restored {folder}. The world as it was is in the snapshot “{snapshot}”.",
         /// {name} is a world, a backup or a screenshot.
         InTrash = "{name} is in {trash}.",
         RenamedTo = "Renamed to {name}.",
@@ -60,7 +59,7 @@ crate::i18n::messages! {
         Backups = "Backups",
         Export = "Export…",
         DeleteWorld = "Delete…",
-        NoBackupsYet = "No backups yet. \"Back up\" saves the world as a zip in the instance's backups folder.",
+        NoBackupsYet = "No snapshots of this world yet. \"Back up\" takes one; Settings › Snapshots lists them all.",
         RestoreAsCopy = "Restore as copy",
         ReplaceWorld = "Replace world…",
 

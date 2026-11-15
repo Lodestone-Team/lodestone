@@ -198,8 +198,10 @@ impl Images {
             let _writing = self.enter()?;
             let _hold = self.store().hold_off_collection()?;
             if let Some(dir) = to.parent() {
-                std::fs::create_dir_all(dir)
-                    .map_err(ImageError::io(format!("Failed to create {}", dir.display())))?;
+                std::fs::create_dir_all(dir).map_err(ImageError::io(format!(
+                    "Failed to create {}",
+                    dir.display()
+                )))?;
             }
             container::export(self.store(), &image, &linked, to, cancel).map_err(container_error)?
         };
@@ -333,7 +335,15 @@ pub fn inspect(path: &Path) -> Result<ImportPreview, ImageError> {
         .fold(0, u64::saturating_add);
     let not_downloadable = entries
         .iter()
-        .filter(|e| matches!(e.source, Source::Curseforge { downloadable: false, .. }))
+        .filter(|e| {
+            matches!(
+                e.source,
+                Source::Curseforge {
+                    downloadable: false,
+                    ..
+                }
+            )
+        })
         .map(|e| shown(e.path.as_str()))
         .collect();
     Ok(ImportPreview {
@@ -434,10 +444,7 @@ pub async fn import_file(
     if let Err(e) = images.adopt_imported(&instance.id, &image, &linked) {
         super::warn("images.import", &instance.id, &e.to_string());
     }
-    Ok(Imported {
-        instance,
-        left_out,
-    })
+    Ok(Imported { instance, left_out })
 }
 
 /// The import's downloads, files and `instance.json` in `staging`, committed as a new
@@ -504,7 +511,8 @@ async fn build(
             })?;
         let stored = (|| -> Result<(), ImageError> {
             if let Some(sha512) = &entry.sha512 {
-                let bytes = std::fs::read(&temp).map_err(ImageError::io("Failed to read a download"))?;
+                let bytes =
+                    std::fs::read(&temp).map_err(ImageError::io("Failed to read a download"))?;
                 let found = format!("{:x}", sha2::Sha512::digest(&bytes));
                 if !found.eq_ignore_ascii_case(sha512) {
                     return Err(ImageError::Invalid(format!(
@@ -537,9 +545,8 @@ async fn build(
         durable: true,
         cancel: &stop,
     };
-    materialize(store, &placed, &DiskLayout::Client, staging, &options).map_err(|e| {
-        ImageError::Invalid(format!("The export's files couldn't be placed: {e}"))
-    })?;
+    materialize(store, &placed, &DiskLayout::Client, staging, &options)
+        .map_err(|e| ImageError::Invalid(format!("The export's files couldn't be placed: {e}")))?;
     super::restore::learn_sources(&InstanceDirs::new(staging), &placed.entries)
         .map_err(ImageError::Invalid)?;
     let game = &image.game;

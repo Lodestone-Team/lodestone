@@ -213,7 +213,7 @@ impl StorageSettings {
         if let Some((_, cancel)) = self.work.take() {
             cancel.cancel();
         }
-        let (data, list, running) = {
+        let (data, list, running, images) = {
             let instances = self.instances.read(cx);
             let running: Vec<String> = instances
                 .list()
@@ -225,12 +225,20 @@ impl StorageSettings {
                 instances.data_dir().clone(),
                 instances.list().to_vec(),
                 running,
+                instances.images(),
             )
         };
         let cancel = Cancel::new();
         let stop = cancel.clone();
-        let work =
-            cx.background_spawn(async move { disk::clean(&data, &list, &running, what, &stop) });
+        let work = cx.background_spawn(async move {
+            match what {
+                Clean::Snapshots => {
+                    let live: Vec<String> = list.iter().map(|i| i.id.clone()).collect();
+                    disk::clean_snapshots(&data, &images, &live)
+                }
+                _ => disk::clean(&data, &list, &running, what, &stop),
+            }
+        });
         self.cleaning = true;
         let task = cx.spawn(async move |this, cx| {
             let result = work.await;
@@ -657,7 +665,7 @@ impl Render for StorageSettings {
             (
                 INSTANCES,
                 t(M::StorageInstances),
-                report.instances_total() + report.snapshots.bytes,
+                report.instances_total() + report.images.bytes,
             ),
             (
                 GAME_FILES,
@@ -819,24 +827,24 @@ impl Render for StorageSettings {
                 .into(),
         ];
 
-        // Snapshots, shared by every instance.
-        let snapshots = report.snapshots;
-        if snapshots.snapshots > 0 || snapshots.bytes > 0 {
+        // The image store: every instance's snapshots and content history.
+        let images = report.images;
+        if images.snapshots > 0 || images.bytes > 0 {
             instance_rows.push(
                 SettingRow::new(t(M::StorageSnapshots))
                     .hint(tr!(
                         M::StorageSnapshotsHint,
-                        count = snapshots.snapshots,
-                        size = format::bytes(snapshots.removable_bytes)
+                        count = images.snapshots,
+                        removable = images.removable
                     ))
-                    .child(size(snapshots.bytes))
+                    .child(size(images.bytes))
                     .child(remove_button(
                         "storage-clean-snapshots",
                         t(M::StorageRemoveEllipsis),
-                        snapshots.removable_bytes > 0 && !busy,
+                        images.removable > 0 && !busy,
                         cx,
                         Clean::Snapshots,
-                        snapshots.removable_bytes,
+                        images.removable as u64,
                     ))
                     .into(),
             );
@@ -1021,9 +1029,10 @@ impl super::LauncherShell {
                 tr!(M::StorageDeleteAllLogsBody, size = size),
                 M::StorageDeleteConfirm,
             ),
+            // `bytes` is a count of snapshots here.
             Clean::Snapshots => (
                 M::StorageCleanSnapshotsTitle,
-                tr!(M::StorageCleanSnapshotsBody, size = size),
+                tr!(M::StorageCleanSnapshotsBody, count = bytes),
                 M::StorageRemove,
             ),
         };
@@ -1065,7 +1074,8 @@ impl super::LauncherShell {
                 Clean::Leftovers => report.leftovers.bytes,
                 Clean::OldLogs => report.logs.old_bytes,
                 Clean::AllLogs => report.logs.bytes,
-                Clean::Snapshots => report.snapshots.removable_bytes,
+                // A count, not bytes: what a clean-up of snapshots frees is known after.
+                Clean::Snapshots => report.images.removable as u64,
             };
             let focus = cx.focus_handle();
             self.modal

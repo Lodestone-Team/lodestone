@@ -328,14 +328,7 @@ pub async fn apply(
     ));
     fs::create_dir_all(&staging).map_err(io_error(&staging))?;
     let result = apply_staged(
-        api,
-        downloader,
-        dirs,
-        plan,
-        pack_path,
-        progress,
-        cancel,
-        &staging,
+        api, downloader, dirs, plan, pack_path, progress, cancel, &staging,
     )
     .await;
     let _ = fs::remove_dir_all(&staging);

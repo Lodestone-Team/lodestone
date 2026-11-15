@@ -329,17 +329,33 @@ impl Render for LauncherSettings {
         let auto_configure = self.instances.read(cx).auto_configure();
         let query = self.query(cx);
         // Applies at once, unlike the fields below, which wait for Save.
-        let auto = query.card([SettingRow::new(t(M::AutoConfigure))
-            .hint(t(M::AutoConfigureHint))
-            .child(
-                Toggle::new("auto-configure", auto_configure)
-                    .label(t(M::AutoConfigure))
-                    .on_change(cx.listener(|this, value: &bool, _, cx| {
-                        let on = *value;
-                        this.instances
-                            .update(cx, |instances, cx| instances.set_auto_configure(on, cx));
-                    })),
-            )]);
+        let after_play = self.instances.read(cx).defaults().snapshot_after_play;
+        let auto = query.card([
+            SettingRow::new(t(M::AutoConfigure))
+                .hint(t(M::AutoConfigureHint))
+                .child(
+                    Toggle::new("auto-configure", auto_configure)
+                        .label(t(M::AutoConfigure))
+                        .on_change(cx.listener(|this, value: &bool, _, cx| {
+                            let on = *value;
+                            this.instances
+                                .update(cx, |instances, cx| instances.set_auto_configure(on, cx));
+                        })),
+                ),
+            // An instance's own setting wins over this one.
+            SettingRow::new(t(InstanceSettingsMsg::SnapshotAfterPlay))
+                .hint(t(InstanceSettingsMsg::SnapshotAfterPlayHint))
+                .child(
+                    Toggle::new("default-snapshot-after-play", after_play)
+                        .label(t(InstanceSettingsMsg::SnapshotAfterPlay))
+                        .on_change(cx.listener(|this, value: &bool, _, cx| {
+                            let on = *value;
+                            this.instances.update(cx, |instances, cx| {
+                                instances.set_default_snapshot_after_play(on, cx)
+                            });
+                        })),
+                ),
+        ]);
         let fields = query.card([
             SettingRow::new(t(M::Memory))
                 .hint(memory_hint)

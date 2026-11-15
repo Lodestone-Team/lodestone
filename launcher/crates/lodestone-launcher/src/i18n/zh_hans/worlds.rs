@@ -14,15 +14,14 @@ pub fn text(message: M) -> &'static str {
         M::RestoringBackup => "正在恢复备份",
         M::ReplacingWorld => "正在用备份替换世界",
         M::MovingToTrash => "正在将 {name} 移到{trash}",
-        M::MovingBackupToTrash => "正在将备份移到{trash}",
         M::Renaming => "正在重命名",
         M::Exporting => "正在导出 {name}",
         M::ImportingWorlds => "正在导入世界",
 
-        M::BackedUp => "已备份 {name}（{size}）。",
+        M::BackedUp => "已备份 {name}。",
         M::RestoredAsCopy => "已恢复为新世界 {folder}。",
         M::Restored => "已恢复 {folder}。",
-        M::RestoredWithSafety => "已恢复 {folder}。原来的世界已备份为 {backup}，并已移到{trash}。",
+        M::RestoredWithSafety => "已恢复 {folder}。原来的世界保存在快照“{snapshot}”中。",
         M::InTrash => "{name} 已移到{trash}。",
         M::RenamedTo => "已重命名为 {name}。",
         M::RenamedToFolder => "已重命名为 {name}（文件夹 {folder}）。",
@@ -46,9 +45,7 @@ pub fn text(message: M) -> &'static str {
         M::Backups => "备份",
         M::Export => "导出…",
         M::DeleteWorld => "删除…",
-        M::NoBackupsYet => {
-            "还没有备份。“创建备份”会将世界保存为 zip 文件，放在实例的 backups 文件夹中。"
-        }
+        M::NoBackupsYet => "这个世界还没有快照。点击“备份”拍摄一个；设置 › 快照中列出了全部快照。",
         M::RestoreAsCopy => "恢复为副本",
         M::ReplaceWorld => "替换世界…",
 

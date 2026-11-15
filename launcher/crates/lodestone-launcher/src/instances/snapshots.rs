@@ -1,11 +1,13 @@
-//! Snapshots in the launcher: the list in an instance's Settings tab, and the dialog
-//! that takes one, puts one back, shares one as a `.lodesnap` file (dragged out of the
-//! window, or saved), deletes one, or makes a new instance from a file.
+//! Snapshots in the Launcher: the list in an instance's Settings tab, and the dialog that
+//! takes one, restores one (its worlds, the worlds and their mods, everything, or as a new
+//! instance), exports one as an image file (dragged out of the window, or saved), deletes
+//! one, or makes a new instance from an image file.
 //!
-//! The work runs on background threads; the dialog shows its progress.
+//! Snapshots are images in the image store (`launcher_core::images`, "M5 decisions" in
+//! `docs/instance-images.md`). The work runs on background threads; the dialog shows its
+//! progress.
 
 use std::{
-    collections::BTreeSet,
     path::PathBuf,
     sync::{
         Arc,
@@ -19,126 +21,117 @@ use gpui::{
     FileDragPaths, FocusHandle, Focusable, IntoElement, Render, SharedString, Task, Window, div,
     prelude::*,
 };
-use launcher_core::images::labels;
-use launcher_core::snapshots::{Category, Part, Selection, Snapshot, Store};
+use launcher_core::images::export::{self, ExportReport, ImportPreview};
+use launcher_core::images::{
+    ContentDiff, RestorePreview, RestoreScope, SnapshotKind, SnapshotRecord, Take,
+};
 
 use super::Instances;
 use crate::{
     components::{
-        Button, ButtonSize, ButtonVariant, Dialog, Icon, LoadingDots, TextInput, Toggle,
+        Button, ButtonSize, ButtonVariant, Checkbox, Dialog, Icon, LoadingDots, TextInput, Toggle,
+        segmented,
         settings::{SettingRow, card},
     },
-    i18n::{CommonMsg, InstanceSettingsMsg as M, format, t, tr},
+    i18n::{CommonMsg, InstanceSettingsMsg as M, InstanceSettingsPlural as P, format, t, tr, trn},
     theme::{self, colors, px, radius, text, weights},
 };
 
-/// A snapshot in the list: its manifest without the file list.
-#[derive(Clone, Debug)]
-pub struct SnapshotRow {
-    pub id: String,
-    pub name: String,
-    pub created: u64,
-    pub total_bytes: u64,
-    pub new_bytes: u64,
-    pub parts: Vec<Part>,
-    pub automatic: bool,
-}
-
-/// A snapshot's name as shown: an automatic one is named after the one gone back to.
-pub fn display_name(name: &str, note: Option<&str>, automatic: bool) -> String {
-    match note {
-        Some(back_to) if automatic => tr!(M::BeforeGoingBack, name = back_to),
-        _ => name.to_string(),
-    }
-}
-
-impl SnapshotRow {
-    fn of(snapshot: &Snapshot) -> Self {
-        Self {
-            id: snapshot.id.clone(),
-            name: display_name(&snapshot.name, snapshot.note.as_deref(), snapshot.automatic),
-            created: snapshot.created,
-            total_bytes: snapshot.total_bytes,
-            new_bytes: snapshot.new_bytes,
-            parts: snapshot.summary(),
-            automatic: snapshot.automatic,
-        }
-    }
-}
-
-/// A part's name: a category, or a world's folder name.
-pub fn part_label(part: &Part) -> SharedString {
-    match (&part.category, &part.world) {
-        (Category::Worlds, Some(world)) => world.clone().into(),
-        (category, _) => t(category_message(*category)).into(),
-    }
-}
-
-fn category_message(category: Category) -> M {
-    match category {
-        Category::Mods => M::PartMods,
-        Category::ResourcePacks => M::PartResourcePacks,
-        Category::ShaderPacks => M::PartShaderPacks,
-        Category::Configs => M::PartConfigs,
-        Category::Worlds => M::PartWorlds,
-        Category::Screenshots => M::PartScreenshots,
-        Category::Settings => M::PartSettings,
-        Category::Other => M::PartOther,
-    }
-}
-
-/// "Mods, Worlds, Instance settings": what a snapshot holds.
-pub fn contents_line(parts: &[Part]) -> String {
-    let mut seen = BTreeSet::new();
-    let names: Vec<&'static str> = parts
-        .iter()
-        .filter(|p| seen.insert(p.category))
-        .map(|p| t(category_message(p.category)))
-        .collect();
-    format::list(&names)
+/// An instance's snapshots, as the list shows them.
+#[derive(Clone, Debug, Default)]
+pub struct SnapshotList {
+    /// Newest first.
+    pub records: Vec<SnapshotRecord>,
+    /// Images of the instance that can't be read.
+    pub unreadable: usize,
 }
 
 /// When a snapshot was taken, in the user's time.
-pub fn when(created: u64) -> String {
-    let time = chrono::DateTime::from_timestamp(created as i64, 0)
+pub fn when(created: i64) -> String {
+    let time = chrono::DateTime::from_timestamp(created, 0)
         .unwrap_or_default()
         .with_timezone(&chrono::Local);
     format::day_and_time(time, chrono::Local::now().date_naive())
 }
 
-impl Instances {
-    /// The store shared by every instance's snapshots.
-    pub fn snapshot_store(&self) -> Store {
-        Store::new(&self.data_dir)
+/// The badge a snapshot's row shows, if any: why it was taken, or that it is pinned.
+pub fn badge(record: &SnapshotRecord) -> Option<M> {
+    if record.pinned {
+        return Some(M::BadgePinned);
     }
+    match record.kind {
+        SnapshotKind::Manual => None,
+        SnapshotKind::BeforeChange => Some(M::BadgeAutomatic),
+        SnapshotKind::AfterPlay => Some(M::BadgeAfterPlaying),
+        SnapshotKind::BeforeRestore => Some(M::BadgeBeforeRestore),
+        SnapshotKind::Imported => Some(M::BadgeImported),
+    }
+}
 
-    /// The instance's snapshots, newest first, once read; reads them when not yet.
-    pub fn snapshot_rows(&mut self, id: &str, cx: &mut Context<Self>) -> Option<&[SnapshotRow]> {
+/// "Monday 14:30 · World, Other · 412 MB, 38 MB new": a snapshot's details.
+pub fn details(record: &SnapshotRecord) -> String {
+    let mut parts = vec![when(record.created)];
+    if !record.worlds.is_empty() {
+        let worlds: Vec<String> = record
+            .worlds
+            .iter()
+            .map(|w| launcher_core::images::display_text(w).into_owned())
+            .collect();
+        parts.push(format::list(&worlds));
+    }
+    parts.push(tr!(
+        M::SnapshotSizes,
+        total = format::bytes(record.bytes),
+        new = format::bytes(record.new_bytes)
+    ));
+    parts.join(" · ")
+}
+
+/// "2 added, 1 removed, 3 changed": how the content differs.
+pub fn diff_line(diff: &ContentDiff) -> String {
+    let mut parts = Vec::new();
+    if !diff.added.is_empty() {
+        parts.push(trn!(P::ShareAddedCount, diff.added.len()));
+    }
+    if !diff.removed.is_empty() {
+        parts.push(trn!(P::ShareRemovedCount, diff.removed.len()));
+    }
+    if !diff.updated.is_empty() {
+        parts.push(trn!(P::ShareChangedCount, diff.updated.len()));
+    }
+    format::list(&parts)
+}
+
+impl Instances {
+    /// The instance's snapshots, once read; reads them when not yet.
+    pub fn snapshot_list(&mut self, id: &str, cx: &mut Context<Self>) -> Option<&SnapshotList> {
         if !self.snapshot_rows.contains_key(id) && !self.snapshot_tasks.contains_key(id) {
             self.load_snapshots(id, cx);
         }
-        self.snapshot_rows.get(id).map(Vec::as_slice)
+        self.snapshot_rows.get(id)
     }
 
     /// Reads the instance's snapshots again, in the background.
     pub fn load_snapshots(&mut self, id: &str, cx: &mut Context<Self>) {
-        let store = self.snapshot_store();
+        let images = self.images();
         let key = id.to_string();
         let read = cx.background_spawn({
             let key = key.clone();
             async move {
-                store
-                    .list(&key)
-                    .iter()
-                    .map(SnapshotRow::of)
-                    .collect::<Vec<_>>()
+                images
+                    .snapshots(&key)
+                    .map(|found| SnapshotList {
+                        records: found.records,
+                        unreadable: found.unreadable.len(),
+                    })
+                    .unwrap_or_default()
             }
         });
         let task = cx.spawn(async move |this, cx| {
-            let rows = read.await;
+            let list = read.await;
             this.update(cx, |this, cx| {
                 this.snapshot_tasks.remove(&key);
-                this.snapshot_rows.insert(key, rows);
+                this.snapshot_rows.insert(key, list);
                 cx.notify();
             })
             .ok();
@@ -146,46 +139,78 @@ impl Instances {
         self.snapshot_tasks.insert(id.to_string(), task);
     }
 
-    /// Saves settings a revert put back, and reads the instance again. When the revert
-    /// moved the Minecraft version or loader back (with the mods), the Settings tab
-    /// hears of it, as after a modpack update.
-    pub fn apply_reverted_settings(
+    /// Pins or unpins a snapshot, then reads the list again.
+    pub fn pin_snapshot(&mut self, id: &str, snapshot: &str, pinned: bool, cx: &mut Context<Self>) {
+        let images = self.images();
+        let (instance, snapshot) = (id.to_string(), snapshot.to_string());
+        let work = cx.background_spawn({
+            let instance = instance.clone();
+            async move { images.set_pinned(&instance, &snapshot, pinned) }
+        });
+        cx.spawn(async move |this, cx| {
+            if let Err(err) = work.await {
+                log::warn!("Couldn't pin the snapshot: {err}");
+            }
+            this.update(cx, |this, cx| this.load_snapshots(&instance, cx))
+                .ok();
+        })
+        .detach();
+    }
+
+    /// Deletes the instance's images that can't be read, then reads the list again.
+    pub fn delete_unreadable_images(&mut self, id: &str, cx: &mut Context<Self>) {
+        let images = self.images();
+        let instance = id.to_string();
+        let work = cx.background_spawn({
+            let instance = instance.clone();
+            async move {
+                let found = images.snapshots(&instance)?;
+                for (image, _) in found.unreadable {
+                    images.delete_unreadable(&instance, &image)?;
+                }
+                Ok::<_, launcher_core::images::ImageError>(())
+            }
+        });
+        cx.spawn(async move |this, cx| {
+            if let Err(err) = work.await {
+                log::warn!("Couldn't delete the images that can't be read: {err}");
+            }
+            this.update(cx, |this, cx| this.load_snapshots(&instance, cx))
+                .ok();
+        })
+        .detach();
+    }
+
+    /// Sets whether the instance takes a snapshot after each play session: `None`
+    /// follows Settings › Instances.
+    pub fn set_snapshot_after_play(
         &mut self,
-        instance: launcher_core::instances::Instance,
+        id: &str,
+        after_play: Option<bool>,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
-        let before = self.store.get(&instance.id).ok();
-        let loader_moved = before.as_ref().is_some_and(|before| {
-            (&before.game_version, before.loader, &before.loader_version)
-                != (
-                    &instance.game_version,
-                    instance.loader,
-                    &instance.loader_version,
-                )
-        });
-        let operation = before
-            .as_ref()
-            .and_then(|before| self.settings_operation(before, &instance));
-        self.store.save(&instance).map_err(|err| err.to_string())?;
-        if let Some(operation) = operation {
-            operation.succeed();
-        }
-        self.reload(cx);
-        if loader_moved {
-            cx.emit(super::InstancesEvent::LoaderChanged(instance.id.clone()));
-        }
-        Ok(())
+        let mut instance = self.store.get(id).map_err(|e| e.to_string())?;
+        let mut settings = instance.snapshots.unwrap_or_default();
+        settings.after_play = after_play;
+        instance.snapshots = (!settings.is_empty()).then_some(settings);
+        self.save(&instance, cx)
+    }
+
+    /// Where exported snapshot files are written before they are dragged out or saved:
+    /// the cache, which Settings › Storage can clean.
+    pub fn snapshot_exports_dir(&self) -> PathBuf {
+        self.data_dir.cache_dir().join("snapshot-exports")
     }
 }
 
-/// What the Settings tab asks the shell to open.
+/// What the Settings tab (and the window) asks the shell to open.
 #[derive(Clone, Debug)]
 pub enum SnapshotRequest {
     Take(String),
-    Revert(String, String),
-    Share(String, String),
+    Restore(String, String),
+    Export(String, String),
     Delete(String, String),
-    /// A `.lodesnap` file to make a new instance from.
+    /// An image file to make a new instance from.
     Import(PathBuf),
 }
 
@@ -197,19 +222,28 @@ pub struct SnapshotDismissed;
 #[derive(Clone, Debug, PartialEq)]
 enum Mode {
     Take,
-    Revert,
-    Share,
+    Restore,
+    Export,
     Delete,
     Import,
 }
 
+/// What a restore puts back, as the dialog offers it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Choice {
+    Worlds,
+    WorldsAndMods,
+    Everything,
+    AsNew,
+}
+
 /// What the dialog is doing.
 enum State {
-    /// Waiting for the user (or, while `parts` loads, for the disk).
+    /// Waiting for the user (or, while `preview` loads, for the disk).
     Ready,
     Working(M),
-    /// Share: the file is ready to drag or save.
-    Shared(PathBuf),
+    /// Export: the file is ready to drag or save.
+    Exported(ExportReport),
     Failed(SharedString),
 }
 
@@ -217,12 +251,17 @@ pub struct SnapshotDialog {
     instances: Entity<Instances>,
     mode: Mode,
     instance_id: Option<String>,
-    snapshot: Option<Snapshot>,
+    snapshot: Option<SnapshotRecord>,
     import_path: Option<PathBuf>,
-    /// The parts to choose from, with their sizes.
-    parts: Option<Vec<Part>>,
-    /// The chosen parts, as (category, world).
-    chosen: BTreeSet<(Category, Option<String>)>,
+    /// Restore: what it would do.
+    preview: Option<RestorePreview>,
+    /// Import: what the file holds.
+    import: Option<ImportPreview>,
+    choice: Choice,
+    /// Restore: the worlds chosen.
+    worlds: Vec<String>,
+    /// Take: a full image.
+    everything: bool,
     name: Entity<TextInput>,
     state: State,
     progress: Arc<(AtomicU64, AtomicU64)>,
@@ -252,8 +291,8 @@ impl SnapshotDialog {
         });
         let (mode, instance_id, snapshot_id, import_path) = match request {
             SnapshotRequest::Take(id) => (Mode::Take, Some(id), None, None),
-            SnapshotRequest::Revert(id, s) => (Mode::Revert, Some(id), Some(s), None),
-            SnapshotRequest::Share(id, s) => (Mode::Share, Some(id), Some(s), None),
+            SnapshotRequest::Restore(id, s) => (Mode::Restore, Some(id), Some(s), None),
+            SnapshotRequest::Export(id, s) => (Mode::Export, Some(id), Some(s), None),
             SnapshotRequest::Delete(id, s) => (Mode::Delete, Some(id), Some(s), None),
             SnapshotRequest::Import(path) => (Mode::Import, None, None, Some(path)),
         };
@@ -263,8 +302,11 @@ impl SnapshotDialog {
             instance_id,
             snapshot: None,
             import_path,
-            parts: None,
-            chosen: BTreeSet::new(),
+            preview: None,
+            import: None,
+            choice: Choice::Worlds,
+            worlds: Vec::new(),
+            everything: false,
             name,
             state: State::Ready,
             progress: Arc::new((AtomicU64::new(0), AtomicU64::new(0))),
@@ -276,136 +318,56 @@ impl SnapshotDialog {
         this
     }
 
-    /// Reads what the dialog shows: the instance's parts, a snapshot, or a file.
+    /// Reads what the dialog shows: the snapshot and what restoring it would do, or a file.
     fn load(&mut self, snapshot_id: Option<String>, cx: &mut Context<Self>) {
-        let store = self.instances.read(cx).snapshot_store();
+        let images = self.instances.read(cx).images();
         match self.mode {
             Mode::Take => {
-                let Some(id) = self.instance_id.clone() else {
-                    return;
-                };
-                let dir = self.instances.read(cx).store().dir(&id);
                 let default_name = format::short_date(chrono::Local::now().date_naive(), true);
                 self.name
                     .update(cx, |input, cx| input.set_text(default_name, cx));
-                let read = cx.background_spawn(async move { store.plan(&dir) });
+            }
+            Mode::Restore | Mode::Export | Mode::Delete => {
+                let (Some(id), Some(snapshot_id)) = (self.instance_id.clone(), snapshot_id) else {
+                    return;
+                };
+                let restore = self.mode == Mode::Restore;
+                let read = cx.background_spawn(async move {
+                    let record = images.snapshot(&id, &snapshot_id)?;
+                    let preview = if restore {
+                        Some(images.preview_restore(&id, &snapshot_id)?)
+                    } else {
+                        None
+                    };
+                    Ok::<_, launcher_core::images::ImageError>((record, preview))
+                });
+                self.state = State::Working(M::ReadingSnapshot);
                 self._work = Some(cx.spawn(async move |this, cx| {
-                    let parts = read.await;
+                    let result = read.await;
                     this.update(cx, |this, cx| {
-                        // Everything is chosen, except screenshots and other files.
-                        this.chosen = parts
-                            .iter()
-                            .filter(|p| {
-                                !matches!(p.category, Category::Screenshots | Category::Other)
-                            })
-                            .map(|p| (p.category, p.world.clone()))
-                            .collect();
-                        // The instance's settings are in the manifest, not files: always offered.
-                        this.chosen.insert((Category::Settings, None));
-                        let mut parts = parts;
-                        if !parts.iter().any(|p| p.category == Category::Settings) {
-                            parts.push(Part {
-                                category: Category::Settings,
-                                world: None,
-                                files: 0,
-                                bytes: 0,
-                            });
+                        match result {
+                            Ok((record, preview)) => this.loaded(record, preview, cx),
+                            Err(err) => this.state = State::Failed(err.to_string().into()),
                         }
-                        parts.sort_by(|a, b| (a.category, &a.world).cmp(&(b.category, &b.world)));
-                        this.parts = Some(parts);
                         cx.notify();
                     })
                     .ok();
                 }));
-            }
-            Mode::Revert | Mode::Share | Mode::Delete => {
-                let (Some(id), Some(snapshot_id)) = (self.instance_id.clone(), snapshot_id) else {
-                    return;
-                };
-                match store.get(&id, &snapshot_id) {
-                    Ok(snapshot) => {
-                        let mut parts = snapshot.summary();
-                        // The settings are in the manifest, not files; and mods with no
-                        // files (an instance without any) still put back the version
-                        // and loader they were for, when those moved since.
-                        let current = self
-                            .instances
-                            .read(cx)
-                            .list()
-                            .iter()
-                            .find(|i| i.id == id)
-                            .cloned();
-                        let file_less = [
-                            (
-                                Category::Settings,
-                                snapshot.selection.categories.contains(&Category::Settings),
-                            ),
-                            (
-                                Category::Mods,
-                                self.mode == Mode::Revert
-                                    && current.is_some_and(|c| snapshot.moves_version(&c)),
-                            ),
-                        ];
-                        for (category, offered) in file_less {
-                            if offered && !parts.iter().any(|p| p.category == category) {
-                                parts.push(Part {
-                                    category,
-                                    world: None,
-                                    files: 0,
-                                    bytes: 0,
-                                });
-                            }
-                        }
-                        parts.sort_by(|a, b| (a.category, &a.world).cmp(&(b.category, &b.world)));
-                        self.chosen = parts
-                            .iter()
-                            .map(|p| (p.category, p.world.clone()))
-                            .collect();
-                        self.parts = Some(parts);
-                        self.snapshot = Some(snapshot);
-                        if self.mode == Mode::Share {
-                            self.share(cx);
-                        }
-                    }
-                    Err(err) => self.state = State::Failed(err.to_string().into()),
-                }
             }
             Mode::Import => {
                 let Some(path) = self.import_path.clone() else {
                     return;
                 };
                 self.state = State::Working(M::ReadingSnapshot);
-                let read =
-                    cx.background_spawn(async move { launcher_core::snapshots::inspect(&path) });
+                let read = cx.background_spawn(async move { export::inspect(&path) });
                 self._work = Some(cx.spawn(async move |this, cx| {
                     let result = read.await;
                     this.update(cx, |this, cx| {
                         match result {
-                            Ok(snapshot) => {
-                                let mut parts = snapshot.summary();
-                                if !parts.iter().any(|p| p.category == Category::Settings) {
-                                    parts.push(Part {
-                                        category: Category::Settings,
-                                        world: None,
-                                        files: 0,
-                                        bytes: 0,
-                                    });
-                                    parts.sort_by(|a, b| {
-                                        (a.category, &a.world).cmp(&(b.category, &b.world))
-                                    });
-                                }
-                                // Launch settings from someone else can run programs, so
-                                // the person opts in to them, as the warning says.
-                                let launch_settings = snapshot.sets_launch_settings();
-                                this.chosen = parts
-                                    .iter()
-                                    .filter(|p| {
-                                        !(launch_settings && p.category == Category::Settings)
-                                    })
-                                    .map(|p| (p.category, p.world.clone()))
-                                    .collect();
-                                this.parts = Some(parts);
-                                this.snapshot = Some(snapshot);
+                            Ok(preview) => {
+                                let name = preview.name_shown.clone();
+                                this.name.update(cx, |input, cx| input.set_text(name, cx));
+                                this.import = Some(preview);
                                 this.state = State::Ready;
                             }
                             Err(err) => this.state = State::Failed(err.to_string().into()),
@@ -418,10 +380,30 @@ impl SnapshotDialog {
         }
     }
 
-    fn selection(&self) -> Selection {
-        let categories: BTreeSet<Category> = self.chosen.iter().map(|(c, _)| *c).collect();
-        let worlds = self.chosen.iter().filter_map(|(_, w)| w.clone()).collect();
-        Selection { categories, worlds }
+    fn loaded(
+        &mut self,
+        record: SnapshotRecord,
+        preview: Option<RestorePreview>,
+        cx: &mut Context<Self>,
+    ) {
+        self.state = State::Ready;
+        if let Some(preview) = &preview {
+            self.worlds = preview.worlds.iter().map(|w| w.name.clone()).collect();
+            self.choice = if preview.other_game {
+                Choice::AsNew
+            } else if preview.worlds.is_empty() {
+                Choice::Everything
+            } else {
+                Choice::Worlds
+            };
+            let name = format!("{} ({})", record.name_shown(), when(record.created));
+            self.name.update(cx, |input, cx| input.set_text(name, cx));
+        }
+        self.preview = preview;
+        self.snapshot = Some(record);
+        if self.mode == Mode::Export {
+            self.export(cx);
+        }
     }
 
     /// Redraws while work runs, for the progress bar.
@@ -444,14 +426,6 @@ impl SnapshotDialog {
         }));
     }
 
-    fn progress_fn(&self) -> impl Fn(u64, u64) + Sync + Send + 'static {
-        let progress = self.progress.clone();
-        move |done, total| {
-            progress.0.store(done, Ordering::Relaxed);
-            progress.1.store(total, Ordering::Relaxed);
-        }
-    }
-
     fn game_running(&self, cx: &App) -> bool {
         self.instance_id
             .as_deref()
@@ -459,33 +433,33 @@ impl SnapshotDialog {
     }
 
     /// Runs `work` in the background with progress. Then, on the main thread, `after`
-    /// brings the instances up to date with what it did (settings put back, the
-    /// snapshot list, a new instance), and `done` updates the dialog.
-    ///
-    /// `after` runs even when the dialog has gone: the work can't be stopped once it has
-    /// started, and another dialog can replace this one meanwhile. Without it a revert
-    /// would put the files back but not the settings that go with them.
+    /// brings the instances up to date with what it did (the snapshot list, a new
+    /// instance), and `done` updates the dialog. `after` runs even when the dialog has
+    /// gone: the work can't be stopped once it has started.
     fn run<T: Send + 'static>(
         &mut self,
         label: M,
         work: impl FnOnce(&(dyn Fn(u64, u64) + Sync)) -> Result<T, String> + Send + 'static,
-        after: impl FnOnce(&mut Instances, &T, &mut Context<Instances>) -> Result<(), String> + 'static,
+        after: impl FnOnce(&mut Instances, &T, &mut Context<Instances>) + 'static,
         done: impl FnOnce(&mut Self, T, &mut Context<Self>) + 'static,
         cx: &mut Context<Self>,
     ) {
         self.state = State::Working(label);
         self.progress.0.store(0, Ordering::Relaxed);
         self.progress.1.store(0, Ordering::Relaxed);
-        let progress = self.progress_fn();
-        let job = cx.background_spawn(async move { work(&progress) });
+        let progress = self.progress.clone();
+        let job = cx.background_spawn(async move {
+            work(&move |done, total| {
+                progress.0.store(done, Ordering::Relaxed);
+                progress.1.store(total, Ordering::Relaxed);
+            })
+        });
         let instances = self.instances.clone();
         cx.spawn(async move |this, cx| {
-            let result = match job.await {
-                Ok(value) => instances
-                    .update(cx, |instances, cx| after(instances, &value, cx))
-                    .map(|()| value),
-                Err(err) => Err(err),
-            };
+            let result = job.await;
+            if let Ok(value) = &result {
+                instances.update(cx, |instances, cx| after(instances, value, cx));
+            }
             this.update(cx, |this, cx| {
                 match result {
                     Ok(value) => {
@@ -503,11 +477,9 @@ impl SnapshotDialog {
         cx.notify();
     }
 
-    /// Whether closing now would cut work short. Taking, putting back or importing a
-    /// snapshot can't be stopped, and the dialog shows how it ends; reading a file to
-    /// import, writing one to share, or deleting a snapshot can be left. Deleting can
-    /// wait minutes for another instance's snapshot job, with no progress to show, and
-    /// the list is brought up to date when it ends whether the dialog is open or not.
+    /// Whether closing now would cut work short: taking, restoring or importing can't be
+    /// stopped, and the dialog shows how it ends; reading or writing a file to share, or
+    /// deleting, can be left.
     fn busy(&self) -> bool {
         busy(&self.state)
     }
@@ -520,44 +492,38 @@ impl SnapshotDialog {
             self.state = State::Failed(t(M::SnapshotGameRunning).into());
             return cx.notify();
         }
-        let selection = self.selection();
-        if selection.categories.is_empty() {
-            self.state = State::Failed(t(M::ChooseSomething).into());
-            return cx.notify();
-        }
         let instances = self.instances.read(cx);
-        let Some(instance) = instances.list().iter().find(|i| i.id == id).cloned() else {
-            return;
-        };
-        let dir = instances.store().dir(&id);
-        let store = instances.snapshot_store();
-        // Play waits until the work is done, even if the dialog is closed meanwhile
+        let images = instances.images();
+        // Play waits until the work is done, even if the dialog is closed meanwhile.
         let busy = instances.mark_files_busy(&id);
         let typed = self.name.read(cx).text().trim().to_string();
-        let name = if typed.is_empty() {
-            format::short_date(chrono::Local::now().date_naive(), true)
-        } else {
-            typed
-        };
+        let everything = self.everything;
         launcher_core::trace::emit("snapshot.create", || serde_json::json!({ "instance": id }));
+        let instance = id.clone();
         self.run(
             M::TakingSnapshot,
             move |progress| {
                 let _busy = busy;
-                store
-                    .create(&instance, &dir, &name, None, &selection, false, progress)
+                images
+                    .take_snapshot(
+                        &instance,
+                        Take {
+                            kind: SnapshotKind::Manual,
+                            name: Some(typed),
+                            full: everything,
+                            progress,
+                            cancel: launcher_core::images::NEVER,
+                        },
+                    )
                     .map_err(|err| err.to_string())
             },
-            move |instances, _, cx| {
-                instances.load_snapshots(&id, cx);
-                Ok(())
-            },
+            move |instances, _, cx| instances.load_snapshots(&id, cx),
             |_, _, cx| cx.emit(SnapshotDismissed),
             cx,
         );
     }
 
-    fn revert(&mut self, cx: &mut Context<Self>) {
+    fn restore(&mut self, cx: &mut Context<Self>) {
         let (Some(id), Some(snapshot)) = (self.instance_id.clone(), self.snapshot.clone()) else {
             return;
         };
@@ -565,72 +531,90 @@ impl SnapshotDialog {
             self.state = State::Failed(t(M::SnapshotGameRunning).into());
             return cx.notify();
         }
-        let selection = self.selection();
-        if selection.categories.is_empty() {
-            self.state = State::Failed(t(M::ChooseSomething).into());
-            return cx.notify();
-        }
-        let instances = self.instances.read(cx);
-        let Some(current) = instances.list().iter().find(|i| i.id == id).cloned() else {
-            return;
+        let scope = match self.choice {
+            Choice::Worlds | Choice::WorldsAndMods if self.worlds.is_empty() => {
+                self.state = State::Failed(t(M::ChooseWorld).into());
+                return cx.notify();
+            }
+            Choice::Worlds => Some(RestoreScope::Worlds(self.worlds.clone())),
+            Choice::WorldsAndMods => Some(RestoreScope::WorldsAndContent(self.worlds.clone())),
+            Choice::Everything => Some(RestoreScope::Everything),
+            Choice::AsNew => None,
         };
-        let dir = instances.store().dir(&id);
-        let store = instances.snapshot_store();
+        let instances = self.instances.read(cx);
         let images = instances.images();
-        let image_id = id.clone();
-        // Play waits until the files are put back, even if the dialog is closed meanwhile
         let busy = instances.mark_files_busy(&id);
+        let name = self.name.read(cx).text().trim().to_string();
         launcher_core::trace::emit(
-            "snapshot.revert",
+            "snapshot.restore",
             || serde_json::json!({ "instance": id, "snapshot": snapshot.id }),
         );
-        self.run(
-            M::RevertingSnapshot,
-            move |progress| {
-                let _busy = busy;
-                let operation = images.begin(&image_id, labels::reverted(&snapshot.name));
-                let reverted = store
-                    .revert(&snapshot, &current, &dir, &selection, progress)
-                    .map(|(settings, _)| settings)
-                    .map_err(|err| err.to_string());
-                operation.finish_partly(&reverted);
-                reverted
-            },
-            move |instances, settings, cx| {
-                // The automatic snapshot is listed even if saving the settings fails.
-                instances.load_snapshots(&id, cx);
-                match settings.clone() {
-                    Some(settings) => instances.apply_reverted_settings(settings, cx),
-                    None => {
-                        instances.reload(cx);
-                        Ok(())
+        let instance = id.clone();
+        match scope {
+            Some(scope) => self.run(
+                M::RestoringSnapshot,
+                move |_| {
+                    let _busy = busy;
+                    images
+                        .restore(
+                            &instance,
+                            &snapshot.id,
+                            &scope,
+                            launcher_core::images::NEVER,
+                        )
+                        .map_err(|err| err.to_string())
+                },
+                move |instances, restored, cx| {
+                    instances.load_snapshots(&id, cx);
+                    instances.reload(cx);
+                    if restored.instance.is_some() {
+                        cx.emit(super::InstancesEvent::LoaderChanged(id.clone()));
                     }
-                }
-            },
-            |_, _, cx| cx.emit(SnapshotDismissed),
-            cx,
-        );
+                },
+                |_, _, cx| cx.emit(SnapshotDismissed),
+                cx,
+            ),
+            None => self.run(
+                M::ImportingSnapshot,
+                move |_| {
+                    drop(busy);
+                    images
+                        .restore_as_new(
+                            &instance,
+                            &snapshot.id,
+                            &name,
+                            launcher_core::images::NEVER,
+                        )
+                        .map_err(|err| err.to_string())
+                },
+                |instances, made, cx| {
+                    instances.reload(cx);
+                    instances.select(&made.id, cx);
+                },
+                |_, _, cx| cx.emit(SnapshotDismissed),
+                cx,
+            ),
+        }
     }
 
-    /// Writes the `.lodesnap` to the cache, to drag out or save.
-    fn share(&mut self, cx: &mut Context<Self>) {
-        let Some(snapshot) = self.snapshot.clone() else {
+    /// Writes the export to the cache, to drag out or save.
+    fn export(&mut self, cx: &mut Context<Self>) {
+        let (Some(id), Some(snapshot)) = (self.instance_id.clone(), self.snapshot.clone()) else {
             return;
         };
         let instances = self.instances.read(cx);
-        let store = instances.snapshot_store();
+        let images = instances.images();
         let instance_name = instances
             .list()
             .iter()
-            .find(|i| Some(&i.id) == self.instance_id.as_ref())
+            .find(|i| i.id == id)
             .map(|i| i.name.clone())
             .unwrap_or_default();
-        let folder = store.exports_dir();
-        let file = folder.join(format!(
+        let file = instances.snapshot_exports_dir().join(format!(
             "{} - {}.{}",
             file_safe(&instance_name),
             file_safe(&snapshot.name),
-            launcher_core::snapshots::EXTENSION
+            export::EXTENSION
         ));
         launcher_core::trace::emit(
             "snapshot.export",
@@ -638,15 +622,13 @@ impl SnapshotDialog {
         );
         self.run(
             M::PreparingFile,
-            move |progress| {
-                std::fs::create_dir_all(&folder).map_err(|err| err.to_string())?;
-                store
-                    .export(&snapshot, &file, progress)
-                    .map_err(|err| err.to_string())?;
-                Ok(file)
+            move |_| {
+                images
+                    .export_snapshot(&id, &snapshot.id, &file, launcher_core::images::NEVER)
+                    .map_err(|err| err.to_string())
             },
-            |_, _, _| Ok(()),
-            |this, file, _| this.state = State::Shared(file),
+            |_, _, _| {},
+            |this, report, _| this.state = State::Exported(report),
             cx,
         );
     }
@@ -680,23 +662,20 @@ impl SnapshotDialog {
         let (Some(id), Some(snapshot)) = (self.instance_id.clone(), self.snapshot.clone()) else {
             return;
         };
-        let store = self.instances.read(cx).snapshot_store();
+        let images = self.instances.read(cx).images();
         launcher_core::trace::emit(
             "snapshot.delete",
             || serde_json::json!({ "snapshot": snapshot.id }),
         );
         let instance = id.clone();
         self.run(
-            M::InstanceSnapshots,
+            M::DeletingSnapshot,
             move |_| {
-                store
-                    .delete(&instance, &snapshot.id)
+                images
+                    .delete_snapshot(&instance, &snapshot.id)
                     .map_err(|err| err.to_string())
             },
-            move |instances, _, cx| {
-                instances.load_snapshots(&id, cx);
-                Ok(())
-            },
+            move |instances, _, cx| instances.load_snapshots(&id, cx),
             |_, _, cx| cx.emit(SnapshotDismissed),
             cx,
         );
@@ -706,33 +685,42 @@ impl SnapshotDialog {
         let Some(path) = self.import_path.clone() else {
             return;
         };
-        let selection = self.selection();
-        if selection.categories.is_empty() {
-            self.state = State::Failed(t(M::ChooseSomething).into());
-            return cx.notify();
-        }
         let instances = self.instances.read(cx);
-        let store = instances.snapshot_store();
-        let instance_store = instances.store();
         let images = instances.images();
+        let downloader = instances.content_downloader();
+        let modrinth = instances.modrinth();
+        let curseforge = instances.curseforge();
+        let room = export::room_on(instances.store().root().to_path_buf());
+        let name = self.name.read(cx).text().trim().to_string();
         launcher_core::trace::emit("snapshot.import", || serde_json::json!({}));
         self.run(
             M::ImportingSnapshot,
-            move |progress| {
-                let instance = store
-                    .import_as_instance(&instance_store, &path, &selection, progress)
-                    .map_err(|err| err.to_string())?;
-                crate::instances::record_created_later(
-                    &images,
-                    &instance.id,
-                    labels::FROM_SNAPSHOT,
-                );
-                Ok(instance)
+            move |_| {
+                let Some(modrinth) = modrinth else {
+                    return Err(t(M::ImportNeedsModrinth).to_string());
+                };
+                let progress = launcher_core::game::download::Progress::default();
+                let cancel = launcher_core::game::download::CancelToken::new();
+                futures::executor::block_on(launcher_core::http::in_http_runtime(
+                    export::import_file(
+                        &images,
+                        export::Sources {
+                            downloader: &downloader,
+                            modrinth: &modrinth,
+                            curseforge: curseforge.as_deref(),
+                        },
+                        &path,
+                        Some(&name),
+                        &room,
+                        &progress,
+                        &cancel,
+                    ),
+                ))
+                .map_err(|err| err.to_string())
             },
-            |instances, instance, cx| {
+            |instances, imported, cx| {
                 instances.reload(cx);
-                instances.select(&instance.id, cx);
-                Ok(())
+                instances.select(&imported.instance.id, cx);
             },
             |_, _, cx| cx.emit(SnapshotDismissed),
             cx,
@@ -743,69 +731,15 @@ impl SnapshotDialog {
         let name = self
             .snapshot
             .as_ref()
-            .map(|s| display_name(&s.name, s.note.as_deref(), s.automatic))
+            .map(SnapshotRecord::name_shown)
             .unwrap_or_default();
         match self.mode {
             Mode::Take => t(M::TakeSnapshotTitle).into(),
-            Mode::Revert => tr!(M::RevertTitle, name = name).into(),
-            Mode::Share => tr!(M::ShareSnapshotTitle, name = name).into(),
+            Mode::Restore => tr!(M::RestoreTitle, name = name).into(),
+            Mode::Export => tr!(M::ExportTitle, name = name).into(),
             Mode::Delete => tr!(M::DeleteSnapshotTitle, name = name).into(),
             Mode::Import => t(M::ImportSnapshotTitle).into(),
         }
-    }
-
-    fn render_parts(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let Some(parts) = &self.parts else {
-            return div().child(LoadingDots).into_any_element();
-        };
-        let mut rows: Vec<AnyElement> = Vec::new();
-        for (index, part) in parts.iter().enumerate() {
-            // The worlds go under a heading of their own.
-            if part.world.is_some() && (index == 0 || parts[index - 1].world.is_none()) {
-                rows.push(SettingRow::new(t(M::PartWorlds)).into_any_element());
-            }
-            rows.push({
-                let key = (part.category, part.world.clone());
-                let on = self.chosen.contains(&key);
-                let size = if part.files == 0 {
-                    String::new()
-                } else {
-                    format::bytes(part.bytes)
-                };
-                let label = part_label(part);
-                SettingRow::new(label.clone())
-                    .key(("snapshot-part-row", index))
-                    .when(part.world.is_some(), |row| row.indent())
-                    .when(!size.is_empty(), |row| {
-                        row.child(div().text_color(crate::theme::ink::muted()).child(size))
-                    })
-                    .child(
-                        Toggle::new(("snapshot-part", index), on)
-                            .label(label)
-                            .on_change(cx.listener(move |this, value: &bool, _, cx| {
-                                if *value {
-                                    this.chosen.insert(key.clone());
-                                } else {
-                                    this.chosen.remove(&key);
-                                }
-                                cx.notify();
-                            })),
-                    )
-                    .into_any_element()
-            });
-        }
-        // Room for the warnings above, in a window of the smallest height.
-        let max = match &self.snapshot {
-            Some(snapshot) if self.mode == Mode::Import && snapshot.sets_launch_settings() => 140.,
-            _ if self.mode == Mode::Import => 200.,
-            _ => 320.,
-        };
-        div()
-            .max_h(px(max))
-            .id("snapshot-parts")
-            .overflow_y_scroll()
-            .child(card(rows))
-            .into_any_element()
     }
 
     fn render_progress(&self, label: M) -> impl IntoElement + use<> {
@@ -846,14 +780,192 @@ impl SnapshotDialog {
             )
     }
 
+    fn render_restore(&self, cx: &mut Context<Self>) -> AnyElement {
+        let Some(preview) = &self.preview else {
+            return div().child(LoadingDots).into_any_element();
+        };
+        let mut body = div().flex().flex_col().gap_3();
+        let mut choices: Vec<(Choice, SharedString)> = Vec::new();
+        if !preview.other_game {
+            if !preview.worlds.is_empty() {
+                choices.push((Choice::Worlds, t(M::RestoreWorldsOnly).into()));
+                if preview.can_restore_content {
+                    choices.push((Choice::WorldsAndMods, t(M::RestoreWorldsAndMods).into()));
+                }
+            }
+            if preview.can_restore_content {
+                choices.push((Choice::Everything, t(M::RestoreEverything).into()));
+            }
+        }
+        choices.push((Choice::AsNew, t(M::RestoreAsNew).into()));
+        let entity = cx.entity();
+        body = body.child(segmented(
+            "snapshot-restore-choice",
+            choices,
+            Some(&self.choice),
+            false,
+            move |choice, _, cx| {
+                entity.update(cx, |this, cx| {
+                    this.choice = choice;
+                    cx.notify();
+                })
+            },
+        ));
+        match self.choice {
+            Choice::Worlds | Choice::WorldsAndMods => {
+                let mut rows: Vec<AnyElement> = Vec::new();
+                for (index, world) in preview.worlds.iter().enumerate() {
+                    let on = self.worlds.contains(&world.name);
+                    let name = world.name.clone();
+                    let label = launcher_core::images::display_text(
+                        world.level_name.as_deref().unwrap_or(&world.name),
+                    )
+                    .into_owned();
+                    let detail = if world.exists_now {
+                        format::bytes(world.size)
+                    } else {
+                        tr!(M::WorldGoneNow, size = format::bytes(world.size))
+                    };
+                    rows.push(
+                        SettingRow::new(label.clone())
+                            .key(("snapshot-world-row", index))
+                            .hint(detail)
+                            .child(
+                                Checkbox::new(("snapshot-world", index), on, label).on_change(
+                                    cx.listener(move |this, value: &bool, _, cx| {
+                                        if *value {
+                                            if !this.worlds.contains(&name) {
+                                                this.worlds.push(name.clone());
+                                            }
+                                        } else {
+                                            this.worlds.retain(|w| w != &name);
+                                        }
+                                        cx.notify();
+                                    }),
+                                ),
+                            )
+                            .into_any_element(),
+                    );
+                }
+                body = body.child(
+                    div()
+                        .max_h(px(220.))
+                        .id("snapshot-worlds")
+                        .overflow_y_scroll()
+                        .child(card(rows)),
+                );
+                if self.choice == Choice::Worlds
+                    && let Some(diff) = preview.content.as_ref().filter(|d| !d.is_empty())
+                {
+                    body = body.child(
+                        note(tr!(M::ModsDiffer, changes = diff_line(diff))).child(
+                            Toggle::new("snapshot-mods-too", false)
+                                .label(t(M::RestoreModsToo))
+                                .on_change(cx.listener(|this, value: &bool, _, cx| {
+                                    if *value {
+                                        this.choice = Choice::WorldsAndMods;
+                                    }
+                                    cx.notify();
+                                })),
+                        ),
+                    );
+                }
+            }
+            Choice::Everything => {
+                body = body.child(muted(t(M::RestoreEverythingHint)));
+            }
+            Choice::AsNew => {
+                body = body.child(
+                    SettingRow::new(t(M::RestoreAsNewName))
+                        .child(div().w(px(260.)).child(self.name.clone())),
+                );
+            }
+        }
+        if matches!(self.choice, Choice::WorldsAndMods | Choice::Everything)
+            && let Some(diff) = &preview.content
+            && let Some((_, Some(version))) = &diff.loader_version
+        {
+            body = body.child(muted(tr!(M::RestoreLoaderChange, version = version)));
+        }
+        if preview.other_game {
+            body = body.child(muted(t(M::RestoreOtherGame)));
+        }
+        if !preview.missing.is_empty() {
+            body = body.child(note(trn!(P::RestoreMissing, preview.missing.len())));
+        }
+        if self.choice != Choice::AsNew {
+            body = body.child(muted(t(M::RestoreSafety)));
+        }
+        body.into_any_element()
+    }
+
+    fn render_import(&self) -> AnyElement {
+        let Some(preview) = &self.import else {
+            return div().into_any_element();
+        };
+        let mut body = div().flex().flex_col().gap_3();
+        let loader = match &preview.loader_version {
+            Some(version) => format!("{} {version}", preview.loader),
+            None => preview.loader.clone(),
+        };
+        body = body.child(div().font_weight(weights::BOLD.into()).child(tr!(
+            M::ImportFrom,
+            name = preview.name_shown,
+            version = preview.minecraft,
+            loader = loader
+        )));
+        if !preview.worlds.is_empty() {
+            body = body.child(muted(tr!(
+                M::ImportWorlds,
+                worlds = format::list(&preview.worlds)
+            )));
+        }
+        if !preview.mods.is_empty() {
+            let mut shown: Vec<String> = preview.mods.iter().take(8).cloned().collect();
+            if preview.mods.len() > shown.len() {
+                shown.push("…".into());
+            }
+            body = body.child(
+                note(trn!(P::ImportModsWarning, preview.mods.len()))
+                    .child(muted(format::list(&shown))),
+            );
+        }
+        if preview.download_bytes > 0 {
+            body = body.child(muted(tr!(
+                M::ImportDownloads,
+                size = format::bytes(preview.download_bytes)
+            )));
+        }
+        if !preview.not_downloadable.is_empty() {
+            body = body.child(note(tr!(
+                M::ImportNotDownloadable,
+                files = format::list(&preview.not_downloadable)
+            )));
+        }
+        body = body
+            .child(muted(tr!(
+                M::ImportSpace,
+                size = format::bytes(preview.unpacked_bytes + preview.files_bytes)
+            )))
+            .child(
+                SettingRow::new(t(M::SnapshotName))
+                    .child(div().w(px(260.)).child(self.name.clone())),
+            );
+        body.into_any_element()
+    }
+
     /// The finished file, to drag into another app.
-    fn render_file(&self, file: &PathBuf, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+    fn render_file(
+        &self,
+        report: &ExportReport,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
+        let file = &report.file;
         let name: SharedString = file
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default()
             .into();
-        let size = std::fs::metadata(file).map(|m| m.len()).unwrap_or(0);
         let save = file.clone();
         let folder = file.parent().map(PathBuf::from).unwrap_or_default();
         div()
@@ -901,10 +1013,17 @@ impl SnapshotDialog {
                                 div()
                                     .text_size(theme::text_size(text::SMALL))
                                     .text_color(crate::theme::ink::muted())
-                                    .child(format::bytes(size)),
+                                    .child(format::bytes(report.bytes)),
                             ),
                     ),
             )
+            .child(muted(t(M::ExportNote)))
+            .when(!report.left_out.is_empty(), |this| {
+                this.child(muted(tr!(
+                    M::ExportLeftOut,
+                    files = format::list(&report.left_out)
+                )))
+            })
             .child(
                 div()
                     .flex()
@@ -938,32 +1057,33 @@ fn busy(state: &State) -> bool {
     match state {
         State::Working(label) => !matches!(
             label,
-            M::ReadingSnapshot | M::PreparingFile | M::InstanceSnapshots
+            M::ReadingSnapshot | M::PreparingFile | M::DeletingSnapshot
         ),
         _ => false,
     }
 }
 
-/// A warning above the parts to import, with a smaller line under it.
-fn warning(message: String, detail: Option<String>) -> impl IntoElement {
+/// A small grey line.
+fn muted(text_: impl Into<SharedString>) -> gpui::Div {
+    div()
+        .whitespace_normal()
+        .text_size(theme::text_size(text::SMALL))
+        .text_color(colors::GRAY_400)
+        .child(text_.into())
+}
+
+/// A note that asks for attention, with room for more under it.
+fn note(message: String) -> gpui::Div {
     div()
         .flex()
         .flex_col()
-        .gap_1()
+        .gap_2()
         .p_3()
         .rounded(radius::LG)
         .border_1()
         .border_color(colors::YELLOW.opacity(40))
         .bg(colors::YELLOW.opacity(8))
         .child(div().text_color(colors::YELLOW_300).child(message))
-        .when_some(detail, |warning, detail| {
-            warning.child(
-                div()
-                    .text_size(theme::text_size(text::SMALL))
-                    .text_color(colors::GRAY_400)
-                    .child(detail),
-            )
-        })
 }
 
 /// The small label that follows the pointer while the file is dragged in the window.
@@ -1014,9 +1134,9 @@ impl Render for SnapshotDialog {
         let working = matches!(self.state, State::Working(_));
         match (&self.mode, &self.state) {
             (_, State::Working(label)) => body = body.child(self.render_progress(*label)),
-            (Mode::Share, State::Shared(file)) => {
-                let file = file.clone();
-                body = body.child(self.render_file(&file, cx));
+            (Mode::Export, State::Exported(report)) => {
+                let report = report.clone();
+                body = body.child(self.render_file(&report, cx));
             }
             (Mode::Take, _) => {
                 body = body
@@ -1025,66 +1145,22 @@ impl Render for SnapshotDialog {
                             .child(div().w(px(260.)).child(self.name.clone())),
                     )
                     .child(
-                        div()
-                            .font_weight(weights::MEDIUM.into())
-                            .text_color(colors::GRAY_400)
-                            .child(t(M::WhatToInclude)),
-                    )
-                    .child(self.render_parts(cx));
+                        SettingRow::new(t(M::SnapshotIncludeEverything))
+                            .hint(t(M::SnapshotIncludeEverythingHint))
+                            .child(
+                                Toggle::new("snapshot-everything", self.everything)
+                                    .label(t(M::SnapshotIncludeEverything))
+                                    .on_change(cx.listener(|this, value: &bool, _, cx| {
+                                        this.everything = *value;
+                                        cx.notify();
+                                    })),
+                            ),
+                    );
             }
-            (Mode::Revert, _) => {
-                body = body
-                    .child(div().text_color(colors::GRAY_400).child(t(M::RevertBody)))
-                    .child(
-                        div()
-                            .font_weight(weights::MEDIUM.into())
-                            .text_color(colors::GRAY_400)
-                            .child(t(M::WhatToRestore)),
-                    )
-                    .child(self.render_parts(cx));
-            }
-            (Mode::Delete, _) => {
-                body = body.child(
-                    div()
-                        .text_color(colors::GRAY_400)
-                        .child(t(M::DeleteSnapshotBody)),
-                );
-            }
-            (Mode::Import, _) => {
-                if let Some(snapshot) = &self.snapshot {
-                    let mods = snapshot.mods();
-                    body = body.child(div().font_weight(weights::BOLD.into()).child(tr!(
-                        M::SnapshotFrom,
-                        name = snapshot.instance.name,
-                        version = snapshot.instance.game_version
-                    )));
-                    if !mods.is_empty() {
-                        // The first few, then "…".
-                        let mut shown: Vec<String> = mods.iter().take(8).cloned().collect();
-                        if mods.len() > shown.len() {
-                            shown.push("…".into());
-                        }
-                        body = body.child(warning(
-                            tr!(M::SnapshotModsWarning, count = mods.len()),
-                            Some(format::list(&shown)),
-                        ));
-                    }
-                    // Settings that run code on Play come only with "Instance settings".
-                    if snapshot.sets_launch_settings() {
-                        body =
-                            body.child(warning(t(M::SnapshotLaunchSettingsWarning).into(), None));
-                    }
-                    body = body
-                        .child(
-                            div()
-                                .font_weight(weights::MEDIUM.into())
-                                .text_color(colors::GRAY_400)
-                                .child(t(M::WhatToInclude)),
-                        )
-                        .child(self.render_parts(cx));
-                }
-            }
-            (Mode::Share, _) => {}
+            (Mode::Restore, _) => body = body.child(self.render_restore(cx)),
+            (Mode::Delete, _) => body = body.child(muted(t(M::DeleteSnapshotBody))),
+            (Mode::Import, _) => body = body.child(self.render_import()),
+            (Mode::Export, _) => {}
         }
         if let State::Failed(error) = &self.state {
             body = body.child(
@@ -1096,14 +1172,19 @@ impl Render for SnapshotDialog {
         }
         let primary: Option<(SharedString, ButtonVariant)> = match self.mode {
             Mode::Take => Some((t(M::TakeSnapshot).into(), ButtonVariant::Primary)),
-            Mode::Revert => Some((t(M::Revert).into(), ButtonVariant::Primary)),
+            Mode::Restore => Some((t(M::RestoreButton).into(), ButtonVariant::Primary)),
             Mode::Delete => Some((t(CommonMsg::Delete).into(), ButtonVariant::Danger)),
             Mode::Import => Some((t(M::CreateInstanceButton).into(), ButtonVariant::Primary)),
-            Mode::Share => None,
+            Mode::Export => None,
         };
         let ready = !working
-            && (self.parts.is_some() || self.mode == Mode::Delete)
-            && !matches!(self.state, State::Shared(_));
+            && match self.mode {
+                Mode::Take => true,
+                Mode::Restore => self.preview.is_some(),
+                Mode::Delete => self.snapshot.is_some(),
+                Mode::Import => self.import.is_some(),
+                Mode::Export => false,
+            };
         // While work that can't be stopped runs, there is no way to close: no ×, Escape or
         // click outside, and Cancel is off.
         let busy = self.busy();
@@ -1119,7 +1200,7 @@ impl Render for SnapshotDialog {
             .footer(
                 Button::new(
                     "snapshot-cancel",
-                    t(if self.mode == Mode::Share {
+                    t(if self.mode == Mode::Export {
                         CommonMsg::Close
                     } else {
                         CommonMsg::Cancel
@@ -1140,10 +1221,10 @@ impl Render for SnapshotDialog {
                         .disabled(!ready)
                         .on_click(cx.listener(|this, _, _, cx| match this.mode {
                             Mode::Take => this.take(cx),
-                            Mode::Revert => this.revert(cx),
+                            Mode::Restore => this.restore(cx),
                             Mode::Delete => this.delete(cx),
                             Mode::Import => this.import(cx),
-                            Mode::Share => {}
+                            Mode::Export => {}
                         })),
                 )
             })
@@ -1158,17 +1239,24 @@ mod tests {
     fn cant_be_closed_while_changing_files() {
         for label in [
             M::TakingSnapshot,
-            M::RevertingSnapshot,
+            M::RestoringSnapshot,
             M::ImportingSnapshot,
         ] {
             assert!(busy(&State::Working(label)), "{label:?}");
         }
-        // Only reading, or writing a file to share: closing leaves nothing half done.
+        // Only reading, writing a file to share, or deleting: closing leaves nothing half
+        // done.
         assert!(!busy(&State::Working(M::ReadingSnapshot)));
         assert!(!busy(&State::Working(M::PreparingFile)));
-        // Deleting: it can wait a long time for another job, and ends the same either way.
-        assert!(!busy(&State::Working(M::InstanceSnapshots)));
+        assert!(!busy(&State::Working(M::DeletingSnapshot)));
         assert!(!busy(&State::Ready));
         assert!(!busy(&State::Failed("".into())));
+    }
+
+    #[test]
+    fn file_names_are_safe() {
+        assert_eq!(file_safe("a/b:c"), "a_b_c");
+        assert_eq!(file_safe("..hidden"), "hidden");
+        assert_eq!(file_safe("  "), "snapshot");
     }
 }

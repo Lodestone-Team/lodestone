@@ -1,12 +1,7 @@
 //! An instance's worlds (`minecraft/saves/`): listing them with what their `level.dat`
-//! says, renaming, deleting (to the Trash), backups, restoring, and world zips.
+//! says, renaming, deleting (to the Trash), and world zips. Backups of worlds are
+//! snapshots (`crate::images`).
 //!
-//! - **Backups** are zips at `<instance>/backups/<world folder>/<YYYY-MM-DD_HH-MM-SS>.zip`,
-//!   with the world's files under `<world folder>/` (`session.lock` left out). They are
-//!   written to a temporary file and renamed into place.
-//! - **Restoring** makes a new world `<folder> (restored <date>)` by default. Replacing
-//!   the world backs it up first, extracts the backup beside it, swaps the folders and
-//!   moves the old one to the Trash.
 //! - **World zips** (export, import) have the same layout; an imported zip needs
 //!   `level.dat` at its root or one folder down. Every path is checked like a modpack's
 //!   ([`check_pack_path`]), links are skipped and sizes are checked against the header.
@@ -35,7 +30,6 @@ use crate::{
 };
 
 pub const SAVES: &str = "saves";
-pub const BACKUPS: &str = "backups";
 /// A world zip may have at most this many entries, and this many bytes unpacked.
 pub const MAX_ZIP_ENTRIES: usize = 500_000;
 pub const MAX_ZIP_BYTES: u64 = 64 * 1024 * 1024 * 1024;
@@ -113,21 +107,8 @@ impl World {
     }
 }
 
-/// A backup of a world.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Backup {
-    pub path: PathBuf,
-    pub file_name: String,
-    pub size: u64,
-    pub created: Option<SystemTime>,
-}
-
 pub fn saves_dir(dirs: &InstanceDirs) -> PathBuf {
     dirs.game.join(SAVES)
-}
-
-pub fn backups_dir(dirs: &InstanceDirs) -> PathBuf {
-    dirs.instance.join(BACKUPS)
 }
 
 /// The world folder `folder`, if it is a plain name of a folder in `saves/`.
@@ -269,18 +250,17 @@ fn random_suffix() -> String {
 }
 
 /// Renames a world: its folder (to [`folder_name`] of `name`) and, when `level.dat`
-/// reads and writes back unchanged, the name inside it. Its backups move along.
-/// Returns the new folder.
+/// reads and writes back unchanged, the name inside it. Returns the new folder. If
+/// writing `level.dat` fails, the world is moved back and the error returned.
 ///
-/// The new folder name is one that is free in both `saves/` and `backups/`, so the
-/// backups always have somewhere to go. If moving the backups or writing `level.dat`
-/// fails, the world is moved back and the error returned.
+/// Snapshots know a world by its folder: the Worlds tab lists the older snapshots of a
+/// renamed world under no world (they stay in Settings › Snapshots, and putting the world
+/// back from one restores the old folder name).
 pub fn rename(dirs: &InstanceDirs, folder: &str, name: &str) -> Result<String, WorldError> {
     rename_with(dirs, folder, name, |from, to| crate::fsx::rename(from, to))
 }
 
-/// Like [`rename`], with `move_dir` moving the world's folder and its backups folder
-/// (tests make it fail).
+/// Like [`rename`], with `move_dir` moving the world's folder (tests make it fail).
 pub fn rename_with(
     dirs: &InstanceDirs,
     folder: &str,
@@ -293,7 +273,6 @@ pub fn rename_with(
         return Err(WorldError::Invalid("Give the world a name.".into()));
     }
     let saves = saves_dir(dirs);
-    let backups = backups_dir(dirs);
     let wanted = folder_name(name);
     let level_dat = |dir: &Path| dir.join("level.dat");
     let renamed_level = fs::read(level_dat(&dir))
@@ -306,50 +285,32 @@ pub fn rename_with(
         }
         return Ok(wanted);
     }
-    let new_folder = unused_in(&[&saves, &backups], &wanted);
+    let new_folder = unused(&saves, &wanted);
     let target = saves.join(&new_folder);
-    let old_backups = backups.join(folder);
-    let new_backups = backups.join(&new_folder);
-    let has_backups = old_backups.is_dir();
-
     move_dir(&dir, &target).map_err(io_error(&dir))?;
-    let mut backups_moved = false;
-    let finished = (|| {
-        if has_backups {
-            move_dir(&old_backups, &new_backups).map_err(io_error(&old_backups))?;
-            backups_moved = true;
-        }
-        if let Some(renamed) = &renamed_level {
+    let written = match &renamed_level {
+        Some(renamed) => {
             let path = level_dat(&target);
-            storage::write_atomic(&path, renamed).map_err(io_error(&path))?;
+            storage::write_atomic(&path, renamed).map_err(io_error(&path))
         }
-        Ok::<_, WorldError>(())
-    })();
-    let Err(err) = finished else {
+        None => Ok(()),
+    };
+    let Err(err) = written else {
         // The data packs installed from Modrinth are remembered by world folder. The
         // world is renamed either way; if the record can't follow, its packs only stop
         // updating in place.
         let _ = crate::datapacks::world_renamed(dirs, folder, &new_folder);
         return Ok(new_folder);
     };
-    // Put everything back as it was, so the backups stay with their world.
-    let backups_back = !backups_moved || move_dir(&new_backups, &old_backups).is_ok();
-    let world_back = move_dir(&target, &dir).is_ok();
-    Err(if backups_back && world_back {
+    Err(if move_dir(&target, &dir).is_ok() {
         WorldError::Invalid(format!(
             "Couldn't rename the world, so it was left as it was: {err}"
         ))
     } else {
         WorldError::Invalid(format!(
             "Couldn't rename the world ({err}), and couldn't put it back as it was. \
-             The world is in {}, and its backups are in {}.",
-            if world_back { &dir } else { &target }.display(),
-            if backups_back {
-                &old_backups
-            } else {
-                &new_backups
-            }
-            .display()
+             The world is in {}.",
+            target.display()
         ))
     })
 }
@@ -539,109 +500,6 @@ pub fn date(time: SystemTime) -> String {
     chrono::DateTime::<chrono::Local>::from(time)
         .format("%Y-%m-%d")
         .to_string()
-}
-
-/// Backs up a world into `backups/<folder>/<time>.zip`.
-pub fn backup(
-    dirs: &InstanceDirs,
-    folder: &str,
-    progress: &Progress,
-    cancel: &CancelToken,
-) -> Result<Backup, WorldError> {
-    let dir = world_dir(dirs, folder)?;
-    let target_dir = backups_dir(dirs).join(folder);
-    let stamp = timestamp(SystemTime::now());
-    let name = (1..)
-        .map(|n| {
-            if n == 1 {
-                format!("{stamp}.zip")
-            } else {
-                format!("{stamp}-{n}.zip")
-            }
-        })
-        .find(|name| !target_dir.join(name).exists())
-        .expect("an unused name");
-    let path = target_dir.join(&name);
-    let size = write_zip(&dir, folder, &path, progress, cancel)?;
-    Ok(Backup {
-        created: fs::metadata(&path).and_then(|m| m.modified()).ok(),
-        path,
-        file_name: name,
-        size,
-    })
-}
-
-/// The backups of the world `folder`, newest first.
-pub fn backups(dirs: &InstanceDirs, folder: &str) -> Vec<Backup> {
-    if !is_plain_name(folder) {
-        return Vec::new();
-    }
-    let Ok(entries) = fs::read_dir(backups_dir(dirs).join(folder)) else {
-        return Vec::new();
-    };
-    let mut list: Vec<Backup> = entries
-        .flatten()
-        .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
-        .filter_map(|e| {
-            let file_name = e.file_name().to_str()?.to_string();
-            if !file_name.to_ascii_lowercase().ends_with(".zip") || file_name.starts_with('.') {
-                return None;
-            }
-            let metadata = e.metadata().ok()?;
-            Some(Backup {
-                path: e.path(),
-                file_name,
-                size: metadata.len(),
-                created: metadata.modified().ok(),
-            })
-        })
-        .collect();
-    list.sort_by(|a, b| {
-        b.created
-            .cmp(&a.created)
-            .then(b.file_name.cmp(&a.file_name))
-    });
-    list
-}
-
-/// Checks that `path` is one of the instance's backups.
-fn check_backup(dirs: &InstanceDirs, path: &Path) -> Result<(), WorldError> {
-    let inside = path
-        .parent()
-        .and_then(Path::parent)
-        .is_some_and(|p| p == backups_dir(dirs));
-    let name_ok = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .is_some_and(|n| is_plain_name(n) && n.to_ascii_lowercase().ends_with(".zip"));
-    if inside && name_ok && path.is_file() {
-        Ok(())
-    } else {
-        Err(WorldError::NotFound(format!(
-            "{} isn't a backup of this instance.",
-            path.display()
-        )))
-    }
-}
-
-/// Moves a backup to the Trash.
-pub fn delete_backup(dirs: &InstanceDirs, path: &Path) -> Result<(), WorldError> {
-    delete_backup_with(dirs, path, |path| {
-        trash::delete(path).map_err(|e| e.to_string())
-    })
-}
-
-/// Like [`delete_backup`], with `remove` doing the removal.
-pub fn delete_backup_with(
-    dirs: &InstanceDirs,
-    path: &Path,
-    remove: impl FnOnce(&Path) -> Result<(), String>,
-) -> Result<(), WorldError> {
-    check_backup(dirs, path)?;
-    remove(path).map_err(|reason| WorldError::Trash {
-        path: path.to_owned(),
-        reason,
-    })
 }
 
 /// A world zip that was checked.
@@ -978,128 +836,6 @@ pub fn export(
 ) -> Result<u64, WorldError> {
     let dir = world_dir(dirs, folder)?;
     write_zip(&dir, folder, out, progress, cancel)
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RestoreMode {
-    /// Into a new world, `<folder> (restored <date>)`.
-    Copy,
-    /// Over the world, after backing it up.
-    Replace,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Restored {
-    /// The world's folder now.
-    pub folder: String,
-    /// The backup of the replaced world.
-    pub safety_backup: Option<Backup>,
-}
-
-/// Restores a backup of the world `folder`; a replaced world goes to the Trash.
-pub fn restore(
-    dirs: &InstanceDirs,
-    folder: &str,
-    backup_path: &Path,
-    mode: RestoreMode,
-    progress: &Progress,
-    cancel: &CancelToken,
-) -> Result<Restored, WorldError> {
-    restore_with(
-        dirs,
-        folder,
-        backup_path,
-        mode,
-        |path| trash::delete(path).map_err(|e| e.to_string()),
-        progress,
-        cancel,
-    )
-}
-
-/// Restores a backup of the world `folder`. The replaced world is renamed
-/// `<folder> (replaced <date>)` and `remove` moves it to the Trash; if it can't, it is
-/// kept there.
-pub fn restore_with(
-    dirs: &InstanceDirs,
-    folder: &str,
-    backup_path: &Path,
-    mode: RestoreMode,
-    remove: impl FnOnce(&Path) -> Result<(), String>,
-    progress: &Progress,
-    cancel: &CancelToken,
-) -> Result<Restored, WorldError> {
-    check_backup(dirs, backup_path)?;
-    if !is_plain_name(folder) {
-        return Err(WorldError::NotFound(format!(
-            "There is no world {folder:?}."
-        )));
-    }
-    let world = inspect_zip(backup_path)?;
-    let saves = saves_dir(dirs);
-    let today = date(SystemTime::now());
-    match mode {
-        RestoreMode::Copy => {
-            let new_folder = unused(
-                &saves,
-                &folder_name(&format!("{folder} (restored {today})")),
-            );
-            let dir = extract(backup_path, &world, &saves, &new_folder, progress, cancel)?;
-            let name = world
-                .summary
-                .name
-                .clone()
-                .unwrap_or_else(|| folder.to_string());
-            set_level_name(&dir, &format!("{name} (restored {today})"));
-            Ok(Restored {
-                folder: new_folder,
-                safety_backup: None,
-            })
-        }
-        RestoreMode::Replace => {
-            let current = saves.join(folder);
-            let safety_backup = if current.is_dir() {
-                Some(backup(dirs, folder, progress, cancel)?)
-            } else {
-                None
-            };
-            let staged = format!(".lodestone-restore-{}", random_suffix());
-            let staged_dir = extract(backup_path, &world, &saves, &staged, progress, cancel)?;
-            if !current.is_dir() {
-                crate::fsx::rename(&staged_dir, &current).map_err(io_error(&current))?;
-                return Ok(Restored {
-                    folder: folder.to_string(),
-                    safety_backup,
-                });
-            }
-            let replaced = saves.join(format!(".lodestone-replaced-{}", random_suffix()));
-            if let Err(err) = crate::fsx::rename(&current, &replaced) {
-                let _ = fs::remove_dir_all(&staged_dir);
-                return Err(io_error(&current)(err));
-            }
-            if let Err(err) = crate::fsx::rename(&staged_dir, &current) {
-                let _ = crate::fsx::rename(&replaced, &current);
-                let _ = fs::remove_dir_all(&staged_dir);
-                return Err(io_error(&current)(err));
-            }
-            // The Trash keeps a folder's name, so it goes there as one the person
-            // knows, not hidden under the swap's.
-            let keep = saves.join(unused(
-                &saves,
-                &folder_name(&format!("{folder} (replaced {today})")),
-            ));
-            let replaced = match crate::fsx::rename(&replaced, &keep) {
-                Ok(()) => keep.clone(),
-                Err(_) => replaced,
-            };
-            if remove(&replaced).is_err() && replaced != keep {
-                let _ = crate::fsx::rename(&replaced, &keep);
-            }
-            Ok(Restored {
-                folder: folder.to_string(),
-                safety_backup,
-            })
-        }
-    }
 }
 
 #[cfg(test)]

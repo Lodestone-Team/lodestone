@@ -1,7 +1,7 @@
-//! The Worlds tab: worlds, their backups and their data packs. Each change is the tab's
-//! `launcher_core::worlds` or `launcher_core::datapacks` call, with the tab's checks
-//! (nothing while the game runs, one job at a time), and the tab shows it when it shows
-//! that instance.
+//! The Worlds tab: worlds, their backups (snapshots that hold them) and their data packs.
+//! Each change is the tab's `launcher_core::worlds`, `launcher_core::datapacks` or
+//! snapshot call, with the tab's checks (nothing while the game runs, one job at a time),
+//! and the tab shows it when it shows that instance.
 
 use std::{sync::Arc, time::UNIX_EPOCH};
 
@@ -11,8 +11,9 @@ use launcher_core::{
     content::InstanceDirs,
     datapacks::{self, PackState},
     game::download::{CancelToken, Progress as Downloads},
+    images::{RestoreScope, SnapshotKind, SnapshotRecord, Take, labels},
     instances::Instance,
-    worlds::{self, Backup, RestoreMode, World, WorldError},
+    worlds::{self, World, WorldError},
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -29,7 +30,7 @@ fn unix(time: Option<std::time::SystemTime>) -> Option<u64> {
         .map(|d| d.as_secs())
 }
 
-fn world_json(world: &World, dirs: &InstanceDirs) -> Value {
+fn world_json(world: &World, backups: usize) -> Value {
     let summary = world.summary.as_ref();
     json!({
         "folder": world.folder,
@@ -40,17 +41,16 @@ fn world_json(world: &World, dirs: &InstanceDirs) -> Value {
         "version": summary.and_then(|s| s.version_name.clone()),
         "size": world.size,
         "problem": world.problem,
-        "backups": worlds::backups(dirs, &world.folder).len(),
+        "backups": backups,
     })
 }
 
-fn backup_json(backup: &Backup) -> Value {
-    json!({
-        "file": backup.file_name,
-        "path": backup.path,
-        "size": backup.size,
-        "created": unix(backup.created),
-    })
+/// The snapshots that hold the world `folder`, newest first.
+fn holding<'a>(records: &'a [SnapshotRecord], folder: &str) -> Vec<&'a SnapshotRecord> {
+    records
+        .iter()
+        .filter(|r| r.worlds.iter().any(|w| w == folder))
+        .collect()
 }
 
 fn world_error(err: WorldError) -> ErrorObject {
@@ -88,25 +88,6 @@ fn find_world(dirs: &InstanceDirs, reference: &str) -> Result<World, ErrorObject
         )
         .with_data(json!({ "matches": matches.iter().map(|w| &w.folder).collect::<Vec<_>>() }))),
     }
-}
-
-/// The backup named by `reference` (its file name, or `latest`) of `world`.
-fn find_backup(dirs: &InstanceDirs, world: &World, reference: &str) -> Result<Backup, ErrorObject> {
-    let list = worlds::backups(dirs, &world.folder);
-    let found = if reference == "latest" {
-        list.into_iter().next()
-    } else {
-        list.into_iter().find(|b| b.file_name == reference)
-    };
-    found.ok_or_else(|| {
-        api_error(
-            codes::NOT_FOUND,
-            format!(
-                "{} has no backup \"{reference}\". List them with `worlds backups`.",
-                world.name()
-            ),
-        )
-    })
 }
 
 struct Target {
@@ -174,46 +155,42 @@ fn refresh_view(control: &Control, instance: &str, cx: &mut App) {
 pub fn list(call: Call, cx: &mut App) -> Reply {
     let instance = tri!(call.control.instance_param(&call, cx));
     let dirs = call.control.instances.read(cx).content_dirs(&instance.id);
+    let images = call.control.instances.read(cx).images();
     cx.background_spawn(async move {
         let list = worlds::list(&dirs);
+        let records = images
+            .snapshots(&instance.id)
+            .map(|found| found.records)
+            .unwrap_or_default();
         Ok(json!({
             "instance": instance.id,
             "saves": worlds::saves_dir(&dirs),
-            "worlds": list.iter().map(|w| world_json(w, &dirs)).collect::<Vec<_>>(),
+            "worlds": list.iter().map(|w| world_json(w, holding(&records, &w.folder).len())).collect::<Vec<_>>(),
         }))
     })
 }
 
+/// `worlds.backups`: the snapshots that hold the world.
 pub fn backups(call: Call, cx: &mut App) -> Reply {
     let target = tri!(target(&call, cx));
-    let list = worlds::backups(&target.dirs, &target.world.folder);
-    ready(Ok(json!({
-        "instance": target.instance.id,
-        "world": target.world.folder,
-        "backups": list.iter().map(backup_json).collect::<Vec<_>>(),
-    })))
+    let images = target.control.instances.read(cx).images();
+    cx.background_spawn(async move {
+        let found = images
+            .snapshots(&target.instance.id)
+            .map_err(super::snapshots::image_error)?;
+        Ok(json!({
+            "instance": target.instance.id,
+            "world": target.world.folder,
+            "backups": holding(&found.records, &target.world.folder)
+                .into_iter()
+                .map(super::snapshots::record_json)
+                .collect::<Vec<_>>(),
+        }))
+    })
 }
 
-/// Runs `work` in the background as a worlds job of the instance.
-fn run(
-    call: &Call,
-    target: Target,
-    kind_label: String,
-    work: impl FnOnce(&InstanceDirs, &Downloads, &CancelToken) -> Result<Value, WorldError>
-    + Send
-    + 'static,
-    cx: &mut App,
-) -> Reply {
-    run_async(
-        call,
-        target,
-        kind_label,
-        move |dirs, progress, cancel| async move { work(&dirs, &progress, &cancel) },
-        cx,
-    )
-}
-
-/// Like [`run`], for work that waits on the network.
+/// Runs `work` in the background as a worlds job of the instance (work that waits on
+/// the network).
 fn run_async<F>(
     call: &Call,
     target: Target,
@@ -249,17 +226,51 @@ where
     control.reply_job(call, job, cx)
 }
 
+/// `worlds.backup`: takes a manual snapshot, named after the world.
 pub fn backup(call: Call, cx: &mut App) -> Reply {
     let target = tri!(target(&call, cx));
+    tri!(super::snapshots::idle(
+        &target.control,
+        &target.instance,
+        cx
+    ));
+    let images = target.control.instances.read(cx).images();
+    let busy = target
+        .control
+        .instances
+        .read(cx)
+        .mark_files_busy(&target.instance.id);
     let folder = target.world.folder.clone();
+    let name = labels::backed_up(&target.world.name());
     let label = format!("Backing up {}", target.world.name());
-    run(
+    let instance = target.instance.id.clone();
+    let id = instance.clone();
+    super::snapshots::job(
         &call,
-        target,
         label,
-        move |dirs, progress, cancel| {
-            let backup = worlds::backup(dirs, &folder, progress, cancel)?;
-            Ok(json!({ "world": folder, "backup": backup_json(&backup) }))
+        Some(&target.instance),
+        move |progress| {
+            let _busy = busy;
+            let record = images
+                .take_snapshot(
+                    &instance,
+                    Take {
+                        kind: SnapshotKind::Manual,
+                        name: Some(name),
+                        full: false,
+                        progress,
+                        cancel: launcher_core::images::NEVER,
+                    },
+                )
+                .map_err(super::snapshots::image_error)?;
+            Ok(json!({
+                "world": folder,
+                "snapshot": record.as_ref().map(super::snapshots::record_json),
+            }))
+        },
+        move |control, _, cx| {
+            super::snapshots::refresh(control, &id, cx);
+            refresh_view(control, &id, cx);
         },
         cx,
     )
@@ -267,11 +278,10 @@ pub fn backup(call: Call, cx: &mut App) -> Reply {
 
 #[derive(Deserialize)]
 struct RestoreParams {
-    /// The backup's file name, or `latest`.
-    #[serde(default = "latest")]
-    backup: String,
-    /// `copy` (a new world beside it) or `replace` (the world goes to the Trash, after
-    /// a safety backup).
+    /// The snapshot: its id, its name, or `latest` (the newest holding the world).
+    #[serde(default = "latest", alias = "backup")]
+    snapshot: String,
+    /// `copy` (a new world beside it) or `replace` (the world, after a safety snapshot).
     #[serde(default = "copy")]
     mode: String,
 }
@@ -284,19 +294,36 @@ fn copy() -> String {
     "copy".into()
 }
 
+/// `worlds.restore`: puts the world back from a snapshot that holds it, as a copy beside
+/// it or in its place (after a safety snapshot, with confirm).
 pub fn restore(call: Call, cx: &mut App) -> Reply {
     let params: RestoreParams = params!(call);
     let target = tri!(target(&call, cx));
-    let backup = tri!(find_backup(&target.dirs, &target.world, &params.backup));
-    let mode = match params.mode.as_str() {
-        "copy" => RestoreMode::Copy,
+    let images = target.control.instances.read(cx).images();
+    let records = tri!(
+        images
+            .snapshots(&target.instance.id)
+            .map_err(super::snapshots::image_error)
+    )
+    .records;
+    let held: Vec<SnapshotRecord> = holding(&records, &target.world.folder)
+        .into_iter()
+        .cloned()
+        .collect();
+    let snapshot = tri!(super::snapshots::find(
+        &held,
+        &target.instance,
+        &params.snapshot
+    ));
+    let replace = match params.mode.as_str() {
+        "copy" => false,
         "replace" => {
             tri!(call.confirm(format!(
-                "replaces the world \"{}\" with the backup {} (the world is backed up first, then moved to the Trash)",
+                "replaces the world \"{}\" with the snapshot \"{}\" (a safety snapshot of it is taken first)",
                 target.world.name(),
-                backup.file_name
+                snapshot.name_shown()
             )));
-            RestoreMode::Replace
+            true
         }
         other => {
             return ready(Err(api_error(
@@ -305,37 +332,59 @@ pub fn restore(call: Call, cx: &mut App) -> Reply {
             )));
         }
     };
+    tri!(super::snapshots::idle(
+        &target.control,
+        &target.instance,
+        cx
+    ));
+    let busy = target
+        .control
+        .instances
+        .read(cx)
+        .mark_files_busy(&target.instance.id);
     let folder = target.world.folder.clone();
     let label = format!(
         "Restoring {} from {}",
         target.world.name(),
-        backup.file_name
+        snapshot.name_shown()
     );
-    run(
+    let instance = target.instance.id.clone();
+    let id = instance.clone();
+    super::snapshots::job(
         &call,
-        target,
         label,
-        move |dirs, progress, cancel| {
-            let restored = match mode {
-                // a copy removes nothing
-                RestoreMode::Copy => worlds::restore_with(
-                    dirs,
-                    &folder,
-                    &backup.path,
-                    mode,
-                    |_| Ok(()),
-                    progress,
-                    cancel,
-                )?,
-                RestoreMode::Replace => {
-                    worlds::restore(dirs, &folder, &backup.path, mode, progress, cancel)?
-                }
-            };
-            Ok(json!({
-                "world": restored.folder,
-                "from": backup.file_name,
-                "safety_backup": restored.safety_backup.as_ref().map(backup_json),
-            }))
+        Some(&target.instance),
+        move |_| {
+            let _busy = busy;
+            if replace {
+                let restored = images
+                    .restore(
+                        &instance,
+                        &snapshot.id,
+                        &RestoreScope::Worlds(vec![folder.clone()]),
+                        launcher_core::images::NEVER,
+                    )
+                    .map_err(super::snapshots::image_error)?;
+                Ok(json!({
+                    "world": folder,
+                    "from": snapshot.id,
+                    "safety_snapshot": restored.safety.as_ref().map(super::snapshots::record_json),
+                }))
+            } else {
+                let copy = images
+                    .restore_world_copy(
+                        &instance,
+                        &snapshot.id,
+                        &folder,
+                        launcher_core::images::NEVER,
+                    )
+                    .map_err(super::snapshots::image_error)?;
+                Ok(json!({ "world": copy, "from": snapshot.id }))
+            }
+        },
+        move |control, _, cx| {
+            super::snapshots::refresh(control, &id, cx);
+            refresh_view(control, &id, cx);
         },
         cx,
     )
@@ -351,11 +400,6 @@ pub fn delete(call: Call, cx: &mut App) -> Reply {
     tri!(worlds::delete(&target.dirs, &target.world.folder).map_err(world_error));
     refresh_view(&target.control, &target.instance.id, cx);
     ready(Ok(json!({ "deleted": target.world.folder, "trash": true })))
-}
-
-#[derive(Deserialize)]
-struct DeleteBackupParams {
-    backup: String,
 }
 
 // ---- data packs ----
@@ -637,19 +681,4 @@ pub fn datapack_install(call: Call, cx: &mut App) -> Reply {
         },
         cx,
     )
-}
-
-pub fn delete_backup(call: Call, cx: &mut App) -> Reply {
-    let params: DeleteBackupParams = params!(call);
-    let target = tri!(target(&call, cx));
-    let backup = tri!(find_backup(&target.dirs, &target.world, &params.backup));
-    tri!(call.confirm(format!(
-        "moves the backup {} of \"{}\" to the Trash",
-        backup.file_name,
-        target.world.name()
-    )));
-    tri!(can_change(&target, cx));
-    tri!(worlds::delete_backup(&target.dirs, &backup.path).map_err(world_error));
-    refresh_view(&target.control, &target.instance.id, cx);
-    ready(Ok(json!({ "deleted": backup.file_name, "trash": true })))
 }
