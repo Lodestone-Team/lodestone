@@ -822,6 +822,10 @@ impl Instances {
         if self.is_active(id) || self.modpack_updates.contains_key(id) {
             return None;
         }
+        // Applying would refuse (see apply_modpack_update): say so before the download.
+        if self.finder_saved(id) {
+            return Some(Task::ready(Err(t(M::FinishFinderFirst).to_string())));
+        }
         let api = self.modrinth.clone()?;
         let instance = self.store.get(id).ok()?;
         let current = self.modpack(id)?;

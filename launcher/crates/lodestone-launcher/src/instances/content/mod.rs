@@ -1485,8 +1485,11 @@ impl ContentView {
         let Some((id, dirs, target)) = self.context(cx) else {
             return;
         };
+        // Play waits while the files are copied in.
+        let busy = self.instances.read(cx).mark_files_busy(&id);
         let operation = self.images(cx).begin(&id, "");
         let work = cx.background_spawn(async move {
+            let _busy = busy;
             let results = paths
                 .into_iter()
                 .map(|path| {

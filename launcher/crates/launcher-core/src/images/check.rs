@@ -40,7 +40,9 @@
 //! record gets at most [`GATE_WAIT`]. Either way the session's end takes the baseline again
 //! as for any session: the record walked the content before the game started, so it holds
 //! the state before the launch, a change made by hand included, and what the game writes
-//! afterwards is no image of its own. When the check can't run for another reason (the
+//! afterwards is no image of its own. Known limit: a first image hashing a big pack may
+//! still be reading when the game starts, so a config the game rewrites at startup can be
+//! in it as the game wrote it, or withheld as changing; the next operation's image holds it. When the check can't run for another reason (the
 //! store was suspended, recording failed, or there is no image yet and no record is under
 //! way), the session's end runs the check instead: a change made by hand before the launch
 //! is still "Changed by hand" rather than folded into the baseline, with what the game
@@ -50,7 +52,9 @@
 //! began while the store was suspended can't be noted; its changes are "Changed by hand".
 //!
 //! A "Find it for me" search renames mods on purpose: while one is saved the check does
-//! nothing (the session is still marked), and its end is one operation of its own.
+//! nothing (the session is still marked), and its end is one operation of its own. So a
+//! change made by hand before the search isn't folded into a try's baseline, the search
+//! runs [`Images::check_now`] before it first turns a mod off.
 //!
 //! [`Images::record_before_change`] is the one record that takes in what the game wrote: it
 //! runs before a modpack update (and, in milestone 4's second half, before a server's
@@ -115,8 +119,9 @@ impl Images {
             slot.unchecked.store(true, Ordering::SeqCst);
             why
         };
-        // A record holding the instance took the content before the game starts: the
-        // session's end takes the baseline again as usual (see the module).
+        // A record holding the instance walked the content before the game starts: the
+        // session's end takes the baseline again as usual (see the module, and its limit
+        // for a first image).
         let _record = match slot.record.try_lock() {
             Ok(guard) => guard,
             Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
@@ -348,6 +353,25 @@ impl Images {
         }
         let own = slot.pending().is_empty().then_some(INITIAL_LABEL);
         Ok(self.record_held(&slot, instance, own)?.is_some())
+    }
+
+    /// The quick check, outside a game session: records what is queued, then "Changed by
+    /// hand" when content changed since the last record (or the first image of an
+    /// instance with none). Run before a change that would otherwise fold a change made
+    /// by hand into its own image: a "Find it for me" search, before it first turns a mod
+    /// off (its tries are launches whose checks do nothing, and each session's end takes
+    /// the baseline again). Does nothing while a search is saved. Blocking.
+    pub fn check_now(&self, instance: &str) -> Result<Option<Recorded>, ImageError> {
+        if !self.accepts(instance) || self.finder_running(instance) {
+            return Ok(None);
+        }
+        let slot = self.slot(instance);
+        let _record = slot.lock_record();
+        let _writing = self.enter()?;
+        Ok(match self.check_held(&slot, instance, false)? {
+            Check::Recorded(recorded) => Some(recorded),
+            Check::Unchanged | Check::NoImageYet => None,
+        })
     }
 
     /// Before a change that replaces files (a modpack update; a server's update in

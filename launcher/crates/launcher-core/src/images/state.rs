@@ -91,12 +91,24 @@ pub(crate) fn load_present(store: &Store, instance: &str) -> Loaded {
     let Ok(path) = path(store, instance) else {
         return missing;
     };
-    let Ok(meta) = std::fs::symlink_metadata(&path) else {
-        return missing;
-    };
     let damaged = Loaded {
         state: ContentState::default(),
         present: true,
+    };
+    let meta = match std::fs::symlink_metadata(&path) {
+        Ok(meta) => meta,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return missing,
+        // Only a file that is surely gone is missing: a missing state with manifests would
+        // count as another instance's images, which are deleted. Any other error (a
+        // network share timing out, a permission) is a damaged state, which names nobody.
+        Err(_) => {
+            super::warn(
+                "images.state",
+                instance,
+                "the content state can't be looked at",
+            );
+            return damaged;
+        }
     };
     if !meta.is_file() || meta.len() > MAX_BYTES {
         super::warn("images.state", instance, "the content state isn't readable");
@@ -190,6 +202,24 @@ mod tests {
         // An id the store can't name has no state.
         assert!(path(&store, "../x").is_err());
         assert_eq!(load(&store, "con"), ContentState::default());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_state_that_cant_be_looked_at_is_there_not_missing() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::new(dir.path(), Encoding::Raw);
+        save(&store, "a", &ContentState::default()).unwrap();
+        let folder = path(&store, "a").unwrap().parent().unwrap().to_path_buf();
+        std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let loaded = load_present(&store, "a");
+        std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(
+            loaded.present,
+            "an error other than not found is no proof it is gone"
+        );
+        assert!(!belongs_elsewhere(&loaded, true, 5));
     }
 
     #[test]

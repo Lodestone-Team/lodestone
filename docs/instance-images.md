@@ -1256,9 +1256,13 @@ same, it does the same. The code is `launcher/crates/launcher-core/src/images/`.
   Anything else is an `object` with unknown sides. Nothing is fetched while recording.
 - **Operations without a gate.** An operation (`Images::begin`) holds nothing a record waits
   for, and beginning and succeeding it touch no disk, so both are safe on the window's
-  thread. Launcher downloads land under `.lodestone-*` names and are renamed into place, and
-  the app refuses content changes while the game runs, so a record never reads a file half
-  written (one that changes while read is withheld as `kept_changing`). A record during a
+  thread. Launcher downloads, files added from the computer and every other file the
+  Launcher writes whole (`storage::write_atomic`, through `.lodestone-tmp-<random>`) land
+  under `.lodestone-*` names, which are never content, and are renamed into place; Play
+  waits while content is installed or added (from the Content tab or the CLI), and the app
+  refuses content changes while the game runs, so a record never reads a file half written
+  (one that changes while read is withheld as `kept_changing`), and a temporary file a
+  crash leaves behind is in no image. A record during a
   long operation may take its in-between state under another operation's label; that
   operation's own record then takes the final state. Each operation notes the instance's
   image generation when it begins: when its record finds nothing changed but a new image
@@ -1290,7 +1294,8 @@ same, it does the same. The code is `launcher/crates/launcher-core/src/images/`.
   handler's future 200 ms), skipping an instance whose search is saved or whose record is
   running: those changes are found by the next launch's check.
 - **Order of writes.** As the core's: snapshot (objects claimed), a free-space check (what
-  it will read and 256 MiB to spare), manifest (the store flushes what it names; temp file
+  it will read, what the other records under way reserved, and 1 GiB to spare; see "Free
+  space" below), manifest (the store flushes what it names; temp file
   and rename; once more when a collection took an object meanwhile), then
   `content-state.json`, then the `content` stat cache, then pruning. An instance's first
   record (no state file yet) writes a state naming only the instance (`instance_created`)
@@ -1315,9 +1320,15 @@ same, it does the same. The code is `launcher/crates/launcher-core/src/images/`.
   file and would hold the launch for seconds on a big pack: when a record holds an
   instance that has no image yet (a new pack's, or the first-images pass at startup), Play
   goes on at once. Any other record gets at most 10 s (one that has begun runs to its
-  end). Either way, a record that held the instance took the content before the game
+  end). Either way, a record that held the instance walked the content before the game
   started, a change made by hand included, so that session ends like any other: the
-  baseline is taken again and what the game wrote makes no image of its own. A record that
+  baseline is taken again and what the game wrote makes no image of its own. Known limit:
+  a first image hashes the whole pack, and the game may start while it still reads; a
+  config the game rewrites at startup is then in that image as the game wrote it, or
+  withheld as `kept_changing` (no copy of it in the first image). The first-images pass
+  takes the most recently played instance first, the one most likely to be played right
+  after the Launcher starts, so this is most likely there; the next image an operation
+  records holds those configs. A record that
   runs while a session lasts notes the session (`running_since`) as the check would have.
   When the check couldn't run for another reason (the store was suspended, recording
   failed, or there is no image yet and no record under way), the session's end runs it
@@ -1356,9 +1367,17 @@ same, it does the same. The code is `launcher/crates/launcher-core/src/images/`.
   so on a Mac it costs little space; on NTFS and ext4 there are no clones, so the first
   start after the update takes about as much disk space again as all instances' content
   (20 instances of 1 to 2 GB each take some 30 GB), in the background and without asking.
-  Each record's free-space check stops it short of filling the disk (it leaves 256 MiB),
-  and an instance that didn't fit is tried again at the next start. Milestone 5's storage
+  The free-space check counts every record under way, so records of several instances at
+  once (this pass, imports, merged records) stop short of filling the disk together (they
+  leave 1 GiB), and an instance that didn't fit is tried again at the next start. Milestone 5's storage
   view shows the store's size.
+- **Free space.** Before a record copies anything it reserves what it will read, process
+  wide (`Images::reserve_space`), and is refused (no image; tried again later, as any
+  failed record) when the free space can't hold that, what the records under way have
+  reserved, and 1 GiB to spare, as the snapshot store keeps: most records are work nobody
+  asked for, and the game's world saves need the room more. It is conservative: a record
+  under way counts in full though part of it is already written, and an object APFS
+  clones (a whole file of 1 MiB or less) counts whole though it costs almost nothing.
 - **Records before a change.** `Images::record_before_change` runs before a modpack update
   ("Before a modpack update") and before a server's mods are brought in step ("Before a
   server update"): what is queued, else "Changed by hand" (or "Changed while the game ran
@@ -1408,7 +1427,11 @@ same, it does the same. The code is `launcher/crates/launcher-core/src/images/`.
   when the loader changed too) or "Changed the recommended memory",
   merged with the update's own label when it is one. "Find it for me" records nothing while
   it searches; its end is one operation ("Find it for me turned off <file>", or nothing when
-  every mod went back as it was). Known: Verify game files on a Forge instance that uses
+  every mod went back as it was). Its tries are launches whose checks do nothing, and each
+  try's end takes the baseline again, so before the search first turns a mod off it runs
+  the quick check (`Images::check_now`): a change made by hand before the search is
+  "Changed by hand", not folded into a try's baseline and recorded under the search's end.
+  A modpack update is refused while a search is saved, before its pack is downloaded. Known: Verify game files on a Forge instance that uses
   `minecraftArguments` creates `config/splash.properties` outside a session when it is
   missing, and the next launch's check records it as "Changed by hand". Applying a
   server's update is milestone 4's second half; its hook is `apply_sync`'s

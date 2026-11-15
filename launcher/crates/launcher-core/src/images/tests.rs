@@ -611,17 +611,34 @@ fn a_crash_after_the_manifest_leaves_the_old_pointer() {
 #[test]
 fn operations_records_and_collections_at_once_lose_nothing() {
     let s = Setup::new();
+    for n in 0..20 {
+        s.write(
+            &format!("mods/old-{n}.jar"),
+            format!("old {n} ").repeat(50).as_bytes(),
+        );
+    }
     s.images.record_now(s.id(), "Created Pack").unwrap();
+    // Every object becomes old garbage the records below find again through the stat
+    // cache: collections delete what a record hasn't claimed yet, and a record whose
+    // object went reads the file again.
+    let store = s.images.store().clone();
+    assert!(!age_objects(&store.root().join("objects")).is_empty());
+    for id in store.manifest_ids(s.id()).unwrap() {
+        std::fs::remove_file(store.manifest_path(s.id(), &id).unwrap()).unwrap();
+    }
     let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let collector = {
-        let store = s.images.store().clone();
+        let store = store.clone();
         let stop = stop.clone();
         std::thread::spawn(move || {
+            let mut removed = 0;
             while !stop.load(Ordering::SeqCst) {
-                store
+                removed += store
                     .gc(&lodestone_image::store::gc::GcOptions::default())
-                    .unwrap();
+                    .unwrap()
+                    .objects_removed;
             }
+            removed
         })
     };
     let game = s.store.game_dir(s.id());
@@ -649,8 +666,8 @@ fn operations_records_and_collections_at_once_lose_nothing() {
     }
     s.images.flush(s.id()).unwrap();
     stop.store(true, Ordering::SeqCst);
-    collector.join().unwrap();
-    let store = s.images.store();
+    let removed = collector.join().unwrap();
+    eprintln!("the collections removed {removed} objects");
     let ids = store.manifest_ids(s.id()).unwrap();
     assert!(ids.len() > 2);
     for id in ids {
@@ -664,7 +681,29 @@ fn operations_records_and_collections_at_once_lose_nothing() {
         }
     }
     let current = s.state().current.unwrap();
-    assert_eq!(s.paths(&current).len(), 30);
+    assert_eq!(s.paths(&current).len(), 50);
+}
+
+#[test]
+fn records_under_way_share_the_free_space() {
+    let s = Setup::new();
+    s.write("mods/a.jar", &[7; 1000]);
+    *s.images.fake_free.lock().unwrap() = Some(recorder::SPARE_BYTES + 5000);
+    // Another instance's record under way holds most of the room: alone this record would
+    // fit, but the two together would not.
+    let other = s.images.reserve_space(4500).unwrap();
+    let err = s.images.record_now(s.id(), "Created").unwrap_err();
+    assert!(err.to_string().contains("other records under way"), "{err}");
+    assert!(s.images.reserve_space(4500).is_err());
+    assert_eq!(*s.images.reserved.lock().unwrap(), 4500);
+    drop(other);
+    assert_eq!(*s.images.reserved.lock().unwrap(), 0);
+    s.images.record_now(s.id(), "Created").unwrap().unwrap();
+    assert_eq!(
+        *s.images.reserved.lock().unwrap(),
+        0,
+        "a record gives its room back"
+    );
 }
 
 /// Every object file under `dir`, made an hour and a half old.
@@ -1614,4 +1653,24 @@ fn an_empty_label_queued_still_lets_the_check_look() {
     ));
     assert_eq!(s.labels(), [OUTSIDE_LABEL, "Created"]);
     s.images.end_session(s.id());
+}
+
+#[test]
+fn the_check_before_a_search_records_a_change_made_by_hand() {
+    let s = Setup::new();
+    s.write("mods/b.jar", b"b");
+    s.images.record_now(s.id(), "Created").unwrap();
+    assert_eq!(s.images.check_now(s.id()).unwrap(), None);
+    s.remove("mods/b.jar");
+    let finder = s
+        .store
+        .dir(s.id())
+        .join(crate::content::mod_finder::FILE_NAME);
+    // While a search is saved it renames mods on purpose: nothing is checked.
+    std::fs::write(&finder, b"{}").unwrap();
+    assert_eq!(s.images.check_now(s.id()).unwrap(), None);
+    std::fs::remove_file(&finder).unwrap();
+    let recorded = s.images.check_now(s.id()).unwrap().unwrap();
+    assert!(recorded.changed);
+    assert_eq!(s.labels(), [OUTSIDE_LABEL, "Created"]);
 }

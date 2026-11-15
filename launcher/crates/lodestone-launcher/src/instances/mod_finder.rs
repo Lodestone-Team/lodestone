@@ -302,7 +302,16 @@ impl ModFinder {
                 self.state = State::Applying;
                 let mut search = search.clone();
                 let dirs = self.dirs.clone();
+                let images = self.instances.read(cx).images();
+                let id = self.id.clone();
                 let work = cx.background_spawn(async move {
+                    // Before the search first turns a mod off, a change made by hand is
+                    // recorded as one: the tries' launches check nothing.
+                    if !mod_finder::is_saved(&dirs.instance)
+                        && let Err(err) = images.check_now(&id)
+                    {
+                        log::warn!("Couldn't check the content of {id}: {err}");
+                    }
                     let result = mod_finder::apply(&dirs, &mut search, &off);
                     (search, result)
                 });

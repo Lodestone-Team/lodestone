@@ -525,6 +525,8 @@ fn start_install(
     let (dirs, target) = tri!(context(&control, instance, cx));
     let downloader = control.instances.read(cx).content_downloader();
     let images = control.instances.read(cx).images();
+    // Play waits while the job writes the instance's files, as for the Content tab's.
+    let busy = control.instances.read(cx).mark_files_busy(&instance.id);
     let progress = Arc::new(InstallProgress::default());
     let cancel = CancelToken::new();
     let job_progress = progress.clone();
@@ -532,6 +534,7 @@ fn start_install(
     let refresh = Rc::downgrade(&control);
     let id = instance.id.clone();
     let work = cx.spawn(async move |cx| {
+        let _busy = busy;
         let requests = plan(cx).await?;
         let outcome = cx
             .background_spawn(run_requests(
@@ -711,8 +714,11 @@ pub fn add_file(call: Call, cx: &mut App) -> Reply {
     let (dirs, target) = tri!(context(&control, &instance, cx));
     let path = params.path.clone();
     let id = instance.id.clone();
+    // Play waits while the file is copied in, as it does for the Content tab's.
+    let busy = control.instances.read(cx).mark_files_busy(&id);
     let operation = control.instances.read(cx).images().begin(&id, "");
     let work = cx.background_spawn(async move {
+        let _busy = busy;
         let added = files::add(&dirs, &target, kind, &path);
         if let Ok(name) = &added {
             operation.succeed_as(labels::added(name));

@@ -298,6 +298,12 @@ pub struct Images {
     activity: Arc<Activity>,
     /// Whether the store's folder was made private ([`Images::enter`]).
     root_private: AtomicBool,
+    /// Bytes the records under way may still write: each record's free-space check counts
+    /// the others' ([`recorder`]'s `reserve_space`).
+    pub(crate) reserved: Mutex<u64>,
+    /// The free space tests pretend the disk has.
+    #[cfg(test)]
+    pub(crate) fake_free: Mutex<Option<u64>>,
 }
 
 impl Drop for Images {
@@ -331,6 +337,9 @@ impl Images {
             refused: Mutex::default(),
             activity: Arc::default(),
             root_private: AtomicBool::new(false),
+            reserved: Mutex::default(),
+            #[cfg(test)]
+            fake_free: Mutex::default(),
         })
     }
 
@@ -640,6 +649,10 @@ impl Images {
 
     /// The free space on the data folder's disk, for the check before a snapshot.
     pub(crate) fn free_space(&self) -> Option<u64> {
+        #[cfg(test)]
+        if let Some(free) = *self.fake_free.lock().unwrap_or_else(|e| e.into_inner()) {
+            return Some(free);
+        }
         crate::snapshots::free_space(&self.data_root)
     }
 }

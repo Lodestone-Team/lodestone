@@ -69,8 +69,10 @@ use super::{ImageError, Images, Slot, Timing, WeakImages, Worker};
 pub const CONTENT_STAT_CACHE: &str = "content";
 /// How long a record that failed waits before the merged records' thread tries again.
 pub const RETRY_AFTER: Duration = Duration::from_secs(60);
-/// Room a record leaves on the disk beyond what it will store.
-const SPARE_BYTES: u64 = 256 << 20;
+/// Room the records leave on the disk beyond what they will store: 1 GiB, as the
+/// snapshot store keeps, since most records are work nobody asked for (first images,
+/// merged records) and the game's world saves need the room more.
+pub(crate) const SPARE_BYTES: u64 = 1 << 30;
 /// How often the merged records' thread looks whether a "Find it for me" search ended,
 /// while labels wait for one (nothing wakes it when the search's file goes).
 const FINDER_CHECK: Duration = Duration::from_secs(5);
@@ -395,7 +397,12 @@ impl Images {
             .name("lodestone-images-settle".into())
             .spawn(move || {
                 for (id, slot) in this.slots() {
-                    if slot.in_session() || this.suspended() || this.finder_running(&id) {
+                    // Only instances with something queued: the checks below look at disk.
+                    if slot.pending().is_empty()
+                        || slot.in_session()
+                        || this.suspended()
+                        || this.finder_running(&id)
+                    {
                         continue;
                     }
                     match this.flush_unless_busy(&id) {
@@ -625,16 +632,7 @@ impl Images {
             ..SnapshotOptions::default()
         };
         let plan = snapshot::plan(store, &ctx.dir, &DiskLayout::Client, &options)?;
-        if let Some(free) = self.free_space() {
-            let needed = plan.bytes_to_read().saturating_add(SPARE_BYTES);
-            if needed > free {
-                return Err(ImageError::Invalid(format!(
-                    "Recording the instance's content needs {} MB and the disk has {} MB free",
-                    needed / 1_000_000,
-                    free / 1_000_000
-                )));
-            }
-        }
+        let _room = self.reserve_space(plan.bytes_to_read())?;
         let baseline = plan
             .cached
             .iter()
@@ -672,10 +670,58 @@ impl Images {
         Ok((image, snapshot, baseline))
     }
 
+    /// Reserves `bytes` of the disk for one record until the returned guard is dropped,
+    /// or refuses when the free space can't hold them, what the other records under way
+    /// reserved, and [`SPARE_BYTES`]: records of different instances run at once (merged
+    /// records, first images, imports), and each checking alone could let them fill the
+    /// disk together. Conservative: what a record under way already wrote is counted
+    /// twice (in its reservation and gone from the free space), and an object the disk
+    /// clones (APFS) costs almost nothing yet counts whole.
+    pub(crate) fn reserve_space(&self, bytes: u64) -> Result<Reservation<'_>, ImageError> {
+        let mut reserved = self.reserved.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(free) = self.free_space() {
+            let needed = bytes.saturating_add(SPARE_BYTES);
+            if needed.saturating_add(*reserved) > free {
+                let others = if *reserved > 0 {
+                    format!(
+                        ", other records under way need {} MB,",
+                        *reserved / 1_000_000
+                    )
+                } else {
+                    String::new()
+                };
+                return Err(ImageError::Invalid(format!(
+                    "Recording the instance's content needs {} MB{others} and the disk has \
+                     {} MB free",
+                    needed / 1_000_000,
+                    free / 1_000_000
+                )));
+            }
+        }
+        *reserved = reserved.saturating_add(bytes);
+        Ok(Reservation {
+            reserved: &self.reserved,
+            bytes,
+        })
+    }
+
     /// Whether a "Find it for me" search of the instance is saved: it renames mods on
     /// purpose, so nothing is recorded or checked until it ends.
     pub(crate) fn finder_running(&self, instance: &str) -> bool {
         crate::content::mod_finder::is_saved(&self.instances().dir(instance))
+    }
+}
+
+/// Disk space one record reserved ([`Images::reserve_space`]), given back when dropped.
+pub(crate) struct Reservation<'a> {
+    reserved: &'a std::sync::Mutex<u64>,
+    bytes: u64,
+}
+
+impl Drop for Reservation<'_> {
+    fn drop(&mut self) {
+        let mut reserved = self.reserved.lock().unwrap_or_else(|e| e.into_inner());
+        *reserved = reserved.saturating_sub(self.bytes);
     }
 }
 
