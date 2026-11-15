@@ -303,6 +303,11 @@ impl Core {
             left_out.as_array().unwrap().contains(&json!("eula.txt")),
             "{reply}"
         );
+        // what a player would miss never names what no player has
+        assert!(
+            !names(&reply["left_out_for_players"]).contains(&"eula.txt".to_string()),
+            "{reply}"
+        );
         let file_name = reply["file_name"].as_str().unwrap().to_string();
         assert!(file_name.ends_with(&format!("{id}.lodeimg")), "{file_name}");
         let response = self
@@ -1545,6 +1550,8 @@ pub(super) struct Made {
     pub uuid: InstanceUuid,
     /// The creation's last message.
     pub message: String,
+    /// What the server didn't get, from the end value.
+    pub outcome: Option<super::outcome::CreationOutcome>,
 }
 
 impl Made {
@@ -1592,12 +1599,20 @@ impl Core {
                 continue;
             };
             let crate::events::ProgressionEventInner::ProgressionEnd {
-                success, message, ..
+                success,
+                message,
+                inner,
             } = p.progression_event_inner()
             else {
                 continue;
             };
             let message = message.clone().unwrap_or_default();
+            let outcome = match inner {
+                Some(crate::events::ProgressionEndValue::InstanceCreation(created)) => {
+                    created.outcome.as_deref().cloned()
+                }
+                _ => None,
+            };
             if !success {
                 return Err(message);
             }
@@ -1612,6 +1627,7 @@ impl Core {
                 root,
                 uuid,
                 message,
+                outcome,
             });
         }
     }
@@ -1832,6 +1848,22 @@ async fn a_launchers_world_becomes_a_servers() {
     assert!(made.message.contains("zoom.jar"), "{}", made.message);
     assert!(made.message.contains("mods/cf.jar"), "{}", made.message);
     assert!(made.message.contains("script"), "{}", made.message);
+    // the same, as data for clients that translate it
+    let outcome = made
+        .outcome
+        .as_ref()
+        .expect("a creation from a file has an outcome");
+    assert!(outcome
+        .client_jars
+        .names
+        .iter()
+        .any(|n| n.contains("zoom.jar")));
+    assert_eq!(outcome.no_source.names, vec!["mods/cf.jar".to_string()]);
+    assert!(outcome.scripts > 0);
+    assert_eq!(
+        super::outcome::describe(outcome).as_deref(),
+        made.message.strip_prefix("Server created successfully. ")
+    );
 }
 
 #[tokio::test]
@@ -1921,6 +1953,12 @@ async fn downloads_that_fail_are_left_out_or_placed_from_the_file() {
     assert!(!made.has("mods/gone.jar"));
     assert!(made.message.contains("mods/gone.jar"), "{}", made.message);
     assert!(!made.message.contains("mods/liar.jar"), "{}", made.message);
+    let not_downloaded = &made.outcome.as_ref().unwrap().not_downloaded.names;
+    assert!(
+        not_downloaded.contains(&"mods/gone.jar".to_string()),
+        "{not_downloaded:?}"
+    );
+    assert!(!not_downloaded.contains(&"mods/liar.jar".to_string()));
     // no world was picked: none is placed
     assert!(!made.has("world/level.dat"));
     // the download went through the store, never left in the folder

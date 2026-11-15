@@ -1,5 +1,6 @@
 //! What the control API does with cores and servers that the Servers page does in its
-//! dialogs: adding a core (with the certificate check) and hosting an instance. The
+//! dialogs: adding a core (with the certificate check), hosting an instance and
+//! downloading a server's world. The
 //! steps are the dialogs' own, with the answers given as parameters instead of typed
 //! into a dialog, and the outcome returned instead of shown in it. Starting, stopping,
 //! joining and "Create matching instance" need no dialog, so the API calls the page's
@@ -14,13 +15,12 @@ use launcher_core::{
     cores::{
         self, CoreClient, ServerInstance,
         client::display_address,
-        hosting::{self, HostSettings},
-        link,
+        hosting::{self, HostChoices, HostError, HostProgress, HostStage},
         live::LauncherScope,
         store::{self, SavedCore},
         tls::CertificatePin,
     },
-    export,
+    game::download::CancelToken,
 };
 use serde_json::json;
 
@@ -28,7 +28,7 @@ use crate::i18n::{ServersMsg as M, t, tr};
 
 use super::{
     AddFailure, CoreEntry, CoreStatus, FINGERPRINT_HELP, Notice, Servers, certificate_outcome,
-    host::HostAuth, pinned_http,
+    pinned_http,
 };
 use crate::control::{api_error, core_error};
 
@@ -53,15 +53,33 @@ pub struct Added {
     pub signed_in: bool,
 }
 
-/// "Host on a Lodestone core", with the answers as parameters.
+/// "Host on Lodestone", with the answers as parameters.
 pub struct HostCore {
     pub core_uuid: String,
     /// The username and password, unless this computer has the core's owner key.
     pub sign_in: Option<(String, Secret)>,
     pub name: String,
     pub max_ram: u32,
+    /// The worlds sent, by folder (each checked against the instance's): `None` for the
+    /// server's world when it is named, none for a new one, or else the last played
+    /// ([`hosting::worlds_to_send`]).
+    pub worlds: Option<Vec<String>>,
+    /// The server's world (its folder), `Some(None)` for a new one, `None` for the core's
+    /// choice.
+    pub world: Option<Option<String>>,
+    /// `None` for the first free one from [`hosting::FIRST_PORT`].
+    pub port: Option<u16>,
+    /// One of the summary's server choices (`Paper` for a vanilla game).
+    pub server_software: Option<String>,
+    /// Only say what the server would get: nothing is made, and the file is let go of.
+    pub preview: bool,
     /// The user agreed to the Minecraft EULA.
     pub accept_eula: bool,
+    /// The bytes written and sent, for the job's progress.
+    pub progress: Arc<HostProgress>,
+    /// The job's Cancel: stops the export and the upload (nothing is left on either side);
+    /// once the creation was asked for, only the wait for it.
+    pub cancel: CancelToken,
 }
 
 /// Fingerprints compare without separators and case: `AB:CD…` and `abcd…` are one.
@@ -368,8 +386,10 @@ impl Servers {
         })
     }
 
-    /// "Host on a Lodestone core": exports the instance, uploads it and creates a
-    /// stopped server, then links the instance to it. `stage` follows the steps.
+    /// "Host on Lodestone" (the dialog's steps, `servers::host`): writes the instance with
+    /// the worlds asked for, sends it, and (unless `preview`) makes a stopped server from
+    /// it, follows its creation to its end and links the instance to it once made.
+    /// `stage` follows the steps.
     pub(crate) fn control_host(
         &mut self,
         instance_id: &str,
@@ -377,116 +397,282 @@ impl Servers {
         stage: Arc<Mutex<String>>,
         cx: &mut Context<Self>,
     ) -> Task<Result<serde_json::Value, ErrorObject>> {
-        let Some(index) = self.core_index(&request.core_uuid) else {
-            return Task::ready(Err(api_error(codes::NOT_FOUND, "That core is gone.")));
+        let to = match self.host_to(&request.core_uuid, request.sign_in.clone()) {
+            Ok(to) => to,
+            Err(false) => {
+                return Task::ready(Err(api_error(codes::NOT_FOUND, "That core is gone.")));
+            }
+            Err(true) => {
+                return Task::ready(Err(api_error(
+                    codes::INVALID_PARAMS,
+                    "Creating a server on this core needs a username and a password (the password from stdin), or this computer connected to it as its owner (`cores claim`).",
+                )));
+            }
         };
-        let Some(auth) = self.host_auth(&request.core_uuid, request.sign_in.clone()) else {
-            return Task::ready(Err(api_error(
-                codes::INVALID_PARAMS,
-                "Creating a server on this core needs a username and a password (the password from stdin), or this computer connected to it as its owner (`cores claim`).",
-            )));
-        };
-        let signs_in = matches!(auth, HostAuth::Password(..));
-        let store = self.instances.read(cx).store();
+        let instances = self.instances.read(cx);
+        let store = instances.store();
+        let images = instances.images();
+        let temp_dir = instances.host_uploads_dir();
         let Ok(instance) = store.get(instance_id) else {
             return Task::ready(Err(api_error(codes::NOT_FOUND, "The instance is gone.")));
         };
-        if let Err(reason) = hosting::check_hostable(&instance) {
-            return Task::ready(Err(api_error(codes::UNAVAILABLE, reason)));
-        }
-        let game_dir = store.game_dir(instance_id);
-        let instance_dir = store.dir(instance_id);
-        let core = &self.cores[index];
-        let client = self.client(core);
-        let core_name = core.saved.name.clone();
-        let core_url = display_address(&core.url);
-        let core_uuid = core.saved.uuid.clone();
-        let previous = link::load_link(&instance_dir);
+        let dirs = launcher_core::content::InstanceDirs::new(store.dir(instance_id));
         let set_stage = move |text: &str| {
             if let Ok(mut stage) = stage.lock() {
                 *stage = text.to_string();
             }
         };
+        let core_name = to.core_name.clone();
+        let (core_uuid, core_url) = (to.core_uuid.clone(), to.core_url.clone());
+        let instance_id = instance_id.to_string();
         let work = cx.background_spawn(async move {
-            set_stage("Exporting the modpack…");
-            let on_modrinth = export::modrinth_files(&instance_dir);
-            let plan = export::plan(&instance, &game_dir, &on_modrinth)
-                .map_err(|e| api_error(codes::FAILED, e.to_string()))?;
-            let file = instance_dir.join(format!(".lodestone-host-{}.mrpack", std::process::id()));
-            let written = export::write(&plan, &file)
-                .map_err(|e| e.to_string())
-                .and_then(|()| hosting::read_pack_file(&file));
-            let _ = std::fs::remove_file(&file);
-            let bytes = written.map_err(|e| api_error(codes::FAILED, e))?;
-            if signs_in {
-                set_stage("Signing in…");
-            }
-            let session = auth.token(&client).await.map_err(core_error)?;
-            let port = client
-                .free_port(&session, hosting::FIRST_PORT)
+            let failed = |err: HostError| host_api_error(&err, &core_name);
+            // away from the window: each world's folder is walked for its size. Checked
+            // before anything is written or sent.
+            let worlds = hosting::worlds_to_send(
+                &hosting::worlds(&dirs),
+                request.worlds.as_deref(),
+                request.world.as_ref().map(Option::as_deref),
+            )
+            .map_err(|why| api_error(codes::INVALID_PARAMS, why))?;
+            set_stage("Signing in…");
+            let admin = to
+                .auth
+                .admin(to.client)
                 .await
-                .map_err(core_error)?;
-            set_stage(&format!(
-                "Uploading the modpack ({:.1} MB)…",
-                bytes.len() as f64 / (1024.0 * 1024.0)
-            ));
-            let file_name = format!("{}.mrpack", request.name.replace(['/', '\\', ':'], "-"));
-            let uploaded = client
-                .upload_pack(&session, &file_name, &bytes)
-                .await
-                .map_err(core_error)?;
-            if let Some(reason) = uploaded.unsupported_reason {
-                return Err(api_error(codes::UNAVAILABLE, reason));
+                .map_err(|e| failed(e.into()))?;
+            hosting::probe(&admin).await.map_err(failed)?;
+            let (progress, cancel) = (request.progress.clone(), request.cancel.clone());
+            set_stage("Writing the instance as a file…");
+            let mut uploaded = hosting::upload(
+                &admin, &images, &instance, &worlds, &temp_dir, &progress, &cancel,
+            )
+            .await
+            .map_err(failed)?;
+            debug_assert_eq!(progress.stage(), HostStage::Reading);
+            let summary = uploaded.upload.summary.clone();
+            // a server software the file doesn't allow is refused, never quietly
+            // swapped for the file's own: checked before the preview returns too
+            let flavour = match request.server_software.as_deref() {
+                None => None,
+                Some(typed) => Some(
+                    server_software_named(&summary, typed)
+                        .map_err(|why| api_error(codes::INVALID_PARAMS, why))?,
+                ),
+            };
+            if request.preview {
+                // dropping the upload lets the core forget it
+                return Ok(Hosted::Preview(Box::new(summary)));
             }
-            let upload_id = uploaded
-                .upload_id
-                .ok_or_else(|| api_error(codes::FAILED, "The core didn't keep the modpack."))?;
-            set_stage("Creating the server…");
-            let settings = HostSettings {
+            if !lodestone_ui::sharing::can_create(&summary, uploaded.may_write_global) {
+                let why = lodestone_ui::sharing::unsupported(&summary).unwrap_or_else(|| {
+                    if summary.needs_global_files && !uploaded.may_write_global {
+                        "The instance has jars of its own, and your user on the host may not change global files, which they need. Ask its owner.".into()
+                    } else {
+                        "The host can't make a server from this instance.".into()
+                    }
+                });
+                return Err(api_error(codes::UNAVAILABLE, why));
+            }
+            if cancel.is_cancelled() {
+                return Err(failed(HostError::Cancelled));
+            }
+            let port = match request.port {
+                Some(port) => port,
+                None => match admin.free_port(hosting::FIRST_PORT, &cancel).await {
+                    Ok(port) => port,
+                    Err(_) if cancel.is_cancelled() => return Err(failed(HostError::Cancelled)),
+                    Err(e) => return Err(failed(e.into())),
+                },
+            };
+            let world = match &request.world {
+                Some(world) => world.clone(),
+                None => lodestone_ui::sharing::default_world(&summary),
+            };
+            let choices = HostChoices {
                 name: request.name.clone(),
                 port,
-                min_ram: hosting::DEFAULT_MIN_RAM.min(request.max_ram),
-                max_ram: request.max_ram,
+                world,
+                flavour: flavour
+                    .and_then(|picked| lodestone_ui::sharing::chosen_server(&summary, Some(&picked))),
+                min_ram: Some(hosting::DEFAULT_MIN_RAM.min(request.max_ram)),
+                max_ram: Some(request.max_ram),
+                // checked by the caller: the user agreed
                 accept_eula: request.accept_eula,
             };
-            let uuid = client
-                .create_server(&session, &upload_id, &settings)
+            set_stage("Creating the server…");
+            let uuid = hosting::create(&admin, &mut uploaded, &choices)
                 .await
-                .map_err(core_error)?;
-            drop(session);
-            let server_link = hosting::host_link(&core_uuid, &core_url, &uuid, &request.name);
-            link::save_link(&instance_dir, &server_link)
-                .map_err(|e| api_error(codes::FAILED, e.to_string()))?;
-            Ok::<_, ErrorObject>((uuid, request.name, port, uploaded.server_file_count))
-        });
-        let refresh_core = self.cores[index].saved.uuid.clone();
-        cx.spawn(async move |this, cx| {
-            let (uuid, name, port, downloads) = work.await?;
-            this.update(cx, |this, cx| {
-                this.reload_links(cx);
-                if let Some(index) = this.core_index(&refresh_core) {
-                    this.refresh(index, cx);
-                }
-                cx.notify();
+                .map_err(failed)?;
+            drop(uploaded);
+            set_stage("The host is making the server…");
+            let ended = hosting::wait_created(
+                &admin,
+                &uuid,
+                &|_| {},
+                &cancel,
+                &launcher_core::cores::player_image::tokio_sleep(),
+            )
+            .await;
+            // Cancel past the creation's request stops only the wait: the core goes on.
+            if matches!(ended, Err(HostError::Cancelled)) {
+                return Err(api_error(
+                    codes::CANCELLED,
+                    format!(
+                        "Stopped waiting: {core_name} goes on making the server. It shows in `servers list` once it's ready; this instance isn't linked to it."
+                    ),
+                ));
+            }
+            Ok(Hosted::Asked {
+                uuid,
+                name: request.name,
+                port,
+                ended: Box::new(ended),
             })
-            .ok();
+        });
+        let core_name = self.cores[self.core_index(&core_uuid).unwrap_or_default()]
+            .saved
+            .name
+            .clone();
+        cx.spawn(async move |this, cx| {
+            let (uuid, name, port, ended) = match work.await? {
+                Hosted::Preview(summary) => {
+                    return Ok(json!({ "preview": true, "summary": summary_json(&summary) }));
+                }
+                Hosted::Asked {
+                    uuid,
+                    name,
+                    port,
+                    ended,
+                } => (uuid, name, port, ended),
+            };
+            // linked only once the creation ended well
+            let linked = this
+                .update(cx, |this, cx| {
+                    this.link_hosted(&instance_id, (&core_uuid, &core_url), (&uuid, &name), *ended, cx)
+                })
+                .map_err(|_| api_error(codes::FAILED, "The launcher is closing."))?;
+            let (end, relinked, linked) = match linked {
+                Ok(hosting::Linked::Made { end, previous }) => (end, previous, true),
+                Ok(hosting::Linked::InstanceGone { end }) => (end, None, false),
+                Ok(hosting::Linked::Failed(why)) => {
+                    return Err(api_error(
+                        codes::FAILED,
+                        why.unwrap_or_else(|| "The host couldn't make the server.".into()),
+                    ));
+                }
+                Err(err) => return Err(host_api_error(&err, &core_name)),
+            };
             Ok(json!({
                 "server": uuid,
                 "name": name,
                 "core": core_name,
                 "port": port,
-                "mod_files": downloads,
                 "state": "stopped",
-                "relinked_from": previous.map(|link| link.server_name),
-                "message": format!("{name} is on {core_name}, on port {port}. The core is setting it up now; the server is stopped until you start it. This instance is linked to it."),
+                "relinked_from": relinked,
+                "linked": linked,
+                "outcome": end.outcome,
+                "message": format!(
+                    "{name} is on {core_name}, on port {port}. It's stopped until you start it, and {}.{}",
+                    if linked {
+                        "this instance is linked to it"
+                    } else {
+                        "the instance was deleted meanwhile, so nothing is linked to it"
+                    },
+                    end.message
+                        .as_deref()
+                        .and_then(|m| m.strip_prefix("Server created successfully. "))
+                        .map(|m| format!(" Left out: {}", launcher_core::images::display_text(m)))
+                        .unwrap_or_default()
+                ),
             }))
         })
     }
 }
 
+/// What [`Servers::control_host`] came to.
+enum Hosted {
+    Preview(Box<launcher_core::cores::admin::images::ImageSummary>),
+    /// The creation was asked for, and followed to `ended`.
+    Asked {
+        uuid: String,
+        name: String,
+        port: u16,
+        ended: Box<Result<hosting::CreationEnd, HostError>>,
+    },
+}
+
+/// What the core read from the file, for the control API: the summary as the core gave
+/// it.
+fn summary_json(summary: &launcher_core::cores::admin::images::ImageSummary) -> serde_json::Value {
+    serde_json::to_value(summary).unwrap_or(serde_json::Value::Null)
+}
+
+/// The server software `typed` by a caller, as the file's choices spell it, or why it
+/// can't be made, naming the choices, in English.
+fn server_software_named(
+    summary: &launcher_core::cores::admin::images::ImageSummary,
+    typed: &str,
+) -> Result<String, String> {
+    if let Some(choice) = lodestone_ui::sharing::server_choice(summary, typed) {
+        return Ok(choice.to_string());
+    }
+    let choices = &summary.server_choices;
+    Err(match choices.as_slice() {
+        [] => "The host can't make a server from this instance, so there is no server software to pick.".into(),
+        [only] => format!("This file's server can only be {only}."),
+        [first @ .., last] => format!("This file's server can be {} or {last}.", first.join(", ")),
+    })
+}
+
+/// A hosting error as the control API says it.
+fn host_api_error(err: &HostError, core_name: &str) -> ErrorObject {
+    let code = match err {
+        HostError::Core(err) => return core_error(err.clone()),
+        HostError::NeedsUpdate | HostError::Quilt => codes::UNAVAILABLE,
+        HostError::Forbidden(_) | HostError::Refused(_) => codes::PERMISSION_DENIED,
+        HostError::Running => codes::BUSY,
+        HostError::Cancelled => codes::CANCELLED,
+        HostError::Image(_) | HostError::StillCreating => codes::FAILED,
+    };
+    let message = match err {
+        HostError::NeedsUpdate => format!(
+            "{core_name}'s Lodestone is too old to make servers from files. Update it on that computer, then try again."
+        ),
+        other => other.to_string(),
+    };
+    api_error(code, message)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::same_fingerprint;
+    use super::{same_fingerprint, server_software_named};
+    use launcher_core::cores::admin::images::ImageSummary;
+
+    #[test]
+    fn a_server_software_the_file_doesnt_allow_is_refused() {
+        let summary = |choices: serde_json::Value| -> ImageSummary {
+            serde_json::from_value(serde_json::json!({
+                "minecraft": "1.21.1", "loader": "vanilla", "server_choices": choices
+            }))
+            .unwrap()
+        };
+        let vanilla = summary(serde_json::json!(["Vanilla", "Paper"]));
+        assert_eq!(
+            server_software_named(&vanilla, "vanilla").unwrap(),
+            "Vanilla"
+        );
+        assert_eq!(
+            server_software_named(&vanilla, "Spigot").unwrap_err(),
+            "This file's server can be Vanilla or Paper."
+        );
+        let fabric = summary(serde_json::json!(["Fabric"]));
+        assert_eq!(
+            server_software_named(&fabric, "Paper").unwrap_err(),
+            "This file's server can only be Fabric."
+        );
+        assert!(server_software_named(&summary(serde_json::json!([])), "Paper").is_err());
+    }
 
     #[test]
     fn fingerprints_compare_loosely() {

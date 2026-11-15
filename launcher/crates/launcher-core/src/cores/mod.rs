@@ -41,6 +41,7 @@ pub mod store;
 pub mod sync;
 pub mod tls;
 pub mod trust;
+pub mod world_download;
 
 pub use client::{CoreClient, CoreError, PackFetch, parse_address};
 pub use models::{

@@ -218,6 +218,10 @@ pub const SCENES: &[&str] = &[
     "snapshot-export",
     "snapshot-delete",
     "snapshot-import",
+    "snapshot-import-server",
+    "snapshot-import-server-downloaded",
+    "snapshot-import-server-done",
+    "snapshot-import-pack-skipped",
 ];
 
 /// Keys pressed once a scene has settled, before the screenshot, to show where

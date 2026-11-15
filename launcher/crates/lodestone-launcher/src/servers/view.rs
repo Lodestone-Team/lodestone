@@ -1434,9 +1434,9 @@ impl Render for ServersOverlay {
         let entity = &self.servers;
         let servers = entity.read(app);
         let extras = &servers.extras;
-        // One open dialog shows at a time, the first of: hosting, the LAN picker, the
-        // certificate, trust, the advisory, "Add server", the update prompt. Those
-        // closing fade out under it.
+        // One open dialog shows at a time, the first of: hosting, downloading a world, the
+        // LAN picker, the certificate, trust, the advisory, "Add server", the update
+        // prompt. Those closing fade out under it.
         let mut shown = false;
         let mut pick = |slot_open: bool| {
             let show = slot_open && !shown;
@@ -1444,6 +1444,7 @@ impl Render for ServersOverlay {
             show
         };
         let host = pick(extras.host.is_open());
+        let download_world = pick(extras.download_world.is_open());
         let lan = pick(extras.lan_picker.is_open());
         let cert = pick(servers.cert_prompt.is_open());
         let trust = pick(servers.trust_prompt.is_open());
@@ -1492,6 +1493,12 @@ impl Render for ServersOverlay {
         children.extend(slot_layers(&extras.host, host, window, |(dialog, _)| {
             Some(dialog.clone().into_any_element())
         }));
+        children.extend(slot_layers(
+            &extras.download_world,
+            download_world,
+            window,
+            |(dialog, _)| Some(dialog.clone().into_any_element()),
+        ));
         div().absolute().inset_0().children(children)
     }
 }

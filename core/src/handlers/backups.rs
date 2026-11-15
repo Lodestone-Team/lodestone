@@ -130,6 +130,14 @@ pub struct ExportedBackup {
     /// Files taken out (Lodestone's, the EULA, server software, crash files, plugin
     /// settings), by path.
     pub left_out: NameList,
+    /// What of `left_out` a player would miss, for a Launcher making an instance of the
+    /// world to show: without the server software, the EULA, the JVM's crash files, the
+    /// console history, Lodestone's own files and what a player's instance never takes
+    /// (the server's settings, operators and ban lists, plugins' data). A list of its own,
+    /// because `left_out`'s first names are mostly `libraries/`' and plugins' files.
+    /// It may name a `config/` file the owner never shared with players, which a player
+    /// wouldn't get anyway: the export doesn't look up the content image's marks.
+    pub left_out_for_players: NameList,
     /// Secret values made empty, as `<file>: <key>`.
     pub blanked: NameList,
     /// CurseForge files whose authors don't allow downloads elsewhere: named, not
@@ -647,10 +655,56 @@ async fn export_backup(
         file_name,
         size: written.bytes,
         left_out: NameList::of(&written.left_out),
+        left_out_for_players: NameList::of(
+            written
+                .left_out
+                .iter()
+                .filter(|path| missed_by_players(path)),
+        ),
         blanked: NameList::of(&written.blanked),
         not_downloadable: NameList::of(&written.not_downloadable),
         secrets_withheld: NameList::of(&written.secrets_withheld),
     }))
+}
+
+/// Whether a player would miss the file at `path` (as an export's `left_out` names it)
+/// from an instance made of the world: nothing the client view never carries (the
+/// shared crate's rules: server-only files such as `server.properties`, the operators
+/// and ban lists; a server's own state such as `plugins/`, Bukkit's settings files and
+/// `usercache.json`; disabled files and Lodestone's own files), nor the server software
+/// (`libraries/`, `versions/`, the jars, programs and installers' logs at the top), the
+/// EULA, the JVM's crash files, the console history or a proxy's `forwarding.secret`,
+/// which no player has. A Paper server's plugin data, which "Download this world" always
+/// leaves out, would otherwise bury the few files that matter.
+fn missed_by_players(path: &str) -> bool {
+    use crate::images::scope::is_lodestone_name;
+    use crate::images::share::export::is_server_software_name;
+    use lodestone_image::paths::{in_names, is_lodestone_path, placement};
+    use lodestone_image::share::is_jvm_crash_name;
+    use lodestone_image::view::{is_inactive_or_bookkeeping, is_server_state};
+    use lodestone_image::{CanonicalPath, Side};
+    let parts: Vec<&str> = path.split('/').filter(|p| !p.is_empty()).collect();
+    if parts.iter().any(|part| is_lodestone_name(part)) {
+        return false;
+    }
+    if let Ok(path) = CanonicalPath::new(path) {
+        if !placement(&path).allows(Side::Client)
+            || is_lodestone_path(&path)
+            || is_server_state(&path)
+            || is_inactive_or_bookkeeping(&path)
+        {
+            return false;
+        }
+    }
+    match parts.as_slice() {
+        [name] => {
+            !(in_names(name, &["eula.txt", ".console_history", "forwarding.secret"])
+                || is_server_software_name(name)
+                || is_jvm_crash_name(name))
+        }
+        [top, _, ..] => !in_names(top, &["libraries", "versions"]),
+        [] => false,
+    }
 }
 
 pub fn get_backup_routes(state: AppState) -> Router {

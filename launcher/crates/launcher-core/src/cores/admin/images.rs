@@ -106,13 +106,65 @@ impl NameList {
         self.count == 0
     }
 
-    /// The names joined with commas, "…" when there are more than shown.
+    /// The first [`SHOWN_NAMES`] names joined with commas, "…" when there are more. A
+    /// core may be anyone's, so whatever it sent is shown safely: each name on one line
+    /// with its hidden characters written out (`lodestone_image::display_text`) and cut
+    /// at [`SHOWN_NAME_CHARS`], however many names it sent.
     pub fn joined(&self) -> String {
-        let mut text = self.names.join(", ");
-        if self.count > self.names.len() as u64 {
-            text.push_str(", …");
+        let shown: Vec<String> = self
+            .names
+            .iter()
+            .take(SHOWN_NAMES)
+            .map(|name| {
+                let name = lodestone_image::display_text(name);
+                match name.char_indices().nth(SHOWN_NAME_CHARS) {
+                    Some((cut, _)) => format!("{}…", &name[..cut]),
+                    None => name.into_owned(),
+                }
+            })
+            .collect();
+        let mut text = shown.join(", ");
+        if self.count.max(self.names.len() as u64) > shown.len() as u64 {
+            // a core that counted names it didn't list gets "…" alone, not ", …"
+            text.push_str(if shown.is_empty() { "…" } else { ", …" });
         }
         text
+    }
+}
+
+/// How many of a [`NameList`]'s names are shown, and how many characters of each.
+pub const SHOWN_NAMES: usize = 8;
+pub const SHOWN_NAME_CHARS: usize = 120;
+
+/// What a server made from a file didn't get (`CreationOutcome`), the data beside the
+/// English message at the end of its `InstanceCreation` progression: a client says it in
+/// its own languages. A core from before milestone 6's second part sends none.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CreationOutcome {
+    /// Files whose download failed and whose bytes the file didn't carry, by path.
+    pub not_downloaded: NameList,
+    /// Files the core can't download (CurseForge's, a pack's) and the file didn't carry.
+    pub no_source: NameList,
+    /// Mods deleted because their jar says they run only on clients.
+    pub client_jars: NameList,
+    /// Files holding a key to the server, a password or a token, never placed.
+    pub secrets: NameList,
+    /// Settings files deleted because they couldn't be checked for keys to the server.
+    pub settings_removed: NameList,
+    /// Scripts left out: only the owner adds them, while code execution is on.
+    pub scripts: u64,
+}
+
+impl CreationOutcome {
+    /// Whether the server got everything it could take.
+    pub fn is_empty(&self) -> bool {
+        self.not_downloaded.is_empty()
+            && self.no_source.is_empty()
+            && self.client_jars.is_empty()
+            && self.secrets.is_empty()
+            && self.settings_removed.is_empty()
+            && self.scripts == 0
     }
 }
 
@@ -273,6 +325,12 @@ pub struct ExportedBackup {
     /// Files taken out (Lodestone's, the EULA, server software, crash files, plugin
     /// settings), by path.
     pub left_out: NameList,
+    /// What of `left_out` a player would miss (not the server software, the EULA,
+    /// Lodestone's files or what a player's instance never takes, such as plugins' data
+    /// and the server's settings), which "Download this world" shows: listed by the core,
+    /// as `left_out`'s first names are mostly `libraries/`' and plugins' files. It may
+    /// name a `config/` file not shared with players, which they wouldn't get anyway.
+    pub left_out_for_players: NameList,
     /// Secrets made empty, as `<file>: <key>`.
     pub blanked: NameList,
     /// CurseForge files whoever opens the file won't get.
@@ -513,30 +571,70 @@ impl AdminClient {
         progress: &Progress,
         cancel: &CancelToken,
     ) -> Result<ExportedBackup, CoreError> {
+        let download = self
+            .export_backup_ready(uuid, id, include_plugin_data, cancel)
+            .await?;
+        self.download_export(download, out, progress, cancel).await
+    }
+
+    /// [`Self::export_backup_key`] with Cancel: a key the core made just as Cancel was
+    /// pressed is let go of. The caller then downloads it ([`Self::download_export`]) or
+    /// lets it go ([`Self::release_download`]), say when the size it states won't fit.
+    pub async fn export_backup_ready(
+        &self,
+        uuid: &str,
+        id: &str,
+        include_plugin_data: bool,
+        cancel: &CancelToken,
+    ) -> Result<ExportedBackup, CoreError> {
         let answer = race_cancel(
             self.export_backup_key(uuid, id, include_plugin_data),
             cancel,
         )
         .await;
-        let mut download = match ended(answer, cancel.is_cancelled())? {
-            Ended::Done(download) => download,
+        match ended(answer, cancel.is_cancelled())? {
+            Ended::Done(download) => Ok(download),
             Ended::Cancelled { late } => {
                 if let Some(late) = late.filter(|late| !late.key.is_empty()) {
                     let _ = self.release_download(&late.key).await;
                 }
-                return Err(cancelled());
+                Err(cancelled())
             }
-        };
+        }
+    }
+
+    /// Downloads the export `download` names into `out` (see [`Self::export_backup_to`])
+    /// and lets the core's copy go however the download ends. The core states the exact
+    /// size of the file it wrote, and a caller checks free space against it, so a download
+    /// of any other size is refused: a core sending more than it said would otherwise fill
+    /// the disk past that check.
+    pub async fn download_export(
+        &self,
+        mut download: ExportedBackup,
+        out: &Path,
+        progress: &Progress,
+        cancel: &CancelToken,
+    ) -> Result<ExportedBackup, CoreError> {
         progress.reset(1, download.size);
         let key = download.key.clone();
+        let stated = download.size.min(MAX_BACKUP_DOWNLOAD_BYTES);
         // let go of however the download ends, this future dropped unfinished too
         let release = ReleaseOnDrop::new(self, &key);
         let saved = save_via_partial(out, |partial| {
             let key = key.clone();
             async move {
                 self.core()
-                    .download_file(&key, &partial, MAX_BACKUP_DOWNLOAD_BYTES, progress, cancel)
+                    .download_file(&key, &partial, stated, progress, cancel)
                     .await
+                    .and_then(|saved| {
+                        if saved == stated {
+                            Ok(saved)
+                        } else {
+                            Err(CoreError::Invalid(format!(
+                                "the host sent {saved} bytes, not the {stated} it said"
+                            )))
+                        }
+                    })
             }
         })
         .await;
@@ -712,6 +810,36 @@ mod tests {
         assert!(ImageSummary::default().has_room(), "free space unknown");
     }
 
+    #[test]
+    fn a_cores_names_are_shown_on_one_line_and_bounded() {
+        let names = NameList {
+            names: vec![
+                "mods/a.jar\n\nNothing was left out".into(),
+                "evil\u{202E}gpj.exe".into(),
+            ],
+            count: 2,
+        };
+        assert_eq!(
+            names.joined(),
+            "mods/a.jar\\u{000A}\\u{000A}Nothing was left out, evil\\u{202E}gpj.exe"
+        );
+        let many = NameList {
+            names: (0..10_000).map(|i| format!("f{i}")).collect(),
+            count: 3,
+        };
+        assert_eq!(many.joined(), "f0, f1, f2, f3, f4, f5, f6, f7, …");
+        let long = NameList {
+            names: vec!["x".repeat(10_000)],
+            count: 1,
+        };
+        assert_eq!(long.joined().chars().count(), SHOWN_NAME_CHARS + 1);
+        let unlisted = NameList {
+            names: Vec::new(),
+            count: 56,
+        };
+        assert_eq!(unlisted.joined(), "…");
+    }
+
     /// The core's own sample: `core/src/images/share/tests.rs`'s summaries come from the
     /// same types.
     #[test]
@@ -719,10 +847,12 @@ mod tests {
         let exported: ExportedBackup = serde_json::from_str(
             r#"{"key": "k1", "file_name": "Survival - 1.lodeimg", "size": 9,
                 "left_out": {"names": ["eula.txt"], "count": 1},
+                "left_out_for_players": {"names": ["config/voice.toml"], "count": 1},
                 "blanked": {"names": ["server.properties: rcon.password"], "count": 1}, "later": true}"#,
         )
         .unwrap();
         assert_eq!(exported.left_out.joined(), "eula.txt");
+        assert_eq!(exported.left_out_for_players.names, ["config/voice.toml"]);
         assert_eq!(exported.blanked.names, ["server.properties: rcon.password"]);
         assert!(exported.not_downloadable.is_empty());
     }

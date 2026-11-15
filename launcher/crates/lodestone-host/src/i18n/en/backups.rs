@@ -106,10 +106,10 @@ crate::i18n::messages! {
         RestoreDone = "Restore done",
         RestoreFailed = "Restore failed",
         /// Exporting a backup as a file for another computer.
-        ExportLabel = "Export as a file for another Lodestone Host",
+        ExportLabel = "Export as a file for another Host or a Launcher",
         /// The export dialog; {name} is the backup's name or date.
         ExportTitle = "Export “{name}”",
-        ExportBody = "Saves this backup as a .lodeimg file that another Lodestone Host can open. Passwords in server.properties are blanked, and files that hold a password or token are left out.",
+        ExportBody = "Saves this backup as a .lodeimg file. Another Lodestone Host can make a server from it, and Lodestone Launcher can make a singleplayer instance of its world. Passwords in server.properties are blanked, and files that hold a password or token are left out.",
         ExportPlugins = "Include plugin settings (they can hold passwords)",
         ExportPluginsHint = "Everything in the plugins’ folders: settings, databases and player data.",
         ExportAction = "Export…",

@@ -31,7 +31,7 @@ use crate::types::InstanceUuid;
 use crate::AppState;
 
 use super::global_fs::canonicalize_global_read;
-use super::instance::{spawn_minecraft_instance_creation, PostSetupStep};
+use super::instance::{spawn_minecraft_instance_creation, PostSetupStep, SetupDone};
 use super::util::{is_script_path, AuthedUser};
 
 /// Lodestone's own files in an instance folder. They belong to the instance they were
@@ -644,7 +644,7 @@ async fn import_server(
                             pending.set(0);
                         }
                     })?;
-                    Ok::<_, Error>(describe_skipped(&plan))
+                    Ok::<_, Error>(SetupDone::message(describe_skipped(&plan)))
                 }
             })
             .await

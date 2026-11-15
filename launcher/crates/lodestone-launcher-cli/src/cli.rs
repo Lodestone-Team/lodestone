@@ -1194,12 +1194,15 @@ pub enum Servers {
     /// Unlinks an instance from its server (its mods stay).
     #[command(after_help = "Examples:\n  lodestone-launcher-cli servers unlink Survival")]
     Unlink(InstanceArg),
-    /// Hosts an instance's modpack as a new (stopped) server on a core. Hosting accepts
-    /// Minecraft's EULA: ask the user, then pass --accept-eula. On a core this computer
-    /// is the owner of (`cores claim-local`) the owner key creates it; on any other core,
-    /// sign in with --username (the password from stdin).
+    /// Hosts an instance as a new (stopped) server on a core: its mods and configs, and
+    /// the worlds sent (--send-world's, else --world's alone, else the last played), as a
+    /// .lodeimg the core reads. Making it accepts Minecraft's EULA: ask the user, then
+    /// pass --accept-eula (not needed with --preview, which only shows what the server
+    /// would get). On a core this computer is the owner of (`cores claim-local`) the
+    /// owner key creates it; on any other core, sign in with --username (the password
+    /// from stdin).
     #[command(
-        after_help = "Examples:\n  lodestone-launcher-cli servers host Survival --core \"Lodestone Host\" --accept-eula\n  printf '%s\\n' \"$PASSWORD\" | lodestone-launcher-cli servers host Survival --core \"Home core\" --username alice --password-stdin --max-ram 4096 --accept-eula"
+        after_help = "Examples:\n  lodestone-launcher-cli servers host Survival --core \"Lodestone Host\" --preview\n  lodestone-launcher-cli servers host Survival --core \"Lodestone Host\" --send-world Island --world Island --accept-eula\n  printf '%s\\n' \"$PASSWORD\" | lodestone-launcher-cli servers host Survival --core \"Home core\" --username alice --password-stdin --no-worlds --max-ram 4096 --accept-eula"
     )]
     Host {
         instance: String,
@@ -1215,8 +1218,65 @@ pub enum Servers {
         /// MB: 2048, 4096, 6144 or 8192.
         #[arg(long)]
         max_ram: Option<u32>,
+        /// A world to send, by its folder in saves/, spelt exactly (repeat for several;
+        /// default: --world's, else the last played, none with --no-world). A folder the
+        /// instance doesn't have is refused before anything is sent.
+        #[arg(long = "send-world", conflicts_with = "no_worlds")]
+        send_worlds: Vec<String>,
+        /// Send no world: the server makes a new one.
+        #[arg(long)]
+        no_worlds: bool,
+        /// The world (its folder) that becomes the server's: one sent, or alone sent when
+        /// --send-world isn't given (default: the host's choice).
+        #[arg(long, conflicts_with = "no_world")]
+        world: Option<String>,
+        /// The server makes a new world, whatever is sent (nothing, without --send-world).
+        #[arg(long)]
+        no_world: bool,
+        /// The game port (default: the first free one from 25565).
+        #[arg(long)]
+        port: Option<u16>,
+        /// The server software, one of the preview's `server_choices` (any case): Paper
+        /// or Vanilla for a vanilla instance. One the file doesn't allow is refused.
+        #[arg(long)]
+        server_software: Option<String>,
+        /// Only show what the server would get; nothing is made. It costs a whole
+        /// transfer: the instance is written and sent for the core to read, then
+        /// discarded, and the real run sends it again.
+        #[arg(long)]
+        preview: bool,
         #[arg(long)]
         accept_eula: bool,
+    },
+    /// Downloads a server's world as a new instance: a backup of it (the newest unless
+    /// --backup or --new-backup says) with the mods its players get, never the server's
+    /// settings or plugins. Needs permission to read the server's files: on a core this
+    /// computer is the owner of the owner key, else --username (the password from stdin).
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli servers download-world Smp --core \"Lodestone Host\" --preview\n  lodestone-launcher-cli servers download-world Smp --core \"Lodestone Host\" --backup <id from the preview> --yes\n  lodestone-launcher-cli servers download-world Smp --core \"Lodestone Host\" --new-backup --name \"SMP at home\"\n  printf '%s\\n' \"$PASSWORD\" | lodestone-launcher-cli servers download-world Smp --core \"Home core\" --username alice --password-stdin"
+    )]
+    DownloadWorld {
+        #[command(flatten)]
+        server: ServerArg,
+        #[arg(long)]
+        username: Option<String>,
+        #[command(flatten)]
+        password: PasswordArgs,
+        /// The backup to download, by id (default: the newest).
+        #[arg(long, conflicts_with = "new_backup")]
+        backup: Option<String>,
+        /// Back the server up now and download that. Not with --preview, which changes
+        /// nothing on the core: preview the newest backup, then download it by --backup.
+        #[arg(long, conflicts_with = "preview")]
+        new_backup: bool,
+        /// The new instance's name (default: the server's).
+        #[arg(long)]
+        name: Option<String>,
+        /// Only show what the instance would get (the whole backup is downloaded to read
+        /// it, then deleted, and downloaded again by the real run); nothing is made. The
+        /// reply's `backup` is the one to download.
+        #[arg(long)]
+        preview: bool,
     },
 }
 

@@ -751,14 +751,42 @@ impl Instances {
         };
         this.reload(cx);
         this.follow_snapshot_changes(cx);
-        // Exports left from an earlier run were made to be shared then: the dialog that
-        // offered them is gone. Renamed away at once, so an export started now never
-        // writes into a folder being deleted, then deleted in the background.
-        let exports = this.snapshot_exports_dir();
-        let old = exports.with_file_name(format!("snapshot-exports-old-{}", std::process::id()));
-        if std::fs::rename(&exports, &old).is_ok() {
+        // Files left from an earlier run (snapshot exports, "Host this" uploads, "Download
+        // this world" downloads) were made to be shared or read then: the dialog that
+        // made them is gone. Renamed away at once (to a name no earlier run used), so one
+        // started now never writes into a folder being deleted, then deleted in the
+        // background with any such folder an earlier run quit before deleting.
+        let mut doomed = Vec::new();
+        for dir in this.data_dir.temporary_dirs() {
+            let Some(name) = dir.file_name().map(|n| n.to_string_lossy().into_owned()) else {
+                continue;
+            };
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_nanos());
+            let old = dir.with_file_name(format!("{name}-old-{}-{now}", std::process::id()));
+            if std::fs::rename(&dir, &old).is_ok() {
+                doomed.push(old);
+            }
+            let prefix = format!("{name}-old-");
+            if let Some(parent) = dir.parent() {
+                doomed.extend(
+                    std::fs::read_dir(parent)
+                        .into_iter()
+                        .flatten()
+                        .flatten()
+                        .filter(|e| e.file_name().to_string_lossy().starts_with(&prefix))
+                        .map(|e| e.path()),
+                );
+            }
+        }
+        doomed.sort();
+        doomed.dedup();
+        if !doomed.is_empty() {
             cx.background_spawn(async move {
-                let _ = std::fs::remove_dir_all(old);
+                for old in doomed {
+                    let _ = std::fs::remove_dir_all(old);
+                }
             })
             .detach();
         }

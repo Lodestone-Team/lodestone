@@ -2393,7 +2393,7 @@ impl BackupService {
                     job.end(
                         true,
                         &format!("Restored the backup as {}", request.name),
-                        ProgressionEndValue::InstanceCreation(info),
+                        ProgressionEndValue::InstanceCreation(info.into()),
                     );
                 }
                 Err(e) => {

@@ -340,8 +340,10 @@ view(image, side, rules) = entries with env[side] ≠ unsupported that the side 
 - A view keeps the image's base, game, `removed`, worlds, content link, excludes, withheld
   files and unknown fields (the client view only part of `removed`: below), and none of its informational fields (`parent`, `created`,
   `producer`, `label`, entries' `modified`). World files go to both views, so the server
-  view of a Launcher snapshot is what "Host this" makes; the server-to-player flow uses
-  the content image, which has no worlds.
+  view of a Launcher's image is what "Host this" makes (the core takes the server view of
+  the `.lodeimg` the Launcher sends, "M6b decisions"); the server-to-player flow uses the
+  content image, which has no worlds. The other way, "Download this world" places the
+  client view of a server's content with its worlds (`images::from_server`).
 
 - The client view's `removed` keeps only the paths the client view could carry a file at:
   none the client can't hold, none of Lodestone's own files, a server's state or disabled
@@ -952,10 +954,13 @@ names anything by it.
   server on another Host (done: "M6a decisions").
 - Launcher to Host: the core makes a server from the server view of a Launcher's `.lodeimg`,
   with one picked world as its level (done in the core and the GPUI Host's "From a file":
-  "M6a decisions"); the Launcher's own "Host this", which sends it, is milestone 6's second
-  part.
-- Host to Launcher: "Download this world" sends a data image; the Launcher builds the linked
-  content image.
+  "M6a decisions"); the Launcher's "Host this" writes and sends that file and makes the
+  server (done: "M6b decisions").
+- Host to Launcher: "Download this world" gets a backup as a `.lodeimg` through the core's
+  export; the Launcher builds a new instance from the client view of its linked content
+  image, the client share of the modpack the server is built on (as its players get it
+  through the base) and its worlds, as it does for any core's `.lodeimg` opened in it
+  (done: "M6b decisions").
 - Launcher to Launcher: share an image file (`.lodeimg`, an exported snapshot, M5), or an
   `LDS2:` code when every file can be downloaded.
 
@@ -1028,6 +1033,14 @@ names anything by it.
   or `!` line while the logical line is still empty (after a line holding only `\`) is a
   comment that ends with its own line, whatever backslash it ends with, so the setting
   after it is read as its own and its secret blanked.
+- A server's `.lodeimg` opened in the Launcher ("Download this world", or a core export
+  imported by hand) places only the client view of its content, and of that only what the
+  content folders hold, and its worlds without the files only a server reads: never its
+  `server.properties`, operators, plugins or their data, Paper's settings or a config not
+  shared with players ("M6b decisions"); the base pack's client share comes only from
+  Modrinth, checked as for players (M4b). Its objects are unpacked only for what is placed,
+  each read from the file and checked: a file never gets the store's other files by
+  naming their hash.
 - The core's history API returns labels and paths as they are; a client that shows them
   writes their control and direction characters visibly (as `display_text` does).
 - A Launcher content image takes the whole `config/` folder and every file a pack lists.
@@ -1078,12 +1091,11 @@ names anything by it.
    Launcher to Launcher). Done in two parts: first the core's export of a backup as a
    `.lodeimg` and its import of a Host's or a Launcher's `.lodeimg` as a new server, with
    the GPUI Host's UI for both (done: "M6a decisions"); then the Launcher's "Host this" and
-   "Download this world", which call those routes. Left for the second part: the
-   Launcher opening a core's `.lodeimg` (today it refuses one plainly, "M6a decisions",
-   Interop), and one known core change (CurseForge downloads stay out of the core: the
-   developer decided so, see "M6a decisions", Making it): a structured end of a creation from a file (the names it couldn't
-   download, in the `InstanceCreation` progression's end value), so a translated
-   "Host this" can say what was left out ("M6a decisions", Not cancelled once made).
+   "Download this world", which call those routes, the Launcher opening a core's
+   `.lodeimg`, and the structured end of a creation from a file (done: "M6b decisions").
+   CurseForge downloads stay out of the core: the developer decided so (see "M6a
+   decisions", Making it); a CurseForge file the `.lodeimg` doesn't carry is left out and
+   the summary says so.
 
 Nothing converts old data in any milestone.
 
@@ -2834,7 +2846,9 @@ the world backup zips is read or converted.
   `scripts/x.zs` a later version dropped) is therefore not put back by "The worlds and
   their mods" nor named in the preview; "Everything" puts it back.
 - **Exports** (`.lodeimg`, `export::EXTENSION`): `container::export` of the snapshot's image
-  (labelled with its name, no parent) and its content image, after `PRIVATE_FILES`
+  (labelled with its name, no parent) and its content image, after `private_patterns`
+  (`share::PLAYER_PRIVATE` and the JVM's crash files, `CRASH_FILES`, since milestone 6's
+  second part)
   (`command_history.txt`, `hotbar.nbt`, `ias.json` at any depth: In-Game Account Switcher,
   `essential/microsoft_accounts.json` and `essential/mojang_accounts.json`: Essential; at
   the top of the game folder the official launcher's account files, in any case, as
@@ -2842,8 +2856,8 @@ the world backup zips is read or converted.
   which held tokens, `launcher_accounts*.json` and `launcher_msa_credentials*.bin`: a
   player who pasted a `.minecraft` folder into an instance has them); and at the top of
   the game folder the JVM's `hs_err_pid*`, `replay_pid*`, `java_pid*.hprof`,
-  `*.mdmp`, `core` and `core.*`, and every top-level name `scope::is_crash_name` matches in
-  any case, exactly what snapshots leave out, for images that hold them however they were
+  `*.mdmp`, `core` and `core.*`, and every top-level name `share::is_jvm_crash_name`
+  matches in any case, exactly what snapshots leave out, for images that hold them however they were
   made, such as an imported one) are removed
   from both and added to their `excludes`, both re-sealed. Best effort: an unlisted
   account switcher's file still travels; the dialog lists what was left out, and the
@@ -2891,8 +2905,8 @@ the world backup zips is read or converted.
   bytes that don't match the SHA-512 or SHA-256): it is logged, and the entry is one that
   wasn't downloaded, as is one without a URL (a failed CurseForge lookup). Only Cancel, or
   a failure of the store or the disk, stops it. An entry that
-  wasn't downloaded is placed when the store has its bytes (the file carries them, or the
-  store had them already) **as a plain file**: `content.json` learns no source for it,
+  wasn't downloaded is placed when the file carries its bytes (since milestone 6's second
+  part, never from the store's other files by hash: "M6b decisions") **as a plain file**: `content.json` learns no source for it,
   and the imported snapshot kept of the file records its source as `object` too
   (`without_unconfirmed_sources`, both images re-sealed), so a later restore can't record
   it as a project's file either; the rest are left out and listed, and the window says
@@ -3636,13 +3650,12 @@ import are the model.
   text is the core's English, as the Files tab's zip toasts are; the rest of the dialog is
   translated. A structured outcome (the lists of what was left out in the progression's
   end value) would let the Host translate it, but the end value is shared with every
-  creation and the dashboard. It is a known core change of milestone 6's second part
-  (listed under Milestones), whose "Host this" shows the outcome in the Launcher's
-  languages: the names that weren't downloaded and the files not taken, as data beside
-  the English message.
-- **The Host's export says what it is for.** "Export as a file for another Lodestone
-  Host": the Launcher can't open a core export yet (Interop), so the dialog doesn't offer
-  it. The dialog shows an indeterminate bar while the core writes the file and the bytes
+  creation and the dashboard. Milestone 6's second part made it ("M6b decisions",
+  Structured creation outcome): the end value carries an optional `outcome` beside the
+  server's info, which the Host's toast and the Launcher's "Host this" show translated.
+- **The Host's export says what it is for.** "Export as a file for another Host or a
+  Launcher" (milestone 6's second part; it was "for another Lodestone Host" while the
+  Launcher couldn't open a core export). The dialog shows an indeterminate bar while the core writes the file and the bytes
   once it downloads (known gap: the core sends the writing's percent as a progression the
   Host doesn't follow yet, and every container entry is deflated, so a world of 20 GB
   spends minutes "Preparing"); the request waits up to 4 hours (Cancel ends it sooner).
@@ -3660,7 +3673,9 @@ import are the model.
   also when that is dropped (a dialog closed mid-upload, which also cancels the upload).
   `create_from_image` waits up to 15 minutes: before it answers, the core opens the upload
   again (its index and manifests, which for a file of a million entries take a while),
-  checks the disk and looks the server software up over the network.
+  checks the disk and looks the server software up over the network. Milestone 6's
+  second part uses these for "Host this" (`cores::hosting`) and adds the creation's
+  outcome (`admin::events::CreatedInstance`) and `AdminClient::wait_progression`.
 - **The Host's "From a file" summary.** The new server's name starts as the file's label
   with the characters a server's name can't have replaced (`:` becomes `.`, the others
   `-`: an unnamed backup's label has the time, "14:10"), and the Name field says so before
@@ -3675,11 +3690,18 @@ import are the model.
   so it refuses a file whose producer is the core before anything is unpacked, saying so
   plainly ("This file is a server's backup exported from Lodestone Host. The Launcher can't
   open server backups yet") instead of naming the first path the client layout refuses.
-  Known gap: milestone 6's second part ("Download this world") must place a core export's
-  client view instead, and removes this refusal (`check_maker` in
-  `launcher-core/src/images/export.rs`, the one change this milestone made to the
-  Launcher's import). Exports from the two programs differ in bytes (deflate), so compare
-  them by image id.
+  Milestone 6's second part replaced this refusal: the Launcher opens a core export as
+  the client view of its content with its worlds (`images::from_server`, "M6b
+  decisions"). Exports from the two programs differ in bytes (deflate), so compare them
+  by image id.
+- **Names from a core are shown safely.** Whatever a core sends is untrusted to the
+  Launcher: `NameList::joined` (every list the summary, the outcome and the import show
+  from a core) shows at most the first 8 names, each through `display_text` and cut at 120
+  characters, with "…" for the rest, so a name can't span lines, hide its direction or
+  fill the dialog. The core's English reasons shown in the window (a refused creation, a
+  failed backup) go through `display_text` too. In the Launcher's "Host this" the file is
+  the person's own game, so the summary leaves out who made it and the warning to trust
+  its sender (`Picked::own_file`).
 - **The shared crate changed only additively**: `container::export_with_progress`
   (`export` calls it), `Container::read_object`, `Container::read_object_any` (a carried
   object whole or from its chunk list, for the import's credential scan),
@@ -3688,5 +3710,301 @@ import are the model.
   (`import_objects` shares their loop), and the `share` module (`MAX_DOWNLOADS`,
   `placed_entries`, `plausible_version`, `strip`, `is_jvm_crash_name`,
   `is_launcher_account_file`, `PLAYER_PRIVATE`, `is_player_private`, `spelled_like`).
-  The Launcher's own copies of these in `launcher-core/src/images/export.rs` move to
-  `share` in milestone 6's second part.
+  Milestone 6's second part moved the Launcher's own copies of these to calls to `share`
+  ("M6b decisions").
+
+### M6b decisions
+
+Decisions the second part of milestone 6 made where this document left moving images
+between the Launcher and a core open. The code is `launcher-core/src/cores/hosting.rs`
+("Host this"), `cores/world_download.rs` and `images/from_server.rs` ("Download this
+world" and a core's `.lodeimg` in the Launcher), `images/export.rs` (`export_current`, the
+import's request and preview), `core/src/images/share/outcome.rs` (the structured
+creation outcome), `lodestone-ui/src/sharing.rs` (the shared summary and outcome text),
+the Launcher's `servers/host.rs`, `servers/download_world.rs` and the snapshot import
+dialog, and the control API's and CLI's `servers host` and `servers download-world`.
+
+- **One flow each way, no `.mrpack`.** "Host this" no longer exports a `.mrpack`
+  (`/modpack/upload`, `create_modpack`): the instance goes as a `.lodeimg` through the
+  core's import, for Fabric, Forge, NeoForge and vanilla (Paper or vanilla, picked in the
+  summary) instances alike. Nothing falls back to the old path: a core without the image
+  routes is told to update. The window and the control API call the same functions. The
+  Launcher's own `.mrpack` export (instances "Export as .mrpack") and the core's modpack
+  creation for the Host and dashboard stay.
+- **Asking the core first.** Before anything is written, `hosting::probe` sends
+  `POST /instance/image/upload` with an empty multipart body: a core that makes servers
+  from files refuses it as 400 ("No file was uploaded"), a user who may not create servers
+  gets 403, and a core older than milestone 6 has no such route (404, or 405 if another
+  route matches the path): "<core>'s Lodestone is too old to make servers from files.
+  Update it on that computer, then try again." The probe holds one of the user's arriving
+  uploads only while its empty body is read; a 409 (too many arriving) also says the core
+  takes files. "Download this world" reads the export route's 404 as too old only when
+  the core gave no message of its own (no such route answers an empty body), or a 405: a
+  404 the core explains ("Backup not found" for a backup pruned or deleted meanwhile, a
+  server gone) is shown as the core's message.
+- **What "Host this" sends** (`Images::export_current`): under the instance's record lock,
+  with collections held off to the end, refused while the game runs (its worlds would be
+  read mid-write), the content is recorded as before a snapshot (a content image when it
+  changed, kept by retention like any), and a data image of only the worlds picked
+  (`saves/` and `saves/<picked>/…`: `scope::in_worlds` on top of the snapshot's filter)
+  is built; when the content can't be recorded (a "Find it for me" search is saved) one
+  full image of the content scope and those worlds goes instead. Nothing else of the
+  player's is sent: not `options.txt`, `servers.dat`, `logs/`, `crash-reports/`,
+  `screenshots/`, `usercache.json` or mods' own folders (minimaps' waypoints of other
+  servers). It is written straight to a temporary `.lodeimg` in
+  `<data>/cache/host-uploads/` (emptied at start with the other temporary folders,
+  `DataDir::temporary_dirs`), after the free space for the carried objects and 1 GiB is
+  checked. No manifest or snapshot record is saved, so the instance keeps nothing of it;
+  the objects only it read (a world no snapshot recorded) are named by nothing, and a
+  collection keeps unused objects for an hour (`store::gc::GRACE`), so however the export
+  ends (sent, refused, cancelled) it asks for a collection a minute past that
+  (`Images::request_gc_after_grace`: one waiting thread, the time moved on by a later
+  export); a Launcher that quits first leaves them to the next collection. Private files are taken out as the
+  snapshot export takes them out, and both images are labelled with the instance's name.
+  A session that begins while it reads (Play pressed: the launch waits only 10 seconds
+  for the record lock, then goes ahead) stops it at the next file, and a session seen
+  after the read or the write refuses it (`ImageError::Running`, the file deleted), as a
+  snapshot does, so a world the game writes is never sent half old, half new. The bar
+  shows the read as its first half and the write as its second. Of `config/` and the
+  other content folders only the private name list (`share::PLAYER_PRIVATE`) is taken out:
+  the Launcher doesn't scan settings files for credentials before sending (best effort,
+  as M5's export; the player sends their own files to a core they chose), so the file
+  leaves the computer with those configs. The core's import then runs its own scan on
+  every uploaded file, the Launcher's included, and withholds what it finds (listed in
+  the outcome's `secrets`). Only a credential kept under a name neither the private list
+  nor the scan recognises ends up in the server's folder, where every user of that core
+  who may read its files can read it.
+  It is uploaded as "<instance>.lodeimg", so the server's first image says "Created from
+  <instance>.lodeimg". The worlds sent default to the last played; the server's world is
+  picked in the summary among them, or none (a new world). A Quilt instance is refused
+  before anything is written ("Lodestone can't make Quilt servers"), as the core would.
+- **Nothing left behind.** The temporary file is deleted as soon as the core has
+  answered the upload (on the upload's own thread: nothing reads it after, a refused
+  creation is retried with the same upload id), so a world-sized file never waits in the
+  cache while the summary is read. The core's upload belongs to an `Uploaded`, which lets
+  go of it (`DELETE /instance/image/upload/{id}`, from a small thread) when dropped,
+  unless a creation took the upload: backing out, Cancel, a refusal the person abandons
+  and the dialog closing all drop it. Closing the dialog while the instance is written or
+  sent (Escape, the close button, the window released) cancels that work at once, so the
+  export and upload stop and leave nothing on either side. The temporary folders are
+  renamed away at start to a name no run used before, and deleted in the background with
+  any such folder an earlier run quit before deleting. A Launcher killed or quit
+  mid-dialog (the upload is let go of from a detached thread, which the quit doesn't
+  wait for) leaves the upload to the core's hourly prune, at most two per user. The
+  probe's empty upload, were a core ever to keep one, is let go of the same way.
+  The window keeps the owner key or the session from the password in memory only, for
+  the dialog's life; neither is stored or logged, and the session isn't revoked at the
+  end (as before).
+- **The EULA and starting.** The summary's EULA toggle starts off and Create stays off
+  until the person ticks it; the control API keeps `eula_required` (not for `preview`,
+  which makes nothing). `create_from_image` never starts the server and nothing in the
+  Launcher does. The tests check that no power route is called.
+- **Following the creation.** The core answers a creation with the server's uuid; the
+  Launcher reads `GET /events/all/buffer` filtered to progression events about once a
+  second (`AdminClient::wait_progression`): it finds the start whose value names the new
+  server, sums its updates for the bar, and ends at its end, also recognised by the end's
+  value when the start was missed. The buffer holds the core's last 512 events, so on a
+  busy core both can be lost: after 5 looks without a sign of the creation, the server
+  being listed counts as made, without an outcome. After 30 minutes the dialog says the
+  host is still setting it up, and the instance isn't linked. Once the creation was asked
+  for, the dialog ends on that or on a failure (Close, or the Lodestone Host page), never
+  back at the first step, where Continue would send the instance and make a second
+  server. Cancel (or closing the
+  dialog) stops only the waiting; the background task still links the instance if the
+  Launcher runs. A WebSocket follower (`cores::live`) would be exact, but much more code
+  for a rare case.
+- **Permissions.** After the upload the Launcher reads the signed-in user
+  (`GET /user/info`): the owner may change global files, a user only when given it. A
+  file whose own jars need that permission then shows the summary's error and Create stays
+  off for a user without it, as in the Host; the control API refuses before asking the
+  core. A creation the core still refuses as forbidden shows the core's own reason
+  (`HostError::Refused`), never "can't create servers", which is kept for the probe's 403.
+- **The control API's `servers host`** follows the window: its job has the bytes written
+  and sent as progress and `jobs.cancel` (the probe, the export and the upload stop, the
+  temporary file and the core's upload go; once the creation was asked for, Cancel stops
+  only the wait, and says the core goes on); the worlds are read away from the window; the
+  server's name defaults to the instance's as the core takes it (`sharing::server_name`),
+  and a name given is checked as the core checks it (at most 100 characters, no control
+  characters or `NAME_FORBIDDEN`) before anything is written, by the same check the
+  dialog uses (`admin::instances::name_problem`; the dialog says it translated, the
+  control API in English); `no_world` (the CLI's
+  `--no-world`) asks for a new world, and `world` is only ever a folder's name. The worlds
+  are checked before anything is written (`hosting::worlds_to_send`): each folder named
+  in `worlds` or `world` must be one of the instance's, spelt exactly as the export
+  matches it (a wrongly-cased name is refused with a hint, never sent as no world, which
+  would make the server a fresh one), and `world` must be among `worlds` when both are
+  given. Without `worlds`, `world` alone is sent, nothing with `no_world`, or else the
+  last played. `server_software` must be one of the summary's `server_choices`, matched
+  whatever its case and sent as the core spells it; another is refused (`invalid_params`,
+  naming the choices), the preview too, never quietly swapped for the file's own server.
+  `servers download_world`'s job shows the download's bytes, then the import's, and
+  checks that Modrinth can be reached before the download starts.
+- **Linking.** The instance is linked to the new server only once its creation ended
+  well (before, the link was saved as soon as the core answered); it replaces any earlier
+  link, which the result names. A failed creation, or a wait that stopped first, leaves
+  the old link. The window and the control API both decide it with
+  `hosting::link_when_made`. An instance deleted while its server was made (the wait goes
+  on for up to 30 minutes after the dialog closes) gets no link, which would make its
+  folder again holding only the link: `Linked::InstanceGone`, which the dialog says ("The
+  instance was deleted meanwhile, so nothing is linked to it") and the control API returns
+  as `linked: false`. The link is saved only into a folder still there
+  (`storage::save_in_existing_dir`), so a folder deleted between the check and the save
+  isn't made again either (`NotFound` is `InstanceGone`). An older core's English end
+  message is shown escaped (`display_text`), as every other text from a core, in the
+  Launcher and the GPUI Host alike.
+- **Structured creation outcome.** The `InstanceCreation` end value is now a
+  `CreatedInstance`: the server's `InstanceInfo` fields (flattened, so the JSON and the
+  dashboard's reading are unchanged) and an optional `outcome` (`CreationOutcome`:
+  `not_downloaded`, `no_source`, `client_jars`, `secrets` and `settings_removed` as
+  `NameList`s, and a count of `scripts`; boxed in Rust so every event stays small, the
+  same on the wire), sent only for a server made from a file. The
+  English message is built from the same data (`outcome::describe`), first 8 names of
+  each list. The Host's toast and the Launcher translate it (`lodestone_ui::sharing::
+  outcome_lines`); a core without it gives its English. ts-rs bindings are regenerated
+  into `dashboard/src/bindings`.
+- **Shared text.** What a file holds before a server is made and what the server didn't
+  get are said by `lodestone_ui::sharing` for both apps (the summary lines and helpers
+  moved out of the Host with their translations); each app lays the lines out with its
+  own components. `NAME_FORBIDDEN` moved to `launcher-core` (`admin::instances`).
+- **"Download this world"** (`cores::world_download`): a button on a server's page on a
+  signed-in core. The export route needs ReadInstanceFile (as the backup zip download),
+  which a Launcher's own key never has, so the dialog signs in with a password unless this
+  computer is the core's owner. It lists the backups newest first, marking those taken
+  while the server ran without a save as possibly caught mid-write, and offers "Back up
+  now" (`create_backup`, AccessSetting, waited for by its task id's `BackupCompleted`).
+  The export never includes plugins' settings. What the core says it took out of the file
+  (`left_out`, and the secrets it `blanked`) is shown in the import dialog and returned
+  by `servers.download_world` (`exported`, with `secrets_withheld` and `not_downloadable`). The control API's
+  preview downloads the newest (or a named) backup to read it and never backs the
+  server up: `backup: "new"` with `preview` is refused, so a preview changes nothing on
+  the core. A preview costs a whole download (the CLI's help and SKILL.md say so), as a
+  `servers.host` preview costs a whole upload. The core states the file's size before it
+  is downloaded: when twice that (the file, and at least as much for what the import
+  places while the file is still there) and 1 GiB to spare don't fit, it is refused and
+  the core's file let go of before a byte comes, so the disk never fills up under a game
+  saving in another instance and a download isn't waited through for an import that
+  can't fit (the import checks the exact room again). The download is held to the stated
+  size (`AdminClient::download_export`): a core sending more, or less, than it said is
+  refused, the Host's backup export too. The file is streamed
+  into `<data>/cache/world-downloads/` with a bar and Cancel, the core's file let go of
+  however it ends, and handed to the snapshot import dialog (queued, never replacing a
+  snapshot dialog that is taking, restoring or importing: it arrives on its own when the
+  download ends, and closing that dialog would cancel its work); the file is deleted when its
+  last holder lets go of it, always from a small thread (`Downloaded`'s drop), since the
+  last holder can be the window's thread. Cancel ends the download at once, also while
+  the core is yet to answer or a read waits, and a read that waits 30 seconds
+  (`DOWNLOAD_IDLE_TIMEOUT`) fails, so a link gone dead mid-download (Wi-Fi dropped, a lid
+  closed) neither holds Cancel nor waits for the 3-hour limit (`CoreClient::download_file`,
+  for every download from a core: the Host's backup exports and files too). The dialog
+  starts at "preparing the file" and says the server is being backed up only while "Back
+  up now" runs. Cancel or a failed download goes back to the signed-in
+  list of backups with why, so a password isn't asked again; when "Back up now" made a
+  backup first, the list is read again and that backup picked
+  (`DownloadProgress::backup_made`), so trying again doesn't make another. Escape or Close
+  stops a download at once, as Host this does. A 403 says the user can't
+  read the server's files; a 403 for "Back up now" says the user can't back the server up
+  and should pick a backup, and the newest is picked, so Download doesn't repeat the
+  refused request; on a server with no backups, Download is turned off and the dialog
+  says to ask the server's owner to back it up. A Cancel while the import places the
+  files is a stop (`ImageError::Cancelled`), not a failure. Of what the core says it left out, the import dialog shows
+  only what a player would miss, which the export's answer lists itself
+  (`ExportedBackup::left_out_for_players`, beside `left_out`: not the server software,
+  the EULA, the JVM's crash files, the console history, a proxy's `forwarding.secret`,
+  Lodestone's files, or anything the client view never carries by the shared crate's
+  rules, such as `server.properties`, the operators and ban lists, Bukkit's settings files
+  and `plugins/`; a `config/` file the owner didn't share with players can still be
+  listed, as the export doesn't look up the content image's marks, though the instance
+  wouldn't have taken it anyway): `left_out`'s first 64 names are mostly `libraries/`' files on a modded
+  server and plugins' data on a Paper one (which "Download this world" always leaves
+  out), so a Launcher filtering them would show nothing of what matters. The control API returns both. A file the
+  export route sent that doesn't say a core made it is refused ("The host sent a file that
+  isn't a server's backup"): labelled a Launcher's, it would skip every rule below. The
+  import dialog's preview and the control API's preview refuse it the same way
+  (`export::inspect_from_host`). A server's world carries
+  every player's playerdata, stats and advancements: users who can read the server's
+  files could already download the backup zip, so this exposes nothing new.
+- **A core's `.lodeimg` in the Launcher** (`images::from_server::client_side`), replacing
+  M6a's refusal: the content is the backup's non-world files over its content image's
+  (the content image's when it has none), in the client view (`view(Client)`), then only
+  what the Launcher's content scope holds (`scope::is_content`: a path the client view
+  lets through that a server may never place on a player's machine is left out, never
+  placed); the data image takes the world files without `share::is_server_world_file`'s
+  (Paper's per-world `paper-world.yml`, the split Nether's and End's own files; the
+  dimensions are already `DIM-1`/`DIM1`) and a world's permissions data (FTB Ranks'
+  `serverconfig/ftbranks/`, ForgeEssentials' `FEData/`, which name the server's players
+  and their ranks, as the core's import counts them among the operators), the worlds, the
+  withheld files under `saves/` and no server settings. The content is the union of the
+  backup's files and its content image's, the backup's copy winning: a file the content
+  image still lists that was deleted outside Lodestone while the server ran (which the
+  core records only at the next start's check) comes back in the downloaded instance, as
+  it does in a server made from the core's own export. The core's export copies a content
+  entry's sides and owner mark into the backup's only when their bytes match, so a newer
+  copy in the backup (a config the server rewrote on load, a jar replaced on disk) would
+  come with unknown sides; the content image's `env` and `env_from` carry over to it
+  (`from_server::with_content_sides`: the owner's mark belongs to the path, and a jar's
+  sides are the best guess for its newer copy), so a config marked "For players" comes and
+  a server-only mod doesn't, as for a player joining through M4b. Forge versions become full Maven versions, as for players.
+  Both images are made and sealed by this Launcher, labelled "Downloaded from <server>"
+  (the server's name, or for a file opened by hand the part of the core's label before
+  " – "), and the import names the instance after the server, without control or
+  invisible characters (`export::shown_name`, applied to any name an import is given,
+  since it may be a core's). Who made a file is written
+  by its sender, so a file opened by hand that holds a server's files (a top-level
+  `server.properties` or `plugins/`, or server settings) is taken as a core's whatever it
+  says (`from_server::holds_server_files`). The preview's
+  `from_server` lists the server-only mods left out and how many of the file's files
+  aren't taken. M4b's rules for players hold: Modrinth files downloaded and checked, a
+  failure left out and listed. Server configs and kubejs/ not marked "For players" don't
+  come (singleplayer may then differ from the server); Forge or NeoForge server-only mods
+  whose sides are unknown come, as they do for players.
+- **The modpack's client share.** A server built on a Modrinth pack lists every file it
+  has in its content images, so the client view holds every pack file a player needs that
+  the server also runs; the pack's client-only index files and `client-overrides/`, which
+  a player of the server installs from the base, are placed too
+  (`from_server::place_pack_share`): the pack comes from Modrinth through M4b's
+  `image_sync::base::base_pack` (the version must be the named project's and the file the
+  base's SHA-512, kept in `<data>/cache/server-packs/`), and every file of its client
+  share is placed that the images don't place at its path (compared in any letter case),
+  that the server didn't remove (the client view's `removed`) and that isn't under
+  `saves/` (the server's world is the one that comes), each checked by the pack's hashes
+  (`modpack::fetch::stage`, staged in the instance's staging folder and then moved). The
+  server's own copy of a file always wins over the pack's. Downloaded mods are recorded in
+  `content.json` as a pack install records them, and the snapshot kept of what was sent
+  links to the content recorded once they are placed. When the pack can't be had
+  (offline, gone from Modrinth, not the file the base names, a CurseForge pack, which the
+  Launcher can't install from a server as for players) or one of its files can't be
+  placed, none of it is placed, the instance is made without those files and the import
+  says why (`Imported::server_pack`: `Skipped { why, reason }`, `why` one of `gone`,
+  `curseforge` or `failed`, which the window's notice says in its language, and `reason`
+  in English for the control API); only cancelling stops the import. The preview says which (`FromServer::modpack`),
+  and for a Modrinth pack warns, as for the images' own mods, that its files may include
+  mods that run when the game starts (no count of the images' mods names them). The
+  images still claim no pack
+  (`base` and `removed` cleared) and the instance has no `modpack.json`: the copy follows
+  neither the server nor the pack's updates. The import's free-space check can't count the
+  pack's share, whose size is known only once the pack is read, so the share is checked on
+  its own before it is downloaded: one that doesn't fit with 1 GiB to spare is skipped
+  (`failed`) and the instance is made without it.
+- **A failed import leaves nothing named.** An import (a Launcher's file or a core's)
+  that fails or is cancelled once it began unpacking (Cancel during the mods' downloads,
+  a full disk while placing files) makes no instance, and the objects it put in the store
+  are named by no manifest: it asks for a collection past the grace
+  (`Images::request_gc_after_grace`), as "Host this" does, so a whole server's world
+  doesn't stay in the store for days; so does an import whose snapshot couldn't be kept.
+- **The import trusts only the file.** Both Launcher imports (a Launcher's file and a
+  core's) unpack only the objects the placed images name, each read from the file and
+  checked even when the store has it (`Container::import_objects_where_verified`), and a
+  file no download confirmed is placed only from bytes the file carries: before, M5
+  placed it from the store when the store happened to have those bytes, so a file could
+  name the user's own stored files by hash. An offline import of a pack whose mods the
+  store already has now leaves those mods out (listed) instead.
+- **The shared crate changed only additively**: `layout::BUKKIT_NETHER` and
+  `layout::BUKKIT_END` are public, and `share::is_server_world_file` is new. The Launcher
+  calls `share` instead of its copies (private patterns, `strip`, placed entries, folder
+  spellings, the version check, the download cap, the crash and account names; its
+  snapshot scope folds Unicode case for crash names now, so it leaves out slightly more
+  exotic spellings). `names_modrinth_file` and `download_key` stay in both programs: the
+  shared crate has no URL parser, and adding one would be a new dependency.
+- **Not in scope.** CurseForge downloads in the core (the developer decided they stay
+  out, "M6a decisions", Making it; the summary keeps warning). Launcher to Launcher needs nothing new: M5's `.lodeimg`
+  export and import already do it, and `LDS2:` codes stay as they are.

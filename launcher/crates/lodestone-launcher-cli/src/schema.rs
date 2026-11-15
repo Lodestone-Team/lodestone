@@ -209,6 +209,12 @@ pub const COMMANDS: &[(&str, &str, bool, bool)] = &[
     ("servers link", "servers.link", false, false),
     ("servers unlink", "servers.unlink", false, false),
     ("servers host", "servers.host", true, false),
+    (
+        "servers download-world",
+        "servers.download_world",
+        true,
+        false,
+    ),
     ("prompts list", "prompts.list", false, false),
     ("friends list", "friends.list", false, false),
     ("friends join", "friends.join", true, false),

@@ -124,62 +124,14 @@ pub fn text(message: M) -> &'static str {
         M::ImageUploadFailed => "Impossible d’ouvrir le fichier : {error}",
         M::ImageSummaryTitle => "Contenu du fichier",
         M::ImageSummarySubtitle => "Vérifiez le contenu du fichier, puis créez le serveur.",
-        M::ImageMadeByHost => "Créé avec Lodestone Host {version}",
-        M::ImageMadeByLauncher => "Créé avec Lodestone Launcher {version}",
-        M::ImageMadeByOther => "Créé par un autre programme",
-        M::ImageCarried => {
-            "Ceux-ci sont dans le fichier lui-même, et non téléchargés depuis Modrinth : {names}"
-        }
-        M::ImageClientOnly => "Mods que seuls les joueurs utilisent, laissés de côté : {names}",
-        M::ImageNotDownloadable => {
-            "Les serveurs Lodestone ne peuvent pas encore télécharger depuis CurseForge, donc ces fichiers ne seront pas installés : {names}"
-        }
-        M::ImageTakenOut => "Retiré par l’expéditeur : {names}",
-        M::ImageBlanked => "Vidé par l’expéditeur : {names}",
-        M::ImageSecretsNotTaken => {
-            "Non repris, car ils contiennent une clé du serveur, un mot de passe ou un jeton : {names}"
-        }
-        M::ImageWithheld => "Absents du fichier : {names}",
-        M::ImageNotTaken => "Non repris du fichier : {what}",
-        M::NotTakenSoftware => "le logiciel du serveur (Lodestone installe le sien)",
-        M::NotTakenEula => "le CLUF",
-        M::NotTakenClientFiles => "les fichiers propres à un joueur",
-        M::NotTakenOperators => "les opérateurs",
-        M::NotTakenScripts => "les scripts",
-        M::ImageOfflineMode => {
-            "Ses paramètres permettent de rejoindre sans compte Minecraft (online-mode est désactivé)."
-        }
         M::ImageKeepOperators => "Garder les opérateurs du fichier : {names}",
         M::ImageKeepOperatorsHint => {
             "Les opérateurs peuvent exécuter n’importe quelle commande sur le serveur."
-        }
-        M::ImageServerSoftware => "Logiciel serveur",
-        M::ImageServerSoftwareHint => {
-            "Paper exécute des plugins. Un serveur vanilla exécute Minecraft tel quel."
-        }
-        M::ImageWorld => "Monde",
-        M::ImageWorldHint => "Le monde qui devient celui du serveur.",
-        M::ImageNoWorld => "Aucun monde (un nouveau)",
-        M::ImageDownloads => "Télécharge {size} depuis Modrinth",
-        M::ImageDownloadsMods => "Télécharge {size} depuis Modrinth : {names}",
-        M::ImageDisk => "Nécessite {needed} d’espace disque, dont 1 Go de marge ; {free} libres.",
-        M::ImageNoRoom => {
-            "Il n’y a pas assez d’espace libre pour créer ce serveur avec le monde du fichier. Un monde plus petit, ou aucun, peut tenir."
-        }
-        M::ImageProtectedWarning => {
-            "Il contient ses propres fichiers protégés, comme des fichiers jar ou des programmes, venant de la personne qui l’a créé. N’utilisez que des fichiers de personnes de confiance."
-        }
-        M::ImageNeedsGlobal => {
-            "Ce fichier contient ses propres fichiers jar : créer un serveur à partir de lui nécessite l’autorisation de modifier les fichiers globaux."
         }
         M::ImageCreate => "Créer le serveur",
         M::ImageCreateFailed => "Impossible de créer le serveur : {error}",
         M::CreateFailedLater => "Le serveur n’a pas pu être créé",
         M::ImageNotLodeimg => "{name} n’est pas un fichier .lodeimg",
-        M::ImageMadeAsPaper => {
-            "Lodestone crée les serveurs {flavour} comme des serveurs Paper, qui font tourner les mêmes plugins."
-        }
-        M::ImageUnsupported => "Lodestone ne peut pas créer de serveurs {loader}.",
         M::GameVanillaDescription => "Serveur Minecraft vanilla standard de Mojang.",
         M::GameForgeDescription => {
             "Framework de modding pour installer des mods et personnaliser votre expérience Minecraft."
@@ -361,10 +313,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
             "Afficher plus ({count} restantes)",
         ],
         P::ImportFiles => ["{count} fichier", "{count} fichiers"],
-        P::ImageModsWarning => [
-            "Il contient {count} mod ou plugin : un programme qui s’exécute sur le serveur. N’utilisez que des fichiers de personnes de confiance.",
-            "Il contient {count} mods ou plugins : des programmes qui s’exécutent sur le serveur. N’utilisez que des fichiers de personnes de confiance.",
-        ],
         P::ShareConnected => ["{count} personne connectée", "{count} personnes connectées"],
         P::ShareJoins => [
             "({count} connexion jusqu’ici)",

@@ -482,8 +482,25 @@ impl CreateInstance {
 
     /// For screenshots: moves the dialog on to `step` (`games`, `basic`, `server`,
     /// `auto`, `modpack`, `import`, `import:<folder>` to read a folder, or a sample
-    /// file's summary, `image`, `image-launcher` or `image-launcher-world`, its world list open) as soon as what it needs has loaded.
+    /// file's summary, `image`, `image-launcher` or `image-launcher-world`, its world list
+    /// open, or `image-outcome`, the toast a server made from a file ends with) as soon as
+    /// what it needs has loaded.
     pub fn advance_for_screenshot(&mut self, step: &str, cx: &mut Context<Self>) {
+        // the toast at the end of a server made from a file, translated from its outcome
+        #[cfg(feature = "screenshot")]
+        if step == "image-outcome" {
+            let outcome = serde_json::from_value(serde_json::json!({
+                "not_downloaded": {"names": ["mods/jade.jar"], "count": 1},
+                "no_source": {"names": ["mods/create.jar", "mods/flywheel.jar"], "count": 2},
+                "client_jars": {"names": ["zoomify.jar"], "count": 1},
+                "settings_removed": {"names": ["spigot.yml"], "count": 1}
+            }))
+            .expect("a sample outcome");
+            if let Some(toast) = crate::state::creation_toast(true, None, Some(&outcome)) {
+                self.state.update(cx, |state, cx| state.toast(toast, cx));
+            }
+            return;
+        }
         #[cfg(feature = "screenshot")]
         if let Some((launcher, world_open)) = match step {
             "image" => Some((false, false)),

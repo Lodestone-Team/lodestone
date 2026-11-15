@@ -536,6 +536,13 @@ impl LauncherShell {
         observe.push(cx.subscribe(&servers, |this, _, event, cx| match event {
             ServersEvent::OpenInstance(id) => this.select_instance(id, cx),
             ServersEvent::ShowServers => this.show(Page::Servers, cx),
+            ServersEvent::ImportWorld { file, server } => this.open_snapshot(
+                crate::instances::snapshots::SnapshotRequest::ImportDownloaded {
+                    file: file.clone(),
+                    server: server.clone(),
+                },
+                cx,
+            ),
             ServersEvent::Failed { title, message } => {
                 let focus = cx.focus_handle();
                 this.open_modal(
@@ -1394,7 +1401,10 @@ impl LauncherShell {
     ///   mods still turned off and its try's game left running unwatched, so a crash of
     ///   another instance, a modpack import finishing or another job's error waits;
     /// - "Runs under Rosetta 2": its game waits for the answer, and would stay
-    ///   "Starting" with nothing to answer.
+    ///   "Starting" with nothing to answer;
+    /// - a snapshot dialog taking, restoring or importing: closing it would cancel that
+    ///   work without a word, and a downloaded world's import arrives on its own when
+    ///   its download ends, not from a click.
     ///
     /// The Rosetta question itself waits for any open dialog, which may have clean-up
     /// to do when it closes (a downloaded modpack to discard).
@@ -1418,7 +1428,10 @@ impl LauncherShell {
                 return;
             }
         }
+        let snapshot_busy =
+            matches!(current, Some(Modal::Snapshot { dialog, .. }) if dialog.read(cx).busy());
         let wait = searching.is_some()
+            || snapshot_busy
             || matches!(current, Some(Modal::ConfirmRosetta { .. }))
             || (current.is_some() && matches!(modal, Modal::ConfirmRosetta { .. }));
         if wait {
@@ -3369,6 +3382,71 @@ mod mod_finder_tests {
             assert!(!shell.modal.is_open());
             assert!(shell.queued_modals.is_empty());
         });
+    }
+
+    /// A snapshot dialog that is taking, restoring or importing isn't closed by a dialog
+    /// that arrives on its own (a downloaded world's import, another job's error): that
+    /// one waits, and shows once the work has ended and the dialog closed.
+    #[test]
+    fn a_busy_snapshot_dialog_is_never_replaced() {
+        let mut cx = TestAppContext::single();
+        cx.update(crate::components::init);
+        let (shell, cx) = cx.add_window_view(|_, cx| {
+            let accounts = crate::preview::accounts("signed-out", cx);
+            let instances = crate::preview::instances("sidebar-groups", &accounts, cx);
+            LauncherShell::new(accounts, instances, cx)
+        });
+        cx.run_until_parked();
+        let id = shell.read_with(cx, |shell, cx| {
+            shell.instances.read(cx).list()[0].id.clone()
+        });
+        shell.update(cx, |shell, cx| {
+            shell.open_snapshot(crate::instances::snapshots::SnapshotRequest::Take(id), cx)
+        });
+        cx.run_until_parked();
+        let dialog = shell.read_with(cx, |shell, _| shell.snapshot_dialog().cloned().unwrap());
+        dialog.update(cx, |dialog, _| dialog.test_set_working(true));
+        let fail = |shell: &mut LauncherShell, cx: &mut Context<LauncherShell>| {
+            let focus = cx.focus_handle();
+            shell.open_modal(
+                Modal::LaunchFailed {
+                    title: "Couldn't download".into(),
+                    message: "offline".into(),
+                    focus,
+                },
+                cx,
+            )
+        };
+        shell.update(cx, fail);
+        cx.run_until_parked();
+        shell.read_with(cx, |shell, _| {
+            assert!(shell.snapshot_dialog().is_some(), "still working");
+            assert_eq!(shell.queued_modals.len(), 1);
+        });
+
+        dialog.update(cx, |dialog, _| dialog.test_set_working(false));
+        shell.update(cx, |shell, cx| shell.close_modal(cx));
+        cx.run_until_parked();
+        assert_eq!(
+            shown_title(&shell, cx).as_deref(),
+            Some("Couldn't download")
+        );
+
+        // An idle snapshot dialog is replaced as any other.
+        let id = shell.read_with(cx, |shell, cx| {
+            shell.instances.read(cx).list()[0].id.clone()
+        });
+        shell.update(cx, |shell, cx| shell.close_modal(cx));
+        shell.update(cx, |shell, cx| {
+            shell.open_snapshot(crate::instances::snapshots::SnapshotRequest::Take(id), cx)
+        });
+        cx.run_until_parked();
+        shell.update(cx, fail);
+        cx.run_until_parked();
+        assert_eq!(
+            shown_title(&shell, cx).as_deref(),
+            Some("Couldn't download")
+        );
     }
 
     /// The Rosetta question holds a game, so no other dialog replaces it: a second

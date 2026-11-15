@@ -10,6 +10,43 @@ use serde::{Deserialize, Deserializer, Serialize, de::DeserializeOwned};
 use super::{AdminClient, models::InstanceInfo, segment};
 use crate::cores::{CoreError, client::MAX_JSON_BYTES};
 
+/// The characters the core refuses in a new server's name (its folder's name, and what
+/// Windows can't have in one; `modpack::NAME_FORBIDDEN` in the core), for every way of
+/// making a server: a client checks them before it asks.
+pub const NAME_FORBIDDEN: &[char] = &['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
+
+/// The longest name the core takes for a new server, in characters.
+pub const NAME_MAX_CHARS: usize = 100;
+
+/// Why the core would refuse a name for a new server.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NameProblem {
+    Empty,
+    /// Over [`NAME_MAX_CHARS`] characters.
+    TooLong,
+    ControlCharacters,
+    /// One of [`NAME_FORBIDDEN`].
+    Forbidden,
+}
+
+/// Why the core would refuse `name` for a new server (its `validate_new_instance_name`),
+/// or `None`: one check for every client that names a server (the Launcher's Host this
+/// dialog, which says it translated, and the control API, in English), made before a
+/// world-sized file is written and sent for the core to refuse.
+pub fn name_problem(name: &str) -> Option<NameProblem> {
+    if name.trim().is_empty() {
+        Some(NameProblem::Empty)
+    } else if name.chars().count() > NAME_MAX_CHARS {
+        Some(NameProblem::TooLong)
+    } else if name.chars().any(char::is_control) {
+        Some(NameProblem::ControlCharacters)
+    } else if name.contains(NAME_FORBIDDEN) {
+        Some(NameProblem::Forbidden)
+    } else {
+        None
+    }
+}
+
 /// What the power menu does to an instance.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Power {
@@ -582,6 +619,20 @@ const SHARE_TIMEOUT: Duration = Duration::from_secs(60);
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_name_the_core_would_refuse_is_caught() {
+        assert_eq!(name_problem("Survival SMP (1.21)"), None);
+        assert_eq!(name_problem(&"é".repeat(100)), None);
+        assert_eq!(name_problem("  "), Some(NameProblem::Empty));
+        assert_eq!(name_problem(&"a".repeat(101)), Some(NameProblem::TooLong));
+        assert_eq!(
+            name_problem("x\u{7}y"),
+            Some(NameProblem::ControlCharacters)
+        );
+        assert_eq!(name_problem("My: world/1"), Some(NameProblem::Forbidden));
+        assert_eq!(name_problem("a\\b"), Some(NameProblem::Forbidden));
+    }
 
     #[test]
     fn reads_a_setup_manifest_in_order() {

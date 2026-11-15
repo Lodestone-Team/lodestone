@@ -13,7 +13,7 @@ use launcher_core::content::provenance::{self, ModrinthSource, Provenance};
 use launcher_core::game::download::{CancelToken, Downloader, Progress, recording_sleep};
 use launcher_core::game::loaders::{LoaderChoice, LoaderKind};
 use launcher_core::http;
-use launcher_core::images::export::{self, PRIVATE_FILES, Sources};
+use launcher_core::images::export::{self, Sources};
 use launcher_core::images::restore::RestoreScope;
 use launcher_core::images::{Images, SnapshotKind, Take};
 use launcher_core::instances::{Instance, InstanceStore};
@@ -225,9 +225,7 @@ fn import(
             modrinth: &modrinth,
             curseforge: None,
         },
-        path,
-        None,
-        None,
+        export::ImportRequest::new(path),
         &check,
         &Progress::default(),
         &CancelToken::new(),
@@ -291,7 +289,7 @@ fn an_export_carries_references_not_jars_and_never_private_files() {
             .any(|e| e.path.as_str().starts_with("hs_err")),
         "no snapshot takes the JVM's crash log"
     );
-    for pattern in PRIVATE_FILES {
+    for pattern in export::private_patterns() {
         assert!(image.excludes.iter().any(|e| e == pattern), "{pattern}");
     }
     assert_eq!(image.label.as_deref(), Some("Before the end"));
@@ -664,20 +662,14 @@ fn a_download_that_fails_leaves_the_file_out_and_the_import_goes_on() {
         fs::read(game.join("config/sodium.json")).unwrap(),
         b"{\"fps\":true}"
     );
-    // A store that has the bytes already places them, as a plain file.
+    // A store that has the bytes already doesn't place them for a file that doesn't carry
+    // them: a file never gets the store's other files by naming their hash.
     let third = elsewhere();
     third.images.store().put_bytes(SODIUM).unwrap();
     let imported = import(&third, &file, true).unwrap();
-    assert!(imported.left_out.is_empty());
+    assert_eq!(imported.left_out, ["mods/sodium.jar"]);
     let game = third.store.game_dir(&imported.instance.id);
-    assert_eq!(fs::read(game.join("mods/sodium.jar")).unwrap(), SODIUM);
-    let known = Provenance::load(&third.store.dir(&imported.instance.id));
-    assert!(
-        known
-            .files
-            .get("mods/sodium.jar")
-            .is_none_or(|e| e.modrinth.is_none())
-    );
+    assert!(!game.join("mods/sodium.jar").exists());
 }
 
 #[test]
@@ -737,9 +729,7 @@ fn downloads_that_get_no_answer_stop_being_tried() {
             modrinth: &modrinth,
             curseforge: None,
         },
-        &file,
-        None,
-        None,
+        export::ImportRequest::new(&file),
         &|_| Ok(()),
         &Progress::default(),
         &CancelToken::new(),
@@ -1073,9 +1063,10 @@ fn an_import_refuses_a_file_that_changed_since_its_preview() {
             modrinth: &modrinth,
             curseforge: None,
         },
-        &file,
-        None,
-        Some(&"0".repeat(64)),
+        export::ImportRequest {
+            expect_image: Some(&"0".repeat(64)),
+            ..export::ImportRequest::new(&file)
+        },
         &|_| Ok(()),
         &Progress::default(),
         &CancelToken::new(),
@@ -1084,57 +1075,308 @@ fn an_import_refuses_a_file_that_changed_since_its_preview() {
     assert_eq!(instance_count(&other), 0);
 }
 
-/// A server's backup exported by Lodestone Host is refused with a message that says so,
-/// before anything is unpacked, rather than naming the first server file an instance
-/// can't hold.
-#[test]
-fn a_hosts_server_backup_is_refused_plainly() {
-    let other = elsewhere();
-    let before = instance_count(&other);
-    let store = lodestone_image::store::Store::new(
-        other.data.root().join("host-store"),
-        lodestone_image::store::Encoding::Raw,
-    );
-    let mut image = lodestone_image::Image::new(
-        lodestone_image::Kind::Data,
-        lodestone_image::Game {
-            minecraft: "1.21.1".into(),
-            loader: lodestone_image::Loader::Vanilla,
-            loader_version: None,
-        },
-    );
-    image.producer = lodestone_image::Producer {
-        app: lodestone_image::manifest::App::Core,
-        version: "0.6.0".into(),
-    };
-    image.worlds = vec![lodestone_image::World {
-        name: "world".into(),
-        level_name: None,
-        data_version: None,
-        game_version: None,
-        size: None,
-        last_played: None,
-        quiesced: None,
-    }];
-    for (path, bytes) in [
-        ("server.properties", &b"motd=Hello\n"[..]),
-        ("saves/world/level.dat", b"level"),
-    ] {
-        let stored = store.put_bytes(bytes).unwrap();
-        image.entries.push(lodestone_image::Entry::new(
-            lodestone_image::CanonicalPath::new(path).unwrap(),
-            bytes.len() as u64,
-            stored.sha256,
-            lodestone_image::Source::Object {},
-        ));
+/// The files a real core wrote (`core/src/images/share/launcher_fixtures.rs`): a Fabric
+/// server's backup and a Paper server's, exported as `.lodeimg` files.
+fn core_fixture(name: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/core_images")
+        .join(name)
+}
+
+/// The URLs the Fabric server's Modrinth mods come from, as the core's fake Modrinth
+/// names them.
+const CORE_SODIUM_URL: &str = "https://cdn.modrinth.com/data/AANobbMI/versions/v1/file.jar";
+
+/// Every file under `dir`, by its path from it.
+fn files_under(dir: &Path) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(at) = stack.pop() {
+        for entry in fs::read_dir(&at).into_iter().flatten().flatten() {
+            if entry.path().is_dir() {
+                stack.push(entry.path());
+            } else {
+                let relative = entry
+                    .path()
+                    .strip_prefix(dir)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                found.push(relative);
+            }
+        }
     }
-    image.normalize();
-    image.seal();
-    let file = other.data.root().join("Survival - backup.lodeimg");
-    lodestone_image::container::export(&store, &image, &[], &file, NEVER).unwrap();
-    let error = export::inspect(&file).unwrap_err().to_string();
-    assert!(error.contains("Lodestone Host"), "{error}");
-    let error = import(&other, &file, true).unwrap_err().to_string();
-    assert!(error.contains("Lodestone Host"), "{error}");
+    found.sort();
+    found
+}
+
+/// A server's backup from a core becomes the instance one of its players would have, with
+/// its world: the client view of its content (server-only mods dropped, Modrinth mods
+/// downloaded and checked, the one that can't be had left out and listed), never the
+/// server's settings, operators, plugins or configs it doesn't share with players.
+#[test]
+fn a_servers_backup_becomes_a_players_instance_with_its_world() {
+    let file = core_fixture("fabric-backup.lodeimg");
+    let other = elsewhere();
+    let sodium = fs::read(core_fixture("sodium.jar")).unwrap();
+    other.mock.serve(CORE_SODIUM_URL, &sodium);
+    // Lithium isn't served: its download fails
+
+    let preview = export::inspect(&file).unwrap();
+    let from_server = preview.from_server.clone().expect("a server's backup");
+    assert_eq!(from_server.server_shown, "Survival");
+    assert_eq!(from_server.server_only_mods, ["dash.jar"]);
+    assert!(from_server.not_taken >= 6, "{from_server:?}");
+    assert_eq!(preview.name_shown, "Survival");
+    let mut mods = preview.mods.clone();
+    mods.sort();
+    assert_eq!(mods, ["lithium.jar", "own.jar", "sodium.jar", "zoom.jar"]);
+    assert!(
+        preview.carried_mods.contains(&"own.jar".to_string()),
+        "{preview:?}"
+    );
+    assert_eq!(preview.worlds, ["world"]);
+
+    let imported = import(&other, &file, true).unwrap();
+    assert_eq!(imported.left_out, ["mods/lithium.jar"]);
+    assert_eq!(imported.from_server, Some(from_server));
+    let made = &imported.instance;
+    assert_eq!(made.name, "Survival");
+    assert_eq!(made.game_version, "1.21.1");
+    assert_eq!(made.loader_version.as_deref(), Some("0.16.10"));
+    let game = other.store.game_dir(&made.id);
+    let placed = files_under(&game);
+    assert_eq!(fs::read(game.join("mods/sodium.jar")).unwrap(), sodium);
+    for present in ["mods/zoom.jar", "mods/own.jar", "saves/world/level.dat"] {
+        assert!(
+            placed.contains(&present.to_string()),
+            "{present} in {placed:?}"
+        );
+    }
+    for absent in [
+        "mods/dash.jar",
+        "mods/lithium.jar",
+        "server.properties",
+        "ops.json",
+        "eula.txt",
+        "config/sodium-options.json",
+        "config/paper-global.yml",
+    ] {
+        assert!(
+            !placed.contains(&absent.to_string()),
+            "{absent} in {placed:?}"
+        );
+    }
+    assert!(
+        !placed
+            .iter()
+            .any(|p| p.starts_with("plugins/") || p.contains(".lodestone_")),
+        "{placed:?}"
+    );
+    // content.json knows the downloaded mod
+    let known = Provenance::load(&other.store.dir(&made.id));
+    assert_eq!(
+        known.files["mods/sodium.jar"]
+            .modrinth
+            .as_ref()
+            .unwrap()
+            .project_id,
+        "AANobbMI"
+    );
+    let history = other.images.history(&made.id).unwrap();
+    assert_eq!(
+        history.images[0].label.as_deref(),
+        Some("Downloaded from Survival")
+    );
+    // the snapshot kept of it holds what a player has, never the server's files
+    let snapshots = other.images.snapshots(&made.id).unwrap();
+    assert_eq!(snapshots.records.len(), 1);
+    assert_eq!(snapshots.records[0].kind, SnapshotKind::Imported);
+    let store = other.images.store();
+    let kept = store
+        .load_manifest(&made.id, &snapshots.records[0].image)
+        .unwrap();
+    let kept_content = store
+        .load_manifest(&made.id, kept.content.as_deref().unwrap())
+        .unwrap();
+    for image in [&kept, &kept_content] {
+        assert!(image.settings.server.is_none());
+        for entry in &image.entries {
+            let path = entry.path.as_str();
+            assert!(
+                path.starts_with("mods/") || path.starts_with("saves/"),
+                "{path} kept"
+            );
+        }
+    }
+
+    // the same file through "Download this world" names the server it came from
+    let named = block_on(export::import_file(
+        &other.images,
+        Sources {
+            downloader: &downloader(),
+            modrinth: &other.mock.client(),
+            curseforge: None,
+        },
+        export::ImportRequest {
+            server: Some("Our SMP"),
+            ..export::ImportRequest::new(&file)
+        },
+        &|_| Ok(()),
+        &Progress::default(),
+        &CancelToken::new(),
+    ))
+    .unwrap();
+    assert_eq!(named.instance.name, "Our SMP");
+    let history = other.images.history(&named.instance.id).unwrap();
+    assert_eq!(
+        history.images[0].label.as_deref(),
+        Some("Downloaded from Our SMP")
+    );
+}
+
+/// A Paper server's world comes as a client's save: its split Nether and End merged back
+/// into it, without Paper's own settings or the split folders' own files.
+#[test]
+fn a_paper_servers_world_comes_back_merged() {
+    let file = core_fixture("paper-backup.lodeimg");
+    let other = elsewhere();
+    let imported = import(&other, &file, true).unwrap();
+    assert!(imported.left_out.is_empty(), "{:?}", imported.left_out);
+    let made = &imported.instance;
+    assert_eq!(made.loader_version, None);
+    let game = other.store.game_dir(&made.id);
+    let placed = files_under(&game);
+    assert_eq!(
+        fs::read(game.join("saves/world/level.dat")).unwrap(),
+        b"level A"
+    );
+    assert_eq!(
+        fs::read(game.join("saves/world/DIM-1/region/r.0.0.mca")).unwrap(),
+        b"nether A"
+    );
+    assert_eq!(
+        fs::read(game.join("saves/world/DIM1/region/r.0.0.mca")).unwrap(),
+        b"end A"
+    );
+    assert!(
+        !placed.iter().any(|p| p.contains("paper-world.yml")
+            || p.contains(".bukkit_")
+            || p.starts_with("plugins/")
+            || p == "server.properties"
+            || p == "ops.json"),
+        "{placed:?}"
+    );
+}
+
+/// A server's file can't name the user's own stored files by their hash: every object it
+/// places is read from the file and checked, even one the store already has, so bytes of
+/// the right length that aren't the file's own are refused, and nothing is made.
+#[test]
+fn a_servers_file_cant_place_the_stores_files_by_hash() {
+    let file = core_fixture("fabric-backup.lodeimg");
+    let other = elsewhere();
+    // The store has the owner's mod already (another instance of the user's).
+    let opened = lodestone_image::container::open(&file, &Default::default()).unwrap();
+    let own = lodestone_image::share::placed_entries(opened.image(), opened.linked())
+        .into_iter()
+        .find(|e| e.path.as_str() == "mods/own.jar")
+        .unwrap();
+    drop(opened);
+    let real = b"the owner's own mod".to_vec();
+    assert_eq!(hex_sha256(&real), own.sha256);
+    other.images.store().put_bytes(&real).unwrap();
+    // The file carries other bytes of that length under its name.
+    let tampered = other.data.root().join("tampered.lodeimg");
+    let object = format!("objects/{}", own.sha256);
+    rewrite_zip(
+        &file,
+        &tampered,
+        |name, bytes| {
+            Some(if name == object {
+                vec![b'x'; bytes.len()]
+            } else {
+                bytes
+            })
+        },
+        &[],
+    );
+    let before = instance_count(&other);
+    assert!(import(&other, &tampered, true).is_err());
     assert_eq!(instance_count(&other), before);
+}
+
+/// Who made a file is written by whoever sent it: a file holding a server's files is taken
+/// as a server's whatever it says, and one a core's export route sent ("Download this
+/// world") that doesn't say it is a server's is refused.
+#[test]
+fn a_servers_files_labelled_as_a_launchers_never_skip_the_servers_rules() {
+    let temp = tempfile::tempdir().unwrap();
+    let file = temp.path().join("labelled.lodeimg");
+    let object = || lodestone_image::Source::Object {};
+    hostile_export(
+        temp.path(),
+        lodestone_image::Loader::Fabric,
+        &[
+            ("server.properties", b"rcon.password=x", object(), None),
+            ("plugins/Essentials/config.yml", b"a: b", object(), None),
+            ("options.txt", b"fov:90", object(), None),
+            ("servers.dat", b"crafted server list", object(), None),
+            ("config/unshared.toml", b"a = 1", object(), None),
+        ],
+        &file,
+    );
+    let other = elsewhere();
+    let preview = export::inspect(&file).unwrap();
+    assert!(preview.from_server.is_some(), "taken as a server's file");
+    let imported = import(&other, &file, true).unwrap();
+    let placed = files_under(&other.store.game_dir(&imported.instance.id));
+    for absent in [
+        "server.properties",
+        "plugins/Essentials/config.yml",
+        "options.txt",
+        "servers.dat",
+    ] {
+        assert!(
+            !placed.contains(&absent.to_string()),
+            "{absent} in {placed:?}"
+        );
+    }
+
+    // sent by a core's export route, a file that doesn't say it is a server's is refused
+    let (f, record) = fixture();
+    let own = f.data.root().join("Survival.lodeimg");
+    f.images
+        .export_snapshot(&f.instance.id, &record.id, &own, NEVER)
+        .unwrap();
+    let before = instance_count(&other);
+    let refused = block_on(export::import_file(
+        &other.images,
+        Sources {
+            downloader: &downloader(),
+            modrinth: &other.mock.client(),
+            curseforge: None,
+        },
+        export::ImportRequest {
+            server: Some("Our SMP"),
+            ..export::ImportRequest::new(&own)
+        },
+        &|_| Ok(()),
+        &Progress::default(),
+        &CancelToken::new(),
+    ));
+    assert!(
+        matches!(&refused, Err(launcher_core::images::ImageError::Invalid(m)) if m.contains("isn't a server's backup")),
+        "{:?}",
+        refused.map(|i| i.instance.name)
+    );
+    assert_eq!(instance_count(&other), before);
+    // and its preview says the same, never showing it as a Launcher's file
+    let previewed = export::inspect_from_host(&own, "Our SMP");
+    assert!(
+        matches!(&previewed, Err(launcher_core::images::ImageError::Invalid(m)) if m.contains("isn't a server's backup")),
+        "{:?}",
+        previewed.map(|p| p.name_shown)
+    );
+    assert!(export::inspect(&own).is_ok());
 }

@@ -243,7 +243,30 @@ pub(super) fn job(
     after: impl FnOnce(&Control, &Value, &mut App) + 'static,
     cx: &mut App,
 ) -> Reply {
-    let progress = Arc::new(Downloads::default());
+    job_with(
+        call,
+        label,
+        instance,
+        Arc::new(Downloads::default()),
+        work,
+        after,
+        cx,
+    )
+}
+
+/// [`job`], with the job's progress `progress`, which the work may also move itself (a
+/// download that counts its own bytes).
+pub(super) fn job_with(
+    call: &Call,
+    label: String,
+    instance: Option<&Instance>,
+    progress: Arc<Downloads>,
+    work: impl FnOnce(&(dyn Fn(u64, u64) + Sync), &CancelToken) -> Result<Value, ErrorObject>
+    + Send
+    + 'static,
+    after: impl FnOnce(&Control, &Value, &mut App) + 'static,
+    cx: &mut App,
+) -> Reply {
     let report = progress.clone();
     let cancel = CancelToken::new();
     let job_cancel = cancel.clone();
@@ -753,9 +776,11 @@ fn import_inspected(
                         modrinth: &modrinth,
                         curseforge: curseforge.as_deref(),
                     },
-                    &path,
-                    name.as_deref(),
-                    Some(&expected),
+                    export::ImportRequest {
+                        name: name.as_deref(),
+                        expect_image: Some(&expected),
+                        ..export::ImportRequest::new(&path)
+                    },
                     &room,
                     &progress,
                     cancel,
@@ -766,6 +791,8 @@ fn import_inspected(
                 "instance": imported.instance.id,
                 "name": imported.instance.name,
                 "left_out": imported.left_out,
+                "from_server": imported.from_server,
+                "server_pack": imported.server_pack,
             }))
         },
         |control, _, cx| {

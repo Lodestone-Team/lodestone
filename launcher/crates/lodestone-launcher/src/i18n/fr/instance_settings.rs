@@ -177,6 +177,7 @@ pub fn text(message: M) -> &'static str {
         M::ImportingSnapshot => "Création de l’instance…",
         M::ReadingSnapshot => "Lecture de l’instantané…",
         M::ImportSnapshotTitle => "Nouvelle instance depuis un instantané",
+        M::ImportServerTitle => "Nouvelle instance depuis le monde d’un serveur",
         M::CreateInstanceButton => "Créer l’instance",
         M::SnapshotGameRunning => "Arrêtez d’abord le jeu.",
         M::SnapshotsHint => {
@@ -246,6 +247,17 @@ pub fn text(message: M) -> &'static str {
         M::ImportNotDownloadable => {
             "Leurs auteurs n’autorisent pas le téléchargement, ils sont donc laissés de côté\u{a0}: {files}."
         }
+        M::ImportServerOnlyMods => {
+            "Mods que seul le serveur utilise, laissés de côté\u{a0}: {names}"
+        }
+        M::ImportServerPack => {
+            "Les fichiers que seuls les joueurs du serveur utilisent viennent de son modpack sur Modrinth et peuvent contenir des mods\u{a0}: des programmes qui s’exécutent au démarrage du jeu. Ne téléchargez que des mondes de serveurs de confiance."
+        }
+        M::ImportServerPackCurseforge => {
+            "Le modpack du serveur vient de CurseForge, qui ne peut pas encore être téléchargé depuis un serveur\u{a0}: les fichiers que seuls ses joueurs utilisent ne viendront pas."
+        }
+        M::ImportHostLeftOut => "L’hôte a laissé ceux-ci hors du fichier\u{a0}: {files}",
+        M::ImportHostBlanked => "L’hôte a vidé ces secrets\u{a0}: {names}",
         M::ImportSpace => "Nécessite {size} d’espace disque, dont 1\u{a0}Go de marge.",
         M::ImportNeedsModrinth => {
             "Modrinth est injoignable\u{a0}: les mods du fichier ne peuvent pas être téléchargés."
@@ -469,6 +481,16 @@ pub fn text(message: M) -> &'static str {
         M::ImportLeftOut => {
             "Ils n’ont pas pu être téléchargés, donc la nouvelle instance ne les a pas\u{a0}: {files}."
         }
+        M::ImportPackSkippedTitle => "Il manque les fichiers du modpack",
+        M::ImportPackSkipped => {
+            "Le modpack du serveur n’a pas pu être téléchargé ou installé (pas de connexion, pas assez d’espace libre, ou un fichier qui n’a pas passé sa vérification), donc les fichiers que seuls ses joueurs utilisent ne sont pas dans la nouvelle instance."
+        }
+        M::ImportPackSkippedGone => {
+            "Le modpack du serveur n’est plus sur Modrinth, donc les fichiers que seuls ses joueurs utilisent ne sont pas dans la nouvelle instance. Demandez au propriétaire du serveur de mettre à jour le modpack."
+        }
+        M::ImportPackSkippedCurseforge => {
+            "Le serveur repose sur un modpack CurseForge, qui ne peut pas encore être installé depuis un serveur, donc les fichiers que seuls ses joueurs utilisent ne sont pas dans la nouvelle instance."
+        }
         M::RestoreKeptAside => {
             "Les fichiers écrits pendant la restauration sont conservés dans {folder}."
         }
@@ -567,6 +589,10 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::ImportCarriedMods => [
             "{count} d’entre eux est dans le fichier lui-même, et non téléchargé depuis Modrinth ou CurseForge\u{a0}: {names}",
             "{count} d’entre eux sont dans le fichier lui-même, et non téléchargés depuis Modrinth ou CurseForge\u{a0}: {names}",
+        ],
+        P::ImportFromServer => [
+            "Une sauvegarde du serveur {server}\u{a0}: son monde, avec les mods que reçoivent ses joueurs. {count} fichier du serveur n’est pas repris (paramètres, opérateurs et plugins du serveur).",
+            "Une sauvegarde du serveur {server}\u{a0}: son monde, avec les mods que reçoivent ses joueurs. {count} fichiers du serveur ne sont pas repris (paramètres, opérateurs et plugins du serveur).",
         ],
     }
 }

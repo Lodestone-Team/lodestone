@@ -14,7 +14,7 @@ use tokio::io::AsyncWriteExt;
 use ts_rs::TS;
 
 use super::global_fs::multipart_error;
-use super::instance::{spawn_minecraft_instance_creation, PostSetupStep};
+use super::instance::{spawn_minecraft_instance_creation, PostSetupStep, SetupDone};
 use super::util::AuthedUser;
 use crate::auth::user::UserAction;
 use crate::error::{Error, ErrorKind};
@@ -336,7 +336,7 @@ async fn create_modpack_instance(
             )
             .await;
             drop(stored);
-            Ok(describe_skipped(&report.skipped))
+            Ok(SetupDone::message(describe_skipped(&report.skipped)))
         })
     });
     let uuid = spawn_minecraft_instance_creation(

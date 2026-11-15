@@ -31,6 +31,7 @@ use crate::error::{Error, ErrorKind};
 use crate::events::Event;
 use crate::images::share::import::{self, PlanRequest};
 use crate::images::share::inspect::{self, Caps, ImageSummary};
+use crate::images::share::outcome;
 use crate::images::share::uploads::MAX_IMAGE_UPLOAD_BYTES;
 use crate::implementations::minecraft::{FlavourKind, SetupConfig};
 use crate::prelude::path_to_instances;
@@ -38,7 +39,7 @@ use crate::util::disk::require_free_space;
 use crate::AppState;
 
 use super::global_fs::multipart_error;
-use super::instance::{spawn_minecraft_instance_creation, PostSetupStep};
+use super::instance::{spawn_minecraft_instance_creation, PostSetupStep, SetupDone};
 use super::util::AuthedUser;
 
 /// `POST /instance/image/upload`: the upload's id, for `create_from_image`, and what the
@@ -388,7 +389,11 @@ async fn create_from_image(
                 .remove(&request.upload_id, &upload.uploader);
             drop(upload);
             drop(in_use);
-            Ok(import::describe(&dropped, &placed))
+            let outcome = outcome::outcome(&dropped, &placed);
+            Ok(SetupDone {
+                message: outcome::describe(&outcome),
+                outcome: Some(outcome),
+            })
         })
     });
     let uuid = spawn_minecraft_instance_creation(

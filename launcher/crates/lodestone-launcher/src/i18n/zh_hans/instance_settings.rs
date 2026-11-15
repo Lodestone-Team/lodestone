@@ -172,6 +172,7 @@ pub fn text(message: M) -> &'static str {
         M::ImportingSnapshot => "正在创建实例…",
         M::ReadingSnapshot => "正在读取快照…",
         M::ImportSnapshotTitle => "从快照新建实例",
+        M::ImportServerTitle => "从服务器的世界新建实例",
         M::CreateInstanceButton => "创建实例",
         M::SnapshotGameRunning => "请先停止游戏。",
         M::SnapshotsHint => "此实例的世界和文件的副本，可用于恢复或分享。",
@@ -229,6 +230,15 @@ pub fn text(message: M) -> &'static str {
         M::ImportWorlds => "世界：{worlds}",
         M::ImportDownloads => "需要从 Modrinth 和 CurseForge 下载 {size}。",
         M::ImportNotDownloadable => "作者不允许下载，因此已排除：{files}。",
+        M::ImportServerOnlyMods => "只在服务器上运行的模组，已略过：{names}",
+        M::ImportServerPack => {
+            "只有服务器玩家使用的文件来自它在 Modrinth 上的整合包，可能包含模组：它们是游戏启动时运行的程序。只从你信任的服务器下载世界。"
+        }
+        M::ImportServerPackCurseforge => {
+            "服务器的整合包来自 CurseForge，目前还不能从服务器下载，因此只有其玩家使用的文件不会一起带来。"
+        }
+        M::ImportHostLeftOut => "主机没有把这些放进文件：{files}",
+        M::ImportHostBlanked => "主机清空了这些密钥：{names}",
         M::ImportSpace => "需要 {size} 磁盘空间（含 1 GB 余量）。",
         M::ImportNeedsModrinth => "无法连接 Modrinth，无法下载文件中的模组。",
         M::VerifyGameFiles => "校验游戏文件",
@@ -417,6 +427,16 @@ pub fn text(message: M) -> &'static str {
         M::SnapshotRestored => "已恢复“{name}”。",
         M::ImportLeftOutTitle => "部分文件未导入",
         M::ImportLeftOut => "这些文件无法下载，因此新实例中没有它们：{files}。",
+        M::ImportPackSkippedTitle => "缺少整合包的文件",
+        M::ImportPackSkipped => {
+            "无法下载或放置服务器的整合包（没有网络连接、可用空间不足，或有文件未通过校验），因此新实例中没有只有其玩家使用的文件。"
+        }
+        M::ImportPackSkippedGone => {
+            "服务器的整合包已不在 Modrinth 上，因此新实例中没有只有其玩家使用的文件。请让服务器所有者更新整合包。"
+        }
+        M::ImportPackSkippedCurseforge => {
+            "服务器基于 CurseForge 整合包，目前还无法从服务器安装，因此新实例中没有只有其玩家使用的文件。"
+        }
         M::RestoreKeptAside => "恢复期间写入的文件保存在 {folder}。",
         M::ImportNoRoom => "磁盘空间不足：需要 {size}（含 1 GB 余量），可用 {free}。",
         M::ImportSpaceFree => "需要 {size} 磁盘空间（含 1 GB 余量）；可用 {free}。",
@@ -463,5 +483,9 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::ImportCarriedMods => {
             ["其中 {count} 个包含在文件本身中，而不是从 Modrinth 或 CurseForge 下载的：{names}"; 2]
         }
+        P::ImportFromServer => [
+            "来自 {server} 的服务器备份：包括它的世界和玩家会获得的模组。{count} 个服务器文件不会被带入（服务器的设置、管理员和插件）。",
+            "来自 {server} 的服务器备份：包括它的世界和玩家会获得的模组。{count} 个服务器文件不会被带入（服务器的设置、管理员和插件）。",
+        ],
     }
 }

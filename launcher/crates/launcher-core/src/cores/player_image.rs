@@ -981,7 +981,7 @@ async fn read_bounded(
 /// `wait`'s outcome, unless `cancel` is cancelled first (`None` then): every wait for the
 /// server (its answer, a read of its body, a `Retry-After`) ends as soon as the player
 /// presses Cancel, not when its own limit runs out.
-async fn unless_cancelled<T>(
+pub(crate) async fn unless_cancelled<T>(
     cancel: &CancelToken,
     wait: impl std::future::Future<Output = T>,
 ) -> Option<T> {

@@ -9,3 +9,5 @@
 pub mod common;
 /// Units, dates and durations, for [`format`](crate::i18n::format).
 pub mod format;
+/// Moving instances and servers between computers as `.lodeimg` files.
+pub mod sharing;

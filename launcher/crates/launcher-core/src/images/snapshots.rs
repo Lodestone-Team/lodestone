@@ -468,7 +468,7 @@ impl Images {
         };
         let mut retried = false;
         let (image, snapshot) = loop {
-            let built = self.build_snapshot(&ctx, &take, content.clone(), &records, &name);
+            let built = self.build_snapshot(&ctx, &take, content.clone(), &records, &name, None);
             if slot.in_session() {
                 return Err(ImageError::Running);
             }
@@ -532,22 +532,33 @@ impl Images {
     }
 
     /// Snapshots the instance's game folder (its data with the link `content`, or all of
-    /// it when there is none) and builds the image, sealed and valid.
-    fn build_snapshot(
+    /// it when there is none) and builds the image, sealed and valid. With `only_worlds`,
+    /// only the content and those worlds are taken (no world for an empty list), never the
+    /// player's other files.
+    pub(crate) fn build_snapshot(
         &self,
         ctx: &InstanceContext,
         take: &Take,
         content: Option<String>,
         records: &[SnapshotRecord],
         name: &str,
+        only_worlds: Option<&[String]>,
     ) -> Result<(Image, Snapshot), ImageError> {
         let store = self.store();
         let cache = store.load_stat_cache(&ctx.id);
-        let data_filter = |candidate: &Candidate| ctx.scope.data_accepts(candidate);
+        // Only some worlds: the content and those worlds, nothing else of the player's.
+        let picked = |candidate: &Candidate| {
+            only_worlds.is_none_or(|worlds| {
+                ctx.scope.accepts(candidate) || super::scope::in_worlds(candidate, worlds)
+            })
+        };
+        let data_filter =
+            |candidate: &Candidate| ctx.scope.data_accepts(candidate) && picked(candidate);
+        let all_filter = |candidate: &Candidate| full_filter(candidate) && picked(candidate);
         let filter: &(dyn Fn(&Candidate) -> bool + Sync) = if content.is_some() {
             &data_filter
         } else {
-            &full_filter
+            &all_filter
         };
         let options = SnapshotOptions {
             cache: Some(&cache),

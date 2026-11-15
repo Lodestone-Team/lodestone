@@ -208,6 +208,7 @@ crate::i18n::messages! {
         ImportingSnapshot = "Creating the instance…",
         ReadingSnapshot = "Reading the snapshot…",
         ImportSnapshotTitle = "New instance from a snapshot",
+        ImportServerTitle = "New instance from a server’s world",
         CreateInstanceButton = "Create instance",
         SnapshotGameRunning = "Stop the game first.",
         SnapshotsHint = "Copies of this instance's worlds and files to go back to or share.",
@@ -271,6 +272,13 @@ crate::i18n::messages! {
         ImportDownloads = "{size} to download from Modrinth and CurseForge.",
         /// {files} is a list of files.
         ImportNotDownloadable = "Their authors don't allow downloads, so these are left out: {files}.",
+        ImportServerOnlyMods = "Mods only the server runs, left out: {names}",
+        ImportServerPack = "The files only the server’s players use come from its modpack on Modrinth, and may include mods: programs that run when the game starts. Only download worlds from servers you trust.",
+        ImportServerPackCurseforge = "The server’s modpack is from CurseForge, which can’t be downloaded from a server yet, so the files only its players use won’t come.",
+        /// {files} is a list of files.
+        ImportHostLeftOut = "The host left these out of the file: {files}",
+        /// {names} is a list of "<file>: <setting>".
+        ImportHostBlanked = "The host emptied these secrets: {names}",
         /// {size} is "1.2 GB".
         ImportSpace = "Needs {size} of disk space, 1 GB of it to spare.",
         ImportNeedsModrinth = "Modrinth can't be reached, so the file's mods can't be downloaded.",
@@ -518,6 +526,10 @@ crate::i18n::messages! {
         ImportLeftOutTitle = "Some files weren't imported",
         /// {files} is a list of files.
         ImportLeftOut = "They couldn't be downloaded, so the new instance doesn't have them: {files}.",
+        ImportPackSkippedTitle = "The modpack’s files are missing",
+        ImportPackSkipped = "The server’s modpack couldn’t be downloaded or placed (no connection, not enough free space, or a file that failed its check), so the files only its players use aren’t in the new instance.",
+        ImportPackSkippedGone = "The server’s modpack is no longer on Modrinth, so the files only its players use aren’t in the new instance. Ask the server’s owner to update the modpack.",
+        ImportPackSkippedCurseforge = "The server is built on a CurseForge modpack, which can’t be installed from a server yet, so the files only its players use aren’t in the new instance.",
         RestoreKeptAside = "Files written while the restore ran are kept in {folder}.",
         ImportNoRoom = "The disk doesn't have room for it: it needs {size}, 1 GB of it to spare, and {free} is free.",
         ImportSpaceFree = "Needs {size} of disk space, 1 GB of it to spare; {free} is free.",
@@ -595,5 +607,7 @@ crate::i18n::messages! {
         RestoreRemoves = ("Removes {count} file: {names}", "Removes {count} files: {names}"),
         RestoreChanges = ("Changes {count} file: {names}", "Changes {count} files: {names}"),
         ImportCarriedMods = ("{count} of them is in the file itself, not downloaded from Modrinth or CurseForge: {names}", "{count} of them are in the file itself, not downloaded from Modrinth or CurseForge: {names}"),
+        /// A server's backup (Lodestone Host's export) opened as an instance.
+        ImportFromServer = ("A server’s backup from {server}: its world, with the mods its players get. {count} server file isn’t taken (the server’s settings, operators and plugins).", "A server’s backup from {server}: its world, with the mods its players get. {count} server files aren’t taken (the server’s settings, operators and plugins)."),
     }
 }

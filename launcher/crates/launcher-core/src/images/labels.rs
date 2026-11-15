@@ -55,6 +55,15 @@ pub fn created_from_server(server: &str) -> String {
 /// An instance made from a snapshot.
 pub const FROM_SNAPSHOT: &str = "Made from a snapshot";
 
+/// An instance made from a server's backup: "Download this world", or a server's
+/// `.lodeimg` opened in the Launcher.
+pub fn downloaded_from(server: &str) -> String {
+    format!("Downloaded from {server}")
+}
+
+/// A server whose name a file doesn't say.
+pub const SERVER: &str = "Server";
+
 /// What an install from Modrinth did: "Added <title>", or "Updated <title>" when it took an
 /// older file's place, or counts for several files.
 pub fn installed(outcome: &InstallOutcome, kind: ContentKind) -> Option<String> {

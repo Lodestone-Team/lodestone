@@ -359,14 +359,10 @@ pub fn text(message: M) -> &'static str {
 
         M::HostTitle => "在 Lodestone 上託管",
         M::ShowOnServersPage => "在「Lodestone Host」頁面查看",
-        M::HostIntro => {
-            "以 Modrinth 模組包的形式，用 {name} 的模組和設定檔建立伺服器。來自 Modrinth 的僅用戶端模組會被排除。伺服器建立後處於停止狀態。"
-        }
         M::CoreLabel => "主機",
         M::PasswordNotKept => "你的密碼只會在登入時傳送一次，不會被儲存。",
         M::ServerName => "伺服器名稱",
         M::Memory => "記憶體",
-        M::GamePortHint => "遊戲連接埠是主機所在電腦上從 {port} 起第一個空閒的連接埠。",
         M::EulaAgree => "我同意 Minecraft EULA（{url}）。主機會為新伺服器接受它。",
         M::ReadEula => "閱讀 EULA",
         M::CreateServer => "建立伺服器",
@@ -376,14 +372,72 @@ pub fn text(message: M) -> &'static str {
         }
         M::AgreeEulaFirst => "請先同意 Minecraft EULA：主機會為新伺服器接受它。",
         M::StageExporting => "正在匯出實例…",
-        M::StageSigningIn => "正在登入…",
-        M::StageUploading => "正在上傳模組包（{size}）…",
         M::StageCreating => "正在建立伺服器…",
         M::CoreGone => "該主機已不存在。",
         M::InstanceGone => "該實例已不存在。",
-        M::PackNotKept => "主機沒有保留該模組包。",
         M::SignedOutRightAway => "主機在你登入後立刻將你登出。請再試一次。",
         M::AddCoreFirst => "請先在「Lodestone Host」頁面新增你的主機。",
+        M::HostIntro => {
+            "用 {name} 在主機上建立伺服器：包括它的模組和設定，以及你選擇的世界。只有玩家需要的模組、你的帳號和你自己的設定都留在這裡。伺服器建立後處於停止狀態。"
+        }
+        M::HostWorlds => "要傳送的世界",
+        M::HostWorldsHint => "下一步選擇哪個世界成為伺服器的世界。不傳送世界則建立新世界。",
+        M::HostNoWorlds => "此實例沒有世界：伺服器會建立一個新世界。",
+        M::HostWorldsLoading => "正在尋找實例的世界…",
+        M::HostStageSending => "正在傳送到主機（{done}/{total}）…",
+        M::HostStageReading => "主機正在讀取檔案…",
+        M::HostPort => "連接埠",
+        M::HostPortInvalid => "請輸入 1 到 65535 之間的連接埠。",
+        M::HostNameForbidden => "伺服器名稱不能包含 / \\ : * ? \" < > |",
+        M::HostNameTooLong => "伺服器名稱最多 100 個字元。",
+        M::HostNameControl => "伺服器名稱不能包含控制字元。",
+        M::HostCreatingHint => "你可以關閉此視窗：主機會繼續設定伺服器，準備好後此實例會連結到它。",
+        M::HostCreated => {
+            "{name} 已在 {core} 上，連接埠 {port}。它處於停止狀態：準備好後，從「Lodestone Host」頁面或控制台啟動它。此實例已連結到它，點選「開始遊戲」即可加入。"
+        }
+        M::HostCreatedUnlinked => {
+            "{name} 已在 {core} 上，連接埠 {port}。它處於停止狀態：準備好後，從「Lodestone Host」頁面或控制台啟動它。此實例在此期間已被刪除，因此沒有任何實例連結到它。"
+        }
+        M::HostCreatedRelinked => "此實例之前連結到 {server}；現在它屬於新伺服器。",
+        M::HostLeftOut => "伺服器上沒有的內容",
+        M::HostCreationFailed => "主機無法建立伺服器：{error}",
+        M::HostCreationFailedPlain => "主機無法建立伺服器。",
+        M::HostStillCreating => {
+            "主機仍在設定伺服器。準備好後它會出現在「Lodestone Host」頁面上；此實例還沒有連結到它。"
+        }
+        M::HostTooOld => {
+            "{core} 上的 Lodestone 版本太舊，無法從檔案建立伺服器。請在那台電腦上更新它，然後重試。"
+        }
+        M::HostNoPermission => "你在 {core} 上的使用者無法建立伺服器。請聯絡它的擁有者。",
+        M::HostGameRunning => "請先結束遊戲：遊戲執行時無法傳送它的世界。",
+        M::DownloadWorldAction => "下載這個世界…",
+        M::DownloadWorldTitle => "下載 {server} 的世界",
+        M::DownloadWorldIntro => {
+            "用 {server} 的一個備份在這台電腦上新增實例：包括它的世界和玩家會取得的模組。伺服器的設定、管理員和插件都留在伺服器上。"
+        }
+        M::DownloadWorldSignIn => "請用可以讀取此伺服器檔案的使用者登入。",
+        M::DownloadWorldNeedsPassword => "請輸入你在此主機上的使用者名稱和密碼。",
+        M::DownloadWorldBackups => "備份",
+        M::DownloadWorldMidWrite => "在伺服器執行時建立，可能正在寫入中",
+        M::DownloadWorldBackUpNow => "立即備份",
+        M::DownloadWorldBackUpNowHint => "伺服器目前狀態的備份",
+        M::DownloadWorldButton => "下載",
+        M::DownloadWorldBackingUp => "主機正在備份伺服器…",
+        M::DownloadWorldPreparing => "主機正在準備檔案…",
+        M::DownloadWorldDownloading => "正在下載（{done}/{total}）…",
+        M::DownloadWorldTooOld => {
+            "{core} 上的 Lodestone 版本太舊，無法傳送世界。請在那台電腦上更新它，然後重試。"
+        }
+        M::DownloadWorldNothingToDownload => {
+            "此伺服器沒有備份，而你的使用者無法備份它。請讓它的擁有者備份後再試。"
+        }
+        M::DownloadWorldBackupForbidden => "你的使用者無法備份此伺服器。請改選它的一個備份。",
+        M::DownloadWorldForbidden => {
+            "你的使用者無法讀取此伺服器的檔案，因此無法下載它的世界。請聯絡它的擁有者。"
+        }
+        M::DownloadWorldNoBackups => "此伺服器還沒有備份。請先備份。",
+        M::DownloadWorldBackupFailed => "備份失敗：{error}",
+        M::DownloadWorldCancelled => "下載已取消。",
 
         M::LanListenFailed => "無法監聽區域網路世界：{error}",
         M::LanLooking => "正在尋找在區域網路上公開的世界…",
@@ -529,13 +583,5 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::ConfigFiles => ["{count} 個設定檔"; 2],
         P::ScriptFiles => ["{count} 個腳本檔案"; 2],
         P::AndMore => ["還有 {count} 個"; 2],
-        P::HostDone => {
-            ["{name} 已在 {core} 上，連接埠為 {port}。主機正在進行設定：它會安裝 Fabric，並從 Modrinth 下載 {count} 個模組檔案。\n\n伺服器處於停止狀態。準備好後，可以在「Lodestone Host」頁面或控制面板中啟動它；此實例已準備好加入該伺服器。";
-                2]
-        }
-        P::HostDoneRelinked => {
-            ["{name} 已在 {core} 上，連接埠為 {port}。主機正在進行設定：它會安裝 Fabric，並從 Modrinth 下載 {count} 個模組檔案。\n\n伺服器處於停止狀態。準備好後，可以在「Lodestone Host」頁面或控制面板中啟動它；此實例已準備好加入該伺服器。此實例先前連結到 {server}；現在它屬於新的伺服器。";
-                2]
-        }
     }
 }

@@ -288,22 +288,28 @@ pub fn full_filter(candidate: &Candidate) -> bool {
 /// included), `replay_pid*`, `java_pid*.hprof`, `*.mdmp` minidumps and `core` /
 /// `core.<digits>` dumps. They hold secrets and process memory, can be huge and are only
 /// debugging leftovers, so no snapshot takes them (and an export strips them,
-/// `export::PRIVATE_FILES`).
+/// `export::private_patterns`). The names are the shared crate's
+/// (`lodestone_image::share::is_jvm_crash_name`), in any letter case.
 fn is_crash_file(candidate: &Candidate, parts: &[&str]) -> bool {
-    !candidate.is_dir && parts.len() == 1 && is_crash_name(parts[0])
+    !candidate.is_dir && parts.len() == 1 && lodestone_image::share::is_jvm_crash_name(parts[0])
 }
 
-/// [`is_crash_file`]'s names, with ASCII letters folded.
-pub fn is_crash_name(name: &str) -> bool {
-    let name = name.to_ascii_lowercase();
-    name.starts_with("hs_err_pid")
-        || name.starts_with("replay_pid")
-        || (name.starts_with("java_pid") && name.ends_with(".hprof"))
-        || name.ends_with(".mdmp")
-        || name == "core"
-        || name
-            .strip_prefix("core.")
-            .is_some_and(|rest| !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()))
+/// Whether `candidate` is `saves/` itself or in one of the worlds `worlds` (their folders,
+/// exactly). With [`ContentScope::accepts`] it is the filter, on top of a snapshot's, of
+/// what "Host this" sends: the content and the worlds the player picked, and nothing else
+/// of theirs (logs, crash reports, screenshots, `options.txt`, `servers.dat`, mods' caches
+/// of other servers stay on this computer).
+pub fn in_worlds(candidate: &Candidate, worlds: &[String]) -> bool {
+    let Some(parts) = game_parts(candidate) else {
+        return false;
+    };
+    match parts.as_slice() {
+        [first, rest @ ..] if in_names(first, &["saves"]) => match rest {
+            [] => candidate.is_dir,
+            [world, ..] => worlds.iter().any(|w| w == world),
+        },
+        _ => false,
+    }
 }
 
 /// The parts of `candidate`'s path in the game folder: its canonical path, or, for a name
@@ -334,6 +340,46 @@ mod tests {
 
     fn p(path: &str) -> CanonicalPath {
         CanonicalPath::new(path).unwrap_or_else(|e| panic!("{path}: {e}"))
+    }
+
+    #[test]
+    fn hosting_takes_only_the_picked_worlds() {
+        let picked = vec!["Survival".to_string()];
+        let take = |disk: &str, is_dir: bool| {
+            let relative = disk
+                .strip_prefix(&format!("{CLIENT_GAME_FOLDER}/"))
+                .unwrap_or(disk);
+            let path = CanonicalPath::new(relative).ok();
+            in_worlds(
+                &Candidate {
+                    disk,
+                    path: path.as_ref(),
+                    is_dir,
+                },
+                &picked,
+            )
+        };
+        let game = |rest: &str| format!("{CLIENT_GAME_FOLDER}/{rest}");
+        assert!(take(&game("saves"), true));
+        assert!(take(&game("saves/Survival"), true));
+        assert!(take(&game("saves/Survival/level.dat"), false));
+        assert!(!take(&game("saves/Creative/level.dat"), false));
+        assert!(!take(&game("saves/survival/level.dat"), false));
+        assert!(!take(&game("saves/notes.txt"), false));
+        for no in [
+            "options.txt",
+            "servers.dat",
+            "logs/latest.log",
+            "logs/2026-01-01-1.log.gz",
+            "crash-reports/crash.txt",
+            "screenshots/x.png",
+            "usercache.json",
+            "XaeroWaypoints/Multiplayer_example/waypoints.txt",
+        ] {
+            assert!(!take(&game(no), false), "{no}");
+        }
+        assert!(!take(&game("logs"), true));
+        assert!(!take("instance.json", false));
     }
 
     #[test]
