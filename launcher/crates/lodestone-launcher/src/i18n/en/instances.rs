@@ -99,6 +99,15 @@ crate::i18n::messages! {
         /// Another change of the instance's files (a copy, a move to the Trash, an image
         /// being imported) is still running.
         FilesBusy = "Wait for the instance's files to finish changing, then try again.",
+        /// A notice's title: the snapshot before a new loader version (or another game
+        /// version or loader) failed; the change was saved anyway.
+        NoSnapshotBeforeGameChange = "No snapshot was taken before the game changed",
+        /// A notice's title: the new loader version chosen in Settings wasn't saved.
+        LoaderChangeNotSaved = "The new loader version wasn't saved",
+        LoaderChangeDropped = "The instance was changed while its snapshot was taken. Choose the loader version again.",
+        /// A restore from a snapshot failed and couldn't be undone, so some worlds or mods
+        /// may be set aside in the instance's folder.
+        RestoreUnfinished = "A restore of this instance didn't finish and couldn't be undone, so some of its worlds or mods are set aside. Close any program using its files and press Play again, or restart Lodestone Launcher.",
         CouldntSavePlayed = "Couldn't save when it was played: {error}",
         CouldntSavePlayTime = "Couldn't save the play time: {error}",
         ModpackExported = "Modpack exported",
@@ -161,7 +170,7 @@ crate::i18n::messages! {
 
         // Modpacks.
         NotAModpack = "Not a modpack",
-        NotMrpack = "{name} isn't a modpack. Modrinth modpacks end in .mrpack, and CurseForge modpacks are .zip files with a manifest.json in them.",
+        NotMrpack = "{name} isn't a modpack. Modrinth modpacks end in .mrpack, and CurseForge modpacks are .zip files with a manifest.json in them. Snapshots shared from Lodestone end in .lodeimg.",
         /// A CurseForge modpack while this build can't reach CurseForge (no API key).
         CurseForgeUnreachable = "This is a CurseForge modpack, and this copy of Lodestone Launcher can't reach CurseForge.",
         CurseForgePackOnWebsite = "This modpack can only be downloaded from CurseForge's website. Download it there, then drop the .zip on Lodestone Launcher.",
@@ -331,7 +340,6 @@ crate::i18n::messages! {
             "{count} file of the pack was left out: {path}.",
             "{count} files of the pack were left out, such as {path}."
         ),
-        WorldsBackedUp = ("{count} world was backed up first.", "{count} worlds were backed up first."),
         /// A modpack's progress.
         DownloadingFiles = ("Downloading {count} file", "Downloading {count} files"),
         /// After a copy's "ready" message; {names} is a list of mods.

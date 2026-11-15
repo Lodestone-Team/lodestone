@@ -26,6 +26,17 @@ impl Instances {
         }
     }
 
+    /// Settings › Instance defaults' "Take a snapshot after each play session", which
+    /// instances follow unless their own Settings tab says otherwise. Applies at once.
+    pub fn set_default_snapshot_after_play(&mut self, on: bool, cx: &mut Context<Self>) {
+        let change = |settings: &mut launcher_core::settings::Settings| {
+            settings.instance_defaults.snapshot_after_play = on
+        };
+        if let Err(err) = self.update_settings(change, cx) {
+            self.notice = Some(err.into());
+        }
+    }
+
     /// Before the launch command is built: chooses the memory and JVM arguments of a
     /// new instance, or follows its mods with the ones chosen before. Saves `instance`
     /// when they change.

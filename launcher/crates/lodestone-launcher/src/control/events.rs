@@ -152,6 +152,14 @@ impl Notices {
             InstancesEvent::PlayCancelled(_) => {}
             // The dialog it opens records itself in traces.
             InstancesEvent::ImportSnapshot(_) => {}
+            // The window asks again, offering to update without a snapshot; the update's job
+            // ended without a change, and this says why.
+            InstancesEvent::ModpackUpdateNeedsSnapshot(prompt) => self.push_window_notice(
+                "launch_failed",
+                crate::i18n::t(crate::i18n::InstancesMsg::CouldntUpdateModpack),
+                prompt.snapshot_failed.as_deref().unwrap_or_default(),
+                &About::Instance(prompt.instance_id.clone()),
+            ),
             // Traced as game.window and game.exit.
             InstancesEvent::GameWindowOpened(_) | InstancesEvent::GameExited(_) => {}
             // Traced as game.log; the Friends page shares it when the person chose to.

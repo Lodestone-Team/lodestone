@@ -246,13 +246,12 @@ enum Modal {
     ReplaceWorld {
         folder: String,
         name: String,
-        backup: launcher_core::worlds::Backup,
+        backup: crate::instances::worlds::Backup,
         focus: FocusHandle,
     },
     /// What a modpack update will do, before it does it.
     ModpackUpdate {
         prompt: Box<UpdatePrompt>,
-        backup_worlds: bool,
         focus: FocusHandle,
     },
     /// The disclosure before "Sign in as the Minecraft Launcher" is turned on.
@@ -417,6 +416,9 @@ impl LauncherShell {
                         },
                         cx,
                     );
+                }
+                InstancesEvent::ModpackUpdateNeedsSnapshot(prompt) => {
+                    this.show_modpack_update((**prompt).clone(), cx);
                 }
                 InstancesEvent::ImportSnapshot(path) => {
                     this.open_snapshot(
@@ -845,7 +847,6 @@ impl LauncherShell {
         self.open_modal(
             Modal::ModpackUpdate {
                 prompt: Box::new(prompt),
-                backup_worlds: true,
                 focus,
             },
             cx,
@@ -864,7 +865,6 @@ impl LauncherShell {
     fn render_modpack_update(
         &self,
         prompt: &UpdatePrompt,
-        backup_worlds: bool,
         focus: FocusHandle,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -1022,54 +1022,38 @@ impl LauncherShell {
                     div()
                         .whitespace_normal()
                         .text_size(theme::text_size(text::SMALL))
-                        .child(t(M::ModpackUpdateSafety)),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .flex_row()
-                        .items_center()
-                        .gap_2()
-                        .child(
-                            crate::components::Toggle::new("modpack-update-backup", backup_worlds)
-                                .label(t(M::BackUpEveryWorld))
-                                .on_change(cx.listener(|this, value: &bool, _, cx| {
-                                    if let Some(Modal::ModpackUpdate { backup_worlds, .. }) =
-                                        this.modal.current_mut()
-                                    {
-                                        *backup_worlds = *value;
-                                    }
-                                    cx.notify();
-                                })),
-                        )
-                        .child(
-                            div()
-                                .text_size(theme::text_size(text::SMALL))
-                                .font_weight(weights::BOLD.into())
-                                .min_w_0()
-                                .child(t(M::BackUpEveryWorld)),
-                        ),
+                        .child(match &prompt.snapshot_failed {
+                            None => t(M::ModpackUpdateSafety).to_string(),
+                            Some(error) => tr!(M::ModpackUpdateNoSnapshot, error = error),
+                        }),
                 ),
         )
         .footer(
-            Button::new("confirm-modpack-update", t(CommonMsg::Update))
-                .variant(ButtonVariant::Primary)
-                .on_click(cx.listener(|this, _, _, cx| {
-                    let update = match this.modal.close(cx) {
-                        Some(Modal::ModpackUpdate {
-                            prompt,
-                            backup_worlds,
-                            ..
-                        }) => Some(((**prompt).clone(), *backup_worlds)),
-                        _ => None,
-                    };
-                    this.show_queued_modal_soon(cx);
-                    if let Some((prompt, backup_worlds)) = update {
-                        this.instances.update(cx, |instances, cx| {
-                            instances.apply_modpack_update(prompt, backup_worlds, cx)
-                        });
+            Button::new(
+                "confirm-modpack-update",
+                if prompt.snapshot_failed.is_some() {
+                    t(M::UpdateWithoutSnapshot)
+                } else {
+                    t(CommonMsg::Update)
+                },
+            )
+            .variant(ButtonVariant::Primary)
+            .on_click(cx.listener(|this, _, _, cx| {
+                let update = match this.modal.close(cx) {
+                    Some(Modal::ModpackUpdate { prompt, .. }) => {
+                        let mut prompt = (**prompt).clone();
+                        prompt.without_snapshot = prompt.snapshot_failed.is_some();
+                        Some(prompt)
                     }
-                })),
+                    _ => None,
+                };
+                this.show_queued_modal_soon(cx);
+                if let Some(prompt) = update {
+                    this.instances.update(cx, |instances, cx| {
+                        instances.apply_modpack_update(prompt, cx)
+                    });
+                }
+            })),
         )
         .footer(
             Button::new("cancel-modpack-update", t(CommonMsg::Cancel))
@@ -1130,10 +1114,7 @@ impl LauncherShell {
                 focus,
             } => {
                 let (folder, backup) = (folder.clone(), backup.clone());
-                let when = backup
-                    .created
-                    .map(crate::instances::worlds::when)
-                    .unwrap_or_else(|| backup.file_name.clone());
+                let when = crate::instances::snapshots::when(backup.created);
                 Dialog::new(
                     "replace-world",
                     tr!(M::ReplaceWorldTitle, name = name),
@@ -1144,12 +1125,19 @@ impl LauncherShell {
                     div()
                         .text_color(crate::theme::ink::secondary())
                         .whitespace_normal()
+                        .flex()
+                        .flex_col()
+                        .gap_2()
                         .child(tr!(
                             M::ReplaceWorldBody,
                             name = name,
                             when = when.to_lowercase(),
-                            trash = t(CommonMsg::TheTrash),
-                        )),
+                        ))
+                        .child(
+                            div()
+                                .text_size(theme::text_size(text::SMALL))
+                                .child(t(M::ReplaceWorldModsNote)),
+                        ),
                 )
                 .footer(
                     Button::new("confirm-replace-world", t(M::BackUpAndReplace))
@@ -1947,6 +1935,14 @@ impl LauncherShell {
         );
     }
 
+    /// The open snapshot dialog, for the offscreen screenshots.
+    pub fn snapshot_dialog(&self) -> Option<&Entity<crate::instances::snapshots::SnapshotDialog>> {
+        match self.modal.current() {
+            Some(Modal::Snapshot { dialog, .. }) => Some(dialog),
+            _ => None,
+        }
+    }
+
     /// The open "Add a modpack" dialog, for the offscreen screenshots.
     pub fn add_modpack_dialog(&self) -> Option<&Entity<AddModpackDialog>> {
         match self.modal.current() {
@@ -2678,11 +2674,9 @@ impl LauncherShell {
             Modal::DeleteWorld { .. } | Modal::ReplaceWorld { .. } => {
                 self.render_world_dialog(modal, cx)?
             }
-            Modal::ModpackUpdate {
-                prompt,
-                backup_worlds,
-                focus,
-            } => self.render_modpack_update(prompt, *backup_worlds, focus.clone(), cx),
+            Modal::ModpackUpdate { prompt, focus } => {
+                self.render_modpack_update(prompt, focus.clone(), cx)
+            }
             Modal::EnableLauncherIdentity { focus } => {
                 self.render_enable_launcher_identity(focus.clone(), cx)
             }

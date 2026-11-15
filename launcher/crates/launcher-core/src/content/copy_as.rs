@@ -795,7 +795,7 @@ fn tree_size(path: &Path) -> u64 {
 
 /// Refuses to copy `bytes` into `dir` when its disk has less room free.
 fn check_room(dir: &Path, bytes: u64) -> Result<(), ContentError> {
-    match crate::snapshots::free_space(dir) {
+    match crate::disk::free_space(dir) {
         Some(free) if bytes > free => Err(ContentError::Invalid(format!(
             "The worlds need {} MB and the disk has {} MB free.",
             bytes.div_ceil(1_000_000),

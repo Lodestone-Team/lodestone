@@ -95,6 +95,14 @@ pub fn text(message: M) -> &'static str {
         M::FilesBusy => {
             "Attendez que les fichiers de l’instance aient fini de changer, puis réessayez."
         }
+        M::NoSnapshotBeforeGameChange => "Aucun instantané n’a été pris avant le changement du jeu",
+        M::LoaderChangeNotSaved => "La nouvelle version du chargeur n’a pas été enregistrée",
+        M::LoaderChangeDropped => {
+            "L’instance a été modifiée pendant la prise de son instantané. Choisissez de nouveau la version du chargeur."
+        }
+        M::RestoreUnfinished => {
+            "Une restauration de cette instance n’a pas abouti et n’a pas pu être annulée\u{202F}: certains de ses mondes ou mods sont mis de côté. Fermez tout programme qui utilise ses fichiers et appuyez de nouveau sur Jouer, ou redémarrez Lodestone Launcher."
+        }
         M::CouldntSavePlayed => "Impossible d’enregistrer la date de la partie\u{a0}: {error}",
         M::CouldntSavePlayTime => "Impossible d’enregistrer le temps de jeu\u{a0}: {error}",
         M::ModpackExported => "Modpack exporté",
@@ -151,7 +159,7 @@ pub fn text(message: M) -> &'static str {
 
         M::NotAModpack => "Ce n’est pas un modpack",
         M::NotMrpack => {
-            "{name} n’est pas un modpack. Les modpacks Modrinth se terminent par .mrpack, et ceux de CurseForge sont des fichiers .zip contenant un manifest.json."
+            "{name} n’est pas un modpack. Les modpacks Modrinth se terminent par .mrpack, et ceux de CurseForge sont des fichiers .zip contenant un manifest.json. Les instantanés partagés depuis Lodestone se terminent par .lodeimg."
         }
         M::CurseForgeUnreachable => {
             "C’est un modpack CurseForge, et cette copie de Lodestone Launcher ne peut pas joindre CurseForge."
@@ -334,10 +342,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::PackFilesLeftOut => [
             "{count} fichier du pack a été ignoré\u{a0}: {path}.",
             "{count} fichiers du pack ont été ignorés, par exemple {path}.",
-        ],
-        P::WorldsBackedUp => [
-            "{count} monde a d’abord été sauvegardé.",
-            "{count} mondes ont d’abord été sauvegardés.",
         ],
         P::DownloadingFiles => [
             "Téléchargement de {count} fichier",

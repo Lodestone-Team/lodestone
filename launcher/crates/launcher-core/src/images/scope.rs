@@ -36,7 +36,7 @@ use std::collections::BTreeSet;
 
 use lodestone_image::CanonicalPath;
 use lodestone_image::layout::CLIENT_GAME_FOLDER;
-use lodestone_image::paths::always_excluded;
+use lodestone_image::paths::{always_excluded, in_names, same_name};
 use lodestone_image::store::snapshot::Candidate;
 
 /// The version of these rules. A baseline taken under other rules is out of date (see
@@ -129,9 +129,9 @@ fn is_content_parts(parts: &[&str]) -> bool {
     if parts.is_empty() || parts.iter().any(|part| is_lodestone_name(part)) {
         return false;
     }
-    CONTENT_FOLDERS
-        .iter()
-        .any(|folder| parts[0].eq_ignore_ascii_case(folder))
+    // Folded as a case-insensitive disk folds (`modſ` is `mods` on APFS), so no spelling
+    // of a content folder passes for something else.
+    in_names(parts[0], &CONTENT_FOLDERS)
 }
 
 /// Whether a pack file at `parts` (relative to the game folder) is kept out of the
@@ -143,11 +143,9 @@ pub fn never_pack_content(parts: &[&str]) -> bool {
     };
     parts
         .iter()
-        .any(|part| is_lodestone_name(part) || part.eq_ignore_ascii_case("session.lock"))
-        || NEVER_PACK_FOLDERS
-            .iter()
-            .any(|folder| first.eq_ignore_ascii_case(folder))
-        || (parts.len() == 1 && GAME_FILES.iter().any(|f| first.eq_ignore_ascii_case(f)))
+        .any(|part| is_lodestone_name(part) || same_name(part, "session.lock"))
+        || in_names(first, &NEVER_PACK_FOLDERS)
+        || (parts.len() == 1 && in_names(first, &GAME_FILES))
 }
 
 /// One instance's content rules: the content folders, and the files its packs wrote
@@ -239,6 +237,78 @@ impl ContentScope {
     }
 }
 
+impl ContentScope {
+    /// The other half of the instance: a snapshot's filter for a data image, which takes
+    /// everything in the game folder that isn't content ("worlds and everything else":
+    /// `saves/`, `options.txt`, `servers.dat`, screenshots, a script no pack lists). A file
+    /// is taken when [`Self::accepts`] turns it down; a folder is turned down only when
+    /// everything in it is content (a content folder, or something in one), so a folder
+    /// that holds some pack files is still walked for its other files. Lodestone's own
+    /// names are never taken. Content and data never overlap, and together they are
+    /// everything a walk without a filter takes.
+    pub fn data_accepts(&self, candidate: &Candidate) -> bool {
+        let Some(parts) = game_parts(candidate) else {
+            return false;
+        };
+        if parts.iter().any(|part| is_lodestone_name(part)) || is_crash_file(candidate, &parts) {
+            return false;
+        }
+        if candidate.is_dir {
+            !is_content_parts(&parts)
+        } else {
+            !self.accepts(candidate)
+        }
+    }
+}
+
+/// A snapshot's filter for a full image: everything in the game folder but Lodestone's own
+/// names (which no image holds anyway) and the JVM's crash and dump files.
+pub fn full_filter(candidate: &Candidate) -> bool {
+    game_parts(candidate).is_some_and(|parts| {
+        !parts.iter().any(|part| is_lodestone_name(part)) && !is_crash_file(candidate, &parts)
+    })
+}
+
+/// Whether `candidate` (at `parts` in the game folder) is a file the JVM writes into its
+/// working folder, the game folder, when it crashes or dumps its memory: `hs_err_pid*`
+/// (its crash log, which holds the whole command line, the account's access token
+/// included), `replay_pid*`, `java_pid*.hprof`, `*.mdmp` minidumps and `core` /
+/// `core.<digits>` dumps. They hold secrets and process memory, can be huge and are only
+/// debugging leftovers, so no snapshot takes them (and an export strips them,
+/// `export::PRIVATE_FILES`).
+fn is_crash_file(candidate: &Candidate, parts: &[&str]) -> bool {
+    !candidate.is_dir && parts.len() == 1 && is_crash_name(parts[0])
+}
+
+/// [`is_crash_file`]'s names, with ASCII letters folded.
+pub fn is_crash_name(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    name.starts_with("hs_err_pid")
+        || name.starts_with("replay_pid")
+        || (name.starts_with("java_pid") && name.ends_with(".hprof"))
+        || name.ends_with(".mdmp")
+        || name == "core"
+        || name
+            .strip_prefix("core.")
+            .is_some_and(|rest| !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// The parts of `candidate`'s path in the game folder: its canonical path, or, for a name
+/// the layout can't map, its disk path under the game folder. `None` outside the game
+/// folder.
+fn game_parts<'c>(candidate: &Candidate<'c>) -> Option<Vec<&'c str>> {
+    match candidate.path {
+        Some(path) => Some(path.components().collect()),
+        None => {
+            let mut parts = candidate.disk.split('/');
+            if parts.next() != Some(CLIENT_GAME_FOLDER) {
+                return None;
+            }
+            Some(parts.collect())
+        }
+    }
+}
+
 /// Whether `name` is one of Lodestone's own (`.lodestone…`), folded the way a disk that
 /// ignores letter case might.
 pub fn is_lodestone_name(name: &str) -> bool {
@@ -259,6 +329,7 @@ mod tests {
             "mods/sodium.jar",
             "mods/sodium.jar.disabled",
             "MODS/Sodium.JAR",
+            "modſ/evil.jar",
             "mods/sub/x.jar",
             "config/sodium-options.json",
             "Config/x/y.toml",
@@ -424,6 +495,129 @@ mod tests {
             path: Some(&p(&folder)),
             is_dir: true,
         }));
+    }
+
+    /// The disk paths a walk of `root` takes with `filter` (all of them with `None`).
+    fn walked(
+        root: &std::path::Path,
+        filter: Option<&(dyn Fn(&Candidate) -> bool + Sync)>,
+    ) -> BTreeSet<String> {
+        use lodestone_image::DiskLayout;
+        use lodestone_image::store::snapshot::{SnapshotOptions, plan};
+        use lodestone_image::store::{Encoding, Store};
+        let store_dir = tempfile::tempdir().unwrap();
+        let store = Store::new(store_dir.path(), Encoding::Raw);
+        let options = SnapshotOptions {
+            filter,
+            ..SnapshotOptions::default()
+        };
+        plan(&store, root, &DiskLayout::Client, &options)
+            .unwrap()
+            .to_read
+            .into_iter()
+            .map(|file| file.disk)
+            .collect()
+    }
+
+    #[test]
+    fn content_and_data_split_the_game_folder_without_overlap() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        for file in [
+            "instance.json",
+            "minecraft/mods/a.jar",
+            "minecraft/mods/b.jar.disabled",
+            "minecraft/config/a.toml",
+            "minecraft/resourcepacks/p.zip",
+            "minecraft/scripts/pack.zs",
+            "minecraft/scripts/mine.zs",
+            "minecraft/scripts/deep/other.zs",
+            "minecraft/saves/World/level.dat",
+            "minecraft/saves/World/region/r.0.0.mca",
+            "minecraft/options.txt",
+            "minecraft/servers.dat",
+            "minecraft/screenshots/a.png",
+            "minecraft/.lodestone-tmp-x",
+            "minecraft/mods/.lodestone-y.download",
+            "minecraft/.lodestone_marker",
+            "minecraft/saves/World/.lodestone_x",
+            "minecraft/logs/latest.log",
+        ] {
+            let path = root.join(file);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, file).unwrap();
+        }
+        let scope = ContentScope::new(["scripts/pack.zs"]);
+        let content_filter = |c: &Candidate| scope.accepts(c);
+        let data_filter = |c: &Candidate| scope.data_accepts(c);
+        let content = walked(root, Some(&content_filter));
+        let data = walked(root, Some(&data_filter));
+        let full = walked(root, Some(&full_filter));
+        let everything = walked(root, None);
+        assert!(content.is_disjoint(&data), "{content:?} {data:?}");
+        let union: BTreeSet<String> = content.union(&data).cloned().collect();
+        let lodestone_free: BTreeSet<String> = everything
+            .iter()
+            .filter(|p| !p.split('/').any(is_lodestone_name))
+            .cloned()
+            .collect();
+        assert_eq!(union, lodestone_free);
+        assert_eq!(full, lodestone_free);
+        for yes in [
+            "minecraft/saves/World/level.dat",
+            "minecraft/saves/World/region/r.0.0.mca",
+            "minecraft/options.txt",
+            "minecraft/servers.dat",
+            "minecraft/screenshots/a.png",
+            // A script no pack lists, beside one a pack does.
+            "minecraft/scripts/mine.zs",
+            "minecraft/scripts/deep/other.zs",
+        ] {
+            assert!(data.contains(yes), "{yes}");
+        }
+        for no in [
+            "minecraft/scripts/pack.zs",
+            "minecraft/mods/a.jar",
+            "minecraft/mods/b.jar.disabled",
+            "minecraft/config/a.toml",
+            "minecraft/.lodestone_marker",
+            "minecraft/saves/World/.lodestone_x",
+            "minecraft/logs/latest.log",
+            "instance.json",
+        ] {
+            assert!(!data.contains(no), "{no}");
+        }
+        // Lodestone's own names are in no image.
+        assert!(!full.iter().any(|p| p.contains(".lodestone")));
+    }
+
+    #[test]
+    fn the_jvms_crash_files_are_in_no_snapshot() {
+        let scope = ContentScope::default();
+        let file = |disk: &'static str| Candidate {
+            disk,
+            path: None,
+            is_dir: false,
+        };
+        for name in [
+            "minecraft/hs_err_pid4242.log",
+            "minecraft/hs_err_pid4242.mdmp",
+            "minecraft/replay_pid4242.log",
+            "minecraft/java_pid4242.hprof",
+            "minecraft/core",
+            "minecraft/core.12345",
+        ] {
+            assert!(!scope.data_accepts(&file(name)), "{name}");
+            assert!(!full_filter(&file(name)), "{name}");
+        }
+        for name in [
+            "minecraft/options.txt",
+            "minecraft/core.json",
+            "minecraft/saves/World/hs_err_pid1.log",
+        ] {
+            assert!(scope.data_accepts(&file(name)), "{name}");
+            assert!(full_filter(&file(name)), "{name}");
+        }
     }
 
     #[test]

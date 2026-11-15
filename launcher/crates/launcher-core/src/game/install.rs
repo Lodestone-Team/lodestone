@@ -934,7 +934,7 @@ impl Installer {
             .await;
         match fetched {
             Ok(()) => {}
-            Err(DownloadError::Failed { url, reason }) => {
+            Err(DownloadError::Failed { url, reason, .. }) => {
                 return installed_before(InstallError::Network(format!("{url}: {reason}")));
             }
             Err(err) => return Err(err.into()),

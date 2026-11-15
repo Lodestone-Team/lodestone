@@ -47,15 +47,33 @@ const SKIPPED_DIRS: &[&str] = &[
 /// Files anywhere that are never copied (lowercase).
 const SKIPPED_FILES: &[&str] = &[".ds_store", "thumbs.db", "desktop.ini"];
 
-/// Top-level files of launchers that keep them in the game folder (lowercase): the
-/// official launcher's (accounts and tokens among them), MultiMC's and Prism's instance
-/// files when the game folder is the instance folder, and the other launchers' own.
-const SKIPPED_TOP_FILES: &[&str] = &[
+/// The official launcher's top-level files that hold accounts and tokens (lowercase;
+/// older versions kept tokens in `launcher_profiles.json`). Never copied in, and never
+/// exported ([`is_account_file`]).
+const ACCOUNT_TOP_FILES: &[&str] = &[
     "launcher_profiles.json",
     "launcher_accounts.json",
     "launcher_accounts_microsoft_store.json",
     "launcher_msa_credentials.bin",
     "launcher_msa_credentials_microsoft_store.bin",
+];
+
+/// Whether `name`, a file at the top of a game folder, is one of the official launcher's
+/// account files ([`ACCOUNT_TOP_FILES`], or another `launcher_accounts*.json` or
+/// `launcher_msa_credentials*.bin`), in any case. A snapshot export leaves them out: a
+/// player who pasted a `.minecraft` folder into an instance would otherwise send them.
+pub(crate) fn is_account_file(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    ACCOUNT_TOP_FILES.contains(&name.as_str())
+        || (name.starts_with("launcher_accounts") && name.ends_with(".json"))
+        || (name.starts_with("launcher_msa_credentials") && name.ends_with(".bin"))
+}
+
+/// Other top-level files of launchers that keep them in the game folder (lowercase): the
+/// official launcher's (besides its account files, [`ACCOUNT_TOP_FILES`]), MultiMC's and
+/// Prism's instance files when the game folder is the instance folder, and the other
+/// launchers' own.
+const SKIPPED_TOP_FILES: &[&str] = &[
     "launcher_settings.json",
     "launcher_ui_state.json",
     "launcher_cef_log.txt",
@@ -123,6 +141,7 @@ pub fn skip_reason(relative: &Path, is_dir: bool, options: &CopyOptions) -> Opti
     }
     if top && !is_dir {
         if SKIPPED_TOP_FILES.contains(&name.as_str())
+            || is_account_file(&name)
             || name.starts_with("launcher_")
             || name.starts_with("nativeupdaterlog")
             || name.contains("credentials")

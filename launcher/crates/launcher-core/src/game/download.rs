@@ -86,14 +86,14 @@ impl Progress {
             .store(snapshot.bytes_done, Ordering::Relaxed);
     }
 
-    fn reset(&self, files: u64, bytes: u64) {
+    pub(crate) fn reset(&self, files: u64, bytes: u64) {
         self.files_total.store(files, Ordering::Relaxed);
         self.files_done.store(0, Ordering::Relaxed);
         self.bytes_total.store(bytes, Ordering::Relaxed);
         self.bytes_done.store(0, Ordering::Relaxed);
     }
 
-    fn add_bytes(&self, bytes: u64) {
+    pub(crate) fn add_bytes(&self, bytes: u64) {
         self.bytes_done.fetch_add(bytes, Ordering::Relaxed);
     }
 
@@ -110,7 +110,7 @@ impl Progress {
         }
     }
 
-    fn file_done(&self) {
+    pub(crate) fn file_done(&self) {
         self.files_done.fetch_add(1, Ordering::Relaxed);
     }
 }
@@ -142,7 +142,14 @@ pub enum DownloadError {
     #[error("the download was cancelled")]
     Cancelled,
     #[error("could not download {url}: {reason}")]
-    Failed { url: String, reason: String },
+    Failed {
+        url: String,
+        reason: String,
+        /// Whether a server answered the last try (an HTTP status, or some bytes): `false`
+        /// when it couldn't be reached at all (no network, a blocked host), which a caller
+        /// making many downloads can take as a sign the rest won't get through either.
+        answered: bool,
+    },
     #[error("could not write {path}: {source}")]
     Io {
         path: PathBuf,
@@ -156,6 +163,8 @@ pub enum DownloadError {
 struct AttemptError {
     reason: String,
     retry: bool,
+    /// See [`DownloadError::Failed`].
+    answered: bool,
 }
 
 /// The downloader. Cheap to clone.
@@ -375,6 +384,7 @@ impl Downloader {
         cancel: &CancelToken,
     ) -> Result<(), DownloadError> {
         let mut last_error = String::new();
+        let mut answered = true;
         for attempt in 0..self.attempts {
             if attempt > 0 {
                 (self.sleep)(self.backoff * 2u32.saturating_pow(attempt - 1)).await;
@@ -414,6 +424,7 @@ impl Downloader {
                 Err(Attempt::Failed(error)) => {
                     progress.sub_bytes(counted);
                     last_error = error.reason;
+                    answered = error.answered;
                     if !error.retry {
                         break;
                     }
@@ -423,6 +434,7 @@ impl Downloader {
         Err(DownloadError::Failed {
             url: item.url.clone(),
             reason: last_error,
+            answered,
         })
     }
 
@@ -436,6 +448,7 @@ impl Downloader {
         cancel: &CancelToken,
     ) -> Result<String, DownloadError> {
         let mut last_error = String::new();
+        let mut answered = true;
         for attempt in 0..self.attempts {
             if attempt > 0 {
                 (self.sleep)(self.backoff * 2u32.saturating_pow(attempt - 1)).await;
@@ -450,10 +463,12 @@ impl Downloader {
                     return Err(DownloadError::Failed {
                         url: url.to_string(),
                         reason: source.to_string(),
+                        answered: true,
                     });
                 }
                 Err(Attempt::Failed(error)) => {
                     last_error = error.reason;
+                    answered = error.answered;
                     if !error.retry {
                         break;
                     }
@@ -463,6 +478,7 @@ impl Downloader {
         Err(DownloadError::Failed {
             url: url.to_string(),
             reason: last_error,
+            answered,
         })
     }
 
@@ -500,7 +516,7 @@ impl Downloader {
             .http
             .send(request)
             .await
-            .map_err(|err| Attempt::failed(format!("{err:#}"), true))?;
+            .map_err(|err| Attempt::unanswered(format!("{err:#}")))?;
         let status = response.status().as_u16();
         if !(200..300).contains(&status) {
             // Retry server errors and rate limiting; a 404 will not go away.
@@ -653,7 +669,20 @@ enum Attempt {
 
 impl Attempt {
     fn failed(reason: String, retry: bool) -> Self {
-        Attempt::Failed(AttemptError { reason, retry })
+        Attempt::Failed(AttemptError {
+            reason,
+            retry,
+            answered: true,
+        })
+    }
+
+    /// The request got no answer at all (it couldn't be sent, or nothing came back).
+    fn unanswered(reason: String) -> Self {
+        Attempt::Failed(AttemptError {
+            reason,
+            retry: true,
+            answered: false,
+        })
     }
 }
 

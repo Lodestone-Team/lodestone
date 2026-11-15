@@ -13,16 +13,16 @@ use super::*;
 use crate::game::loaders::{LoaderChoice, LoaderKind};
 use crate::instances::{Instance, InstanceStore};
 
-struct Setup {
-    _temp: tempfile::TempDir,
-    data: DataDir,
-    images: Arc<Images>,
-    store: InstanceStore,
-    instance: Instance,
+pub(super) struct Setup {
+    pub(super) _temp: tempfile::TempDir,
+    pub(super) data: DataDir,
+    pub(super) images: Arc<Images>,
+    pub(super) store: InstanceStore,
+    pub(super) instance: Instance,
 }
 
 impl Setup {
-    fn new() -> Setup {
+    pub(super) fn new() -> Setup {
         Self::with_timing(Timing {
             // Long enough that only an explicit flush records, unless a test says.
             merge: Duration::from_secs(600),
@@ -31,7 +31,7 @@ impl Setup {
         })
     }
 
-    fn with_timing(timing: Timing) -> Setup {
+    pub(super) fn with_timing(timing: Timing) -> Setup {
         let temp = tempfile::tempdir().unwrap();
         let data = DataDir::at(temp.path().join("data"));
         let store = InstanceStore::new(data.instances_dir());
@@ -54,37 +54,37 @@ impl Setup {
         }
     }
 
-    fn id(&self) -> &str {
+    pub(super) fn id(&self) -> &str {
         &self.instance.id
     }
 
-    fn game(&self, relative: &str) -> PathBuf {
+    pub(super) fn game(&self, relative: &str) -> PathBuf {
         self.store.game_dir(self.id()).join(relative)
     }
 
-    fn write(&self, relative: &str, bytes: &[u8]) {
+    pub(super) fn write(&self, relative: &str, bytes: &[u8]) {
         let path = self.game(relative);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, bytes).unwrap();
     }
 
-    fn remove(&self, relative: &str) {
+    pub(super) fn remove(&self, relative: &str) {
         std::fs::remove_file(self.game(relative)).unwrap();
     }
 
     /// An operation that writes a file, then records at once.
-    fn change(&self, relative: &str, bytes: &[u8], label: &str) -> Recorded {
+    pub(super) fn change(&self, relative: &str, bytes: &[u8], label: &str) -> Recorded {
         let op = self.images.begin(self.id(), label);
         self.write(relative, bytes);
         op.succeed();
         self.images.flush(self.id()).unwrap().unwrap()
     }
 
-    fn history(&self) -> History {
+    pub(super) fn history(&self) -> History {
         self.images.history(self.id()).unwrap()
     }
 
-    fn labels(&self) -> Vec<String> {
+    pub(super) fn labels(&self) -> Vec<String> {
         self.history()
             .images
             .into_iter()
@@ -92,11 +92,11 @@ impl Setup {
             .collect()
     }
 
-    fn image(&self, id: &str) -> lodestone_image::Image {
+    pub(super) fn image(&self, id: &str) -> lodestone_image::Image {
         self.images.store().load_manifest(self.id(), id).unwrap()
     }
 
-    fn paths(&self, id: &str) -> Vec<String> {
+    pub(super) fn paths(&self, id: &str) -> Vec<String> {
         self.image(id)
             .entries
             .iter()
@@ -104,7 +104,7 @@ impl Setup {
             .collect()
     }
 
-    fn state(&self) -> state::ContentState {
+    pub(super) fn state(&self) -> state::ContentState {
         state::load(self.images.store(), self.id())
     }
 }
@@ -707,7 +707,7 @@ fn records_under_way_share_the_free_space() {
 }
 
 /// Every object file under `dir`, made an hour and a half old.
-fn age_objects(dir: &Path) -> Vec<PathBuf> {
+pub(super) fn age_objects(dir: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
     let mut stack = vec![dir.to_path_buf()];
     while let Some(dir) = stack.pop() {
@@ -724,62 +724,6 @@ fn age_objects(dir: &Path) -> Vec<PathBuf> {
         }
     }
     files
-}
-
-#[test]
-fn the_image_store_and_the_snapshot_store_never_collect_each_others_objects() {
-    let s = Setup::new();
-    s.write("mods/a.jar", b"the same mod in both stores");
-    s.write("saves/world/level.dat", b"a world only snapshots take");
-    let recorded = s
-        .images
-        .record_now(s.id(), "Created Pack")
-        .unwrap()
-        .unwrap();
-    let snapshots = crate::snapshots::Store::new(&s.data);
-    let instance = s.store.get(s.id()).unwrap();
-    snapshots
-        .create(
-            &instance,
-            &s.store.dir(s.id()),
-            "Before",
-            None,
-            &crate::snapshots::Selection::all(),
-            false,
-            &|_, _| {},
-        )
-        .unwrap();
-    let image_objects = age_objects(&s.data.image_store_dir().join("objects"));
-    let snapshot_objects = age_objects(&s.data.root().join("snapshots").join("objects"));
-    assert!(!image_objects.is_empty());
-    assert!(snapshot_objects.len() >= 2);
-
-    // Each collector keeps what its own manifests name, and never looks at the other.
-    snapshots.collect_garbage();
-    s.images
-        .store()
-        .gc(&lodestone_image::store::gc::GcOptions::default())
-        .unwrap();
-    assert!(image_objects.iter().all(|p| p.exists()));
-    assert!(snapshot_objects.iter().all(|p| p.exists()));
-
-    // With the content image gone, the image store's collector takes its object; the
-    // snapshot's copy of the same bytes stays. (Deleting asks for a collection in the
-    // background too; this one waits for it.)
-    s.images.delete_instance(s.id()).unwrap();
-    s.images
-        .store()
-        .gc(&lodestone_image::store::gc::GcOptions::default())
-        .unwrap();
-    assert!(image_objects.iter().all(|p| !p.exists()));
-    assert!(snapshot_objects.iter().all(|p| p.exists()));
-    // And the other way round.
-    for snapshot in snapshots.list(s.id()) {
-        snapshots.delete(s.id(), &snapshot.id).unwrap();
-    }
-    let _ = recorded;
-    snapshots.collect_garbage();
-    assert!(snapshot_objects.iter().all(|p| !p.exists()));
 }
 
 #[cfg(unix)]
@@ -1410,7 +1354,7 @@ fn a_game_changed_during_a_session_is_still_found() {
 
 /// Makes `dir` and every folder in it read-only (or writable again).
 #[cfg(unix)]
-fn set_folders_writable(dir: &Path, writable: bool) {
+pub(super) fn set_folders_writable(dir: &Path, writable: bool) {
     use std::os::unix::fs::PermissionsExt;
     let mode = if writable { 0o755 } else { 0o555 };
     if writable {

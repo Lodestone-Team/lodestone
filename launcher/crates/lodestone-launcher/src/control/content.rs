@@ -511,12 +511,16 @@ fn outcome_json(outcome: &InstallOutcome) -> Value {
     })
 }
 
+/// What an install job runs: its requests, and for an update the titles it updates (a
+/// snapshot is taken first, as before the Content tab's updates).
+type Planned = (Vec<InstallRequest>, Option<Vec<String>>);
+
 /// Runs install requests as a content job of the instance.
 fn start_install(
     call: &Call,
     instance: &Instance,
     label: String,
-    plan: impl AsyncFnOnce(&mut AsyncApp) -> Result<Vec<InstallRequest>, ErrorObject> + 'static,
+    plan: impl AsyncFnOnce(&mut AsyncApp) -> Result<Planned, ErrorObject> + 'static,
     kinds: Vec<ContentKind>,
     cx: &mut App,
 ) -> Reply {
@@ -535,25 +539,42 @@ fn start_install(
     let id = instance.id.clone();
     let work = cx.spawn(async move |cx| {
         let _busy = busy;
-        let requests = plan(cx).await?;
+        let (requests, updating) = plan(cx).await?;
+        let job_id = id.clone();
         let outcome = cx
-            .background_spawn(run_requests(
-                api,
-                downloader,
-                (images, id.clone()),
-                dirs,
-                target,
-                requests,
-                progress,
-                cancel,
-            ))
+            .background_spawn(async move {
+                let no_snapshot = match &updating {
+                    Some(titles) => crate::instances::content::snapshot_before_update(
+                        &images, &job_id, titles, &progress, &cancel,
+                    )
+                    .map_err(|_| api_error(codes::CANCELLED, "Cancelled."))?,
+                    None => None,
+                };
+                run_requests(
+                    api,
+                    downloader,
+                    (images, job_id),
+                    dirs,
+                    target,
+                    requests,
+                    progress,
+                    cancel,
+                )
+                .await
+                .map(|outcome| (outcome, no_snapshot))
+            })
             .await;
         if let Some(control) = refresh.upgrade() {
             let mut all = kinds.clone();
             all.push(ContentKind::ShaderPack);
             cx.update(|cx| refresh_view(&control, &id, &all, cx));
         }
-        Ok(outcome_json(&outcome?))
+        let (outcome, no_snapshot) = outcome?;
+        let mut reply = outcome_json(&outcome);
+        if let Some(why) = no_snapshot {
+            reply["snapshot_failed"] = json!(why);
+        }
+        Ok(reply)
     });
     let job = control.start_job(
         JobSpec::new("content", label)
@@ -679,7 +700,7 @@ pub fn install(call: Call, cx: &mut App) -> Reply {
                 install_dependencies: !params.no_deps,
                 force: params.force,
             });
-            Ok(requests)
+            Ok((requests, None))
         },
         kinds,
         cx,
@@ -1076,7 +1097,11 @@ pub fn update(call: Call, cx: &mut App) -> Reply {
                     },
                 ));
             }
-            Ok(chosen
+            let titles = chosen
+                .iter()
+                .map(|(_, file, _)| launcher_core::content::enabled_name(file))
+                .collect();
+            let requests = chosen
                 .into_iter()
                 .map(|(kind, _, version)| InstallRequest {
                     kind,
@@ -1085,7 +1110,8 @@ pub fn update(call: Call, cx: &mut App) -> Reply {
                     install_dependencies: true,
                     force: false,
                 })
-                .collect())
+                .collect();
+            Ok((requests, Some(titles)))
         },
         refresh_kinds,
         cx,
@@ -1341,12 +1367,6 @@ struct ModpackUpdateParams {
     /// A version id or number; the newer version `modpacks.check` finds without it.
     #[serde(default)]
     version: Option<String>,
-    #[serde(default = "yes")]
-    backup_worlds: bool,
-}
-
-fn yes() -> bool {
-    true
 }
 
 fn plan_json(prompt: &crate::instances::modpacks::UpdatePrompt) -> Value {
@@ -1429,7 +1449,7 @@ pub fn modpack_update(call: Call, cx: &mut App) -> Reply {
             let seq = control.notices.borrow().last_seq();
             let id = prompt.instance_id.clone();
             control.instances.update(cx, |instances, cx| {
-                instances.apply_modpack_update(prompt, params.backup_worlds, cx)
+                instances.apply_modpack_update(prompt, cx)
             });
             let Some(job) = control.instances.read(cx).modpack_update(&id) else {
                 let notice = control

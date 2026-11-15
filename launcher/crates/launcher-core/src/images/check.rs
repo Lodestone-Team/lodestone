@@ -56,9 +56,11 @@
 //! change made by hand before the search isn't folded into a try's baseline, the search
 //! runs [`Images::check_now`] before it first turns a mod off.
 //!
-//! [`Images::record_before_change`] is the one record that takes in what the game wrote: it
+//! [`Images::record_before_change`] is the record that takes in what the game wrote: it
 //! runs before a modpack update (and, in milestone 4's second half, before a server's
-//! update is applied), so every file the change replaces is in an image.
+//! update is applied), so every file the change replaces is in an image, and before every
+//! snapshot links the content (`content_step_locked`), so a snapshot holds the configs the
+//! game wrote.
 
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -68,7 +70,7 @@ use lodestone_image::DiskLayout;
 use lodestone_image::store::snapshot::{self, Candidate, SnapshotOptions};
 
 use super::context::InstanceContext;
-use super::labels::{INITIAL_LABEL, OUTSIDE_LABEL, WHILE_RUNNING_LABEL};
+use super::labels::{INITIAL_LABEL, OUTSIDE_LABEL, WHILE_RUNNING_LABEL, WRITTEN_WHILE_PLAYING};
 use super::recorder::Recorded;
 use super::scope::SCOPE_RULES;
 use super::state::{self, Baseline, ContentState};
@@ -257,6 +259,14 @@ impl Images {
     /// the baseline again without recording (or, when the check before the launch couldn't
     /// run, runs it now), in the background, then lets merged records run. Never blocks.
     pub fn session_ended(self: &Arc<Self>, instance: &str) {
+        self.session_ended_with(instance, false);
+    }
+
+    /// [`Self::session_ended`], then, with `after_play` (the instance's "Take a snapshot
+    /// after each play session", off by default), a snapshot ("After playing") on the same
+    /// background thread, unless another session of the instance began meanwhile. Never
+    /// blocks.
+    pub fn session_ended_with(self: &Arc<Self>, instance: &str, after_play: bool) {
         if !self.accepts(instance) {
             return;
         }
@@ -264,7 +274,12 @@ impl Images {
         let id = instance.to_string();
         let spawned = std::thread::Builder::new()
             .name("lodestone-images-session".into())
-            .spawn(move || this.end_session(&id));
+            .spawn(move || {
+                this.end_session(&id);
+                if after_play {
+                    this.after_play(&id);
+                }
+            });
         if spawned.is_err() {
             self.end_session(instance);
         }
@@ -402,9 +417,9 @@ impl Images {
 
     /// Before a change that replaces files (a modpack update; a server's update in
     /// milestone 4's second half): records the content as it is, so the current image is
-    /// what is on disk and every file the change replaces or removes is in an image. This is
-    /// the one record that takes in what the game wrote while it ran (which otherwise only
-    /// joins the next operation's image). Labelled by what is queued; else "Changed by hand"
+    /// what is on disk and every file the change replaces or removes is in an image. It takes
+    /// in what the game wrote while it ran (which otherwise only joins the next operation's
+    /// image), as every snapshot's content step does. Labelled by what is queued; else "Changed by hand"
     /// (or "Changed while the game ran or by hand") when the quick check finds a change;
     /// else `label`, which names the change about to be made. Nothing new is recorded when
     /// the content is the current image; an instance without an image gets its first.
@@ -420,8 +435,19 @@ impl Images {
         let slot = self.slot(instance);
         let _record = slot.lock_record();
         let _writing = self.enter()?;
+        self.record_before_change_locked(&slot, instance, label)
+    }
+
+    /// [`Self::record_before_change`], for a caller holding the record lock inside a
+    /// counted write.
+    pub(crate) fn record_before_change_locked(
+        &self,
+        slot: &Slot,
+        instance: &str,
+        label: &str,
+    ) -> Result<Option<Recorded>, ImageError> {
         if !slot.pending().is_empty()
-            && let Some(recorded) = self.record_held(&slot, instance, None)?
+            && let Some(recorded) = self.record_held(slot, instance, None)?
         {
             return Ok(Some(recorded));
         }
@@ -431,7 +457,32 @@ impl Images {
             Some("") | None => label,
             Some(changed) => changed,
         };
-        self.record_held(&slot, instance, Some(label))
+        self.record_held(slot, instance, Some(label))
+    }
+
+    /// Brings the instance's current content image up to what is on disk before a
+    /// snapshot links to it, for a caller holding the record lock inside a counted write:
+    /// [`Self::record_before_change_locked`] for every snapshot, so the image holds what the
+    /// game wrote since the last record (a session's end folds those writes into the
+    /// baseline without recording them, so the quick check alone never sees them, and a
+    /// snapshot must hold or link what was on disk). Labelled by what is queued, else
+    /// "Changed by hand" when the quick check finds a change, else `before_change` (the
+    /// change about to be made) or [`WRITTEN_WHILE_PLAYING`]; nothing new is recorded when
+    /// the content is the current image. False when it couldn't be brought up to date: a
+    /// "Find it for me" search is saved (its mods are renamed on purpose), so the pointer
+    /// may not be what is on disk.
+    pub(crate) fn content_step_locked(
+        &self,
+        slot: &Slot,
+        instance: &str,
+        before_change: Option<&str>,
+    ) -> Result<bool, ImageError> {
+        if self.finder_running(instance) {
+            return Ok(false);
+        }
+        let label = before_change.unwrap_or(WRITTEN_WHILE_PLAYING);
+        self.record_before_change_locked(slot, instance, label)?;
+        Ok(true)
     }
 
     /// Takes the baseline again and forgets `running_since`, recording nothing. The game

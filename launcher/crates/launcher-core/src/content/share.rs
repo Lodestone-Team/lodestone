@@ -21,6 +21,16 @@
 //! strict shape, and installing it downloads only through the usual Modrinth path,
 //! which checks every file's hash. The paths of an `LDS2` code are only ever acted on
 //! when the installed pack has a file there.
+//!
+//! In terms of instance images (`docs/instance-images.md`, "M5 decisions"), a code is a
+//! text encoding of an image whose files can all be downloaded: the game, the base (an
+//! `LDS2` pack is the image's `modrinth_pack`; `LDS1` is a plain `loader` base), each
+//! Modrinth file as an entry with a `modrinth` source (its hashes come from Modrinth when
+//! installing), the base's files left out (missing from the image's entries) or turned off
+//! or on, and the client settings an image carries (the resource pack order, the shader).
+//! The format is the one people already pass around; images didn't change it. A file with
+//! any other source is left out, as above. `tests/modpack.rs` checks this against the
+//! images recorded of the sender's and the recipient's instances.
 
 use std::{
     collections::{BTreeMap, BTreeSet},

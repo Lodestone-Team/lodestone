@@ -199,6 +199,7 @@ pub const SCENES: &[&str] = &[
     "settings-search",
     "settings-search-empty",
     "settings-search-defaults",
+    "settings-defaults",
     "settings-search-memory",
     "instance-settings-search",
     "instance-settings-search-narrow",
@@ -211,8 +212,9 @@ pub const SCENES: &[&str] = &[
     "focus-escape-prompt",
     "snapshots",
     "snapshot-take",
-    "snapshot-revert",
-    "snapshot-share",
+    "snapshot-restore",
+    "snapshot-restore-mods",
+    "snapshot-export",
     "snapshot-delete",
     "snapshot-import",
 ];
@@ -798,6 +800,7 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
                 }
                 if name == "Survival 1.20.1" && is_worlds_scene(scene) {
                     worlds::fill(&store.dir(&instance.id));
+                    snapshots::fill_worlds(&data_dir, &instance);
                 }
                 if name == "Survival 1.20.1" && scene.starts_with("modpack-add") {
                     modpacks::fill_server(&store.dir(&instance.id), scene);
@@ -1367,6 +1370,14 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                 settings.update(cx, |settings, cx| settings.preview_search(query, cx));
             }
         }
+        // Instance defaults with "Take a snapshot after each play session" on, in the card
+        // it shares with automatic setup.
+        "settings-defaults" => {
+            shell.instances().clone().update(cx, |instances, cx| {
+                instances.set_default_snapshot_after_play(true, cx)
+            });
+            shell.open_settings(Some(crate::shell::SettingsPage::Defaults), None, cx);
+        }
         "settings-narrow" | "settings-narrow-open" => {
             shell.open_settings(Some(crate::shell::SettingsPage::Defaults), None, cx);
             if scene.ends_with("-open") {
@@ -1831,11 +1842,11 @@ fn storage_report() -> launcher_core::disk::Report {
             old_bytes: 9 * MB,
             old_files: 61,
         },
-        snapshots: launcher_core::snapshots::Usage {
+        images: launcher_core::disk::ImagesUsage {
             bytes: 186 * MB,
             snapshots: 7,
-            removable_snapshots: 2,
-            removable_bytes: 41 * MB,
+            removable: 3,
+            retired_instances: 1,
         },
         other: 400_000,
     }

@@ -429,6 +429,8 @@ fn prompt(instances: &Instances, id: &str) -> UpdatePrompt {
         plan: Arc::new(plan),
         pack_path: dirs.instance.join(".lodestone-preview-pack.mrpack"),
         pack: Arc::new(pack),
+        snapshot_failed: None,
+        without_snapshot: false,
     }
 }
 

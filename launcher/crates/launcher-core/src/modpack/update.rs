@@ -20,7 +20,7 @@
 //! Applying it downloads and extracts every new file into a staging folder first, then
 //! copies what will be replaced or removed into a content snapshot
 //! (`backups/modpack-update/<time>/`, with `instance.json`, `content.json` and
-//! `modpack.json`), optionally backs up every world, and only then changes the game
+//! `modpack.json`), and only then changes the game
 //! folder. If changing the game folder or the records fails part way (a file another
 //! program holds open, say), the files changed so far and the records are put back
 //! from the snapshot. The loader and Minecraft version follow the new pack; they
@@ -56,6 +56,8 @@ use crate::{
 
 /// The folders whose files a pack's dropped overrides are removed from.
 const CONTENT_DIRS: [&str; 3] = ["mods", "resourcepacks", "shaderpacks"];
+/// The folder in the instance's `backups/` that holds the rollback copies.
+pub const BACKUPS_FOLDER: &str = "modpack-update";
 
 /// What updating will do. Paths are relative to the game folder.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -291,10 +293,8 @@ pub fn plan_with(
 /// What an update did.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UpdateOutcome {
-    /// The content snapshot.
+    /// The copy of the files it changed, its rollback.
     pub snapshot: PathBuf,
-    /// The world backups made first.
-    pub world_backups: Vec<PathBuf>,
 }
 
 /// Copies `relative` (under `game`) into the snapshot.
@@ -321,7 +321,6 @@ pub async fn apply(
     dirs: &InstanceDirs,
     plan: &UpdatePlan,
     pack_path: &Path,
-    backup_worlds: bool,
     progress: &InstallProgress,
     cancel: &CancelToken,
 ) -> Result<UpdateOutcome, ModpackError> {
@@ -331,15 +330,7 @@ pub async fn apply(
     ));
     fs::create_dir_all(&staging).map_err(io_error(&staging))?;
     let result = apply_staged(
-        api,
-        downloader,
-        dirs,
-        plan,
-        pack_path,
-        backup_worlds,
-        progress,
-        cancel,
-        &staging,
+        api, downloader, dirs, plan, pack_path, progress, cancel, &staging,
     )
     .await;
     let _ = fs::remove_dir_all(&staging);
@@ -353,7 +344,6 @@ async fn apply_staged(
     dirs: &InstanceDirs,
     plan: &UpdatePlan,
     pack_path: &Path,
-    backup_worlds: bool,
     progress: &InstallProgress,
     cancel: &CancelToken,
     staging: &Path,
@@ -387,10 +377,12 @@ async fn apply_staged(
         return Err(ModpackError::Cancelled);
     }
 
-    // 2. The snapshot, and the world backups.
+    // 2. The rollback copy of what it changes.
     progress.set_label("Saving a snapshot of the instance's files");
-    let snapshot = worlds::backups_dir(dirs)
-        .join("modpack-update")
+    let snapshot = dirs
+        .instance
+        .join("backups")
+        .join(BACKUPS_FOLDER)
         .join(worlds::timestamp(SystemTime::now()));
     fs::create_dir_all(&snapshot).map_err(io_error(&snapshot))?;
     for path in plan.touched() {
@@ -405,24 +397,6 @@ async fn apply_staged(
         let from = dirs.instance.join(file);
         if from.is_file() {
             fs::copy(&from, snapshot.join(file)).map_err(io_error(&from))?;
-        }
-    }
-    let mut world_backups = Vec::new();
-    if backup_worlds {
-        for world in worlds::list(dirs) {
-            if cancel.is_cancelled() {
-                return Err(ModpackError::Cancelled);
-            }
-            progress.set_label(format!("Backing up {}", world.name()));
-            let backup = worlds::backup(dirs, &world.folder, &progress.downloads, cancel).map_err(
-                |err| match err {
-                    worlds::WorldError::Cancelled => ModpackError::Cancelled,
-                    other => {
-                        ModpackError::Invalid(format!("Couldn't back up {}: {other}", world.name()))
-                    }
-                },
-            )?;
-            world_backups.push(backup.path);
         }
     }
     if cancel.is_cancelled() {
@@ -470,10 +444,7 @@ async fn apply_staged(
     // the record can't be saved it only names files that are gone, which removing an
     // added pack skips.
     let _ = super::addon::forget_missing(dirs);
-    Ok(UpdateOutcome {
-        snapshot,
-        world_backups,
-    })
+    Ok(UpdateOutcome { snapshot })
 }
 
 /// Removes the files `plan` removes and moves the staged files into the game folder.

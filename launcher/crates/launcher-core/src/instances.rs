@@ -213,6 +213,39 @@ pub struct Instance {
     /// first prepared on one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rosetta: Option<RosettaState>,
+    /// The instance's own snapshot settings, over the global ones; `None` follows them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snapshots: Option<SnapshotSettings>,
+}
+
+/// An instance's snapshot settings (`images::snapshots`). Each `None` follows the
+/// Launcher's: Settings › Instance defaults for `after_play` (off by default), and the retention
+/// defaults ([`crate::images::retention::DEFAULT_POLICY`]) for the counts.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SnapshotSettings {
+    /// Take a snapshot after each play session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after_play: Option<bool>,
+    /// How many of the newest automatic snapshots are kept.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keep_last: Option<u32>,
+    /// For how many of the most recent days the newest automatic snapshot is kept.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keep_daily: Option<u32>,
+    /// For how many of the most recent weeks the newest automatic snapshot is kept.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keep_weekly: Option<u32>,
+}
+
+impl SnapshotSettings {
+    /// The most any count may be: far more than anyone keeps, and a bound on what a
+    /// hand-edited `instance.json` asks retention to walk.
+    pub const MAX_KEEP: u32 = 1000;
+
+    /// Whether every field follows the Launcher's (the settings say nothing).
+    pub fn is_empty(&self) -> bool {
+        *self == SnapshotSettings::default()
+    }
 }
 
 /// Rosetta 2 and an instance, on an Apple silicon Mac. Versions before 1.14 run in an
@@ -302,6 +335,7 @@ impl Default for Instance {
             recommended_memory: None,
             auto_config: None,
             rosetta: None,
+            snapshots: None,
         }
     }
 }
@@ -1419,6 +1453,32 @@ pub fn now() -> u64 {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn snapshot_settings_are_optional_and_round_trip() {
+        // An instance.json from before the setting reads, and writes nothing for it.
+        let old = r#"{"id":"a","name":"A","game_version":"1.21.1","created":1}"#;
+        let instance: Instance = serde_json::from_str(old).unwrap();
+        assert_eq!(instance.snapshots, None);
+        let raw = serde_json::to_value(&instance).unwrap();
+        assert!(raw.get("snapshots").is_none());
+        let with = Instance {
+            snapshots: Some(SnapshotSettings {
+                after_play: Some(true),
+                keep_last: Some(3),
+                ..SnapshotSettings::default()
+            }),
+            ..instance
+        };
+        let raw = serde_json::to_value(&with).unwrap();
+        assert_eq!(
+            raw["snapshots"],
+            serde_json::json!({"after_play": true, "keep_last": 3})
+        );
+        let back: Instance = serde_json::from_value(raw).unwrap();
+        assert_eq!(back.snapshots, with.snapshots);
+        assert!(SnapshotSettings::default().is_empty());
+    }
 
     #[test]
     fn icon_names_are_library_icons_or_emoji() {
