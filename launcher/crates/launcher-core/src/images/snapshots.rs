@@ -850,7 +850,7 @@ pub fn snapshot_name(name: Option<&str>) -> String {
 
 /// A new record id for a snapshot taken at `created` (unix seconds): its UTC time and four
 /// random hex digits, unused among `records`.
-fn new_record_id(created: i64, records: &[SnapshotRecord]) -> String {
+pub(crate) fn new_record_id(created: i64, records: &[SnapshotRecord]) -> String {
     let time = chrono::DateTime::from_timestamp(created, 0)
         .unwrap_or_default()
         .format("%Y%m%d-%H%M%S");

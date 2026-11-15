@@ -243,7 +243,7 @@ fn inside(rel: &str, owned: &str) -> bool {
 }
 
 /// The instance's loader as an image names it, back.
-fn loader_of(loader: &lodestone_image::Loader) -> Option<instances::Loader> {
+pub(crate) fn loader_of(loader: &lodestone_image::Loader) -> Option<instances::Loader> {
     Some(match loader {
         lodestone_image::Loader::Vanilla => instances::Loader::None,
         lodestone_image::Loader::Fabric => instances::Loader::Fabric,
@@ -839,7 +839,7 @@ fn stage(
 /// the same SHA-512 keeps what it knew with the file's new size and time; otherwise one is
 /// made from the image's source. Files without a source are looked up again by the next
 /// listing, as `content.json` is only a cache.
-fn learn_sources(dirs: &InstanceDirs, entries: &[Entry]) -> Result<(), String> {
+pub(crate) fn learn_sources(dirs: &InstanceDirs, entries: &[Entry]) -> Result<(), String> {
     let mut learned: Vec<(ContentKind, String, provenance::Entry)> = Vec::new();
     for entry in entries {
         let mut parts = entry.path.components();

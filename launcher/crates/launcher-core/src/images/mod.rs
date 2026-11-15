@@ -39,6 +39,7 @@
 
 pub mod check;
 pub mod context;
+pub mod export;
 pub mod history;
 pub mod labels;
 pub mod recorder;
