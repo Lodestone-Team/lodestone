@@ -154,6 +154,10 @@ pub struct Snapshots {
 struct RecordsFile {
     #[serde(default)]
     version: u32,
+    /// The instance's name when the list was last written, for the deleted instance's
+    /// marker ([`super::retired`]), when `instance.json` is gone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    instance_name: Option<String>,
     #[serde(default)]
     snapshots: Vec<SnapshotRecord>,
 }
@@ -244,7 +248,9 @@ impl Images {
         let loaded = state::load_present(self.store(), instance)?;
         let listing = self.listing(instance)?;
         let has_manifests = !listing.content.is_empty() || !listing.links.is_empty();
-        if state::belongs_elsewhere(&loaded, has_manifests, ctx.instance.created) {
+        if self.retired_marker_in(instance)
+            || state::belongs_elsewhere(&loaded, has_manifests, ctx.instance.created)
+        {
             return Ok(Snapshots::default());
         }
         let records = match (&locked, self.enter()) {
@@ -770,8 +776,20 @@ impl Images {
         instance: &str,
         records: &[SnapshotRecord],
     ) -> Result<(), ImageError> {
+        let instance_name = self
+            .instances()
+            .get(instance)
+            .ok()
+            .map(|found| found.name)
+            .or_else(|| {
+                let bytes = std::fs::read(self.records_path(instance).ok()?).ok()?;
+                serde_json::from_slice::<RecordsFile>(&bytes)
+                    .ok()?
+                    .instance_name
+            });
         let file = RecordsFile {
             version: RECORDS_VERSION,
+            instance_name,
             snapshots: records.to_vec(),
         };
         let bytes = serde_json::to_vec_pretty(&file)

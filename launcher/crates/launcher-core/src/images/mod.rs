@@ -43,6 +43,7 @@ pub mod history;
 pub mod labels;
 pub mod recorder;
 pub mod retention;
+pub mod retired;
 pub mod scope;
 pub mod snapshots;
 pub mod state;
@@ -69,6 +70,7 @@ pub use check::Checked;
 pub use history::{History, HistoryEntry};
 pub use recorder::{Operation, Recorded};
 pub use retention::{DEFAULT_POLICY, KEEP_CONTENT, Keep, SnapshotPolicy};
+pub use retired::{CleanedUp, Retired, RetiredMarker};
 pub use snapshots::{RiskyChange, SnapshotKind, SnapshotRecord, Snapshots, Take};
 
 /// Successes this close together are one image.
@@ -490,10 +492,12 @@ impl Images {
         self.activity.suspended()
     }
 
-    /// Forgets a deleted instance: its manifests, content state and stat cache
-    /// (`images/<id>/`), and anything queued for it. Its objects go at the collection this
-    /// asks for. Call it once the instance's folder is gone (moved to the Trash): instance
-    /// ids are reused, so a new instance of the same name must not inherit this history.
+    /// Forgets a deleted instance: its content images, state and stat caches
+    /// (`images/<id>/`), and anything queued for it; its snapshots are kept under a folder
+    /// of their own until the user deletes them ([`retired`]). What nothing names any more
+    /// goes at the collection this asks for. Call it once the instance's folder is gone
+    /// (moved to the Trash): instance ids are reused, so a new instance of the same name
+    /// must not inherit this history.
     /// Waits for a record of it that is running, however long (its first image of a big
     /// pack may take minutes; Delete's spinner waits that long, which is rare and safe). An
     /// instance folder deleted outside the Launcher is forgotten too, by
@@ -507,7 +511,7 @@ impl Images {
             let _record = slot.lock_record();
             let _writing = self.enter()?;
             slot.pending().take();
-            self.wipe_locked(id)?;
+            self.retire_locked(id)?;
         }
         self.request_gc();
         Ok(())
@@ -531,8 +535,10 @@ impl Images {
 
     /// [`Self::forget_deleted`] without asking for a collection, inside a counted write.
     /// Nothing is forgotten while the instances folder itself is missing (a drive that
-    /// isn't there). See [`instance_gone`] for when one instance counts as gone.
-    fn forget_deleted_held(&self) -> usize {
+    /// isn't there). See [`instance_gone`] for when one instance counts as gone. A folder
+    /// with a retirement marker is retired whether or not its instance is there (a crash
+    /// between the marker and the rename); retired folders themselves are left alone.
+    pub(crate) fn forget_deleted_held(&self) -> usize {
         if !self.instances.root().is_dir() {
             return 0;
         }
@@ -545,23 +551,26 @@ impl Images {
             let Some(id) = entry.file_name().to_str().map(str::to_string) else {
                 continue;
             };
-            if !valid_instance_id(&id) || !entry.file_type().is_ok_and(|t| t.is_dir()) || !gone(&id)
+            if !valid_instance_id(&id)
+                || id.starts_with(retired::RETIRED_PREFIX)
+                || !entry.file_type().is_ok_and(|t| t.is_dir())
+                || !(gone(&id) || self.retired_marker_in(&id))
             {
                 continue;
             }
             let slot = self.slot(&id);
             let _record = slot.lock_record();
             // Looked at again under the lock: an instance made meanwhile keeps its images.
-            if !gone(&id) {
+            if !(gone(&id) || self.retired_marker_in(&id)) {
                 continue;
             }
             slot.pending().take();
-            match self.wipe_locked(&id) {
+            match self.retire_locked(&id) {
                 Ok(()) => {
                     warn(
                         "images.forgotten",
                         &id,
-                        "the instance's folder is gone; its images are deleted",
+                        "the instance's folder is gone; its content images are deleted",
                     );
                     forgotten += 1;
                 }
@@ -569,19 +578,6 @@ impl Images {
             }
         }
         forgotten
-    }
-
-    /// Deletes `images/<id>/`. The caller holds the instance's record lock. Today the
-    /// folder holds only content images; milestone 5 must change this (and its callers
-    /// [`Self::delete_instance`], [`Self::forget_deleted`] and the id-reuse guard) before
-    /// data images move in, so deleting an instance or moving its folder never deletes its
-    /// backups (`docs/instance-images.md`, "Launcher store decisions").
-    pub(crate) fn wipe_locked(&self, id: &str) -> Result<(), ImageError> {
-        let dir = self.store.instance_dir(id)?;
-        remove_tree(&dir).map_err(ImageError::io(format!(
-            "Failed to delete {}",
-            dir.display()
-        )))
     }
 
     /// Starts a collection in the background, or, while one runs, has it run once more
@@ -760,7 +756,7 @@ pub(crate) fn warn(topic: &str, instance: &str, message: &str) {
 
 /// Deletes a folder and everything in it, clearing read-only first where that stops a
 /// delete (Windows; the store writes its files read-only). Missing is fine.
-fn remove_tree(dir: &Path) -> std::io::Result<()> {
+pub(crate) fn remove_tree(dir: &Path) -> std::io::Result<()> {
     #[cfg(windows)]
     fn writable(dir: &Path) {
         let Ok(entries) = std::fs::read_dir(dir) else {

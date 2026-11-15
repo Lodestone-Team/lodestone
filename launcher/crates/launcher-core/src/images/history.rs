@@ -80,7 +80,9 @@ impl Images {
         let loaded = state::load_present(self.store(), instance)?;
         let listing = self.listing(instance)?;
         let has_manifests = !listing.content.is_empty() || !listing.links.is_empty();
-        if state::belongs_elsewhere(&loaded, has_manifests, ctx.instance.created) {
+        if self.retired_marker_in(instance)
+            || state::belongs_elsewhere(&loaded, has_manifests, ctx.instance.created)
+        {
             return Ok(History::default());
         }
         let current = loaded.state.current;

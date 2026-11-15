@@ -473,3 +473,139 @@ fn snapshots_and_collections_at_once_lose_nothing() {
     s.nothing_missing();
     assert_eq!(s.records().len(), 8);
 }
+
+#[test]
+fn deleting_an_instance_keeps_its_snapshots_aside() {
+    let s = Setup::new();
+    s.write("mods/a.jar", b"a mod");
+    s.world("World", b"r");
+    s.images.record_now(s.id(), "Created").unwrap();
+    let record = s.snapshot("Keep");
+    let linked = record.content.clone().unwrap();
+    s.change("mods/b.jar", b"later", "Added b");
+    let unlinked = s.state().current.unwrap();
+    assert_ne!(unlinked, linked);
+
+    std::fs::remove_dir_all(s.store.dir(s.id())).unwrap();
+    s.images.delete_instance(s.id()).unwrap();
+    assert!(!s.images.store().instance_dir(s.id()).unwrap().exists());
+    let retired = s.images.deleted_snapshots().unwrap();
+    assert_eq!(retired.len(), 1);
+    let gone = &retired[0];
+    assert!(gone.folder.starts_with(retired::RETIRED_PREFIX));
+    assert_eq!(gone.marker.former_id, s.id());
+    assert_eq!(gone.marker.name.as_deref(), Some("Pack"));
+    assert_eq!(gone.marker.instance_created, Some(s.instance.created));
+    assert_eq!(gone.records.len(), 1);
+    assert_eq!(gone.records[0].image, record.image);
+    // The snapshot and the content it links to stay; other content images and the
+    // state go.
+    let store = s.images.store();
+    let ids = store.manifest_ids(&gone.folder).unwrap();
+    assert!(ids.contains(&record.image));
+    assert!(ids.contains(&linked));
+    assert!(!ids.contains(&unlinked));
+    let folder = store.instance_dir(&gone.folder).unwrap();
+    assert!(!folder.join(state::FILE).exists());
+    // Collections keep their objects; forgetting leaves the folder alone.
+    age_objects(&s.data.image_store_dir().join("objects"));
+    s.images.collect_now().unwrap();
+    assert!(folder.is_dir());
+    for id in &ids {
+        let image = store.load_manifest(&gone.folder, id).unwrap();
+        assert!(missing_objects(store, &image, Selection::All).is_empty());
+    }
+
+    // Storage's clean-up deletes them, and the collection after it their objects.
+    let cleaned = s.images.clean_up(&[]).unwrap();
+    assert_eq!(cleaned.retired, 1);
+    assert!(!folder.exists());
+    assert!(s.images.deleted_snapshots().unwrap().is_empty());
+}
+
+#[test]
+fn an_instance_without_snapshots_is_deleted_outright() {
+    let s = Setup::new();
+    s.write("mods/a.jar", b"a mod");
+    s.images.record_now(s.id(), "Created").unwrap();
+    std::fs::remove_dir_all(s.store.dir(s.id())).unwrap();
+    s.images.delete_instance(s.id()).unwrap();
+    assert!(!s.images.store().instance_dir(s.id()).unwrap().exists());
+    assert!(s.images.deleted_snapshots().unwrap().is_empty());
+}
+
+#[test]
+fn a_reused_id_sets_the_old_snapshots_aside() {
+    let s = Setup::new();
+    s.world("World", b"old world");
+    s.images.record_now(s.id(), "Created").unwrap();
+    let old = s.snapshot("Old");
+    // Deleted in Finder, and a new instance takes its name and id before the Launcher
+    // noticed.
+    std::fs::remove_dir_all(s.store.dir(s.id())).unwrap();
+    let mut again = s.store.create("Pack", "1.21.1", None).unwrap();
+    assert_eq!(again.id, s.id());
+    again.created += 1;
+    s.store.save(&again).unwrap();
+    assert!(s.records().is_empty(), "not the old instance's snapshots");
+    s.world("World", b"new world");
+    let new = s.snapshot("New");
+    assert_eq!(s.records(), [new]);
+    let retired = s.images.deleted_snapshots().unwrap();
+    assert_eq!(retired.len(), 1);
+    assert_eq!(retired[0].records[0].image, old.image);
+}
+
+#[test]
+fn a_crash_between_the_marker_and_the_rename_still_retires() {
+    let s = Setup::new();
+    s.world("World", b"r");
+    s.images.record_now(s.id(), "Created").unwrap();
+    let old = s.snapshot("Old");
+    // The marker was written, then the Launcher died before renaming the folder; the
+    // instance is still there (the guard runs) or gone (forgetting runs).
+    let dir = s.images.store().instance_dir(s.id()).unwrap();
+    std::fs::write(dir.join(retired::RETIRED_FILE), br#"{"former_id":"pack"}"#).unwrap();
+    assert!(s.records().is_empty(), "a marked folder is never the instance's");
+    assert_eq!(s.images.forget_deleted().unwrap(), 1);
+    assert!(!dir.exists());
+    let retired = s.images.deleted_snapshots().unwrap();
+    assert_eq!(retired.len(), 1);
+    assert_eq!(retired[0].records[0].image, old.image);
+    // The live instance starts afresh.
+    s.snapshot("New");
+    assert_eq!(s.records().len(), 1);
+}
+
+#[test]
+fn storage_clean_up_keeps_what_the_user_took() {
+    let s = Setup::new();
+    s.world("World", b"0");
+    s.images.record_now(s.id(), "Created").unwrap();
+    let manual = s.snapshot("Mine");
+    s.write("saves/World/region/r.0.0.mca", b"1");
+    let auto = s
+        .images
+        .before_risky_change(
+            s.id(),
+            RiskyChange::ContentUpdate {
+                titles: &["x".to_string()],
+            },
+        )
+        .unwrap()
+        .unwrap();
+    s.write("saves/World/region/r.0.0.mca", b"2");
+    let pinned = s
+        .images
+        .take_snapshot(s.id(), Take::new(SnapshotKind::AfterPlay, "After playing"))
+        .unwrap()
+        .unwrap();
+    s.images.set_pinned(s.id(), &pinned.id, true).unwrap();
+    let cleaned = s.images.clean_up(&[s.id().to_string()]).unwrap();
+    assert_eq!(cleaned.records, 1);
+    let left: Vec<String> = s.records().into_iter().map(|r| r.id).collect();
+    assert!(left.contains(&manual.id));
+    assert!(left.contains(&pinned.id));
+    assert!(!left.contains(&auto.id));
+    s.nothing_missing();
+}
