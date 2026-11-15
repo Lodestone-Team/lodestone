@@ -86,6 +86,25 @@ impl ParentCheck {
         }
         Ok(())
     }
+
+    /// Whether `target`'s folder stays inside the root once links are resolved, without
+    /// creating it: a file to remove through a folder the player turned into a link out
+    /// of the instance (a shared `resourcepacks/`, say) isn't, and is left alone.
+    pub(crate) fn stays_inside(&mut self, target: &Path) -> bool {
+        let Some(parent) = target.parent() else {
+            return false;
+        };
+        if self.checked.contains(parent) {
+            return true;
+        }
+        match fs::canonicalize(parent) {
+            Ok(canonical) if canonical.starts_with(&self.root) => {
+                self.checked.insert(parent.to_path_buf());
+                true
+            }
+            _ => false,
+        }
+    }
 }
 
 /// The URL to fetch a pack file from: CurseForge's CDN through the CurseForge client,
@@ -119,23 +138,47 @@ pub(crate) async fn download_files(
     progress: &InstallProgress,
     cancel: &CancelToken,
 ) -> Result<(), ModpackError> {
+    let downloads: Vec<(PackDownload, Option<String>, PathBuf)> = downloads
+        .iter()
+        .map(|(download, dest)| (download.clone(), None, dest.clone()))
+        .collect();
+    download_files_checked(platforms, downloader, root, &downloads, progress, cancel).await
+}
+
+/// [`download_files`], each file also checked against the SHA-256 given with it (a
+/// server's file, whose image entry has one). A file with no SHA-1 is checked against
+/// its SHA-256 as it downloads.
+pub(crate) async fn download_files_checked(
+    platforms: Platforms<'_>,
+    downloader: &Downloader,
+    root: &Path,
+    downloads: &[(PackDownload, Option<String>, PathBuf)],
+    progress: &InstallProgress,
+    cancel: &CancelToken,
+) -> Result<(), ModpackError> {
     progress.downloads.set(ProgressSnapshot {
         files_total: downloads.len() as u64,
-        bytes_total: downloads.iter().map(|(d, _)| d.size).sum(),
+        bytes_total: downloads.iter().map(|(d, _, _)| d.size).sum(),
         ..ProgressSnapshot::default()
     });
     // Every folder first, each checked once, rather than per file as it downloads.
     let mut parents = ParentCheck::new(root)?;
-    for (_, dest) in downloads {
+    for (_, _, dest) in downloads {
         parents.prepare(dest)?;
     }
     // Boxed, so the future stays `Send` for any lifetime (a closure over the borrowed
     // slice trips the compiler's higher-ranked `Send` check).
     let fetches: Vec<futures::future::BoxFuture<'_, Result<(), ModpackError>>> = downloads
         .iter()
-        .map(|(download, dest)| {
+        .map(|(download, sha256, dest)| {
             Box::pin(fetch_one(
-                platforms, downloader, download, dest, progress, cancel,
+                platforms,
+                downloader,
+                download,
+                sha256.as_deref(),
+                dest,
+                progress,
+                cancel,
             )) as futures::future::BoxFuture<'_, _>
         })
         .collect();
@@ -151,6 +194,7 @@ async fn fetch_one(
     platforms: Platforms<'_>,
     downloader: &Downloader,
     download: &PackDownload,
+    sha256: Option<&str>,
     dest: &Path,
     progress: &InstallProgress,
     cancel: &CancelToken,
@@ -167,7 +211,15 @@ async fn fetch_one(
             size: (download.size > 0).then_some(download.size),
             executable: false,
         };
-        match downloader.fetch(&item, &progress.downloads, cancel).await {
+        let fetched = match sha256 {
+            Some(sha256) if download.sha1.is_empty() => {
+                downloader
+                    .fetch_expecting_sha256(&item, sha256, &progress.downloads, cancel)
+                    .await
+            }
+            _ => downloader.fetch(&item, &progress.downloads, cancel).await,
+        };
+        match fetched {
             Ok(()) => {}
             Err(crate::game::download::DownloadError::Cancelled) => {
                 return Err(ModpackError::Cancelled);
@@ -177,24 +229,70 @@ async fn fetch_one(
                 continue;
             }
         }
-        if download.sha512.is_empty() {
-            return Ok(());
+        let host = url.host_str().unwrap_or_default();
+        // the SHA-512 and (for a server's file whose SHA-1 the download checked) the
+        // SHA-256, in one read of the file
+        let want_sha256 = sha256.filter(|_| !download.sha1.is_empty());
+        let (sha512, actual_sha256) =
+            sha512_and_sha256(dest, !download.sha512.is_empty(), want_sha256.is_some())
+                .map_err(io_error(dest))?;
+        if let Some(sha512) = sha512
+            && !sha512.eq_ignore_ascii_case(&download.sha512)
+        {
+            let _ = fs::remove_file(dest);
+            last_error = Some(format!(
+                "the download from {host} is damaged: its SHA-512 hash doesn't match"
+            ));
+            continue;
         }
-        let sha512 = hash::sha512_of(dest).map_err(io_error(dest))?;
-        if sha512.eq_ignore_ascii_case(&download.sha512) {
-            return Ok(());
+        if let (Some(sha256), Some(actual)) = (want_sha256, actual_sha256)
+            && !actual.eq_ignore_ascii_case(sha256)
+        {
+            let _ = fs::remove_file(dest);
+            last_error = Some(format!(
+                "the download from {host} isn't the server's file: its SHA-256 hash doesn't match"
+            ));
+            continue;
         }
-        let _ = fs::remove_file(dest);
-        last_error = Some(format!(
-            "the download from {} is damaged: its SHA-512 hash doesn't match",
-            url.host_str().unwrap_or_default()
-        ));
+        return Ok(());
     }
     Err(ModpackError::Invalid(format!(
         "Couldn't download {}: {}",
         slash_path(&download.path),
         last_error.unwrap_or_else(|| "it has no download URL".into())
     )))
+}
+
+/// The SHA-512 and SHA-256 of the file at `path` (each only when asked for), read once.
+fn sha512_and_sha256(
+    path: &Path,
+    sha512: bool,
+    sha256: bool,
+) -> std::io::Result<(Option<String>, Option<String>)> {
+    use sha2::Digest as _;
+    if !sha512 && !sha256 {
+        return Ok((None, None));
+    }
+    let mut file = File::open(path)?;
+    let mut hash512 = sha512.then(sha2::Sha512::new);
+    let mut hash256 = sha256.then(lodestone_image::hex::Sha256Hasher::new);
+    let mut buffer = vec![0u8; 256 * 1024];
+    loop {
+        let read = std::io::Read::read(&mut file, &mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        if let Some(hasher) = &mut hash512 {
+            hasher.update(&buffer[..read]);
+        }
+        if let Some(hasher) = &mut hash256 {
+            hasher.update(&buffer[..read]);
+        }
+    }
+    Ok((
+        hash512.map(|h| format!("{:x}", h.finalize())),
+        hash256.map(|h| h.finish_hex()),
+    ))
 }
 
 /// Copies the override files `files` from the pack at `pack_path` to the paths `dest`
@@ -260,9 +358,11 @@ pub(crate) async fn content_entries(
         };
         candidates.push((kind, name.to_string(), metadata, *download));
     }
+    // a server's file may have no SHA-1 to ask Modrinth by
     let hashes: Vec<String> = candidates
         .iter()
         .map(|(_, _, _, d)| d.sha1.clone())
+        .filter(|sha1| !sha1.is_empty())
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect();
@@ -273,7 +373,10 @@ pub(crate) async fn content_entries(
     candidates
         .into_iter()
         .map(|(kind, name, metadata, download)| {
-            let looked_up = found.as_ref().and_then(|f| f.get(&download.sha1));
+            let looked_up = found
+                .as_ref()
+                .filter(|_| !download.sha1.is_empty())
+                .and_then(|f| f.get(&download.sha1));
             let modrinth = match looked_up {
                 Some((version, project)) => Some(ModrinthSource::new(
                     version,
@@ -408,6 +511,7 @@ pub(crate) fn record_files(pack: &PackInfo) -> std::collections::BTreeMap<String
                     .urls
                     .iter()
                     .find_map(|u| cdn_ids(u).map(|(p, _)| p)),
+                sha256: None,
             },
         );
     }
@@ -419,6 +523,7 @@ pub(crate) fn record_files(pack: &PackInfo) -> std::collections::BTreeMap<String
                 sha1: file.sha1.clone(),
                 source: FileSource::Override,
                 project: None,
+                sha256: None,
             },
         );
     }

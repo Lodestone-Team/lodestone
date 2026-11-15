@@ -436,16 +436,20 @@ pub fn cores_sign_out(call: Call, cx: &mut App) -> Reply {
     })))
 }
 
-/// The page's notice, to tell a new one from the old.
-fn notice_of(servers: &Servers) -> Option<(SharedString, SharedString)> {
+/// The page's notice, to tell a new one from the old, with its error code.
+fn notice_of(servers: &Servers) -> Option<(SharedString, SharedString, &'static str)> {
     servers.notice.as_ref().map(|notice| {
         let (title, message) = notice.text();
-        (title.into(), message.into())
+        (
+            title.into(),
+            message.into(),
+            notice.code.unwrap_or(codes::FAILED),
+        )
     })
 }
 
-fn notice_error(notice: &(SharedString, SharedString)) -> ErrorObject {
-    api_error(codes::FAILED, format!("{}: {}", notice.0, notice.1))
+fn notice_error(notice: &(SharedString, SharedString, &'static str)) -> ErrorObject {
+    api_error(notice.2, format!("{}: {}", notice.0, notice.1))
 }
 
 /// Starts or stops a server and waits for the core's answer.
@@ -508,20 +512,69 @@ struct JoinParams {
     accept_advisory: bool,
 }
 
-fn advisory_json(prompt: &crate::servers::AdvisoryPrompt) -> Value {
-    let advisory = &prompt.advisory;
+/// What a server's image installs, for the control API.
+fn summary_json(summary: &launcher_core::cores::image_sync::plan::Summary) -> Value {
     json!({
+        "base": summary.base.as_ref().map(|(pack, version)| json!({ "name": pack, "version": version })),
+        "minecraft": summary.minecraft,
+        "loader": summary.loader,
+        "added_mods": summary.added_mods,
+        "server_only": summary.server_only,
+        "missing": missing_json(&summary.missing),
+        "curseforge": summary.curseforge_listed,
+        "download_bytes": summary.download_bytes,
+    })
+}
+
+/// Files a server's view can't give, with why (in English, as a word the API keeps).
+fn missing_json(missing: &[(String, launcher_core::cores::image_sync::WithheldReason)]) -> Value {
+    Value::Array(
+        missing
+            .iter()
+            .map(|(path, reason)| json!({ "path": path, "reason": reason.as_str() }))
+            .collect(),
+    )
+}
+
+/// The advisory (and what a server's image installs), for the control API.
+pub(crate) fn advisory_json(prompt: &crate::servers::AdvisoryPrompt) -> Value {
+    let mut data = json!({
         "core_name": prompt.core_name,
         "server_name": prompt.server_name,
         "update": prompt.update,
-        "on_modrinth": advisory.on_modrinth.iter().map(|m| json!({ "path": m.path, "project": m.project, "version": m.version })).collect::<Vec<_>>(),
-        "uploaded": advisory.uploaded,
-        "scripts": advisory.scripts,
-        "configs": advisory.configs,
-        "other": advisory.other,
-        "unchecked": advisory.unchecked,
         "explanation": trust_explanation(),
-    })
+    });
+    if let Some(advisory) = &prompt.advisory {
+        data["on_modrinth"] = json!(
+            advisory
+                .on_modrinth
+                .iter()
+                .map(|m| json!({ "path": m.path, "project": m.project, "version": m.version }))
+                .collect::<Vec<_>>()
+        );
+        data["uploaded"] = json!(advisory.uploaded);
+        data["scripts"] = json!(advisory.scripts);
+        data["configs"] = json!(advisory.configs);
+        data["other"] = json!(advisory.other);
+        data["unchecked"] = json!(advisory.unchecked);
+    }
+    if let Some(summary) = &prompt.summary {
+        data["summary"] = summary_json(summary);
+    }
+    data
+}
+
+/// The update prompt came back because the snapshot before the update couldn't be taken:
+/// nothing changed, and the API fails with the reason instead of going on without one (as
+/// `modpacks update` does); the window offers that.
+pub(super) fn snapshot_failed(prompt: &crate::servers::UpdatePrompt) -> Option<ErrorObject> {
+    let error = prompt.snapshot_failed.as_deref()?;
+    Some(api_error(
+        codes::FAILED,
+        format!(
+            "No snapshot could be taken before the update, so nothing has changed: {error}. Fix the problem and try again, or update without a snapshot in the window."
+        ),
+    ))
 }
 
 fn changes_json(prompt: &crate::servers::UpdatePrompt) -> Value {
@@ -532,24 +585,34 @@ fn changes_json(prompt: &crate::servers::UpdatePrompt) -> Value {
         "updated": prompt.changes.updated,
         "removed": prompt.changes.removed,
         "other": prompt.changes.other,
+        "missing": missing_json(&prompt.missing),
+        "curseforge": prompt.curseforge,
+        "loader": prompt.loader,
+        "only_lacking": prompt.only_lacking,
+        "download_bytes": prompt.download_bytes,
+        "snapshot_failed": prompt.snapshot_failed,
     })
 }
 
-/// Answers the advisory for `server_name` as `accept` says; the error when it isn't
-/// accepted.
+/// Answers the advisory for `server_name` as `accept` says: what a server's image
+/// installs (its summary, files it lacks included) when it was installed, the error when
+/// it isn't accepted.
 fn handle_advisory(
     servers: &mut Servers,
     server_name: &str,
     accept: bool,
     cx: &mut gpui::Context<Servers>,
-) -> Option<Result<(), ErrorObject>> {
+) -> Option<Result<Option<Value>, ErrorObject>> {
     let prompt = servers.advisory.current()?;
     if prompt.server_name != server_name {
         return None;
     }
-    if accept {
+    // from a trusted core, only what a new instance gets is shown: install it, and say
+    // what it gets (and lacks) in the answer
+    if accept || prompt.advisory.is_none() {
+        let summary = prompt.summary.as_ref().map(summary_json);
         servers.answer_advisory(AdvisoryAnswer::InstallOnce, cx);
-        return Some(Ok(()));
+        return Some(Ok(summary));
     }
     let data = advisory_json(prompt);
     servers.answer_advisory(AdvisoryAnswer::Cancel, cx);
@@ -601,6 +664,10 @@ pub fn join_instance(call: Call, instance: Instance, options: JoinOptions, cx: &
                 if let Some(prompt) = servers.prompt.current()
                     && prompt.instance_id == id
                 {
+                    if let Some(err) = snapshot_failed(prompt) {
+                        servers.cancel_prompt(cx);
+                        return Some(Err(err));
+                    }
                     return Some(match options.update_mods {
                         Some(update) => {
                             servers.answer_prompt(update, cx);
@@ -608,16 +675,19 @@ pub fn join_instance(call: Call, instance: Instance, options: JoinOptions, cx: &
                         }
                         None => {
                             let changes = changes_json(prompt);
+                            let message = if prompt.only_lacking {
+                                "The server has files it can't share that the player would need (see missing and curseforge); nothing on the instance changes. Tell the user; pass --update-mods or --skip-update to play without them."
+                            } else {
+                                "The server's mods changed since this instance was made. Ask the user: pass --update-mods to bring the instance in step, or --skip-update to play as it is."
+                            };
                             servers.cancel_prompt(cx);
-                            Err(api_error(
-                                codes::MODS_CHANGED,
-                                "The server's mods changed since this instance was made. Ask the user: pass --update-mods to bring the instance in step, or --skip-update to play as it is.",
-                            )
-                            .with_data(json!({ "changes": changes })))
+                            Err(api_error(codes::MODS_CHANGED, message)
+                                .with_data(json!({ "changes": changes })))
                         }
                     });
                 }
                 handle_advisory(servers, &server_name, options.accept_advisory, cx)
+                    .map(|answer| answer.map(|_| ()))
             });
             match answered {
                 Some(Err(err)) => return Some(Err(err)),
@@ -706,6 +776,8 @@ pub fn create_instance(call: Call, cx: &mut App) -> Reply {
         .update(cx, |servers, cx| servers.create_instance(&core, server, cx));
     let watch = control.clone();
     let work = cx.spawn(async move |cx| -> ApiResult {
+        // what the instance got, once the prompt showing it is answered
+        let mut summary: Option<Value> = None;
         let outcome = poll_until(
             cx,
             None,
@@ -715,8 +787,9 @@ pub fn create_instance(call: Call, cx: &mut App) -> Reply {
                 if let Some(answer) = watch.servers.update(cx, |servers, cx| {
                     handle_advisory(servers, &name, params.accept_advisory, cx)
                 }) {
-                    if let Err(err) = answer {
-                        return Some(Err(err));
+                    match answer {
+                        Err(err) => return Some(Err(err)),
+                        Ok(shown) => summary = shown.or(summary.take()),
                     }
                     return None;
                 }
@@ -742,6 +815,7 @@ pub fn create_instance(call: Call, cx: &mut App) -> Reply {
             let servers = watch.servers.read(cx);
             json!({
                 "instance": outcome,
+                "summary": summary,
                 "notice": servers.notice.as_ref().map(|notice| {
                     let (title, message) = notice.text();
                     json!({ "title": title, "message": message })

@@ -203,6 +203,19 @@ impl ContentScope {
         content_filter(candidate) || self.lists(candidate)
     }
 
+    /// Whether the file at `relative` (in the game folder, `/`-separated, as
+    /// `modpack.json` keys it) is in this scope: a content image recorded with it holds
+    /// the file. An update that replaces a file outside it keeps its own copy of it.
+    pub fn holds_file(&self, relative: &str) -> bool {
+        let path = CanonicalPath::new(relative).ok();
+        let disk = format!("{CLIENT_GAME_FOLDER}/{relative}");
+        self.accepts(&Candidate {
+            disk: &disk,
+            path: path.as_ref(),
+            is_dir: false,
+        })
+    }
+
     /// Whether `candidate` is one of the pack files, or a folder holding one.
     fn lists(&self, candidate: &Candidate) -> bool {
         if self.files.is_empty() {

@@ -81,7 +81,7 @@ The user also sees each connected program (this CLI says
 | Exit | Codes | Meaning |
 |---|---|---|
 | 0 | | Success |
-| 1 | `failed`, `internal` | The operation ran and failed; read `message` |
+| 1 | `failed`, `internal`, `update_required` | The operation ran and failed; read `message`. `update_required`: the server runs a newer Lodestone; don't retry |
 | 2 | `usage`, `invalid_params`, `method_not_found` | Wrong command line |
 | 3 | `not_running`, `unsupported_platform` | Launcher not running / not reachable |
 | 4 | `not_found`, `ambiguous` | No such thing, or the name matches several |
@@ -663,6 +663,22 @@ lodestone-launcher-cli servers join Smp                     # may fail with mods
 # mods_changed: ask the user, then --update-mods or --skip-update
 lodestone-launcher-cli servers join Smp --update-mods
 ```
+
+`create-instance` answers with `summary` (what the instance got: `base`, `minecraft`,
+`loader`, `added_mods`, `server_only`, `missing` with each path and reason,
+`curseforge`, files to download from CurseForge by hand, and `download_bytes`). Tell the user about any
+`missing` or `curseforge` files: they may not be able to join without them. A
+`mods_changed` whose `data.changes.only_lacking` is true changes nothing on the
+instance: the server now has files it can't share (`missing`, `curseforge`); tell the
+user, then either flag plays.
+
+`failed` from `join --update-mods` saying no snapshot could be taken before the update:
+nothing changed on the instance. Tell the user the reason; they can fix it (free space,
+say) and try again, or update without a snapshot in the window.
+
+`update_required` (exit 1) from `create-instance` or `join`: the server runs a newer
+Lodestone than this Launcher, and nothing was installed. Tell the user to update
+Lodestone Launcher; don't retry.
 
 A plain address works too: `play launch Survival --join mc.example.com:25565`.
 

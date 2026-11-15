@@ -4,9 +4,12 @@
 use gpui::Context;
 use launcher_core::cores::{
     CoreError, CoreProduct, LaunchedBy, ServerInstance, ServerList, ServerLoader, ServerState,
+    image_sync::{
+        WithheldReason,
+        plan::{PackChanges, Summary},
+    },
     local_claim::{ClaimError, LocalCredentials},
     store::SavedCore,
-    sync::PackChanges,
     tls::{CertificatePin, format_fingerprint},
     trust::{Advisory, ModrinthMatch},
 };
@@ -32,6 +35,14 @@ pub const SCENES: &[&str] = &[
     "servers-core-menu-other",
     "servers-add",
     "servers-update",
+    "servers-update-missing",
+    "servers-update-no-snapshot",
+    "servers-update-lacking",
+    "servers-install",
+    "servers-install-missing",
+    "servers-preparing",
+    "servers-base-pack",
+    "servers-updating",
     "servers-signed-out",
     "servers-lan",
     "servers-lan-empty",
@@ -120,6 +131,7 @@ fn server(
         max_player_count: players.map(|p| p.1),
         has_client_pack: Some(loader == ServerLoader::Fabric),
         listed: true,
+        public_only: false,
     }
 }
 
@@ -143,6 +155,17 @@ fn pinned(mut core: SavedCore) -> SavedCore {
         .unwrap_or_default();
     core.pin_certificate(CertificatePin::new(&host, FINGERPRINT));
     core
+}
+
+/// Files a server couldn't share, for the scenes that list them.
+fn missing() -> Vec<(String, WithheldReason)> {
+    vec![
+        ("mods/voice-chat-addon.jar".into(), WithheldReason::Symlink),
+        (
+            "mods/big-structures.jar".into(),
+            WithheldReason::KeptChanging,
+        ),
+    ]
 }
 
 fn smp() -> ServerInstance {
@@ -317,25 +340,140 @@ fn apply_servers(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) 
                 _ => {}
             }
         }
-        "servers-add" | "servers-update" => {
+        "servers-add"
+        | "servers-update"
+        | "servers-update-missing"
+        | "servers-update-no-snapshot"
+        | "servers-update-lacking" => {
             servers.preview(
                 vec![home(true)],
                 vec![("home".into(), "smp".into(), "survival-smp".into())],
             );
-            if scene == "servers-update" {
-                servers.preview_prompt(
+            let changes = PackChanges {
+                added: vec!["mods/create-fabric-0.5.1.jar".into()],
+                updated: vec!["mods/sodium-fabric-0.5.13.jar".into()],
+                removed: vec!["mods/old-minimap-1.2.jar".into()],
+                other: vec!["config/create-common.toml".into()],
+            };
+            match scene {
+                "servers-update" => {
+                    servers.preview_prompt("home", smp(), "survival-smp", changes, cx)
+                }
+                // a mod the server has as a link, and a new loader version
+                "servers-update-missing" => servers.preview_update(
                     "home",
                     smp(),
                     "survival-smp",
-                    PackChanges {
-                        added: vec!["mods/create-fabric-0.5.1.jar".into()],
-                        updated: vec!["mods/sodium-fabric-0.5.13.jar".into()],
-                        removed: vec!["mods/old-minimap-1.2.jar".into()],
-                        other: vec!["config/create-common.toml".into()],
-                    },
+                    changes,
+                    missing(),
+                    Some("Fabric 0.16.14".into()),
                     cx,
-                );
+                ),
+                // the snapshot before the update couldn't be taken: update without one?
+                "servers-update-no-snapshot" => servers.preview_no_snapshot(
+                    "home",
+                    smp(),
+                    "survival-smp",
+                    changes,
+                    "There isn't enough free space for the snapshot: 1.2 GiB are needed.",
+                    cx,
+                ),
+                // nothing changes on disk, but the server now has a mod it can't share
+                "servers-update-lacking" => servers.preview_update(
+                    "home",
+                    smp(),
+                    "survival-smp",
+                    PackChanges::default(),
+                    missing(),
+                    None,
+                    cx,
+                ),
+                _ => {}
             }
+        }
+        "servers-install" | "servers-install-missing" => {
+            servers.preview(
+                vec![home(true)],
+                vec![("home".into(), "smp".into(), "survival-smp".into())],
+            );
+            let mut summary = Summary {
+                base: Some(("Cobblemon Official Modpack [Fabric]".into(), "1.6.1".into())),
+                minecraft: "1.21.1".into(),
+                loader: "Fabric 0.16.14".into(),
+                added_mods: vec![
+                    "sodium-fabric-0.6.5.jar".into(),
+                    "simple-voice-chat-2.5.26.jar".into(),
+                    "survival-smp-tweaks.jar".into(),
+                ],
+                server_only: vec!["mods/survival-smp-tweaks.jar".into()],
+                download_bytes: 187_400_000,
+                ..Summary::default()
+            };
+            if scene == "servers-install-missing" {
+                summary.missing = missing();
+                summary.curseforge_listed = vec!["mods/OptiFine_1.21.1_HD_U_J1.jar".into()];
+            }
+            servers.preview_advisory(
+                "Peter's Lodestone Core",
+                "Survival SMP",
+                None,
+                Some(summary),
+                cx,
+            );
+        }
+        "servers-preparing" | "servers-base-pack" => {
+            servers.preview(
+                vec![home(true)],
+                vec![("home".into(), "smp".into(), "survival-smp".into())],
+            );
+            let progress = launcher_core::content::install::InstallProgress::default();
+            if scene == "servers-base-pack" {
+                // the server's modpack downloading before Create matching instance asks
+                progress
+                    .downloads
+                    .set(launcher_core::game::download::ProgressSnapshot {
+                        files_total: 1,
+                        files_done: 0,
+                        bytes_total: 412_000_000,
+                        bytes_done: 137_500_000,
+                    });
+            }
+            servers.preview_busy(
+                "home",
+                "smp",
+                Busy::Asking {
+                    preparing: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
+                        scene == "servers-preparing",
+                    )),
+                    creating: scene == "servers-base-pack",
+                    progress: std::sync::Arc::new(progress),
+                    cancel: Default::default(),
+                },
+            );
+        }
+        "servers-updating" => {
+            // the server's own files downloading into an instance, with the row's Cancel
+            servers.preview(
+                vec![home(true)],
+                vec![("home".into(), "smp".into(), "survival-smp".into())],
+            );
+            let progress = launcher_core::content::install::InstallProgress::default();
+            progress
+                .downloads
+                .set(launcher_core::game::download::ProgressSnapshot {
+                    files_total: 12,
+                    files_done: 5,
+                    bytes_total: 48_000_000,
+                    bytes_done: 21_000_000,
+                });
+            servers.preview_busy(
+                "home",
+                "smp",
+                Busy::UpdatingMods {
+                    progress: std::sync::Arc::new(progress),
+                    cancel: Default::default(),
+                },
+            );
         }
         "servers-local" => {
             // a Test core started directly on another port: the scan only looks on the
@@ -469,7 +607,7 @@ fn apply_servers(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) 
             servers.preview_advisory(
                 "Alex's server box",
                 "Skyblock",
-                Advisory {
+                Some(Advisory {
                     on_modrinth: vec![
                         found("mods/fabric-api-0.92.2.jar", "Fabric API", "0.92.2+1.20.1"),
                         found("mods/sodium-fabric-0.5.13.jar", "Sodium", "mc1.20.1-0.5.13"),
@@ -487,7 +625,8 @@ fn apply_servers(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) 
                     scripts: 2,
                     other: 1,
                     unchecked: false,
-                },
+                }),
+                None,
                 cx,
             );
         }

@@ -150,6 +150,8 @@ crate::i18n::messages! {
         UpdateModsFailed = "Couldn't update the mods",
         StopGameFirst = "Stop the game first.",
         FinishFinderFirst = "Finish the Find it for me search first: it has some of the mods turned off.",
+        /// Another job is changing the instance's files (an install, a restore, a copy).
+        FilesBusy = "Wait for the instance's files to finish changing, then try again.",
         UpdateInstanceFailed = "Couldn't update the instance",
         InstanceNotSaved = "The mods were updated, but the instance couldn't be saved: {error}",
         BadJoinAddress = "The server's address or port isn't one Minecraft can join.",
@@ -237,6 +239,68 @@ crate::i18n::messages! {
         AdvisoryTrustNote = "“{button}” also installs its mods without asking from now on. {explanation}",
         InstallThisTime = "Install this time",
         TrustAndInstall = "Trust {core} and install",
+
+        // ===== A server's image: what it installs, and what went wrong =====
+        /// The server records its files the first time a player asks: minutes for a big server.
+        BusyPreparing = "Waiting for the server to prepare its files…",
+        /// While the server's modpack downloads, before anything is installed: sizes.
+        BusyBasePack = "Getting the server's modpack, {done} of {total}…",
+        /// Asked before playing when the server's files are the instance's, but it has
+        /// files it can't share that the player would need.
+        LacksFiles = "{name} has files you won't get",
+        LacksFilesBody = "Your instance has the server's files, but the server has some it can't share. You may not be able to join without them.",
+        InstallTitle = "Install {name}'s files?",
+        /// {loader} is the loader and its version: "Fabric 0.16.10", or "Vanilla".
+        InstallIntro = "A new instance for {server} on {core} gets Minecraft {version} with {loader}, and these files from the server.",
+        /// The modpack a server is built on, and its version.
+        SummaryBase = "Modpack: {pack} {version}",
+        SummaryAddedMods = "Mods the server added ({count})",
+        /// Files the server uploaded or changed, which only it can send.
+        SummaryServerOnly = "Files only the server has ({count})",
+        /// What installing downloads, like "Download: 24.5 MiB".
+        SummaryDownload = "Download: {size}",
+        MissingTitle = "Files the server couldn't share ({count})",
+        MissingNote = "You won't have these, and may not be able to join without them. Ask the server's owner.",
+        /// A file the server couldn't share, and why: "mods/a.jar (it is a link)".
+        MissingLine = "{name} ({reason})",
+        /// Why a file couldn't be shared: parts of MissingLine.
+        WithheldSymlink = "it is a link",
+        WithheldUnreadable = "it couldn't be read",
+        WithheldBadName = "its name can't be shared",
+        WithheldKeptChanging = "it kept changing",
+        WithheldCurseForge = "CurseForge doesn't allow it",
+        WithheldOther = "not shared",
+        CurseForgeTitle = "Download these from CurseForge yourself ({count})",
+        CurseForgeNote = "Their authors don't let other apps download them.",
+        Install = "Install",
+        /// The loader version an update brings: "Fabric 0.16.11".
+        ChangeLoader = "Loader: {loader}",
+        /// Why a server's files couldn't be installed.
+        ErrUpdateLodestone = "This server runs a newer Lodestone. Update Lodestone Launcher to join it.",
+        ErrPrepareFailed = "The server couldn't prepare its files. Try again in a few minutes.",
+        ErrStillPreparing = "The server is still preparing its files. Try again in a few minutes.",
+        ErrFileFailed = "The server couldn't send {path}. Try again later.",
+        ErrViewChanged = "The server's files changed while they downloaded. Try again.",
+        /// {path} is a file in the instance, like "config/sodium.toml".
+        ErrFilesChangedSince = "{path} changed after the update was worked out, so nothing was changed. Press Play again.",
+        ErrBasePackGone = "The server's modpack is no longer on Modrinth, so its files can't be downloaded. Ask the server's owner to update the modpack.",
+        /// {game} and {instance} are "Minecraft 1.21.1 with Fabric 0.16.10".
+        ErrGameChanged = "The server now runs {game}, and this instance is for {instance}. Make a new instance for the server.",
+        ErrCurseForgeBase = "The server is built on a CurseForge modpack, which Lodestone Launcher can't install from a server yet.",
+        ErrCurseForgeUnreachable = "CurseForge couldn't be reached, and the server has files from it. Check your connection, then try again.",
+        /// {detail} says what, in English.
+        ErrRefused = "The server sent files Lodestone Launcher won't install: {detail}",
+        ErrBaseFileMissing = "The server's modpack has no file {path}, which the server says comes from it. Ask the server's owner to update the modpack.",
+        /// A host whose Lodestone is too old to serve its servers' files this way.
+        ErrOlderCore = "The host runs an older Lodestone, which doesn't share its servers' files this way.",
+        /// {detail} says what went wrong, in English.
+        ErrInstallFiles = "Couldn't install the server's files: {detail}",
+        /// An instance that has the server's files, whose server stopped sharing them.
+        ErrStoppedSharing = "The server stopped sharing its files, so they couldn't be checked. Ask the server's owner.",
+        /// {needed} and {free} are sizes, like "24.5 GiB".
+        ErrNotEnoughSpace = "There isn't enough free space for the server's files: they need {needed}, and {free} is free.",
+        /// The instance was unlinked while the update waited for an answer.
+        ErrNotLinked = "This instance isn't linked to the server any more, so nothing was installed.",
 
         // ===== "Add host" and signing in =====
         /// How long the device's key lasts.
@@ -451,6 +515,11 @@ crate::i18n::messages! {
         ReadyBodySkipped = (
             "Minecraft {version} with {loader}, and the server's mods and configs. {count} file of the pack was left out. Press Play to join.",
             "Minecraft {version} with {loader}, and the server's mods and configs. {count} files of the pack were left out. Press Play to join."
+        ),
+        /// A new instance from a server's files, some of which the server couldn't share.
+        ReadyBodyMissing = (
+            "Minecraft {version} with {loader}, and the server's files. {count} file the server couldn't share is missing. Press Play to join.",
+            "Minecraft {version} with {loader}, and the server's files. {count} files the server couldn't share are missing. Press Play to join."
         ),
         /// Parts of DifferentModsBody's {changes}: mods added to the instance.
         ModsAdded = ("{count} added", "{count} added"),

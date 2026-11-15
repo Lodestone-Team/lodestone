@@ -221,7 +221,7 @@ fn has_path(paths: &BTreeMap<String, PackFile>, path: &str) -> bool {
 }
 
 /// The Modrinth project of a download, from its CDN URL.
-fn download_project(download: &PackDownload) -> Option<String> {
+pub(crate) fn download_project(download: &PackDownload) -> Option<String> {
     download
         .urls
         .iter()
@@ -294,6 +294,7 @@ pub fn plan(dirs: &InstanceDirs, pack: &PackInfo, record: ModpackRecord) -> AddP
                 sha1: download.sha1.clone(),
                 source: FileSource::Index,
                 project: download_project(download),
+                sha256: None,
             },
         );
     }
@@ -304,6 +305,7 @@ pub fn plan(dirs: &InstanceDirs, pack: &PackInfo, record: ModpackRecord) -> AddP
                 sha1: file.sha1.clone(),
                 source: FileSource::Override,
                 project: None,
+                sha256: None,
             },
         );
     }
@@ -497,10 +499,6 @@ pub fn remove(dirs: &InstanceDirs, id: &str) -> Result<RemoveOutcome, ModpackErr
 /// (paths on disk). An update of the instance's pack removes them, so the instance
 /// doesn't load two versions of a mod. The added pack's copies the user changed stay.
 pub fn superseded(dirs: &InstanceDirs, pack: &PackInfo) -> Vec<String> {
-    let packs = AddedPacks::load(&dirs.instance);
-    if packs.packs.is_empty() {
-        return Vec::new();
-    }
     let paths: BTreeSet<String> = pack
         .downloads
         .iter()
@@ -508,6 +506,20 @@ pub fn superseded(dirs: &InstanceDirs, pack: &PackInfo) -> Vec<String> {
         .chain(pack.overrides.iter().map(|o| o.path.clone()))
         .collect();
     let projects: BTreeSet<String> = pack.downloads.iter().filter_map(download_project).collect();
+    superseded_by(dirs, &paths, &projects)
+}
+
+/// [`superseded`] for the files at `paths` from the Modrinth `projects`: a server's
+/// image's files ([`crate::cores::image_sync::plan`]).
+pub fn superseded_by(
+    dirs: &InstanceDirs,
+    paths: &BTreeSet<String>,
+    projects: &BTreeSet<String>,
+) -> Vec<String> {
+    let packs = AddedPacks::load(&dirs.instance);
+    if packs.packs.is_empty() {
+        return Vec::new();
+    }
     let mut found = Vec::new();
     for added in &packs.packs {
         for (path, file) in &added.record.files {

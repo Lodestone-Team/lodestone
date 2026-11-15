@@ -883,6 +883,7 @@ fn a_restored_modpack_record_follows_the_snapshots_pack_version() {
                     sha1: sha1.into(),
                     source: FileSource::Override,
                     project: None,
+                    sha256: None,
                 },
             )
         })
@@ -941,6 +942,7 @@ fn a_pack_update_after_going_back_replaces_and_removes_only_the_packs_files() {
                         sha1: sha1.clone(),
                         source: FileSource::Override,
                         project: None,
+                        sha256: None,
                     },
                 )
             })

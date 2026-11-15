@@ -119,6 +119,28 @@ impl Backend for Fake {
                 codes::NOT_FOUND,
                 "No instance is called \"x\".",
             )),
+            // a server whose Lodestone is newer than this launcher's
+            "servers.join" => Err(ErrorObject::new(
+                codes::UPDATE_REQUIRED,
+                "Couldn't check the server's mods: This server runs a newer Lodestone. Update Lodestone Launcher to join it.",
+            )),
+            "servers.create_instance" if p["accept_advisory"] != true => Err(ErrorObject::new(
+                codes::UNTRUSTED_CORE,
+                "Home core isn't trusted for mods, so its mods need the user's decision. Nothing was installed.",
+            )
+            .with_data(json!({ "advisory": {
+                "core_name": "Home core", "server_name": "Smp", "update": false,
+                "uploaded": ["mods/own.jar"], "on_modrinth": [], "scripts": 0, "configs": 2,
+                "other": 0, "unchecked": false,
+                "summary": {
+                    "base": { "name": "Cozy Pack", "version": "1.0" }, "minecraft": "1.21.1",
+                    "loader": "Fabric 0.16.10", "added_mods": ["own.jar"],
+                    "server_only": ["mods/own.jar"],
+                    "missing": [{ "path": "mods/linked.jar", "reason": "symlink" }],
+                    "curseforge": []
+                }
+            } }))),
+            "servers.create_instance" => Ok(json!({ "instance": "smp", "notice": null })),
             "cores.add" => {
                 Ok(json!({ "core": { "id": "c1" }, "got_password": p["password"] == "s3cret" }))
             }
@@ -411,6 +433,28 @@ fn passwords_are_read_from_stdin() {
 }
 
 #[test]
+fn server_image_answers_reach_the_caller() {
+    let launcher = launcher();
+    // the server runs a newer Lodestone: its own code, nothing installed
+    let output = cli(&launcher.socket, &["servers", "join", "Smp"], None);
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(stderr_error(&output).code, codes::UPDATE_REQUIRED);
+    // what a server's image installs comes with the advisory, missing files too
+    let output = cli(
+        &launcher.socket,
+        &["servers", "create-instance", "Smp"],
+        None,
+    );
+    assert_eq!(output.status.code(), Some(6));
+    let error = stderr_error(&output);
+    assert_eq!(error.code, codes::UNTRUSTED_CORE);
+    let summary = &error.data.unwrap()["advisory"]["summary"];
+    assert_eq!(summary["missing"][0]["path"], "mods/linked.jar");
+    assert_eq!(summary["missing"][0]["reason"], "symlink");
+    assert_eq!(summary["base"]["name"], "Cozy Pack");
+}
+
+#[test]
 fn schema_needs_no_launcher() {
     let dir = tempfile::tempdir().unwrap();
     let output = cli(&dir.path().join("nothing.sock"), &["schema"], None);
@@ -423,6 +467,13 @@ fn schema_needs_no_launcher() {
             .unwrap()
             .iter()
             .any(|c| c["code"] == 5)
+    );
+    assert!(
+        schema["error_codes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|c| c["code"] == codes::UPDATE_REQUIRED && c["exit"] == 1)
     );
 }
 

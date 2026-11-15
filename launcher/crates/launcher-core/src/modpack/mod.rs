@@ -19,11 +19,13 @@
 
 pub mod addon;
 pub mod curseforge;
+pub mod fetch;
 pub mod import;
+pub mod merge;
 pub mod update;
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fs::File,
     io::{self, Read},
     path::{Path, PathBuf},
@@ -75,8 +77,19 @@ pub enum ModpackError {
     Instance(#[from] InstanceError),
     #[error(transparent)]
     Storage(#[from] StorageError),
+    /// A server's file couldn't be had ([`crate::cores::player_image`]).
+    #[error(transparent)]
+    Image(#[from] crate::cores::player_image::ImageError),
     #[error("cancelled")]
     Cancelled,
+    /// A file an update would overwrite or remove changed after the update was planned:
+    /// nothing was changed, and planning again takes the change in.
+    #[error("{path} changed after the update was worked out, so nothing was changed. Try again.")]
+    ChangedSincePlanned { path: String },
+    /// An update stopped part way and some of what it changed couldn't be put back: the
+    /// instance's files are partly the new version's.
+    #[error("{0}")]
+    NotUndone(String),
 }
 
 impl From<lodestone_minecraft::Error> for ModpackError {
@@ -121,6 +134,21 @@ pub struct PackFile {
     /// The Modrinth project of a downloaded file, from its CDN URL.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project: Option<String>,
+    /// The SHA-256 of the file, for a file a server's image placed (its entries all have
+    /// one; only Modrinth and CurseForge files have a SHA-1 too, which `sha1` holds, empty
+    /// otherwise). When set, the file is compared by it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
+}
+
+impl PackFile {
+    /// The hash the file is compared with: its SHA-256 when known, else its SHA-1.
+    pub fn digest(&self) -> merge::Digest {
+        match &self.sha256 {
+            Some(sha256) => merge::Digest::Sha256(sha256.clone()),
+            None => merge::Digest::Sha1(self.sha1.clone()),
+        }
+    }
 }
 
 /// `modpack.json`: the pack and version an instance was made from, and the files the pack
@@ -154,6 +182,12 @@ pub struct ModpackRecord {
     /// isn't on Modrinth or whose `.mrpack` hash isn't known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pack_sha512: Option<String>,
+    /// The files are a server's image's, placed from its client view
+    /// ([`crate::cores::image_sync`]): the pack named here (when there is one) is the
+    /// server's base, which the server updates, so the instance offers no Modrinth update
+    /// of its own ([`ModpackRecord::on_modrinth`]).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub from_server: bool,
 }
 
 /// The CurseForge file a modpack instance was made from.
@@ -197,9 +231,17 @@ impl ModpackRecord {
         self.curseforge.is_some()
     }
 
-    /// Whether the pack is on Modrinth, so it can be updated.
+    /// Whether the pack is on Modrinth and the instance updates it itself. A server's
+    /// instance doesn't: its server does.
     pub fn on_modrinth(&self) -> bool {
-        !self.project_id.is_empty() && !self.version_id.is_empty()
+        !self.from_server && self.modrinth_ids().is_some()
+    }
+
+    /// The Modrinth project and version of the pack, when it is on Modrinth: an instance's
+    /// own pack, or the base of a server's image.
+    pub fn modrinth_ids(&self) -> Option<(&str, &str)> {
+        (!self.project_id.is_empty() && !self.version_id.is_empty())
+            .then_some((self.project_id.as_str(), self.version_id.as_str()))
     }
 
     /// The record of `version` of `project`, without files.
@@ -220,6 +262,7 @@ impl ModpackRecord {
                 .and_then(crate::markdown::loadable_image),
             files: BTreeMap::new(),
             curseforge: None,
+            from_server: false,
             pack_sha512: import::pack_file(version)
                 .and_then(|file| file.hashes.sha512.as_deref())
                 .map(str::to_ascii_lowercase)
@@ -418,6 +461,17 @@ pub(crate) fn read_overrides<R: Read + io::Seek>(
     prefixes: &[&str],
     skipped: &mut Vec<SkippedPath>,
 ) -> Result<Vec<OverrideFile>, ModpackError> {
+    read_overrides_of(archive, prefixes, None, skipped)
+}
+
+/// [`read_overrides`], only of the files at the paths `only` (in the game folder, with
+/// `/`) when given: the rest are neither read nor hashed.
+pub(crate) fn read_overrides_of<R: Read + io::Seek>(
+    archive: &mut zip::ZipArchive<R>,
+    prefixes: &[&str],
+    only: Option<&BTreeSet<String>>,
+    skipped: &mut Vec<SkippedPath>,
+) -> Result<Vec<OverrideFile>, ModpackError> {
     // The overrides, later folders winning, each hashed.
     let mut overrides: BTreeMap<String, OverrideFile> = BTreeMap::new();
     for prefix in prefixes {
@@ -442,6 +496,9 @@ pub(crate) fn read_overrides<R: Read + io::Seek>(
                 }
             };
             if is_dir {
+                continue;
+            }
+            if only.is_some_and(|only| !only.contains(&slash_path(&relative_path))) {
                 continue;
             }
             if entry

@@ -17,10 +17,9 @@ use launcher_core::{
     content::{InstanceDirs, install::InstallProgress, provenance::Provenance},
     cores::{
         CoreClient, CoreError, PackFetch, ServerState,
+        image_sync::plan::PackChanges,
         link::{self, ServerLink},
-        parse_address,
-        sync::{self, PackChanges},
-        trust,
+        parse_address, sync, trust,
     },
     game::{
         download::{CancelToken, Downloader, recording_sleep},
@@ -485,6 +484,7 @@ fn imports_and_keeps_a_servers_client_pack_in_step() {
         server_uuid: server.uuid.clone(),
         server_name: server.name.clone(),
         pack_etag: etag,
+        view: None,
     };
     link::save_link(&dirs.instance, &link).unwrap();
     assert_eq!(

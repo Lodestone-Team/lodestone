@@ -670,6 +670,16 @@ impl ContentView {
             self.set_message(t(M::WaitForInstall), true, cx);
             return false;
         }
+        // another job writes its files (a server's update, a restore): it may put back
+        // `content.json` as it was before it, dropping this change
+        if self
+            .instance_id
+            .as_deref()
+            .is_some_and(|id| self.instances.read(cx).files_busy(id))
+        {
+            self.set_message(t(crate::i18n::InstancesMsg::FilesBusy), true, cx);
+            return false;
+        }
         true
     }
 
@@ -3096,6 +3106,7 @@ mod image_tests {
                     sha1: lodestone_minecraft::hash::sha1_of(&old_mod).unwrap(),
                     source: FileSource::Index,
                     project: None,
+                    sha256: None,
                 },
             )]
             .into_iter()

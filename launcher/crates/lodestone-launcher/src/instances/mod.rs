@@ -1805,6 +1805,12 @@ impl Instances {
         )));
     }
 
+    /// Where the base packs of servers' images are cached
+    /// (`launcher_core::cores::image_sync::base`).
+    pub fn server_pack_cache(&self) -> std::path::PathBuf {
+        self.data_dir.server_pack_cache_dir()
+    }
+
     pub fn content_downloader(&self) -> Downloader {
         self.content_downloader.clone()
     }

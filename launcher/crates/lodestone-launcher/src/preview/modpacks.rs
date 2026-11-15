@@ -49,6 +49,7 @@ fn record() -> ModpackRecord {
         files: BTreeMap::new(),
         curseforge: None,
         pack_sha512: None,
+        from_server: false,
     }
 }
 
@@ -195,6 +196,7 @@ pub fn fill(instance_dir: &Path) {
                 sha1: hash::sha1_of(&path).unwrap_or_default(),
                 source: FileSource::Index,
                 project: Some(project.into()),
+                sha256: None,
             },
         );
     }
@@ -210,6 +212,7 @@ pub fn fill(instance_dir: &Path) {
                 sha1: hash::sha1_of(&path).unwrap_or_default(),
                 source: FileSource::Override,
                 project: None,
+                sha256: None,
             },
         );
     }
@@ -247,6 +250,7 @@ pub fn fill_server(instance_dir: &Path, scene: &str) {
                 sha1: hash::sha1_of(&path).unwrap_or_default(),
                 source: FileSource::Index,
                 project: Some(project.into()),
+                sha256: None,
             },
         );
     }
@@ -258,6 +262,7 @@ pub fn fill_server(instance_dir: &Path, scene: &str) {
             sha1: hash::sha1_of(&path).unwrap_or_default(),
             source: FileSource::Override,
             project: None,
+            sha256: None,
         },
     );
     let _ = ModpackRecord {
@@ -274,6 +279,7 @@ pub fn fill_server(instance_dir: &Path, scene: &str) {
             server_uuid: "server".into(),
             server_name: SERVER.into(),
             pack_etag: None,
+            view: None,
         },
     );
     if scene == "modpack-added-settings" {
@@ -291,6 +297,7 @@ pub fn fill_server(instance_dir: &Path, scene: &str) {
                     sha1: hash::sha1_of(&path).unwrap_or_default(),
                     source: FileSource::Index,
                     project: Some(project.into()),
+                    sha256: None,
                 },
             );
         }

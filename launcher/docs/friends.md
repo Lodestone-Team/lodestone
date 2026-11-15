@@ -263,7 +263,10 @@ Friend info routes, for the instances shared with this friend only:
 - `GET /api/v1/public/instances/{uuid}/image` and
   `GET`/`HEAD /api/v1/public/instances/{uuid}/objects/{sha256}`: a shared instance's client view,
   deltas to it and the files only the server has (`docs/instance-images.md`, "Server to
-  player").
+  player"). The launcher reads them through the tunnel's forwarded port with an ordinary
+  streaming HTTP client (`cores::player_image`), never `lodestone_connect::info::get`,
+  which stops at 256 KiB; the `.mrpack` route is used only when `…/image` answers 404 (a
+  core older than milestone 3).
 
 In the launcher, a server joined this way is a `FriendServer` with the id
 `friend:<core fingerprint>/<instance uuid>`.
@@ -405,10 +408,11 @@ only friends reach it.
 
 - Trust stays per server, tied to its certificate (`trusted_as`). A friend's server
   starts untrusted.
-- For servers joined from the friend list, trust is also tied to the client pack: when
-  the pack changes, the launcher asks again before installing it, listing the mods it
-  adds or changes. Whoever changed the pack (the owner or another user of their core),
-  nothing new runs without asking.
+- For servers joined from the friend list, trust is also tied to the server's client view
+  (its id; a client pack's ETag for a core older than milestone 3, `trusted_pack`): when
+  the view changes, the launcher asks again before installing it, listing the mods it
+  adds or changes. Whoever changed the server's files (the owner or another user of their
+  core), nothing new runs without asking.
 - Retiring a core clears trust in its servers.
 
 ## Launcher storage

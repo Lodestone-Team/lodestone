@@ -98,7 +98,7 @@ impl Progress {
     }
 
     /// Takes back bytes counted for an attempt that failed.
-    fn sub_bytes(&self, bytes: u64) {
+    pub(crate) fn sub_bytes(&self, bytes: u64) {
         let mut done = self.bytes_done.load(Ordering::Relaxed);
         while let Err(actual) = self.bytes_done.compare_exchange_weak(
             done,
@@ -117,7 +117,16 @@ impl Progress {
 
 /// Cancels a download. Cloning shares the flag.
 #[derive(Clone, Debug, Default)]
-pub struct CancelToken(Arc<AtomicBool>);
+pub struct CancelToken(Arc<CancelState>);
+
+#[derive(Debug, Default)]
+struct CancelState {
+    cancelled: AtomicBool,
+    /// The tasks waiting in [`CancelToken::cancelled`], by the wait's number, woken on
+    /// [`CancelToken::cancel`].
+    waiting: Mutex<Vec<(u64, std::task::Waker)>>,
+    next: AtomicU64,
+}
 
 impl CancelToken {
     pub fn new() -> Self {
@@ -125,11 +134,64 @@ impl CancelToken {
     }
 
     pub fn cancel(&self) {
-        self.0.store(true, Ordering::SeqCst);
+        self.0.cancelled.store(true, Ordering::SeqCst);
+        let waiting =
+            std::mem::take(&mut *self.0.waiting.lock().unwrap_or_else(|e| e.into_inner()));
+        for (_, waker) in waiting {
+            waker.wake();
+        }
     }
 
     pub fn is_cancelled(&self) -> bool {
-        self.0.load(Ordering::SeqCst)
+        self.0.cancelled.load(Ordering::SeqCst)
+    }
+
+    /// Ends when the token is cancelled (at once if it is). Racing a wait against it
+    /// (for a server's answer, a read of its body, a `Retry-After`) ends the wait as soon
+    /// as the player presses Cancel, rather than when the wait's own limit runs out.
+    pub fn cancelled(&self) -> Cancelled {
+        Cancelled {
+            state: self.0.clone(),
+            id: self.0.next.fetch_add(1, Ordering::Relaxed),
+        }
+    }
+}
+
+/// The future [`CancelToken::cancelled`] returns.
+pub struct Cancelled {
+    state: Arc<CancelState>,
+    id: u64,
+}
+
+impl std::future::Future for Cancelled {
+    type Output = ();
+
+    fn poll(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<()> {
+        if self.state.cancelled.load(Ordering::SeqCst) {
+            return std::task::Poll::Ready(());
+        }
+        {
+            let mut waiting = self.state.waiting.lock().unwrap_or_else(|e| e.into_inner());
+            match waiting.iter_mut().find(|(id, _)| *id == self.id) {
+                Some((_, waker)) => waker.clone_from(cx.waker()),
+                None => waiting.push((self.id, cx.waker().clone())),
+            }
+        }
+        // cancelled between the first check and the registration
+        if self.state.cancelled.load(Ordering::SeqCst) {
+            return std::task::Poll::Ready(());
+        }
+        std::task::Poll::Pending
+    }
+}
+
+impl Drop for Cancelled {
+    fn drop(&mut self) {
+        let mut waiting = self.state.waiting.lock().unwrap_or_else(|e| e.into_inner());
+        waiting.retain(|(id, _)| *id != self.id);
     }
 }
 
@@ -368,6 +430,28 @@ impl Downloader {
         }
         if sha256_of(&item.dest).is_ok_and(|hash| hash.eq_ignore_ascii_case(sha256)) {
             progress.add_bytes(item.size.or(about).unwrap_or(0));
+            progress.file_done();
+            return Ok(());
+        }
+        self.download(item, Expected::Sha256(sha256), progress, cancel)
+            .await
+    }
+
+    /// [`Self::fetch_sha256`] for one of many files whose progress is counted together (a
+    /// server's Modrinth file without a published SHA-1): `progress` keeps its totals, and
+    /// `item.size` is checked.
+    pub(crate) async fn fetch_expecting_sha256(
+        &self,
+        item: &DownloadItem,
+        sha256: &str,
+        progress: &Progress,
+        cancel: &CancelToken,
+    ) -> Result<(), DownloadError> {
+        if cancel.is_cancelled() {
+            return Err(DownloadError::Cancelled);
+        }
+        if sha256_of(&item.dest).is_ok_and(|hash| hash.eq_ignore_ascii_case(sha256)) {
+            progress.add_bytes(item.size.unwrap_or(0));
             progress.file_done();
             return Ok(());
         }
@@ -871,6 +955,35 @@ pub fn recording_sleep() -> (Sleep, Arc<Mutex<Vec<Duration>>>) {
 
 #[cfg(test)]
 mod tests {
+    /// A wait raced against a token ends when it is cancelled, from another thread, and
+    /// a wait that ends first leaves nothing registered.
+    #[test]
+    fn cancelled_wakes_a_waiting_task() {
+        let token = super::CancelToken::new();
+        let waiter = token.clone();
+        let cancel = std::thread::spawn({
+            let token = token.clone();
+            move || {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+                token.cancel();
+            }
+        });
+        futures::executor::block_on(waiter.cancelled());
+        cancel.join().unwrap();
+        assert!(token.is_cancelled());
+        // at once once cancelled
+        futures::executor::block_on(token.cancelled());
+
+        let fresh = super::CancelToken::new();
+        let ready = futures::executor::block_on(futures::future::select(
+            Box::pin(fresh.cancelled()),
+            futures::future::ready(()),
+        ));
+        assert!(matches!(ready, futures::future::Either::Right(_)));
+        drop(ready);
+        assert!(fresh.0.waiting.lock().unwrap().is_empty());
+    }
+
     use super::*;
 
     #[test]

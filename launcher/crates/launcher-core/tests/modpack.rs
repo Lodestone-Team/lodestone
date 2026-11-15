@@ -757,47 +757,75 @@ fn an_update_that_stops_part_way_is_undone() {
         ]
     );
     let provenance_before = fs::read(dirs.instance.join("content.json")).unwrap();
-
-    // The last file can't be moved in: a folder is in its place since the plan was made
-    // (as when another program holds a file). Mods were removed and replaced by then.
-    fs::create_dir_all(game.join("config/z.toml/inside")).unwrap();
     let api = fixture.mock.client();
-    let err = block_on(update::apply(
-        Some(&api),
-        &downloader(),
-        &dirs,
-        &plan,
-        &versions.v2,
-        &InstallProgress::default(),
-        &CancelToken::new(),
-    ))
-    .unwrap_err();
-    assert!(err.to_string().contains("were put back"), "{err}");
-
+    let apply = || {
+        block_on(update::apply(
+            Some(&api),
+            &downloader(),
+            &dirs,
+            &plan,
+            &versions.v2,
+            &InstallProgress::default(),
+            &CancelToken::new(),
+        ))
+    };
     let read = |p: &str| fs::read_to_string(game.join(p)).unwrap();
-    assert_eq!(read("mods/a-1.jar"), "a one");
-    assert_eq!(read("mods/b-1.jar"), "b one");
-    assert_eq!(read("mods/c.jar"), "c one");
-    assert_eq!(read("mods/bundled.jar"), "bundled v1");
-    assert_eq!(read("config/x.toml"), "x v1");
-    assert_eq!(read("config/y.toml"), "y v1");
-    for added in [
-        "mods/a-2.jar",
-        "mods/b-2.jar",
-        "mods/d.jar",
-        "config/mine.toml",
-    ] {
-        assert!(!game.join(added).exists(), "{added} is left");
-    }
+    let rollback_copies = || {
+        fs::read_dir(dirs.instance.join("backups").join(update::BACKUPS_FOLDER))
+            .map(|entries| entries.count())
+            .unwrap_or(0)
+    };
+    let unchanged = || {
+        assert_eq!(read("mods/a-1.jar"), "a one");
+        assert_eq!(read("mods/b-1.jar"), "b one");
+        assert_eq!(read("mods/c.jar"), "c one");
+        assert_eq!(read("mods/bundled.jar"), "bundled v1");
+        assert_eq!(read("config/x.toml"), "x v1");
+        assert_eq!(read("config/y.toml"), "y v1");
+        for added in [
+            "mods/a-2.jar",
+            "mods/b-2.jar",
+            "mods/d.jar",
+            "config/mine.toml",
+        ] {
+            assert!(!game.join(added).exists(), "{added} is left");
+        }
+        assert_eq!(
+            ModpackRecord::load(&dirs.instance).unwrap().version_id,
+            "v1"
+        );
+        assert_eq!(
+            fs::read(dirs.instance.join("content.json")).unwrap(),
+            provenance_before
+        );
+        // nothing of the update's is kept: the instance is as it was
+        assert_eq!(rollback_copies(), 0);
+    };
+
+    // Something is at a path the plan writes since it was made (a folder, as when the
+    // player made a config there): the update stops before anything changes.
+    fs::create_dir_all(game.join("config/z.toml/inside")).unwrap();
+    let err = apply().unwrap_err();
+    assert!(
+        matches!(&err, ModpackError::ChangedSincePlanned { path } if path == "config/z.toml"),
+        "{err}"
+    );
+    unchanged();
     assert!(game.join("config/z.toml/inside").is_dir());
-    assert_eq!(
-        ModpackRecord::load(&dirs.instance).unwrap().version_id,
-        "v1"
-    );
-    assert_eq!(
-        fs::read(dirs.instance.join("content.json")).unwrap(),
-        provenance_before
-    );
+    fs::remove_dir_all(game.join("config/z.toml")).unwrap();
+
+    // A config can't be moved in (its folder refuses writes, as when another program holds
+    // a file): mods were removed and replaced by then, and are put back.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let config = game.join("config");
+        fs::set_permissions(&config, fs::Permissions::from_mode(0o555)).unwrap();
+        let err = apply().unwrap_err();
+        fs::set_permissions(&config, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(err.to_string().contains("were put back"), "{err}");
+        unchanged();
+    }
 }
 
 #[test]
