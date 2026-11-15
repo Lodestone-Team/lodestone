@@ -48,6 +48,7 @@ fn record() -> ModpackRecord {
         icon_url: Some(icon_url(PACK)),
         files: BTreeMap::new(),
         curseforge: None,
+        pack_sha512: None,
     }
 }
 

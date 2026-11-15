@@ -148,6 +148,12 @@ pub struct ModpackRecord {
     /// The CurseForge project and file, for a pack from CurseForge.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub curseforge: Option<CurseForgePack>,
+    /// The SHA-512 of the version's `.mrpack` as Modrinth lists it (128 lowercase hex
+    /// characters), for a pack on Modrinth: the instance's content images name the pack by
+    /// it (their `modrinth_pack` base, [`crate::images::context`]). `None` for a pack that
+    /// isn't on Modrinth or whose `.mrpack` hash isn't known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pack_sha512: Option<String>,
 }
 
 /// The CurseForge file a modpack instance was made from.
@@ -214,6 +220,10 @@ impl ModpackRecord {
                 .and_then(crate::markdown::loadable_image),
             files: BTreeMap::new(),
             curseforge: None,
+            pack_sha512: import::pack_file(version)
+                .and_then(|file| file.hashes.sha512.as_deref())
+                .map(str::to_ascii_lowercase)
+                .filter(|sha512| lodestone_image::hex::is_sha512(sha512)),
         }
     }
 }
@@ -561,6 +571,57 @@ pub(crate) fn slash_path(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn project() -> lodestone_minecraft::modrinth::ModrinthProject {
+        serde_json::from_value(serde_json::json!({
+            "id": "1KVo5zza", "slug": "fo", "project_type": "modpack", "title": "FO",
+            "description": "", "body": "", "icon_url": null, "categories": [],
+            "loaders": [], "game_versions": [], "downloads": 0, "followers": 0,
+            "client_side": "required", "server_side": "optional", "license_id": null,
+            "source_url": null, "issues_url": null, "wiki_url": null, "discord_url": null,
+            "gallery": [], "published": "", "updated": ""
+        }))
+        .unwrap()
+    }
+
+    fn version(sha512: Option<&str>) -> lodestone_minecraft::modrinth::RawVersion {
+        serde_json::from_value(serde_json::json!({
+            "id": "v1", "project_id": "1KVo5zza", "version_type": "release",
+            "files": [
+                { "hashes": { "sha1": "a" }, "url": "https://cdn.modrinth.com/x/readme.txt",
+                  "filename": "readme.txt", "primary": true },
+                { "hashes": { "sha512": sha512 }, "url": "https://cdn.modrinth.com/x/fo.mrpack",
+                  "filename": "FO.mrpack" }
+            ]
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn the_record_keeps_the_mrpack_sha512_when_it_is_one() {
+        let sha512 = "AB".repeat(64);
+        let record = ModpackRecord::from_modrinth(&project(), &version(Some(&sha512)));
+        // The .mrpack's, not the primary file's; lowercased.
+        assert_eq!(record.pack_sha512, Some("ab".repeat(64)));
+        let dir = tempfile::tempdir().unwrap();
+        record.save(dir.path()).unwrap();
+        assert_eq!(ModpackRecord::load(dir.path()), Some(record));
+        for odd in [None, Some("abc"), Some(&*"zz".repeat(64))] {
+            let record = ModpackRecord::from_modrinth(&project(), &version(odd));
+            assert_eq!(record.pack_sha512, None, "{odd:?}");
+        }
+        // A record written before the field reads as none, and none isn't written.
+        std::fs::write(
+            ModpackRecord::path(dir.path()),
+            br#"{"version":1,"project_id":"P","version_id":"V"}"#,
+        )
+        .unwrap();
+        let old = ModpackRecord::load(dir.path()).unwrap();
+        assert_eq!(old.pack_sha512, None);
+        old.save(dir.path()).unwrap();
+        let written = std::fs::read_to_string(ModpackRecord::path(dir.path())).unwrap();
+        assert!(!written.contains("pack_sha512"));
+    }
 
     #[test]
     fn an_instance_without_modpack_json_has_no_modpack_record() {
