@@ -2399,7 +2399,6 @@ impl Servers {
                 &dirs,
                 &plan,
                 &pack_path,
-                false,
                 &progress,
                 &CancelToken::new(),
             )

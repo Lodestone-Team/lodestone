@@ -399,7 +399,7 @@ pub fn save_changed(
 ) -> Result<Value, ErrorObject> {
     let saved = control
         .instances
-        .update(cx, |instances, cx| instances.save(&instance, cx));
+        .update(cx, |instances, cx| instances.save_settings(&instance, cx));
     failed(saved)?;
     let current = control.instance(&instance.id, cx)?;
     Ok(json!({

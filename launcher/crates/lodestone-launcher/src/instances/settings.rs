@@ -702,7 +702,7 @@ impl InstanceSettings {
         let running = self.instances.read(cx).is_active(&instance.id);
         let result = self.instances.update(cx, |instances, cx| {
             instances.undoable(&instance.id, cx, |instances, cx| {
-                instances.save(&instance, cx)
+                instances.save_settings(&instance, cx)
             })
         });
         // The form's unsaved steps become this one saved step.

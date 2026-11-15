@@ -342,7 +342,6 @@ fn an_added_pack_never_overrides_the_servers_mods() {
         &dirs,
         &plan2,
         &v2,
-        false,
         &InstallProgress::default(),
         &CancelToken::new(),
     ))

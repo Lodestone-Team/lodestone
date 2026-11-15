@@ -769,6 +769,16 @@ impl Instances {
         &self.settings.instance_defaults
     }
 
+    /// Whether a snapshot is taken after each play session of the instance `id`: its own
+    /// setting, else Settings › Instances' (off by default).
+    pub fn snapshot_after_play(&self, id: &str) -> bool {
+        self.list()
+            .iter()
+            .find(|instance| instance.id == id)
+            .and_then(|instance| instance.snapshots.and_then(|s| s.after_play))
+            .unwrap_or(self.settings.instance_defaults.snapshot_after_play)
+    }
+
     /// The Lodestone Host page's offer to download Lodestone Host was dismissed: it
     /// doesn't come back (Settings > Developer > "Reset first-time setup" shows it
     /// again).
@@ -1459,6 +1469,79 @@ impl Instances {
     }
 
     pub fn save(&mut self, instance: &Instance, cx: &mut Context<Self>) -> Result<(), String> {
+        self.save_now(instance, cx)
+    }
+
+    /// [`Self::save`] for a change the user makes to the instance's settings (the
+    /// Settings tab, Undo, the CLI): a new version of its loader takes a snapshot first
+    /// ([`Self::save_after_snapshot`]). A modpack's or server's update saves with
+    /// [`Self::save`]: it took its own snapshot before it changed files.
+    pub fn save_settings(
+        &mut self,
+        instance: &Instance,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        let before = self.store.get(&instance.id).ok();
+        if let Some(before) = before.filter(|before| loader_version_only(before, instance)) {
+            self.save_after_snapshot(before, instance.clone(), cx);
+            return Ok(());
+        }
+        self.save_now(instance, cx)
+    }
+
+    /// A new version of the instance's loader is a risky change (the next launch may
+    /// change the worlds and configs): a snapshot is taken first, in the background, and
+    /// `instance.json` saved once it is done. Meanwhile the list shows the new version,
+    /// and Play waits (the instance's files are busy). When something else saved the
+    /// instance meanwhile, this change is dropped rather than undo that one.
+    pub(crate) fn save_after_snapshot(
+        &mut self,
+        before: Instance,
+        instance: Instance,
+        cx: &mut Context<Self>,
+    ) {
+        let busy = self.mark_files_busy(&instance.id);
+        self.update_listed(instance.clone(), cx);
+        let images = self.images.clone();
+        let id = instance.id.clone();
+        let loader = instance.loader;
+        let version = instance.loader_version.clone().unwrap_or_default();
+        let taken = cx.background_spawn(async move {
+            let change = launcher_core::images::RiskyChange::LoaderChange {
+                loader,
+                version: &version,
+            };
+            images.before_risky_change(&id, change)
+        });
+        cx.spawn(async move |this, cx| {
+            if let Err(err) = taken.await {
+                log::warn!(
+                    "Couldn't take a snapshot of {} before its loader changed: {err}",
+                    instance.id
+                );
+            }
+            this.update(cx, |this, cx| {
+                let _busy = busy;
+                if this.store.get(&instance.id).ok().as_ref() != Some(&before) {
+                    log::warn!(
+                        "{} was saved while its snapshot was taken; the loader change is dropped",
+                        instance.id
+                    );
+                    this.reload(cx);
+                    return;
+                }
+                if let Err(err) = this.save_now(&instance, cx) {
+                    log::warn!("Couldn't save {}: {err}", instance.id);
+                    this.reload(cx);
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Saves `instance.json` at once, recording the change of content it makes.
+    fn save_now(&mut self, instance: &Instance, cx: &mut Context<Self>) -> Result<(), String> {
         let before = self.store.get(&instance.id).ok();
         let operation = before
             .as_ref()
@@ -2122,14 +2205,16 @@ impl Instances {
             || serde_json::json!({ "instance": id, "state": "idle" }),
         );
         self.take_notes(id);
+        let after_play = self.snapshot_after_play(id);
         if let Some(run) = self.runs.get_mut(id) {
             run.state = RunState::Idle;
             run.task = None;
             run.ticker = None;
             // However the run ended (the game exited or crashed, or it never started):
-            // what the game wrote joins the next content image, not one of its own.
+            // what the game wrote joins the next content image, not one of its own; and a
+            // snapshot follows when the instance asks for one after each session.
             if std::mem::take(&mut run.image_session) {
-                self.images.session_ended(id);
+                self.images.session_ended_with(id, after_play);
             }
         }
         cx.notify();
@@ -2885,6 +2970,16 @@ impl Ago {
             other => tr!(FormatMsg::PlayedAgo, ago = other.label()),
         }
     }
+}
+
+/// Whether `after` changes only the version of `before`'s loader (no other game change,
+/// and a loader there is): the change a snapshot comes before in [`Instances::save`].
+pub(crate) fn loader_version_only(before: &Instance, after: &Instance) -> bool {
+    before.loader != launcher_core::instances::Loader::None
+        && before.loader == after.loader
+        && before.game_version == after.game_version
+        && before.loader_version != after.loader_version
+        && after.loader_version.is_some()
 }
 
 #[cfg(test)]

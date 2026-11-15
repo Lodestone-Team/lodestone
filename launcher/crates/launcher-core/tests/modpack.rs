@@ -23,7 +23,6 @@ use launcher_core::{
         import::{self, ImportOptions},
         update,
     },
-    worlds,
 };
 use modrinth::{FakeVersion, ModrinthMock};
 use serde_json::{Value, json};
@@ -662,7 +661,6 @@ fn an_update_keeps_the_users_files() {
         &dirs,
         &plan,
         &versions.v2,
-        true,
         &InstallProgress::default(),
         &CancelToken::new(),
     ))
@@ -702,8 +700,8 @@ fn an_update_keeps_the_users_files() {
         );
     }
     assert!(!snapshot.contains(&"minecraft/mods/mine.jar".to_string()));
-    assert_eq!(outcome.world_backups.len(), 1);
-    assert_eq!(worlds::backups(&dirs, "World").len(), 1);
+    // Worlds are left to the snapshot taken before the update (images), not copied here.
+    assert!(!snapshot.iter().any(|path| path.contains("saves")));
 
     let provenance = Provenance::load(&dirs.instance);
     assert!(provenance.get(ContentKind::Mod, "a-1.jar").is_none());
@@ -770,7 +768,6 @@ fn an_update_that_stops_part_way_is_undone() {
         &dirs,
         &plan,
         &versions.v2,
-        false,
         &InstallProgress::default(),
         &CancelToken::new(),
     ))

@@ -514,11 +514,17 @@ impl Instances {
                     .map_err(|err| UndoError::Refused(err.to_string()))?;
             }
         }
-        let operation = self
-            .store
-            .get(id)
-            .ok()
-            .and_then(|saved| self.settings_operation(&saved, &instance));
+        let saved = self.store.get(id).ok();
+        if let Some(saved) = saved
+            .clone()
+            .filter(|saved| super::loader_version_only(saved, &instance))
+        {
+            // A new loader version: a snapshot first, then the save.
+            self.forget_background(id, cx);
+            self.save_after_snapshot(saved, instance, cx);
+            return Ok(());
+        }
+        let operation = saved.and_then(|saved| self.settings_operation(&saved, &instance));
         self.store
             .save(&instance)
             .map_err(|err| UndoError::Refused(err.to_string()))?;

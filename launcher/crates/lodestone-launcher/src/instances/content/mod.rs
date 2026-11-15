@@ -991,14 +991,16 @@ impl ContentView {
 
     /// Installs `requests` one after the other in the background, with progress.
     pub fn install(&mut self, requests: Vec<InstallRequest>, cx: &mut Context<Self>) {
-        self.install_then(requests, Vec::new(), cx);
+        self.install_then(requests, Vec::new(), None, cx);
     }
 
     /// Like [`Self::install`], then the CurseForge requests `queued_cf` once they are in.
+    /// An update (`updating`, the titles it updates) takes a snapshot first.
     fn install_then(
         &mut self,
         requests: Vec<InstallRequest>,
         queued_cf: Vec<CfInstallRequest>,
+        updating: Option<Vec<String>>,
         cx: &mut Context<Self>,
     ) {
         if requests.is_empty() || !self.can_change(cx) {
@@ -1018,6 +1020,9 @@ impl ContentView {
             let progress = progress.clone();
             let cancel = cancel.clone();
             cx.background_spawn(async move {
+                if let Some(titles) = &updating {
+                    snapshot_before_update(&images, &image_id, titles);
+                }
                 // The whole job (Update all) is one operation: what each install did, and
                 // what one that failed part way placed, is one image once it ends.
                 let mut operation = images.begin(&image_id, "");
@@ -1191,8 +1196,16 @@ impl ContentView {
     pub fn update_all(&mut self, kind: ContentKind, cx: &mut Context<Self>) {
         // Modrinth's first, then CurseForge's: one install runs at a time.
         let cf_requests = self.cf_update_requests(kind);
+        let mut titles: Vec<String> = self
+            .section(kind)
+            .updates
+            .keys()
+            .map(|name| launcher_core::content::enabled_name(name))
+            .collect();
+        titles.sort();
+        titles.extend(self.cf_update_titles(kind));
         if self.section(kind).updates.is_empty() {
-            self.cf_install(cf_requests, cx);
+            self.cf_install_with(cf_requests, Some(titles), cx);
             return;
         }
         let mut versions: Vec<RawVersion> = self.section(kind).updates.values().cloned().collect();
@@ -1207,7 +1220,7 @@ impl ContentView {
                 force: false,
             })
             .collect();
-        self.install_then(requests, cf_requests, cx);
+        self.install_then(requests, cf_requests, Some(titles), cx);
     }
 
     pub fn update_one(&mut self, kind: ContentKind, file_name: &str, cx: &mut Context<Self>) {
@@ -1216,7 +1229,8 @@ impl ContentView {
             return;
         }
         if let Some(version) = self.section(kind).updates.get(file_name).cloned() {
-            self.install(
+            let title = vec![launcher_core::content::enabled_name(file_name)];
+            self.install_then(
                 vec![InstallRequest {
                     kind,
                     version,
@@ -1224,6 +1238,8 @@ impl ContentView {
                     install_dependencies: true,
                     force: false,
                 }],
+                Vec::new(),
+                Some(title),
                 cx,
             );
         }
@@ -2229,6 +2245,19 @@ pub(crate) fn outcome_message(outcome: &InstallOutcome) -> String {
     message
 }
 
+/// The snapshot before content updates (`titles` are what updates), in the update's
+/// background task: a failure is logged and the update goes on.
+pub(crate) fn snapshot_before_update(
+    images: &launcher_core::images::Images,
+    instance: &str,
+    titles: &[String],
+) {
+    let change = launcher_core::images::RiskyChange::ContentUpdate { titles };
+    if let Err(err) = images.before_risky_change(instance, change) {
+        log::warn!("Couldn't take a snapshot of {instance} before the update: {err}");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3075,7 +3104,7 @@ mod image_tests {
             pack: Arc::new(pack),
         };
         instances.update(&mut cx, |instances, cx| {
-            instances.apply_modpack_update(prompt, false, cx)
+            instances.apply_modpack_update(prompt, cx)
         });
         wait_until(&mut cx, |cx| {
             instances.read_with(cx, |instances, _| {

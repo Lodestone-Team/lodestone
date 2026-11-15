@@ -609,3 +609,37 @@ fn storage_clean_up_keeps_what_the_user_took() {
     assert!(!left.contains(&auto.id));
     s.nothing_missing();
 }
+
+#[test]
+fn a_snapshot_before_a_loader_change_links_the_content_before_it() {
+    let s = Setup::new();
+    s.write("mods/a.jar", b"a mod");
+    s.world("World", b"r");
+    let created = s.images.record_now(s.id(), "Created").unwrap().unwrap();
+    // The app takes the snapshot first, then saves instance.json.
+    let record = s
+        .images
+        .before_risky_change(
+            s.id(),
+            RiskyChange::LoaderChange {
+                loader: crate::instances::Loader::Fabric,
+                version: "0.17.0",
+            },
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(record.name, "Before changing Fabric to 0.17.0");
+    assert_eq!(record.content.as_deref(), Some(created.id.as_str()));
+    let mut instance = s.store.get(s.id()).unwrap();
+    instance.loader_version = Some("0.17.0".into());
+    s.store.save(&instance).unwrap();
+    let op = s.images.begin(s.id(), "Changed Fabric to 0.17.0");
+    op.succeed();
+    let after = s.images.flush(s.id()).unwrap().unwrap();
+    assert_ne!(after.id, created.id);
+    assert_eq!(
+        s.image(&created.id).game.loader_version.as_deref(),
+        Some("0.16.10"),
+        "the linked content still runs the old loader"
+    );
+}

@@ -287,6 +287,17 @@ impl ContentView {
     /// Installs `requests` one after the other in the background, with progress. Files
     /// the user has to download themselves end up in the blocked card.
     pub fn cf_install(&mut self, requests: Vec<CfInstallRequest>, cx: &mut Context<Self>) {
+        self.cf_install_with(requests, None, cx);
+    }
+
+    /// [`Self::cf_install`], first taking a snapshot named after the `updating` titles when
+    /// it updates content (a risky change: [`launcher_core::images::RiskyChange`]).
+    pub(super) fn cf_install_with(
+        &mut self,
+        requests: Vec<CfInstallRequest>,
+        updating: Option<Vec<String>>,
+        cx: &mut Context<Self>,
+    ) {
         if requests.is_empty() || !self.can_change(cx) {
             return;
         }
@@ -311,6 +322,9 @@ impl ContentView {
                 // The tab may not have read the instance's shader mod yet: "Update all"
                 // goes on here when its instance is shown again, as the tab starts over.
                 target.shader_loader = listing::shader_state(&dirs)?.loader;
+                if let Some(titles) = &updating {
+                    super::snapshot_before_update(&images, &image_id, titles);
+                }
                 // The whole job is one operation, as for Modrinth's.
                 let mut operation = images.begin(&image_id, "");
                 let result = async {
@@ -438,7 +452,8 @@ impl ContentView {
     /// allows it, else through the blocked card.
     pub fn cf_update_one(&mut self, kind: ContentKind, file_name: &str, cx: &mut Context<Self>) {
         if let Some(update) = self.section(kind).cf_updates.get(file_name).cloned() {
-            self.cf_install(
+            let title = vec![launcher_core::content::enabled_name(file_name)];
+            self.cf_install_with(
                 vec![CfInstallRequest {
                     kind,
                     file: update.file,
@@ -446,9 +461,22 @@ impl ContentView {
                     install_dependencies: true,
                     force: false,
                 }],
+                Some(title),
                 cx,
             );
         }
+    }
+
+    /// The files the last check found CurseForge updates for, by their names when on.
+    pub(super) fn cf_update_titles(&self, kind: ContentKind) -> Vec<String> {
+        let mut titles: Vec<String> = self
+            .section(kind)
+            .cf_updates
+            .keys()
+            .map(|name| launcher_core::content::enabled_name(name))
+            .collect();
+        titles.sort();
+        titles
     }
 
     /// The CurseForge requests for every CurseForge update the last check found.

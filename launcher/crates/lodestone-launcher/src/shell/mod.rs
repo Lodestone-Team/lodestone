@@ -252,7 +252,6 @@ enum Modal {
     /// What a modpack update will do, before it does it.
     ModpackUpdate {
         prompt: Box<UpdatePrompt>,
-        backup_worlds: bool,
         focus: FocusHandle,
     },
     /// The disclosure before "Sign in as the Minecraft Launcher" is turned on.
@@ -845,7 +844,6 @@ impl LauncherShell {
         self.open_modal(
             Modal::ModpackUpdate {
                 prompt: Box::new(prompt),
-                backup_worlds: true,
                 focus,
             },
             cx,
@@ -864,7 +862,6 @@ impl LauncherShell {
     fn render_modpack_update(
         &self,
         prompt: &UpdatePrompt,
-        backup_worlds: bool,
         focus: FocusHandle,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -1024,49 +1021,20 @@ impl LauncherShell {
                         .text_size(theme::text_size(text::SMALL))
                         .child(t(M::ModpackUpdateSafety)),
                 )
-                .child(
-                    div()
-                        .flex()
-                        .flex_row()
-                        .items_center()
-                        .gap_2()
-                        .child(
-                            crate::components::Toggle::new("modpack-update-backup", backup_worlds)
-                                .label(t(M::BackUpEveryWorld))
-                                .on_change(cx.listener(|this, value: &bool, _, cx| {
-                                    if let Some(Modal::ModpackUpdate { backup_worlds, .. }) =
-                                        this.modal.current_mut()
-                                    {
-                                        *backup_worlds = *value;
-                                    }
-                                    cx.notify();
-                                })),
-                        )
-                        .child(
-                            div()
-                                .text_size(theme::text_size(text::SMALL))
-                                .font_weight(weights::BOLD.into())
-                                .min_w_0()
-                                .child(t(M::BackUpEveryWorld)),
-                        ),
-                ),
+
         )
         .footer(
             Button::new("confirm-modpack-update", t(CommonMsg::Update))
                 .variant(ButtonVariant::Primary)
                 .on_click(cx.listener(|this, _, _, cx| {
                     let update = match this.modal.close(cx) {
-                        Some(Modal::ModpackUpdate {
-                            prompt,
-                            backup_worlds,
-                            ..
-                        }) => Some(((**prompt).clone(), *backup_worlds)),
+                        Some(Modal::ModpackUpdate { prompt, .. }) => Some((**prompt).clone()),
                         _ => None,
                     };
                     this.show_queued_modal_soon(cx);
-                    if let Some((prompt, backup_worlds)) = update {
+                    if let Some(prompt) = update {
                         this.instances.update(cx, |instances, cx| {
-                            instances.apply_modpack_update(prompt, backup_worlds, cx)
+                            instances.apply_modpack_update(prompt, cx)
                         });
                     }
                 })),
@@ -2678,11 +2646,9 @@ impl LauncherShell {
             Modal::DeleteWorld { .. } | Modal::ReplaceWorld { .. } => {
                 self.render_world_dialog(modal, cx)?
             }
-            Modal::ModpackUpdate {
-                prompt,
-                backup_worlds,
-                focus,
-            } => self.render_modpack_update(prompt, *backup_worlds, focus.clone(), cx),
+            Modal::ModpackUpdate { prompt, focus } => {
+                self.render_modpack_update(prompt, focus.clone(), cx)
+            }
             Modal::EnableLauncherIdentity { focus } => {
                 self.render_enable_launcher_identity(focus.clone(), cx)
             }

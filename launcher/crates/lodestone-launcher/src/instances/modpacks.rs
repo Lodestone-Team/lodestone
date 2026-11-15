@@ -16,7 +16,7 @@ use launcher_core::{
         share::{self, ShareCode, ShareOutcome},
     },
     game::{download::CancelToken, install::Installer, loaders::LoaderKind},
-    images::labels,
+    images::{RiskyChange, labels},
     instances::{Instance, Loader},
     modpack::{
         self, CurseForgePack, ModpackError, ModpackRecord, PackInfo,
@@ -882,12 +882,7 @@ impl Instances {
     }
 
     /// Applies a planned update, in the background.
-    pub fn apply_modpack_update(
-        &mut self,
-        prompt: UpdatePrompt,
-        backup_worlds: bool,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn apply_modpack_update(&mut self, prompt: UpdatePrompt, cx: &mut Context<Self>) {
         let id = prompt.instance_id.clone();
         if self.is_active(&id) || self.modpack_updates.contains_key(&id) {
             self.discard_update(&prompt);
@@ -921,13 +916,16 @@ impl Instances {
             let cancel = cancel.clone();
             let prompt = prompt.clone();
             cx.background_spawn(async move {
-                // Every file the update replaces is in an image first.
-                if let Err(err) =
-                    images.record_before_change(&image_id, labels::BEFORE_MODPACK_UPDATE)
-                {
-                    log::warn!("Couldn't record the content of {image_id}: {err}");
-                }
+                // Every file the update replaces is in an image first: a snapshot of the
+                // worlds, linked to a content image of what the game wrote too.
                 let record = &prompt.plan.record;
+                let change = RiskyChange::ModpackUpdate {
+                    title: &record.title,
+                    version: &record.version_number,
+                };
+                if let Err(err) = images.before_risky_change(&image_id, change) {
+                    log::warn!("Couldn't take a snapshot of {image_id} before the update: {err}");
+                }
                 let operation = images.begin(
                     &image_id,
                     labels::pack_updated(&record.title, &record.version_number),
@@ -938,7 +936,6 @@ impl Instances {
                     &dirs,
                     &prompt.plan,
                     &prompt.pack_path,
-                    backup_worlds,
                     &progress,
                     &cancel,
                 )
@@ -971,23 +968,13 @@ impl Instances {
                         // files changed either way: a failed save is still recorded.
                         operation.succeed();
                         let message = match saved {
-                            Ok(()) => {
-                                let updated = tr!(
-                                    M::ModpackUpdatedMessage,
-                                    name = prompt.instance_name,
-                                    pack = plan.record.title,
-                                    version = plan.record.version_number,
-                                    path = outcome.snapshot.display(),
-                                );
-                                match outcome.world_backups.len() {
-                                    0 => updated,
-                                    n => tr!(
-                                        M::TwoSentences,
-                                        first = updated,
-                                        second = trn!(P::WorldsBackedUp, n)
-                                    ),
-                                }
-                            }
+                            Ok(()) => tr!(
+                                M::ModpackUpdatedMessage,
+                                name = prompt.instance_name,
+                                pack = plan.record.title,
+                                version = plan.record.version_number,
+                                path = outcome.snapshot.display(),
+                            ),
                             Err(err) => tr!(M::UpdatedButNotSaved, error = err),
                         };
                         cx.emit(InstancesEvent::LoaderChanged(id.clone()));
