@@ -33,6 +33,10 @@ pub const FILE: &str = "content-state.json";
 /// A state file is small; one larger than this is damaged.
 const MAX_BYTES: u64 = 64 << 20;
 
+/// Content files by disk path (relative to the instance folder, `minecraft/…`): size and
+/// modification time in unix nanoseconds.
+pub type Baseline = BTreeMap<String, (u64, i64)>;
+
 /// See the module.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContentState {
@@ -42,10 +46,9 @@ pub struct ContentState {
     /// When `current` was recorded, unix seconds.
     #[serde(default)]
     pub recorded: i64,
-    /// Content files by disk path (relative to the instance folder, `minecraft/…`): size
-    /// and modification time in unix nanoseconds.
+    /// The content files as of the last record or session end.
     #[serde(default)]
-    pub baseline: BTreeMap<String, (u64, i64)>,
+    pub baseline: Baseline,
     /// The [`super::scope::SCOPE_RULES`] the baseline was taken under; another version's
     /// baseline is retaken rather than trusted.
     #[serde(default)]

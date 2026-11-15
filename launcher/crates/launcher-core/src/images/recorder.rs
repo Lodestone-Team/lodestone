@@ -40,7 +40,6 @@
 //! while a "Find it for me" search is saved (it renames mods on purpose), and records it
 //! once that ends.
 
-use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
@@ -53,7 +52,7 @@ use lodestone_image::{DiskLayout, Image, Kind, Producer};
 
 use super::context::InstanceContext;
 use super::scope::{SCOPE_RULES, content_filter};
-use super::state::{self, ContentState};
+use super::state::{self, Baseline, ContentState};
 use super::{ImageError, Images, Slot, Timing, WeakImages, Worker};
 
 /// The stat cache content records keep.
@@ -455,7 +454,7 @@ impl Images {
         ctx: &InstanceContext,
         state: &ContentState,
         label: Option<String>,
-    ) -> Result<(Image, Snapshot, BTreeMap<String, (u64, i64)>), ImageError> {
+    ) -> Result<(Image, Snapshot, Baseline), ImageError> {
         let store = self.store();
         let cache = store.load_stat_cache_named(&ctx.id, CONTENT_STAT_CACHE);
         let options = SnapshotOptions {

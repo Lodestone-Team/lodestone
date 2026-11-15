@@ -26,7 +26,6 @@
 //! runs before a modpack update (and, in milestone 4's second half, before a server's
 //! update is applied), so every file the change replaces is in an image.
 
-use std::collections::BTreeMap;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
@@ -38,7 +37,7 @@ use super::context::InstanceContext;
 use super::labels::{INITIAL_LABEL, OUTSIDE_LABEL};
 use super::recorder::Recorded;
 use super::scope::{SCOPE_RULES, content_filter};
-use super::state::{self, ContentState};
+use super::state::{self, Baseline, ContentState};
 use super::{ImageError, Images, Slot};
 
 /// The longest the check before a launch waits for a record in progress.
@@ -228,10 +227,7 @@ impl Images {
     }
 
     /// Every content file's size and modification time, by disk path, without reading any.
-    pub(crate) fn stat_content(
-        &self,
-        ctx: &InstanceContext,
-    ) -> Result<BTreeMap<String, (u64, i64)>, ImageError> {
+    pub(crate) fn stat_content(&self, ctx: &InstanceContext) -> Result<Baseline, ImageError> {
         let options = SnapshotOptions {
             cache: None,
             filter: Some(&content_filter),
