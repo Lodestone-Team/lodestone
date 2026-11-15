@@ -458,7 +458,7 @@ impl Instances {
                 let outcome =
                     share::install(&api, &downloader, &dirs, &target, &code, &progress, &cancel)
                         .await;
-                operation.finish(&outcome);
+                operation.finish_partly(&outcome);
                 outcome
             })
         };
@@ -645,11 +645,13 @@ impl Instances {
                 } else {
                     record.title.clone()
                 };
-                super::record_created(
-                    &images,
-                    &instance.id,
-                    &labels::installed_pack(&title, &record.version_number),
-                );
+                // A share code changes the instance next: its first image comes first.
+                let label = labels::installed_pack(&title, &record.version_number);
+                if source.share.is_some() {
+                    super::record_created(&images, &instance.id, &label);
+                } else {
+                    super::record_created_later(&images, &instance.id, &label);
+                }
                 // A share code's changes, on top of the pack it is based on.
                 let shared = match &source.share {
                     Some(code) => {
@@ -667,7 +669,7 @@ impl Instances {
                         )
                         .await
                         .map_err(|err| err.to_string());
-                        operation.finish(&outcome);
+                        operation.finish_partly(&outcome);
                         Some(outcome)
                     }
                     None => None,
@@ -967,12 +969,16 @@ impl Instances {
                             about: About::Instance(id.clone()),
                         });
                     }
-                    Err(ModpackError::Cancelled) => {}
-                    Err(err) => cx.emit(InstancesEvent::LaunchFailed {
-                        title: t(M::CouldntUpdateModpack).into(),
-                        message: err.to_string().into(),
-                        about: About::Instance(id.clone()),
-                    }),
+                    // What a failed or cancelled update changed is its own image.
+                    Err(ModpackError::Cancelled) => operation.succeed_part_way(),
+                    Err(err) => {
+                        operation.succeed_part_way();
+                        cx.emit(InstancesEvent::LaunchFailed {
+                            title: t(M::CouldntUpdateModpack).into(),
+                            message: err.to_string().into(),
+                            about: About::Instance(id.clone()),
+                        })
+                    }
                 }
                 cx.notify();
             })
@@ -1162,7 +1168,7 @@ impl Instances {
                     &cancel,
                 )
                 .await;
-                operation.finish(&result);
+                operation.finish_partly(&result);
                 if !prompt.keep_pack {
                     let _ = std::fs::remove_file(&prompt.pack_path);
                 }
@@ -1248,7 +1254,7 @@ impl Instances {
             .unwrap_or_default();
         let operation = self.images().begin(id, labels::addon_removed(&title));
         let removed = addon::remove(&dirs, pack_id);
-        operation.finish(&removed);
+        operation.finish_partly(&removed);
         self.content_changed(id);
         let result = match &removed {
             Ok(outcome) => Ok(outcome.clone()),

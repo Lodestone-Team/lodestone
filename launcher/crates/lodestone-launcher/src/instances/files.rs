@@ -118,7 +118,7 @@ impl Instances {
             FileOp::Duplicate,
             move || {
                 let copy = store.duplicate(&source).map_err(|err| err.to_string())?;
-                super::record_created(&images, &copy.id, &label);
+                super::record_created_later(&images, &copy.id, &label);
                 Ok(copy)
             },
             |this, result, cx| {

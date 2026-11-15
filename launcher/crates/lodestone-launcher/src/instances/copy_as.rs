@@ -132,7 +132,7 @@ impl Instances {
                 )
                 .await;
                 if let Ok(outcome) = &outcome {
-                    super::record_created(
+                    super::record_created_later(
                         &images,
                         &outcome.instance.id,
                         &launcher_core::images::labels::copied(&source.name),

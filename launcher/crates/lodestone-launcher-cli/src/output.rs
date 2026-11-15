@@ -30,8 +30,9 @@ pub fn history(value: &Value) {
 }
 
 /// See [`history`]: `2026-11-14 10:02  Added JEI  (42 files, fabric 0.16.10 on 1.21.1)
-/// current`. Labels come from images other computers may have made, so their control and
-/// invisible characters are written visibly (`display_text`).
+/// current`. Labels come from images other computers may have made: the Launcher sends
+/// them with control and invisible characters written visibly (`label_shown`,
+/// `game_shown`).
 pub fn history_text(value: &Value) -> String {
     let images = value["images"].as_array().cloned().unwrap_or_default();
     if images.is_empty() {
@@ -40,22 +41,18 @@ pub fn history_text(value: &Value) -> String {
     let mut text = String::new();
     for image in &images {
         let s = |key: &str| image[key].as_str().unwrap_or_default();
-        let label = lodestone_image::display_text(s("label")).into_owned();
+        let label = s("label_shown").to_string();
         let label = if label.is_empty() {
             "(no label)".into()
         } else {
             label
-        };
-        let game = match image["loader_version"].as_str() {
-            Some(version) => format!("{} {version} on {}", s("loader"), s("minecraft")),
-            None => format!("{} {}", s("loader"), s("minecraft")),
         };
         let files = image["files"].as_u64().unwrap_or(0);
         text.push_str(&format!(
             "{}  {label}  ({files} {}, {})",
             utc_minute(image["created"].as_i64().unwrap_or(0)),
             if files == 1 { "file" } else { "files" },
-            lodestone_image::display_text(&game),
+            s("game_shown"),
         ));
         if image["current"].as_bool() == Some(true) {
             text.push_str("  current");

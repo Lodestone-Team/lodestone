@@ -108,7 +108,9 @@ impl Images {
             why
         };
         let Some(_record) = lock_within(&slot.record, self.timing().gate) else {
-            return unchecked(Checked::Skipped("a record of the instance is still running"));
+            return unchecked(Checked::Skipped(
+                "a record of the instance is still running",
+            ));
         };
         let Ok(_writing) = self.enter() else {
             return unchecked(Checked::Skipped("the image store is paused"));

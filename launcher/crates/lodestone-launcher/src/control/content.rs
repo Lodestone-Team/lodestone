@@ -229,8 +229,9 @@ pub fn list(call: Call, cx: &mut App) -> Reply {
 }
 
 /// The instance's content images, newest first (`content.history`): what each was
-/// recorded for, when, its game and pack, and how many files it lists. Labels are as
-/// recorded; whoever shows them writes their control characters visibly.
+/// recorded for, when, its game and pack, and how many files it lists. `label` is as
+/// recorded; `label_shown` and `game_shown` have control and invisible characters
+/// written visibly, for showing.
 pub fn history(call: Call, cx: &mut App) -> Reply {
     let control = call.control.clone();
     let instance = tri!(control.instance_param(&call, cx));
@@ -248,6 +249,8 @@ pub fn history(call: Call, cx: &mut App) -> Reply {
                 "id": image.id,
                 "created": image.created,
                 "label": image.label,
+                "label_shown": image.label_shown(),
+                "game_shown": image.game_shown(),
                 "parent": image.parent,
                 "current": image.current,
                 "minecraft": image.game.minecraft,
@@ -455,34 +458,49 @@ async fn run_requests(
             api_error(codes::FAILED, text)
         }
     };
+    // The whole job is one operation: what each install did, and what one that failed
+    // part way placed, is one image once it ends.
+    let mut operation = images.begin(&id, "");
     let mut total = InstallOutcome::default();
-    for request in requests {
-        let kind = request.kind;
-        progress.set_label(format!(
-            "Checking {}",
-            request
-                .project
-                .as_ref()
-                .map_or("the dependencies", |p| p.title.as_str())
-        ));
-        let plan = install::plan(&api, &dirs, &target, request)
-            .await
-            .map_err(content_error)?;
-        let operation = images.begin(&id, "");
-        let outcome = install::execute(&api, &downloader, &dirs, &target, plan, &progress, &cancel)
-            .await
-            .map_err(content_error)?;
-        if let Some(label) = labels::installed(&outcome, kind) {
-            operation.succeed_as(label);
+    let result = async {
+        for request in requests {
+            let kind = request.kind;
+            progress.set_label(format!(
+                "Checking {}",
+                request
+                    .project
+                    .as_ref()
+                    .map_or("the dependencies", |p| p.title.as_str())
+            ));
+            let plan = install::plan(&api, &dirs, &target, request)
+                .await
+                .map_err(content_error)?;
+            let title = plan.files.first().map(|f| f.title()).unwrap_or_default();
+            let outcome =
+                match install::execute(&api, &downloader, &dirs, &target, plan, &progress, &cancel)
+                    .await
+                {
+                    Ok(outcome) => outcome,
+                    Err(err) => {
+                        operation.note(labels::partly_installed(&title));
+                        return Err(content_error(err));
+                    }
+                };
+            if let Some(label) = labels::installed(&outcome, kind) {
+                operation.note(label);
+            }
+            total.installed.extend(outcome.installed);
+            total.removed.extend(outcome.removed);
+            total.skipped.extend(outcome.skipped);
+            if kind == ContentKind::Mod {
+                target.shader_loader = listing::shader_state(&dirs).map_err(content_error)?.loader;
+            }
         }
-        total.installed.extend(outcome.installed);
-        total.removed.extend(outcome.removed);
-        total.skipped.extend(outcome.skipped);
-        if kind == ContentKind::Mod {
-            target.shader_loader = listing::shader_state(&dirs).map_err(content_error)?.loader;
-        }
+        Ok(())
     }
-    Ok(total)
+    .await;
+    operation.succeed();
+    result.map(|()| total)
 }
 
 fn outcome_json(outcome: &InstallOutcome) -> Value {
@@ -1938,7 +1956,7 @@ pub fn import_code(call: Call, cx: &mut App) -> Reply {
                 let outcome =
                     share::install(&api, &downloader, &dirs, &target, &code, &progress, &cancel)
                         .await;
-                operation.finish(&outcome);
+                operation.finish_partly(&outcome);
                 outcome
             })
             .await;

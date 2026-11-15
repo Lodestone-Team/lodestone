@@ -325,7 +325,7 @@ pub fn revert(call: Call, cx: &mut App) -> Reply {
             let reverted = store
                 .revert(&snapshot, &current, &dir, &selection, progress)
                 .map_err(snapshot_error);
-            operation.finish(&reverted);
+            operation.finish_partly(&reverted);
             let (settings, safety) = reverted?;
             Ok(json!({
                 "reverted_to": snapshot.id,
@@ -452,7 +452,7 @@ pub fn import(call: Call, cx: &mut App) -> Reply {
             let instance = store
                 .import_as_instance(&instance_store, &path, &selection, progress)
                 .map_err(snapshot_error)?;
-            crate::instances::record_created(
+            crate::instances::record_created_later(
                 &images,
                 &instance.id,
                 launcher_core::images::labels::FROM_SNAPSHOT,

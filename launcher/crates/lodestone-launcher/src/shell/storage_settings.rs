@@ -408,9 +408,12 @@ impl StorageSettings {
                 // their store moves with everything else; then every write to the store
                 // stops (waiting for a record or collection still running), so the copy
                 // never holds a manifest without its objects and nothing remakes the old
-                // folder. Moved, the store stays stopped until the Launcher restarts.
+                // folder. Moved, the store stays stopped until the Launcher restarts. Cancel
+                // works while it waits (the first record of a big pack can take minutes).
                 images.settle(Duration::from_secs(6));
-                let suspended = images.suspend();
+                let Some(suspended) = images.suspend_unless(&|| cancel.is_cancelled()) else {
+                    return Err(launcher_core::data_move::MoveError::Cancelled);
+                };
                 let moved = data_move::run(&request, &progress, &cancel);
                 if moved.is_ok() {
                     suspended.keep();

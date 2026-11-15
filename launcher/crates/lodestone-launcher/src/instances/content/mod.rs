@@ -1018,40 +1018,53 @@ impl ContentView {
             let progress = progress.clone();
             let cancel = cancel.clone();
             cx.background_spawn(async move {
+                // The whole job (Update all) is one operation: what each install did, and
+                // what one that failed part way placed, is one image once it ends.
+                let mut operation = images.begin(&image_id, "");
                 let mut total = InstallOutcome::default();
                 let mut target = target;
-                for request in requests {
-                    let kind = request.kind;
-                    progress.set_label(match &request.project {
-                        Some(project) => tr!(M::CheckingProject, name = project.title),
-                        None => t(M::CheckingDependencies).to_string(),
-                    });
-                    let plan = install::plan(&api, &dirs, &target, request).await?;
-                    // Each install is an operation: one that succeeds before a later one
-                    // fails is still recorded.
-                    let operation = images.begin(&image_id, "");
-                    let outcome = install::execute(
-                        &api,
-                        &downloader,
-                        &dirs,
-                        &target,
-                        plan,
-                        &progress,
-                        &cancel,
-                    )
-                    .await?;
-                    if let Some(label) = labels::installed(&outcome, kind) {
-                        operation.succeed_as(label);
+                let result = async {
+                    for request in requests {
+                        let kind = request.kind;
+                        progress.set_label(match &request.project {
+                            Some(project) => tr!(M::CheckingProject, name = project.title),
+                            None => t(M::CheckingDependencies).to_string(),
+                        });
+                        let plan = install::plan(&api, &dirs, &target, request).await?;
+                        let title = plan.files.first().map(|f| f.title()).unwrap_or_default();
+                        let executed = install::execute(
+                            &api,
+                            &downloader,
+                            &dirs,
+                            &target,
+                            plan,
+                            &progress,
+                            &cancel,
+                        )
+                        .await;
+                        let outcome = match executed {
+                            Ok(outcome) => outcome,
+                            Err(err) => {
+                                operation.note(labels::partly_installed(&title));
+                                return Err(err);
+                            }
+                        };
+                        if let Some(label) = labels::installed(&outcome, kind) {
+                            operation.note(label);
+                        }
+                        total.installed.extend(outcome.installed);
+                        total.removed.extend(outcome.removed);
+                        total.skipped.extend(outcome.skipped);
+                        if kind == ContentKind::Mod {
+                            // A shader mod installed first changes what fits next.
+                            target.shader_loader = listing::shader_state(&dirs)?.loader;
+                        }
                     }
-                    total.installed.extend(outcome.installed);
-                    total.removed.extend(outcome.removed);
-                    total.skipped.extend(outcome.skipped);
-                    if kind == ContentKind::Mod {
-                        // A shader mod installed first changes what fits next.
-                        target.shader_loader = listing::shader_state(&dirs)?.loader;
-                    }
+                    Ok::<_, launcher_core::content::ContentError>(())
                 }
-                Ok::<_, launcher_core::content::ContentError>(total)
+                .await;
+                operation.succeed();
+                result.map(|()| total)
             })
         };
         let task = cx.spawn(async move |this, cx| {
@@ -2843,6 +2856,17 @@ mod image_tests {
             history.images[0].label.as_deref(),
             Some("Added MyPack; Disabled sodium.jar")
         );
+        // Turned on again: named as it is when on, not by its disabled file's name.
+        view.update(&mut cx, |view, cx| {
+            view.set_mods_enabled(&id, &["sodium.jar.disabled".to_string()], true, cx)
+        });
+        cx.run_until_parked();
+        images.flush(&id).unwrap().expect("queued label");
+        let history = images.history(&id).unwrap();
+        assert_eq!(
+            history.images[0].label.as_deref(),
+            Some("Enabled sodium.jar")
+        );
 
         // A loader version saved from Settings, Undo or an update.
         instances.update(&mut cx, |instances, cx| {
@@ -2879,7 +2903,7 @@ mod image_tests {
         let history = images.history(&id).unwrap();
         assert_eq!(
             history.images[0].label.as_deref(),
-            Some("Changed Quilt to 0.16.99")
+            Some("Changed to Quilt 0.16.99")
         );
         assert_eq!(
             history.images[1].label.as_deref(),

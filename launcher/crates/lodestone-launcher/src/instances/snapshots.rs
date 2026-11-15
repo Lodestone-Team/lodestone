@@ -593,7 +593,7 @@ impl SnapshotDialog {
                     .revert(&snapshot, &current, &dir, &selection, progress)
                     .map(|(settings, _)| settings)
                     .map_err(|err| err.to_string());
-                operation.finish(&reverted);
+                operation.finish_partly(&reverted);
                 reverted
             },
             move |instances, settings, cx| {
@@ -722,7 +722,11 @@ impl SnapshotDialog {
                 let instance = store
                     .import_as_instance(&instance_store, &path, &selection, progress)
                     .map_err(|err| err.to_string())?;
-                crate::instances::record_created(&images, &instance.id, labels::FROM_SNAPSHOT);
+                crate::instances::record_created_later(
+                    &images,
+                    &instance.id,
+                    labels::FROM_SNAPSHOT,
+                );
                 Ok(instance)
             },
             |instances, instance, cx| {

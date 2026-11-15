@@ -100,12 +100,15 @@ impl Backend for Fake {
                 "images": [
                     {
                         "id": "b".repeat(64), "created": 1_794_645_624, "label": "Added JEI\u{202e}gpj.exe",
+                        "label_shown": "Added JEI\\u{202E}gpj.exe",
+                        "game_shown": "fabric 0.16.10 on 1.21.1",
                         "parent": "a".repeat(64), "current": true, "minecraft": "1.21.1",
                         "loader": "fabric", "loader_version": "0.16.10",
                         "base": { "loader": {} }, "files": 42, "withheld": 0
                     },
                     {
                         "id": "a".repeat(64), "created": 1_794_645_000, "label": "Created Survival",
+                        "label_shown": "Created Survival", "game_shown": "vanilla 1.21.1",
                         "parent": null, "current": false, "minecraft": "1.21.1",
                         "loader": "vanilla", "loader_version": null,
                         "base": { "loader": {} }, "files": 1, "withheld": 0
@@ -438,7 +441,8 @@ fn content_history_lists_images_newest_first() {
         assert_eq!(request.params["instance"], "Survival");
     }
 
-    // For people: one line each, the direction override written visibly.
+    // For people: one line each, as the Launcher writes them to be shown (the direction
+    // override written visibly).
     let output = cli(
         &launcher.socket,
         &["--human", "content", "history", "Survival"],

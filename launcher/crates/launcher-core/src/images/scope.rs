@@ -219,7 +219,10 @@ impl ContentScope {
             // A folder holding a pack file: the first file at or after `folder/` is in it.
             let prefix = format!("{folded}/");
             self.files
-                .range::<str, _>((std::ops::Bound::Included(prefix.as_str()), std::ops::Bound::Unbounded))
+                .range::<str, _>((
+                    std::ops::Bound::Included(prefix.as_str()),
+                    std::ops::Bound::Unbounded,
+                ))
                 .next()
                 .is_some_and(|file| file.starts_with(&prefix))
         } else {
@@ -382,12 +385,17 @@ mod tests {
         // Deep paths hold only themselves (no string per folder level), and the bytes of
         // paths are bounded too.
         let deep_tail = "/a".repeat(250);
-        let deep: Vec<String> = (0..40_000).map(|i| format!("x{i:05}{deep_tail}/f")).collect();
+        let deep: Vec<String> = (0..40_000)
+            .map(|i| format!("x{i:05}{deep_tail}/f"))
+            .collect();
         let deep_scope = ContentScope::new(deep.iter().map(String::as_str));
         assert!(deep_scope.bytes <= MAX_PACK_PATH_BYTES);
         let held: usize = deep_scope.files.iter().map(String::len).sum();
         assert_eq!(held, deep_scope.bytes);
-        assert!(deep_scope.files.len() < deep.len(), "the byte bound cut the list");
+        assert!(
+            deep_scope.files.len() < deep.len(),
+            "the byte bound cut the list"
+        );
         let folder = format!("x00000{}", "/a".repeat(100));
         assert!(deep_scope.accepts(&Candidate {
             disk: "",

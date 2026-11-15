@@ -529,7 +529,7 @@ impl ModFinder {
                 Some(search) => mod_finder::restore(&dirs, search, &keep_off),
                 None => mod_finder::forget(&dirs),
             };
-            operation.finish(&result);
+            operation.finish_partly(&result);
             result
         });
         self.task = Some(cx.spawn(async move |this, cx| {

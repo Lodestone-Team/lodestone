@@ -35,6 +35,28 @@ pub struct HistoryEntry {
     pub withheld: usize,
 }
 
+impl HistoryEntry {
+    /// The label to show: images made elsewhere may hold any character, so control and
+    /// invisible ones are written visibly (`lodestone_image::display_text`). Empty when
+    /// there is none.
+    pub fn label_shown(&self) -> String {
+        self.label
+            .as_deref()
+            .map(|label| lodestone_image::display_text(label).into_owned())
+            .unwrap_or_default()
+    }
+
+    /// The game to show, written the same way: "fabric 0.16.10 on 1.21.1".
+    pub fn game_shown(&self) -> String {
+        let game = &self.game;
+        let text = match &game.loader_version {
+            Some(version) => format!("{} {version} on {}", game.loader.as_str(), game.minecraft),
+            None => format!("{} {}", game.loader.as_str(), game.minecraft),
+        };
+        lodestone_image::display_text(&text).into_owned()
+    }
+}
+
 impl Images {
     /// The instance's content images (see [`History`]). Each is loaded whole, so its id is
     /// checked; one that can't be read is left out. [`ImageError::Gone`] for an instance
@@ -74,5 +96,42 @@ impl Images {
             })
             .collect();
         Ok(History { current, images })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn labels_and_games_are_shown_with_hidden_characters_written() {
+        let entry = HistoryEntry {
+            id: "a".repeat(64),
+            created: 0,
+            label: Some("Added JEI\u{202e}gpj.exe".into()),
+            parent: None,
+            current: true,
+            game: Game {
+                minecraft: "1.21.1\n".into(),
+                loader: lodestone_image::Loader::Fabric,
+                loader_version: Some("0.16.10".into()),
+            },
+            base: None,
+            files: 0,
+            withheld: 0,
+        };
+        assert_eq!(entry.label_shown(), "Added JEI\\u{202E}gpj.exe");
+        assert_eq!(entry.game_shown(), "fabric 0.16.10 on 1.21.1\\u{000A}");
+        let none = HistoryEntry {
+            label: None,
+            game: Game {
+                minecraft: "1.21.1".into(),
+                loader: lodestone_image::Loader::Vanilla,
+                loader_version: None,
+            },
+            ..entry
+        };
+        assert_eq!(none.label_shown(), "");
+        assert_eq!(none.game_shown(), "vanilla 1.21.1");
     }
 }

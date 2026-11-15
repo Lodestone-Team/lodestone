@@ -2044,7 +2044,7 @@ impl Servers {
             .await;
             let _ = std::fs::remove_file(&pack_path);
             if let Ok(instance) = &result {
-                crate::instances::record_created(&images, &instance.id, &created);
+                crate::instances::record_created_later(&images, &instance.id, &created);
             }
             result
         });
@@ -2110,6 +2110,8 @@ impl Servers {
         }
         self.busy.insert(row.clone(), Busy::CheckingMods);
         let dirs = self.instances.read(cx).content_dirs(&instance_id);
+        let images = self.instances.read(cx).images();
+        let image_id = instance_id.clone();
         let check_server = server.clone();
         let check = cx.background_spawn(async move {
             let link = link::load_link(&dirs.instance).unwrap_or_default();
@@ -2145,9 +2147,13 @@ impl Servers {
                 }
             };
             if !plan.changes_files() {
-                // the same mods in a rebuilt pack: remember it
+                // the same mods in a rebuilt pack: remember it. An operation without a
+                // label: modpack.json names the pack's files, which the content images take
+                // (a rebuilt pack can list another), and a change of nothing records nothing.
                 let _ = std::fs::remove_file(&pack_path);
-                let _ = plan.record.save(&dirs.instance);
+                let operation = images.begin(&image_id, "");
+                let saved = plan.record.save(&dirs.instance);
+                operation.finish(&saved);
                 let mut link = link;
                 link.pack_etag = etag;
                 let _ = link::save_link(&dirs.instance, &link);
@@ -2366,31 +2372,44 @@ impl Servers {
                 &image_id,
                 launcher_core::images::labels::server_updated(&server_name),
             );
-            let result = async {
-                let result = update::apply(
-                    api.as_deref(),
-                    &downloader,
-                    &dirs,
-                    &plan,
-                    &pack_path,
-                    false,
-                    &progress,
-                    &CancelToken::new(),
-                )
-                .await;
-                let _ = std::fs::remove_file(&pack_path);
-                result?;
-                let mut link = link::load_link(&dirs.instance).unwrap_or_default();
-                link.pack_etag = etag;
-                link::save_link(&dirs.instance, &link)
-                    .map_err(|e| PullError::Other(e.to_string()))?;
-                Ok::<_, PullError>(())
-            }
+            let applied = update::apply(
+                api.as_deref(),
+                &downloader,
+                &dirs,
+                &plan,
+                &pack_path,
+                false,
+                &progress,
+                &CancelToken::new(),
+            )
             .await;
-            (result, operation)
+            let _ = std::fs::remove_file(&pack_path);
+            // The files changed (all of them, or part way): the operation succeeds whatever
+            // happens next. On success it does once the loader the pack brings is saved,
+            // so the image has it; the link file isn't content.
+            let result = match applied {
+                Ok(_) => {
+                    let mut link = link::load_link(&dirs.instance).unwrap_or_default();
+                    link.pack_etag = etag;
+                    link::save_link(&dirs.instance, &link)
+                        .map_err(|e| PullError::Other(e.to_string()))
+                }
+                Err(err) => {
+                    operation.succeed_part_way();
+                    return (Err(PullError::from(err)), None);
+                }
+            };
+            (result, Some(operation))
         });
         self.tasks.push(cx.spawn(async move |this, cx| {
             let (result, operation) = work.await;
+            // Saved below with the loader; on an error before that, now.
+            let mut operation = operation;
+            if result.is_err()
+                && let Some(operation) = operation.take()
+            {
+                operation.succeed();
+            }
             this.update(cx, |this, cx| {
                 this.busy.remove(&row);
                 match result {
@@ -2415,7 +2434,9 @@ impl Servers {
                                     plan.loader.as_ref().map(|l| l.version.clone());
                                 let saved = instances.save(&instance, cx);
                                 // after the loader the server's pack brings is saved
-                                operation.succeed();
+                                if let Some(operation) = operation.take() {
+                                    operation.succeed();
+                                }
                                 saved?;
                                 // its Settings tab shows the loader it was built with
                                 if before
@@ -2429,6 +2450,10 @@ impl Servers {
                                 }
                                 Ok(())
                             });
+                        // The instance couldn't be read: the files changed all the same.
+                        if let Some(operation) = operation.take() {
+                            operation.succeed();
+                        }
                         match saved {
                             Ok(()) => {
                                 this.join(&pending.core, &pending.server, &pending.instance_id, cx)

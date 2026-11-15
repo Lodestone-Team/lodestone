@@ -445,7 +445,7 @@ impl ImportDialog {
                 let imported =
                     import::import(&store, &request, api.as_deref(), &this_progress, &cancel)
                         .await?;
-                crate::instances::record_created(&images, &imported.instance.id, &label);
+                crate::instances::record_created_later(&images, &imported.instance.id, &label);
                 Ok(imported)
             }
         });

@@ -727,7 +727,9 @@ fn remove_tree(dir: &Path) -> std::io::Result<()> {
         };
         for entry in entries.flatten() {
             // Never through a link or junction: only the store's own files.
-            let Ok(kind) = entry.file_type() else { continue };
+            let Ok(kind) = entry.file_type() else {
+                continue;
+            };
             if kind.is_symlink() {
                 continue;
             }

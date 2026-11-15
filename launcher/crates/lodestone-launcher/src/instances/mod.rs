@@ -1568,7 +1568,7 @@ impl Instances {
         let loader = (before.loader != after.loader
             || before.loader_version != after.loader_version)
             .then_some((after.loader, after.loader_version.as_deref()));
-        let label = match labels::game_changed(minecraft, loader) {
+        let label = match labels::game_changed(minecraft, loader, before.loader != after.loader) {
             Some(label) => label,
             None if before.recommended_memory != after.recommended_memory => {
                 labels::MEMORY_CHANGED.to_string()
@@ -2596,11 +2596,23 @@ fn ticker(id: String, cx: &mut Context<Instances>) -> Task<()> {
 }
 
 /// Records the first content image of the new instance `id` (blocking: for a background
-/// task that just made it). A failure is only logged: the check before its first launch
-/// records it then.
+/// task that just made it and changes it next). A failure is only logged: the check before
+/// its first launch records it then.
 pub(crate) fn record_created(images: &Images, id: &str, label: &str) {
     if let Err(err) = images.record_now(id, label) {
         log::warn!("Couldn't record the content of {id}: {err}");
+    }
+}
+
+/// [`record_created`] on a thread of its own, for an action that is done once the instance
+/// is made (Duplicate, an import): hashing a big pack's every file would hold its spinner.
+pub(crate) fn record_created_later(images: &Arc<Images>, id: &str, label: &str) {
+    let (images, id, label) = (images.clone(), id.to_string(), label.to_string());
+    let spawned = std::thread::Builder::new()
+        .name("lodestone-images-created".into())
+        .spawn(move || record_created(&images, &id, &label));
+    if let Err(err) = spawned {
+        log::warn!("Couldn't record the content of a new instance: {err}");
     }
 }
 
@@ -2621,7 +2633,19 @@ fn content_check_note(checked: &Checked) -> Option<(Level, String)> {
 pub fn create(accounts: &Entity<Accounts>, cx: &mut App) -> Entity<Instances> {
     let data_dir = accounts.read(cx).data_dir().clone();
     let accounts = accounts.clone();
-    cx.new(|cx| Instances::new(data_dir, accounts, cx))
+    let instances = cx.new(|cx| Instances::new(data_dir, accounts, cx));
+    // The first content image of each instance from before the Launcher recorded them,
+    // so the first change to one has an image holding what it replaces. Only in the app:
+    // the offscreen scenes and tests make their own.
+    let images = instances.read(cx).images();
+    cx.background_spawn(async move {
+        let recorded = images.record_first_images();
+        if recorded > 0 {
+            log::info!("Recorded the first content image of {recorded} instances");
+        }
+    })
+    .detach();
+    instances
 }
 
 /// The progress label: "Downloading assets 1,234/4,567 · 210 MB/380 MB".

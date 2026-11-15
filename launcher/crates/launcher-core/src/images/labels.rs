@@ -6,8 +6,8 @@
 //! may hold any character, and [`lodestone_image::lineage::join_labels`] turns control
 //! characters into spaces and cuts the whole to what an image may hold.
 
-use crate::content::{ContentKind, enabled_name};
 use crate::content::install::InstallOutcome;
+use crate::content::{ContentKind, enabled_name};
 use crate::instances::Loader;
 
 /// The first image of an instance that had none when the Launcher began recording it.
@@ -79,6 +79,17 @@ pub fn partly_installed(title: &str) -> String {
         "Partly installed content".into()
     } else {
         format!("Partly installed {title}")
+    }
+}
+
+/// An action that failed or was cancelled after it may have changed files: its label,
+/// marked.
+pub fn stopped_part_way(label: &str) -> String {
+    let label = label.trim();
+    if label.is_empty() {
+        "Stopped part way".into()
+    } else {
+        format!("{label} (stopped part way)")
     }
 }
 
@@ -287,6 +298,11 @@ mod tests {
         );
         assert_eq!(partly_installed("JEI"), "Partly installed JEI");
         assert_eq!(partly_installed(" "), "Partly installed content");
+        assert_eq!(
+            stopped_part_way("Updated FO to 6.4.0"),
+            "Updated FO to 6.4.0 (stopped part way)"
+        );
+        assert_eq!(stopped_part_way(""), "Stopped part way");
         let game = |minecraft, loader| game_changed(minecraft, loader, false).unwrap_or_default();
         assert_eq!(
             game(None, Some((Loader::Fabric, Some("0.16.10")))),

@@ -195,11 +195,32 @@ impl Operation {
         self.succeed();
     }
 
-    /// Succeeds when `result` is `Ok`; otherwise the operation records nothing.
+    /// Succeeds when `result` is `Ok`; otherwise the operation records nothing. For an
+    /// action that changes nothing when it fails (one file renamed, one file added).
     pub fn finish<T, E>(self, result: &Result<T, E>) {
         if result.is_ok() {
             self.succeed();
         }
+    }
+
+    /// Succeeds whatever `result` is, for an action that may have changed files before it
+    /// failed or was cancelled (a pack update, a share code, a revert): on failure, as
+    /// [`Self::succeed_part_way`].
+    pub fn finish_partly<T, E>(self, result: &Result<T, E>) {
+        match result {
+            Ok(_) => self.succeed(),
+            Err(_) => self.succeed_part_way(),
+        }
+    }
+
+    /// The action failed or was cancelled after it may have changed files: its label says
+    /// it stopped part way ([`super::labels::stopped_part_way`]), so what it did change is
+    /// its own image rather than "Changed by hand" at the next launch. When it changed
+    /// nothing, nothing is recorded, as for any operation.
+    pub fn succeed_part_way(mut self) {
+        let label = self.take_label();
+        self.label = super::labels::stopped_part_way(&label);
+        self.succeed();
     }
 
     /// The operation succeeded: records now (with anything queued) and returns the image.

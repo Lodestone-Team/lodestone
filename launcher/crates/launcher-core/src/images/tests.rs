@@ -1223,7 +1223,10 @@ fn a_game_changed_during_a_session_is_still_found() {
     s.store.save(&instance).unwrap();
     s.images.end_session(s.id());
     assert_eq!(
-        s.state().game.and_then(|game| game.loader_version).as_deref(),
+        s.state()
+            .game
+            .and_then(|game| game.loader_version)
+            .as_deref(),
         Some("0.16.10")
     );
     assert!(matches!(
@@ -1342,7 +1345,10 @@ fn first_images_of_instances_from_before_recording() {
     let playing = s.store.create("Playing", "1.21.1", None).unwrap();
     s.images.record_now(&other.id, "Created Other").unwrap();
     // A game session runs: its end records that instance's first image instead.
-    s.images.slot(&playing.id).session.fetch_add(1, Ordering::SeqCst);
+    s.images
+        .slot(&playing.id)
+        .session
+        .fetch_add(1, Ordering::SeqCst);
     assert_eq!(s.images.record_first_images(), 1);
     assert_eq!(s.labels(), [INITIAL_LABEL]);
     assert_eq!(
@@ -1370,13 +1376,19 @@ fn a_job_is_one_operation_with_each_steps_label() {
     job.succeed();
     s.images.flush(s.id()).unwrap();
     assert_eq!(s.labels(), ["Updated A; Updated B", "Created"]);
+    // An action that failed part way records what it did change, said so.
+    let partly = s.images.begin(s.id(), "Updated Pack to 2.0");
+    s.write("mods/c.jar", b"c");
+    partly.finish_partly(&Err::<(), ()>(()));
+    s.images.flush(s.id()).unwrap();
+    assert_eq!(s.labels()[0], "Updated Pack to 2.0 (stopped part way)");
     // A job that changed nothing records nothing.
     let mut idle = s.images.begin(s.id(), "");
     idle.note("Partly installed C");
     idle.succeed();
     let recorded = s.images.flush(s.id()).unwrap().unwrap();
     assert!(!recorded.changed);
-    assert_eq!(s.labels().len(), 2);
+    assert_eq!(s.labels().len(), 3);
 }
 
 #[test]
@@ -1386,7 +1398,10 @@ fn a_suspension_waiting_for_a_write_can_be_cancelled() {
     assert!(s.images.suspend_unless(&|| true).is_none());
     assert!(!s.images.suspended());
     drop(writing);
-    let suspension = s.images.suspend_unless(&|| false).expect("nothing to wait for");
+    let suspension = s
+        .images
+        .suspend_unless(&|| false)
+        .expect("nothing to wait for");
     assert!(s.images.suspended());
     drop(suspension);
     assert!(!s.images.suspended());

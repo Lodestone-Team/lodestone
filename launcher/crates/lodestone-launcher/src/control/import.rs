@@ -167,7 +167,7 @@ pub fn run(call: Call, cx: &mut App) -> Reply {
                     let done =
                         import::import(&store, &request, api.as_deref(), &progress, &cancel)
                             .await?;
-                    crate::instances::record_created(&images, &done.instance.id, &label);
+                    crate::instances::record_created_later(&images, &done.instance.id, &label);
                     Ok(done)
                 })
                 .await;
