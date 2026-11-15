@@ -79,7 +79,7 @@ pub fn text(message: M) -> &'static str {
         M::DeleteNamed => "刪除「{name}」？",
         M::DeleteWorldBody => "這個世界的資料夾會移到{trash}，你可以從那裡還原。它的備份會保留。",
         M::DeleteInstanceBody => {
-            "這個實例的資料夾（包括其中的世界、模組和設定）會移到{trash}。你可以從那裡還原。"
+            "這個實例的資料夾（包括其中的世界、模組和設定）會移到{trash}。你可以從那裡還原。它的快照會一直保留，直到你在「設定 › 儲存空間」中移除；還原實例時快照也會一起回來。"
         }
         M::ReplaceWorldTitle => "用這個備份取代「{name}」？",
         M::ReplaceWorldBody => {

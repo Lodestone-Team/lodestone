@@ -56,6 +56,8 @@ use crate::{
 
 /// The folders whose files a pack's dropped overrides are removed from.
 const CONTENT_DIRS: [&str; 3] = ["mods", "resourcepacks", "shaderpacks"];
+/// The folder in the instance's `backups/` that holds the rollback copies.
+pub const BACKUPS_FOLDER: &str = "modpack-update";
 
 /// What updating will do. Paths are relative to the game folder.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -380,7 +382,7 @@ async fn apply_staged(
     let snapshot = dirs
         .instance
         .join("backups")
-        .join("modpack-update")
+        .join(BACKUPS_FOLDER)
         .join(worlds::timestamp(SystemTime::now()));
     fs::create_dir_all(&snapshot).map_err(io_error(&snapshot))?;
     for path in plan.touched() {

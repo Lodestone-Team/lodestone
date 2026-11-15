@@ -205,6 +205,37 @@ mod play_tests {
     }
 
     #[test]
+    fn play_waits_for_a_restore_that_couldnt_be_undone() {
+        let mut cx = TestAppContext::single();
+        let instances = cx.update(|cx| {
+            let accounts = crate::preview::accounts("signed-out", cx);
+            crate::preview::instances("worlds", &accounts, cx)
+        });
+        cx.run_until_parked();
+        let id = instances.read_with(&cx, |instances, _| instances.list()[0].id.clone());
+        let played = |instances: &gpui::Entity<Instances>, cx: &mut TestAppContext| {
+            instances.read_with(cx, |instances, _| {
+                instances.log(&id).is_some_and(|log| !log.rows().is_empty())
+            })
+        };
+        // A journal the retry can't undo (it can't even be read): worlds or mods may be
+        // renamed aside.
+        let images = instances.read_with(&cx, |instances, _| instances.images());
+        let dir = images.store().instance_dir(&id).unwrap();
+        std::fs::create_dir_all(&dir).unwrap();
+        let journal = dir.join(launcher_core::images::swap::JOURNAL_FILE);
+        std::fs::write(&journal, b"not a journal").unwrap();
+        instances.update(&mut cx, |instances, cx| instances.play(&id, cx));
+        cx.run_until_parked();
+        assert!(!played(&instances, &mut cx), "Play waits for the restore");
+
+        std::fs::remove_file(&journal).unwrap();
+        instances.update(&mut cx, |instances, cx| instances.play(&id, cx));
+        cx.run_until_parked();
+        assert!(played(&instances, &mut cx), "then it plays");
+    }
+
+    #[test]
     fn an_instance_isnt_deleted_under_a_tab_job() {
         let mut cx = TestAppContext::single();
         let instances = cx.update(|cx| {

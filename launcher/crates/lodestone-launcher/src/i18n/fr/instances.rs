@@ -95,6 +95,16 @@ pub fn text(message: M) -> &'static str {
         M::FilesBusy => {
             "Attendez que les fichiers de l’instance aient fini de changer, puis réessayez."
         }
+        M::NoSnapshotBeforeLoaderChange => {
+            "Aucun instantané n’a été pris avant le changement du chargeur"
+        }
+        M::LoaderChangeNotSaved => "La nouvelle version du chargeur n’a pas été enregistrée",
+        M::LoaderChangeDropped => {
+            "L’instance a été modifiée pendant la prise de son instantané. Choisissez de nouveau la version du chargeur."
+        }
+        M::RestoreUnfinished => {
+            "Une restauration de cette instance n’a pas abouti et n’a pas pu être annulée\u{202F}: certains de ses mondes ou mods sont mis de côté. Fermez tout programme qui utilise ses fichiers et appuyez de nouveau sur Jouer, ou redémarrez Lodestone Launcher."
+        }
         M::CouldntSavePlayed => "Impossible d’enregistrer la date de la partie\u{a0}: {error}",
         M::CouldntSavePlayTime => "Impossible d’enregistrer le temps de jeu\u{a0}: {error}",
         M::ModpackExported => "Modpack exporté",

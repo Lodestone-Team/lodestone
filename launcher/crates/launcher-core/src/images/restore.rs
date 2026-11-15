@@ -344,6 +344,7 @@ impl Images {
         if slot.in_session() {
             return Err(ImageError::Running);
         }
+        self.recover_unfinished_locked(instance)?;
         let record = self
             .reconciled_locked(instance)?
             .into_iter()
@@ -667,6 +668,64 @@ impl Images {
         })();
         let _ = super::remove_tree(&staging);
         placed
+    }
+
+    /// Whether a restore of `instance` didn't finish and couldn't be undone: its journal is
+    /// still there (a rollback that failed, at startup or during the restore itself). The
+    /// instance mustn't be played until [`Self::retry_unfinished_restore`] undoes it: the
+    /// game would start with worlds or mods renamed aside and write fresh ones. One look at
+    /// a file, for Play; a restore under way has its journal too, while the instance is
+    /// busy.
+    pub fn restore_unfinished(&self, instance: &str) -> bool {
+        self.accepts(instance)
+            && self
+                .store()
+                .instance_dir(instance)
+                .is_ok_and(|dir| dir.join(swap::JOURNAL_FILE).exists())
+    }
+
+    /// Tries again to undo a restore of `instance` that couldn't be undone (Play does,
+    /// before refusing). `Ok` when none is left. Waits at most `wait` for another record
+    /// of the instance, then says to try again. Blocking, but short: renames back.
+    pub fn retry_unfinished_restore(
+        &self,
+        instance: &str,
+        wait: std::time::Duration,
+    ) -> Result<(), ImageError> {
+        if !self.restore_unfinished(instance) {
+            return Ok(());
+        }
+        let slot = self.slot(instance);
+        let Some(_record) = super::check::lock_within(&slot.record, wait) else {
+            return Err(ImageError::Invalid(
+                "The instance is busy; try again in a moment".into(),
+            ));
+        };
+        self.recover_unfinished_locked(instance)
+    }
+
+    /// Undoes an unfinished restore of `instance` (see [`Self::restore_unfinished`]), for a
+    /// caller holding its record lock: Play's retry, and every restore before it starts,
+    /// which would otherwise write its journal over the one that knows what is aside.
+    fn recover_unfinished_locked(&self, instance: &str) -> Result<(), ImageError> {
+        let journal = self
+            .store()
+            .instance_dir(instance)?
+            .join(swap::JOURNAL_FILE);
+        if !journal.exists() {
+            return Ok(());
+        }
+        let root = self.instances().dir(instance);
+        match swap::recover_one(&root, &journal) {
+            Ok(_) => {
+                swap::remove_leftovers(&root);
+                super::warn("images.restore", instance, "undid an unfinished restore");
+                Ok(())
+            }
+            Err(problem) => Err(ImageError::Invalid(format!(
+                "A restore of this instance didn't finish and couldn't be undone ({problem}). Close any program using its files and try again, or restart the Launcher"
+            ))),
+        }
     }
 
     /// Finishes or undoes every restore a crash interrupted (see [`super::swap`]), and

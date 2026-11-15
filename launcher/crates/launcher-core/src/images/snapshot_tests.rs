@@ -535,6 +535,60 @@ fn deleting_an_instance_keeps_its_snapshots_aside() {
 }
 
 #[test]
+fn an_instance_put_back_from_the_trash_takes_its_snapshots_back() {
+    let s = Setup::new();
+    s.write("mods/a.jar", b"a mod");
+    s.world("World", b"r");
+    s.images.record_now(s.id(), "Created").unwrap();
+    let record = s.snapshot("Keep");
+    // Deleted to the Trash, then put back: the same folder, id and created time.
+    let folder = s.store.dir(s.id());
+    let trash = s.data.root().join("trash-copy");
+    std::fs::rename(&folder, &trash).unwrap();
+    s.images.delete_instance(s.id()).unwrap();
+    assert_eq!(s.images.deleted_snapshots().unwrap().len(), 1);
+    std::fs::rename(&trash, &folder).unwrap();
+
+    assert_eq!(s.records(), [record]);
+    assert!(s.images.deleted_snapshots().unwrap().is_empty());
+    let dir = s.images.store().instance_dir(s.id()).unwrap();
+    assert!(!dir.join(retired::RETIRED_FILE).exists());
+    assert_eq!(
+        s.state().instance_created,
+        Some(s.instance.created),
+        "the state names the instance, so the id-reuse guard keeps the folder"
+    );
+    // It goes on as the instance's own: a record and another snapshot keep both.
+    s.write("saves/World/region/r.0.0.mca", b"later");
+    s.images.record_now(s.id(), "Changed").unwrap();
+    s.snapshot("Later");
+    assert_eq!(s.records().len(), 2);
+    s.nothing_missing();
+}
+
+#[test]
+fn a_crash_while_taking_snapshots_back_retires_them_again() {
+    let s = Setup::new();
+    s.world("World", b"r");
+    s.images.record_now(s.id(), "Created").unwrap();
+    let record = s.snapshot("Keep");
+    let folder = s.store.dir(s.id());
+    let trash = s.data.root().join("trash-copy");
+    std::fs::rename(&folder, &trash).unwrap();
+    s.images.delete_instance(s.id()).unwrap();
+    // The rename back happened, the marker is still there: still a deleted instance's.
+    let retired = s.images.deleted_snapshots().unwrap();
+    let images_dir = s.images.store().images_dir();
+    std::fs::rename(images_dir.join(&retired[0].folder), images_dir.join(s.id())).unwrap();
+    std::fs::rename(&trash, &folder).unwrap();
+    assert!(s.records().is_empty(), "marked: still a deleted instance's");
+    // The guard retires it again and takes it back at once.
+    s.images.record_now(s.id(), "Looked").unwrap();
+    assert_eq!(s.records(), [record]);
+    assert!(s.images.deleted_snapshots().unwrap().is_empty());
+}
+
+#[test]
 fn an_instance_without_snapshots_is_deleted_outright() {
     let s = Setup::new();
     s.write("mods/a.jar", b"a mod");
@@ -621,6 +675,39 @@ fn storage_clean_up_keeps_what_the_user_took() {
     assert!(left.contains(&manual.id));
     assert!(left.contains(&pinned.id));
     assert!(!left.contains(&auto.id));
+    s.nothing_missing();
+}
+
+#[test]
+fn settings_storage_counts_and_cleans_up_snapshots() {
+    let s = Setup::new();
+    s.world("World", b"0");
+    s.images.record_now(s.id(), "Created").unwrap();
+    s.snapshot("Mine");
+    s.write("saves/World/region/r.0.0.mca", b"1");
+    s.images
+        .before_risky_change(
+            s.id(),
+            RiskyChange::ContentUpdate {
+                titles: &["x".to_string()],
+            },
+        )
+        .unwrap()
+        .unwrap();
+    let instances = [s.store.get(s.id()).unwrap()];
+    let cancel = crate::disk::Cancel::new();
+    let report = crate::disk::scan(&s.data, &instances, &cancel).unwrap();
+    assert_eq!(report.images.snapshots, 2);
+    assert_eq!(report.images.removable, 1);
+    assert!(report.images.bytes > 0);
+    // Past the store's grace, so the collection after the clean-up takes the objects.
+    age_objects(&s.data.image_store_dir().join("objects"));
+    let cleaned = crate::disk::clean_snapshots(&s.data, &s.images, &[s.id().to_string()]).unwrap();
+    assert_eq!(cleaned.files, 1);
+    assert!(cleaned.bytes > 0);
+    let report = crate::disk::scan(&s.data, &instances, &cancel).unwrap();
+    assert_eq!(report.images.snapshots, 1);
+    assert_eq!(report.images.removable, 0);
     s.nothing_missing();
 }
 

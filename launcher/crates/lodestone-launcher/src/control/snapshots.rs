@@ -110,6 +110,43 @@ pub(super) fn find(
     }
 }
 
+/// Changes the snapshot settings `params` names (see [`policy`]); whether any was given.
+fn apply_policy(settings: &mut SnapshotSettings, params: &Value) -> Result<bool, ErrorObject> {
+    let mut changed = false;
+    if let Some(value) = params.get("after_play") {
+        // true or false; null or "default" follows the default
+        settings.after_play = value.as_bool();
+        changed = true;
+    }
+    for (key, field) in [
+        ("keep_last", &mut settings.keep_last),
+        ("keep_daily", &mut settings.keep_daily),
+        ("keep_weekly", &mut settings.keep_weekly),
+    ] {
+        let Some(value) = params.get(key) else {
+            continue;
+        };
+        *field = match value {
+            Value::Null => None,
+            Value::String(text) if text == "default" => None,
+            other => match other.as_u64().and_then(|n| u32::try_from(n).ok()) {
+                Some(n) if n <= SnapshotSettings::MAX_KEEP => Some(n),
+                _ => {
+                    return Err(api_error(
+                        codes::INVALID_PARAMS,
+                        format!(
+                            "{key} is a number from 0 to {}, or default.",
+                            SnapshotSettings::MAX_KEEP
+                        ),
+                    ));
+                }
+            },
+        };
+        changed = true;
+    }
+    Ok(changed)
+}
+
 /// The instance's snapshot `reference`, read now (blocking: the records file).
 pub(super) fn find_now(
     images: &Images,
@@ -620,36 +657,7 @@ pub fn pin(call: Call, cx: &mut App) -> Reply {
 pub fn policy(call: Call, cx: &mut App) -> Reply {
     let instance = tri!(call.control.instance_param(&call, cx));
     let mut settings = instance.snapshots.unwrap_or_default();
-    let mut changed = false;
-    if let Some(value) = call.params.get("after_play") {
-        settings.after_play = value.as_bool();
-        changed = true;
-    }
-    for (key, field) in [
-        ("keep_last", &mut settings.keep_last),
-        ("keep_daily", &mut settings.keep_daily),
-        ("keep_weekly", &mut settings.keep_weekly),
-    ] {
-        if let Some(value) = call.params.get(key) {
-            *field = match value {
-                Value::Null => None,
-                Value::String(text) if text == "default" => None,
-                other => match other.as_u64().and_then(|n| u32::try_from(n).ok()) {
-                    Some(n) if n <= SnapshotSettings::MAX_KEEP => Some(n),
-                    _ => {
-                        return ready(Err(api_error(
-                            codes::INVALID_PARAMS,
-                            format!(
-                                "{key} is a number from 0 to {}, or default.",
-                                SnapshotSettings::MAX_KEEP
-                            ),
-                        )));
-                    }
-                },
-            };
-            changed = true;
-        }
-    }
+    let changed = tri!(apply_policy(&mut settings, &call.params));
     let control = call.control.clone();
     if changed {
         let mut updated = instance.clone();
@@ -665,4 +673,81 @@ pub fn policy(call: Call, cx: &mut App) -> Reply {
         "instance": instance.id,
         "policy": policy_json(&policy, after_play),
     })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn record(id: &str, name: &str) -> SnapshotRecord {
+        serde_json::from_value(json!({
+            "id": id,
+            "image": "a".repeat(64),
+            "kind": "manual",
+            "name": name,
+            "created": 0,
+        }))
+        .unwrap()
+    }
+
+    fn instance() -> Instance {
+        Instance {
+            name: "Survival".into(),
+            ..Instance::default()
+        }
+    }
+
+    #[test]
+    fn finds_the_latest_an_id_or_one_name() {
+        let records = [
+            record("20261108-143000-aaaa", "Before 1.21"),
+            record("20261107-120000-bbbb", "Twice"),
+            record("20261106-120000-cccc", "twice"),
+        ];
+        let found = |reference: &str| find(&records, &instance(), reference);
+        assert_eq!(found("latest").unwrap().id, "20261108-143000-aaaa");
+        assert_eq!(found("20261107-120000-bbbb").unwrap().name, "Twice");
+        assert_eq!(found("before 1.21").unwrap().id, "20261108-143000-aaaa");
+        assert_eq!(found("Twice").unwrap_err().code, codes::AMBIGUOUS);
+        assert_eq!(found("Nothing").unwrap_err().code, codes::NOT_FOUND);
+        assert_eq!(
+            find(&[], &instance(), "latest").unwrap_err().code,
+            codes::NOT_FOUND
+        );
+    }
+
+    #[test]
+    fn a_policy_changes_only_what_is_given() {
+        let mut settings = SnapshotSettings::default();
+        assert!(!apply_policy(&mut settings, &json!({})).unwrap());
+        assert_eq!(settings, SnapshotSettings::default());
+        let given = json!({ "after_play": true, "keep_last": 10, "keep_weekly": 1000 });
+        assert!(apply_policy(&mut settings, &given).unwrap());
+        assert_eq!(settings.after_play, Some(true));
+        assert_eq!(settings.keep_last, Some(10));
+        assert_eq!(settings.keep_daily, None);
+        assert_eq!(settings.keep_weekly, Some(1000));
+        // null and "default" follow the defaults again
+        let reset = json!({ "after_play": "default", "keep_last": null, "keep_weekly": "default" });
+        assert!(apply_policy(&mut settings, &reset).unwrap());
+        assert_eq!(settings, SnapshotSettings::default());
+        assert!(settings.is_empty());
+        apply_policy(&mut settings, &json!({ "after_play": false })).unwrap();
+        assert_eq!(settings.after_play, Some(false));
+    }
+
+    #[test]
+    fn a_policy_refuses_counts_out_of_bounds() {
+        for bad in [
+            json!(1001),
+            json!(-1),
+            json!(2.5),
+            json!("ten"),
+            json!(true),
+        ] {
+            let mut settings = SnapshotSettings::default();
+            let refused = apply_policy(&mut settings, &json!({ "keep_daily": bad })).unwrap_err();
+            assert_eq!(refused.code, codes::INVALID_PARAMS, "{bad}");
+        }
+    }
 }

@@ -79,6 +79,12 @@ pub fn text(message: M) -> &'static str {
         M::WaitForUpdate => "請等待更新完成，再按「開始遊戲」。",
         M::StopBeforeDeleting => "請先停止遊戲，再刪除該實例。",
         M::FilesBusy => "請等待該實例的檔案處理完成，然後再試一次。",
+        M::NoSnapshotBeforeLoaderChange => "變更載入器版本前未能拍攝快照",
+        M::LoaderChangeNotSaved => "新的載入器版本未儲存",
+        M::LoaderChangeDropped => "拍攝快照期間這個實例被修改了。請重新選擇載入器版本。",
+        M::RestoreUnfinished => {
+            "這個實例的一次還原沒有完成，也無法復原，因此它的部分世界或模組被暫時移到一旁。請關閉正在使用其檔案的程式，然後再按一次「開始遊戲」，或重新啟動 Lodestone Launcher。"
+        }
         M::CouldntSavePlayed => "無法儲存上次遊玩時間：{error}",
         M::CouldntSavePlayTime => "無法儲存遊戲時數：{error}",
         M::ModpackExported => "模組包已匯出",

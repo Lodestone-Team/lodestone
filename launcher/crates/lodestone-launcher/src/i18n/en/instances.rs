@@ -99,6 +99,15 @@ crate::i18n::messages! {
         /// Another change of the instance's files (a copy, a move to the Trash, an image
         /// being imported) is still running.
         FilesBusy = "Wait for the instance's files to finish changing, then try again.",
+        /// A restore from a snapshot failed and couldn't be undone, so some worlds or mods
+        /// may be set aside in the instance's folder.
+        /// A notice's title: the snapshot before a new loader version failed; the version
+        /// was saved anyway.
+        NoSnapshotBeforeLoaderChange = "No snapshot was taken before the loader changed",
+        /// A notice's title: the new loader version chosen in Settings wasn't saved.
+        LoaderChangeNotSaved = "The new loader version wasn't saved",
+        LoaderChangeDropped = "The instance was changed while its snapshot was taken. Choose the loader version again.",
+        RestoreUnfinished = "A restore of this instance didn't finish and couldn't be undone, so some of its worlds or mods are set aside. Close any program using its files and press Play again, or restart Lodestone Launcher.",
         CouldntSavePlayed = "Couldn't save when it was played: {error}",
         CouldntSavePlayTime = "Couldn't save the play time: {error}",
         ModpackExported = "Modpack exported",

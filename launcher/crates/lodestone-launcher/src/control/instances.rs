@@ -400,7 +400,11 @@ pub fn save_changed(
     let saved = control
         .instances
         .update(cx, |instances, cx| instances.save_settings(&instance, cx));
-    failed(saved)?;
+    // These setters never change the loader, so nothing waits for a snapshot; one that
+    // did would say its failures in notices.
+    if let Some(pending) = failed(saved)? {
+        pending.detach();
+    }
     let current = control.instance(&instance.id, cx)?;
     Ok(json!({
         "instance": instance_json(&current, control.instances.read(cx), control.servers.read(cx))

@@ -77,7 +77,7 @@ pub fn text(message: M) -> &'static str {
         M::DeleteNamed => "删除“{name}”？",
         M::DeleteWorldBody => "该世界的文件夹会移到{trash}，你可以从那里恢复。它的备份会保留。",
         M::DeleteInstanceBody => {
-            "该实例的文件夹（包括其中的世界、模组和设置）会移到{trash}。你可以从那里恢复。"
+            "该实例的文件夹（包括其中的世界、模组和设置）会移到{trash}。你可以从那里恢复。它的快照会一直保留，直到你在“设置 › 存储”中移除；恢复实例时快照也会一起回来。"
         }
         M::ReplaceWorldTitle => "用此备份替换“{name}”？",
         M::ReplaceWorldBody => {

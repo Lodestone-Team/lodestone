@@ -2977,11 +2977,12 @@ mod image_tests {
             .expect("a Fabric sample instance")
     }
 
-    /// The sample instances, off the network, with the Fabric one's id and the images.
+    /// The sample instances, off the network, with the Fabric one's id and the images. The
+    /// instance settings scene's: the worlds scene's comes with snapshots and their history.
     fn sample(cx: &mut TestAppContext) -> (Entity<Instances>, String, Arc<Images>) {
         let instances = cx.update(|cx| {
             let accounts = crate::preview::accounts("signed-out", cx);
-            crate::preview::instances("worlds", &accounts, cx)
+            crate::preview::instances("instance-settings", &accounts, cx)
         });
         let (id, images) = instances.update(cx, |instances, _| {
             instances.preview_offline();

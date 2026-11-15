@@ -493,6 +493,79 @@ fn an_interrupted_restore_is_recovered_when_the_launcher_starts() {
 }
 
 #[test]
+fn an_unfinished_restore_is_reported_and_retried() {
+    let (s, _) = played();
+    let root = s.store.dir(s.id());
+    let before = files(&root);
+    assert!(!s.images.restore_unfinished(s.id()));
+    // A swap whose rollback failed: the world is renamed aside, the journal stays.
+    let suffix = swap::random_suffix();
+    let staging = root.join(format!("{}{suffix}", swap::STAGING_PREFIX));
+    std::fs::create_dir_all(staging.join("minecraft/saves/World")).unwrap();
+    std::fs::write(staging.join("minecraft/saves/World/level.dat"), b"new").unwrap();
+    let replaced: HashSet<String> = ["minecraft/saves/World/level.dat".to_string()].into();
+    let mut staged = Staged::new(
+        &root,
+        suffix,
+        &["minecraft/saves/World".to_string()],
+        &replaced,
+        &["minecraft/saves/World/level.dat".to_string()],
+    )
+    .unwrap();
+    staged.faults.fail_after = Some(1);
+    staged.faults.break_rollback = true;
+    let journal = s
+        .images
+        .store()
+        .instance_dir(s.id())
+        .unwrap()
+        .join(swap::JOURNAL_FILE);
+    assert!(matches!(staged.swap(&journal), Err(SwapError::Broken(_))));
+    assert!(s.images.restore_unfinished(s.id()), "Play must refuse");
+    // The retry Play makes undoes it.
+    s.images
+        .retry_unfinished_restore(s.id(), std::time::Duration::from_secs(1))
+        .unwrap();
+    assert!(!s.images.restore_unfinished(s.id()));
+    assert_eq!(files(&root), before);
+}
+
+#[test]
+fn a_restore_first_undoes_an_unfinished_one() {
+    let (s, record) = played();
+    let root = s.store.dir(s.id());
+    let before = files(&root);
+    let suffix = swap::random_suffix();
+    let staging = root.join(format!("{}{suffix}", swap::STAGING_PREFIX));
+    std::fs::create_dir_all(staging.join("minecraft/saves/World")).unwrap();
+    std::fs::write(staging.join("minecraft/saves/World/level.dat"), b"new").unwrap();
+    let replaced: HashSet<String> = ["minecraft/saves/World/level.dat".to_string()].into();
+    let mut staged = Staged::new(
+        &root,
+        suffix,
+        &["minecraft/saves/World".to_string()],
+        &replaced,
+        &["minecraft/saves/World/level.dat".to_string()],
+    )
+    .unwrap();
+    staged.faults.fail_after = Some(1);
+    staged.faults.break_rollback = true;
+    let journal = s
+        .images
+        .store()
+        .instance_dir(s.id())
+        .unwrap()
+        .join(swap::JOURNAL_FILE);
+    assert!(matches!(staged.swap(&journal), Err(SwapError::Broken(_))));
+    // Undone first, rather than its journal written over the one that knows what is
+    // aside; then the same world is put back.
+    s.restore(&record.id, RestoreScope::Worlds(vec!["World".into()]))
+        .unwrap();
+    assert!(!s.images.restore_unfinished(s.id()));
+    assert_eq!(files(&root), before);
+}
+
+#[test]
 fn a_restored_modpack_record_follows_the_snapshots_pack_version() {
     let (s, _) = played();
     let dir = s.store.dir(s.id());
@@ -551,6 +624,107 @@ fn a_restored_modpack_record_follows_the_snapshots_pack_version() {
     // The same version changes nothing.
     restore::follow_base_for_tests(&dir, Some(&older), &[]).unwrap();
     assert_eq!(ModpackRecord::load(&dir).unwrap(), after);
+}
+
+#[test]
+fn a_pack_update_after_going_back_replaces_and_removes_only_the_packs_files() {
+    use crate::modpack::{OverrideFile, PackInfo, update};
+    let s = Setup::new();
+    let dir = s.store.dir(s.id());
+    let sha1 = |relative: &str| crate::game::download::sha1_of(&s.game(relative)).unwrap();
+    let pack_record = |version: &str, sha512: char, files: &[(&str, String)]| ModpackRecord {
+        project_id: "P".into(),
+        version_id: version.into(),
+        version_number: version.into(),
+        pack_sha512: Some(sha512.to_string().repeat(128)),
+        files: files
+            .iter()
+            .map(|(path, sha1)| {
+                (
+                    path.to_string(),
+                    PackFile {
+                        sha1: sha1.clone(),
+                        source: FileSource::Override,
+                        project: None,
+                    },
+                )
+            })
+            .collect(),
+        ..ModpackRecord::default()
+    };
+    // Version 1 of the pack, played, and a snapshot of it.
+    s.write("mods/a.jar", b"a v1");
+    s.write("mods/old.jar", b"only in v1");
+    s.world("World", b"w1");
+    let v1 = pack_record(
+        "V1",
+        'a',
+        &[
+            ("mods/a.jar", sha1("mods/a.jar")),
+            ("mods/old.jar", sha1("mods/old.jar")),
+        ],
+    );
+    crate::storage::save(&ModpackRecord::path(&dir), &v1).unwrap();
+    s.images.record_now(s.id(), "Created").unwrap();
+    let snapshot = s.snapshot("On v1");
+    // Updated to version 2: a.jar changed, old.jar dropped, new.jar added.
+    s.write("mods/a.jar", b"a v2");
+    s.remove("mods/old.jar");
+    s.write("mods/new.jar", b"new in v2");
+    let v2_files = [
+        ("mods/a.jar", sha1("mods/a.jar")),
+        ("mods/new.jar", sha1("mods/new.jar")),
+    ];
+    crate::storage::save(
+        &ModpackRecord::path(&dir),
+        &pack_record("V2", 'b', &v2_files),
+    )
+    .unwrap();
+    s.images.record_now(s.id(), "Updated").unwrap();
+
+    // Back to the snapshot with its mods: version 1's files, and a record that says so.
+    s.restore(
+        &snapshot.id,
+        RestoreScope::WorldsAndContent(vec!["World".into()]),
+    )
+    .unwrap();
+    assert_eq!(s.read("mods/a.jar").unwrap(), b"a v1");
+    assert_eq!(s.read("mods/old.jar").unwrap(), b"only in v1");
+    assert_eq!(s.read("mods/new.jar"), None);
+    let restored = ModpackRecord::load(&dir).unwrap();
+    assert_eq!(restored.version_id, "V1");
+
+    // Updating to version 2 again replaces a.jar and adds new.jar. old.jar, which the
+    // record no longer lists, is treated as the user's: kept, never removed by mistake.
+    let pack = PackInfo {
+        name: "P".into(),
+        version_number: Some("V2".into()),
+        summary: None,
+        game_version: s.instance.game_version.clone(),
+        loader: None,
+        recommended_memory: None,
+        downloads: Vec::new(),
+        overrides: v2_files
+            .iter()
+            .enumerate()
+            .map(|(index, (path, sha1))| OverrideFile {
+                path: path.to_string(),
+                index,
+                size: 1,
+                sha1: sha1.clone(),
+            })
+            .collect(),
+        skipped: Vec::new(),
+    };
+    let dirs = crate::content::InstanceDirs::new(&dir);
+    let plan = update::plan(&dirs, &restored, &pack, pack_record("V2", 'b', &[]), None);
+    let mut written = plan.overrides_written.clone();
+    written.sort();
+    assert_eq!(written, ["mods/a.jar", "mods/new.jar"]);
+    assert!(plan.removed.is_empty(), "{:?}", plan.removed);
+    assert!(!plan.touched().iter().any(|p| p == "mods/old.jar"));
+    assert!(plan.kept_changed.is_empty(), "{:?}", plan.kept_changed);
+    assert!(plan.overrides_kept.is_empty(), "{:?}", plan.overrides_kept);
 }
 
 #[test]

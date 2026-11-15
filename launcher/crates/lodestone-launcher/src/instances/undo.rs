@@ -515,13 +515,15 @@ impl Instances {
             }
         }
         let saved = self.store.get(id).ok();
-        if let Some(saved) = saved
+        if let Some((saved, change)) = saved
             .clone()
-            .filter(|saved| super::loader_version_only(saved, &instance))
+            .and_then(|saved| super::game_change(&saved, &instance).map(|change| (saved, change)))
         {
-            // A new loader version: a snapshot first, then the save.
+            // A new loader version: a snapshot first, then the save. Its failures are
+            // said in notices.
             self.forget_background(id, cx);
-            self.save_after_snapshot(saved, instance, cx);
+            self.save_after_snapshot(saved, instance, change, cx)
+                .detach();
             return Ok(());
         }
         let operation = saved.and_then(|saved| self.settings_operation(&saved, &instance));
@@ -839,6 +841,8 @@ mod step_tests {
         );
         let outcome = cx.update(undo::undo);
         assert!(matches!(outcome, Outcome::Undid(_)));
+        // a snapshot first, then the save
+        cx.run_until_parked();
         let now = record(&instances, &id, cx);
         assert_eq!(
             (now.loader, now.loader_version.as_deref()),

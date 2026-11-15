@@ -201,6 +201,14 @@ pub enum RiskyChange<'a> {
     ContentUpdate { titles: &'a [String] },
     /// The loader's version changing in place.
     LoaderChange { loader: Loader, version: &'a str },
+    /// The instance moving to another Minecraft version or loader in place (the Launcher's
+    /// own screens never do; a caller that does takes this first): the next launch
+    /// upgrades its worlds, which can't be undone.
+    GameChange {
+        game_version: &'a str,
+        loader: Loader,
+        loader_version: Option<&'a str>,
+    },
 }
 
 impl RiskyChange<'_> {
@@ -215,6 +223,11 @@ impl RiskyChange<'_> {
             RiskyChange::LoaderChange { loader, version } => {
                 labels::before_loader_change(*loader, version)
             }
+            RiskyChange::GameChange {
+                game_version,
+                loader,
+                loader_version,
+            } => labels::before_game_change(game_version, *loader, *loader_version),
         }
     }
 
@@ -227,7 +240,9 @@ impl RiskyChange<'_> {
         match self {
             RiskyChange::ModpackUpdate { .. } => Some(labels::BEFORE_MODPACK_UPDATE),
             RiskyChange::ServerUpdate { .. } => Some(labels::BEFORE_SERVER_UPDATE),
-            RiskyChange::ContentUpdate { .. } | RiskyChange::LoaderChange { .. } => None,
+            RiskyChange::ContentUpdate { .. }
+            | RiskyChange::LoaderChange { .. }
+            | RiskyChange::GameChange { .. } => None,
         }
     }
 }
@@ -245,6 +260,11 @@ impl Images {
         }
         let slot = self.slot(instance);
         let locked = super::check::lock_within(&slot.record, super::history::HISTORY_WAIT);
+        if locked.is_some()
+            && let Ok(_writing) = self.enter()
+        {
+            self.readopt_or_warn(&ctx);
+        }
         let loaded = state::load_present(self.store(), instance)?;
         let listing = self.listing(instance)?;
         let has_manifests = !listing.content.is_empty() || !listing.links.is_empty();

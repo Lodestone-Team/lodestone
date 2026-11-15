@@ -199,6 +199,7 @@ pub const SCENES: &[&str] = &[
     "settings-search",
     "settings-search-empty",
     "settings-search-defaults",
+    "settings-defaults",
     "settings-search-memory",
     "instance-settings-search",
     "instance-settings-search-narrow",
@@ -1367,6 +1368,14 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             if let Some(settings) = shell.settings_view().cloned() {
                 settings.update(cx, |settings, cx| settings.preview_search(query, cx));
             }
+        }
+        // Instance defaults with "Take a snapshot after each play session" on, in the card
+        // it shares with automatic setup.
+        "settings-defaults" => {
+            shell.instances().clone().update(cx, |instances, cx| {
+                instances.set_default_snapshot_after_play(true, cx)
+            });
+            shell.open_settings(Some(crate::shell::SettingsPage::Defaults), None, cx);
         }
         "settings-narrow" | "settings-narrow-open" => {
             shell.open_settings(Some(crate::shell::SettingsPage::Defaults), None, cx);

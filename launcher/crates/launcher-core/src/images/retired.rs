@@ -23,6 +23,11 @@
 //! A retired folder's manifests are marked by every collection like any other, so their
 //! objects stay. Settings › Storage lists them ([`Images::deleted_snapshots`]) and its
 //! clean-up deletes them ([`Images::clean_up`]).
+//!
+//! An instance that comes back (put back from the Trash: the same id and `created` time)
+//! takes its snapshots back ([`Images::readopt_locked`]) the first time the store looks at
+//! it, before it has images of its own. A new instance that only reuses the id has another
+//! `created` time and never does.
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -195,6 +200,61 @@ impl Images {
                 let _ = self.store().delete_manifest(folder, &header.id);
             }
         }
+    }
+
+    /// Takes back the snapshots of an instance that came back after it was deleted (put
+    /// back from the Trash, or a sync tool returning its folder): the retired folder whose
+    /// marker names its id and its `created` time goes back to `images/<id>/`, with a
+    /// content state naming the instance, and its marker last. Only when the instance has
+    /// no images of its own yet (`images/<id>/` isn't there). Returns whether it did.
+    ///
+    /// Crash safety follows the marker: until it is deleted the folder is still a deleted
+    /// instance's, so a crash part way leaves a marked folder under the id, which the guard
+    /// retires again and the next call takes back. The caller holds the instance's record
+    /// lock inside a counted write; the retired folder's own lock keeps Storage's clean-up
+    /// from deleting it meanwhile.
+    pub(crate) fn readopt_locked(&self, id: &str, created: u64) -> Result<bool, ImageError> {
+        let dir = self.store().instance_dir(id)?;
+        if dir.exists() || id.starts_with(RETIRED_PREFIX) {
+            return Ok(false);
+        }
+        let images_dir = self.store().images_dir();
+        let Some(folder) = self
+            .retired_folders()
+            .into_iter()
+            .map(|folder| {
+                let marker = read_marker(&images_dir.join(&folder));
+                (folder, marker)
+            })
+            .filter(|(_, m)| m.former_id == id && m.instance_created == Some(created))
+            .max_by_key(|(_, m)| m.deleted)
+            .map(|(folder, _)| folder)
+        else {
+            return Ok(false);
+        };
+        let slot = self.slot(&folder);
+        let _record = slot.lock_record();
+        let from = images_dir.join(&folder);
+        if !from.is_dir() {
+            return Ok(false);
+        }
+        crate::fsx::rename(&from, &dir).map_err(ImageError::io(format!(
+            "Failed to take back the snapshots of {id}"
+        )))?;
+        let state = super::state::ContentState {
+            instance_created: Some(created),
+            ..Default::default()
+        };
+        super::state::save(self.store(), id, &state)?;
+        std::fs::remove_file(dir.join(RETIRED_FILE)).map_err(ImageError::io(format!(
+            "Failed to take back the snapshots of {id}"
+        )))?;
+        super::warn(
+            "images.readopted",
+            id,
+            &format!("the instance is back; its snapshots in {folder} are its own again"),
+        );
+        Ok(true)
     }
 
     /// Whether `images/<id>/` has a retirement marker: its images are a deleted instance's,

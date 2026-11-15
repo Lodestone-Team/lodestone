@@ -1124,6 +1124,115 @@ fn a_share_code_based_on_the_pack_recreates_the_instance() {
     );
     assert_eq!(enabled(&to), enabled(&from));
 
+    // In terms of images ("M5 decisions", LDS codes): the code encodes the sender's
+    // content image less what the plan lists as left out. Both instances recorded, the
+    // images have the same game and base, the same files with the same sources and
+    // hashes, the same pack files gone and the same resource pack order; they differ only
+    // in the files left out.
+    let images = launcher_core::images::Images::open(&launcher_core::paths::DataDir::at(
+        fixture.store.root().parent().unwrap(),
+    ));
+    let image_of = |dirs: &InstanceDirs| {
+        let id = dirs
+            .instance
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
+        let recorded = images.record_now(&id, "Shared").unwrap().unwrap();
+        images.store().load_manifest(&id, &recorded.id).unwrap()
+    };
+    let (sent, got) = (image_of(&from), image_of(&to));
+    assert_eq!(got.game, sent.game);
+    assert!(
+        matches!(&sent.base, Some(lodestone_image::Base::ModrinthPack { project, version, .. })
+            if project == "PACK1" && version == "pv1"),
+        "{:?}",
+        sent.base
+    );
+    assert_eq!(got.base, sent.base);
+    // The pack's file the sender removed is absent from both: the Launcher records what is
+    // on disk, so a removed base file is a missing entry (its `removed` stays empty).
+    assert_eq!(got.removed, sent.removed);
+    for image in [&sent, &got] {
+        assert!(
+            image
+                .entries
+                .iter()
+                .all(|e| e.path.as_str() != "mods/gone.jar"),
+            "the removed pack file is gone"
+        );
+    }
+    let client = |image: &lodestone_image::Image| {
+        image
+            .settings
+            .client
+            .as_ref()
+            .map(|c| c.resource_packs.clone())
+    };
+    assert_eq!(client(&got), client(&sent));
+    let content = |image: &lodestone_image::Image| {
+        image
+            .entries
+            .iter()
+            .filter(|e| {
+                let path = e.path.as_str();
+                (path.starts_with("mods/") || path.starts_with("resourcepacks/"))
+                    && !path.ends_with("homemade.jar")
+                    && !path.ends_with("tweaked.jar")
+            })
+            .map(|e| {
+                (
+                    e.path.as_str().to_string(),
+                    e.sha256.clone(),
+                    e.source.clone(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(content(&got), content(&sent));
+    let modrinth: Vec<(String, String)> = sent
+        .entries
+        .iter()
+        .filter_map(|e| match &e.source {
+            lodestone_image::Source::Modrinth {
+                project, version, ..
+            } if project != SODIUM => Some((project.clone(), version.clone())),
+            _ => None,
+        })
+        .collect();
+    let mut from_code: Vec<(String, String)> = decoded
+        .items
+        .iter()
+        .map(|item| (item.project.clone(), item.version.clone()))
+        .collect();
+    from_code.sort();
+    let mut modrinth = modrinth;
+    modrinth.sort();
+    assert_eq!(
+        modrinth, from_code,
+        "the code's items are the added Modrinth entries"
+    );
+    let tweaked = |image: &lodestone_image::Image| {
+        image
+            .entries
+            .iter()
+            .find(|e| e.path.as_str() == "mods/tweaked.jar")
+            .map(|e| e.sha256.clone())
+    };
+    assert_ne!(
+        tweaked(&got),
+        tweaked(&sent),
+        "left out: arrives as the pack's"
+    );
+    assert!(
+        got.entries
+            .iter()
+            .all(|e| !e.path.as_str().ends_with("homemade.jar")),
+        "left out: added by hand"
+    );
+
     // A code for another pack isn't applied to this instance.
     let mut other = decoded.clone();
     other.pack.as_mut().unwrap().version = "pv9".into();

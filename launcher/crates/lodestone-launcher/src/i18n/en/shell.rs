@@ -116,7 +116,7 @@ crate::i18n::messages! {
         /// The title of a dialog that deletes an instance or a world.
         DeleteNamed = "Delete {name}?",
         DeleteWorldBody = "The world's folder moves to {trash}, so you can put it back from there. Its backups stay.",
-        DeleteInstanceBody = "The instance's folder, with its worlds, mods and settings, moves to {trash}. You can put it back from there.",
+        DeleteInstanceBody = "The instance's folder, with its worlds, mods and settings, moves to {trash}. You can put it back from there. Its snapshots are kept until you remove them in Settings › Storage, and come back with it.",
         ReplaceWorldTitle = "Replace {name} with this backup?",
         /// {when} is when the backup was made: "today, 14:05".
         ReplaceWorldBody = "{name} goes back to how it was {when}. A snapshot of the world as it is now is taken first and kept for 30 days.",

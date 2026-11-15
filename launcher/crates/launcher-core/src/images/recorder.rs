@@ -552,6 +552,7 @@ impl Images {
     /// [`Self::guarded_state`], with whether a state file is there (none after the guard
     /// deleted an earlier instance's images).
     pub(crate) fn guarded(&self, ctx: &InstanceContext) -> Result<state::Loaded, ImageError> {
+        self.readopt_or_warn(ctx);
         let loaded = state::load_present(self.store(), &ctx.id)?;
         let has_manifests = !self.store().manifest_ids(&ctx.id)?.is_empty();
         if self.retired_marker_in(&ctx.id)
@@ -563,12 +564,25 @@ impl Images {
                 "the images under this id are an earlier instance's; setting them aside",
             );
             self.retire_locked(&ctx.id)?;
+            // A marked folder may be this instance's own snapshots part way back (a crash
+            // while taking them back): they come back now.
+            if self.readopt_locked(&ctx.id, ctx.instance.created)? {
+                return state::load_present(self.store(), &ctx.id);
+            }
             return Ok(state::Loaded {
                 state: ContentState::default(),
                 present: false,
             });
         }
         Ok(loaded)
+    }
+
+    /// [`Self::readopt_locked`] for the instance of `ctx`; a failure is only noted (the
+    /// instance starts a history of its own and the snapshots stay retired).
+    pub(crate) fn readopt_or_warn(&self, ctx: &InstanceContext) {
+        if let Err(e) = self.readopt_locked(&ctx.id, ctx.instance.created) {
+            super::warn("images.readopted", &ctx.id, &e.to_string());
+        }
     }
 
     /// The labels of operations a new image was written during (see the module), added to

@@ -76,7 +76,12 @@ impl Images {
         // that its image is missing, or listed without being current yet: a record saves
         // the manifest before the pointer.
         let slot = self.slot(instance);
-        let _record = super::check::lock_within(&slot.record, HISTORY_WAIT);
+        let record = super::check::lock_within(&slot.record, HISTORY_WAIT);
+        if record.is_some()
+            && let Ok(_writing) = self.enter()
+        {
+            self.readopt_or_warn(&ctx);
+        }
         let loaded = state::load_present(self.store(), instance)?;
         let listing = self.listing(instance)?;
         let has_manifests = !listing.content.is_empty() || !listing.links.is_empty();

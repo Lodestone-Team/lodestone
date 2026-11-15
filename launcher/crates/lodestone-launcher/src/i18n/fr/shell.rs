@@ -87,7 +87,7 @@ pub fn text(message: M) -> &'static str {
             "Le dossier du monde est placé dans {trash}, d’où vous pouvez le récupérer. Ses sauvegardes sont conservées."
         }
         M::DeleteInstanceBody => {
-            "Le dossier de l’instance, avec ses mondes, ses mods et ses paramètres, est placé dans {trash}. Vous pouvez le récupérer depuis cet endroit."
+            "Le dossier de l’instance, avec ses mondes, ses mods et ses paramètres, est placé dans {trash}. Vous pouvez le récupérer depuis cet endroit. Ses instantanés sont conservés jusqu’à ce que vous les supprimiez dans Paramètres › Stockage, et reviennent avec elle."
         }
         M::ReplaceWorldTitle => "Remplacer {name} par cette sauvegarde\u{202F}?",
         M::ReplaceWorldBody => {

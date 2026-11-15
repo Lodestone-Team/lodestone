@@ -702,7 +702,12 @@ impl InstanceSettings {
         let running = self.instances.read(cx).is_active(&instance.id);
         let result = self.instances.update(cx, |instances, cx| {
             instances.undoable(&instance.id, cx, |instances, cx| {
-                instances.save_settings(&instance, cx)
+                // a save after a snapshot says its failures in notices
+                instances.save_settings(&instance, cx).map(|pending| {
+                    if let Some(pending) = pending {
+                        pending.detach();
+                    }
+                })
             })
         });
         // The form's unsaved steps become this one saved step.
@@ -3365,6 +3370,8 @@ mod tab_tests {
             assert!(view.has_changes(cx));
             assert!(view.save(cx));
         });
+        // a snapshot first, then the save
+        cx.run_until_parked();
         let saved = store.get(&id).unwrap();
         assert_eq!(
             (saved.loader, saved.loader_version.as_deref()),

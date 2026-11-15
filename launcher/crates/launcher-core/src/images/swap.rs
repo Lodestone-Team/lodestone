@@ -20,13 +20,14 @@
 //!
 //! A failure in steps 2 to 4 rolls back (what was moved goes back; nothing at a
 //! destination is ever deleted, what is in the way goes into the staging folder). A crash
-//! leaves the journal, and [`recover`] does the same rollback at the next start, before any
-//! instance can be played; a `done` journal only has its leftovers deleted. The journal
-//! holds only the folders' random suffixes and relative paths, checked strictly before
-//! use, and no rename goes through a link.
+//! leaves the journal, and [`recover_one`] does the same rollback at the next start, before
+//! any instance can be played (and Play again, for a rollback that failed); a `done`
+//! journal only has its leftovers deleted. The journal holds only the folders' random
+//! suffixes and relative paths, checked strictly before use, and no rename goes through a
+//! link.
 //!
-//! Launcher-local, not shared with the core: the core's swap also carries server software
-//! adoption, Paper's split worlds and pinned settings.
+//! Launcher-local, not shared with the core: the core's swap also takes the server software
+//! over in its journal, splits Paper's worlds and pins settings (see "M5 decisions").
 
 use std::collections::{BTreeSet, HashSet};
 use std::fs;
@@ -51,8 +52,8 @@ const REPLACED_DIR: &str = ".replaced";
 pub enum SwapError {
     /// Undone: the instance folder is as it was.
     RolledBack(ImageError),
-    /// Couldn't be undone. The journal stays for the next start, which tries again; the
-    /// instance mustn't be played until then.
+    /// Couldn't be undone. The journal stays; Play tries again and refuses until it is
+    /// undone ([`super::Images::restore_unfinished`]), as does the next start.
     Broken(ImageError),
 }
 
@@ -321,7 +322,7 @@ impl Staged {
                     &format!("the restore couldn't be undone: {}", problems.join("; ")),
                 );
                 Err(SwapError::Broken(ImageError::Invalid(
-                    "The restore couldn't be undone; restart the Launcher to repair it".into(),
+                    "The restore couldn't be undone, so some files are set aside; close what holds them, then press Play or restart the Launcher to repair it".into(),
                 )))
             }
         }
@@ -632,7 +633,7 @@ pub(crate) fn rollback(root: &Path, journal: &Journal) -> Result<(), Vec<String>
     }
 }
 
-/// What [`recover`] did.
+/// What [`super::Images::recover_restores`] did.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Recovery {
     /// Instances whose interrupted restore was undone (or finished, when it was done).
