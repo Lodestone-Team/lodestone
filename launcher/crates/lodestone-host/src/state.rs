@@ -66,7 +66,8 @@ pub fn creation_toast(
             crate::i18n::InstancesMsg::CreateFailedLater,
         ))),
         (true, _, Some(outcome)) => {
-            let lines = lodestone_ui::sharing::outcome_lines(outcome);
+            // counted, with no names: the server's pages have them
+            let lines = lodestone_ui::sharing::outcome_counts(outcome);
             (!lines.is_empty()).then(|| Toast::info(lines.join("\n")))
         }
         (true, Some(message), None) => message

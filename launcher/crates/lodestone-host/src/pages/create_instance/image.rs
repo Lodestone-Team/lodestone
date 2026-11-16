@@ -17,7 +17,7 @@ use launcher_core::cores::admin::images::{
 use launcher_core::cores::admin::models::CorePermission;
 use launcher_core::game::download::{CancelToken, Progress};
 use lodestone_ui::sharing::{
-    Level, Picked, can_create, chosen_server, default_name, default_world, summary_lines,
+    Picked, SummaryView, can_create, chosen_server, default_name, default_world, summary_lines,
 };
 use lodestone_ui::{
     components::{
@@ -37,7 +37,6 @@ use super::{
 };
 use crate::{
     i18n::{CommonMsg, InstancesMsg as M, SharingMsg as S, format, t, tr},
-    pages::parts,
     state::HostState,
 };
 
@@ -433,15 +432,6 @@ impl ImageFlow {
     }
 }
 
-/// A muted line of text.
-fn note(text_: impl Into<SharedString>) -> AnyElement {
-    div()
-        .text_size(text::MEDIUM)
-        .text_color(ink::muted())
-        .child(text_.into())
-        .into_any_element()
-}
-
 impl ImageFlow {
     fn render_file(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let uploading = self.uploading.as_ref().map(|run| run.progress.snapshot());
@@ -606,16 +596,8 @@ impl ImageFlow {
                 own_file: false,
             },
         );
-        let notes: Vec<AnyElement> = lines.notes.into_iter().map(note).collect();
-        let alerts: Vec<AnyElement> = lines
-            .alerts
-            .into_iter()
-            .map(|(level, text)| match level {
-                Level::Error => parts::error(text),
-                Level::Warning => parts::warning(text),
-            })
-            .collect();
-        let details: Vec<AnyElement> = lines.details.into_iter().map(note).collect();
+        // what the file holds, laid out as the Launcher's "Host this" lays it out
+        let view = SummaryView::new("image-summary-lines", lines);
 
         // the world: a Launcher's file gives only the one picked, or none
         let world = (!summary.worlds.is_empty()).then(|| {
@@ -762,16 +744,7 @@ impl ImageFlow {
                 t(M::ImageSummaryTitle),
                 t(M::ImageSummarySubtitle),
             ))
-            .child(
-                div()
-                    .mt(px(-12.))
-                    .flex()
-                    .flex_col()
-                    .gap(px(4.))
-                    .children(notes),
-            )
-            .children(alerts)
-            .child(div().flex().flex_col().gap(px(4.)).children(details))
+            .child(view)
             .child(fields::section(
                 software.into_iter().chain(world).chain(operators).collect(),
             ))

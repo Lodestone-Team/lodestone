@@ -9,7 +9,7 @@ use super::*;
 use crate::{
     components::{Icon, ListRow, Tabs},
     i18n::{
-        CommonMsg, FactMsg, SharingMsg, ValueMsg, format,
+        CommonMsg, FactMsg, ValueMsg, format,
         spans::{Mono, Obj, Ver},
         t,
     },
@@ -409,7 +409,7 @@ impl Render for ComponentGallery {
                                         NameItem::new("sodium-fabric-0.5.8+mc1.20.1.jar")
                                             .icon(ItemIcon::Failed)
                                             .style(NameStyle::Mono)
-                                            .reason(tr_spans!(SharingMsg::ImageMadeByHost, version = Ver("0.6.2"))),
+                                            .reason(tr_spans!(ValueMsg::FromTo, from = Ver("0.5.8"), to = Ver("0.6.2"))),
                                     ),
                             ),
                     )
