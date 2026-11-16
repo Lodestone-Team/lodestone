@@ -450,7 +450,6 @@ impl DownloadWorldDialog {
             .collect();
         rows.push(
             ListRow::new("download-world-backup-new", t(M::DownloadWorldBackUpNow))
-                .detail(t(M::DownloadWorldBackUpNowHint))
                 .selected(picked.is_none())
                 .on_click(move |_, _, cx| entity.update(cx, |this, cx| this.pick(None, cx)))
                 .into_any_element(),

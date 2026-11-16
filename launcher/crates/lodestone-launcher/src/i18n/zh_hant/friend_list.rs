@@ -3,7 +3,7 @@ use crate::i18n::{FriendListMsg as M, FriendListPlural as P};
 pub fn text(message: M) -> &'static str {
     match message {
         M::Title => "好友",
-        M::Hint => "只需新增一次的好友。不需連結即可查看並加入他們與你分享的伺服器。",
+        M::Hint => "不需邀請連結即可加入他們與你分享的伺服器。",
         M::AddFriend => "新增好友",
         M::Refreshing => "正在查看好友狀態…",
         M::You => "你",
@@ -46,9 +46,7 @@ pub fn text(message: M) -> &'static str {
         M::ShowServers => "顯示伺服器",
         M::AddTitle => "新增好友",
         M::SendLinkTitle => "傳送好友連結給對方",
-        M::SendLinkBody => {
-            "建立一個連結並傳給你的好友。對方開啟後，回覆會顯示在伺服器頁面上，等你接受。"
-        }
+        M::SendLinkBody => "對方開啟後，在這裡的好友頁面上接受其回覆。",
         M::MakeLink => "建立連結",
         M::LinkWorksOnce => {
             "僅能使用一次，24 小時內有效。任何拿到這個連結的人都能請求成為你的好友，所以只傳給對方本人。"
@@ -113,7 +111,7 @@ pub fn text(message: M) -> &'static str {
         M::RemoveFriend => "移除好友",
         M::ShareLan => "與好友分享區域網路世界",
         M::ShareLanBody => {
-            "當你把單人世界對區域網路開放時，好友會在這裡看到它，並可在它開放期間透過 Lodestone Connect 加入。你對其隱藏的好友看不到它。"
+            "世界開放期間，好友可透過 Lodestone Connect 加入。你對其隱藏的好友看不到它。"
         }
         M::LanNoneOpen => {
             "目前沒有對區域網路開放的世界。在遊戲中開啟一個世界，然後選擇「對區域網路開放」。"
@@ -130,7 +128,6 @@ pub fn text(message: M) -> &'static str {
         M::LanWorld => "區域網路世界",
         M::OpenNow => "現已開放",
         M::LanOpenStatus => "有一個開放中的區域網路世界",
-        M::LanJoinNote => "僅在 {name} 的遊戲開放它時可以加入。",
         M::LanNeedsMicrosoft => "需要 Microsoft 帳號：這個世界處於正版驗證模式。",
         M::LanNeedsVersion => "請使用 Minecraft {version} 遊玩。",
         M::LanModded => "它使用 {loader}：你需要相同的模組。",

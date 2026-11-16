@@ -156,7 +156,7 @@ crate::i18n::messages! {
         // Java & memory, Launch options.
         /// Sets a value for this instance instead of the launcher's.
         ChangeSetting = "Change",
-        JavaMemoryLead = "Defaults come from the launcher's settings.",
+        JavaMemoryLead = "Memory's default is set in Settings › Instance defaults.",
         Memory = "Memory",
         Checking = "Checking…",
         /// {major} is "21", {version} is "21.0.5".
@@ -293,7 +293,7 @@ crate::i18n::messages! {
         /// The Game & loader row that leads to a copy: an instance's version and loader
         /// never change.
         ChangeVersionOrLoader = "Another version or loader",
-        ChangeVersionOrLoaderHint = "An instance keeps the version and loader it was made with. A copy can have others.",
+        ChangeVersionOrLoaderHint = "Makes a copy. This instance stays as it is.",
         /// The Maintenance row that opens "Copy with another version or loader".
         CopyAs = "Copy with another version or loader",
         /// Opens "Copy with another version or loader".
@@ -381,15 +381,14 @@ crate::i18n::messages! {
         DeleteButton = "Delete…",
 
         // Shared game settings.
-        SharedLead = "Keep your settings in sync across instances.",
+        SharedLead = "Key bindings, video, sound and other in-game options, the same in each instance that shares them.",
         UseSharedSettings = "Use shared settings",
-        SharingOff = "This instance keeps its own options.",
         /// {name} is the main instance's name.
         SharingFrom = "Gets in-game changes from {name}.",
         SharingMain = "In-game changes here update every instance.",
         SharingNoMain = "No main instance: shared values change only in Settings.",
         MainInstance = "Main instance",
-        MainInstanceHint = "Settings you change in-game in your main instance are copied to every instance that shares them, the next time it starts. Only one instance is the main one.",
+        MainInstanceHint = "Its in-game changes reach the other sharing instances when they next start.",
         IsMainInstance = "This is your main instance",
         MakeMain = "Make main",
         StopGameToChange = "Stop the game to change these: it rewrites options.txt when it quits.",
@@ -504,8 +503,8 @@ crate::i18n::messages! {
         /// The Settings section of the packs added to an instance.
         AddedModpacks = "Added modpacks",
         AddModpackRow = "Add a modpack",
-        AddModpackHint = "Add a modpack's mods and configs to this instance, next to the ones it has.",
-        AddModpackServerHint = "Add a modpack's mods, such as client optimizations, next to {server}'s. The server's mods stay as they are.",
+        AddModpackHint = "Nothing the instance has is replaced.",
+        AddModpackServerHint = "For client mods such as optimizations. {server}'s mods stay as they are.",
         AddModpackEllipsis = "Add a modpack…",
         RemoveAddedModpackNote = "Removes the files the pack added. Files you changed stay.",
         SnapshotsNotChanged = "The snapshots couldn't be changed",

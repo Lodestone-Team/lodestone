@@ -543,15 +543,15 @@
           h("div.lx-subh", ct("AvailableCount", { count: 1 })), card(list.slice(2).map((m) => contentRow(ctx, m, kind))));
       } else {
         out.push(h("div.lx-subh", ct("InstalledCount", { count: list.length })), card(
-          kind === "shaders" ? h("div.lx-row", h("span.lx-modic", { style: { background: "var(--g700)" } }), h("div.lx-row-main", h("div.lx-row-t", ct("ShadersOff")), h("div.lx-row-s", ct("NormalLook"))), h("span.lx-radio", h("i"))) : null,
+          kind === "shaders" ? h("div.lx-row", h("span.lx-modic", { style: { background: "var(--g700)" } }), h("div.lx-row-main", h("div.lx-row-t", ct("ShadersOff"))), h("span.lx-radio", h("i"))) : null,
           list.map((m) => contentRow(ctx, m, kind))));
       }
       if (S.content === "upToDate") out.push(note(kind === "mods" ? ct("AllModsUpToDate") : kind === "rp" ? ct("AllResourcePacksUpToDate") : ct("AllShaderPacksUpToDate"), "ok"));
       if (S.content === "curseforge") out.push(blockedCard());
     }
     if (view === "installed") {
-      // "Looking for something new?", with a button to each platform's view.
-      out.push(h("div.lx-tbar", { style: { justifyContent: "center", padding: "16px 0" } }, h("span.lx-muted", ct("LookingForMore")),
+      // A button to each platform's view.
+      out.push(h("div.lx-tbar", { style: { justifyContent: "center", padding: "16px 0" } },
         btn(ct("BrowseModrinth"), { sm: true, icon: "search", on: () => goC({ view: "modrinth" }) }), btn(ct("BrowseCurseForge"), { sm: true, icon: "search", on: () => goC({ view: "curseforge" }) })));
       return out;
     }
@@ -829,14 +829,14 @@
       h("div.lx-areah", h("div.lx-grow", h("div.lx-areah-t", sv("OnThisComputer"))), gbtn(sv("Rescan"))),
       localCore(ctx),
       friendsSection(ctx),
-      h("div.lx-hostsec", h("div.lx-hostsec-h", ic("user"), h("div.lx-grow", h("div.lx-hostsec-t", sv("FriendsTitle"), S.relay === "dev" ? h("span", { style: { color: "var(--yellow)", fontFamily: "Satoshi", fontSize: "13px", marginLeft: "10px" } }, sh("ConnectServiceInUse", { service: "connect-dev.lodestone.cc" })) : null), h("div.lx-hostsec-s", sv("FriendsHint"))),
+      h("div.lx-hostsec", h("div.lx-hostsec-h", ic("user"), h("div.lx-grow", h("div.lx-hostsec-t", sv("FriendsTitle"), S.relay === "dev" ? h("span", { style: { color: "var(--yellow)", fontFamily: "Satoshi", fontSize: "13px", marginLeft: "10px" } }, sh("ConnectServiceInUse", { service: "connect-dev.lodestone.cc" })) : null)),
         btn(sv("JoinAFriend"), { icon: "plus", on: () => ctx.open("joinFriend") })),
         S.friendServers === "some" ? [
           h("div.lx-srvrow", dot("on"), h("div.lx-grow", h("div.lx-srvrow-n", tx("Creative build"), badge(sv("FriendPlayingNow"), "green")), h("div.lx-row-s", sv("SharedBy", { name: "Alex's Lodestone" }), sep(), sv("FriendAddress", { address: "127.0.0.1:36017" }))), pbtn(sv("Play"), () => ctx.open("joinFriend"))),
           h("div.lx-srvrow", dot("off"), h("div.lx-grow", h("div.lx-srvrow-n", tx("Sam's survival")), h("div.lx-row-s", sv("SharedBy", { name: "Sam's Core" }))), btn(sv("FriendCheck"), { sm: true }), h("span.lx-muted", sv("FriendChecking")), gbtn(sv("StopTrusting"))),
           h("div.lx-srvrow", dot("on"), h("div.lx-grow", h("div.lx-srvrow-n", tx("Survival SMP")), h("div.lx-row-s", sv("SharedBy", { name: "Peter's Lodestone Core" }), sep(), sv("DirectConnection"))), pbtn(sv("Play")))]
           : null),
-      h("div.lx-areah", h("div.lx-grow", h("div.lx-areah-t", sv("OtherCoresTitle")), h("div.lx-areah-s", sv("OtherCoresHint"))), gbtn(sv("AddServer"), () => ctx.open("addServer"), "plus")),
+      h("div.lx-areah", h("div.lx-grow", h("div.lx-areah-t", sv("OtherCoresTitle"))), gbtn(sv("AddServer"), () => ctx.open("addServer"), "plus")),
       other === "none" ? empty("server", sv("NoOtherCores"), sv("NoServersHint"), [pbtn(sv("AddServer"), () => ctx.open("addServer"), "plus")]) : [
         h("div.lx-corebox", h("div.lx-core", h("span.lx-ibtn", { style: { width: "38px", height: "38px", border: 0, background: "var(--g700)" } }, ic("server")),
           h("div.lx-grow", h("div.lx-core-n", tx("Alex's server box")), h("div.lx-core-s", tx("https://192.168.1.42:16662"), sep(), other === "signedIn" ? sv("SignedInAs", { username: "peter" }) : sv("NotSignedIn"))),
@@ -940,12 +940,12 @@
           ui.menu === "lang" ? menu([{ label: sh("LanguageSystem") }, { label: tx("English") }, { label: tx("Deutsch") }, { label: tx("\u7b80\u4f53\u4e2d\u6587") }], "lx-rmenu") : null)),
         srow(sh("Zoom"), tx("\u2318+  \u2318\u2212  \u23180"), [btn(tx("\u2212"), { sm: true }), h("span", { style: { width: "50px", textAlign: "center" } }, fm("Percent", { value: 100 })), btn(tx("+"), { sm: true })]),
         srow(sh("GroupAutomatically"), sh("GroupAutomaticallyHint"), toggle(S.groups !== "off", () => ctx.set("groups", S.groups === "off" ? "on" : "off"))),
-        srow(sh("WhenAGameStarts"), w === "stay" ? sh("AfterLaunchStayHint") : w === "quit" ? sh("AfterLaunchQuitHint") : null,
+        srow(sh("WhenAGameStarts"), w === "quit" ? sh("AfterLaunchQuitHint") : null,
           seg([["stay", sh("AfterLaunchStay")], ["minimize", sh("AfterLaunchMinimize")], ["quit", sh("AfterLaunchQuit")]], w, (k) => { ui.wgs = k; rerender() })))),
       section(sh("UpdatesSection"), card(
-        srow(sh("UpdateAutomatically"), sh("UpdateAutomaticallyHint"), toggle(upd !== "dev")),
-        srow(sh("BetaBuilds"), sh("BetaBuildsHint"), toggle(false)),
-        S.build === "dev" ? srow(sh("DeveloperBuilds"), sh("DeveloperBuildsHint"), toggle(true)) : null,
+        srow(sh("UpdateAutomatically"), null, toggle(upd !== "dev")),
+        srow(sh("BetaBuilds"), null, toggle(false)),
+        S.build === "dev" ? srow(sh("DeveloperBuilds"), null, toggle(true)) : null,
         status, upd !== "dev" ? srow(sh("BuildNumber", { build: 1398 }), null) : null)),
       h("div.lx-muted", { style: { fontSize: "13px" } }, sh("ViewMenu"), " \u00b7 ", sh("ZoomIn"), " \u00b7 ", sh("ZoomOut"), " \u00b7 ", sh("ActualSize"), " \u00b7 ", sh("EditMenu"), " \u00b7 ", sh("Undo"), " \u00b7 ", sh("Redo"), " \u00b7 ", sh("QuitApp", { app: "Lodestone Launcher" }), " \u00b7 ", cm("MinimizeWindow"), " \u00b7 ", cm("MaximizeWindow"), " \u00b7 ", cm("RestoreWindow")),
     ];
@@ -962,14 +962,13 @@
       srow(sh("EnvironmentVariables"), ctx.state.settingsUnsaved === "error" ? h("span", { style: { color: "#ff8a8a" } }, is("EnvInvalid", { error: "missing '='" })) : null, field(null, is("EnvPlaceholder")))))];
   }
   function settingsShared(ctx) {
-    return [h("div.lx-h3-sub", sh("SharedLead")),
-      section(sh("Source"), card(
+    return [section(sh("Source"), card(
         srow(sh("SyncFrom"), ctx.state.sharedMain === "none" ? sh("SyncFromNoneHint") : sh("SyncFromHint"), h("div", { style: { position: "relative" } }, select(ctx.state.sharedMain === "none" ? h("span", sh("NoInstance"), " ", h("span.lx-muted", sh("EditHereOnly"))) : tx("Survival 1.20.1"), { on: toggleMenu("main") }),
           ui.menu === "main" ? menu([{ label: tx("Survival 1.20.1") }, { label: tx("All the mods") }, "-", { label: sh("NoInstance"), right: h("span.lx-mright", sh("EditHereOnly")) }], "lx-rmenu") : null)),
         srow(sh("StartFromInstance"), null, btn(sh("CopyFromInstance"))),
         srow(sh("ClearShared"), sh("ClearSharedHint"), btn(sh("ClearEllipsis"))))),
       ctx.state.sharedMain === "none" ? note(sh("SyncedFromNone"), "info") : null,
-      section(sh("WhatsShared"), h("div.lx-h3-sub", sh("WhatsSharedLead")), card(["Controls", "Video", "Sound", "Accessibility", "Language"].map((c, i) => srow(sh("Category" + c), [sh("Category" + c + "Hint"), sep(), shp("Values", { count: [61, 24, 13, 37, 3][i] })], toggle(i !== 2))))),
+      section(sh("WhatsShared"), card(["Controls", "Video", "Sound", "Accessibility", "Language"].map((c, i) => srow(sh("Category" + c), [sh("Category" + c + "Hint"), sep(), shp("Values", { count: [61, 24, 13, 37, 3][i] })], toggle(i !== 2))))),
       section(sh("NarratorSection"), card(srow(sh("KeepNarratorOff"), sh("KeepNarratorOffHint"), toggle(true))), note(sh("NarratorKeptOff"), "ok"), h("div.lx-muted", sh("NarratorNotShared", { category: "Accessibility & chat" })), h("div.lx-muted", sh("NarratorPerInstance"))),
       section(sh("ServerList"), card(srow(sh("ServerList"), sh("ServerListHint"), toggle(false)))),
       h("div.lx-tbar", h("b", { style: { fontFamily: "Chillax", fontSize: "19px" } }, sh("WhatsShared")), h("span.lx-grow"), gbtn(sh("Hide")), gbtn(sh("Show")), btn(sh("ClearEveryShared"), { sm: true })),
@@ -1275,7 +1274,7 @@
     deleteWorld: (ctx) => confirmDlg(ctx, sh("DeleteNamed", { name: "Survival Island" }), [h("p", sh("DeleteWorldBody", { trash: "the Trash" })), h("p.lx-muted", cm("TheTrash"))], cm("MoveToTrash"), { danger: true }),
     replaceWorld: (ctx) => confirmDlg(ctx, sh("ReplaceWorldTitle", { name: "Survival Island" }), h("p", sh("ReplaceWorldBody", { name: "Survival Island", when: "today, 03:04" })), sh("BackUpAndReplace"), { danger: true }),
     mainOffer: (ctx) => dialog(ctx, sh("MainOfferTitle", { name: "Survival 1.20.1" }), [h("p", sh("MainOfferBody")), h("p.lx-muted", sh("MainChangeLater"))], [pbtn(sh("MakeItMain"), () => { ctx.close(); ctx.set("toast", "synced") }), btn(cm("NotNow"), { on: () => ctx.close() })], { narrow: true }),
-    mainSwitch: (ctx) => dialog(ctx, sh("MainOfferTitle", { name: "All the mods" }), [h("p", sh("MainSwitchBody", { current: "Survival 1.20.1", name: "All the mods" })), h("p.lx-muted", sh("MainChangeLater")), h("p.lx-muted", is("IsMainInstance"), " \u00b7 ", is("SharingMain"), " \u00b7 ", is("SharingOff"), " \u00b7 ", is("SharingNoMain"))],
+    mainSwitch: (ctx) => dialog(ctx, sh("MainOfferTitle", { name: "All the mods" }), [h("p", sh("MainSwitchBody", { current: "Survival 1.20.1", name: "All the mods" })), h("p.lx-muted", sh("MainChangeLater")), h("p.lx-muted", is("IsMainInstance"), " \u00b7 ", is("SharingMain"), " \u00b7 ", is("SharingNoMain"))],
       [pbtn(sh("MakeNameMain", { name: "All the mods" }), () => ctx.close()), btn(cm("Cancel"), { on: () => ctx.close() })], { narrow: true }),
     unsaved: (ctx) => dialog(ctx, sh("SaveChangesTitle"), [h("p", ctx.state.unsavedWhere === "defaults" ? sh("UnsavedDefaultsBody") : ctx.state.unsavedWhere === "this" ? sh("UnsavedThisInstanceBody") : sh("UnsavedInstanceBody", { name: "All the mods" }))],
       [pbtn(cm("Save"), () => ctx.close()), btn(cm("Discard"), { on: () => ctx.close() }), btn(cm("KeepEditing"), { on: () => ctx.close() })], { narrow: true }),
@@ -1463,7 +1462,7 @@
       h("div.lx-mgroup", h("h3", is("SharedGameSettings")), sharedOptionsList(ctx0(), true)),
     ]],
     servers: ["Messages \u203a Lodestone Host page", () => [
-      mgroup(sv("ConnectAsOwner"), null, [h("div.lx-scard", { style: { maxWidth: "640px" } }, note(sv("ClaimFolderNotFound"), "err"), h("div", btn(sv("ChooseDataFolder")), " ", h("span.lx-muted", sv("ChooseDataFolderPrompt"))), h("div.lx-muted", tx("Lodestone Host \u2014 "), sv("ProductHostHint")), h("div.lx-muted", tx("Lodestone Core \u2014 "), sv("ProductCoreHint"))),
+      mgroup(sv("ConnectAsOwner"), null, [h("div.lx-scard", { style: { maxWidth: "640px" } }, note(sv("ClaimFolderNotFound"), "err"), h("div", btn(sv("ChooseDataFolder")), " ", h("span.lx-muted", sv("ChooseDataFolderPrompt"))), h("div.lx-muted", tx("127.0.0.1:16662 \u00b7 "), sv("ProductHostHint")), h("div.lx-muted", tx("127.0.0.1:16662 \u00b7 "), sv("ProductCoreHint"))),
         ...L(sv, "ClaimNoCore ClaimNotThisCore ClaimNoResult ClaimNoCertificate", (el) => te(null, el)), te(null, sv("ClaimFiles", { error: "permission denied" })), te(null, sv("ClaimInvalid", { error: "missing field" })), te(sv("CredentialsReadFailed"), tx("\u2026")), te(sv("CredentialsSaveFailed"), tx("\u2026"))]),
       mgroup(sv("CoreMoreActions", { name: "Peter's Lodestone Core" }), null, [h("div", badge(sv("SignedIn"), "green"), " ", badge(sv("LoaderOther"))),
         ...L(sv, "BusyFetching BusyCreating BusyChecking BusyUpdating BusyStopping", (el) => h("div.lx-muted", spinner(), " ", el)), h("div.lx-muted", spinner(), " ", sv("BusyUpdatingFiles", { done: 3, total: 9 }))]),
