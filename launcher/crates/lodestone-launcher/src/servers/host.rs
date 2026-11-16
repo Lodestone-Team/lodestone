@@ -29,7 +29,7 @@ use launcher_core::{
     },
     game::download::CancelToken,
 };
-use lodestone_ui::sharing::{self, Level, Picked};
+use lodestone_ui::sharing::{self, Picked};
 use lodestone_ui::values::truncate::sanitize;
 
 use super::{
@@ -803,12 +803,8 @@ impl HostDialog {
             .gap_3()
             .max_h(px(520.))
             .overflow_y_scroll()
-            .children(lines.notes.into_iter().map(note))
-            .children(lines.alerts.into_iter().map(|(level, text)| match level {
-                Level::Error => error_line(text),
-                Level::Warning => note(text).text_color(crate::theme::colors::YELLOW),
-            }))
-            .children(lines.details.into_iter().map(note))
+            // what the file holds, laid out as the Host's "From a file" lays it out
+            .child(sharing::SummaryView::new("host-summary-lines", lines))
             .children(software)
             .child(label(t(S::ImageWorld)))
             .child(world_picker)
@@ -1339,7 +1335,7 @@ impl Servers {
                 let left_out = outcome
                     .outcome
                     .as_ref()
-                    .map(sharing::outcome_lines)
+                    .map(sharing::outcome_counts)
                     .unwrap_or_else(|| {
                         // an older core says it only in English
                         outcome
@@ -1436,7 +1432,7 @@ impl Servers {
                         port: 25566,
                         relinked: linked.then(|| "Old SMP".into()),
                         linked,
-                        left_out: sharing::outcome_lines(&outcome),
+                        left_out: sharing::outcome_counts(&outcome),
                     },
                     cx,
                 );

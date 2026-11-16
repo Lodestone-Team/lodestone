@@ -778,16 +778,24 @@ impl FriendSharing {
         self.error = error;
         // who went on the server's whitelist with this share
         let toast = if !outcome.whitelisted.is_empty() {
-            Some(lodestone_ui::components::Toast::success(tr!(
-                M::FriendsWhitelisted,
-                names = lodestone_ui::i18n::format::list(&outcome.whitelisted)
-            )))
+            Some(crate::pages::parts::about_names(
+                lodestone_ui::components::Toast::success(t(M::FriendsWhitelisted)),
+                &outcome.whitelisted,
+                lodestone_ui::components::Kind::Friend,
+            ))
         } else {
             outcome.whitelist_failed.map(|(name, why)| {
                 lodestone_ui::components::Toast::warning(tr!(
                     M::FriendsWhitelistFailed,
-                    name = name,
                     error = why
+                ))
+                .object(
+                    lodestone_ui::components::ObjectChip::new(name)
+                        .kind(lodestone_ui::components::Kind::Friend),
+                )
+                .status(lodestone_ui::components::StatusBadge::new(
+                    t(M::FriendsShared),
+                    lodestone_ui::theme::Tone::Success,
                 ))
             })
         };
@@ -865,17 +873,27 @@ impl FriendSharing {
             this.update(cx, |this, cx| {
                 let weak = cx.entity().downgrade();
                 let servers: Vec<String> = shared.iter().map(|(_, name)| name.clone()).collect();
-                let toast = lodestone_ui::components::Toast::warning(tr!(
-                    SM::ShareRemovedFriendsToast,
-                    names = lodestone_ui::i18n::format::list(&names),
-                    servers = lodestone_ui::i18n::format::list(&servers)
-                ))
-                .key("removed-friends-links")
-                .duration(LINK_TOAST)
-                .action(t(SM::ShareNewLinks), move |_, cx| {
-                    let shared = shared.clone();
-                    weak.update(cx, |this, cx| this.new_links(shared, cx)).ok();
-                });
+                // the people and the servers, each under its own heading, one a line
+                let mut lines = vec![t(SM::ShareRemovedFriendsToast).to_string()];
+                lines.push(t(SM::ShareRemovedFriendsHeading).to_string());
+                lines.extend(
+                    names
+                        .iter()
+                        .map(|n| lodestone_ui::values::truncate::sanitize(n, 80)),
+                );
+                lines.push(t(SM::ShareRemovedServersHeading).to_string());
+                lines.extend(
+                    servers
+                        .iter()
+                        .map(|n| lodestone_ui::values::truncate::sanitize(n, 80)),
+                );
+                let toast = lodestone_ui::components::Toast::warning(lines.join("\n"))
+                    .key("removed-friends-links")
+                    .duration(LINK_TOAST)
+                    .action(t(SM::ShareNewLinks), move |_, cx| {
+                        let shared = shared.clone();
+                        weak.update(cx, |this, cx| this.new_links(shared, cx)).ok();
+                    });
                 this.state
                     .update(cx, |state, cx| state.toast(toast, cx))
                     .ok();
@@ -915,8 +933,15 @@ impl FriendSharing {
                     None => lodestone_ui::components::Toast::success(t(SM::ShareNewLinksMade)),
                     Some((name, why)) => lodestone_ui::components::Toast::error(tr!(
                         SM::ShareNewLinkFailed,
-                        name = name,
                         error = why
+                    ))
+                    .object(
+                        lodestone_ui::components::ObjectChip::new(name)
+                            .kind(lodestone_ui::components::Kind::Server),
+                    )
+                    .status(lodestone_ui::components::StatusBadge::new(
+                        t(lodestone_ui::i18n::ValueMsg::Failed),
+                        lodestone_ui::theme::Tone::Danger,
                     )),
                 };
                 this.state

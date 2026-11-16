@@ -23,7 +23,7 @@ pub fn text(message: M) -> &'static str {
         M::NoInstances => "還沒有實例",
         M::NewServer => "新增伺服器",
         M::NoPermission => "無權限",
-        M::SettingUp => "正在設定 {name}…",
+        M::SettingUp => "正在設定",
         M::TabOverview => "概覽",
         M::TabSettings => "設定",
         M::TabConsole => "主控台",
@@ -45,13 +45,12 @@ pub fn text(message: M) -> &'static str {
         M::StateStopped => "已停止",
         M::StateError => "已當機",
         M::StateUnknown => "未知",
-        M::PlayersOnline => "{online}/{max} 在線上",
         M::PowerMenu => "電源：{state}",
         M::Connected => "已連線",
         M::Connecting => "正在連線…",
         M::Reconnecting => "正在重新連線…",
         M::SignedOut => "已登出",
-        M::SignedInAs => "已登入為 {name}",
+        M::SignedInAs => "登入身分",
         M::HomeTitle => "歡迎使用 Lodestone Host",
         M::HomeSubtitle => "在側邊欄選擇一個伺服器，或新增一個。",
         M::CreateServer => "新增伺服器",
@@ -60,16 +59,15 @@ pub fn text(message: M) -> &'static str {
         M::ShowHost => "顯示 Lodestone Host",
         M::QuitHost => "結束 Lodestone Host",
         M::DevBadge => "DEV",
-        M::CoreVersion => "版本 {version}",
         M::Degraded => "即時更新已停止",
         M::DegradedBanner => {
             "Lodestone Host 能連線到 Core，但即時更新已停止。顯示的內容可能不是最新的。"
         }
         M::Reload => "重新載入",
-        M::CoreAddress => "位址：{address}",
-        M::CoreHost => "電腦：{host}",
-        M::CoreSystem => "系統：{system}",
-        M::CoreUptime => "已執行 {uptime}",
+        M::CoreSystem => "系統",
+        M::CoreComputer => "電腦",
+        M::CoreStopped => "Lodestone Core 已停止",
+        M::CoreNoAnswer => "Lodestone Core 未及時回應",
     }
 }
 

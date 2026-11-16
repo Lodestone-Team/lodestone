@@ -19,10 +19,10 @@ crate::i18n::messages! {
         DeleteServer = "Delete server",
         DeleteServerHint = "Permanently deletes this server and its data",
         /// The title of the confirmation dialog; {name} is the server's name.
-        DeleteTitle = "Delete “{name}”",
+        DeleteTitle = "Delete server?",
         DeleteConfirm = "I understand, delete this server",
         DeleteCannotUndo = "This action cannot be undone.",
-        DeleteWarning = "This instance’s settings and worlds will be permanently deleted. Please backup any important data before proceeding.",
+        DeleteWarning = "Its settings and worlds will be permanently deleted. Please back up any important data before proceeding.",
         /// After DeleteWarning: Lodestone's own backups of the server go with it.
         DeleteBackupsToo = "Its backups are deleted too.",
         Deleting = "Deleting {name}…",
@@ -48,7 +48,7 @@ crate::i18n::messages! {
         /// Computes the SHA-1 of the pack.
         PackCompute = "Compute",
         /// {size} is the size of the pack, such as "1.5 MB".
-        PackDownloaded = "Downloaded {size}.",
+        PackDownloaded = "Downloaded",
         PackRequired = "Require the pack",
         PackRequiredHint = "Players who decline it are disconnected.",
         PackPrompt = "Prompt",
@@ -75,7 +75,7 @@ crate::i18n::messages! {
         /// The dialog when a server doesn't start because its EULA isn't accepted.
         EulaDialogTitle = "Accept the Minecraft EULA",
         /// {name} is the server's name.
-        EulaDialogBody = "{name} only starts after you agree to the Minecraft EULA. Do you agree to it?",
+        EulaDialogBody = "This server only starts after you agree to the Minecraft EULA. Do you agree to it?",
         /// Accepts the EULA and starts the server.
         EulaAcceptAndStart = "I agree, start the server",
         /// The Event logs tab: what happened to this server.
@@ -85,10 +85,10 @@ crate::i18n::messages! {
         /// {state} is the server's new state, such as Running.
         EventState = "The server is now {state}",
         /// {names} is a list of player names.
-        EventJoined = "{names} joined",
-        EventLeft = "{names} left",
+        EventJoined = "Joined",
+        EventLeft = "Left",
         /// {user} is who did it.
-        EventBy = "by {user}",
+        EventBy = "By",
         /// The Mods (or Plugins) tab (`ModsTab.tsx`, `InstalledMods.tsx`, `ModrinthSearch.tsx`, `ModrinthProjectView.tsx`).
         ModsUnsupported = "This server doesn’t support mods or plugins. Fabric, Forge, Paper and Spigot servers do.",
         ModsNoRead = "You don’t have permission to read this server’s files.",
@@ -101,11 +101,10 @@ crate::i18n::messages! {
         ModsSearchPlugin = "Search plugins on Modrinth, or paste a Modrinth link",
         ModsSearchLabel = "Search Modrinth",
         /// {gameVersion} is a Minecraft version, {loader} a loader such as fabric.
-        ModsOnlyCompatible = "Only show versions for {gameVersion} / {loader}",
+        ModsOnlyCompatible = "Only compatible versions",
         ModsPlayersNeedToo = "Players need this too",
         ModsServerOnly = "Server only",
         ModsPlayersNeed = "Players need this",
-        ModsNeededBy = "Needed by {mods}",
         ModsUnknown = "Unknown",
         ModsUnknownModrinth = "Modrinth doesn’t say whether players need it. Check the mod’s page, and tick For players if they do.",
         ModsUnknownNotOnModrinth = "Not on Modrinth. Check the mod’s page, and tick For players if players need it.",
@@ -114,17 +113,12 @@ crate::i18n::messages! {
         ModsForPlayersHint = "Players get this mod, and the mods it needs, when they join. Tick it for mods players need that Lodestone can't tell, such as ones you uploaded.",
         ModsForPlayersAlready = "Players get this mod already: Modrinth or the mod says they need it.",
         ModsForPlayersOptional = "Modrinth says players can join without this mod, but on Fabric mods like it often stop them joining, so players get it. Untick it to leave it out.",
-        ModsMarkedForPlayers = "Players get {name} the next time they join",
-        ModsUnmarkedForPlayers = "Players no longer get {name} when they join",
-        ModsMarkFailed = "Couldn’t change {name}: {error}",
-        ModsRelease = "release",
-        ModsBeta = "beta",
-        ModsAlpha = "alpha",
-        ModsResultInstalled = "Installed: {mods}",
-        ModsResultRemoved = "Removed: {files}",
-        ModsResultSkipped = "Skipped: {projects}",
-        ModsResultPlayersNeed = "Players will need {mods} too",
-        ModsByAuthor = "by {author}",
+        ModsMarkedForPlayers = "Players get it the next time they join",
+        ModsUnmarkedForPlayers = "Players no longer get it when they join",
+        ModsMarkFailed = "Couldn’t change it: {error}",
+        ModsRelease = "Release",
+        ModsBeta = "Beta",
+        ModsAlpha = "Alpha",
         ModsInstalledTag = "Installed",
         ModsSortBy = "Sort by",
         ModsSortRelevance = "Relevance",
@@ -140,29 +134,28 @@ crate::i18n::messages! {
         ModsPage = "Page {page} of {total}",
         ModsPreviousPage = "Previous page",
         ModsNextPage = "Next page",
-        ModsEnableFailed = "Couldn’t turn on {name}: {error}",
-        ModsDisableFailed = "Couldn’t turn off {name}: {error}",
-        ModsUpdated = "Updated {name} to {version}",
-        ModsUpdateFailed = "Couldn’t update {name}: {error}",
+        ModsEnableFailed = "Couldn’t turn it on: {error}",
+        ModsDisableFailed = "Couldn’t turn it off: {error}",
+        ModsUpdated = "Updated",
+        ModsUpdateFailed = "Couldn’t update it: {error}",
         ModsUpdateTo = "Update to {version}",
         ModsViewOnModrinth = "View on Modrinth",
         ModsDeleteLabel = "Delete {name}",
-        ModsUploaded = "Uploaded {names}",
+        ModsUploaded = "Uploaded",
         ModsUploadFailed = "Upload failed: {error}",
-        ModsOnlyJars = "Only .jar files can be uploaded: {names}",
+        ModsOnlyJars = "Only .jar files can be uploaded. Not uploaded:",
         ModsUpdatesInstalled = "Updates installed",
-        ModsSomeUpdatesFailed = "Some updates failed: {failures}",
-        ModsDeleted = "Deleted {name}",
+        ModsDeleted = "Deleted",
         ModsDeleteFailed = "Couldn’t delete: {error}",
         ModsDeleteTitleMod = "Delete mod?",
         ModsDeleteTitlePlugin = "Delete plugin?",
-        ModsDeleteBody = "{name} ({fileName}) will be deleted from the server. This can’t be undone.",
+        ModsDeleteBody = "Its file will be deleted from the server. This can’t be undone.",
         ModsOverwriteTitle = "Replace the files that are there?",
         ModsOverwrite = "Replace",
         /// {message} is the core's message.
         ModsOverwriteBody = "{message} Replace it with the uploaded file?",
         ModsOverwriteDefault = "A file with the same name is already installed.",
-        ModsUpdateAll = "Update all ({count})",
+        ModsUpdateAll = "Update all",
         ModsCheckUpdates = "Check for updates",
         ModsUpload = "Upload",
         ModsUploadPrompt = "Upload",
@@ -170,10 +163,7 @@ crate::i18n::messages! {
         ModsLoadFailedPlugin = "Couldn’t load the plugins: {error}",
         ModsEmptyMod = "No mods yet. Browse Modrinth or upload a .jar file.",
         ModsEmptyPlugin = "No plugins yet. Browse Modrinth or upload a .jar file.",
-        /// The client modpack panel (Fabric).
-        ModsLoader = "Fabric Loader {version}",
-        ModsLoaderNoVersion = "Fabric Loader",
-        ModsPlainFabric = "Players can join with plain Fabric (Minecraft {gameVersion}, {loader}).",
+        ModsPlainFabric = "Players can join with Fabric alone, at these versions.",
         ModsDownloadPack = "Download client modpack (.mrpack)",
         /// Folds the client pack's list of mods again, after ModsPackShowAll.
         ModsPackShowFewer = "Show fewer",
@@ -184,32 +174,30 @@ crate::i18n::messages! {
         ModsImportHint = "Import it into Prism Launcher, the Modrinth App or ATLauncher to get everything at the right versions.",
         /// Updating the server's modpack. {pack} is the modpack's name, {version},
         /// {from} and {to} its versions, {software} a loader and version ("NeoForge 21.1.209").
-        ModpackFrom = "This server runs the modpack {pack}.",
+        ModpackFrom = "This server runs this modpack.",
         ModpackCheck = "Check for an update",
         ModpackCheckFailed = "Couldn’t check for an update: {error}",
         ModpackUpToDate = "It’s the newest version.",
         ModpackUpdateTo = "Update to {version}",
         ModpackFromFile = "Update from a file",
         ModpackFilePrompt = "Update",
-        ModpackNotMrpack = "{name} isn’t a .mrpack file.",
+        ModpackNotMrpack = "Not a .mrpack file",
         ModpackPlanFailed = "Couldn’t prepare the update: {error}",
         ModpackDialogTitle = "Update the modpack?",
-        ModpackDialogIntro = "{pack} goes from {from} to {to}.",
         /// {change} is what made the entry a restore goes back to ("Added JEI").
-        ModpackDialogRestoreIntro = "The mods and configs go back to how they were after “{change}”.",
-        ModpackDialogReinstall = "The server moves to {software} and installs it again.",
-        ModpackDialogKept = "Files you changed stay as they are: {files}",
+        ModpackDialogRestoreIntro = "The mods and configs go back to how they were after this change.",
+        ModpackDialogReinstall = "The server moves to this game and loader and installs it again.",
+        ModpackDialogKept = "Stay as you changed them",
         ModpackDialogNothing = "No files change.",
         ModpackDialogStop = "Stop the server first: it can’t be updated while it runs.",
         ModpackDialogUnsupported = "This version can’t be used: {reason}",
         ModpackUpdate = "Update",
-        ModpackUpdated = "Updated {pack} to {version}.",
+        ModpackUpdated = "Updated to {version}",
         ModpackUpdateFailed = "Couldn’t update the modpack: {error}",
         ModpackUnknownVersion = "unknown version",
         /// The modpack's history (Mods tab): {version} is a modpack version, {change} what
         /// made a history entry ("Added JEI"), {date} when.
         ModpackWhatsNew = "What’s new",
-        ModpackOut = "{version} is out",
         ModpackHistory = "History",
         ModpackHistoryFailed = "Couldn’t load the modpack’s history: {error}",
         ModpackHistoryEmpty = "Nothing is recorded yet. Changes from now on can be undone.",
@@ -217,21 +205,20 @@ crate::i18n::messages! {
         ModpackRestore = "Restore",
         ModpackRestoreMissing = "Lodestone no longer has some of this version’s files.",
         ModpackRestoreTitle = "Restore this version?",
-        ModpackRestored = "Restored “{change}”.",
+        ModpackRestored = "Restored",
         ModpackRestoreFailed = "Couldn’t restore that version: {error}",
-        ModpackSince = "since {date}",
-        ModpackSinceTooltip = "This file is as it was after “{change}”.",
+        ModpackSinceTooltip = "Unchanged since: {change}",
         /// A Modrinth project.
         ModsProjectFailed = "Couldn’t load the project: {error}",
         ModsSource = "Source",
         ModsIssues = "Issues",
         ModsWiki = "Wiki",
         /// {value} is one of the side values (required, optional…).
-        ModsServerSide = "server: {value}",
-        ModsSideRequired = "required",
-        ModsSideOptional = "optional",
-        ModsSideUnsupported = "unsupported",
-        ModsSideUnknown = "unknown",
+        ModsServerSide = "Server side",
+        ModsSideRequired = "Required",
+        ModsSideOptional = "Optional",
+        ModsSideUnsupported = "Unsupported",
+        ModsSideUnknown = "Unknown",
         ModsCreateFromModpack = "Create a server from this modpack",
         ModsModpackNoPermission = "This is a modpack. You don’t have permission to create servers.",
         ModsNoServerSupport = "This project says it doesn’t run on servers.",
@@ -243,14 +230,14 @@ crate::i18n::messages! {
         ModsWithDependencies = "Also install required dependencies",
         ModsShowAll = "Show all versions",
         ModsVersionsFailed = "Couldn’t load the versions: {error}",
-        ModsNoVersions = "No versions for {loader} {gameVersion}.",
-        ModsNoVersionsShowAll = "No versions for {loader} {gameVersion}. Turn on “Show all versions” to see the others.",
-        ModsNotFor = "Not for {loader} {gameVersion}",
-        ModsInstalledVersion = "Installed {title} {version}",
-        ModsInstallFailed = "Couldn’t install {title}: {error}",
+        ModsNoVersions = "No versions for the game and loader this server runs.",
+        ModsNoVersionsShowAll = "No versions for the game and loader this server runs. Turn on “Show all versions” to see the others.",
+        ModsNotFor = "Not for this server",
+        ModsInstalledVersion = "Installed",
+        ModsInstallFailed = "Couldn’t install it: {error}",
         ModsIncompatibleTitle = "Install a version made for something else?",
         ModsInstallAnyway = "Install anyway",
-        ModsIncompatibleBody = "{title} {version} is made for {loaders} {gameVersions}, not {loader} {gameVersion}. It may crash the server.",
+        ModsIncompatibleBody = "It may crash the server.",
         /// The Settings tab's Friends section (launcher/docs/friends.md).
         FriendsTitle = "Friends",
         FriendsLead = "Friends you added in Lodestone Launcher see the servers you share with them, and join without a link. Nothing is shared until you tick a friend.",
@@ -258,15 +245,15 @@ crate::i18n::messages! {
         FriendsAddInLauncherHint = "Your friend list is kept by Lodestone Launcher on this computer. Once you have friends there, you can share this server with them here.",
         FriendsLoading = "Loading your friends…",
         /// A checkbox; {name} is the friend's name.
-        FriendsShareWith = "Share this server with {name}",
+        FriendsShareWith = "Share this server",
         /// The two haven't compared safety codes in Lodestone Launcher.
         FriendsNotVerified = "Not verified",
         /// Under a friend to share with: {names} are their Minecraft accounts.
-        FriendsMinecraft = "Minecraft: {names}. Added to the whitelist when you share, if the server has it on.",
+        FriendsMinecraft = "Added to the whitelist when you share, if the server has it on.",
         /// A toast after sharing: {names} are Minecraft player names.
-        FriendsWhitelisted = "Added {names} to the server's whitelist",
+        FriendsWhitelisted = "Added to the server’s whitelist",
         /// {name} is a friend's name, {error} what went wrong.
-        FriendsWhitelistFailed = "Shared with {name}, but couldn't add them to the server's whitelist: {error}",
+        FriendsWhitelistFailed = "Couldn’t add them to the server’s whitelist: {error}",
         FriendsConnected = "Connected now",
         FriendsSyncFailed = "Couldn’t sync your friend list to this core: {error}",
         FriendsOpenFailed = "Couldn’t open your friend list: {error}",
@@ -284,7 +271,7 @@ crate::i18n::messages! {
         FriendsOff = "Sharing with friends is off in this test copy",
         FriendsOffHint = "Its core or its friend list is in a test folder, and the other isn't, so your real friends never reach a test core. To test sharing, set both LODESTONE_PATH and LODESTONE_LAUNCHER_DATA_DIR to test folders.",
         /// Before the first share with a friend whose safety code wasn't compared; {name} is their name.
-        FriendsConfirmUnverified = "You haven’t compared safety codes with {name} yet, so you can’t be sure it’s really them: someone else could have answered your friend link. Compare codes in Lodestone Launcher first, or share anyway.",
+        FriendsConfirmUnverified = "You haven’t compared safety codes with this friend yet, so you can’t be sure it’s really them: someone else could have answered your friend link. Compare codes in Lodestone Launcher first, or share anyway.",
         FriendsShareAnyway = "Share anyway",
         /// The core's friend certificate: what friends know this core by.
         FriendsCertificate = "This core’s friend certificate",
@@ -297,7 +284,7 @@ crate::i18n::messages! {
         FriendsCertificateRetiredHint = "Friends don’t see this core now. Get it a new certificate to share from this computer again.",
         FriendsCertificateNew = "Get a new certificate",
         /// For a core too old to make a new certificate; {path} is the certificate's file.
-        FriendsCertificateManual = "Friends don’t see this core now. This core can’t make a new certificate itself: quit Lodestone Host, delete {path}, and open it again.",
+        FriendsCertificateManual = "Friends don’t see this core now. This core can’t make a new certificate itself: quit Lodestone Host, delete this file, and open it again.",
         FriendsCancel = "Cancel",
         /// More words a Settings search finds the row by (never shown).
         MemoryKeywords = "memory RAM heap",
@@ -309,23 +296,50 @@ crate::i18n::messages! {
         MotdKeywords = "MOTD message of the day server description",
         /// More words a Settings search finds the row by (never shown).
         AutoStartKeywords = "boot startup launch automatically",
+        /// Over the Plugins tab's list, before its count.
+        ModsPluginsLabel = "Plugins",
+        /// A badge by the modpack's name when a newer version is out.
+        ModpackUpdateAvailable = "Update available",
+        /// A key: how many files a modpack change replaced.
+        ModpackReplacedKey = "Replaced",
+        /// A key: when a modpack history entry was recorded.
+        ModpackRecorded = "Recorded",
+        /// A column: what a mod's version is made for.
+        ModsThisVersion = "This version",
+        /// A column: what the server runs.
+        ModsThisServer = "This server",
+        /// A key before a friend's Minecraft accounts.
+        FriendsMinecraftKey = "Minecraft accounts",
+        /// A badge: the server is shared with the friend.
+        FriendsShared = "Shared",
+        /// Before the server's new state, a badge.
+        EventStateLead = "The server is now",
     }
 
     pub enum InstancePlural {
-        ModsDownloads = ("{count} download", "{count} downloads"),
-        ModsFollowers = ("{count} follower", "{count} followers"),
-        ModsCountMod = ("{count} mod in {directory}/", "{count} mods in {directory}/"),
-        ModsCountPlugin = ("{count} plugin in {directory}/", "{count} plugins in {directory}/"),
         ModsPackTitle = ("Players need {count} mod to join", "Players need {count} mods to join"),
         ModsImportHintJars = ("Import it into Prism Launcher, the Modrinth App or ATLauncher to get everything at the right versions. {count} mod isn’t on Modrinth, so its file is in the pack.", "Import it into Prism Launcher, the Modrinth App or ATLauncher to get everything at the right versions. {count} mods aren’t on Modrinth, so their files are in the pack."),
         /// Under the first few of a big client pack's mods: shows them all.
         ModsPackShowAll = ("Show all {count} mod", "Show all {count} mods"),
         ModsShowMore = ("Show more ({count} left)", "Show more ({count} left)"),
-        ModsMoreGameVersions = ("+{count} more", "+{count} more"),
         ModpackAdded = ("{count} file added", "{count} files added"),
         ModpackReplaced = ("{count} file replaced", "{count} files replaced"),
         ModpackRemoved = ("{count} file removed", "{count} files removed"),
         ModpackMoreChanges = ("and {count} more", "and {count} more"),
         FriendsConnectedCount = ("{count} friend connected now", "{count} friends connected now"),
+        /// A tooltip's heading, over the names of the mods that need this one, one a line.
+        ModsNeededBy = ("Needed by {count} mod", "Needed by {count} mods"),
+        /// A toast's heading over mod names, one a line.
+        ModsResultInstalled = ("Installed {count} mod", "Installed {count} mods"),
+        /// A toast's heading over file names, one a line.
+        ModsResultRemoved = ("Removed {count} file", "Removed {count} files"),
+        /// A toast's heading over projects and why, one a line.
+        ModsResultSkipped = ("Skipped {count} project", "Skipped {count} projects"),
+        /// A toast's heading over mod names, one a line.
+        ModsResultPlayersNeed = ("Players will need {count} of them too", "Players will need {count} of them too"),
+        /// A toast's heading over each mod and its error, one a line.
+        ModsSomeUpdatesFailed = ("{count} update failed", "{count} updates failed"),
+        /// A toast's heading over mod names, one a line.
+        ModsUploadedCount = ("Uploaded {count} mod", "Uploaded {count} mods"),
     }
 }

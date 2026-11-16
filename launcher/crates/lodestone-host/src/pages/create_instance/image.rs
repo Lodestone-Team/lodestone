@@ -17,11 +17,12 @@ use launcher_core::cores::admin::images::{
 use launcher_core::cores::admin::models::CorePermission;
 use launcher_core::game::download::{CancelToken, Progress};
 use lodestone_ui::sharing::{
-    Level, Picked, can_create, chosen_server, default_name, default_world, summary_lines,
+    Picked, SummaryView, can_create, chosen_server, default_name, default_world, summary_lines,
 };
 use lodestone_ui::{
     components::{
-        Button, ButtonVariant, Checkbox, Dropdown, ListRow, TextInput, Toast,
+        Button, ButtonVariant, Checkbox, CountBadge, Dropdown, Icon, Kind, ListRow, ObjectChip,
+        TextInput, Toast,
         a11y::Accessible as _,
         settings::{popover_panel, select_button},
     },
@@ -36,7 +37,6 @@ use super::{
 };
 use crate::{
     i18n::{CommonMsg, InstancesMsg as M, SharingMsg as S, format, t, tr},
-    pages::parts,
     state::HostState,
 };
 
@@ -78,6 +78,8 @@ pub struct ImageFlow {
     step: Step,
     uploading: Option<Uploading>,
     error: Option<String>,
+    /// The file picked that isn't a `.lodeimg`, shown after the error by its name.
+    rejected: Option<String>,
     /// The file the core holds, and the settings made for it.
     upload: Option<(ImageUpload, Settings)>,
     /// The world (its folder) that becomes the server's.
@@ -110,6 +112,7 @@ impl ImageFlow {
             step: Step::File,
             uploading: None,
             error: None,
+            rejected: None,
             upload: None,
             world: None,
             menu: None,
@@ -166,12 +169,14 @@ impl ImageFlow {
     /// Sends the file at `path` to the core, which reads it and says what it holds.
     fn upload(&mut self, path: std::path::PathBuf, cx: &mut Context<Self>) {
         self.error = None;
+        self.rejected = None;
         if !is_image_file(&path) {
             let name = path
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_default();
-            self.error = Some(tr!(M::ImageNotLodeimg, name = name));
+            self.error = Some(t(M::ImageNotLodeimg).to_string());
+            self.rejected = Some(name);
             cx.notify();
             return;
         }
@@ -427,15 +432,6 @@ impl ImageFlow {
     }
 }
 
-/// A muted line of text.
-fn note(text_: impl Into<SharedString>) -> AnyElement {
-    div()
-        .text_size(text::MEDIUM)
-        .text_color(ink::muted())
-        .child(text_.into())
-        .into_any_element()
-}
-
 impl ImageFlow {
     fn render_file(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let uploading = self.uploading.as_ref().map(|run| run.progress.snapshot());
@@ -488,6 +484,17 @@ impl ImageFlow {
             })
             .when_some(self.error.clone(), |this, error| {
                 this.child(error_line(error))
+            })
+            // the file picked, by its exact name
+            .when_some(self.rejected.clone(), |this, name| {
+                this.child(
+                    div().flex().child(
+                        ObjectChip::new(name)
+                            .kind(Kind::File)
+                            .mono()
+                            .id("image-rejected-file"),
+                    ),
+                )
             })
             .into_any_element()
     }
@@ -589,16 +596,8 @@ impl ImageFlow {
                 own_file: false,
             },
         );
-        let notes: Vec<AnyElement> = lines.notes.into_iter().map(note).collect();
-        let alerts: Vec<AnyElement> = lines
-            .alerts
-            .into_iter()
-            .map(|(level, text)| match level {
-                Level::Error => parts::error(text),
-                Level::Warning => parts::warning(text),
-            })
-            .collect();
-        let details: Vec<AnyElement> = lines.details.into_iter().map(note).collect();
+        // what the file holds, laid out as the Launcher's "Host this" lays it out
+        let view = SummaryView::new("image-summary-lines", lines);
 
         // the world: a Launcher's file gives only the one picked, or none
         let world = (!summary.worlds.is_empty()).then(|| {
@@ -606,10 +605,8 @@ impl ImageFlow {
                 .worlds
                 .iter()
                 .map(|world| {
-                    let label = match &world.name {
-                        Some(_) => format!("{} ({})", world.shown_name(), world.shown_folder()),
-                        None => world.shown_folder().to_string(),
-                    };
+                    // its name; the folder and the size are the row's detail
+                    let label = world.shown_name().to_string();
                     (
                         Some(world.folder.clone()),
                         label.into(),
@@ -680,13 +677,40 @@ impl ImageFlow {
                     Checkbox::new(
                         "image-keep-operators",
                         self.keep_operators,
-                        tr!(M::ImageKeepOperators, names = summary.operators.joined()),
+                        t(M::ImageKeepOperators),
                     )
                     .disabled(self.submitting)
                     .on_change(cx.listener(|this, value: &bool, _, cx| {
                         this.keep_operators = *value;
                         cx.notify();
                     })),
+                )
+                // the operators, a chip each, not inside the box's label
+                .child(
+                    div()
+                        .pl(px(24.))
+                        .flex()
+                        .flex_row()
+                        .flex_wrap()
+                        .gap(px(6.))
+                        .children(summary.operators.names.iter().enumerate().map(
+                            |(index, name)| {
+                                ObjectChip::new(
+                                    launcher_core::images::display_text(name).into_owned(),
+                                )
+                                .icon(Icon::User)
+                                .mono()
+                                .id(SharedString::from(format!("image-operator-{index}")))
+                            },
+                        ))
+                        .when(
+                            summary.operators.count > summary.operators.names.len() as u64,
+                            |this| {
+                                this.child(CountBadge::new(
+                                    summary.operators.count - summary.operators.names.len() as u64,
+                                ))
+                            },
+                        ),
                 )
                 .child(
                     div()
@@ -720,16 +744,7 @@ impl ImageFlow {
                 t(M::ImageSummaryTitle),
                 t(M::ImageSummarySubtitle),
             ))
-            .child(
-                div()
-                    .mt(px(-12.))
-                    .flex()
-                    .flex_col()
-                    .gap(px(4.))
-                    .children(notes),
-            )
-            .children(alerts)
-            .child(div().flex().flex_col().gap(px(4.)).children(details))
+            .child(view)
             .child(fields::section(
                 software.into_iter().chain(world).chain(operators).collect(),
             ))

@@ -23,7 +23,7 @@ pub fn text(message: M) -> &'static str {
         M::NoInstances => "Aucune instance pour l’instant",
         M::NewServer => "Nouveau serveur",
         M::NoPermission => "Pas d’autorisation",
-        M::SettingUp => "Préparation de {name}…",
+        M::SettingUp => "Préparation",
         M::TabOverview => "Vue d’ensemble",
         M::TabSettings => "Paramètres",
         M::TabConsole => "Console",
@@ -45,13 +45,12 @@ pub fn text(message: M) -> &'static str {
         M::StateStopped => "Arrêté",
         M::StateError => "Planté",
         M::StateUnknown => "Inconnu",
-        M::PlayersOnline => "{online}/{max} en ligne",
         M::PowerMenu => "Alimentation : {state}",
         M::Connected => "Connecté",
         M::Connecting => "Connexion…",
         M::Reconnecting => "Reconnexion…",
         M::SignedOut => "Déconnecté",
-        M::SignedInAs => "Connecté en tant que {name}",
+        M::SignedInAs => "Connecté en tant que",
         M::HomeTitle => "Bienvenue dans Lodestone Host",
         M::HomeSubtitle => "Sélectionnez un serveur dans la barre latérale, ou créez-en un.",
         M::CreateServer => "Créer un serveur",
@@ -60,16 +59,15 @@ pub fn text(message: M) -> &'static str {
         M::ShowHost => "Afficher Lodestone Host",
         M::QuitHost => "Quitter Lodestone Host",
         M::DevBadge => "DEV",
-        M::CoreVersion => "Version {version}",
         M::Degraded => "Mises à jour en direct interrompues",
         M::DegradedBanner => {
             "Lodestone Host joint le core, mais les mises à jour en direct se sont arrêtées. Ce qui s’affiche n’est peut-être plus à jour."
         }
         M::Reload => "Recharger",
-        M::CoreAddress => "Adresse : {address}",
-        M::CoreHost => "Ordinateur : {host}",
-        M::CoreSystem => "Système : {system}",
-        M::CoreUptime => "En marche depuis {uptime}",
+        M::CoreSystem => "Système",
+        M::CoreComputer => "Ordinateur",
+        M::CoreStopped => "Lodestone Core s’est arrêté",
+        M::CoreNoAnswer => "Lodestone Core n’a pas répondu à temps",
     }
 }
 

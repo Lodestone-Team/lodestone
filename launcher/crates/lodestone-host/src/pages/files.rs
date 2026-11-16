@@ -34,14 +34,15 @@ use launcher_core::cores::admin::{
 };
 use lodestone_ui::{
     components::{
-        Button, ButtonVariant, Checkbox, Dialog, DialogSlot, Icon, Language, TextEditor,
-        TextEditorEvent, TextInput, Toast,
+        Button, ButtonVariant, Checkbox, Dialog, DialogSlot, Icon, ItemIcon, Kind, KindIcon,
+        Language, NameGroup, NameItem, NameList, NameStyle, ObjectCard, ObjectChip, PathText,
+        StatRow, StatTile, TextEditor, TextEditorEvent, TextInput, Toast,
         a11y::{Accessible, Role, Toggled},
         check_box, window_layer,
     },
     file_dialog::{self, ShowsError},
     i18n::{FormatMsg, FormatPlural, format},
-    theme::{colors, fonts, ink, leading, px, radius, text, weights},
+    theme::{Tone, colors, fonts, ink, leading, px, radius, text, weights},
 };
 
 use super::console::{graphic, skeleton_code};
@@ -89,6 +90,8 @@ enum Content {
     /// The text as read (or last saved).
     Loaded(String),
     Error(String),
+    /// Over what the editor opens: the file's size.
+    TooLarge(u64),
 }
 
 struct Opened {
@@ -482,13 +485,10 @@ impl FilesPage {
             editor.set_text("", cx);
             editor.set_language(Language::of(&file.name), cx);
         });
-        if file.size.is_some_and(|size| size > MAX_READ_BYTES) {
+        if let Some(size) = file.size.filter(|size| *size > MAX_READ_BYTES) {
             self.opened = Some(Opened {
                 file,
-                content: Content::Error(tr!(
-                    M::FilesTooLarge,
-                    size = format::bytes(MAX_READ_BYTES)
-                )),
+                content: Content::TooLarge(size),
             });
             cx.notify();
             return;
@@ -588,7 +588,7 @@ impl FilesPage {
                         }
                     }
                     Err(err) => this.toast(
-                        Toast::error(tr!(M::FilesSaveFailed, name = file.name, error = err)),
+                        file_toast(Toast::error(tr!(M::FilesSaveFailed, error = err)), &file),
                         cx,
                     ),
                 }
@@ -706,7 +706,7 @@ impl FilesPage {
                                 let sources: Vec<String> =
                                     files.iter().map(|f| f.path.clone()).collect();
                                 if let Err(err) = admin.copy_paths(&uuid, &sources, &dir).await {
-                                    failures.push(err.to_string());
+                                    failures.push((None, err.to_string()));
                                 }
                             }
                             ClipAction::Cut => {
@@ -715,10 +715,9 @@ impl FilesPage {
                                     if let Err(err) =
                                         admin.move_path(&uuid, &file.path, &dest).await
                                     {
-                                        failures.push(tr!(
-                                            M::FilesMoveFailed,
-                                            name = file.name,
-                                            error = err
+                                        failures.push((
+                                            Some(file.clone()),
+                                            tr!(M::FilesMoveFailed, error = err),
                                         ));
                                     }
                                 }
@@ -728,8 +727,12 @@ impl FilesPage {
                     }
                 })
                 .await;
-            for failure in failures {
-                toast_later(&state, Toast::error(failure), cx);
+            for (file, failure) in failures {
+                let toast = match &file {
+                    Some(file) => file_toast(Toast::error(failure), file),
+                    None => Toast::error(failure),
+                };
+                toast_later(&state, toast, cx);
             }
             files_changed(&state, &uuid, cx);
         })
@@ -779,9 +782,9 @@ impl FilesPage {
                 .background_spawn(async move { admin.unzip(&uuid, &path, &option).await })
                 .await;
             this.update(cx, |this, cx| match result {
-                Ok(()) => this.toast(Toast::info(tr!(M::FilesUnzipping, name = file.name)), cx),
+                Ok(()) => this.toast(file_toast(Toast::info(t(M::FilesUnzipping)), &file), cx),
                 Err(err) => this.toast(
-                    Toast::error(tr!(M::FilesUnzipFailed, name = file.name, error = err)),
+                    file_toast(Toast::error(tr!(M::FilesUnzipFailed, error = err)), &file),
                     cx,
                 ),
             })
@@ -820,9 +823,9 @@ impl FilesPage {
                     .await;
                 let toast = match result {
                     Ok(()) if file.is_dir() => {
-                        Toast::success(tr!(M::FilesDeletedFolder, path = file.path))
+                        file_toast(Toast::success(t(M::FilesDeletedFolder)), &file)
                     }
-                    Ok(()) => Toast::success(tr!(M::FilesDeletedFile, name = file.name)),
+                    Ok(()) => file_toast(Toast::success(t(M::FilesDeletedFile)), &file),
                     Err(err) => Toast::error(err.to_string()),
                 };
                 toast_later(&state, toast, cx);
@@ -947,12 +950,13 @@ impl FilesPage {
                 let toast = match result {
                     Ok(_) => {
                         let shown = out.clone();
-                        Toast::success(tr!(M::FilesDownloaded, name = file.name))
+                        file_toast(Toast::success(t(M::FilesDownloaded)), &file)
                             .action(t(M::FilesShowInFolder), move |_, cx| cx.reveal_path(&shown))
                     }
-                    Err(err) => {
-                        Toast::error(tr!(M::FilesDownloadFailed, name = file.name, error = err))
-                    }
+                    Err(err) => file_toast(
+                        Toast::error(tr!(M::FilesDownloadFailed, error = err)),
+                        &file,
+                    ),
                 };
                 toast_later(&state, toast, cx);
             }
@@ -1071,7 +1075,8 @@ impl FilesPage {
                         if action == 2 {
                             let name = file_name(&target, sep).to_string();
                             this.toast(
-                                Toast::error(tr!(M::FilesMoveFailed, name = name, error = err)),
+                                Toast::error(tr!(M::FilesMoveFailed, error = err))
+                                    .object(ObjectChip::new(name).kind(Kind::File).mono()),
                                 cx,
                             );
                         }
@@ -1192,19 +1197,19 @@ impl FilesPage {
                     .into_any_element()
             }
             DialogKind::Delete { files } => {
-                let names = files.iter().map(|file| {
-                    let suffix = match file.file_type {
-                        FileType::Directory => format!(" {}", t(M::FilesDeleteDirectory)),
-                        FileType::Unknown => format!(" {}", t(M::FilesDeleteUnknownType)),
-                        FileType::File => String::new(),
-                    };
-                    div()
-                        .flex()
-                        .flex_row()
-                        .gap(px(6.))
-                        .child("•")
-                        .child(format!("{}{suffix}", file.name))
-                });
+                // a kind icon and the exact name a row, five and then "Show N more"
+                let names = NameList::new("files-delete-names")
+                    .group(
+                        NameGroup::new(t(M::FilesDeleteHeading)).items(files.iter().map(|file| {
+                            NameItem::new(file.name.clone())
+                                .icon(ItemIcon::Kind(match file.file_type {
+                                    FileType::Directory => Kind::Folder,
+                                    _ => Kind::File,
+                                }))
+                                .style(NameStyle::Mono)
+                        })),
+                    )
+                    .collapsed_after(5);
                 Dialog::new(
                     "files-delete-dialog",
                     trn!(P::FilesDeleteTitle, files.len()),
@@ -1222,9 +1227,7 @@ impl FilesPage {
                                 .id("files-delete-list")
                                 .max_h(px(240.))
                                 .overflow_y_scroll()
-                                .text_size(text::MEDIUM)
-                                .text_color(ink::text())
-                                .children(names),
+                                .child(names),
                         ),
                 )
                 .footer(Button::new("files-delete-cancel", t(CommonMsg::Cancel)).on_click(close))
@@ -1241,7 +1244,14 @@ impl FilesPage {
                 dialog.focus.clone(),
             )
             .on_close(on_close)
-            .child(body_text(tr!(M::FilesSaveChanges, name = name).into()))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(12.))
+                    .child(ObjectCard::new(name.clone()).kind(Kind::File).compact(true))
+                    .child(body_text(t(M::FilesSaveChanges).into())),
+            )
             .footer_start(
                 Button::new("files-unsaved-keep", t(CommonMsg::KeepEditing)).on_click(close),
             )
@@ -1389,15 +1399,15 @@ impl FilesPage {
             _ => self.path.clone(),
         };
         let ticked = self.ticked_files();
-        let zip_label = match (&file, ticked.len()) {
-            (None, 0) => t(M::FilesZip).to_string(),
-            (Some(f), 0) => tr!(M::FilesZipTo, archive = format!("{}.zip", f.name)),
-            (_, 1) => tr!(
-                M::FilesZipFile,
-                name = ticked[0].name,
-                archive = format!("{}.zip", ticked[0].name)
+        // the verb, and the archive it makes as a caption under it
+        let (zip_label, zip_caption) = match (&file, ticked.len()) {
+            (None, 0) => (t(M::FilesZip).to_string(), None),
+            (Some(f), 0) => (t(M::FilesZip).to_string(), Some(format!("{}.zip", f.name))),
+            (_, 1) => (
+                t(M::FilesZip).to_string(),
+                Some(format!("{}.zip", ticked[0].name)),
             ),
-            (_, n) => trn!(P::FilesZipFiles, n, archive = "Archive.zip"),
+            (_, n) => (trn!(P::FilesZipFiles, n), Some("Archive.zip".to_string())),
         };
         let zip_targets = if ticked.is_empty() {
             file.iter().cloned().collect()
@@ -1405,7 +1415,7 @@ impl FilesPage {
             ticked.clone()
         };
         let paste_label = match &file {
-            Some(f) if f.is_dir() => tr!(M::FilesPasteInto, name = f.name),
+            Some(f) if f.is_dir() => t(M::FilesPasteInto).to_string(),
             _ => t(M::FilesPaste).to_string(),
         };
         let mut groups = vec![
@@ -1484,9 +1494,10 @@ impl FilesPage {
                 ),
             ],
         ];
-        let mut zip_group = vec![menu_item(
+        let mut zip_group = vec![menu_item_with(
             "files-zip",
             zip_label,
+            zip_caption,
             None,
             zip_targets.is_empty() || !can_write,
             false,
@@ -1509,17 +1520,18 @@ impl FilesPage {
                 ),
                 (
                     "files-unzip-to",
-                    tr!(
-                        M::FilesUnzipTo,
-                        name = format!("{}{}", file.file_stem, self.sep)
-                    ),
+                    t(M::FilesUnzipTo).to_string(),
                     UnzipOption::ToDirectoryWithFileName,
                 ),
             ] {
                 let file = file.clone();
-                zip_group.push(menu_item(
+                // the folder "Unzip to a folder" makes, under it
+                let caption = (option == UnzipOption::ToDirectoryWithFileName)
+                    .then(|| format!("{}{}", file.file_stem, self.sep));
+                zip_group.push(menu_item_with(
                     id,
                     label,
+                    caption,
                     None,
                     !can_write,
                     false,
@@ -1532,6 +1544,36 @@ impl FilesPage {
             }
         }
         groups.push(zip_group);
+        // the file the menu is for, named once at its top
+        if let Some(file) = &file {
+            groups.insert(
+                0,
+                vec![
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap(px(6.))
+                        .px(px(10.))
+                        .py(px(4.))
+                        .max_w(px(260.))
+                        .child(
+                            KindIcon::new(if file.is_dir() {
+                                Kind::Folder
+                            } else {
+                                Kind::File
+                            })
+                            .small(),
+                        )
+                        .child(
+                            PathText::file(file.name.clone())
+                                .color(ink::secondary())
+                                .id("files-menu-file"),
+                        )
+                        .into_any_element(),
+                ],
+            );
+        }
         groups.push(vec![
             menu_item(
                 "files-context-new-folder",
@@ -1810,16 +1852,20 @@ impl FilesPage {
                         file.name.clone(),
                     )
                     .min_w_0()
-                    .truncate()
                     .cursor_pointer()
                     .when(opened, |this| this.italic())
-                    .text_color(if cut {
-                        colors::GRAY_300.opacity(60)
-                    } else {
-                        colors::GRAY_300
-                    })
-                    .hover(|style| style.underline().text_color(colors::BLUE_200))
-                    .child(file.name.clone())
+                    .hover(|style| style.underline())
+                    // the exact name, cut in the middle so its end (" (2).zip") shows
+                    .child(
+                        PathText::file(file.name.clone())
+                            .size(text::MEDIUM)
+                            .color(if cut {
+                                colors::GRAY_300.opacity(60)
+                            } else {
+                                colors::GRAY_300
+                            })
+                            .id(("files-name-text", id_part)),
+                    )
                     .on_press(cx.listener(move |this, _, _, cx| {
                         cx.stop_propagation();
                         if for_open.is_dir() {
@@ -1884,6 +1930,20 @@ impl FilesPage {
                 Some(error.clone().into()),
             )
             .into_any_element(),
+            // what to do, then the file's size against the limit, the larger in yellow
+            Content::TooLarge(size) => graphic(Icon::FilePen, t(M::FilesTooLargeTitle), None)
+                .child(
+                    StatRow::new()
+                        .tile(StatTile::bytes(t(M::FilesThisFile), *size).tone(Tone::Warning))
+                        .tile(StatTile::bytes(t(M::FilesLimit), MAX_READ_BYTES)),
+                )
+                .child(
+                    div()
+                        .text_size(text::MEDIUM)
+                        .text_color(colors::GRAY_400)
+                        .child(t(M::FilesTooLarge)),
+                )
+                .into_any_element(),
             Content::Loaded(_) => div()
                 .size_full()
                 .flex()
@@ -1893,6 +1953,19 @@ impl FilesPage {
                 .into_any_element(),
         }
     }
+}
+
+/// A toast about `file`: its name (never its path), exact, with its kind's icon.
+fn file_toast(toast: Toast, file: &ClientFile) -> Toast {
+    toast.object(
+        ObjectChip::new(file.name.clone())
+            .kind(if file.is_dir() {
+                Kind::Folder
+            } else {
+                Kind::File
+            })
+            .mono(),
+    )
 }
 
 /// The archive name the context menu's Zip makes (`generateZipFileName`).
@@ -2082,6 +2155,20 @@ fn menu_item(
     danger: bool,
     on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> AnyElement {
+    menu_item_with(id, label, None, icon, disabled, danger, on_click)
+}
+
+/// A menu item with an exact value as a caption under its verb ("Zip", then
+/// `world.zip`), so a long name doesn't widen the menu's labels.
+fn menu_item_with(
+    id: &'static str,
+    label: impl Into<SharedString>,
+    caption: Option<String>,
+    icon: Option<Icon>,
+    disabled: bool,
+    danger: bool,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> AnyElement {
     let label = label.into();
     let color = if disabled {
         colors::GRAY_500
@@ -2111,7 +2198,16 @@ fn menu_item(
                 .on_press(move |event, window, cx| handler(event, window, cx))
         })
         .when_some(icon, |this, icon| this.child(icon.render(px(13.), color)))
-        .child(label)
+        .child(div().flex().flex_col().min_w_0().child(label).when_some(
+            caption,
+            |this, caption| {
+                this.child(
+                    div()
+                        .max_w(px(220.))
+                        .child(PathText::file(caption).color(ink::muted()).id((id, 1usize))),
+                )
+            },
+        ))
         .into_any_element()
 }
 

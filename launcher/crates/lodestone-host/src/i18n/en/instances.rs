@@ -4,7 +4,7 @@ crate::i18n::messages! {
     pub enum InstancesMsg {
         /// The sidebar and the instance card.
         CopyAddress = "Copy the address",
-        CopiedText = "Copied {text}",
+        CopiedText = "Copied",
         SettingUpPercent = "Setting up… {percent}",
         /// The "New server" dialog: its steps.
         StepSelectGame = "Select Game",
@@ -76,8 +76,8 @@ crate::i18n::messages! {
         ImportReadFailed = "Couldn’t read the folder: {error}",
         ImportSettingsSubtitle = "Check what Lodestone found, then import.",
         /// {other} is the server's own software ("Purpur"), {software} what Lodestone runs it with ("Paper").
-        ImportOtherSoftware = "This server ran {other}. Lodestone runs it with {software}, which uses the same plugins.",
-        ImportNotOffered = "This server ran {other}, which Lodestone doesn’t offer. Choose the software to run it with.",
+        ImportOtherSoftware = "Lodestone runs it with software that uses the same plugins.",
+        ImportNotOffered = "Lodestone doesn’t offer this software. Choose the software to run it with.",
         ImportSoftwareUnknown = "Lodestone couldn’t tell what software this server runs. Choose it below.",
         FieldSoftware = "Server software",
         FieldSoftwareDescription = "What runs the server. Lodestone installs it again.",
@@ -104,14 +104,14 @@ crate::i18n::messages! {
         ImageSummaryTitle = "What’s in the file",
         ImageSummarySubtitle = "Check what the file holds, then create the server.",
         /// {names}: the operators in the file.
-        ImageKeepOperators = "Keep the file’s operators: {names}",
+        ImageKeepOperators = "Keep the file’s operators",
         ImageKeepOperatorsHint = "Operators can run any command on the server.",
         ImageCreate = "Create Server",
         ImageCreateFailed = "Couldn’t create the server: {error}",
         /// A server's creation failed after it was asked for, and the core said nothing.
         CreateFailedLater = "The server couldn’t be created",
         /// {name}: the file chosen.
-        ImageNotLodeimg = "{name} isn’t a .lodeimg file",
+        ImageNotLodeimg = "Not a .lodeimg file",
         GameVanillaDescription = "Standard vanilla Minecraft server from Mojang.",
         GameForgeDescription = "Modding framework that allows you to install mods and customize your Minecraft experience.",
         GameNeoForgeDescription = "Community fork of Forge with its own mods, for Minecraft 1.20.2 and later.",
@@ -130,7 +130,6 @@ crate::i18n::messages! {
         ModpackVersionUploaded = "The uploaded modpack.",
         ModpackVersionDescription = "Pick the modpack version to install.",
         ModpackDownloading = "Downloading the modpack file to read it…",
-        ModpackDownloadingSize = "Downloading the modpack file ({size}) to read it…",
         ModpackVersionHint = "Select a version to see what it contains. Lodestone downloads its modpack file to read it; nothing is installed until you click Create Server.",
         ModpackSettingsTitle = "Server settings",
         ModpackLoading = "Loading modpack",
@@ -142,7 +141,6 @@ crate::i18n::messages! {
         ModpackSummaryModpack = "Modpack",
         ModpackSummaryLoader = "Loader",
         ModpackSummaryServerFiles = "Server files",
-        ModpackSummaryServerFilesValue = "{count} ({size} to download)",
         ModpackUnsupported = "This modpack can’t be used: {reason}",
         ModpackInspectFailed = "Failed to read the modpack: {error}",
         ModpackNotAModpack = "That is a {type}, not a modpack",
@@ -166,16 +164,13 @@ crate::i18n::messages! {
         SearchPage = "Page {page} of {total}",
         PreviousPage = "Previous page",
         NextPage = "Next page",
-        ByAuthor = "by {author}",
-        VersionRelease = "release",
-        VersionBeta = "beta",
-        VersionAlpha = "alpha",
+        VersionRelease = "Release",
+        VersionBeta = "Beta",
+        VersionAlpha = "Alpha",
         /// The Overview tab.
         NotFound = "Server not found",
         NoName = "No name",
         NoDescription = "No description",
-        VersionLabel = "Version {version}",
-        PlayerCount = "Player Count {players}/{max}",
         EditName = "Rename",
         EditDescription = "Edit the description",
         NameEmpty = "Enter a name.",
@@ -193,21 +188,18 @@ crate::i18n::messages! {
         DetailsCreated = "Created",
         DetailsAutoStart = "Auto start",
         DetailsRestartOnCrash = "Restart on crash",
-        DetailsRam = "Min / Max RAM",
-        DetailsRamValue = "{min} MB / {max} MB",
         DetailsFolder = "Folder",
-        DetailsModpack = "Created from modpack",
         PerformanceTitle = "Server Monitors",
         PerformanceLead = "Instance’s usage of your Lodestone Core",
-        CpuLoad = "CPU LOAD: {value}%",
-        MemoryUsed = "MEMORY USED: {value} GiB",
+        CpuLoad = "CPU load",
+        MemoryUsed = "Memory used",
         LoadingGraph = "Loading the graph",
         CpuUsage = "CPU Usage",
         MemoryUsage = "Memory Usage",
         UnitPercent = "%",
         UnitGiB = "GiB",
         GraphSeconds = "{seconds}s",
-        GraphSecondsAgo = "{seconds}s ago: {value}",
+        GraphSecondsAgo = "{seconds} s ago",
         PlayersTitle = "Player List",
         PlayersLead = "All players that are currently online",
         PlayersSortByName = "NAME",
@@ -236,11 +228,10 @@ crate::i18n::messages! {
         SharePreparing = "Getting the link…",
         ShareHowToJoin = "Anyone with the link can join this server while it runs. People without Lodestone Launcher get a download link.",
         ShareHardNetwork = "This network's router makes direct connections hard. Some people may not be able to join.",
-        SharePeerLine = "over {connection}, {ms} ms",
-        ShareSameComputer = "this computer",
-        ShareLocalNetwork = "the local network",
+        ShareSameComputer = "This computer",
+        ShareLocalNetwork = "Local network",
         ShareIpv6 = "IPv6",
-        ShareInternet = "the internet",
+        ShareInternet = "Internet",
         ShareStop = "Stop sharing",
         ShareStopTitle = "Stop sharing?",
         ShareStopBody = "Everyone playing through the link is disconnected, and the link stops working. Sharing again makes a new link.",
@@ -251,22 +242,29 @@ crate::i18n::messages! {
         ShareNewLinkConfirm = "Make new link",
         ShareNewLinkMade = "Made a new invite link",
         /// In the Share section after friends were removed since this link was made.
-        ShareRemovedFriendsNote = "You removed {names} as a friend. If they have this invite link, they can still join until you make a new one.",
+        ShareRemovedFriendsNote = "You removed these friends. If they have this invite link, they can still join until you make a new one.",
         ShareRemovedFriendsDismiss = "Dismiss",
         /// A toast after a sync took removed friends off the core.
-        ShareRemovedFriendsToast = "{names} can still join {servers} if they have the invite link. Make new links to stop them.",
+        ShareRemovedFriendsToast = "They can still join these servers if they have the invite link. Make new links to stop them.",
         ShareNewLinks = "Make new links",
         ShareNewLinksMade = "Made new invite links. Send them to the people who should still join.",
-        ShareNewLinkFailed = "Couldn't make a new link for {name}: {error}",
+        ShareNewLinkFailed = "Couldn't make a new link: {error}",
         /// The sidebar card's Share: opens the Overview's Share section.
         ShareShort = "Share",
         ShareShortHint = "Share this server",
+        DetailsMinRam = "Min RAM",
+        DetailsMaxRam = "Max RAM",
+        /// Over the people connected through the invite link, before their count.
+        ShareConnected = "People connected",
+        /// A key: how many times people joined through the link.
+        ShareJoins = "Joins so far",
+        /// A toast's heading over removed friends' names.
+        ShareRemovedFriendsHeading = "Removed friends",
+        /// A toast's heading over the servers they can still join.
+        ShareRemovedServersHeading = "Shared servers",
     }
 
     pub enum InstancesPlural {
         ModpackShowMore = ("Show more ({count} left)", "Show more ({count} left)"),
-        ImportFiles = ("{count} file", "{count} files"),
-        ShareConnected = ("{count} person connected", "{count} people connected"),
-        ShareJoins = ("({count} join so far)", "({count} joins so far)"),
     }
 }

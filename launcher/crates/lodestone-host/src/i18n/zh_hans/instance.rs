@@ -16,10 +16,10 @@ pub fn text(message: M) -> &'static str {
         M::DangerZoneLead => "这些设置可能对你的服务器造成不可逆的损害。",
         M::DeleteServer => "删除服务器",
         M::DeleteServerHint => "永久删除此服务器及其数据",
-        M::DeleteTitle => "删除“{name}”",
+        M::DeleteTitle => "删除服务器？",
         M::DeleteConfirm => "我明白，删除此服务器",
         M::DeleteCannotUndo => "此操作无法撤销。",
-        M::DeleteWarning => "此实例的设置和世界将被永久删除。继续之前，请备份所有重要数据。",
+        M::DeleteWarning => "它的设置和世界将被永久删除。继续之前请备份重要数据。",
         M::DeleteBackupsToo => "它的备份也会被删除。",
         M::Deleting => "正在删除 {name}…",
         M::CommandLineReadOnly => "此核心已禁用代码执行，此设置为只读。",
@@ -39,7 +39,7 @@ pub fn text(message: M) -> &'static str {
         M::PackSha1Hint => "让玩家可以校验下载内容并缓存资源包。",
         M::PackSha1Error => "SHA-1 应为 40 个十六进制字符。",
         M::PackCompute => "计算",
-        M::PackDownloaded => "已下载 {size}。",
+        M::PackDownloaded => "已下载",
         M::PackRequired => "强制使用资源包",
         M::PackRequiredHint => "拒绝资源包的玩家会被断开连接。",
         M::PackPrompt => "提示信息",
@@ -61,15 +61,15 @@ pub fn text(message: M) -> &'static str {
         M::EulaAcceptFailed => "无法接受 Minecraft EULA：{error}",
         M::EulaNoPermission => "你需要启动此服务器的权限才能接受。",
         M::EulaDialogTitle => "接受 Minecraft EULA",
-        M::EulaDialogBody => "你同意 Minecraft EULA 后，{name} 才能启动。你同意吗？",
+        M::EulaDialogBody => "你同意 Minecraft 最终用户许可协议后，此服务器才会启动。你同意吗？",
         M::EulaAcceptAndStart => "我同意，启动服务器",
         M::EventLogsLead => "此服务器发生的事件，最新的在前。核心会保留最近的事件。",
         M::EventLogsEmpty => "还没有任何事件",
         M::EventLogsFailed => "无法加载事件：{error}",
         M::EventState => "服务器现在为{state}",
-        M::EventJoined => "{names} 加入了",
-        M::EventLeft => "{names} 离开了",
-        M::EventBy => "由 {user}",
+        M::EventJoined => "已加入",
+        M::EventLeft => "已离开",
+        M::EventBy => "操作者",
         M::ModsUnsupported => {
             "此服务器不支持模组或插件。Fabric、Forge、Paper 和 Spigot 服务器支持。"
         }
@@ -82,11 +82,10 @@ pub fn text(message: M) -> &'static str {
         M::ModsSearchMod => "在 Modrinth 上搜索模组，或粘贴 Modrinth 链接",
         M::ModsSearchPlugin => "在 Modrinth 上搜索插件，或粘贴 Modrinth 链接",
         M::ModsSearchLabel => "搜索 Modrinth",
-        M::ModsOnlyCompatible => "仅显示适用于 {gameVersion} / {loader} 的版本",
+        M::ModsOnlyCompatible => "仅显示兼容版本",
         M::ModsPlayersNeedToo => "玩家也需要安装",
         M::ModsServerOnly => "仅服务器",
         M::ModsPlayersNeed => "玩家需要安装",
-        M::ModsNeededBy => "{mods} 需要它",
         M::ModsUnknown => "未知",
         M::ModsUnknownModrinth => {
             "Modrinth 未说明玩家是否需要它，请查看该模组的页面。如果玩家需要，请勾选“给玩家”。"
@@ -99,20 +98,15 @@ pub fn text(message: M) -> &'static str {
             "玩家加入时会获得这个模组及其依赖的模组。对于 Lodestone 无法判断但玩家需要的模组（例如你上传的），请勾选此项。"
         }
         M::ModsForPlayersAlready => "玩家已会获得这个模组：Modrinth 或模组本身表明玩家需要它。",
-        M::ModsMarkedForPlayers => "玩家下次加入时会获得 {name}",
+        M::ModsMarkedForPlayers => "玩家下次加入时会获得它",
         M::ModsForPlayersOptional => {
             "Modrinth 表示玩家没有这个模组也能加入，但在 Fabric 上，这类模组常常会让玩家无法加入，所以玩家会获得它。取消勾选即可不给玩家。"
         }
-        M::ModsUnmarkedForPlayers => "玩家加入时不再获得 {name}",
-        M::ModsMarkFailed => "无法更改 {name}：{error}",
+        M::ModsUnmarkedForPlayers => "玩家加入时不再获得它",
+        M::ModsMarkFailed => "无法更改：{error}",
         M::ModsRelease => "正式版",
         M::ModsBeta => "测试版",
         M::ModsAlpha => "早期测试版",
-        M::ModsResultInstalled => "已安装：{mods}",
-        M::ModsResultRemoved => "已移除：{files}",
-        M::ModsResultSkipped => "已跳过：{projects}",
-        M::ModsResultPlayersNeed => "玩家也需要安装 {mods}",
-        M::ModsByAuthor => "作者：{author}",
         M::ModsInstalledTag => "已安装",
         M::ModsSortBy => "排序方式",
         M::ModsSortRelevance => "相关性",
@@ -128,28 +122,27 @@ pub fn text(message: M) -> &'static str {
         M::ModsPage => "第 {page} 页，共 {total} 页",
         M::ModsPreviousPage => "上一页",
         M::ModsNextPage => "下一页",
-        M::ModsEnableFailed => "无法启用 {name}：{error}",
-        M::ModsDisableFailed => "无法禁用 {name}：{error}",
-        M::ModsUpdated => "已将 {name} 更新到 {version}",
-        M::ModsUpdateFailed => "无法更新 {name}：{error}",
+        M::ModsEnableFailed => "无法启用：{error}",
+        M::ModsDisableFailed => "无法停用：{error}",
+        M::ModsUpdated => "已更新",
+        M::ModsUpdateFailed => "无法更新：{error}",
         M::ModsUpdateTo => "更新到 {version}",
         M::ModsViewOnModrinth => "在 Modrinth 上查看",
         M::ModsDeleteLabel => "删除 {name}",
-        M::ModsUploaded => "已上传 {names}",
+        M::ModsUploaded => "已上传",
         M::ModsUploadFailed => "上传失败：{error}",
-        M::ModsOnlyJars => "只能上传 .jar 文件：{names}",
+        M::ModsOnlyJars => "只能上传 .jar 文件。未上传：",
         M::ModsUpdatesInstalled => "已安装更新",
-        M::ModsSomeUpdatesFailed => "部分更新失败：{failures}",
-        M::ModsDeleted => "已删除 {name}",
+        M::ModsDeleted => "已删除",
         M::ModsDeleteFailed => "删除失败：{error}",
         M::ModsDeleteTitleMod => "删除模组？",
         M::ModsDeleteTitlePlugin => "删除插件？",
-        M::ModsDeleteBody => "{name}（{fileName}）将从服务器中删除。此操作无法撤销。",
+        M::ModsDeleteBody => "它的文件将从服务器删除。此操作无法撤销。",
         M::ModsOverwriteTitle => "覆盖现有文件？",
         M::ModsOverwrite => "覆盖",
         M::ModsOverwriteBody => "{message}要用上传的文件替换它吗？",
         M::ModsOverwriteDefault => "已安装同名文件。",
-        M::ModsUpdateAll => "全部更新（{count}）",
+        M::ModsUpdateAll => "全部更新",
         M::ModsCheckUpdates => "检查更新",
         M::ModsUpload => "上传",
         M::ModsUploadPrompt => "上传",
@@ -157,9 +150,7 @@ pub fn text(message: M) -> &'static str {
         M::ModsLoadFailedPlugin => "无法加载插件：{error}",
         M::ModsEmptyMod => "尚未安装任何模组。浏览 Modrinth 或上传 .jar 文件。",
         M::ModsEmptyPlugin => "尚未安装任何插件。浏览 Modrinth 或上传 .jar 文件。",
-        M::ModsLoader => "Fabric Loader {version}",
-        M::ModsLoaderNoVersion => "Fabric Loader",
-        M::ModsPlainFabric => "玩家只需原版 Fabric 即可加入（Minecraft {gameVersion}，{loader}）。",
+        M::ModsPlainFabric => "玩家只需安装以下版本的 Fabric 即可加入。",
         M::ModsDownloadPack => "下载客户端整合包（.mrpack）",
         M::ModsPackShowFewer => "收起",
         M::ModsDownloadPackFailed => "无法下载客户端整合包：{error}",
@@ -168,29 +159,27 @@ pub fn text(message: M) -> &'static str {
         M::ModsImportHint => {
             "将其导入 Prism Launcher、Modrinth App 或 ATLauncher，即可获得所有正确版本的内容。"
         }
-        M::ModpackFrom => "此服务器使用整合包 {pack}。",
+        M::ModpackFrom => "此服务器运行此整合包。",
         M::ModpackCheck => "检查更新",
         M::ModpackCheckFailed => "无法检查更新：{error}",
         M::ModpackUpToDate => "已是最新版本。",
         M::ModpackUpdateTo => "更新到 {version}",
         M::ModpackFromFile => "从文件更新",
         M::ModpackFilePrompt => "更新",
-        M::ModpackNotMrpack => "{name} 不是 .mrpack 文件。",
+        M::ModpackNotMrpack => "不是 .mrpack 文件",
         M::ModpackPlanFailed => "无法准备更新：{error}",
         M::ModpackDialogTitle => "更新整合包？",
-        M::ModpackDialogIntro => "{pack} 将从 {from} 更新到 {to}。",
-        M::ModpackDialogRestoreIntro => "模组和配置将回到“{change}”之后的样子。",
-        M::ModpackDialogReinstall => "服务器将改用 {software} 并重新安装。",
-        M::ModpackDialogKept => "你修改过的文件将保持不变：{files}",
+        M::ModpackDialogRestoreIntro => "模组和配置将恢复到此更改之后的状态。",
+        M::ModpackDialogReinstall => "服务器将改用此游戏版本和加载器，并重新安装。",
+        M::ModpackDialogKept => "保留你的修改",
         M::ModpackDialogNothing => "没有文件会改变。",
         M::ModpackDialogStop => "请先停止服务器：服务器运行时无法更新。",
         M::ModpackDialogUnsupported => "无法使用此版本：{reason}",
         M::ModpackUpdate => "更新",
-        M::ModpackUpdated => "已将 {pack} 更新到 {version}。",
+        M::ModpackUpdated => "已更新到 {version}",
         M::ModpackUpdateFailed => "无法更新整合包：{error}",
         M::ModpackUnknownVersion => "未知版本",
         M::ModpackWhatsNew => "更新内容",
-        M::ModpackOut => "{version} 已发布",
         M::ModpackHistory => "历史",
         M::ModpackHistoryFailed => "无法加载整合包的历史：{error}",
         M::ModpackHistoryEmpty => "尚无记录。之后的更改可以撤销。",
@@ -198,15 +187,14 @@ pub fn text(message: M) -> &'static str {
         M::ModpackRestore => "恢复",
         M::ModpackRestoreMissing => "Lodestone 已不再保有此版本的部分文件。",
         M::ModpackRestoreTitle => "恢复此版本？",
-        M::ModpackRestored => "已恢复“{change}”。",
+        M::ModpackRestored => "已恢复",
         M::ModpackRestoreFailed => "无法恢复此版本：{error}",
-        M::ModpackSince => "自 {date} 起",
-        M::ModpackSinceTooltip => "此文件保持“{change}”之后的样子。",
+        M::ModpackSinceTooltip => "自此未变：{change}",
         M::ModsProjectFailed => "无法加载项目：{error}",
         M::ModsSource => "源代码",
         M::ModsIssues => "问题反馈",
         M::ModsWiki => "Wiki",
-        M::ModsServerSide => "服务器：{value}",
+        M::ModsServerSide => "服务器端",
         M::ModsSideRequired => "必需",
         M::ModsSideOptional => "可选",
         M::ModsSideUnsupported => "不支持",
@@ -222,18 +210,16 @@ pub fn text(message: M) -> &'static str {
         M::ModsWithDependencies => "同时安装必需的依赖项",
         M::ModsShowAll => "显示所有版本",
         M::ModsVersionsFailed => "无法加载版本：{error}",
-        M::ModsNoVersions => "没有适用于 {loader} {gameVersion} 的版本。",
+        M::ModsNoVersions => "没有适用于此服务器游戏版本和加载器的版本。",
         M::ModsNoVersionsShowAll => {
-            "没有适用于 {loader} {gameVersion} 的版本。打开“显示所有版本”以查看其他版本。"
+            "没有适用于此服务器游戏版本和加载器的版本。打开“显示所有版本”以查看其他版本。"
         }
-        M::ModsNotFor => "不适用于 {loader} {gameVersion}",
-        M::ModsInstalledVersion => "已安装 {title} {version}",
-        M::ModsInstallFailed => "无法安装 {title}：{error}",
+        M::ModsNotFor => "不适用于此服务器",
+        M::ModsInstalledVersion => "已安装",
+        M::ModsInstallFailed => "无法安装：{error}",
         M::ModsIncompatibleTitle => "安装不兼容的版本？",
         M::ModsInstallAnyway => "仍然安装",
-        M::ModsIncompatibleBody => {
-            "{title} {version} 适用于 {loaders} {gameVersions}，而不是 {loader} {gameVersion}。它可能导致服务器崩溃。"
-        }
+        M::ModsIncompatibleBody => "它可能会导致服务器崩溃。",
         M::FriendsTitle => "好友",
         M::FriendsLead => {
             "你在 Lodestone Launcher 中添加的好友可以看到你与他们共享的服务器，无需链接即可加入。在你勾选好友之前，不会共享任何内容。"
@@ -243,13 +229,11 @@ pub fn text(message: M) -> &'static str {
             "你的好友列表由这台电脑上的 Lodestone Launcher 保存。在那里添加好友后，即可在这里与他们共享此服务器。"
         }
         M::FriendsLoading => "正在加载好友…",
-        M::FriendsShareWith => "与 {name} 共享此服务器",
+        M::FriendsShareWith => "共享此服务器",
         M::FriendsNotVerified => "未验证",
-        M::FriendsMinecraft => {
-            "Minecraft：{names}。如果服务器开启了白名单，共享时会把他们加入白名单。"
-        }
-        M::FriendsWhitelisted => "已将 {names} 加入服务器白名单",
-        M::FriendsWhitelistFailed => "已与 {name} 共享，但无法把对方加入服务器白名单：{error}",
+        M::FriendsMinecraft => "共享时会加入白名单（如果服务器开启了白名单）。",
+        M::FriendsWhitelisted => "已加入服务器白名单",
+        M::FriendsWhitelistFailed => "无法将其加入服务器白名单：{error}",
         M::FriendsConnected => "已连接",
         M::FriendsSyncFailed => "无法将好友列表同步到此核心：{error}",
         M::FriendsOpenFailed => "无法打开你的好友列表：{error}",
@@ -267,7 +251,7 @@ pub fn text(message: M) -> &'static str {
             "它的核心或好友列表在测试文件夹中，而另一个不在，因此你真正的好友永远不会进入测试核心。要测试共享，请将 LODESTONE_PATH 和 LODESTONE_LAUNCHER_DATA_DIR 都设为测试文件夹。"
         }
         M::FriendsConfirmUnverified => {
-            "你还没有和 {name} 核对安全码，所以无法确定真的是对方：别人也可能回应了你的好友链接。请先在 Lodestone Launcher 中核对安全码，或仍然共享。"
+            "你还没有和这位好友核对安全码，所以无法确定真的是对方：其他人也可能回应了你的好友链接。请先在 Lodestone Launcher 中核对安全码，或者仍然共享。"
         }
         M::FriendsShareAnyway => "仍然共享",
         M::FriendsCertificate => "此核心的好友证书",
@@ -285,7 +269,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::FriendsCertificateNew => "获取新证书",
         M::FriendsCertificateManual => {
-            "好友现在看不到此核心。此核心无法自行生成新证书：请退出 Lodestone Host，删除 {path}，然后重新打开。"
+            "好友现在看不到此核心。此核心无法自行生成新证书：请退出 Lodestone Host，删除此文件，然后重新打开。"
         }
         M::FriendsCancel => "取消",
         M::MemoryKeywords => "内存 RAM",
@@ -293,21 +277,20 @@ pub fn text(message: M) -> &'static str {
         M::WhitelistKeywords => "白名单 玩家",
         M::MotdKeywords => "MOTD 服务器描述 消息",
         M::AutoStartKeywords => "开机 启动 自动",
+        M::ModsPluginsLabel => "插件",
+        M::ModpackUpdateAvailable => "有可用更新",
+        M::ModpackReplacedKey => "已替换",
+        M::ModpackRecorded => "记录于",
+        M::ModsThisVersion => "此版本",
+        M::ModsThisServer => "此服务器",
+        M::FriendsMinecraftKey => "Minecraft 账户",
+        M::FriendsShared => "已共享",
+        M::EventStateLead => "服务器现在",
     }
 }
 
 pub fn plural(message: P) -> [&'static str; 2] {
     match message {
-        P::ModsDownloads => ["{count} 次下载", "{count} 次下载"],
-        P::ModsFollowers => ["{count} 位关注者", "{count} 位关注者"],
-        P::ModsCountMod => [
-            "{directory}/ 中有 {count} 个模组",
-            "{directory}/ 中有 {count} 个模组",
-        ],
-        P::ModsCountPlugin => [
-            "{directory}/ 中有 {count} 个插件",
-            "{directory}/ 中有 {count} 个插件",
-        ],
         P::ModsPackTitle => [
             "玩家需要 {count} 个模组才能加入",
             "玩家需要 {count} 个模组才能加入",
@@ -318,11 +301,17 @@ pub fn plural(message: P) -> [&'static str; 2] {
         ],
         P::ModsPackShowAll => ["显示全部 {count} 个模组", "显示全部 {count} 个模组"],
         P::ModsShowMore => ["显示更多（还有 {count} 个）", "显示更多（还有 {count} 个）"],
-        P::ModsMoreGameVersions => ["还有 {count} 个", "还有 {count} 个"],
         P::ModpackAdded => ["已添加 {count} 个文件", "已添加 {count} 个文件"],
         P::ModpackReplaced => ["已替换 {count} 个文件", "已替换 {count} 个文件"],
         P::ModpackRemoved => ["已删除 {count} 个文件", "已删除 {count} 个文件"],
         P::ModpackMoreChanges => ["还有 {count} 个", "还有 {count} 个"],
         P::FriendsConnectedCount => ["{count} 位好友已连接", "{count} 位好友已连接"],
+        P::ModsNeededBy => ["{count} 个模组需要它", "{count} 个模组需要它"],
+        P::ModsResultInstalled => ["已安装 {count} 个模组", "已安装 {count} 个模组"],
+        P::ModsResultRemoved => ["已移除 {count} 个文件", "已移除 {count} 个文件"],
+        P::ModsResultSkipped => ["已跳过 {count} 个项目", "已跳过 {count} 个项目"],
+        P::ModsResultPlayersNeed => ["玩家也需要其中 {count} 个", "玩家也需要其中 {count} 个"],
+        P::ModsSomeUpdatesFailed => ["{count} 个更新失败", "{count} 个更新失败"],
+        P::ModsUploadedCount => ["已上传 {count} 个模组", "已上传 {count} 个模组"],
     }
 }

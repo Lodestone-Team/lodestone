@@ -454,12 +454,13 @@ impl CoreSettingsPage {
             move |this, result, cx| match result {
                 Ok(()) => {
                     this.open_port.close(cx);
-                    parts::toast(
-                        &this.state,
-                        parts::Level::Info,
-                        tr!(CoreMsg::PortOpened, port = port),
-                        cx,
-                    );
+                    let toast = lodestone_ui::components::Toast::info(t(CoreMsg::PortOpened))
+                        .object(
+                            lodestone_ui::components::ObjectChip::new(port.to_string())
+                                .mono()
+                                .no_icon(),
+                        );
+                    this.state.update(cx, |state, cx| state.toast(toast, cx));
                 }
                 // the dialog stays open with the error
                 Err(err) => {

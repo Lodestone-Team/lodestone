@@ -7,20 +7,21 @@
 
 use std::rc::Rc;
 
-use gpui::{App, ParentElement, SharedString, Styled, Window, div};
+use gpui::{App, ParentElement, SharedString, Styled, Window, div, prelude::FluentBuilder as _};
 use launcher_core::cores::admin::core_settings::{PublicScope, PublicScopeChange, ScopeFlag};
 use lodestone_ui::{
-    components::{Checkbox, Toggle, settings::SettingRow},
+    components::{Checkbox, StatusBadge, Toggle, settings::SettingRow},
     theme::{ink, text},
 };
 
-use crate::i18n::{CoreMsg, t, tr};
+use crate::i18n::{CoreMsg, t};
 
-/// What anyone sees of a listed instance, as a sentence (`shownText`).
-fn shown_text(scope: &PublicScope) -> String {
-    let mut shown = vec![t(CoreMsg::ShownNameVersion)];
+/// What anyone sees of a listed instance, one field a chip (`shownText`).
+pub fn shown_fields(scope: &PublicScope) -> Vec<&'static str> {
+    let mut shown = vec![t(CoreMsg::ShownNameVersion), t(CoreMsg::ShownVersion)];
     if scope.status {
         shown.push(t(CoreMsg::ShownStatus));
+        shown.push(t(CoreMsg::ShownPlayers));
     }
     if scope.address {
         shown.push(t(CoreMsg::ShownAddress));
@@ -28,10 +29,7 @@ fn shown_text(scope: &PublicScope) -> String {
     if scope.client_pack {
         shown.push(t(CoreMsg::ShownClientPack));
     }
-    tr!(
-        CoreMsg::ShownText,
-        list = lodestone_ui::i18n::format::list(&shown)
-    )
+    shown
 }
 
 /// The row's line under its name: what is shown, or why it can't change.
@@ -42,9 +40,9 @@ pub fn description(scope: &PublicScope, switch_on: bool, can_edit: bool) -> Stri
         t(CoreMsg::TurnOnFirst).to_string()
     } else if scope.listed {
         if switch_on {
-            shown_text(scope)
+            t(CoreMsg::ShownText).to_string()
         } else {
-            tr!(CoreMsg::HiddenWhileOff, shown = shown_text(scope))
+            format!("{} {}", t(CoreMsg::ShownText), t(CoreMsg::HiddenWhileOff))
         }
     } else {
         t(CoreMsg::NotShown).to_string()
@@ -111,11 +109,25 @@ pub fn scope_row(
         .below(
             div()
                 .flex()
-                .flex_row()
-                .flex_wrap()
-                .gap_x_6()
-                .gap_y_2()
-                .children(boxes),
+                .flex_col()
+                .gap_2()
+                // what is shown, a chip a field, so they can be counted
+                .when(scope.listed && can_edit, |this| {
+                    this.child(div().flex().flex_row().flex_wrap().gap_1p5().children(
+                        shown_fields(&scope).into_iter().map(|field| {
+                            StatusBadge::new(field, lodestone_ui::theme::Tone::Neutral)
+                        }),
+                    ))
+                })
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .flex_wrap()
+                        .gap_x_6()
+                        .gap_y_2()
+                        .children(boxes),
+                ),
         )
 }
 
@@ -135,8 +147,8 @@ mod tests {
         assert_eq!(description(&scope, true, true), t(CoreMsg::NotShown));
         scope.listed = true;
         scope.address = true;
-        let shown = description(&scope, true, true);
-        assert!(shown.contains("name and version") && shown.contains("address"));
+        assert_eq!(description(&scope, true, true), t(CoreMsg::ShownText));
+        assert_eq!(shown_fields(&scope), ["Name", "Version", "Address"]);
         assert!(description(&scope, false, true).ends_with("is off."));
     }
 }
