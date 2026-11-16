@@ -93,7 +93,7 @@ fn conflict(message: impl Into<String>) -> Error {
 }
 
 fn not_found() -> Error {
-    err(ErrorKind::NotFound, "Backup not found")
+    err(ErrorKind::NotFound, "Snapshot not found")
 }
 
 /// Holds the image store's collections off (see the module), waiting for one that runs.
@@ -342,8 +342,8 @@ fn skips_unchanged(kind: BackupKind, named: bool, previous: &BackupRecord) -> bo
 fn image_label(kind: BackupKind, name: Option<&str>) -> String {
     match (name, kind) {
         (Some(name), _) => name.to_string(),
-        (None, BackupKind::Manual) => "Backup".to_string(),
-        (None, BackupKind::Scheduled) => "Scheduled backup".to_string(),
+        (None, BackupKind::Manual) => "Snapshot".to_string(),
+        (None, BackupKind::Scheduled) => "Scheduled snapshot".to_string(),
         (None, BackupKind::BeforeRestore) => "Before a restore".to_string(),
     }
 }
@@ -1374,7 +1374,7 @@ impl BackupService {
                     message.to_string(),
                 ))
             };
-            console("Backing up…");
+            console("Taking a snapshot…");
             let token = self.cancel.clone();
             let reading = phase.job.phase(phase.base, phase.span * 0.7);
             let rest = phase
@@ -1418,9 +1418,9 @@ impl BackupService {
                 Err(e) => Err(e),
             };
             console(if result.is_ok() {
-                "Backup done"
+                "Snapshot done"
             } else {
-                "Backup failed"
+                "Snapshot failed"
             });
             result?
         } else {
@@ -1590,9 +1590,9 @@ impl BackupService {
     /// The end message of a backup.
     fn backup_message(server_name: &str, created: &Created) -> String {
         if created.image.is_none() {
-            return "Nothing changed since the last backup".to_string();
+            return "Nothing changed since the last snapshot".to_string();
         }
-        let mut message = format!("Backed up {server_name}");
+        let mut message = format!("Took a snapshot of {server_name}");
         if created.unreadable == 1 {
             message.push_str(". 1 file couldn't be read");
         } else if created.unreadable > 1 {
@@ -1600,7 +1600,7 @@ impl BackupService {
         }
         if created.live && !created.quiesced {
             message.push_str(
-                ". The server didn't confirm it had saved, so the backup may be inconsistent",
+                ". The server didn't confirm it had saved, so the snapshot may be inconsistent",
             );
         }
         message
@@ -1638,7 +1638,7 @@ impl BackupService {
         if recent {
             return Err(err(
                 ErrorKind::TooManyRequests,
-                "Wait a minute between manual backups",
+                "Wait a minute between manual snapshots",
             ));
         }
         let guards = self.take_guards(&instance, "backing it up").await?;
@@ -1650,7 +1650,7 @@ impl BackupService {
         let job = Job::new(
             state.event_broadcaster.clone(),
             JobKind::Backup,
-            format!("Backing up {server_name}"),
+            format!("Taking a snapshot of {server_name}"),
             ProgressionStartValue::Backup {
                 instance_uuid: uuid.clone(),
             },
@@ -1671,7 +1671,7 @@ impl BackupService {
                     Self::backup_message(&server_name, created),
                     Some(created.id.clone()),
                 ),
-                Err(e) => (false, this.failure_message("The backup", e), None),
+                Err(e) => (false, this.failure_message("The snapshot", e), None),
             };
             job.end(
                 success,
@@ -1730,7 +1730,7 @@ impl BackupService {
         let job = Job::new(
             state.event_broadcaster.clone(),
             JobKind::Backup,
-            format!("Backing up {server_name}"),
+            format!("Taking a snapshot of {server_name}"),
             ProgressionStartValue::Backup {
                 instance_uuid: uuid.clone(),
             },
@@ -1758,7 +1758,7 @@ impl BackupService {
             Err(e) => {
                 // a failure is told even when it came before any change was found
                 job.begin();
-                let message = self.failure_message("The scheduled backup", e);
+                let message = self.failure_message("The scheduled snapshot", e);
                 job.end(
                     false,
                     &message,
@@ -1866,7 +1866,7 @@ impl BackupService {
         let was_running = match instance.state().await {
             State::Running if !may_stop => {
                 return Err(conflict(
-                    "The server started meanwhile; stop it before restoring a backup",
+                    "The server started meanwhile; stop it before restoring a snapshot",
                 ))
             }
             State::Running => true,
@@ -2076,7 +2076,7 @@ impl BackupService {
             return Err(err(
                 ErrorKind::Internal,
                 format!(
-                    "The backup was restored, but the server's settings couldn't be read again: {}",
+                    "The snapshot was restored, but the server's settings couldn't be read again: {}",
                     e.source
                 ),
             ));
@@ -2147,7 +2147,7 @@ impl BackupService {
                 self.images
                     .begin(
                         &uuid,
-                        format!("Restored backup “{}”", backup_label(&backup.record)),
+                        format!("Restored snapshot “{}”", backup_label(&backup.record)),
                     )
                     .await,
             ),
@@ -2187,7 +2187,7 @@ impl BackupService {
 
         let safety_share = if request.safety_backup { 40.0 } else { 0.0 };
         let safety = if request.safety_backup {
-            job.report(0.0, Some("Backing up the server as it is now"));
+            job.report(0.0, Some("Taking a snapshot of the server as it is now"));
             let created = self
                 .create_locked(
                     state,
@@ -2326,7 +2326,7 @@ impl BackupService {
         let job = Job::new(
             state.event_broadcaster.clone(),
             JobKind::Restore,
-            format!("Restoring a backup as {}", request.name),
+            format!("Restoring a snapshot as {}", request.name),
             ProgressionStartValue::InstanceCreation {
                 instance_uuid: new_uuid.clone(),
             },
@@ -2402,7 +2402,7 @@ impl BackupService {
                     state.instances.insert(new_uuid.clone(), instance.into());
                     job.end(
                         true,
-                        &format!("Restored the backup as {}", request.name),
+                        &format!("Restored the snapshot as {}", request.name),
                         ProgressionEndValue::InstanceCreation(info.into()),
                     );
                 }
@@ -2410,7 +2410,8 @@ impl BackupService {
                     if let Some(port) = port {
                         state.port_manager.lock().await.deallocate(port);
                     }
-                    let message = this.failure_message("Restoring the backup as a new server", &e);
+                    let message =
+                        this.failure_message("Restoring the snapshot as a new server", &e);
                     // the creation's End without a value, as a failed creation sends
                     job.0.broadcaster.send(Event::new_progression_event_end(
                         job.0.event_id.clone(),
