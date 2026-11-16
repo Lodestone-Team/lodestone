@@ -37,7 +37,10 @@ fn a_panic_on_a_background_thread_is_logged_and_kept() {
 
     // Flushed by the hook: read without flushing.
     let text = fs::read_to_string(&log_file).unwrap();
-    assert!(text.contains("ERROR panic: thread 'gpui-dispatch-test'"), "{text}");
+    assert!(
+        text.contains("ERROR panic: thread 'gpui-dispatch-test'"),
+        "{text}"
+    );
     assert!(text.contains("a timer made outside a runtime"), "{text}");
     assert!(text.contains("tests/logging_panic.rs:"), "{text}");
     assert!(text.contains("backtrace:"), "{text}");
@@ -61,6 +64,41 @@ fn a_panic_on_a_background_thread_is_logged_and_kept() {
     let run_id = header.split(' ').nth(1).unwrap().to_string();
     let session = fs::read_to_string(dir.join(logging::SESSION_FILE)).unwrap();
     assert!(session.contains(&run_id));
+
+    // Failures traced on the bus reach the log once, with traces on or off.
+    let (tx, rx) = std::sync::mpsc::channel();
+    launcher_core::trace::bus().subscribe(
+        launcher_core::trace::Filter::new(["http.error"]),
+        0,
+        None,
+        Box::new(move |e| tx.send(e.clone()).is_ok()),
+    );
+    launcher_core::trace::emit(
+        "http.error",
+        || serde_json::json!({ "host": "api.example", "error": "first failure", "token": "hunter3" }),
+    );
+    assert_eq!(rx.try_iter().count(), 1, "once on the bus");
+    launcher_core::trace::bus().set_enabled(false);
+    launcher_core::trace::emit(
+        "http.error",
+        || serde_json::json!({ "host": "api.example", "error": "second failure" }),
+    );
+    launcher_core::trace::emit("ui.click", || serde_json::json!({ "id": "play" }));
+    logging::flush();
+    let text = fs::read_to_string(&log_file).unwrap();
+    assert_eq!(text.matches("first failure").count(), 1, "{text}");
+    assert!(
+        text.contains("WARN  lodestone::trace: http.error {"),
+        "{text}"
+    );
+    assert!(
+        text.contains("second failure"),
+        "logged with traces off: {text}"
+    );
+    assert!(
+        !text.contains("hunter3") && !text.contains("ui.click"),
+        "{text}"
+    );
 
     logging::end_session();
     assert!(!dir.join(logging::SESSION_FILE).exists());

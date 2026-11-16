@@ -19,6 +19,10 @@
 //! - `perf.frame`: how long the window took to draw (live only).
 //!
 //! Payloads pass through [`lodestone_trace::scrub`]; callers leave secrets out too.
+//!
+//! Failures also go to the log file ([`crate::logging`]), whether traces are on or
+//! not: [`emit`] logs an event that [`is_failure`] picks at warn, a few a minute per
+//! topic.
 
 use std::{
     sync::{Arc, OnceLock},
@@ -46,9 +50,52 @@ pub fn bus() -> &'static TraceBus {
     BUS.get_or_init(|| TraceBus::new(DEFAULT_BACKLOG, LIVE_ONLY))
 }
 
-/// Emits an event; `data` is only made when it goes somewhere.
+/// Emits an event; `data` is only made when it goes somewhere. A failure
+/// ([`is_failure`]) is also logged, scrubbed, as `{topic} {data}` with the target
+/// [`logging::TRACE_TARGET`], which the logger doesn't send back to the bus. Live-only
+/// topics are never logged, so they still cost nothing without a subscriber.
+///
+/// [`logging::TRACE_TARGET`]: crate::logging::TRACE_TARGET
 pub fn emit(topic: &str, data: impl FnOnce() -> Value) {
-    bus().emit(topic, data);
+    static LIVE: OnceLock<Filter> = OnceLock::new();
+    static THROTTLE: crate::logging::Throttle = crate::logging::Throttle::new();
+    let bus = bus();
+    // `log.*` events are the logger's own records.
+    let may_log = !topic.starts_with("log.")
+        && !LIVE
+            .get_or_init(|| Filter::new(LIVE_ONLY.iter().copied()))
+            .matches(topic)
+        && log::log_enabled!(target: crate::logging::TRACE_TARGET, log::Level::Warn);
+    if !may_log {
+        bus.emit(topic, data);
+        return;
+    }
+    let mut data = data();
+    lodestone_trace::scrub(&mut data);
+    if is_failure(topic, &data) {
+        THROTTLE.log(
+            topic,
+            log::Level::Warn,
+            crate::logging::TRACE_TARGET,
+            format_args!("{topic} {data}"),
+        );
+    }
+    bus.emit(topic, || data);
+}
+
+/// Whether an event reports a failure: a topic ending in `error` or `failed`
+/// (`http.error`, `game.failed`), data with an `error` or `warning` (`storage.move`,
+/// `images.*`), a failed job, a game that crashed, or a server error answering a
+/// request.
+pub fn is_failure(topic: &str, data: &Value) -> bool {
+    let last = topic.rsplit('.').next().unwrap_or(topic);
+    let present = |key: &str| data.get(key).is_some_and(|v| !v.is_null() && v != false);
+    matches!(last, "error" | "failed")
+        || present("error")
+        || present("warning")
+        || (topic == "job.finished" && data["state"] == "failed")
+        || (topic == "game.exit" && data["crashed"] == true)
+        || (last == "response" && data["status"].as_u64().is_some_and(|s| s >= 500))
 }
 
 /// Records what the launcher shows now, for `trace.snapshot`.
@@ -201,6 +248,41 @@ mod tests {
         let after = json!({ "language": "fr", "defaults": { "memory": 4096, "args": "-Xss2M" }, "new": true });
         let paths: Vec<String> = diff(&before, &after).into_iter().map(|d| d.0).collect();
         assert_eq!(paths, ["defaults.args", "gone", "language", "new"]);
+    }
+
+    #[test]
+    fn failures_are_picked_out() {
+        let failures = [
+            (
+                "http.error",
+                json!({ "host": "api.modrinth.com", "error": "timed out" }),
+            ),
+            ("core_http.error", json!({})),
+            ("game.failed", json!({ "instance": "a" })),
+            ("mod_finder.failed", json!({})),
+            (
+                "job.finished",
+                json!({ "state": "failed", "method": "play.start" }),
+            ),
+            ("storage.move", json!({ "error": "disk full" })),
+            ("images.content", json!({ "warning": "couldn't record" })),
+            ("http.response", json!({ "status": 503 })),
+            ("game.exit", json!({ "crashed": true, "code": 1 })),
+        ];
+        for (topic, data) in failures {
+            assert!(is_failure(topic, &data), "{topic} {data}");
+        }
+        let fine = [
+            ("job.finished", json!({ "state": "succeeded" })),
+            ("storage.move", json!({ "error": null, "done": 3 })),
+            ("http.response", json!({ "status": 404 })),
+            ("game.exit", json!({ "crashed": false, "code": 0 })),
+            ("ui.click", json!({ "id": "play" })),
+            ("images.content", json!({ "warning": false })),
+        ];
+        for (topic, data) in fine {
+            assert!(!is_failure(topic, &data), "{topic} {data}");
+        }
     }
 
     #[test]
