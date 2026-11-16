@@ -257,7 +257,11 @@ impl Servers {
                         this.child(note(t(M::ConnectToJoinDirectly)))
                     })
                     .children(status.map(|(line, color)| note(line).text_color(color)))
-                    // the same every session: for Minecraft's server list
+                    // the same every session: for Minecraft's server list. Under a core
+                    // on this computer too: a row there is one the core's card doesn't
+                    // list, so Play never joins it directly and its tunnel listens here
+                    // (`FriendServer::direct_join`; a listed one is the card's own row,
+                    // at the server's own port)
                     .children(saved.game_port.map(|port| {
                         let address = game_address(port);
                         magic_line(

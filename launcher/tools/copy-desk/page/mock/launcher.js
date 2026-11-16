@@ -734,7 +734,7 @@
         s.shared ? h("span.lx-pill-tag", sv("SharedTag"), h("button", { onclick: () => ctx.set("toast", "copiedInvite") }, ic("copy"), sv("CopyInviteLink"))) : null),
       h("div.lx-row-s", join(tx(s.ver), s.loader === "Other" ? sv("LoaderOther") : s.loader ? tx(s.loader) : null, s.players ? sv("PlayersOfMax", { count: s.players[0], max: s.players[1] }) : null, s.state !== "running" ? stateLabel(s.state) : null, s.hiddenAddr ? sv("AddressHidden") : null)),
       // Magic localhost: the server's own port on this computer, or a forwarder's port for another host's
-      opts.magic && !s.hiddenAddr ? h("div.lx-row-s", opts.magic === "here" ? sv("MagicAddressHere", { address: "127.0.0.1:25565" }) : sv("MagicAddressForwarded", { address: "127.0.0.1:34121" }), " ", btn(cm("Copy"), { sm: true, kind: "g", icon: "copy" })) : null),
+      opts.magic && !s.hiddenAddr ? h("div.lx-row-s", opts.magic === "here" ? sv("MagicAddressHere", { address: "127.0.0.1:25565" }) : opts.magic === "tunnel" ? sv("FriendAddress", { address: "127.0.0.1:36017" }) : sv("MagicAddressForwarded", { address: "127.0.0.1:34121" }), " ", btn(cm("Copy"), { sm: true, kind: "g", icon: "copy" })) : null),
       h("div.lx-row-a", actions));
   }
   function coreMenu(ctx, owner) {
@@ -765,7 +765,7 @@
       parts.push(...SERVERS.map((s) => serverRow(ctx, s, { owner: true, magic: "here" })));
       parts.push(h("div", { style: { padding: "12px 18px" } }, h("div.lx-caps", sv("SharedWithFriends")), h("div.lx-muted", { style: { fontSize: "13px" } }, sv("SharedWithFriendsHint"))));
     } else if (st !== "direct") {
-      parts.push(serverRow(ctx, { name: "Survival SMP", ver: "1.20.1", loader: "Fabric 0.16.14", state: "running", players: [3, 20], shared: true }, { magic: "here" }),
+      parts.push(serverRow(ctx, { name: "Survival SMP", ver: "1.20.1", loader: "Fabric 0.16.14", state: "running", players: [3, 20], shared: true }, { magic: "tunnel" }),
         h("div", { style: { padding: "8px 18px 12px" } }, h("div.lx-muted", { style: { fontSize: "13px" } }, sv("ConnectToJoinDirectly"))));
     }
     return h("div.lx-corebox.lx-local", parts);

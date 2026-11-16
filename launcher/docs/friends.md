@@ -423,7 +423,12 @@ Minecraft's server list keeps working. How it works depends on where the server 
 - **A server through Lodestone Connect** (an invite link's server, a friend's server)
   keeps its own Magic localhost: the tunnel's game port, "(while connected)". A server
   added from an invite link without joining now gets its port at once, so its row shows
-  the address before the first join.
+  the address before the first join. A server shared from a core on this computer is
+  at its own port when the core's card lists it (the Launcher is its owner): it shows in
+  that card's row, as above. Otherwise (the core isn't claimed here, or its list lacks
+  the server) it shows under the core in "Shared with friends", the Launcher doesn't
+  know its port, and Play joins it through a tunnel like any friend's server, so its
+  address is the tunnel's port, "(while connected)".
 
 **Ports.** Both kinds of saved port are picked in 30000 to 39999 from a hash of an id
 (`friends::port_choices`): a host's server from `core:<core address>/<server id>` (the

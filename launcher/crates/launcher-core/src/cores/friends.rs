@@ -18,9 +18,12 @@
 //! the friend's key ([`FriendServer::friend_key`]) and the core's fingerprint, which
 //! its mod trust is tied to; nothing about it goes to the Keychain.
 //!
-//! Each server keeps its own game port ([`FriendServer::game_port`]), picked on the
-//! first join from its id, so Minecraft finds it at the same `127.0.0.1:<port>` every
-//! session ([`FriendsFile::game_port`]).
+//! Each server keeps its own game port ([`FriendServer::game_port`]), its Magic
+//! localhost, so Minecraft finds it at the same `127.0.0.1:<port>` every session. It is
+//! picked from the server's id ([`port_choices`]) when the server is added from a link
+//! ([`FriendsFile::add`]), or else on its first join ([`FriendsFile::game_port`]), away
+//! from other friends' ports and from the ports the Lodestone Host page's servers saved
+//! (`also_taken`: each `SavedCore::magic_ports` in `servers.json`).
 
 use std::{
     ops::RangeInclusive,
@@ -140,7 +143,9 @@ pub struct FriendServer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trusted_pack: Option<String>,
     /// The local game port Minecraft joins this server on (`127.0.0.1:<port>`), the
-    /// same every session. Picked on the first join ([`port_choices`]).
+    /// same every session: its Magic localhost. Picked ([`port_choices`]) when it is
+    /// added from a link, or else on its first join, away from other friends' ports and
+    /// the Lodestone Host page's servers' ports.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub game_port: Option<u16>,
     /// The entries the launcher added to instances' Minecraft server lists for it
@@ -1515,6 +1520,39 @@ mod tests {
         assert_eq!(entry.direct_join(&[here(&hidden, true)]), None);
         // the core isn't running here
         assert_eq!(entry.direct_join(&[]), None);
+    }
+
+    #[test]
+    fn a_server_under_its_core_here_is_joined_through_the_tunnel() {
+        // A row under a core on this computer ("Shared with friends") is one its card
+        // doesn't list, so Play can never join it directly: it opens a tunnel on the
+        // saved game port, and the row's Magic localhost is that port. Only a server
+        // the card lists (shown in the core's own row) is joined at its own port.
+        let entry = FriendServer::new(&invite(0xab), &shared("vanilla", None, false), 1);
+        let url = Url::parse("http://127.0.0.1:16662").unwrap();
+        let listed = [core_server("server", Some(25565))];
+        let other = [core_server("another", Some(25570))];
+        let hidden = [core_server("server", None)];
+        let here = |servers, owner| LocalCore {
+            uuid: "core",
+            url: &url,
+            servers,
+            owner,
+        };
+        let lists: [&[ServerInstance]; 4] = [&[], &other, &listed, &hidden];
+        for servers in lists {
+            for owner in [false, true] {
+                let local = [here(servers, owner)];
+                let direct = entry.direct_join(&local);
+                match entry.placement(&local) {
+                    Placement::Local(_) => assert_eq!(direct, None),
+                    Placement::CoreRow(_) if owner && servers == &listed[..] => {
+                        assert_eq!(direct.unwrap().address(), "127.0.0.1:25565")
+                    }
+                    _ => assert_eq!(direct, None),
+                }
+            }
+        }
     }
 
     #[test]
