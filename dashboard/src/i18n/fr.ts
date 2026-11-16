@@ -686,8 +686,6 @@ export const fr: Messages = {
   'server.overview.pageTitle': 'Vue d’ensemble du serveur',
   'server.overview.noName': 'Sans nom',
   'server.overview.noDescription': 'Aucune description',
-  'server.overview.version': 'Version {version}',
-  'server.overview.playerCount': 'Joueurs {players}/{max}',
 
   // InstanceDetails
   'server.details.title': 'Détails',
@@ -695,7 +693,6 @@ export const fr: Messages = {
   'server.details.description': 'Description',
   'server.details.uuid': 'UUID',
   'server.details.game': 'Jeu',
-  'server.details.minecraftVersion': 'Version de Minecraft',
   'server.details.version': 'Version',
   'server.details.loader': 'Chargeur',
   'server.details.port': 'Port',
@@ -704,17 +701,12 @@ export const fr: Messages = {
   'server.details.created': 'Créé le',
   'server.details.autoStart': 'Démarrage automatique',
   'server.details.restartOnCrash': 'Redémarrer après un plantage',
-  'server.details.ram': 'Mémoire min. / max.',
-  'server.details.ramValue': '{min} Mo / {max} Mo',
   'server.details.folder': 'Dossier',
-  'server.details.modpack': 'Créé à partir du modpack',
 
   // InstancePerformance
   'server.performance.title': 'Surveillance du serveur',
   'server.performance.lead':
     'Utilisation de votre Lodestone Core par l’instance',
-  'server.performance.cpuLoad': 'CHARGE CPU : {value} %',
-  'server.performance.memoryUsed': 'MÉMOIRE UTILISÉE : {value} Gio',
   'server.performance.loadingGraph': 'Chargement du graphique',
   'server.performance.cpuUsage': 'Utilisation du CPU',
   'server.performance.memoryUsage': 'Utilisation de la mémoire',
@@ -754,11 +746,11 @@ export const fr: Messages = {
   'server.settings.deleteServer': 'Supprimer le serveur',
   'server.settings.deleteServerHint':
     'Supprime définitivement ce serveur et ses données',
-  'server.settings.deleteTitle': 'Supprimer « {name} »',
+  'server.settings.deleteTitle': 'Supprimer le serveur ?',
   'server.settings.deleteConfirm': 'Je comprends, supprimer ce serveur',
   'server.settings.deleteCannotUndo': 'Cette action est irréversible.',
   'server.settings.deleteWarning':
-    '{cannotUndo} Les paramètres, mondes et sauvegardes de cette instance seront définitivement supprimés. Sauvegardez vos données importantes avant de continuer.',
+    '{cannotUndo} Ses paramètres, mondes et sauvegardes sont supprimés définitivement. Sauvegardez d’abord ce qui est important.',
 
   // SettingField
   'server.settingField.unknownType': 'Erreur d’envoi : type de valeur inconnu.',
@@ -784,17 +776,9 @@ export const fr: Messages = {
     "Toute personne ayant le lien peut rejoindre ce serveur pendant qu'il tourne. Les personnes sans Lodestone Launcher reçoivent un lien de téléchargement.",
   'server.share.hardNetwork':
     'Le routeur de ce réseau rend les connexions directes difficiles. Certaines personnes ne pourront peut-être pas rejoindre.',
-  'server.share.connected': {
-    one: '{count} personne connectée',
-    other: '{count} personnes connectées',
-  },
-  'server.share.joins': {
-    one: '({count} connexion jusqu’ici)',
-    other: '({count} connexions jusqu’ici)',
-  },
-  'server.share.peerLine': 'via {connection}, {ms} ms',
-  'server.share.connection.same_computer': 'cet ordinateur',
-  'server.share.connection.local_network': 'le réseau local',
+  'server.share.connected': 'Personnes connectées',
+  'server.share.connection.same_computer': 'Cet ordinateur',
+  'server.share.connection.local_network': 'Réseau local',
   'server.share.connection.ipv6': 'IPv6',
   'server.share.connection.internet': 'Internet',
   'server.share.stop': 'Arrêter le partage',
@@ -810,15 +794,15 @@ export const fr: Messages = {
   'server.publicListing.flag.address': 'Adresse pour rejoindre',
   'server.publicListing.flag.clientPack': 'Téléchargement des mods client',
   'server.publicListing.shownText':
-    'Sans se connecter, toute personne qui peut accéder à ce core voit {list} de ce serveur.',
-  'server.publicListing.shown.nameVersion': 'le nom et la version',
-  'server.publicListing.shown.status': 'l’état et le nombre de joueurs',
-  'server.publicListing.shown.address': 'l’adresse',
-  'server.publicListing.shown.clientPack': 'les mods client',
+    'Toute personne qui peut joindre ce core voit, sans se connecter :',
+  'server.publicListing.shown.nameVersion': 'Nom et version',
+  'server.publicListing.shown.status': 'Statut et nombre de joueurs',
+  'server.publicListing.shown.address': 'Adresse',
+  'server.publicListing.shown.clientPack': 'Mods client',
   'server.publicListing.turnOnFirst':
     'Activez d’abord « Lister les serveurs publiquement ».',
   'server.publicListing.hiddenWhileOff':
-    '{shown} Masqué tant que « Lister les serveurs publiquement » est désactivé.',
+    'Masqué tant que « Lister les serveurs publiquement » est désactivé.',
   'server.publicListing.notShown': 'Non visible sans se connecter.',
   'server.publicListing.noServers':
     'Aucun serveur Minecraft Java Edition pour l’instant.',
@@ -835,7 +819,6 @@ export const fr: Messages = {
   'server.resourcePack.sha1Error':
     'Le SHA-1 comporte 40 caractères hexadécimaux.',
   'server.resourcePack.compute': 'Calculer',
-  'server.resourcePack.downloaded': '{size} téléchargés.',
   'server.resourcePack.required': 'Exiger le pack',
   'server.resourcePack.requiredHint':
     'Les joueurs qui le refusent sont déconnectés.',
@@ -856,18 +839,17 @@ export const fr: Messages = {
   'server.card.copyIp': 'Copier l’IP',
   'server.card.share': 'Partager',
   'server.card.shareHint': 'Partager ce serveur avec un lien',
-  'server.card.online': '{players}/{max} en ligne',
 
   // InstanceCard : démarrer un serveur dont le CLUF de Minecraft n’est pas accepté
   'server.eula.title': 'Accepter le CLUF de Minecraft',
   'server.eula.body':
-    '{name} ne démarre qu’après votre accord avec le {link}. L’acceptez-vous ?',
+    'Le serveur ne démarre qu’après votre accord avec le {link}. L’acceptez-vous ?',
   'server.eula.accept': 'J’accepte, démarrer le serveur',
   'server.eula.acceptFailed':
     'Impossible d’accepter le CLUF de Minecraft : {error}',
 
   // InstanceLoadingPill
-  'server.loading.settingUp': 'Configuration… ({percent})',
+  'server.loading.settingUp': 'Configuration',
 
   // apis.ts
   'server.api.deletedFile': 'Fichier supprimé : {name}',

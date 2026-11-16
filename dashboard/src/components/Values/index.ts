@@ -6,7 +6,7 @@ export { DiffValue } from './DiffValue';
 export { CompareTable, type CompareRow } from './CompareTable';
 export { ObjectCard } from './ObjectCard';
 export { NameList, type NameListGroup, type NameListItem } from './NameList';
-export { ValueField } from './ValueField';
+export { CopyButton, ValueField } from './ValueField';
 export { StatRow, StatTile } from './StatTile';
 export { ListCell, ListHeader, type ListColumnWidth } from './ListColumns';
 export { ObjectToast } from './ObjectToast';

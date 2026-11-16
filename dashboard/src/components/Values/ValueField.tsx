@@ -43,6 +43,18 @@ function Action({
   );
 }
 
+/** A small Copy button for a value shown elsewhere (an address in a strip) */
+export function CopyButton({ value }: { value: string }) {
+  const t = useT();
+  return (
+    <Action
+      icon={faClone}
+      label={t('values.copy')}
+      onClick={() => copyWithToast(value)}
+    />
+  );
+}
+
 /**
  * A long exact value on its own line, out of the sentence: a path (home as
  * "~", the last two parts kept), a URL, a code or a secret (masked until

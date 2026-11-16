@@ -59,6 +59,21 @@ export const loaderPhrase = (id: string, version?: string | null) =>
   productPhrase(loaderName(id), version);
 
 /**
+ * The game phrase of an instance: "Minecraft 1.21.4" for Java,
+ * "Minecraft Bedrock 1.21" and the game's own name for other games.
+ */
+export function instanceGamePhrase(game: Game, version: string | null): string {
+  switch (game.type) {
+    case 'MinecraftJava':
+      return gamePhrase(version);
+    case 'MinecraftBedrock':
+      return productPhrase('Minecraft Bedrock', version);
+    default:
+      return productPhrase(game.game_display_name || game.game_name, version);
+  }
+}
+
+/**
  * The loader phrase of an instance ("Fabric 0.16.9", "Paper 1.21.4"), or null
  * when it has none to show: vanilla Minecraft, Bedrock and other games.
  */

@@ -619,8 +619,6 @@ export const zhHans: Messages = {
   'server.overview.pageTitle': '服务器概览',
   'server.overview.noName': '无名称',
   'server.overview.noDescription': '无描述',
-  'server.overview.version': '版本 {version}',
-  'server.overview.playerCount': '玩家数 {players}/{max}',
 
   // InstanceDetails
   'server.details.title': '详细信息',
@@ -628,7 +626,6 @@ export const zhHans: Messages = {
   'server.details.description': '描述',
   'server.details.uuid': 'UUID',
   'server.details.game': '游戏',
-  'server.details.minecraftVersion': 'Minecraft 版本',
   'server.details.version': '版本',
   'server.details.loader': '加载器',
   'server.details.port': '端口',
@@ -637,16 +634,11 @@ export const zhHans: Messages = {
   'server.details.created': '创建时间',
   'server.details.autoStart': '自动启动',
   'server.details.restartOnCrash': '崩溃后重启',
-  'server.details.ram': '最小 / 最大内存',
-  'server.details.ramValue': '{min} MB / {max} MB',
   'server.details.folder': '文件夹',
-  'server.details.modpack': '创建自整合包',
 
   // InstancePerformance
   'server.performance.title': '服务器监控',
   'server.performance.lead': '此实例对你的 Lodestone Core 的资源占用',
-  'server.performance.cpuLoad': 'CPU 负载：{value}%',
-  'server.performance.memoryUsed': '已用内存：{value} GiB',
   'server.performance.loadingGraph': '正在加载图表',
   'server.performance.cpuUsage': 'CPU 使用率',
   'server.performance.memoryUsage': '内存使用量',
@@ -681,11 +673,11 @@ export const zhHans: Messages = {
     '这些设置可能对你的服务器造成不可逆的损害。',
   'server.settings.deleteServer': '删除服务器',
   'server.settings.deleteServerHint': '永久删除此服务器及其数据',
-  'server.settings.deleteTitle': '删除“{name}”',
+  'server.settings.deleteTitle': '删除服务器？',
   'server.settings.deleteConfirm': '我明白，删除此服务器',
   'server.settings.deleteCannotUndo': '此操作无法撤销。',
   'server.settings.deleteWarning':
-    '{cannotUndo}此实例的设置、世界和备份将被永久删除。继续之前，请备份所有重要数据。',
+    '{cannotUndo}它的设置、世界和备份会被永久删除。请先备份重要数据。',
 
   // SettingField
   'server.settingField.unknownType': '提交错误：未知的值类型。',
@@ -709,10 +701,8 @@ export const zhHans: Messages = {
     '服务器运行期间，任何拥有此链接的人都能加入。没有 Lodestone Launcher 的人会看到下载链接。',
   'server.share.hardNetwork':
     '此网络的路由器难以建立直接连接，部分玩家可能无法加入。',
-  'server.share.connected': { other: '{count} 人已连接' },
-  'server.share.joins': { other: '（目前共加入 {count} 次）' },
-  'server.share.peerLine': '通过{connection}，{ms} 毫秒',
-  'server.share.connection.same_computer': '这台电脑',
+  'server.share.connected': '已连接的人',
+  'server.share.connection.same_computer': '本机',
   'server.share.connection.local_network': '局域网',
   'server.share.connection.ipv6': 'IPv6',
   'server.share.connection.internet': '互联网',
@@ -728,14 +718,13 @@ export const zhHans: Messages = {
   'server.publicListing.flag.status': '状态和玩家',
   'server.publicListing.flag.address': '加入地址',
   'server.publicListing.flag.clientPack': '客户端模组下载',
-  'server.publicListing.shownText':
-    '任何能访问此核心的人无需登录即可看到此服务器的{list}。',
+  'server.publicListing.shownText': '任何能访问此核心的人无需登录即可看到：',
   'server.publicListing.shown.nameVersion': '名称和版本',
   'server.publicListing.shown.status': '状态和玩家数',
   'server.publicListing.shown.address': '地址',
   'server.publicListing.shown.clientPack': '客户端模组',
   'server.publicListing.turnOnFirst': '请先开启“公开列出服务器”。',
-  'server.publicListing.hiddenWhileOff': '{shown}“公开列出服务器”关闭时隐藏。',
+  'server.publicListing.hiddenWhileOff': '在“公开列出服务器”关闭时隐藏。',
   'server.publicListing.notShown': '未登录时不显示。',
   'server.publicListing.noServers': '还没有 Minecraft Java Edition 服务器。',
 
@@ -747,7 +736,6 @@ export const zhHans: Messages = {
   'server.resourcePack.sha1Hint': '让玩家可以校验下载内容并缓存资源包。',
   'server.resourcePack.sha1Error': 'SHA-1 应为 40 个十六进制字符。',
   'server.resourcePack.compute': '计算',
-  'server.resourcePack.downloaded': '已下载 {size}。',
   'server.resourcePack.required': '强制使用资源包',
   'server.resourcePack.requiredHint': '拒绝资源包的玩家会被断开连接。',
   'server.resourcePack.prompt': '提示信息',
@@ -766,16 +754,15 @@ export const zhHans: Messages = {
   'server.card.copyIp': '复制 IP',
   'server.card.share': '共享',
   'server.card.shareHint': '通过链接共享此服务器',
-  'server.card.online': '{players}/{max} 在线',
 
   // InstanceCard：启动未接受 Minecraft EULA 的服务器
   'server.eula.title': '接受 Minecraft EULA',
-  'server.eula.body': '你同意 {link} 后，{name} 才能启动。你同意吗？',
+  'server.eula.body': '你同意 {link} 后，服务器才会启动。你同意吗？',
   'server.eula.accept': '我同意，启动服务器',
   'server.eula.acceptFailed': '无法接受 Minecraft EULA：{error}',
 
   // InstanceLoadingPill
-  'server.loading.settingUp': '正在设置…（{percent}）',
+  'server.loading.settingUp': '正在设置',
 
   // apis.ts
   'server.api.deletedFile': '已删除文件：{name}',

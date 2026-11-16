@@ -622,8 +622,6 @@ export const zhHant: Messages = {
   'server.overview.pageTitle': '伺服器概覽',
   'server.overview.noName': '無名稱',
   'server.overview.noDescription': '無說明',
-  'server.overview.version': '版本 {version}',
-  'server.overview.playerCount': '玩家數 {players}/{max}',
 
   // InstanceDetails
   'server.details.title': '詳細資訊',
@@ -631,7 +629,6 @@ export const zhHant: Messages = {
   'server.details.description': '說明',
   'server.details.uuid': 'UUID',
   'server.details.game': '遊戲',
-  'server.details.minecraftVersion': 'Minecraft 版本',
   'server.details.version': '版本',
   'server.details.loader': '載入器',
   'server.details.port': '連接埠',
@@ -640,16 +637,11 @@ export const zhHant: Messages = {
   'server.details.created': '建立時間',
   'server.details.autoStart': '自動啟動',
   'server.details.restartOnCrash': '當機後重新啟動',
-  'server.details.ram': '最小 / 最大記憶體',
-  'server.details.ramValue': '{min} MB / {max} MB',
   'server.details.folder': '資料夾',
-  'server.details.modpack': '建立自模組包',
 
   // InstancePerformance
   'server.performance.title': '伺服器監控',
   'server.performance.lead': '此實例對你的 Lodestone Core 的資源使用量',
-  'server.performance.cpuLoad': 'CPU 負載：{value}%',
-  'server.performance.memoryUsed': '已用記憶體：{value} GiB',
   'server.performance.loadingGraph': '正在載入圖表',
   'server.performance.cpuUsage': 'CPU 使用率',
   'server.performance.memoryUsage': '記憶體使用量',
@@ -684,11 +676,11 @@ export const zhHant: Messages = {
     '這些設定可能對你的伺服器造成無法復原的損害。',
   'server.settings.deleteServer': '刪除伺服器',
   'server.settings.deleteServerHint': '永久刪除此伺服器及其資料',
-  'server.settings.deleteTitle': '刪除「{name}」',
+  'server.settings.deleteTitle': '刪除伺服器？',
   'server.settings.deleteConfirm': '我了解，刪除此伺服器',
-  'server.settings.deleteCannotUndo': '此動作無法復原。',
+  'server.settings.deleteCannotUndo': '此操作無法復原。',
   'server.settings.deleteWarning':
-    '{cannotUndo}此實例的設定、世界和備份將被永久刪除。繼續之前，請備份所有重要資料。',
+    '{cannotUndo}它的設定、世界和備份會被永久刪除。請先備份重要資料。',
 
   // SettingField
   'server.settingField.unknownType': '提交錯誤：未知的值類型。',
@@ -712,10 +704,8 @@ export const zhHant: Messages = {
     '伺服器執行期間，任何擁有此連結的人都能加入。沒有 Lodestone Launcher 的人會看到下載連結。',
   'server.share.hardNetwork':
     '此網路的路由器難以建立直接連線，部分玩家可能無法加入。',
-  'server.share.connected': { other: '{count} 人已連線' },
-  'server.share.joins': { other: '（目前共加入 {count} 次）' },
-  'server.share.peerLine': '透過{connection}，{ms} 毫秒',
-  'server.share.connection.same_computer': '這台電腦',
+  'server.share.connected': '已連線的人',
+  'server.share.connection.same_computer': '本機',
   'server.share.connection.local_network': '區域網路',
   'server.share.connection.ipv6': 'IPv6',
   'server.share.connection.internet': '網際網路',
@@ -731,15 +721,13 @@ export const zhHant: Messages = {
   'server.publicListing.flag.status': '狀態和玩家',
   'server.publicListing.flag.address': '加入位址',
   'server.publicListing.flag.clientPack': '用戶端模組下載',
-  'server.publicListing.shownText':
-    '任何能存取此核心的人無需登入即可看到此伺服器的{list}。',
+  'server.publicListing.shownText': '任何能存取此核心的人無需登入即可看到：',
   'server.publicListing.shown.nameVersion': '名稱和版本',
   'server.publicListing.shown.status': '狀態和玩家數',
   'server.publicListing.shown.address': '位址',
   'server.publicListing.shown.clientPack': '用戶端模組',
   'server.publicListing.turnOnFirst': '請先開啟「公開列出伺服器」。',
-  'server.publicListing.hiddenWhileOff':
-    '{shown}「公開列出伺服器」關閉時會隱藏。',
+  'server.publicListing.hiddenWhileOff': '在「公開列出伺服器」關閉時隱藏。',
   'server.publicListing.notShown': '未登入時不會顯示。',
   'server.publicListing.noServers': '還沒有 Minecraft Java Edition 伺服器。',
 
@@ -751,7 +739,6 @@ export const zhHant: Messages = {
   'server.resourcePack.sha1Hint': '讓玩家可以驗證下載內容並快取資源包。',
   'server.resourcePack.sha1Error': 'SHA-1 應為 40 個十六進位字元。',
   'server.resourcePack.compute': '計算',
-  'server.resourcePack.downloaded': '已下載 {size}。',
   'server.resourcePack.required': '強制使用資源包',
   'server.resourcePack.requiredHint': '拒絕資源包的玩家會被中斷連線。',
   'server.resourcePack.prompt': '提示訊息',
@@ -770,16 +757,15 @@ export const zhHant: Messages = {
   'server.card.copyIp': '複製 IP',
   'server.card.share': '分享',
   'server.card.shareHint': '透過連結分享此伺服器',
-  'server.card.online': '{players}/{max} 在線上',
 
   // InstanceCard：啟動未接受 Minecraft EULA 的伺服器
   'server.eula.title': '接受 Minecraft EULA',
-  'server.eula.body': '你同意 {link} 後，{name} 才能啟動。你同意嗎？',
+  'server.eula.body': '你同意 {link} 後，伺服器才會啟動。你同意嗎？',
   'server.eula.accept': '我同意，啟動伺服器',
   'server.eula.acceptFailed': '無法接受 Minecraft EULA：{error}',
 
   // InstanceLoadingPill
-  'server.loading.settingUp': '正在設定…（{percent}）',
+  'server.loading.settingUp': '正在設定',
 
   // apis.ts
   'server.api.deletedFile': '已刪除檔案：{name}',

@@ -783,10 +783,6 @@ export const en = {
   'server.overview.pageTitle': 'Server Overview',
   'server.overview.noName': 'No name',
   'server.overview.noDescription': 'No description',
-  /** a label under the server name, e.g. "Version 1.20.4" */
-  'server.overview.version': 'Version {version}',
-  /** a label under the server name: online players / maximum, e.g. "Player Count 3/20" */
-  'server.overview.playerCount': 'Player Count {players}/{max}',
 
   // InstanceDetails: the collapsible list of the server's details
   'server.details.title': 'Details',
@@ -794,7 +790,6 @@ export const en = {
   'server.details.description': 'Description',
   'server.details.uuid': 'UUID',
   'server.details.game': 'Game',
-  'server.details.minecraftVersion': 'Minecraft version',
   'server.details.version': 'Version',
   /** the mod loader, e.g. "Fabric 0.15.3" */
   'server.details.loader': 'Loader',
@@ -804,19 +799,11 @@ export const en = {
   'server.details.created': 'Created',
   'server.details.autoStart': 'Auto start',
   'server.details.restartOnCrash': 'Restart on crash',
-  'server.details.ram': 'Min / Max RAM',
-  /** the minimum and maximum memory in MB; "?" when unknown */
-  'server.details.ramValue': '{min} MB / {max} MB',
   'server.details.folder': 'Folder',
-  'server.details.modpack': 'Created from modpack',
 
   // InstancePerformance: CPU and memory graphs
   'server.performance.title': 'Server Monitors',
   'server.performance.lead': 'Instance’s usage of your Lodestone Core',
-  /** above the CPU graph, in capitals; {value} is a percentage like 12.5 */
-  'server.performance.cpuLoad': 'CPU LOAD: {value}%',
-  /** above the memory graph, in capitals; {value} is in GiB, like 1.5 */
-  'server.performance.memoryUsed': 'MEMORY USED: {value} GiB',
   'server.performance.loadingGraph': 'Loading the graph',
   'server.performance.cpuUsage': 'CPU Usage',
   'server.performance.memoryUsage': 'Memory Usage',
@@ -861,13 +848,13 @@ export const en = {
   'server.settings.deleteServer': 'Delete server',
   'server.settings.deleteServerHint':
     'Permanently deletes this server and its data',
-  /** the title of the confirmation dialog; {name} is the server's name */
-  'server.settings.deleteTitle': 'Delete “{name}”',
+  /** the title of the confirmation dialog; the server is shown under it */
+  'server.settings.deleteTitle': 'Delete server?',
   'server.settings.deleteConfirm': 'I understand, delete this server',
-  'server.settings.deleteCannotUndo': 'This action cannot be undone.',
+  'server.settings.deleteCannotUndo': 'This can’t be undone.',
   /** {cannotUndo} is server.settings.deleteCannotUndo, in bold */
   'server.settings.deleteWarning':
-    '{cannotUndo} This instance’s settings, worlds and backups will be permanently deleted. Please backup any important data before proceeding.',
+    '{cannotUndo} Its settings, worlds and backups are deleted for good. Back up anything important first.',
 
   // SettingField: one of the settings the core lists
   'server.settingField.unknownType': 'Submission Error: Unknown value type.',
@@ -891,20 +878,13 @@ export const en = {
     'Anyone with the link can join this server while it runs. People without Lodestone Launcher get a download link.',
   'server.share.hardNetwork':
     "This network's router makes direct connections hard. Some people may not be able to join.",
-  'server.share.connected': {
-    one: '{count} person connected',
-    other: '{count} people connected',
-  },
-  'server.share.joins': {
-    one: '({count} join so far)',
-    other: '({count} joins so far)',
-  },
-  /** {connection} is one of server.share.connection.*, {ms} the round trip time */
-  'server.share.peerLine': 'over {connection}, {ms} ms',
-  'server.share.connection.same_computer': 'this computer',
-  'server.share.connection.local_network': 'the local network',
+  /** a heading; the number is a badge after it */
+  'server.share.connected': 'People connected',
+  /** how a friend is connected, on a badge */
+  'server.share.connection.same_computer': 'This computer',
+  'server.share.connection.local_network': 'Local network',
   'server.share.connection.ipv6': 'IPv6',
-  'server.share.connection.internet': 'the internet',
+  'server.share.connection.internet': 'Internet',
   'server.share.stop': 'Stop sharing',
   'server.share.stopTitle': 'Stop sharing?',
   'server.share.stopBody':
@@ -917,18 +897,18 @@ export const en = {
   'server.publicListing.flag.status': 'Status and players',
   'server.publicListing.flag.address': 'Address to join',
   'server.publicListing.flag.clientPack': 'Client mods download',
-  /** {list} is a list of the server.publicListing.shown.* items, e.g. "name and version and address" */
+  /** the server.publicListing.shown.* items follow as chips */
   'server.publicListing.shownText':
-    'Anyone who can reach this core sees its {list}, without signing in.',
-  'server.publicListing.shown.nameVersion': 'name and version',
-  'server.publicListing.shown.status': 'status and player count',
-  'server.publicListing.shown.address': 'address',
-  'server.publicListing.shown.clientPack': 'client mods',
+    'Anyone who can reach this core sees, without signing in:',
+  'server.publicListing.shown.nameVersion': 'Name and version',
+  'server.publicListing.shown.status': 'Status and player count',
+  'server.publicListing.shown.address': 'Address',
+  'server.publicListing.shown.clientPack': 'Client mods',
   /** "List servers publicly" is a setting in Core Settings */
   'server.publicListing.turnOnFirst': 'Turn on “List servers publicly” first.',
-  /** {shown} is server.publicListing.shownText */
+  /** "List servers publicly" is a setting in Core Settings */
   'server.publicListing.hiddenWhileOff':
-    '{shown} Hidden while “List servers publicly” is off.',
+    'Hidden while “List servers publicly” is off.',
   'server.publicListing.notShown': 'Not shown without signing in.',
   'server.publicListing.noServers': 'No Minecraft Java Edition servers yet.',
 
@@ -944,8 +924,6 @@ export const en = {
   'server.resourcePack.sha1Error': 'The SHA-1 is 40 hexadecimal characters.',
   /** computes the SHA-1 of the pack */
   'server.resourcePack.compute': 'Compute',
-  /** {size} is the size of the pack, e.g. "1.5 MB" */
-  'server.resourcePack.downloaded': 'Downloaded {size}.',
   'server.resourcePack.required': 'Require the pack',
   'server.resourcePack.requiredHint':
     'Players who decline it are disconnected.',
@@ -969,22 +947,20 @@ export const en = {
   /** opens the Overview's Share section */
   'server.card.share': 'Share',
   'server.card.shareHint': 'Share this server with a link',
-  /** online players / maximum, e.g. "3/20 Online" */
-  'server.card.online': '{players}/{max} Online',
 
   // InstanceCard: starting a server whose Minecraft EULA isn't accepted
   'server.eula.title': 'Accept the Minecraft EULA',
-  /** {link} is create.eula.link, a link to the EULA; {name} is the server's name */
+  /** {link} is create.eula.link, a link to the EULA; the server is shown above */
   'server.eula.body':
-    '{name} only starts after you agree to the {link}. Do you agree to it?',
+    'The server only starts after you agree to the {link}. Do you agree to it?',
   /** the confirm button: accepts the EULA and starts the server */
   'server.eula.accept': 'I agree, start the server',
   /** {error}: the core's error message */
   'server.eula.acceptFailed': 'Could not accept the Minecraft EULA: {error}',
 
   // InstanceLoadingPill: a server being created, in the sidebar
-  /** {percent} is formatted, e.g. "45%" */
-  'server.loading.settingUp': 'Setting up… ({percent})',
+  /** a badge on a server being created; the percent follows */
+  'server.loading.settingUp': 'Setting up',
 
   // apis.ts: toasts and errors of file and sign-in requests
   'server.api.deletedFile': 'Deleted file: {name}',

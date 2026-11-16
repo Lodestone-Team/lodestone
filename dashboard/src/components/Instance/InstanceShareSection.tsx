@@ -6,7 +6,13 @@ import { InstanceShare } from 'bindings/InstanceShare';
 import { ShareConnection } from 'bindings/ShareConnection';
 import Button from 'components/Atoms/Button';
 import ConfirmDialog from 'components/Atoms/ConfirmDialog';
-import Label, { LabelColor } from 'components/Atoms/Label';
+import {
+  CountBadge,
+  Num,
+  StatusBadge,
+  StatusTone,
+} from 'components/Atoms/Values';
+import { Fact } from 'components/Values';
 import DashboardCard from 'components/DashboardCard';
 import {
   instanceShareKey,
@@ -101,12 +107,12 @@ export default function InstanceShareSection({
       .catch(() => toast.error(t('server.share.copyFailed')));
   };
 
-  const [stateText, stateColor]: [string, LabelColor] =
+  const [stateText, stateTone]: [string, StatusTone] =
     share.state === 'sharing'
-      ? [t('server.share.state.sharing'), 'green']
+      ? [t('server.share.state.sharing'), 'success']
       : share.state === 'reconnecting'
-        ? [t('server.share.state.reconnecting'), 'yellow']
-        : [t('server.share.state.starting'), 'gray'];
+        ? [t('server.share.state.reconnecting'), 'warning']
+        : [t('server.share.state.starting'), 'neutral'];
 
   return (
     <div id="share" className="scroll-mt-4">
@@ -138,9 +144,7 @@ export default function InstanceShareSection({
         ) : (
           <>
             <div className="flex flex-row flex-wrap items-center gap-3">
-              <Label size="large" color={stateColor}>
-                {stateText}
-              </Label>
+              <StatusBadge tone={stateTone}>{stateText}</StatusBadge>
               {share.stable_link && (
                 <span className="text-small font-medium text-gray-500">
                   {t('server.share.stableLink')}
@@ -183,10 +187,11 @@ export default function InstanceShareSection({
             <div className="flex flex-col gap-2">
               <div className="flex flex-row items-center gap-2 text-medium font-medium text-gray-300">
                 <FontAwesomeIcon icon={faUserGroup} className="text-gray-500" />
-                {t('server.share.connected', { count: share.friends.length })}
-                <span className="text-small text-gray-500">
-                  {t('server.share.joins', { count: share.joins })}
-                </span>
+                {t('server.share.connected')}
+                <CountBadge count={share.friends.length} />
+                <Fact label={t('values.key.joins')} className="ml-2 text-small">
+                  <Num value={share.joins} />
+                </Fact>
               </div>
               {share.friends.length > 0 && (
                 <ul className="flex flex-col divide-y divide-gray-faded/30 rounded border border-gray-faded/30">
@@ -198,11 +203,17 @@ export default function InstanceShareSection({
                       <span className="font-mono text-gray-300">
                         {peer.address}
                       </span>
-                      <span className="text-gray-500">
-                        {t('server.share.peerLine', {
-                          connection: t(CONNECTION_KEYS[peer.connection]),
-                          ms: peer.rtt_ms,
-                        })}
+                      <span className="flex items-center gap-3">
+                        <StatusBadge tone="neutral">
+                          {t(CONNECTION_KEYS[peer.connection])}
+                        </StatusBadge>
+                        <Fact label={t('values.key.ping')}>
+                          <Num
+                            value={peer.rtt_ms}
+                            unit="ms"
+                            minWidth="3.5rem"
+                          />
+                        </Fact>
                       </span>
                     </li>
                   ))}

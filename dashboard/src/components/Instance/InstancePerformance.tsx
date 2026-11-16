@@ -8,6 +8,8 @@ import { round } from 'utils/util';
 import { useResolvedTheme } from 'utils/theme';
 import { Skeleton, SkeletonGroup } from 'components/Atoms/Skeleton';
 import { useI18n } from 'i18n';
+import { Num } from 'components/Atoms/Values';
+import { StatTile } from 'components/Values';
 
 const bytesInGigabyte = 1024 * 1024 * 1024;
 
@@ -49,14 +51,22 @@ export default function InstancePerformance() {
       </h3>
       <div className="mt-4 grid grid-cols-1 gap-10 @3xl:grid-cols-2">
         <div>
-          <h3 className="mb-2 text-small font-mediumbold text-gray-faded/50">
-            {t('server.performance.cpuLoad', {
-              value:
-                latestSample?.cpu_usage != null
-                  ? oneDecimal(latestSample.cpu_usage)
-                  : formatNumber(0),
-            })}
-          </h3>
+          <StatTile
+            className="mb-2"
+            label={t('values.key.cpuLoad')}
+            value={
+              <Num
+                value={
+                  latestSample?.cpu_usage != null
+                    ? oneDecimal(latestSample.cpu_usage)
+                    : formatNumber(0)
+                }
+                unit={t('server.performance.unitPercent')}
+                minWidth="4.5rem"
+                className="text-left"
+              />
+            }
+          />
 
           <DashboardCard className="border-0 bg-gray-900 light:border light:bg-gray-800">
             {waitingForData ? (
@@ -79,13 +89,20 @@ export default function InstancePerformance() {
           </DashboardCard>
         </div>
         <div>
-          <h3 className="mb-2 text-small font-mediumbold text-gray-faded/50">
-            {t('server.performance.memoryUsed', {
-              value: oneDecimal(
-                Number(latestSample?.memory_usage ?? 0) / bytesInGigabyte
-              ),
-            })}
-          </h3>
+          <StatTile
+            className="mb-2"
+            label={t('values.key.memoryUsed')}
+            value={
+              <Num
+                value={oneDecimal(
+                  Number(latestSample?.memory_usage ?? 0) / bytesInGigabyte
+                )}
+                unit={t('server.performance.unitGiB')}
+                minWidth="5.5rem"
+                className="text-left"
+              />
+            }
+          />
 
           <DashboardCard className="border-0 bg-gray-900 light:border light:bg-gray-800">
             {waitingForData ? (

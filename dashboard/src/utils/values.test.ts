@@ -4,6 +4,7 @@ import { describe, test } from 'node:test';
 import {
   gamePhrase,
   homeOf,
+  instanceGamePhrase,
   instanceLoaderPhrase,
   loaderName,
   loaderPhrase,
@@ -49,6 +50,14 @@ describe('product phrase', () => {
       'Purpur 2200'
     );
     assert.equal(instanceLoaderPhrase(java({ type: 'Vanilla' }), null), null);
+    assert.equal(
+      instanceGamePhrase(java({ type: 'Fabric' }), '1.21.4'),
+      'Minecraft 1.21.4'
+    );
+    assert.equal(
+      instanceGamePhrase({ type: 'MinecraftBedrock' }, '1.21'),
+      'Minecraft Bedrock 1.21'
+    );
     assert.equal(
       instanceLoaderPhrase({ type: 'MinecraftBedrock' }, '1.0'),
       null
