@@ -174,11 +174,7 @@ pub fn text(message: M) -> &'static str {
         M::ImportServerTitle => "从服务器的世界新建实例",
         M::CreateInstanceButton => "创建实例",
         M::SnapshotGameRunning => "请先停止游戏。",
-        M::SnapshotsHint => "整个实例文件夹的副本，可用于恢复或分享。",
         M::SnapshotAfterPlay => "每次游戏结束后拍摄快照",
-        M::SnapshotAfterPlayHint => {
-            "游玩后复制整个实例文件夹。跟随“设置 › 实例默认设置”，默认关闭，除非你开启。"
-        }
         M::SnapshotKeepHint => {
             "启动器自动拍摄的快照会保留一段时间：最近 {last} 个、{days} 天内每天一个、{weeks} 周内每周一个。你自己拍摄的快照会一直保留，直到你删除。"
         }
@@ -433,7 +429,6 @@ pub fn text(message: M) -> &'static str {
         M::ImportNoRoom => "磁盘空间不足：需要 {size}（含 1 GB 余量），可用 {free}。",
         M::ImportSpaceFree => "需要 {size} 磁盘空间（含 1 GB 余量）；可用 {free}。",
         M::ExportNotDownloadable => "这些无法下载，因此导入该文件的人不会得到它们：{files}。",
-        M::SnapshotAfterPlayOwnHint => "游玩后复制整个实例文件夹。仅为此实例设置。",
         M::DeleteUnreadableNote => "它们将被永久删除。",
         M::WorldBackups => "世界备份",
         M::SnapshotsGroup => "整个实例的快照",

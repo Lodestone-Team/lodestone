@@ -3123,15 +3123,8 @@ impl InstanceSettings {
                 )))
             }));
         let mut items = vec![
-            SettingRow::new(t(M::TakeSnapshotTitle))
-                .hint(t(M::SnapshotsHint))
-                .child(take),
+            SettingRow::new(t(M::TakeSnapshotTitle)).child(take),
             SettingRow::new(t(M::SnapshotAfterPlay))
-                .hint(t(if own_after_play.is_some() {
-                    M::SnapshotAfterPlayOwnHint
-                } else {
-                    M::SnapshotAfterPlayHint
-                }))
                 .when(own_after_play.is_some(), |row| {
                     row.child(
                         muted_link("snapshot-after-play-default", t(M::UseDefault)).on_press(
