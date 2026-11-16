@@ -237,7 +237,7 @@ fn a_cancelled_or_failed_backup_leaves_nothing() {
     {
         use std::os::unix::fs::PermissionsExt as _;
         let region = s.game("saves/World/region/r.0.0.mca");
-        std::fs::set_permissions(&region, std::fs::Permissions::from_mode(0)).unwrap();
+        std::fs::set_permissions(&region, std::fs::Permissions::from_mode(0o000)).unwrap();
         let failed = s
             .backups
             .create(&s.id, "World", None, &Progress::default(), NEVER);
@@ -281,7 +281,11 @@ fn a_backup_is_refused_while_the_game_runs_without_room_or_during_a_data_move() 
 
 /// Holds `lock` locked as the game does, from another process, until dropped.
 #[cfg(unix)]
-struct HeldLock(std::process::Child);
+struct HeldLock(
+    std::process::Child,
+    // Kept open until the child ends, so its own output never meets a closed pipe.
+    #[allow(dead_code)] std::io::BufReader<std::process::ChildStdout>,
+);
 
 #[cfg(unix)]
 impl HeldLock {
@@ -304,7 +308,7 @@ impl HeldLock {
             line.clear();
             assert!(out.read_line(&mut line).unwrap() > 0, "the helper ended");
         }
-        HeldLock(child)
+        HeldLock(child, out)
     }
 }
 
@@ -350,7 +354,7 @@ fn backups_follow_the_instance_by_id_and_created_time() {
     assert_eq!(deleted.len(), 1);
     assert_eq!(deleted[0].instance_id, s.id);
     assert_eq!(deleted[0].instance_created, created);
-    assert_eq!(deleted[0].backups, [backup.clone()]);
+    assert_eq!(deleted[0].backups, std::slice::from_ref(&backup));
     assert!(matches!(
         s.backups.delete_with(&s.id, &backup.id, |_| Ok(())),
         Err(WorldBackupError::NotFound(_))
@@ -364,7 +368,7 @@ fn backups_follow_the_instance_by_id_and_created_time() {
     assert_eq!(WorldBackups::usage(&s.data, &s.store.list().0).deleted, 1);
     std::fs::rename(&aside, s.store.dir(&s.id)).unwrap();
     assert!(s.backups.list_deleted().is_empty());
-    assert_eq!(s.list(), [backup.clone()]);
+    assert_eq!(s.list(), std::slice::from_ref(&backup));
     s.write("saves/World/region/r.0.0.mca", b"changed");
     s.restore(&backup.id, RestoreTo::InPlace).unwrap();
     assert_eq!(
@@ -426,7 +430,7 @@ fn deleting_moves_the_zip_away_then_forgets_it() {
         .delete_with(&s.id, &backup.id, |_| Err("no Trash here".into()))
         .unwrap_err();
     assert!(err.to_string().contains("no Trash here"));
-    assert_eq!(s.list(), [backup.clone()]);
+    assert_eq!(s.list(), std::slice::from_ref(&backup));
     let mut removed = Vec::new();
     s.backups
         .delete_with(&s.id, &backup.id, |path| {
@@ -620,7 +624,8 @@ fn a_restore_is_refused_before_anything_changes() {
 
     let zip = s.backups.zip_path(&s.id, &backup);
     let good = std::fs::read(&zip).unwrap();
-    let hostile: &[(&str, &[(&str, &[u8])])] = &[
+    type Entries<'a> = &'a [(&'a str, &'a [u8])];
+    let hostile: &[(&str, Entries)] = &[
         (
             "escape",
             &[("World/level.dat", LEVEL_DAT), ("World/../../x", b"x")],
@@ -738,7 +743,7 @@ fn a_crash_during_the_swap_is_undone_at_the_next_start() {
         crashed += 1;
         assert!(s.images.restore_unfinished(&s.id));
         let recovery = s.images.recover_restores();
-        assert_eq!(recovery.repaired, [s.id.clone()]);
+        assert_eq!(recovery.repaired, std::slice::from_ref(&s.id));
         s.images.empty_restore_trash(Some(&s.id));
         assert!(!s.images.restore_unfinished(&s.id));
         assert_eq!(
