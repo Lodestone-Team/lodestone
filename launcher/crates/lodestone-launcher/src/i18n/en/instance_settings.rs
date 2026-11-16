@@ -145,9 +145,9 @@ crate::i18n::messages! {
         CouldntPrepareUpdate = "Couldn't prepare the update: {error}",
 
         // Linked server.
-        /// {core} is a host's name.
-        LinkedServerHint = "On {core}. Play joins it and syncs its mods.",
-        LinkedServerCoreRemoved = "On {core}, which was removed from the Lodestone Host page. Add the host again there to join the server.",
+        /// Under a linked server's name; the host it is on is under it, keyed Host.
+        LinkedServerHint = "Play joins it and syncs its mods.",
+        LinkedServerCoreRemoved = "Its host was removed from the Lodestone Host page. Add the host again there to join the server.",
         CoreRemoved = "Host removed",
         Unlink = "Unlink",
         Unlinked = "Unlinked",

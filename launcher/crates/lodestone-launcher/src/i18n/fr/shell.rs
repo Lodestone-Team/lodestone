@@ -56,7 +56,6 @@ pub fn text(message: M) -> &'static str {
             "Les paramètres s’affichent ici une fois que vous avez une instance."
         }
         M::LogsPlaceholder => "Les journaux s’affichent ici une fois que vous avez une instance.",
-        M::LinkedTo => "Liée à {server} sur {core}",
         M::RunsUnderRosetta => {
             "S’exécute via Rosetta\u{a0}2\u{a0}: Mojang n’a pas fait de version Apple Silicon de certaines bibliothèques dont cette version a besoin. Démarrage plus lent, puis fonctionnement normal."
         }
@@ -441,8 +440,9 @@ pub fn text(message: M) -> &'static str {
         M::ConnectedClients => "Programmes connectés",
         M::NoClients => "Aucun programme n’est connecté.",
         M::UnnamedClient => "Programme sans nom",
-        M::ClientSince => "Connecté · {time}",
-        M::ClientPid => "Processus {pid}",
+        M::ClientSince => "Connecté",
+        M::ClientPid => "Processus",
+        M::ClientSubscriptions => "Abonnements",
         M::Disconnect => "Déconnecter",
         M::DiagnosticsSection => "Diagnostic",
         M::PerfMonitor => "Moniteur de performances",
@@ -955,7 +955,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
             "{count} valeur copiée depuis {name}.",
             "{count} valeurs copiées depuis {name}.",
         ],
-        P::Subscriptions => ["{count} abonnement", "{count} abonnements"],
         P::PerfEntries => ["{count} entrée", "{count} entrées"],
         P::StorageSnapshotsHint => [
             "{count}\u{a0}instantané et l’historique du contenu de chaque instance · {removable} peuvent être supprimés",

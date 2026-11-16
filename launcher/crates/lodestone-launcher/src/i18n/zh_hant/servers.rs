@@ -96,12 +96,11 @@ pub fn text(message: M) -> &'static str {
 
         M::BusyFetching => "正在取得伺服器的模組…",
         M::BusyCreating => "正在建立實例並下載…",
-        M::BusyCreatingFiles => "正在建立實例，已下載 {done}/{total} 個檔案…",
         M::BusyChecking => "正在檢查伺服器的模組…",
         M::BusyUpdating => "正在更新模組…",
-        M::BusyUpdatingFiles => "正在更新模組，{done}/{total} 個檔案…",
         M::BusyStarting => "正在啟動伺服器…",
         M::BusyStopping => "正在停止…",
+        M::BusyCaption => "{stage} {progress}",
 
         M::ReadFailed => "無法讀取你的伺服器",
         M::SaveFailed => "無法儲存你的伺服器",
@@ -245,7 +244,7 @@ pub fn text(message: M) -> &'static str {
         M::InstallThisTime => "僅這次安裝",
         M::TrustAndInstall => "信任並安裝",
         M::BusyPreparing => "正在等待伺服器準備檔案…",
-        M::BusyBasePack => "正在取得伺服器的模組包（{done} / {total}）…",
+        M::BusyBasePack => "正在取得伺服器的整合包…",
         M::LacksFiles => "伺服器有你無法取得的檔案",
         M::LacksFilesBody => {
             "你的實例已有伺服器的檔案，但伺服器還有一些無法分享的檔案。沒有它們你可能無法加入。"
@@ -270,16 +269,16 @@ pub fn text(message: M) -> &'static str {
         }
         M::ErrPrepareFailed => "伺服器無法準備其檔案。請幾分鐘後再試。",
         M::ErrStillPreparing => "伺服器仍在準備其檔案。請幾分鐘後再試。",
-        M::ErrFileFailed => "伺服器無法傳送 {path}。請稍後再試。",
+        M::ErrFileFailed => "伺服器無法傳送這個檔案。請稍後重試。",
         M::ErrViewChanged => "下載期間伺服器的檔案有所變更。請再試一次。",
         M::ErrFilesChangedSince => {
-            "{path} 在更新準備好之後有所變更，因此沒有做任何變更。請再按一次「開始遊戲」。"
+            "這個檔案在計算更新後有所變更，所以沒有做任何變更。請再次按下「開始遊戲」。"
         }
         M::ErrBasePackGone => {
             "伺服器的模組包已不在 Modrinth 上，因此無法下載其檔案。請伺服器的擁有者更新模組包。"
         }
         M::ErrGameChanged => {
-            "伺服器現在執行 {game}，而此實例適用於 {instance}。請為該伺服器建立新的實例。"
+            "伺服器的遊戲版本已變更，此實例不再與它相符。請為該伺服器建立一個新實例。"
         }
         M::ErrCurseForgeUnreachable => {
             "無法連線到 CurseForge，而伺服器有來自它的檔案。請檢查網路連線，然後再試一次。"
@@ -289,14 +288,14 @@ pub fn text(message: M) -> &'static str {
         }
         M::ErrRefused => "伺服器傳送了 Lodestone Launcher 不會安裝的檔案：{detail}",
         M::ErrBaseFileMissing => {
-            "伺服器的模組包中沒有檔案 {path}，但伺服器說它來自模組包。請讓伺服器的擁有者更新模組包。"
+            "伺服器的整合包中沒有這個檔案，而伺服器說它來自該整合包。請讓伺服器擁有者更新整合包。"
         }
         M::ErrOlderCore => "該主機執行的是較舊版本的 Lodestone，無法以這種方式分享其伺服器的檔案。",
         M::ErrInstallFiles => "無法安裝伺服器的檔案：{detail}",
         M::ErrStoppedSharing => {
             "伺服器已停止分享其檔案，因此無法檢查這些檔案。請詢問伺服器的擁有者。"
         }
-        M::ErrNotEnoughSpace => "可用空間不足以存放伺服器的檔案：需要 {needed}，可用 {free}。",
+        M::ErrNotEnoughSpace => "此磁碟上沒有足夠的可用空間來存放伺服器的檔案。",
         M::ErrNotLinked => "此實例已不再連結到該伺服器，因此沒有安裝任何內容。",
 
         M::KeyDays90 => "90 天",
@@ -545,7 +544,7 @@ pub fn text(message: M) -> &'static str {
         M::InviteLinkKey => "邀請連結",
         M::FriendsReadFailed => "無法讀取好友的伺服器",
         M::FriendsSaveFailed => "無法儲存好友的伺服器",
-        M::MagicLocalhost => "Magic localhost",
+        M::MagicLocalhost => "Magic localhost 位址",
         M::WhileConnected => "連線期間有效。",
         M::FriendPortTaken => "連接埠已被占用",
         M::FriendPortTakenBody => {

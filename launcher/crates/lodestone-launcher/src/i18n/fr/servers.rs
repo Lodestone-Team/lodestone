@@ -118,14 +118,11 @@ pub fn text(message: M) -> &'static str {
 
         M::BusyFetching => "Récupération des mods du serveur…",
         M::BusyCreating => "Création de l’instance, téléchargement…",
-        M::BusyCreatingFiles => {
-            "Création de l’instance, téléchargement de {done} fichiers sur {total}…"
-        }
         M::BusyChecking => "Vérification des mods du serveur…",
         M::BusyUpdating => "Mise à jour des mods…",
-        M::BusyUpdatingFiles => "Mise à jour des mods, {done} fichiers sur {total}…",
         M::BusyStarting => "Démarrage du serveur…",
         M::BusyStopping => "Arrêt…",
+        M::BusyCaption => "{stage} {progress}",
 
         M::ReadFailed => "Impossible de lire vos serveurs",
         M::SaveFailed => "Impossible d’enregistrer vos serveurs",
@@ -299,7 +296,7 @@ pub fn text(message: M) -> &'static str {
         M::InstallThisTime => "Installer cette fois",
         M::TrustAndInstall => "Faire confiance et installer",
         M::BusyPreparing => "Le serveur prépare ses fichiers…",
-        M::BusyBasePack => "Téléchargement du modpack du serveur, {done} sur {total}…",
+        M::BusyBasePack => "Récupération du modpack du serveur…",
         M::LacksFiles => "Le serveur a des fichiers que vous n’aurez pas",
         M::LacksFilesBody => {
             "Votre instance a les fichiers du serveur, mais le serveur en a qu’il ne peut pas partager. Vous ne pourrez peut-être pas le rejoindre sans eux."
@@ -332,18 +329,18 @@ pub fn text(message: M) -> &'static str {
         M::ErrStillPreparing => {
             "Le serveur prépare encore ses fichiers. Réessayez dans quelques minutes."
         }
-        M::ErrFileFailed => "Le serveur n’a pas pu envoyer {path}. Réessayez plus tard.",
+        M::ErrFileFailed => "Le serveur n’a pas pu envoyer ce fichier. Réessayez plus tard.",
         M::ErrViewChanged => {
             "Les fichiers du serveur ont changé pendant le téléchargement. Réessayez."
         }
         M::ErrFilesChangedSince => {
-            "{path} a changé après la préparation de la mise à jour, donc rien n’a été modifié. Appuyez à nouveau sur Jouer."
+            "Ce fichier a changé après la préparation de la mise à jour\u{202F}: rien n’a été modifié. Appuyez de nouveau sur Jouer."
         }
         M::ErrBasePackGone => {
             "Le modpack du serveur n’est plus sur Modrinth, ses fichiers ne peuvent donc pas être téléchargés. Demandez au propriétaire du serveur de mettre le modpack à jour."
         }
         M::ErrGameChanged => {
-            "Le serveur utilise maintenant {game}, et cette instance est pour {instance}. Créez une nouvelle instance pour le serveur."
+            "Le jeu du serveur a changé, et cette instance ne lui correspond plus. Créez une nouvelle instance pour le serveur."
         }
         M::ErrCurseForgeUnreachable => {
             "CurseForge est injoignable, et le serveur a des fichiers qui en viennent. Vérifiez votre connexion, puis réessayez."
@@ -355,7 +352,7 @@ pub fn text(message: M) -> &'static str {
             "Le serveur a envoyé des fichiers que Lodestone Launcher n’installera pas : {detail}"
         }
         M::ErrBaseFileMissing => {
-            "Le modpack du serveur n’a pas de fichier {path}, alors que le serveur dit qu’il en vient. Demandez au propriétaire du serveur de mettre le modpack à jour."
+            "Le modpack du serveur n’a pas ce fichier, dont le serveur dit qu’il en provient. Demandez au propriétaire du serveur de mettre à jour le modpack."
         }
         M::ErrOlderCore => {
             "L’hôte utilise un Lodestone plus ancien, qui ne partage pas les fichiers de ses serveurs de cette façon."
@@ -365,7 +362,7 @@ pub fn text(message: M) -> &'static str {
             "Le serveur ne partage plus ses fichiers, ils n’ont donc pas pu être vérifiés. Demandez au propriétaire du serveur."
         }
         M::ErrNotEnoughSpace => {
-            "Il n’y a pas assez d’espace libre pour les fichiers du serveur : il faut {needed}, et {free} sont libres."
+            "Il n’y a pas assez d’espace libre sur ce disque pour les fichiers du serveur."
         }
         M::ErrNotLinked => "Cette instance n’est plus liée au serveur, rien n’a donc été installé.",
 

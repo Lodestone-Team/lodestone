@@ -2082,12 +2082,26 @@ impl InstanceSettings {
     /// The Linked server section, for an instance made for a server on a core.
     fn server_section(&self, query: &SettingsQuery, cx: &mut Context<Self>) -> Option<AnyElement> {
         let link = self.servers.read(cx).instance_link(&self.instance_id)?;
-        let hint = if link.core_known {
-            tr!(M::LinkedServerHint, core = link.core_name)
+        let hint = t(if link.core_known {
+            M::LinkedServerHint
         } else {
-            tr!(M::LinkedServerCoreRemoved, core = link.core_name)
-        };
-        let mut row = SettingRow::new(link.server_name.clone()).hint(hint);
+            M::LinkedServerCoreRemoved
+        });
+        // the host it is on, keyed Host, under the server's name
+        let host = crate::components::FactLine::row("linked-server-host").fact(
+            crate::components::Fact::new(
+                t(crate::i18n::FactMsg::Host),
+                crate::components::ObjectChip::new(lodestone_ui::values::truncate::sanitize(
+                    &link.core_name,
+                    64,
+                ))
+                .kind(crate::components::Kind::Computer)
+                .muted(),
+            ),
+        );
+        let mut row = SettingRow::new(link.server_name.clone())
+            .hint(hint)
+            .below(host);
         if !link.core_known {
             row = row.child(tag(t(M::CoreRemoved), colors::YELLOW));
         }

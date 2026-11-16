@@ -46,8 +46,8 @@ use std::{
 };
 
 use gpui::{
-    App, AppContext as _, Context, Entity, EventEmitter, FocusHandle, SharedString, Subscription,
-    Task,
+    App, AppContext as _, Context, Entity, EventEmitter, FocusHandle, IntoElement as _,
+    SharedString, Subscription, Task,
 };
 use http_client::HttpClient;
 use launcher_core::cores::image_sync::WithheldReason;
@@ -93,7 +93,7 @@ use url::Url;
 use crate::{
     accounts::Accounts,
     components::DialogSlot,
-    components::{Kind, ValueKind},
+    components::{self, CompareTable, Kind, MeterBar, StatRow, StatTile, ValueKind},
     i18n::{
         CommonMsg, FactMsg, ServersMsg as M, ServersPlural as P, ShellMsg, ValueMsg, format, t, tr,
         trn,
@@ -251,6 +251,8 @@ pub struct Notice {
     pub status: Option<(Rc<dyn Fn() -> String>, crate::theme::Tone)>,
     /// Values to copy under its text.
     pub values: Vec<NoticeValue>,
+    /// Something to compare under its text: sizes, or two sides that should match.
+    pub extra: Option<Rc<dyn Fn() -> gpui::AnyElement>>,
 }
 
 impl Notice {
@@ -263,7 +265,14 @@ impl Notice {
             object: None,
             status: None,
             values: Vec::new(),
+            extra: None,
         }
+    }
+
+    /// Something to compare under the text, made each time it is shown.
+    pub fn extra(mut self, element: impl Fn() -> gpui::AnyElement + 'static) -> Self {
+        self.extra = Some(Rc::new(element));
+        self
     }
 
     /// What the notice is about: its name goes in a chip, out of the title.
@@ -463,48 +472,70 @@ impl Busy {
     }
 
     pub fn label(&self) -> String {
-        let files = |progress: &InstallProgress, plain: M, counted: M| {
-            let snapshot = progress.downloads.snapshot();
-            if snapshot.files_total == 0 {
-                t(plain).to_string()
-            } else {
-                tr!(
-                    counted,
-                    done = format::number(snapshot.files_done),
-                    total = format::number(snapshot.files_total)
-                )
-            }
-        };
         match self {
             Busy::Asking { preparing, .. } if preparing.load(Ordering::Relaxed) => {
                 t(M::BusyPreparing).into()
             }
             // the base pack downloading
-            Busy::Asking { progress, .. }
-                if progress.downloads.snapshot().bytes_total > 0
-                    && progress.downloads.snapshot().bytes_done
-                        < progress.downloads.snapshot().bytes_total =>
-            {
-                let snapshot = progress.downloads.snapshot();
-                tr!(
-                    M::BusyBasePack,
-                    done = format::bytes(snapshot.bytes_done),
-                    total = format::bytes(snapshot.bytes_total)
-                )
+            Busy::Asking { progress, .. } if base_pack_downloading(progress) => {
+                t(M::BusyBasePack).into()
             }
             Busy::Asking { creating: true, .. } | Busy::Fetching => t(M::BusyFetching).into(),
             Busy::Asking { .. } => t(M::BusyChecking).into(),
-            Busy::Creating { progress, .. } => {
-                files(progress, M::BusyCreating, M::BusyCreatingFiles)
-            }
+            Busy::Creating { .. } => t(M::BusyCreating).into(),
             Busy::CheckingMods => t(M::BusyChecking).into(),
-            Busy::UpdatingMods { progress, .. } => {
-                files(progress, M::BusyUpdating, M::BusyUpdatingFiles)
-            }
+            Busy::UpdatingMods { .. } => t(M::BusyUpdating).into(),
             Busy::Starting => t(M::BusyStarting).into(),
             Busy::Stopping => t(M::BusyStopping).into(),
         }
     }
+
+    /// How far it has come, as a fact for the row's second line: the modpack's size
+    /// while it downloads ("12.4 / 80.2 MB"), or the files ("3 / 5").
+    pub fn progress(&self) -> Option<components::Fact> {
+        use components::{Fact, Num};
+        match self {
+            Busy::Asking { preparing, .. } if preparing.load(Ordering::Relaxed) => None,
+            Busy::Asking { progress, .. } if base_pack_downloading(progress) => {
+                let snapshot = progress.downloads.snapshot();
+                Some(Fact::new(
+                    t(FactMsg::Size),
+                    Num::fraction_bytes(snapshot.bytes_done, snapshot.bytes_total),
+                ))
+            }
+            Busy::Creating { progress, .. } | Busy::UpdatingMods { progress, .. } => {
+                let snapshot = progress.downloads.snapshot();
+                (snapshot.files_total > 0).then(|| {
+                    Fact::new(
+                        t(FactMsg::Files),
+                        Num::fraction(
+                            snapshot.files_done.min(snapshot.files_total),
+                            snapshot.files_total,
+                        ),
+                    )
+                })
+            }
+            _ => None,
+        }
+    }
+
+    /// What it is doing and how far it has come, as one line under Play.
+    pub fn caption(&self) -> String {
+        match self.progress() {
+            Some(progress) => tr!(
+                M::BusyCaption,
+                stage = self.label(),
+                progress = progress.plain()
+            ),
+            None => self.label(),
+        }
+    }
+}
+
+/// Whether the server's modpack is downloading, before anything is installed.
+fn base_pack_downloading(progress: &InstallProgress) -> bool {
+    let snapshot = progress.downloads.snapshot();
+    snapshot.bytes_total > 0 && snapshot.bytes_done < snapshot.bytes_total
 }
 
 /// A server's image that was read and planned, before the instance is made or updated.
@@ -1943,11 +1974,19 @@ impl Servers {
         err: impl Into<PullError>,
         cx: &mut Context<Self>,
     ) {
-        let about = move |notice: Notice| match server {
-            Some(name) => server_failed(notice, name),
-            None => notice,
+        let err = err.into();
+        let details = match &err {
+            PullError::Sync(sync) => SyncDetails::of(sync),
+            _ => SyncDetails::None,
         };
-        match err.into() {
+        let about = move |notice: Notice| {
+            let notice = details.apply(notice);
+            match server {
+                Some(name) => server_failed(notice, name),
+                None => notice,
+            }
+        };
+        match err {
             PullError::Core(CoreError::SignedOut) => {
                 if let Some(index) = self.core_index(core) {
                     self.signed_out(index, cx);
@@ -4087,13 +4126,81 @@ fn same_game(
         |l| format!("{} {}", l.kind.label(), l.version),
     );
     Err(PullError::Sync(SyncError::GameChanged {
-        game: format!("Minecraft {} with {label}", plan.game_version),
-        instance: format!(
-            "Minecraft {} with {}",
-            instance.game_version,
-            instance.loader_label()
-        ),
+        server_game: plan.game_version.clone(),
+        server_loader: label,
+        instance_game: instance.game_version.clone(),
+        instance_loader: instance.loader_label(),
     }))
+}
+
+/// What a failure to install a server's image shows apart from its text: the file it
+/// is about, to copy, or the space it needs against the space free, or the two games
+/// side by side.
+enum SyncDetails {
+    None,
+    File(String),
+    Space { needed: u64, free: u64 },
+    Games([String; 4]),
+}
+
+impl SyncDetails {
+    fn of(err: &SyncError) -> Self {
+        match err {
+            SyncError::Image(ImageError::FileFailed { path })
+            | SyncError::Modpack(ModpackError::ChangedSincePlanned { path })
+            | SyncError::BaseFileMissing(path) => Self::File(display_text(path).into_owned()),
+            SyncError::Modpack(ModpackError::Image(ImageError::FileFailed { path })) => {
+                Self::File(display_text(path).into_owned())
+            }
+            &SyncError::NotEnoughSpace { needed, free } => Self::Space { needed, free },
+            SyncError::GameChanged {
+                server_game,
+                server_loader,
+                instance_game,
+                instance_loader,
+            } => Self::Games([
+                server_game.clone(),
+                server_loader.clone(),
+                instance_game.clone(),
+                instance_loader.clone(),
+            ]),
+            _ => Self::None,
+        }
+    }
+
+    fn apply(self, notice: Notice) -> Notice {
+        match self {
+            Self::None => notice,
+            Self::File(path) => notice.value(|| t(FactMsg::File).into(), path, ValueKind::Code),
+            Self::Space { needed, free } => notice.extra(move || {
+                StatRow::new()
+                    .tile(StatTile::bytes(t(FactMsg::Needed), needed))
+                    .tile(StatTile::bytes(t(FactMsg::Free), free).tone(Tone::Danger))
+                    .meter(MeterBar::needed_free(needed, free))
+                    .into_any_element()
+            }),
+            Self::Games([server_game, server_loader, instance_game, instance_loader]) => notice
+                .extra(move || {
+                    CompareTable::new(
+                        "servers-notice-game-changed",
+                        [t(FactMsg::Server).into(), t(FactMsg::ThisInstance).into()],
+                    )
+                    .row(
+                        t(FactMsg::Game),
+                        facts::game(&server_game),
+                        facts::game(&instance_game),
+                        server_game != instance_game,
+                    )
+                    .row(
+                        t(FactMsg::Loader),
+                        facts::phrase(&server_loader),
+                        facts::phrase(&instance_loader),
+                        server_loader != instance_loader,
+                    )
+                    .into_any_element()
+                }),
+        }
+    }
 }
 
 /// Why a server's image couldn't be installed, for people.
@@ -4104,31 +4211,25 @@ pub fn sync_error(err: &SyncError) -> String {
         }
         SyncError::Image(ImageError::PrepareFailed { .. }) => t(M::ErrPrepareFailed).into(),
         SyncError::Image(ImageError::StillPreparing) => t(M::ErrStillPreparing).into(),
-        SyncError::Image(ImageError::FileFailed { path }) => tr!(M::ErrFileFailed, path = path),
+        SyncError::Image(ImageError::FileFailed { .. }) => t(M::ErrFileFailed).into(),
         SyncError::Image(ImageError::ViewChanged) => t(M::ErrViewChanged).into(),
         SyncError::Image(ImageError::Core(err)) => core_error(err),
         SyncError::BasePackGone { .. } => t(M::ErrBasePackGone).into(),
-        SyncError::GameChanged { game, instance } => {
-            tr!(M::ErrGameChanged, game = game, instance = instance)
-        }
+        SyncError::GameChanged { .. } => t(M::ErrGameChanged).into(),
         SyncError::CurseForgeBase => t(M::ErrCurseForgeBase).into(),
         SyncError::CurseForgeUnavailable(_) => t(M::ErrCurseForgeUnreachable).into(),
         SyncError::Refused(detail) => tr!(M::ErrRefused, detail = detail),
         SyncError::Image(ImageError::Invalid(detail)) => tr!(M::ErrRefused, detail = detail),
-        SyncError::BaseFileMissing(path) => tr!(M::ErrBaseFileMissing, path = path),
+        SyncError::BaseFileMissing(_) => t(M::ErrBaseFileMissing).into(),
         SyncError::Image(ImageError::OlderCore) => t(M::ErrOlderCore).into(),
         SyncError::StoppedSharing => t(M::ErrStoppedSharing).into(),
         SyncError::NoSnapshot(error) => tr!(ShellMsg::ModpackUpdateNoSnapshot, error = error),
-        SyncError::NotEnoughSpace { needed, free } => tr!(
-            M::ErrNotEnoughSpace,
-            needed = format::bytes_binary(*needed),
-            free = format::bytes_binary(*free)
-        ),
+        SyncError::NotEnoughSpace { .. } => t(M::ErrNotEnoughSpace).into(),
         SyncError::Cancelled | SyncError::Image(ImageError::Cancelled) => t(M::Cancelled).into(),
         SyncError::Modpack(ModpackError::Cancelled) => t(M::Cancelled).into(),
         SyncError::Modpack(ModpackError::Image(err)) => sync_error(&SyncError::Image(err.clone())),
-        SyncError::Modpack(ModpackError::ChangedSincePlanned { path }) => {
-            tr!(M::ErrFilesChangedSince, path = display_text(path))
+        SyncError::Modpack(ModpackError::ChangedSincePlanned { .. }) => {
+            t(M::ErrFilesChangedSince).into()
         }
         SyncError::Modpack(err) => tr!(M::ErrInstallFiles, detail = err.to_string()),
         SyncError::Io(detail) | SyncError::Image(ImageError::Io(detail)) => {
@@ -4274,8 +4375,10 @@ mod tests {
         assert!(joins_anyway(&unreachable, &vanilla, &dirs, false));
         assert!(joins_anyway(&unreachable, &vanilla, &dirs, true));
         let changed = SyncError::GameChanged {
-            game: "Minecraft 1.21.4 with Vanilla".into(),
-            instance: "Minecraft 1.21.1 with Vanilla".into(),
+            server_game: "1.21.4".into(),
+            server_loader: "Vanilla".into(),
+            instance_game: "1.21.1".into(),
+            instance_loader: "Vanilla".into(),
         };
         assert!(!joins_anyway(&changed, &vanilla, &dirs, true));
         let older = SyncError::Image(ImageError::OlderCore);

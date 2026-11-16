@@ -59,7 +59,7 @@ fn server_json(core: &CoreEntry, server: &ServerInstance, servers: &Servers) -> 
         "has_client_pack": server.has_client_pack,
         "listed": server.listed,
         "linked_instance": servers.linked_instance(&core.saved.uuid, &server.uuid),
-        "busy": servers.busy.get(&row).map(|b| b.label()),
+        "busy": servers.busy.get(&row).map(|b| b.caption()),
     })
 }
 

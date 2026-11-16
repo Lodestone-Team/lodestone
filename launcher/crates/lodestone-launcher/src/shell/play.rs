@@ -452,7 +452,7 @@ impl LauncherShell {
         };
         let servers = self.servers.read(cx);
         let link = servers.instance_link(id);
-        let busy = servers.instance_busy(id).map(|busy| busy.label());
+        let busy = servers.instance_busy(id).map(|busy| busy.caption());
         let joins = link.is_some() && matches!(state, PlayButtonState::Ready);
         let (state, caption) = match (&link, busy) {
             (Some(_), Some(busy)) if joins => (PlayButtonState::Disabled, Some(busy)),

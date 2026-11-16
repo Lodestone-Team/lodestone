@@ -11,11 +11,11 @@ use crate::{
 };
 use crate::{
     components::{
-        Button, ButtonSize, ButtonVariant, Dialog, Icon, ItemIcon, Kind, NameGroup, NameItem,
-        NameList, StatusBadge, Toggle, ValueField,
+        Button, ButtonSize, ButtonVariant, Dialog, Fact, FactLine, FactValue, Icon, ItemIcon, Kind,
+        NameGroup, NameItem, NameList, Num, StatusBadge, Toggle, ValueField,
         settings::{SearchRow, SettingRow, SettingsQuery},
     },
-    i18n::{CommonMsg, ShellMsg as M, ShellPlural as P, format, t, tr, trn},
+    i18n::{CommonMsg, ShellMsg as M, format, t, tr},
     theme::{self, fonts, leading, radius, text, weights},
 };
 use gpui::ClipboardItem;
@@ -266,27 +266,40 @@ fn clients(query: &SettingsQuery, cx: &mut Context<LauncherShell>) -> Option<gpu
                     .clone()
                     .unwrap_or_else(|| t(M::UnnamedClient).to_string())
                     .into();
+                // its process number (exact), when it connected and its subscriptions,
+                // each with its key
                 let mut facts = Vec::new();
                 if let Some(pid) = client.pid {
-                    facts.push(tr!(M::ClientPid, pid = pid));
+                    facts.push(Fact::new(t(M::ClientPid), FactValue::mono(pid.to_string())));
                 }
-                facts.push(tr!(
-                    M::ClientSince,
-                    time = format::day_and_time(chrono::DateTime::from(client.since), today)
+                facts.push(Fact::new(
+                    t(M::ClientSince),
+                    FactValue::time(format::day_and_time(
+                        chrono::DateTime::from(client.since),
+                        today,
+                    )),
                 ));
                 if client.subscriptions > 0 {
-                    facts.push(trn!(P::Subscriptions, client.subscriptions));
+                    facts.push(Fact::new(
+                        t(M::ClientSubscriptions),
+                        Num::count(client.subscriptions as u64),
+                    ));
                 }
                 let connection = client.connection;
-                SettingRow::new(name).hint(facts.join(" · ")).child(
-                    Button::new(
-                        SharedString::from(format!("cli-disconnect-{connection}")),
-                        t(M::Disconnect),
+                SettingRow::new(name)
+                    .below(
+                        FactLine::row(SharedString::from(format!("cli-client-{connection}")))
+                            .facts(facts),
                     )
-                    .size(ButtonSize::Slim)
-                    .variant(ButtonVariant::Danger)
-                    .on_click(move |_, _, cx| crate::control::disconnect(connection, cx)),
-                )
+                    .child(
+                        Button::new(
+                            SharedString::from(format!("cli-disconnect-{connection}")),
+                            t(M::Disconnect),
+                        )
+                        .size(ButtonSize::Slim)
+                        .variant(ButtonVariant::Danger)
+                        .on_click(move |_, _, cx| crate::control::disconnect(connection, cx)),
+                    )
             })
             .collect()
     };

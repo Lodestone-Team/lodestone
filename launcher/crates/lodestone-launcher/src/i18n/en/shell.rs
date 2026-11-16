@@ -80,8 +80,6 @@ crate::i18n::messages! {
         WorldsPlaceholder = "Worlds appear here once you have an instance.",
         SettingsPlaceholder = "Settings appear here once you have an instance.",
         LogsPlaceholder = "Logs appear here once you have an instance.",
-        /// Under the instance's name: {server} is a server, {core} a host.
-        LinkedTo = "Linked to {server} on {core}",
         /// Under the instance's name, on an Apple silicon Mac, for a version that runs
         /// in an Intel Java (Minecraft 1.13.2 and older).
         RunsUnderRosetta = "Runs under Rosetta 2: Mojang made no Apple silicon build of some libraries this version needs. Slower to start, then plays normally.",
@@ -424,10 +422,12 @@ crate::i18n::messages! {
         NoClients = "No programs are connected.",
         /// A connected program that didn't say what it is.
         UnnamedClient = "Unnamed program",
-        /// {time} is "Today, 14:30".
-        ClientSince = "Connected {time}",
-        /// {pid} is a process number.
-        ClientPid = "Process {pid}",
+        /// The key of when a connected program connected, such as "Today, 14:30".
+        ClientSince = "Connected",
+        /// The key of a connected program's process number.
+        ClientPid = "Process",
+        /// The key of how many event and trace subscriptions a connected program has.
+        ClientSubscriptions = "Subscriptions",
         Disconnect = "Disconnect",
         /// Settings > Developer: the section of the performance monitor.
         DiagnosticsSection = "Diagnostics",
@@ -889,8 +889,6 @@ crate::i18n::messages! {
         /// How many shared values a category has.
         Values = ("{count} value", "{count} values"),
         CopiedValues = ("Copied {count} value from {name}.", "Copied {count} values from {name}."),
-        /// Event and trace subscriptions a connected program has.
-        Subscriptions = ("{count} subscription", "{count} subscriptions"),
         PerfEntries = ("{count} entry", "{count} entries"),
         /// {count} is how many snapshots there are, {removable} how many the clean-up removes.
         StorageSnapshotsHint = ("{count} snapshot and each instance's content history · {removable} can be removed", "{count} snapshots and each instance's content history · {removable} can be removed"),

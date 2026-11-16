@@ -119,9 +119,9 @@ pub fn text(message: M) -> &'static str {
         M::StopGameFirst => "請先停止遊戲，或等待更新完成。",
         M::CouldntPrepareUpdate => "無法準備更新：{error}",
 
-        M::LinkedServerHint => "位於 {core}。「開始遊戲」會加入它並同步模組。",
+        M::LinkedServerHint => "「開始遊戲」會加入它並同步其模組。",
         M::LinkedServerCoreRemoved => {
-            "位於 {core}，此主機已從「Lodestone Host」頁面移除。請在該頁再次新增此主機，才能加入伺服器。"
+            "它的主機已從「Lodestone Host」頁面中移除。請在那裡重新新增該主機以加入伺服器。"
         }
         M::CoreRemoved => "主機已移除",
         M::Unlink => "解除連結",

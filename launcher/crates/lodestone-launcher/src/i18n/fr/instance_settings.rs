@@ -124,9 +124,9 @@ pub fn text(message: M) -> &'static str {
         M::StopGameFirst => "Arrêtez d’abord le jeu, ou attendez la fin de la mise à jour.",
         M::CouldntPrepareUpdate => "Impossible de préparer la mise à jour\u{a0}: {error}",
 
-        M::LinkedServerHint => "Sur {core}. Jouer le rejoint et synchronise ses mods.",
+        M::LinkedServerHint => "Jouer le rejoint et synchronise ses mods.",
         M::LinkedServerCoreRemoved => {
-            "Sur {core}, qui a été retiré de la page Lodestone Host. Ajoutez de nouveau cet hôte sur cette page pour rejoindre le serveur."
+            "Son hôte a été retiré de la page Lodestone Host. Ajoutez de nouveau l’hôte sur cette page pour rejoindre le serveur."
         }
         M::CoreRemoved => "Hôte retiré",
         M::Unlink => "Délier",

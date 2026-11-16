@@ -50,7 +50,6 @@ pub fn text(message: M) -> &'static str {
         M::WorldsPlaceholder => "有了實例後，世界會顯示在這裡。",
         M::SettingsPlaceholder => "有了實例後，設定會顯示在這裡。",
         M::LogsPlaceholder => "有了實例後，日誌會顯示在這裡。",
-        M::LinkedTo => "已連結到 {core} 上的 {server}",
         M::RunsUnderRosetta => {
             "透過 Rosetta 2 執行：Mojang 沒有為這個版本需要的部分程式庫製作 Apple 晶片版本。啟動較慢，之後可以正常遊玩。"
         }
@@ -373,8 +372,9 @@ pub fn text(message: M) -> &'static str {
         M::ConnectedClients => "已連線的程式",
         M::NoClients => "沒有已連線的程式。",
         M::UnnamedClient => "未命名的程式",
-        M::ClientSince => "連線於 {time}",
-        M::ClientPid => "處理程序 {pid}",
+        M::ClientSince => "連線時間",
+        M::ClientPid => "處理程序",
+        M::ClientSubscriptions => "訂閱",
         M::Disconnect => "中斷連線",
         M::DiagnosticsSection => "診斷",
         M::PerfMonitor => "效能監視器",
@@ -812,7 +812,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::AndMore => ["還有 {count} 個"; 2],
         P::Values => ["{count} 個值"; 2],
         P::CopiedValues => ["已從「{name}」複製 {count} 個值。"; 2],
-        P::Subscriptions => ["{count} 個訂閱"; 2],
         P::PerfEntries => ["{count} 個項目"; 2],
         P::StorageSnapshotsHint => {
             ["{count} 個快照和每個實例的內容歷史 · 可刪除 {removable} 個"; 2]

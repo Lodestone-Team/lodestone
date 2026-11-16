@@ -121,12 +121,13 @@ crate::i18n::messages! {
         // ===== What a server's row is doing =====
         BusyFetching = "Getting the server's mods…",
         BusyCreating = "Creating instance, downloading…",
-        BusyCreatingFiles = "Creating instance, downloading {done}/{total} files…",
         BusyChecking = "Checking the server's mods…",
         BusyUpdating = "Updating mods…",
-        BusyUpdatingFiles = "Updating mods, {done}/{total} files…",
         BusyStarting = "Starting the server…",
         BusyStopping = "Stopping…",
+        /// Under Play: what the server's row is doing, then how far it has come: "Getting the
+        /// server's modpack… 12.4 / 80.2 MB", "Updating mods… 3 / 5".
+        BusyCaption = "{stage} {progress}",
 
         // ===== Messages at the top of the page =====
         ReadFailed = "Couldn't read your servers",
@@ -277,8 +278,9 @@ crate::i18n::messages! {
         // ===== A server's image: what it installs, and what went wrong =====
         /// The server records its files the first time a player asks: minutes for a big server.
         BusyPreparing = "Waiting for the server to prepare its files…",
-        /// While the server's modpack downloads, before anything is installed: sizes.
-        BusyBasePack = "Getting the server's modpack, {done} of {total}…",
+        /// While the server's modpack downloads, before anything is installed; its size
+        /// so far is beside it.
+        BusyBasePack = "Getting the server's modpack…",
         /// Asked before playing when the server's files are the instance's, but it has
         /// files it can't share that the player would need. The server is in a card under it.
         LacksFiles = "The server has files you won't get",
@@ -309,26 +311,28 @@ crate::i18n::messages! {
         ErrUpdateLodestone = "This server runs a newer Lodestone. Update Lodestone Launcher to join it.",
         ErrPrepareFailed = "The server couldn't prepare its files. Try again in a few minutes.",
         ErrStillPreparing = "The server is still preparing its files. Try again in a few minutes.",
-        ErrFileFailed = "The server couldn't send {path}. Try again later.",
+        /// The file is in a field under it.
+        ErrFileFailed = "The server couldn't send this file. Try again later.",
         ErrViewChanged = "The server's files changed while they downloaded. Try again.",
-        /// {path} is a file in the instance, like "config/sodium.toml".
-        ErrFilesChangedSince = "{path} changed after the update was worked out, so nothing was changed. Press Play again.",
+        /// The file, in the instance, is in a field under it.
+        ErrFilesChangedSince = "This file changed after the update was worked out, so nothing was changed. Press Play again.",
         ErrBasePackGone = "The server's modpack is no longer on Modrinth, so its files can't be downloaded. Ask the server's owner to update the modpack.",
-        /// {game} and {instance} are "Minecraft 1.21.1 with Fabric 0.16.10".
-        ErrGameChanged = "The server now runs {game}, and this instance is for {instance}. Make a new instance for the server.",
+        /// The server's game and loader and the instance's are side by side under it.
+        ErrGameChanged = "The server's game changed, and this instance no longer matches it. Make a new instance for the server.",
         ErrCurseForgeBase = "The server is built on a CurseForge modpack, which Lodestone Launcher can't install from a server yet.",
         ErrCurseForgeUnreachable = "CurseForge couldn't be reached, and the server has files from it. Check your connection, then try again.",
         /// {detail} says what, in English.
         ErrRefused = "The server sent files Lodestone Launcher won't install: {detail}",
-        ErrBaseFileMissing = "The server's modpack has no file {path}, which the server says comes from it. Ask the server's owner to update the modpack.",
+        /// The file is in a field under it.
+        ErrBaseFileMissing = "The server's modpack doesn't have this file, which the server says comes from it. Ask the server's owner to update the modpack.",
         /// A host whose Lodestone is too old to serve its servers' files this way.
         ErrOlderCore = "The host runs an older Lodestone, which doesn't share its servers' files this way.",
         /// {detail} says what went wrong, in English.
         ErrInstallFiles = "Couldn't install the server's files: {detail}",
         /// An instance that has the server's files, whose server stopped sharing them.
         ErrStoppedSharing = "The server stopped sharing its files, so they couldn't be checked. Ask the server's owner.",
-        /// {needed} and {free} are sizes, like "24.5 GiB".
-        ErrNotEnoughSpace = "There isn't enough free space for the server's files: they need {needed}, and {free} is free.",
+        /// The space needed and the space free are under it.
+        ErrNotEnoughSpace = "There isn't enough free space on this drive for the server's files.",
         /// The instance was unlinked while the update waited for an answer.
         ErrNotLinked = "This instance isn't linked to the server any more, so nothing was installed.",
 

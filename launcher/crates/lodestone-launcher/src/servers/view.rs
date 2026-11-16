@@ -291,6 +291,9 @@ impl Servers {
                     .text_color(crate::theme::ink::secondary())
                     .child(LoadingDots)
                     .child(small(busy.label()))
+                    .children(busy.progress().map(|progress| {
+                        FactLine::row(SharedString::from(format!("busy-{row_id}"))).fact(progress)
+                    }))
                     .into_any_element(),
             );
             // asking the server may wait minutes while it prepares its files, and its
@@ -1449,7 +1452,13 @@ impl Render for Servers {
                                     small(message).text_color(crate::theme::ink::secondary()),
                                 )
                             })
-                            .children(values.map(|field| div().pt_1().child(field))),
+                            .children(values.map(|field| div().pt_1().child(field)))
+                            .children(
+                                notice
+                                    .extra
+                                    .as_ref()
+                                    .map(|extra| div().pt_2().child(extra())),
+                            ),
                     )
                     .child(
                         Button::new("dismiss-notice", t(M::Dismiss))

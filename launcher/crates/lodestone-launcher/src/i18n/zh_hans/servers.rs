@@ -96,12 +96,11 @@ pub fn text(message: M) -> &'static str {
 
         M::BusyFetching => "正在获取服务器的模组…",
         M::BusyCreating => "正在创建实例并下载…",
-        M::BusyCreatingFiles => "正在创建实例，已下载 {done}/{total} 个文件…",
         M::BusyChecking => "正在检查服务器的模组…",
         M::BusyUpdating => "正在更新模组…",
-        M::BusyUpdatingFiles => "正在更新模组，{done}/{total} 个文件…",
         M::BusyStarting => "正在启动服务器…",
         M::BusyStopping => "正在停止…",
+        M::BusyCaption => "{stage} {progress}",
 
         M::ReadFailed => "无法读取你的服务器",
         M::SaveFailed => "无法保存你的服务器",
@@ -243,7 +242,7 @@ pub fn text(message: M) -> &'static str {
         M::InstallThisTime => "仅本次安装",
         M::TrustAndInstall => "信任并安装",
         M::BusyPreparing => "正在等待服务器准备文件…",
-        M::BusyBasePack => "正在获取服务器的整合包（{done} / {total}）…",
+        M::BusyBasePack => "正在获取服务器的整合包…",
         M::LacksFiles => "服务器有你无法获得的文件",
         M::LacksFilesBody => {
             "你的实例已有服务器的文件，但服务器还有一些无法共享的文件。没有它们你可能无法加入。"
@@ -268,16 +267,16 @@ pub fn text(message: M) -> &'static str {
         }
         M::ErrPrepareFailed => "服务器无法准备其文件。请几分钟后再试。",
         M::ErrStillPreparing => "服务器仍在准备其文件。请几分钟后再试。",
-        M::ErrFileFailed => "服务器无法发送 {path}。请稍后再试。",
+        M::ErrFileFailed => "服务器无法发送这个文件。请稍后重试。",
         M::ErrViewChanged => "下载期间服务器的文件发生了变化。请重试。",
         M::ErrFilesChangedSince => {
-            "{path} 在更新准备好之后发生了变化，因此没有做任何更改。请再按一次“开始游戏”。"
+            "这个文件在计算更新后发生了变化，所以没有做任何更改。请再次点击“开始游戏”。"
         }
         M::ErrBasePackGone => {
             "服务器的整合包已不在 Modrinth 上，因此无法下载其文件。请让服务器的所有者更新整合包。"
         }
         M::ErrGameChanged => {
-            "服务器现在运行 {game}，而此实例适用于 {instance}。请为该服务器新建一个实例。"
+            "服务器的游戏版本已更改，此实例不再与它匹配。请为该服务器创建一个新实例。"
         }
         M::ErrCurseForgeUnreachable => {
             "无法连接 CurseForge，而服务器有来自它的文件。请检查网络连接，然后重试。"
@@ -287,14 +286,14 @@ pub fn text(message: M) -> &'static str {
         }
         M::ErrRefused => "服务器发送了 Lodestone Launcher 不会安装的文件：{detail}",
         M::ErrBaseFileMissing => {
-            "服务器的整合包中没有文件 {path}，但服务器说它来自整合包。请让服务器的所有者更新整合包。"
+            "服务器的整合包中没有这个文件，而服务器说它来自该整合包。请让服务器所有者更新整合包。"
         }
         M::ErrOlderCore => "该主机运行的是较旧版本的 Lodestone，无法以这种方式共享其服务器的文件。",
         M::ErrInstallFiles => "无法安装服务器的文件：{detail}",
         M::ErrStoppedSharing => {
             "服务器已停止共享其文件，因此无法检查这些文件。请询问服务器的所有者。"
         }
-        M::ErrNotEnoughSpace => "可用空间不足以存放服务器的文件：需要 {needed}，可用 {free}。",
+        M::ErrNotEnoughSpace => "此磁盘上没有足够的可用空间来存放服务器的文件。",
         M::ErrNotLinked => "该实例已不再关联到此服务器，因此没有安装任何内容。",
 
         M::KeyDays90 => "90 天",
@@ -541,7 +540,7 @@ pub fn text(message: M) -> &'static str {
         M::InviteLinkKey => "邀请链接",
         M::FriendsReadFailed => "无法读取好友的服务器",
         M::FriendsSaveFailed => "无法保存好友的服务器",
-        M::MagicLocalhost => "Magic localhost",
+        M::MagicLocalhost => "Magic localhost 地址",
         M::WhileConnected => "连接期间有效。",
         M::FriendPortTaken => "端口已被占用",
         M::FriendPortTakenBody => {
