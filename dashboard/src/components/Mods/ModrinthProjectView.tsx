@@ -54,7 +54,12 @@ import {
   modrinthProjectUrl,
   projectTypeName,
 } from 'utils/mods';
-import { gamePhrase, loaderName, loaderPhrase } from 'utils/values';
+import {
+  gamePhrase,
+  gameVersionsPhrase,
+  loaderName,
+  loaderPhrase,
+} from 'utils/values';
 import { errorToString } from 'utils/util';
 import {
   ClientSideLabel,
@@ -250,9 +255,9 @@ const compareRows = (
       mismatch: !version.loaders.some((l) => loaders.includes(l)),
     },
     {
-      label: 'Minecraft',
+      label: t('values.key.game'),
       a: <GameVersions versions={version.game_versions} />,
-      b: <VersionTag version={target.gameVersion} max={12} />,
+      b: gamePhrase(target.gameVersion),
       mismatch: !version.game_versions.includes(target.gameVersion),
     },
   ];
@@ -318,7 +323,10 @@ const VersionRow = ({
         </div>
         <FactLine
           title={factsTitle([
-            { label: 'Minecraft', value: version.game_versions.join(', ') },
+            {
+              label: t('values.key.game'),
+              value: gameVersionsPhrase(version.game_versions),
+            },
             { label: t('values.key.loader'), value: loaders.join(', ') },
             { label: t('values.key.published'), value: published },
           ])}

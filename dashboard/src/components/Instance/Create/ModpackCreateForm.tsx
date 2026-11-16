@@ -22,7 +22,12 @@ import {
   ListCell,
   ObjectCard,
 } from 'components/Values';
-import { gamePhrase, loaderName, loaderPhrase } from 'utils/values';
+import {
+  gamePhrase,
+  gameVersionsPhrase,
+  loaderName,
+  loaderPhrase,
+} from 'utils/values';
 import { ApiError } from 'utils/util';
 import ModrinthSearch, {
   ModrinthPick,
@@ -254,8 +259,8 @@ const VersionPicker = ({
                 <FactLine
                   title={factsTitle([
                     {
-                      label: 'Minecraft',
-                      value: version.game_versions.join(', '),
+                      label: t('values.key.game'),
+                      value: gameVersionsPhrase(version.game_versions),
                     },
                     {
                       label: t('values.key.loader'),

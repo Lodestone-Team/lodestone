@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import {
   gamePhrase,
+  gameVersionsPhrase,
   homeOf,
   instanceGamePhrase,
   instanceLoaderPhrase,
@@ -26,6 +27,13 @@ describe('product phrase', () => {
     assert.equal(productPhrase(' Fabric ', '  '), 'Fabric');
     assert.equal(productPhrase('Paper', ' 1.21.4 '), 'Paper 1.21.4');
     assert.equal(gamePhrase(undefined), 'Minecraft');
+  });
+  test('several game versions are still one phrase', () => {
+    assert.equal(
+      gameVersionsPhrase(['1.21.1', ' 1.21 ', '']),
+      'Minecraft 1.21.1, 1.21'
+    );
+    assert.equal(gameVersionsPhrase([]), 'Minecraft');
   });
   test('known loaders get their product name, unknown ones a capital', () => {
     assert.equal(loaderName('fabric'), 'Fabric');

@@ -14,6 +14,7 @@ import { ReactNode, useState } from 'react';
 import { safeImageUrl } from 'utils/markdown';
 import { installedModName, installedModVersion } from 'utils/mods';
 import { cn } from 'utils/util';
+import { gameVersionsPhrase } from 'utils/values';
 
 /** A project icon from Modrinth (https only), or a placeholder cube. */
 export const ModIcon = ({
@@ -219,15 +220,17 @@ export const VersionTypeLabel = ({ type }: { type: ModrinthVersionType }) => {
   );
 };
 
-export /** Up to 3 Minecraft versions as tags, then "+N" with the rest in its title */
+export /**
+ * The Minecraft versions a file is for, as one plain phrase ("Minecraft
+ * 1.21.1, 1.21, 1.20.6"; the game is never a version tag), then "+N" with the
+ * rest in its title.
+ */
 const GameVersions = ({ versions }: { versions: string[] }) => {
   const shown = versions.slice(0, 3);
   const rest = versions.slice(3);
   return (
     <span className="inline-flex min-w-0 items-center gap-1">
-      {shown.map((version) => (
-        <VersionTag key={version} version={version} max={12} />
-      ))}
+      <span className="truncate">{gameVersionsPhrase(shown)}</span>
       {rest.length > 0 && (
         <CountBadge count={rest.length} plus title={rest.join('\n')} />
       )}

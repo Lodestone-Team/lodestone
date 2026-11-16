@@ -54,6 +54,18 @@ export function productPhrase(
 export const gamePhrase = (version?: string | null) =>
   productPhrase('Minecraft', version);
 
+/**
+ * Several Minecraft versions as one plain phrase: "Minecraft 1.21.1, 1.21".
+ * The versions are ids, so the comma is the same in every language.
+ */
+export const gameVersionsPhrase = (versions: string[]) =>
+  gamePhrase(
+    versions
+      .map((v) => v.trim())
+      .filter(Boolean)
+      .join(', ')
+  );
+
 /** "Fabric 0.16.9" for the loader id `fabric` */
 export const loaderPhrase = (id: string, version?: string | null) =>
   productPhrase(loaderName(id), version);
