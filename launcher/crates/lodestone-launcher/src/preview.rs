@@ -202,6 +202,8 @@ pub const SCENES: &[&str] = &[
     "settings-search-defaults",
     "settings-defaults",
     "settings-search-memory",
+    "settings-developer-logs",
+    "crash-notice",
     "instance-settings-search",
     "instance-settings-search-narrow",
     "instance-settings-search-crash",
@@ -1357,6 +1359,20 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
         // A search typed in Settings: General by "update", nothing found, Instance
         // defaults by "ram" (a keyword of Memory) and by "memory" (with `--lang fr`,
         // found through the English).
+        // Settings > Developer > Diagnostics: the logs folder and the log detail.
+        "settings-developer-logs" => {
+            preview_control(cx);
+            shell.open_settings(Some(crate::shell::SettingsPage::Developer), None, cx);
+            shell.preview_settings_search("log", cx);
+        }
+        // The top bar after a crash.
+        "crash-notice" => {
+            shell.crash_notice = Some(launcher_core::logging::Crash {
+                at: "2026-11-16T08:30:12Z".into(),
+                summary: "a timer made outside a runtime".into(),
+                file: std::env::temp_dir().join("last-crash.txt"),
+            });
+        }
         "settings-search"
         | "settings-search-empty"
         | "settings-search-defaults"

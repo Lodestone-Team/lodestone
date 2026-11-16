@@ -372,6 +372,9 @@ pub struct LauncherShell {
     undo_toast: Toast,
     /// The notification that offers "Keep the narrator off", while it's shown.
     narrator_offer: Option<narrator_offer::NarratorOffer>,
+    /// The top bar's "closed unexpectedly last time", until it's dismissed: the last
+    /// run crashed ([`launcher_core::logging::Started::previous_crash`]).
+    pub crash_notice: Option<launcher_core::logging::Crash>,
     /// Shows it shortly after the window opens.
     narrator_offer_pending: Option<Task<()>>,
     _observe: Vec<Subscription>,
@@ -681,6 +684,7 @@ impl LauncherShell {
             undo_toast: Toast::default(),
             narrator_offer: None,
             narrator_offer_pending: None,
+            crash_notice: launcher_core::logging::started().and_then(|s| s.previous_crash),
             _observe: observe,
             // Redrawing the whole window takes the main thread about 10 ms, so it only
             // happens when a label changes ("2 hours ago" changes once an hour), not

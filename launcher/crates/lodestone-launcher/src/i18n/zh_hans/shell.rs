@@ -803,6 +803,17 @@ pub fn text(message: M) -> &'static str {
         }
         M::StorageWorldBackups => "世界备份",
         M::StorageCleanWorldBackupsTitle => "删除已删除实例的世界备份？",
+        M::LogsSetting => "日志",
+        M::LogsHint => "启动器做过的事，保存在这台电脑上，便于排查问题。{path}",
+        M::OpenLogsFolder => "打开日志文件夹",
+        M::LogDetail => "日志详细程度",
+        M::LogDetailHint => "“调试”会写入更多内容，便于排查问题。立即生效。",
+        M::LogInfo => "信息",
+        M::LogDebug => "调试",
+        M::LogLevelFromEnv => "启动器带着 LODESTONE_LOG 运行时，由它决定详细程度。",
+        M::CrashNotice => "启动器上次意外关闭。",
+        M::OpenLogs => "打开日志",
+        M::DismissCrashNotice => "关闭",
     }
 }
 

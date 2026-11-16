@@ -888,6 +888,25 @@ crate::i18n::messages! {
         ReplaceWorldModsNote = "Only the world goes back; the instance's mods stay as they are. To put back the mods it ran with too, restore the snapshot from Settings › Snapshots.",
         StorageWorldBackups = "World backups",
         StorageCleanWorldBackupsTitle = "Remove the world backups of deleted instances?",
+        /// Settings > Developer > Diagnostics: the log files.
+        LogsSetting = "Logs",
+        /// {path} is the logs folder.
+        LogsHint = "What the launcher did, kept on this computer to help look into a problem. {path}",
+        OpenLogsFolder = "Open logs folder",
+        /// How much goes into the logs.
+        LogDetail = "Log detail",
+        LogDetailHint = "Debug writes more, for looking into a problem. It applies at once.",
+        /// The usual log detail.
+        LogInfo = "Info",
+        /// More log detail.
+        LogDebug = "Debug",
+        /// Shown instead of the hint while the LODESTONE_LOG environment variable sets the detail.
+        LogLevelFromEnv = "LODESTONE_LOG sets the detail while the launcher runs with it.",
+        /// The top bar, after the launcher crashed.
+        CrashNotice = "The launcher closed unexpectedly last time.",
+        /// Shows the logs folder.
+        OpenLogs = "Open logs",
+        DismissCrashNotice = "Dismiss",
     }
 
     pub enum ShellPlural {

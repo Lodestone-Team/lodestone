@@ -16,7 +16,62 @@ use crate::{
 };
 use gpui::ClipboardItem;
 use gpui::{AnyElement, Context, FocusHandle, IntoElement, SharedString, Window, div, prelude::*};
-use launcher_core::settings::{CliAccess, CliSettings};
+use launcher_core::{
+    logging::LogLevel,
+    settings::{CliAccess, CliSettings},
+};
+
+/// Settings > Developer > Diagnostics: the performance monitor, the logs folder and
+/// how much the logs say.
+fn diagnostics(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> [SettingRow; 3] {
+    let path = crate::logs::dir()
+        .map(|dir| dir.display().to_string())
+        .unwrap_or_default();
+    let from_env = launcher_core::logging::env_override();
+    let level = shell.accounts.read(cx).log_level();
+    let accounts = shell.accounts.clone();
+    let shell_entity = cx.entity().downgrade();
+    [
+        SettingRow::new(t(M::PerfMonitor))
+            .hint(t(M::PerfMonitorHint))
+            .child(
+                Button::new("open-perf-monitor", t(M::PerfOpen))
+                    .size(ButtonSize::Slim)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        let sources = this.perf_sources();
+                        super::perf_monitor::open(sources, cx);
+                    })),
+            ),
+        SettingRow::new(t(M::LogsSetting))
+            .hint(tr!(M::LogsHint, path = path))
+            .child(
+                Button::new("open-logs-folder", t(M::OpenLogsFolder))
+                    .size(ButtonSize::Slim)
+                    .on_click(|_, _, cx| crate::logs::open_folder(cx)),
+            ),
+        SettingRow::new(t(M::LogDetail))
+            .hint(if from_env {
+                t(M::LogLevelFromEnv)
+            } else {
+                t(M::LogDetailHint)
+            })
+            .child(segmented(
+                "log-detail",
+                vec![
+                    (LogLevel::Info, t(M::LogInfo).into()),
+                    (LogLevel::Debug, t(M::LogDebug).into()),
+                ],
+                Some(&level),
+                from_env,
+                move |level, _, cx| {
+                    let saved = accounts.update(cx, |accounts, cx| accounts.set_log_level(level, cx));
+                    shell_entity
+                        .update(cx, |shell, cx| shell.show_save_error(saved, cx))
+                        .ok();
+                },
+            )),
+    ]
+}
 
 /// The disclosure shown before the option is turned on, as (heading, paragraph).
 pub fn disclosure() -> Vec<(&'static str, SharedString)> {
@@ -106,16 +161,7 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
         clients(&query, cx),
         query
             .section(t(M::DiagnosticsSection), None)
-            .card([SettingRow::new(t(M::PerfMonitor))
-                .hint(t(M::PerfMonitorHint))
-                .child(
-                    Button::new("open-perf-monitor", t(M::PerfOpen))
-                        .size(ButtonSize::Slim)
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            let sources = this.perf_sources();
-                            super::perf_monitor::open(sources, cx);
-                        })),
-                )])
+            .card(diagnostics(shell, cx))
             .finish(),
         query
             .section(t(M::SignInSection), None)

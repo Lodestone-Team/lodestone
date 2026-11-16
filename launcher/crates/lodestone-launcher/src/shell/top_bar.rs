@@ -10,7 +10,7 @@ use gpui::{
 use super::{LauncherShell, Page};
 use crate::{
     components::{
-        Button, ButtonSize, ButtonVariant, Icon, KeyboardFocus,
+        Button, ButtonSize, ButtonVariant, Icon, IconButton, KeyboardFocus,
         a11y::{Accessible, Role},
         caption, text_tooltip,
         window_frame::{self, Side},
@@ -158,6 +158,7 @@ pub fn render(
                 .flex_row()
                 .items_center()
                 .justify_end()
+                .children(crash_notice(shell, cx))
                 .children(update_notice(shell, cx))
                 // Room for the window's buttons, which `window_controls` draws above
                 // everything else, with a gap before them.
@@ -328,6 +329,62 @@ pub fn window_controls(window: &Window, cx: &App) -> Vec<AnyElement> {
             )
         })
         .collect()
+}
+
+/// "The launcher closed unexpectedly last time", with "Open logs" (which shows the
+/// logs folder and puts the notice away) and a dismiss button, after a crash. Calm:
+/// a grey dot, shown once.
+fn crash_notice(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> Option<AnyElement> {
+    shell.crash_notice.as_ref()?;
+    let label = t(M::CrashNotice);
+    Some(
+        div()
+            .id("crash-notice")
+            .accessible(Role::Status, "crash-notice", label)
+            .flex()
+            .flex_row()
+            .flex_none()
+            .items_center()
+            .gap_2()
+            .mr_2()
+            .pl_3()
+            .pr(px(3.))
+            .py(px(3.))
+            .rounded_full()
+            .bg(colors::GRAY_850)
+            .border_1()
+            .border_color(crate::theme::ink::border())
+            // as the update notice: not part of the caption
+            .occlude()
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .child(div().size(px(6.)).rounded_full().bg(colors::GRAY_400))
+            .child(
+                div()
+                    .text_size(theme::text_size(text::SMALL))
+                    .text_color(crate::theme::ink::text())
+                    .whitespace_nowrap()
+                    .child(label),
+            )
+            .child(
+                Button::new("crash-open-logs", t(M::OpenLogs))
+                    .size(ButtonSize::Slim)
+                    .pill()
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        crate::logs::open_folder(cx);
+                        this.crash_notice = None;
+                        cx.notify();
+                    })),
+            )
+            .child(
+                IconButton::new("crash-notice-dismiss", Icon::Xmark)
+                    .label(t(M::DismissCrashNotice))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.crash_notice = None;
+                        cx.notify();
+                    })),
+            )
+            .into_any_element(),
+    )
 }
 
 /// "Update ready" with a Restart button once an update is installed, or "Update
