@@ -1,5 +1,5 @@
 //! Worlds: the list from `level.dat`, renaming, deleting, and world zips (export, import,
-//! and the checks). Backups of worlds are snapshots (`launcher_core::images`).
+//! and the checks).
 
 use std::{
     fs,
@@ -278,7 +278,8 @@ fn world_zips_export_import_and_checks() {
 
     let out = temp.path().join("exported.zip");
     worlds::export(&dirs, "World", &out, &progress, &cancel).unwrap();
-    let checked = worlds::inspect_zip(&out).unwrap();
+    let checked =
+        worlds::zip::check(&out, worlds::Shape::Import, worlds::Limits::default()).unwrap();
     assert_eq!(checked.prefix, "World/");
     assert_eq!(checked.folder_hint, "World");
     assert_eq!(checked.summary.name.as_deref(), Some("Fixture World"));
@@ -301,7 +302,8 @@ fn world_zips_export_import_and_checks() {
             ("__MACOSX/._level.dat", b"junk"),
         ],
     );
-    let checked = worlds::inspect_zip(&root).unwrap();
+    let checked =
+        worlds::zip::check(&root, worlds::Shape::Import, worlds::Limits::default()).unwrap();
     assert_eq!(checked.prefix, "");
     assert_eq!(
         worlds::import_zip(&dirs, &root, &progress, &cancel).unwrap(),
@@ -340,7 +342,9 @@ fn world_zips_export_import_and_checks() {
     assert!(!temp.path().join("escape.txt").exists());
     let not_zip = temp.path().join("not.zip");
     fs::write(&not_zip, b"plain text").unwrap();
-    assert!(worlds::inspect_zip(&not_zip).is_err());
+    assert!(
+        worlds::zip::check(&not_zip, worlds::Shape::Import, worlds::Limits::default()).is_err()
+    );
 }
 
 /// Replaces `from` with `to` (the same length) in the file at `path`: the first match
