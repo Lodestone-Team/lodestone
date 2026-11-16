@@ -13,11 +13,10 @@ const options = [
   labelKey: MessageKey;
 }[];
 
+// "Light" and "Dark" say it all
 const descriptions = {
   system: 'settings.theme.systemHint',
-  light: 'settings.theme.lightHint',
-  dark: 'settings.theme.darkHint',
-} as const satisfies Record<ThemePreference, MessageKey>;
+} as const satisfies Partial<Record<ThemePreference, MessageKey>>;
 
 /**
  * The light / dark theme choice. It is saved in this browser (localStorage),
@@ -31,7 +30,7 @@ export default function AppearanceSetting() {
     <SettingsRow
       label={t('settings.theme.label')}
       labelId="theme-label"
-      hint={t(descriptions[preference])}
+      hint={preference === 'system' && t(descriptions.system)}
     >
       {/* a segmented control */}
       <RadioGroup
