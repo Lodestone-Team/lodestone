@@ -24,7 +24,7 @@ pub fn text(message: M) -> &'static str {
         M::ImageServerSoftware => "伺服器軟體",
         M::ImageServerSoftwareHint => "Paper 可以執行外掛程式。原版伺服器按原樣執行 Minecraft。",
         M::ImageWorld => "世界",
-        M::ImageWorldHint => "成為伺服器世界的那個世界。",
+        M::ImageWorldHint => "只有這個世界會複製到伺服器。",
         M::ImageNoWorld => "不使用世界（新建一個）",
         M::ImageDownloads => "從 Modrinth 下載 {size}",
         M::ImageDownloadsMods => "從 Modrinth 下載 {size}：{names}",

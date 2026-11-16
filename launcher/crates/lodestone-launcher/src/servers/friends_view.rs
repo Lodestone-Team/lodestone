@@ -111,24 +111,18 @@ impl Servers {
                     .py_3()
                     .child(Icon::User.render(px(16.), colors::GRAY_400))
                     .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .flex_1()
-                            .min_w_0()
-                            .child(
-                                div()
-                                    .id("friends-title")
-                                    .role(Role::Heading)
-                                    .aria_level(2)
-                                    .aria_label(t(M::FriendsTitle))
-                                    .font_family(fonts::heading())
-                                    .text_size(theme::text_size(text::H3))
-                                    .font_weight(weights::BOLD.into())
-                                    .text_color(crate::theme::ink::text())
-                                    .child(t(M::FriendsTitle)),
-                            )
-                            .child(note(t(M::FriendsHint))),
+                        div().flex().flex_col().flex_1().min_w_0().child(
+                            div()
+                                .id("friends-title")
+                                .role(Role::Heading)
+                                .aria_level(2)
+                                .aria_label(t(M::FriendsTitle))
+                                .font_family(fonts::heading())
+                                .text_size(theme::text_size(text::H3))
+                                .font_weight(weights::BOLD.into())
+                                .text_color(crate::theme::ink::text())
+                                .child(t(M::FriendsTitle)),
+                        ),
                     ),
             )
             .children(rows)

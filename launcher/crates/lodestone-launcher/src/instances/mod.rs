@@ -1846,7 +1846,7 @@ impl Instances {
 
     /// Has the Content tab offer Modrinth's projects while staying off the network:
     /// every request to it fails (the list says Modrinth couldn't be reached), for
-    /// the offscreen screenshots of "Looking for something new?".
+    /// the offscreen screenshots of the buttons below the installed list.
     pub fn preview_modrinth_unreachable(&mut self) {
         self.modrinth = Some(Arc::new(Modrinth::with_urls(
             Arc::new(http_client::BlockedHttpClient::new()),

@@ -92,12 +92,12 @@ crate::i18n::messages! {
         OpenSavesFolder = "Open saves folder",
         ReadingWorlds = "Reading the worlds",
         NoWorldsYet = "No worlds yet",
-        NoWorldsHint = "Worlds you create in the game appear here. You can also import a world zip, or drop one here.",
+        NoWorldsHint = "Create one in the game, or drop a world zip here.",
 
         // Screenshots.
         ReadingScreenshots = "Reading the screenshots",
         NoScreenshotsYet = "No screenshots yet",
-        NoScreenshotsHint = "Press F2 in the game to take one; they appear here.",
+        NoScreenshotsHint = "Press F2 in the game to take one.",
         /// In the large view: "3 of 12".
         Position = "{index} of {count}",
         CopyImage = "Copy image",
@@ -105,7 +105,7 @@ crate::i18n::messages! {
         RestoringFromSnapshot = "Restoring the world from the snapshot",
         /// A world's panel: its zips.
         WorldBackupsHeading = "World backups",
-        NoWorldBackupsYet = "No world backups of this world yet. Back up makes one.",
+        NoWorldBackupsYet = "No backups yet.",
         /// A world's panel: the snapshots of the whole instance that hold this world.
         InSnapshots = "In snapshots",
         NoSnapshotsOfWorld = "No snapshot holds this world yet. Settings › Snapshots takes them.",
@@ -114,7 +114,7 @@ crate::i18n::messages! {
     }
 
     pub enum WorldsPlural {
-        ScreenshotsSummary = ("{count} screenshot · F2 in the game takes one", "{count} screenshots · F2 in the game takes one"),
+        ScreenshotsSummary = ("{count} screenshot", "{count} screenshots"),
         WithOtherWorlds = ("with {count} other world", "with {count} other worlds"),
     }
 }

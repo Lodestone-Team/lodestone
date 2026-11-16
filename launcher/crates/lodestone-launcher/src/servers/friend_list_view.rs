@@ -1030,11 +1030,9 @@ impl Servers {
                 status_label(&as_server)
             ),
         };
-        // what a friend needs to know before Play: while it's open, the account, the
-        // version, the mods
+        // what a friend needs to know before Play: the account, the version, the mods
         let mut lan_notes: Vec<String> = Vec::new();
-        if let Some(host) = lan_host {
-            lan_notes.push(tr!(M::LanJoinNote, name = host));
+        if lan_host.is_some() {
             if server.online_mode == Some(true) {
                 lan_notes.push(t(M::LanNeedsMicrosoft).into());
             }

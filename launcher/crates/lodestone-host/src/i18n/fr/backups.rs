@@ -33,10 +33,10 @@ pub fn text(message: M) -> &'static str {
         M::EveryHour => "Toutes les heures",
         M::EveryDay => "Tous les jours",
         M::OnlyWhenActive => "Seulement si des joueurs se sont connectés",
-        M::OnlyWhenActiveHint => "Saute l’instantané si personne n’a joué depuis le précédent.",
+        M::OnlyWhenActiveHint => "Depuis le dernier instantané.",
         M::Keep => "Conserver",
         M::KeepHint => {
-            "Le nombre d’instantanés automatiques conservés. Les instantanés manuels et épinglés sont toujours conservés."
+            "Instantanés automatiques uniquement. Les manuels et les épinglés sont toujours conservés."
         }
         M::KeepFewer => "Moins",
         M::KeepNormal => "Normal",
