@@ -1760,14 +1760,11 @@ impl WorldsView {
                         .child(
                             Button::new(
                                 ("backups", index),
-                                if zips.is_empty() {
-                                    t(M::Backups).to_string()
-                                } else {
-                                    format!(
-                                        "{} {}",
-                                        t(M::Backups),
-                                        format::number(zips.len() as u64)
-                                    )
+                                match zips.len() + copies.len() {
+                                    0 => t(M::Copies).to_string(),
+                                    count => {
+                                        format!("{} {}", t(M::Copies), format::number(count as u64))
+                                    }
                                 },
                             )
                             .variant(if expanded {
@@ -2364,7 +2361,7 @@ impl WorldsView {
                             .child(
                                 small(format!(
                                     "{} · {}",
-                                    launcher_core::images::display_text(&backup.name),
+                                    super::world_backups::shown_name(backup),
                                     format::bytes(backup.bytes)
                                 ))
                                 .truncate()
@@ -3083,5 +3080,90 @@ mod job_tests {
         other.send(()).unwrap();
         cx.run_until_parked();
         assert!(!busy(&s, &s.b, &mut cx));
+    }
+
+    /// The tab's Back up that ends while another instance is shown: the world backup
+    /// is listed in its world's panel once its instance is shown again (through the
+    /// world backups' watch, not a reload of the shown instance), and how it went is said
+    /// there, not on the instance shown meanwhile.
+    #[test]
+    fn a_world_backup_that_ends_while_another_instance_is_shown_is_listed_on_return() {
+        let mut cx = TestAppContext::single();
+        let s = setup(&mut cx);
+        let survival = s.instances.read_with(&cx, |instances, _| {
+            instances
+                .list()
+                .iter()
+                .find(|i| i.name == "Survival 1.20.1")
+                .map(|i| i.id.clone())
+                .unwrap()
+        });
+        let other = if survival == s.a {
+            s.b.clone()
+        } else {
+            s.a.clone()
+        };
+        // Selects the instance and reads its lists, as drawing the tab does.
+        let show = |id: &str, cx: &mut TestAppContext| {
+            select(&s, id, cx);
+            s.view.update(cx, |view, cx| view.ensure_loaded(cx));
+            cx.run_until_parked();
+        };
+        show(&survival, &mut cx);
+        let before = s.view.read_with(&cx, |view, _| {
+            assert!(
+                view.worlds
+                    .ready()
+                    .is_some_and(|w| w.iter().any(|w| w.folder == "New World")),
+                "the scene's worlds are read"
+            );
+            view.world_backups("New World").len()
+        });
+        s.view.update(&mut cx, |view, cx| {
+            view.back_up("New World".into(), "Fixture World".into(), cx)
+        });
+        assert!(s.view.read_with(&cx, |view, _| view.job.is_some()));
+        show(&other, &mut cx);
+        let backups = s
+            .instances
+            .read_with(&cx, |instances, _| instances.world_backups());
+        assert_eq!(
+            backups.list(&survival).unwrap().len(),
+            before + 1,
+            "the job finished while the other instance was shown"
+        );
+        s.view.read_with(&cx, |view, _| {
+            assert!(view.job.is_none(), "the other instance has no job");
+            assert!(view.message.is_none(), "said on its own instance");
+            assert!(view.world_backups("New World").is_empty());
+        });
+
+        show(&survival, &mut cx);
+        s.view.read_with(&cx, |view, _| {
+            let (message, error, _) = view.message.clone().expect("how it went");
+            assert!(!error, "{message}");
+            assert_eq!(message.as_ref(), "Backed up Fixture World.");
+            let listed = view.world_backups("New World");
+            assert_eq!(listed.len(), before + 1);
+            assert_eq!(listed[0].folder, "New World");
+        });
+
+        // One made elsewhere (Settings, the CLI) while the instance is shown: the watch's
+        // revision reads the list again.
+        backups
+            .create(
+                &survival,
+                "New World",
+                Some("From the CLI"),
+                &Progress::default(),
+                &|| false,
+            )
+            .unwrap();
+        cx.run_until_parked();
+        s.view.read_with(&cx, |view, _| {
+            let listed = view.world_backups("New World");
+            assert_eq!(listed.len(), before + 2);
+            assert_eq!(listed[0].name, "From the CLI");
+        });
     }
 }

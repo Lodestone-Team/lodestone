@@ -54,7 +54,9 @@ crate::i18n::messages! {
         /// {time} is "Today, 14:30", "Yesterday, 09:12" or a date.
         PlayedAt = "Played {time}",
         BackUp = "Back up",
-        Backups = "Backups",
+        /// A world's button: opens its world backups and the snapshots that hold it. A
+        /// number beside it counts both.
+        Copies = "Copies",
         Export = "Export…",
         DeleteWorld = "Delete…",
 

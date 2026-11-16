@@ -1098,8 +1098,14 @@ Snapshots' "World backups" section and its dialog) and the Worlds tab.
   `session.lock` and Lodestone's working files (`.lodestone-…`, `paths::always_excluded`),
   and, counted and listed, links and names a canonical path can't hold
   (`CanonicalPath::new("saves/w/<path>")`: Windows device and 8.3 names, invisible
-  characters, non-NFC names, …), so a zip only holds names every disk Lodestone runs on
-  can keep.
+  characters, non-NFC names, …) or the zip check refuses (`check_pack_path` on
+  `<world folder>/<path>`: `..` inside a name, a zip name over 512 characters), so a zip
+  only holds names every disk Lodestone runs on can keep and its own restore takes. A
+  folder holding only names left out is left out too (not counted), so restoring in place
+  carries it back whole rather than meeting an empty folder of that name in the zip. A
+  world whose folder name the zip check or a canonical path refuses (`aux`, `COM1`, or
+  `World.` outside Windows, which `is_plain_name` finds) isn't backed up at all, with a
+  message saying to rename it (`worlds::zip::check_world_folder`).
 - **Whose.** A backup belongs to the instance whose id names its folder and whose
   `created` time its `.json` holds. An instance put back from the Trash has both and sees
   its backups again; a new instance that only reuses the id never sees them. Backups no
@@ -1151,10 +1157,11 @@ Snapshots' "World backups" section and its dialog) and the Worlds tab.
   M5). One dialog makes (a pick of the worlds when there are several, a name), restores
   (in place after a confirmation that the world as it is is saved first; as a new world at
   once) and deletes; while it works it can't be closed, and Cancel stops the work. The
-  Worlds tab's "Back up" is a tab job with Cancel; a world's Backups panel has "World
-  backups" (its zips, with the same buttons, which open the dialog) and "In snapshots"
-  (the snapshots holding it, M5's restore as a new world and in place). The lists follow
-  `WorldBackups::watch`.
+  Worlds tab's "Back up" is a tab job with Cancel; a world's "Copies" button (its number
+  counts both sections) opens a panel with "World backups" (its zips, with the same
+  buttons, which open the dialog) and "In snapshots" (the snapshots holding it, M5's
+  restore as a new world and in place). The lists follow `WorldBackups::watch`. Names the
+  Launcher gave ("World backup", "Before restoring “<name>”") are shown translated.
 - **Control API and CLI.** `world_backups.list` (`instance`, `world`; or `deleted`),
   `world_backups.create` (`instance`, `world`, `name`), `world_backups.restore`
   (`instance`, `backup`: an id, a name, or `latest` with `world`; `mode` `replace` with
@@ -3092,8 +3099,8 @@ the world backup zips is read or converted.
   finishes) and the dialog says how it ended; deleting is short and can't be stopped,
   and an export stops when the dialog goes. The restore dialog is wider (680 px), so its
   four choices fit on one line. Since WB2 the
-  Worlds tab's "Back up" makes a world backup, a zip of that world ("World backups"); its
-  Backups panel's "In snapshots" section lists the snapshots holding
+  Worlds tab's "Back up" makes a world backup, a zip of that world ("World backups"); the
+  panel its "Copies" button opens has an "In snapshots" section that lists the snapshots holding
   the world, each with the world's own size there and "with N other worlds", with
   "Restore as a new world" and "Restore this world…" (a world-only restore; both stop on
   Cancel while staging); a snapshot change re-reads only those, not the worlds. `.lodeimg` files open
@@ -4145,6 +4152,18 @@ developer's brief left them open. The developer decided: world backups are manua
   backups deletes them for good. There is no rename, export (the zip itself is the
   export, Show in Finder), schedule or pruning. Safety backups are kept like any other
   and named "Before restoring “<name>”" (plain English data, like content labels).
+- **Names in the window.** The `.json` keeps the English names the Launcher gives
+  (`labels::WORLD_BACKUP`, `labels::before_restoring`), which the control API and CLI
+  show. The window shows them in the user's language (`world_backups::shown_name`): a name
+  equal to "World backup" as `WorldBackupDefaultName`, and a `before_restore` backup whose
+  name is still `before_restoring(restored)` as `WorldBackupBeforeRestoring` with the
+  restored backup's name (itself translated when it is the default). A name the user typed
+  is shown as it is.
+- **Folder names a restore wouldn't take** are refused before zipping
+  (`worlds::zip::check_world_folder`: `check_pack_path` on `<folder>/` and
+  `CanonicalPath::new("saves/<folder>")`), rather than made into a backup every restore
+  of which fails. Names inside the world that the zip check refuses are left out like
+  other names no disk keeps, and a folder holding nothing else is left out with them.
 - **One zip checker** for world imports and world backups (`worlds::zip::check` and
   `extract_into`, replacing `inspect_zip`, `extract`, `extract_mapped`, `plan_extract` and
   `check_collisions`): canonical-path names and the shared crate's case folding instead of
@@ -4165,7 +4184,9 @@ developer's brief left them open. The developer decided: world backups are manua
   (`SnapshotRecord::full` stays). The section's hint says "Copies of the whole instance
   folder to go back to or share."
 - **Words.** "World backup" is the zip and "snapshot" the image everywhere in the
-  Launcher: the Worlds tab's snapshot rows say "Restore as a new world" and "Restore this
+  Launcher: the Worlds tab's button that opens a world's panel is "Copies" (counting its
+  world backups and the snapshots holding it), the after-play hints say a snapshot copies
+  the whole instance folder, the Worlds tab's snapshot rows say "Restore as a new world" and "Restore this
   world…", the confirmation "Restore <world> from this snapshot?" with "Snapshot and
   restore", and the job "Restoring the world from the snapshot". `labels::backed_up`
   ("Backed up <world>") is gone.
@@ -4176,4 +4197,6 @@ developer's brief left them open. The developer decided: world backups are manua
   (`world-backups …`, `worlds snapshots`, `worlds restore-snapshot`). Storage's clean-up is
   `deleted-world-backups`; `storage.show` has `world_backups` (`bytes`, `backups`,
   `deleted`, `deleted_bytes`), and the world backups folder isn't "other".
+- **Test hook.** `WorldBackups::before_swap` (tests only) runs just before an in-place
+  restore's swap, to write into the world meanwhile and check what is kept aside.
 - **The shared crate is unchanged.**

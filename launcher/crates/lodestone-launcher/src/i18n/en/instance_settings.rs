@@ -196,7 +196,6 @@ crate::i18n::messages! {
         NoSnapshots = "No snapshots yet.",
         SnapshotSizes = "{total}, {new} new",
         SnapshotNothingNew = "{total}, nothing new",
-        /// A snapshot's details: it holds the mods and configs, not only the worlds.
         PreparingFile = "Preparing the file…",
         DragToShare = "Drag the file into another app, or:",
         SaveAsEllipsis = "Save as…",
@@ -213,9 +212,9 @@ crate::i18n::messages! {
         SnapshotsHint = "Copies of the whole instance folder to go back to or share.",
         /// The Settings tab's toggle; also Settings › Instance defaults' default.
         SnapshotAfterPlay = "Take a snapshot after each play session",
-        SnapshotAfterPlayHint = "Copies the worlds after you play. Follows Settings › Instance defaults, where it is off unless you turn it on.",
+        SnapshotAfterPlayHint = "Copies the whole instance folder after you play. Follows Settings › Instance defaults, where it is off unless you turn it on.",
         /// Settings › Instance defaults' toggle.
-        SnapshotAfterPlayDefaultHint = "Copies the worlds after each play session, for instances that don't set it themselves. Off unless you turn it on.",
+        SnapshotAfterPlayDefaultHint = "Copies the whole instance folder after each play session, for instances that don't set it themselves. Off unless you turn it on.",
         /// {last}, {days} and {weeks} are numbers.
         SnapshotKeepHint = "Snapshots the Launcher takes on its own are kept for a while: the last {last}, one a day for {days} days and one a week for {weeks} weeks. Yours stay until you delete them.",
         /// Badges on a snapshot's row.
@@ -530,7 +529,7 @@ crate::i18n::messages! {
         ImportNoRoom = "The disk doesn't have room for it: it needs {size}, 1 GB of it to spare, and {free} is free.",
         ImportSpaceFree = "Needs {size} of disk space, 1 GB of it to spare; {free} is free.",
         ExportNotDownloadable = "These can't be downloaded, so whoever imports the file won't get them: {files}.",
-        SnapshotAfterPlayOwnHint = "Copies the worlds after you play. Set for this instance.",
+        SnapshotAfterPlayOwnHint = "Copies the whole instance folder after you play. Set for this instance.",
         DeleteUnreadableNote = "They are deleted for good.",
         /// Settings › Snapshots: the section of zips of single worlds.
         WorldBackups = "World backups",
@@ -546,6 +545,9 @@ crate::i18n::messages! {
         WorldBackupWorld = "World",
         /// The name field's placeholder: the name a world backup gets when none is given.
         WorldBackupDefaultName = "World backup",
+        /// The name of the world backup made before another is restored; {name} is that
+        /// backup's name.
+        WorldBackupBeforeRestoring = "Before restoring “{name}”",
         BackUpButton = "Back up",
         /// {name} is the world's name.
         BackingUpWorld = "Backing up {name}…",

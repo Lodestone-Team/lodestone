@@ -3019,7 +3019,7 @@ impl InstanceSettings {
                 }
                 let zip = backups.zip_path(&id, backup);
                 items.push(
-                    SettingRow::new(display_text(&backup.name).into_owned())
+                    SettingRow::new(super::world_backups::shown_name(backup))
                         .key(("world-backup-row", index))
                         .hint(details.join(" · "))
                         .child(

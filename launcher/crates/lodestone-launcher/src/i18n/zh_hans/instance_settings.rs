@@ -177,10 +177,10 @@ pub fn text(message: M) -> &'static str {
         M::SnapshotsHint => "整个实例文件夹的副本，可用于恢复或分享。",
         M::SnapshotAfterPlay => "每次游戏结束后拍摄快照",
         M::SnapshotAfterPlayHint => {
-            "游玩后复制世界。跟随“设置 › 实例默认设置”，默认关闭，除非你开启。"
+            "游玩后复制整个实例文件夹。跟随“设置 › 实例默认设置”，默认关闭，除非你开启。"
         }
         M::SnapshotAfterPlayDefaultHint => {
-            "每次游戏结束后复制世界，适用于未自行设置的实例。默认关闭，除非你开启。"
+            "每次游戏结束后复制整个实例文件夹，适用于未自行设置的实例。默认关闭，除非你开启。"
         }
         M::SnapshotKeepHint => {
             "启动器自动拍摄的快照会保留一段时间：最近 {last} 个、{days} 天内每天一个、{weeks} 周内每周一个。你自己拍摄的快照会一直保留，直到你删除。"
@@ -436,7 +436,7 @@ pub fn text(message: M) -> &'static str {
         M::ImportNoRoom => "磁盘空间不足：需要 {size}（含 1 GB 余量），可用 {free}。",
         M::ImportSpaceFree => "需要 {size} 磁盘空间（含 1 GB 余量）；可用 {free}。",
         M::ExportNotDownloadable => "这些无法下载，因此导入该文件的人不会得到它们：{files}。",
-        M::SnapshotAfterPlayOwnHint => "游玩后复制世界。仅为此实例设置。",
+        M::SnapshotAfterPlayOwnHint => "游玩后复制整个实例文件夹。仅为此实例设置。",
         M::DeleteUnreadableNote => "它们将被永久删除。",
         M::WorldBackups => "世界备份",
         M::WorldBackupsHint => "单个世界的 zip 副本，会一直保留到你删除为止。在任何地方都能打开。",
@@ -447,6 +447,7 @@ pub fn text(message: M) -> &'static str {
         M::RestoreAsNewWorld => "恢复为新世界",
         M::WorldBackupWorld => "世界",
         M::WorldBackupDefaultName => "世界备份",
+        M::WorldBackupBeforeRestoring => "恢复“{name}”之前",
         M::BackUpButton => "备份",
         M::BackingUpWorld => "正在备份 {name}…",
         M::WorldBackedUp => "已备份 {name}。",

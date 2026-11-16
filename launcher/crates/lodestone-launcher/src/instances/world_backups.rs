@@ -21,7 +21,8 @@ use gpui::{
 use launcher_core::{
     game::download::{CancelToken, Progress},
     images::display_text,
-    world_backups::{RestoreTo, WorldBackup, WorldBackups, WorldStep},
+    images::labels,
+    world_backups::{RestoreTo, WorldBackup, WorldBackupKind, WorldBackups, WorldStep},
     worlds::{self, World},
 };
 
@@ -31,6 +32,30 @@ use crate::{
     i18n::{CommonMsg, InstanceSettingsMsg as M, t, tr},
     theme::{self, colors, px, text},
 };
+
+/// A world backup's name in the Launcher's language. A backup's details keep the English
+/// names the Launcher gives ([`labels::WORLD_BACKUP`] when none is typed, and
+/// [`labels::before_restoring`] for the safety backup), as snapshots do, since the names are
+/// what the CLI and control API show too; the zips never leave this Launcher, so the
+/// lists show those names translated, from how the backup was made. A name the user typed
+/// is shown as it is.
+pub fn shown_name(backup: &WorldBackup) -> String {
+    fn named(name: &str) -> String {
+        if name == labels::WORLD_BACKUP {
+            t(M::WorldBackupDefaultName).to_string()
+        } else {
+            display_text(name).into_owned()
+        }
+    }
+    match (&backup.kind, &backup.restored) {
+        (WorldBackupKind::BeforeRestore, Some(restored))
+            if backup.name == labels::before_restoring(restored) =>
+        {
+            tr!(M::WorldBackupBeforeRestoring, name = named(restored)).to_string()
+        }
+        _ => named(&backup.name),
+    }
+}
 
 impl Instances {
     /// The instances' world backups.
@@ -609,7 +634,7 @@ impl Render for WorldBackupDialog {
             (State::Ready, WorldBackupRequest::Delete { backup, .. }) => {
                 body = body.child(div().whitespace_normal().child(tr!(
                     M::DeleteWorldBackupBody,
-                    name = display_text(&backup.name),
+                    name = shown_name(backup),
                     trash = t(CommonMsg::TheTrash)
                 )));
                 primary = Some((
@@ -653,5 +678,65 @@ impl Render for WorldBackupDialog {
                         .on_click(cx.listener(|this, _, _, cx| this.go(cx))),
                 )
             })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn backup(name: &str, kind: WorldBackupKind, restored: Option<&str>) -> WorldBackup {
+        WorldBackup {
+            version: 1,
+            id: "20261115-120000-abcd".into(),
+            instance_created: 1,
+            instance_name: "Pack".into(),
+            folder: "World".into(),
+            name: name.into(),
+            kind,
+            restored: restored.map(str::to_string),
+            created: 0,
+            level_name: None,
+            game_version: None,
+            data_version: None,
+            bytes: 0,
+            world_bytes: 0,
+            files: 0,
+            left_out: Vec::new(),
+            left_out_count: 0,
+        }
+    }
+
+    /// The names the Launcher gave are shown in the window's language, from how the backup
+    /// was made; a name the user typed (or a safety backup renamed) as it is.
+    #[test]
+    fn names_the_launcher_gave_are_shown_translated() {
+        let default = t(M::WorldBackupDefaultName).to_string();
+        let manual = backup(labels::WORLD_BACKUP, WorldBackupKind::Manual, None);
+        assert_eq!(shown_name(&manual), default);
+        let typed = backup("Before the dragon fight", WorldBackupKind::Manual, None);
+        assert_eq!(shown_name(&typed), "Before the dragon fight");
+
+        let safety = |restored: &str| {
+            backup(
+                &labels::before_restoring(restored),
+                WorldBackupKind::BeforeRestore,
+                Some(restored),
+            )
+        };
+        assert_eq!(
+            shown_name(&safety(labels::WORLD_BACKUP)),
+            tr!(M::WorldBackupBeforeRestoring, name = default).to_string()
+        );
+        assert_eq!(
+            shown_name(&safety("Towers")),
+            tr!(M::WorldBackupBeforeRestoring, name = "Towers").to_string()
+        );
+        // A name that isn't the label any more is the user's.
+        let renamed = backup("Kept", WorldBackupKind::BeforeRestore, Some("Towers"));
+        assert_eq!(shown_name(&renamed), "Kept");
+        // Text that would reorder or hide itself is shown plainly.
+        let odd = backup("a\u{202e}b", WorldBackupKind::Manual, None);
+        assert_eq!(shown_name(&odd), display_text("a\u{202e}b"));
     }
 }

@@ -184,10 +184,10 @@ pub fn text(message: M) -> &'static str {
         }
         M::SnapshotAfterPlay => "Prendre un instantané après chaque partie",
         M::SnapshotAfterPlayHint => {
-            "Copie les mondes après chaque partie. Suit Paramètres › Paramètres par défaut des instances, où c’est désactivé sauf si vous l’activez."
+            "Copie tout le dossier de l’instance après chaque partie. Suit Paramètres › Paramètres par défaut des instances, où c’est désactivé sauf si vous l’activez."
         }
         M::SnapshotAfterPlayDefaultHint => {
-            "Copie les mondes après chaque partie, pour les instances qui ne le règlent pas elles-mêmes. Désactivé sauf si vous l’activez."
+            "Copie tout le dossier de l’instance après chaque partie, pour les instances qui ne le règlent pas elles-mêmes. Désactivé sauf si vous l’activez."
         }
         M::SnapshotKeepHint => {
             "Les instantanés pris par le Launcher sont gardés un temps\u{a0}: les {last} derniers, un par jour pendant {days} jours et un par semaine pendant {weeks} semaines. Les vôtres restent jusqu’à ce que vous les supprimiez."
@@ -499,7 +499,7 @@ pub fn text(message: M) -> &'static str {
             "Ceux-ci ne peuvent pas être téléchargés, donc la personne qui importe le fichier ne les aura pas\u{a0}: {files}."
         }
         M::SnapshotAfterPlayOwnHint => {
-            "Copie les mondes après chaque partie. Réglé pour cette instance."
+            "Copie tout le dossier de l’instance après chaque partie. Réglé pour cette instance."
         }
         M::DeleteUnreadableNote => "Elles sont supprimées définitivement.",
         M::WorldBackups => "Sauvegardes de mondes",
@@ -513,6 +513,7 @@ pub fn text(message: M) -> &'static str {
         M::RestoreAsNewWorld => "Restaurer comme nouveau monde",
         M::WorldBackupWorld => "Monde",
         M::WorldBackupDefaultName => "Sauvegarde de monde",
+        M::WorldBackupBeforeRestoring => "Avant la restauration de «\u{a0}{name}\u{a0}»",
         M::BackUpButton => "Sauvegarder",
         M::BackingUpWorld => "Sauvegarde de {name}…",
         M::WorldBackedUp => "{name} est sauvegardé.",

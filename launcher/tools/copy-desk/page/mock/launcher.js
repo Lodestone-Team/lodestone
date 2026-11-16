@@ -603,7 +603,7 @@
   }
 
   // ---------- Worlds tab ----------
-  const WORLDS = [["Survival Island", "New World", "Today, 03:05", "Survival", false, "1.21.11", "40 MB", 2], ["Castle Build", "Castle", "2026-11-08", "Creative", true, "1.21.11", "117 MB", 0],
+  const WORLDS = [["Survival Island", "New World", "Today, 03:05", "Survival", false, "1.21.11", "40 MB", 3], ["Castle Build", "Castle", "2026-11-08", "Creative", true, "1.21.11", "117 MB", 0],
     ["One Life", "Hardcore run", "2026-11-01", "Hardcore", false, "1.20.1", "22 MB", 0, true], ["Sky test", "skytest", "2026-10-06", "Adventure", true, "24w14a", "6.3 MB", 0, false, true], ["Spectate", "spec", "2026-09-30", "Spectator", false, "1.20.1", "2.1 MB", 0]];
   function worldsTab(ctx, inst) {
     const S = ctx.state, sec = ctx.params.sec || "worlds";
@@ -624,10 +624,10 @@
       rows.push(h("div.lx-row", h("span.lx-world-ic"),
         h("div.lx-row-main", h("div.lx-row-t", tx(name), hard ? badge(wd("Hardcore"), "red") : null, h("span.lx-row-v", tx(folder))),
           h("div.lx-row-s", join(wd("PlayedAt", { time: played }), mode === "Hardcore" ? wd("Hardcore") : wd(mode), cheats ? wd("Cheats") : null, snap ? wd("Snapshot", { version: ver }) : tx(ver), tx(size)))),
-        h("div.lx-row-a", btn(wd("BackUp"), { icon: "dl", sm: true }), gbtn([wd("Backups"), backups ? " " + backups : ""]), gbtn(cm("Rename")), gbtn(wd("Export")), gbtn(cm("OpenFolder")), btn(wd("DeleteWorld"), { kind: "d", sm: true, on: () => ctx.open("deleteWorld") }))));
+        h("div.lx-row-a", btn(wd("BackUp"), { icon: "dl", sm: true }), gbtn([wd("Copies"), backups ? " " + backups : ""]), gbtn(cm("Rename")), gbtn(wd("Export")), gbtn(cm("OpenFolder")), btn(wd("DeleteWorld"), { kind: "d", sm: true, on: () => ctx.open("deleteWorld") }))));
       if (idx === 0) rows.push(h("div", { style: { padding: "8px 18px 12px 88px", background: "var(--g875)" } },
         h("div.lx-caps", { style: { margin: "4px 0 8px" } }, wd("WorldBackupsHeading")),
-        [["Today, 03:04", "World backup"], ["Yesterday, 21:40", "Before the dragon fight"]].map(([when, name]) => h("div", { style: { display: "flex", alignItems: "center", gap: "8px", padding: "6px 0" } }, h("span.lx-grow", tx(when), sep(), tx(name)), h("span.lx-muted", tx("39 MB")),
+        [["Today, 03:04", is("WorldBackupDefaultName")], ["Yesterday, 21:40", tx("Before the dragon fight")]].map(([when, name]) => h("div", { style: { display: "flex", alignItems: "center", gap: "8px", padding: "6px 0" } }, h("span.lx-grow", tx(when), sep(), name), h("span.lx-muted", tx("39 MB")),
           btn(wd("RestoreEllipsis"), { sm: true, on: () => ctx.open("worldBackupRestore") }), gbtn(wd("RestoreAsNewWorld")), gbtn(cm("ShowInFileManager")), gbtn(cm("Delete"), () => ctx.open("worldBackupDelete")))),
         h("div.lx-muted", { style: { fontSize: "13px", marginTop: "6px" } }, wd("NoWorldBackupsYet")),
         h("div.lx-caps", { style: { margin: "12px 0 8px" } }, wd("InSnapshots")),
@@ -691,7 +691,7 @@
         srow(is("BackUpWorldTitle"), null, btn(is("BackUpWorldEllipsis"), { sm: true, on: () => ctx.open("worldBackupCreate") })),
         srow(tx("Survival Island"), tx("New World")),
         h("div.lx-row", h("div.lx-row-main", h("div.lx-row-t", tx("Before the dragon fight")), h("div.lx-row-s", tx("Today, 03:04"), sep(), tx("39 MB"))), h("div.lx-row-a", btn(is("RestoreEllipsis"), { sm: true, on: () => ctx.open("worldBackupRestore") }), gbtn(is("RestoreAsNewWorld")), gbtn(cm("ShowInFileManager")), gbtn(cm("Delete"), () => ctx.open("worldBackupDelete")))),
-        h("div.lx-row", h("div.lx-row-main", h("div.lx-row-t", tx("Before restoring \u201cWorld backup\u201d")), h("div.lx-row-s", tx("Yesterday, 21:40"), sep(), tx("38 MB"), sep(), isp("WorldBackupLeftOut", { count: 2 }))), h("div.lx-row-a", btn(is("RestoreEllipsis"), { sm: true }), gbtn(is("RestoreAsNewWorld")), gbtn(cm("ShowInFileManager")), gbtn(cm("Delete")))),
+        h("div.lx-row", h("div.lx-row-main", h("div.lx-row-t", is("WorldBackupBeforeRestoring", { name: "World backup" })), h("div.lx-row-s", tx("Yesterday, 21:40"), sep(), tx("38 MB"), sep(), isp("WorldBackupLeftOut", { count: 2 }))), h("div.lx-row-a", btn(is("RestoreEllipsis"), { sm: true }), gbtn(is("RestoreAsNewWorld")), gbtn(cm("ShowInFileManager")), gbtn(cm("Delete")))),
         srow(tx("One Life"), [tx("Hardcore run"), sep(), is("WorldNotHere")])),
         ctx.state.instSettings === "noSnapshots" ? h("div.lx-muted", is("NoWorldBackups")) : null],
       snapshots: () => [h("div.lx-h3-sub", is("SnapshotsHint")), card(
