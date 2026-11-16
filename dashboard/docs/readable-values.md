@@ -88,7 +88,7 @@ header-facts, suffix-kinds, status-values, unlabeled-stat.
 | # | Where | Was | Pattern | Now |
 | --- | --- | --- | --- | --- |
 | 1 | `components/Mods/InstalledMods.tsx:176-184`, `:219-231` | "Sodium mc1.21.1-0.6.0-fabric"; "Update to {version}" | name-version | Name, then a `VersionTag`; with an update, a `DiffValue` of two tags and a plain "Update" button. |
-| 2 | `InstalledMods.tsx:204-215` | "fabric-api-0.116.17+1.21.1.jar · 2.5 MB", "since Nov 3, 2026" | row-meta | `FactLine` with the mono file name (middle-truncated); Size and Added are right-aligned columns under a `ListHeader`, folded into the line on narrow widths. Added's title is "Came with: {entry}". |
+| 2 | `InstalledMods.tsx:204-215` | "fabric-api-0.116.17+1.21.1.jar · 2.5 MB", "since Nov 3, 2026" | row-meta | `FactLine` with the mono file name (middle-truncated); Size and Added are right-aligned columns under a `ListHeader`, at the end of the row so they line up whatever buttons a row has, folded into the line on narrow widths. Added's title is "Came with: {entry}". |
 | 3 | `InstalledMods.tsx:85-93` | "Failed to enable {name}: {error}" | object-in-sentence | `ObjectToast`: mod chip, "Couldn't turn it on/off", reason line. |
 | 4 | `InstalledMods.tsx:116-131` | "Players get {name} the next time they join" | object-in-sentence | `ObjectToast`: mod chip, "Players get it when they join" / "Players no longer get it" / "Couldn't change it". |
 | 5 | `InstalledMods.tsx:143-162` | "Updated {name} to {version}" | object-in-sentence | `ObjectToast`: mod chip + To `VersionTag`, "Updated", then the install `NameList`. |
@@ -114,12 +114,12 @@ header-facts, suffix-kinds, status-values, unlabeled-stat.
 | 25 | `components/Mods/ModsTab.tsx:70-78` | "Only show versions for {gameVersion} / {loader}" | inline-values | "Only compatible versions", then the two phrases inside the label. |
 | 26 | `components/Mods/ModpackPanel.tsx:56-62`, `:120-140` | "+3 ↑2 ~1 −4" | suffix-kinds | Icon `Fact`s (plus, arrow-up, right-left, minus) with keys as screen-reader text and titles. |
 | 27 | `ModpackPanel.tsx:146-150` | "a.jar → b.jar" | comparison-prose | `DiffValue` of two mono names. |
-| 28 | `ModpackPanel.tsx:205-235` | "time  Minecraft 1.21.1 · Fabric 0.16.9" | row-meta | `FactLine`: time (full date in the title), the two phrases. |
+| 28 | `ModpackPanel.tsx:205-235` | "time  Minecraft 1.21.1 · Fabric 0.16.9" | row-meta | `FactLine`: the date and time in ink-muted, then the two phrases (the loader left out for vanilla); the row's title keys them. |
 | 29 | `ModpackPanel.tsx:73-88` | blameLabel → "since {date}" | row-meta | Returns `{ date, change }` for item 2's Added column. |
 | 30 | `ModpackPanel.tsx:250-322` | "{pack} goes from {from} to {to}.", a dotted software line, counts joined with ", ", "Files you changed stay as they are: {files}" | comparison-prose, list-in-prose | Compact `ObjectCard` + `FactList` (pack `DiffValue`, Game, Loader, Added/Replaced/Removed), then a `NameList` (Removed, Stay as you changed them). Restore: the entry's card + one sentence. |
 | 31 | `ModpackPanel.tsx:411-455` | "Updated {pack} to {version}." + counts + skipped, joined with "\n" | object-in-sentence | `ObjectToast`: pack chip + To tag, "Updated"/"Restored", count facts, skipped note as the reason. |
 | 32 | `ModpackPanel.tsx:386-392` | "{name} isn't a .mrpack file." | object-in-sentence | "Not a .mrpack file" + the file as a mono chip. |
-| 33 | `ModpackPanel.tsx:497-503`, `:519-534` | "{name} {version}", "This server runs the modpack {pack}.", "● {version} is out" | name-version, header-facts | Name alone; `FactStrip`: Installed tag, Available To tag + "Update available" badge. |
+| 33 | `ModpackPanel.tsx:497-503`, `:519-534` | "{name} {version}", "This server runs the modpack {pack}.", "● {version} is out", "Update to {version}" | name-version, header-facts | Pack icon and name alone; `FactStrip`: Installed tag, Available To tag + "Update available" badge; the button says "Update". |
 | 34 | `ModpackPanel.tsx:556-562` | "History (7)" | suffix-kinds | "History" + `CountBadge`. |
 | 35 | `components/Mods/ClientPackPanel.tsx:37-48` | "Players can join with plain Fabric (Minecraft {gameVersion}, {loader})." | inline-values | The sentence, then a `FactLine` of the two phrases. |
 | 36 | `ClientPackPanel.tsx:79-131` | "Players need {count} mods to join", "Minecraft x · Fabric loader y", glued chips, "Show all {count} mods" | suffix-kinds, header-facts, name-version | Title + `CountBadge`; `FactStrip` Game/Loader; chip + `VersionTag`; "Show {count} more". |
@@ -174,7 +174,7 @@ header-facts, suffix-kinds, status-values, unlabeled-stat.
 | --- | --- | --- | --- | --- |
 | 66 | `utils/apis.ts:112`, `:145`, `:207`, `:340`, `:413`, `:416`, `components/FileViewer/FileViewer.tsx:248-254` | "Deleted file: {name}", "Failed to download {name}: {error}", "Unzipping {name}…" | object-in-sentence | `FileToast`: mono chip with a `KindIcon`, the outcome, the reason. |
 | 67 | `FileViewer.tsx:426-439` | "Delete {count} files", "• world_nether (folder)" | list-in-prose, suffix-kinds | "Delete files?" + `CountBadge`; a `NameList` with a `KindIcon` per row. |
-| 68 | `components/FileViewer/FileContextMenu.tsx:18-33`, `:163`, `:233` | "Zip {name} to {archive}", "Paste into {name}", "Unzip to {name}" | object-in-sentence | A mono caption header naming the file once; verbs ("Zip", "Paste here", "Unzip") with the target as a mono caption. |
+| 68 | `components/FileViewer/FileContextMenu.tsx:18-33`, `:163`, `:233` | "Zip {name} to {archive}", "Paste into {name}", "Unzip to {name}" | object-in-sentence | A mono header naming the file once ("{count} items" for several); the items are verbs ("Zip", "Paste into", "Unzip to a folder") with the archive or folder name as a mono caption under them (`ContextMenuButton` `caption`). |
 | 69 | `i18n/en.ts` `files.nameTaken` | "{name} already exists in this folder" | object-in-sentence | "Something with this name is already in this folder". |
 | 70 | `FileViewer.tsx:522-527`, `FileContextMenu.tsx:110-115` | "{count} items cut to clipboard" | — | Kept: a count in a short sentence with no object. |
 
@@ -191,6 +191,15 @@ header-facts, suffix-kinds, status-values, unlabeled-stat.
 | 77 | `pages/settings/CoreSettings.tsx:362` | "Port {port} opened" | object-in-sentence | "Port opened" + a mono Port fact. |
 | 78 | `components/Instance/Create/form.ts` | "{name} is required" | — | Kept: validation messages sit next to their own field. |
 | 79 | `common.combo.addCustom`, `create.combo.add` | 'Add “{query}”' | inline-values | "Add" + a `MonoValue` of the typed text, no typographic quotes. |
+
+### Found while applying
+
+| # | Where | Was | Pattern | Now |
+| --- | --- | --- | --- | --- |
+| 80 | `pages/InstanceTabs/InstanceTabs.tsx:131-138` | The console title's state as a coloured `Label` | status-values | `StatusBadge`; `stateToLabelColor` is gone. |
+| 81 | `components/DashboardLayout/SystemStat.tsx` | "CPU: 12%", uppercase, no caller | unlabeled-stat | Deleted with its story. |
+| 82 | `mods.project.side.*` | "server: optional" | facts-as-prose | Sentence-case values under the "Server side" key. |
+| 83 | `server.share.connection.*` | "over the internet" | row-meta | Standalone route names on a badge ("Internet", "Local network"). |
 
 ### Kept on purpose
 
