@@ -310,8 +310,16 @@ impl HostState {
         let task = cx.spawn(async move |this, cx| {
             let work = cx.background_spawn(async move {
                 let instances = admin.instances().await;
-                let settings = admin.global_settings().await.ok();
-                let me = admin.me().await.ok();
+                let settings = admin
+                    .global_settings()
+                    .await
+                    .inspect_err(|err| log::debug!("reading the core's settings failed: {err}"))
+                    .ok();
+                let me = admin
+                    .me()
+                    .await
+                    .inspect_err(|err| log::debug!("reading the signed-in user failed: {err}"))
+                    .ok();
                 (instances, settings, me)
             });
             let (instances, settings, me) = work.await;
@@ -328,7 +336,14 @@ impl HostState {
                         this.error = None;
                     }
                     Err(CoreError::SignedOut) => return this.signed_out(cx),
-                    Err(err) => this.error = Some(err.to_string()),
+                    Err(err) => {
+                        // Logged when it changes: the page reloads after every event.
+                        let error = err.to_string();
+                        if this.error.as_ref() != Some(&error) {
+                            log::warn!("listing the core's instances failed: {error}");
+                        }
+                        this.error = Some(error);
+                    }
                 }
                 if settings.is_some() {
                     this.settings = settings;
@@ -473,12 +488,17 @@ impl HostState {
                 self.connection = Connection::Reconnecting(reason.clone());
                 self.probe(reason, cx);
             }
-            LiveMessage::Frame(text) => {
-                if let Some(event) = launcher_core::cores::admin::events::parse(&text) {
+            LiveMessage::Frame(text) => match launcher_core::cores::admin::events::read(&text) {
+                Ok(event) => {
                     self.apply(&event, cx);
                     cx.emit(HostEvent::Core(Box::new(event)));
                 }
-            }
+                // An event this Host can't read (a newer core, or a shape it doesn't
+                // know) could be a server made or deleted: fetch the list again rather
+                // than miss it.
+                // (`read` logged why)
+                Err(_) => self.reload(cx),
+            },
             LiveMessage::Ended(CoreError::SignedOut) => return self.signed_out(cx),
             LiveMessage::Ended(err) => {
                 self.connection = Connection::Reconnecting(err.to_string());
@@ -565,7 +585,13 @@ impl HostState {
                                 {
                                     list.push(created.info.clone());
                                 }
+                                // the list again from the core, so a server made while an
+                                // event was missed shows up too
+                                self.reload(cx);
                             }
+                            // a creation this Host followed ended without saying what it
+                            // made: the list says
+                            None if was_creating && *success => self.reload(cx),
                             Some(ProgressionEndValue::InstanceDelete { instance_uuid }) => {
                                 if let Some(list) = self.instances.as_mut() {
                                     list.retain(|i| &i.uuid != instance_uuid);
@@ -710,8 +736,8 @@ mod tests {
             )
             .is_none()
         );
-        // a backup restored as a new server: its page said so already
-        assert!(creation_toast(true, Some("Restored the backup as Copy"), None).is_none());
+        // a snapshot restored as a new server: its page said so already
+        assert!(creation_toast(true, Some("Restored the snapshot as Copy"), None).is_none());
         let failed = creation_toast(false, Some("Server creation failed: no room"), None).unwrap();
         assert_eq!(failed.level, ToastLevel::Error);
         assert_eq!(failed.text.as_ref(), "Server creation failed: no room");

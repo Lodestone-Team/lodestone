@@ -15,8 +15,8 @@ pub fn text(message: M) -> &'static str {
         M::ConnectAsOwner => "以所有者身份连接",
         M::ChooseDataFolder => "选择文件夹…",
         M::ChooseDataFolderPrompt => "选择",
-        M::ProductHostHint => "桌面应用，控制面板在窗口中",
-        M::ProductCoreHint => "独立的服务器程序，或 Docker",
+        M::ProductHostHint => "Lodestone Host",
+        M::ProductCoreHint => "Lodestone Core",
         M::ConnectedAsOwner => "已以所有者身份连接到 {name}",
         M::ConnectedMadeOwner => {
             "它还没有所有者，因此 Lodestone Launcher 创建了所有者账户 {username}。"
@@ -45,7 +45,6 @@ pub fn text(message: M) -> &'static str {
         M::AddServer => "添加主机",
         M::Dismiss => "关闭",
         M::OtherCoresTitle => "其他主机和服务器",
-        M::OtherCoresHint => "你通过地址添加的其他电脑上的主机，以及你通过邀请链接加入的服务器。",
         M::NoOtherCores => "还没有其他主机或服务器",
         M::NoServersHint => "通过地址添加主机，或用别人发给你的邀请链接添加服务器。",
 
@@ -182,7 +181,7 @@ pub fn text(message: M) -> &'static str {
 
         M::DifferentMods => "{name} 的模组有所不同",
         M::DifferentModsBody => {
-            "自此实例获取服务器的模组以来，它们已发生变化（{changes}）。请先更新才能加入；你自己的模组保持不变，被替换的文件会保留在实例的备份中。"
+            "自此实例获取服务器的模组以来，它们已发生变化（{changes}）。请先更新才能加入；你自己的模组保持不变，被替换的文件会保留在实例文件夹的 backups/ 中。"
         }
         M::ChangeNew => "新增：{name}",
         M::ChangeChanged => "已更改：{name}",
@@ -319,7 +318,7 @@ pub fn text(message: M) -> &'static str {
         M::SignInIntro => {
             "登录后即可启动和停止服务器，并查看未公开列出的服务器。Lodestone Launcher 会为{computer} 生成专用密钥；你的密码不会被保存。"
         }
-        M::AddIntro => "主机的地址。不登录时，你能看到其所有者公开列出的服务器。",
+        M::AddIntro => "不登录时，你只能看到其所有者公开列出的服务器。",
         M::Address => "地址",
         M::SignInOptional => "登录（可选）",
         M::KeyExpiresAfter => "{computer} 上的密钥有效期",
@@ -343,7 +342,7 @@ pub fn text(message: M) -> &'static str {
         M::ConsoleNotShown => "控制台未显示",
         M::OutputAppearsHere => "服务器的输出会显示在这里。",
         M::Send => "发送",
-        M::ChatHint => "文字会通过 /say 发给所有人。以 / 开头可执行命令。",
+        M::ChatHint => "文字会通过 /say 发给所有人。",
         M::Console => "控制台",
         M::JumpToLatest => "跳到最新",
         M::MinecraftAccount => "Minecraft 账户",
@@ -416,7 +415,6 @@ pub fn text(message: M) -> &'static str {
         M::DownloadWorldBackups => "备份",
         M::DownloadWorldMidWrite => "在服务器运行时创建，可能正在写入中",
         M::DownloadWorldBackUpNow => "立即备份",
-        M::DownloadWorldBackUpNowHint => "服务器当前状态的备份",
         M::DownloadWorldButton => "下载",
         M::DownloadWorldBackingUp => "主机正在备份服务器…",
         M::DownloadWorldPreparing => "主机正在准备文件…",
@@ -464,7 +462,6 @@ pub fn text(message: M) -> &'static str {
         M::NoInstancesYet => "你还没有实例。请先创建一个。",
 
         M::FriendsTitle => "来自邀请链接的服务器",
-        M::FriendsHint => "别人通过 Lodestone Connect 邀请链接与你共享的服务器。",
         M::JoinAFriend => "添加服务器",
         M::SharedBy => "由 {name} 共享",
         M::SharedWithFriends => "已与好友共享",
@@ -482,9 +479,7 @@ pub fn text(message: M) -> &'static str {
         M::ViaInternet => "通过互联网",
         M::JoinFriendTitle => "加入服务器",
         M::AddServerTitle => "添加服务器",
-        M::JoinFriendIntro => {
-            "粘贴别人发给你的邀请链接，它以 https://connect.lodestone.cc/j/ 开头。即使服务器现在离线，“添加”也会保存它。"
-        }
+        M::JoinFriendIntro => "即使服务器现在离线，“添加”也会保存它。",
         M::InvitePlaceholder => "邀请链接（https://connect.lodestone.cc/j/…）",
         M::NotAnInvite => {
             "这不是 Lodestone 邀请链接。邀请链接以 https://connect.lodestone.cc/j/ 开头。"
@@ -547,6 +542,14 @@ pub fn text(message: M) -> &'static str {
         M::FriendsReadFailed => "无法读取好友的服务器",
         M::FriendsSaveFailed => "无法保存好友的服务器",
         M::FriendAddress => "Magic localhost：{address}（连接时可用）",
+        M::MagicAddressHere => "Magic localhost：{address}（服务器运行时可用）",
+        M::MagicAddressForwarded => {
+            "Magic localhost：{address}（服务器运行且 Lodestone Launcher 打开时可用）"
+        }
+        M::MagicPortTakenRow => {
+            "端口 {port} 已被占用，所以这次的地址只能用到 Lodestone Launcher 关闭为止"
+        }
+        M::CopyMagicAddress => "复制 {address}",
         M::FriendPortTaken => "端口 {port} 已被占用",
         M::FriendPortTakenBody => {
             "这台电脑上的其他程序正在使用它，所以这次的地址是 {address}。下次 Lodestone Launcher 会再次尝试端口 {port}。"

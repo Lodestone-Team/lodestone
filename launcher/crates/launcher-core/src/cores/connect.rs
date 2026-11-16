@@ -161,8 +161,9 @@ fn send_syn_once(socket: &tokio::net::TcpSocket) {
 }
 
 /// Binds the game port with `bind`: the first port of `wanted` nothing listens on and
-/// that binds, else any free port (port 0).
-async fn bind_game<T, E, F, Fut>(wanted: &GamePort, mut bind: F) -> Result<T, E>
+/// that binds, else any free port (port 0). Magic localhost's forwarders bind the same
+/// way (`super::magic_localhost`).
+pub(crate) async fn bind_game<T, E, F, Fut>(wanted: &GamePort, mut bind: F) -> Result<T, E>
 where
     F: FnMut(SocketAddr) -> Fut,
     Fut: Future<Output = Result<T, E>>,
@@ -462,6 +463,7 @@ async fn run(
     let joined = match AnyJoined::open(target).await {
         Ok(joined) => joined,
         Err(err) => {
+            log::warn!("couldn't open the Connect tunnel: {err}");
             let _ = ready.send(Err(err.into()));
             return;
         }
@@ -478,6 +480,7 @@ async fn run(
     let (server, game, info) = match opened {
         Ok(opened) => opened,
         Err(err) => {
+            log::warn!("the Connect tunnel opened, but couldn't forward the game: {err}");
             let _ = ready.send(Err(err.into()));
             joined.close().await;
             return;
@@ -516,6 +519,7 @@ async fn run(
     drop((game, info));
     let _ = tokio::time::timeout(CLOSE_TIMEOUT, joined.close()).await;
     if let Some(why) = why {
+        log::info!("the host closed the Connect tunnel: {why}");
         let _ = ended.send(why);
     }
 }

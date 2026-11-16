@@ -140,9 +140,17 @@ pub const COMMANDS: &[(&str, &str, bool, bool)] = &[
     ("modpacks added", "modpacks.added", false, false),
     ("modpacks remove", "modpacks.remove", false, true),
     ("worlds list", "worlds.list", false, false),
-    ("worlds backups", "worlds.backups", false, false),
-    ("worlds backup", "worlds.backup", true, false),
-    ("worlds restore", "worlds.restore", true, true),
+    ("worlds snapshots", "worlds.snapshots", false, false),
+    (
+        "worlds restore-snapshot",
+        "worlds.restore_snapshot",
+        true,
+        true,
+    ),
+    ("world-backups list", "world_backups.list", false, false),
+    ("world-backups create", "world_backups.create", true, false),
+    ("world-backups restore", "world_backups.restore", true, true),
+    ("world-backups delete", "world_backups.delete", false, true),
     ("worlds delete", "worlds.delete", false, true),
     ("worlds datapacks", "worlds.datapacks", false, false),
     (
@@ -283,6 +291,9 @@ pub const COMMANDS: &[(&str, &str, bool, bool)] = &[
     ("trace topics", "trace.topics", false, false),
     ("trace watch", "trace.subscribe", false, false),
     ("trace snapshot", "trace.snapshot", false, false),
+    // read here, without the launcher (`logs.path` is the launcher's own answer)
+    ("logs path", "", false, false),
+    ("logs tail", "logs.tail", false, false),
     ("perf show", "perf.show", false, false),
     ("perf watch", "perf.watch", false, false),
 ];

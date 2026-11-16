@@ -7,7 +7,7 @@ crate::i18n::messages! {
         RestartingCore = "Lodestone Core stopped. Starting it again…",
         CoreFailed = "Lodestone Core couldn’t start",
         CoreLog = "The end of its log:",
-        OpenLogFolder = "Open the log folder",
+        OpenLogFolder = "Open logs folder",
         /// While quitting: the servers stop first.
         StoppingCore = "Stopping your servers…",
         SigningIn = "Signing in…",
@@ -34,7 +34,7 @@ crate::i18n::messages! {
         TabMods = "Mods",
         TabPlugins = "Plugins",
         TabEventLogs = "Event logs",
-        TabBackups = "Backups",
+        TabBackups = "Snapshots",
         /// The settings and their pages.
         Settings = "Settings",
         /// The app menu's item that opens the Settings dialog.
@@ -83,6 +83,10 @@ crate::i18n::messages! {
         CoreHost = "Computer: {host}",
         CoreSystem = "System: {system}",
         CoreUptime = "Running for {uptime}",
+        /// A notice at start, after the Host crashed.
+        ClosedUnexpectedly = "Lodestone Host closed unexpectedly last time.",
+        /// Shows the logs folder.
+        OpenLogs = "Open logs",
     }
 
     pub enum ShellPlural {

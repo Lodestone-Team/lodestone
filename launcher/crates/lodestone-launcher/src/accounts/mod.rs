@@ -80,6 +80,8 @@ pub struct Accounts {
     offline_forced: bool,
     /// Settings > Developer > "Offline accounts".
     offline_setting: bool,
+    /// Settings > Developer > "Log detail".
+    log_level: launcher_core::logging::LogLevel,
     /// Settings > Developer > "Sign in as the Minecraft Launcher". New Microsoft
     /// sign-ins use the official launcher's client while it is on.
     launcher_identity: bool,
@@ -138,6 +140,7 @@ impl Accounts {
             notice,
             offline_forced: offline_enabled,
             offline_setting: developer.offline_accounts,
+            log_level: developer.log_level,
             launcher_identity,
             tasks: HashMap::new(),
             removals: HashMap::new(),
@@ -216,6 +219,27 @@ impl Accounts {
         let result = self.save_developer(|developer| developer.connect_service = text);
         if result.is_ok() {
             connect_service::set_setting(service);
+        }
+        cx.notify();
+        result
+    }
+
+    /// Settings > Developer > "Log detail".
+    pub fn log_level(&self) -> launcher_core::logging::LogLevel {
+        self.log_level
+    }
+
+    /// Sets Settings > Developer > "Log detail", saves it and applies it at once
+    /// (unless `LODESTONE_LOG` sets the filter).
+    pub fn set_log_level(
+        &mut self,
+        level: launcher_core::logging::LogLevel,
+        cx: &mut Context<Self>,
+    ) -> Result<(), SharedString> {
+        let result = self.save_developer(|developer| developer.log_level = level);
+        if result.is_ok() {
+            self.log_level = level;
+            launcher_core::logging::set_level(level);
         }
         cx.notify();
         result
@@ -310,6 +334,7 @@ impl Accounts {
 
     fn report(&mut self, result: Result<(), impl std::fmt::Display>) {
         if let Err(err) = result {
+            log::warn!("couldn't save the accounts: {err}");
             self.notice = Some(tr!(M::CouldntSaveAccounts, error = err).into());
         }
     }
@@ -384,6 +409,10 @@ impl Accounts {
                         if this.store.active().is_some_and(|a| a.id == account.id) {
                             this.switch(&account.id, cx);
                         }
+                        log::warn!(
+                            "couldn't remove the sign-in of {}: {err:#}",
+                            account.username
+                        );
                         this.notice = Some(
                             tr!(
                                 M::CouldntRemoveSignIn,
@@ -449,7 +478,7 @@ impl Accounts {
                     }
                     Err(err) => {
                         // The message is safe to print: errors never hold tokens.
-                        eprintln!("lodestone-launcher: refreshing {}: {err}", account.username);
+                        log::warn!("refreshing the account {}: {err}", account.username);
                         this.sessions
                             .insert(account.id.clone(), SessionState::Failed(err));
                     }
@@ -595,7 +624,7 @@ impl Accounts {
                         Ok(image) => {
                             this.avatars.insert(id.clone(), image);
                         }
-                        Err(err) => eprintln!("lodestone-launcher: loading a skin: {err:#}"),
+                        Err(err) => log::warn!("loading the skin of account {id}: {err:#}"),
                     }
                     this.avatar_tasks.remove(&id);
                     cx.notify();
@@ -675,10 +704,7 @@ fn decode_cached(path: &std::path::Path) -> Option<Arc<RenderImage>> {
 pub fn create(cx: &mut App) -> Entity<Accounts> {
     let data_dir = DataDir::locate().unwrap_or_else(|| {
         let dir = std::env::temp_dir().join(launcher_core::paths::APP_DIR_NAME);
-        eprintln!(
-            "lodestone-launcher: no home directory; keeping data in {}",
-            dir.display()
-        );
+        log::warn!("no home directory; keeping data in {}", dir.display());
         DataDir::at(dir)
     });
     let http = launcher_core::http::default_client().expect("could not start the HTTP client");

@@ -6,7 +6,7 @@ pub fn text(message: M) -> &'static str {
         M::RestartingCore => "Lodestone Core s’est arrêté. Redémarrage…",
         M::CoreFailed => "Lodestone Core n’a pas pu démarrer",
         M::CoreLog => "La fin de son journal :",
-        M::OpenLogFolder => "Ouvrir le dossier du journal",
+        M::OpenLogFolder => "Ouvrir le dossier des journaux",
         M::StoppingCore => "Arrêt de vos serveurs…",
         M::SigningIn => "Connexion…",
         M::Username => "Nom d’utilisateur",
@@ -31,7 +31,7 @@ pub fn text(message: M) -> &'static str {
         M::TabMods => "Mods",
         M::TabPlugins => "Plugins",
         M::TabEventLogs => "Journal des événements",
-        M::TabBackups => "Sauvegardes",
+        M::TabBackups => "Instantanés",
         M::Settings => "Paramètres",
         M::SettingsMenu => "Paramètres…",
         M::SettingsCore => "Core",
@@ -70,6 +70,8 @@ pub fn text(message: M) -> &'static str {
         M::CoreHost => "Ordinateur : {host}",
         M::CoreSystem => "Système : {system}",
         M::CoreUptime => "En marche depuis {uptime}",
+        M::ClosedUnexpectedly => "Lodestone Host s’est fermé de façon inattendue la dernière fois.",
+        M::OpenLogs => "Ouvrir les journaux",
     }
 }
 

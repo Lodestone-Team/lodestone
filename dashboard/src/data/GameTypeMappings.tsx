@@ -81,7 +81,8 @@ export const game_to_description = (game: Game) =>
         Spigot: () => t('create.game.spigotDescription'),
         Other: ({ name }) => t('create.game.otherDescription', { name }),
       }),
-    MinecraftBedrock: () => t('create.game.bedrockDescription'),
+    // the title says it all
+    MinecraftBedrock: () => null,
     Generic: ({ game_name }) =>
       t('create.game.genericDescription', { name: game_name }),
   });

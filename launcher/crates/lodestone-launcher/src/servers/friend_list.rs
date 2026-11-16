@@ -835,7 +835,7 @@ impl Servers {
                     Ok(Some(image)) => Head::Ready(image),
                     Ok(None) => Head::None,
                     Err(err) => {
-                        eprintln!("lodestone-launcher: loading a friend's skin: {err:#}");
+                        log::warn!("loading a friend's skin: {err:#}");
                         Head::None
                     }
                 };

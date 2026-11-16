@@ -18,6 +18,7 @@ use launcher_core::cores::{
         plan::{PackChanges, Summary},
     },
     local_claim::ClaimError,
+    magic_localhost::MagicAddress,
     trust::Advisory,
 };
 use launcher_core::ui_skin::SurfaceId;
@@ -392,10 +393,32 @@ impl Servers {
 
         let status = status_label(server);
         let element_id = SharedString::from(format!("server-{row_id}"));
+        // any Minecraft client joins it at this address on this computer
+        let magic = self.magic_address(core, server).map(|magic| {
+            let address = magic.address();
+            let (text, taken) = match magic {
+                MagicAddress::ThisComputer { .. } => {
+                    (tr!(M::MagicAddressHere, address = address), None)
+                }
+                // something else had the saved port: this address is for this session
+                // only, which the row says while the person copies it
+                MagicAddress::Forwarded { taken, .. } => (
+                    tr!(M::MagicAddressForwarded, address = address),
+                    taken.map(|saved| tr!(M::MagicPortTakenRow, port = saved.to_string())),
+                ),
+            };
+            (text, address, taken)
+        });
         // the row shows the state with its power icon (or dot); screen readers hear it
         let mut description = format!("{status} · {}", server_detail(server));
         if shared {
             description = format!("{description} · {}", t(M::SharedTag));
+        }
+        if let Some((text, _, taken)) = &magic {
+            description = format!("{description} · {text}");
+            if let Some(taken) = taken {
+                description = format!("{description} · {taken}");
+            }
         }
         let description: SharedString = description.into();
         let share_link = self.share_link(&core_uuid, &server.uuid).is_some();
@@ -477,7 +500,18 @@ impl Servers {
                                 ))
                             }),
                     )
-                    .child(small(server_detail(server)).text_color(crate::theme::ink::muted())),
+                    .child(small(server_detail(server)).text_color(crate::theme::ink::muted()))
+                    .children(magic.map(|(text, address, taken)| {
+                        div()
+                            .flex()
+                            .flex_col()
+                            .child(super::friends_view::magic_line(
+                                format!("copy-magic-{row_id}"),
+                                text,
+                                address,
+                            ))
+                            .children(taken.map(|taken| small(taken).text_color(colors::YELLOW)))
+                    })),
             )
             .child(
                 div()
@@ -1032,24 +1066,20 @@ impl Servers {
             .flex_col()
             .gap_2()
             .child(
-                section_header(
-                    "other-cores-title",
-                    t(M::OtherCoresTitle),
-                    Some(t(M::OtherCoresHint)),
-                )
-                // a server from someone's invite link, and a host by its address
-                .child(
-                    Button::new("join-friend", t(M::JoinAFriend))
-                        .size(ButtonSize::Slim)
-                        .icon(Icon::Plus)
-                        .on_click(cx.listener(|this, _, _, cx| this.open_join(None, cx))),
-                )
-                .child(
-                    Button::new("add-server", t(M::AddServer))
-                        .size(ButtonSize::Slim)
-                        .icon(Icon::Plus)
-                        .on_click(cx.listener(|this, _, _, cx| this.open_add(None, cx))),
-                ),
+                section_header("other-cores-title", t(M::OtherCoresTitle), None)
+                    // a server from someone's invite link, and a host by its address
+                    .child(
+                        Button::new("join-friend", t(M::JoinAFriend))
+                            .size(ButtonSize::Slim)
+                            .icon(Icon::Plus)
+                            .on_click(cx.listener(|this, _, _, cx| this.open_join(None, cx))),
+                    )
+                    .child(
+                        Button::new("add-server", t(M::AddServer))
+                            .size(ButtonSize::Slim)
+                            .icon(Icon::Plus)
+                            .on_click(cx.listener(|this, _, _, cx| this.open_add(None, cx))),
+                    ),
             )
             .when(empty, |this| {
                 this.child(

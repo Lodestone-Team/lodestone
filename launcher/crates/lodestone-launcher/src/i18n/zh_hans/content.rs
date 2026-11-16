@@ -12,7 +12,6 @@ pub fn text(message: M) -> &'static str {
         M::SearchInstalled => "搜索已安装内容",
         M::SearchModrinth => "搜索 Modrinth",
         M::SearchCurseForge => "搜索 CurseForge",
-        M::LookingForMore => "想找点新内容？",
         M::BrowseModrinth => "浏览 Modrinth",
         M::BrowseCurseForge => "浏览 CurseForge",
         M::BackToTop => "回到顶部",
@@ -76,7 +75,6 @@ pub fn text(message: M) -> &'static str {
         M::CouldntReadFolder => "无法读取 {folder} 文件夹：{error}",
         M::SomeFilesNotMatched => "部分文件无法与 Modrinth 匹配：{error}",
         M::ShadersOff => "关闭光影",
-        M::NormalLook => "Minecraft 的原始画面。",
 
         M::ModsNeedLoader => "模组需要模组加载器",
         M::ShadersNeedLoader => "光影需要模组加载器",
@@ -146,9 +144,7 @@ pub fn text(message: M) -> &'static str {
         M::EnvAny => "不限",
         M::EnvClientOnly => "仅客户端",
         M::EnvServerToo => "服务器也需安装",
-        M::FilterEnvironmentHint => {
-            "仅客户端的模组可在任何服务器上使用；其他模组也必须安装在服务器上。"
-        }
+        M::FilterEnvironmentHint => "仅客户端的模组可在任何服务器上使用。",
         M::FilterOther => "其他",
         M::FilterOpenSource => "仅开源",
         M::ClearFilters => "清除筛选",

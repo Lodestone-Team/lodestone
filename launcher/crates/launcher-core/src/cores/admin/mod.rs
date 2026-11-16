@@ -16,6 +16,7 @@
 //! | [`instance_settings`] | settings manifest, auto start, listing, resource pack | C |
 //! | [`mods`] | mods, plugins, Modrinth, modpacks | A (modpacks) and C (mods) |
 //! | [`backups`] | backups: list, take, restore, download, schedule | backups |
+//! | [`world_backups`] | world backups: list, make, restore, download, cancel | world backups |
 //! | [`images`] | a backup exported as a `.lodeimg`, a server made from one | images |
 //! | [`users`] | users, permissions, profile, API keys, Minecraft links | D |
 //! | [`core_settings`] | global settings, public listing, UPnP | D |
@@ -34,6 +35,7 @@ pub mod instances;
 pub mod models;
 pub mod mods;
 pub mod users;
+pub mod world_backups;
 
 use http_client::Method;
 use serde::{Serialize, de::DeserializeOwned};
@@ -89,8 +91,18 @@ impl AdminClient {
         path: &str,
         body: Option<impl Serialize>,
     ) -> Result<T, CoreError> {
-        let bytes = self.send(method, path, body).await?;
-        serde_json::from_slice(&bytes).map_err(|err| CoreError::Invalid(err.to_string()))
+        let bytes = self.send(method.clone(), path, body).await?;
+        self.decode(&method, path, &bytes)
+    }
+
+    /// A reply read as `T`; one that doesn't read is logged ([`CoreClient::decode`]).
+    pub(crate) fn decode<T: DeserializeOwned>(
+        &self,
+        method: &Method,
+        path: &str,
+        bytes: &[u8],
+    ) -> Result<T, CoreError> {
+        self.client.decode(method, path, bytes)
     }
 
     /// A request with a JSON body (or none) whose reply doesn't matter.

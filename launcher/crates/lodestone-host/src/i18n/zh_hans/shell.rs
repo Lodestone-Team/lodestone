@@ -29,7 +29,7 @@ pub fn text(message: M) -> &'static str {
         M::TabMods => "模组",
         M::TabPlugins => "插件",
         M::TabEventLogs => "事件日志",
-        M::TabBackups => "备份",
+        M::TabBackups => "快照",
         M::Settings => "设置",
         M::SettingsMenu => "设置…",
         M::SettingsCore => "Core",
@@ -68,6 +68,8 @@ pub fn text(message: M) -> &'static str {
         M::CoreHost => "计算机：{host}",
         M::CoreSystem => "系统：{system}",
         M::CoreUptime => "已运行 {uptime}",
+        M::ClosedUnexpectedly => "Lodestone Host 上次意外关闭。",
+        M::OpenLogs => "打开日志",
     }
 }
 

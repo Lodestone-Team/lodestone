@@ -36,6 +36,7 @@
 
   // ---------- icons ----------
   const P = {
+    pin: '<path d="M5 2h6M6 2v3.5L4 9h8l-2-3.5V2M8 9v5"/>',
     chevL: '<path d="M15 5l-7 7 7 7"/>', chevR: '<path d="M9 5l7 7-7 7"/>', caret: '<path d="M6 9l6 6 6-6" fill="currentColor"/>',
     plus: '<path d="M12 5v14M5 12h14"/>', x: '<path d="M6 6l12 12M18 6L6 18"/>', check: '<path d="M5 12.5l4.5 4.5L19 7"/>',
     search: '<circle cx="11" cy="11" r="6"/><path d="M16 16l4 4"/>', dots: '<circle cx="6" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="18" cy="12" r="1.3" fill="currentColor"/>',
@@ -292,6 +293,7 @@
         h("button", { disabled: !ctx.canForward(), onclick: () => ctx.forward() }, ic("chevR"))),
       h("div.lx-logo", logoMark(), tx("Lodestone"), S.build === "dev" ? h("span.lx-devb", sh("DevBadge")) : null),
       h("div.lx-upd",
+        S.crashNotice === "on" ? [h("span.lx-pill", sh("CrashNotice")), btn(sh("OpenLogs"), { sm: true }), btn(sh("DismissCrashNotice"), { sm: true })] : null,
         upd === "available" ? [h("span.lx-pill", sh("UpdateAvailableBadge")), btn(sh("DownloadUpdate"), { sm: true, kind: "p", on: () => ctx.set("update", "ready") })] :
           upd === "ready" ? [h("span.lx-pill", sh("UpdateReadyBadge")), btn(sh("RestartToUpdate"), { sm: true, kind: "p" })] :
             upd === "downloading" ? h("span.lx-muted", sh("UpdateDownloading", { build: 1412, percent: "42%" })) : null));
@@ -542,15 +544,15 @@
           h("div.lx-subh", ct("AvailableCount", { count: 1 })), card(list.slice(2).map((m) => contentRow(ctx, m, kind))));
       } else {
         out.push(h("div.lx-subh", ct("InstalledCount", { count: list.length })), card(
-          kind === "shaders" ? h("div.lx-row", h("span.lx-modic", { style: { background: "var(--g700)" } }), h("div.lx-row-main", h("div.lx-row-t", ct("ShadersOff")), h("div.lx-row-s", ct("NormalLook"))), h("span.lx-radio", h("i"))) : null,
+          kind === "shaders" ? h("div.lx-row", h("span.lx-modic", { style: { background: "var(--g700)" } }), h("div.lx-row-main", h("div.lx-row-t", ct("ShadersOff"))), h("span.lx-radio", h("i"))) : null,
           list.map((m) => contentRow(ctx, m, kind))));
       }
       if (S.content === "upToDate") out.push(note(kind === "mods" ? ct("AllModsUpToDate") : kind === "rp" ? ct("AllResourcePacksUpToDate") : ct("AllShaderPacksUpToDate"), "ok"));
       if (S.content === "curseforge") out.push(blockedCard());
     }
     if (view === "installed") {
-      // "Looking for something new?", with a button to each platform's view.
-      out.push(h("div.lx-tbar", { style: { justifyContent: "center", padding: "16px 0" } }, h("span.lx-muted", ct("LookingForMore")),
+      // A button to each platform's view.
+      out.push(h("div.lx-tbar", { style: { justifyContent: "center", padding: "16px 0" } },
         btn(ct("BrowseModrinth"), { sm: true, icon: "search", on: () => goC({ view: "modrinth" }) }), btn(ct("BrowseCurseForge"), { sm: true, icon: "search", on: () => goC({ view: "curseforge" }) })));
       return out;
     }
@@ -603,7 +605,7 @@
   }
 
   // ---------- Worlds tab ----------
-  const WORLDS = [["Survival Island", "New World", "Today, 03:05", "Survival", false, "1.21.11", "40 MB", 2], ["Castle Build", "Castle", "2026-11-08", "Creative", true, "1.21.11", "117 MB", 0],
+  const WORLDS = [["Survival Island", "New World", "Today, 03:05", "Survival", false, "1.21.11", "40 MB", 3], ["Castle Build", "Castle", "2026-11-08", "Creative", true, "1.21.11", "117 MB", 0],
     ["One Life", "Hardcore run", "2026-11-01", "Hardcore", false, "1.20.1", "22 MB", 0, true], ["Sky test", "skytest", "2026-10-06", "Adventure", true, "24w14a", "6.3 MB", 0, false, true], ["Spectate", "spec", "2026-09-30", "Spectator", false, "1.20.1", "2.1 MB", 0]];
   function worldsTab(ctx, inst) {
     const S = ctx.state, sec = ctx.params.sec || "worlds";
@@ -624,12 +626,16 @@
       rows.push(h("div.lx-row", h("span.lx-world-ic"),
         h("div.lx-row-main", h("div.lx-row-t", tx(name), hard ? badge(wd("Hardcore"), "red") : null, h("span.lx-row-v", tx(folder))),
           h("div.lx-row-s", join(wd("PlayedAt", { time: played }), mode === "Hardcore" ? wd("Hardcore") : wd(mode), cheats ? wd("Cheats") : null, snap ? wd("Snapshot", { version: ver }) : tx(ver), tx(size)))),
-        h("div.lx-row-a", btn(wd("BackUp"), { icon: "dl", sm: true }), gbtn([wd("Backups"), backups ? " " + backups : ""]), gbtn(cm("Rename")), gbtn(wd("Export")), gbtn(cm("OpenFolder")), btn(wd("DeleteWorld"), { kind: "d", sm: true, on: () => ctx.open("deleteWorld") }))));
+        h("div.lx-row-a", iconBtn("dots", null, cm("Menu")), iconBtn("trash", () => ctx.open("deleteWorld"), wd("DeleteWorld")))));
       if (idx === 0) rows.push(h("div", { style: { padding: "8px 18px 12px 88px", background: "var(--g875)" } },
-        h("div.lx-caps", { style: { margin: "4px 0 8px" } }, wd("Backups")),
-        ["2026-11-10 03:04", "2026-11-09 21:40"].map((b) => h("div", { style: { display: "flex", alignItems: "center", gap: "8px", padding: "6px 0" } }, h("span.lx-mono.lx-grow", tx("Survival Island " + b + ".zip")), h("span.lx-muted", tx("39 MB")),
-          btn(wd("RestoreAsCopy"), { sm: true }), btn(wd("ReplaceWorld"), { sm: true, on: () => ctx.open("replaceWorld") }), gbtn(cm("Delete")))),
-        h("div.lx-muted", { style: { fontSize: "13px", marginTop: "6px" } }, wd("NoBackupsYet"))));
+        h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", margin: "4px 0 8px" } }, h("div.lx-caps", wd("WorldBackupsHeading")), btn(wd("BackUp"), { icon: "dl", sm: true })),
+        [["Today, 03:04", is("WorldBackupDefaultName")], ["Yesterday, 21:40", tx("Before the dragon fight")]].map(([when, name]) => h("div", { style: { display: "flex", alignItems: "center", gap: "8px", padding: "6px 0" } }, h("span.lx-grow", tx(when), sep(), name), h("span.lx-muted", tx("39 MB")),
+          btn(wd("RestoreEllipsis"), { sm: true, on: () => ctx.open("worldBackupRestore") }), gbtn(wd("RestoreAsNewWorld")), gbtn(cm("ShowInFileManager")), gbtn(cm("Delete"), () => ctx.open("worldBackupDelete")))),
+        h("div.lx-muted", { style: { fontSize: "13px", marginTop: "6px" } }, wd("NoWorldBackupsYet")),
+        h("div.lx-caps", { style: { margin: "12px 0 8px" } }, wd("InSnapshots")),
+        h("div", { style: { display: "flex", alignItems: "center", gap: "8px", padding: "6px 0" } }, h("span.lx-grow", tx("Nov 8, 2026"), sep(), tx("Before 1.21 update")), h("span.lx-muted", tx("39 MB"), sep(), wdp("WithOtherWorlds", { count: 2 })),
+          btn(wd("RestoreEllipsis"), { sm: true, on: () => ctx.open("replaceWorld") }), gbtn(wd("RestoreAsNewWorld"))),
+        h("div.lx-muted", { style: { fontSize: "13px", marginTop: "6px" } }, wd("NoSnapshotsOfWorld"))));
     });
     out.push(card(rows));
     return out;
@@ -683,14 +689,14 @@
           ...[["Controls", 12, 2], ["Video", 9, 0], ["Sound", 14, 0], ["Accessibility", 20, 1], ["Language", 3, 0]].map(([c, s, o]) =>
             srow(is("Category" + c), [is("Category" + c + "Description"), sep(), isp("SharedCount", { count: s }), o ? [sep(), isp("OverriddenCount", { count: o })] : null], gbtn(is("Show"))))),
         h("div.lx-scard", { style: { marginTop: "12px" } }, h("div", isp("ChangedInGame", { count: 2, names: "FOV, Brightness" })), h("div", { style: { display: "flex", gap: "8px" } }, btn(is("KeepForInstance"), { sm: true }), gbtn(is("Dismiss"))))],
-      snapshots: () => [h("div.lx-h3-sub", is("SnapshotsHint")), card(
-        srow(is("SnapshotAfterPlay"), is("SnapshotAfterPlayHint"), toggle(false)),
-        h("div.lx-row", h("div.lx-row-main", h("div.lx-row-t", tx("Before 1.21 update")), h("div.lx-row-s", tx("Nov 8, 2026"), sep(), tx("World"), sep(), is("SnapshotSizes", { total: "412 MB", new: "38 MB" }))), h("div.lx-row-a", btn(is("RestoreEllipsis"), { sm: true, on: () => ctx.open("snapshotRestore") }), btn(is("ExportEllipsis"), { sm: true, on: () => ctx.open("snapshotExport") }), gbtn(is("PinSnapshot")), gbtn(cm("Delete"), () => ctx.open("snapshotDelete")))),
-        h("div.lx-row", h("div.lx-row-main", h("div.lx-row-t", tx("Before updating Sodium"), sep(), is("BadgeAutomatic")), h("div.lx-row-s", tx("Nov 9, 2026"), sep(), is("SnapshotSizes", { total: "410 MB", new: "2 MB" }))), h("div.lx-row-a", btn(is("RestoreEllipsis"), { sm: true }), btn(is("ExportEllipsis"), { sm: true }), gbtn(is("UnpinSnapshot")), gbtn(cm("Delete")))),
+      snapshots: () => [card(
+        srow(is("TakeSnapshotTitle"), null, btn(is("TakeSnapshotEllipsis"), { sm: true, on: () => ctx.open("snapshotTake") })),
+        srow(is("SnapshotAfterPlay"), null, toggle(ctx.state.instSettings === "afterPlayOwn"))),
+        h("div.lx-h3", { style: { marginTop: "16px" } }, is("SnapshotsGroup")), card(
+        h("div.lx-row", h("div.lx-row-main", h("div.lx-row-t", tx("Before 1.21 update")), h("div.lx-row-s", tx("Nov 8, 2026"), sep(), tx("World"), sep(), is("SnapshotSizes", { total: "412 MB", new: "38 MB" }))), h("div.lx-row-a", iconBtn("pin", null, is("PinSnapshot")), iconBtn("dots", () => ctx.open("snapshotRestore"), cm("Menu")), iconBtn("trash", () => ctx.open("snapshotDelete"), cm("Delete")))),
+        h("div.lx-row", h("div.lx-row-main", h("div.lx-row-t", tx("Before updating Sodium"), sep(), is("BadgeAutomatic")), h("div.lx-row-s", tx("Nov 9, 2026"), sep(), is("SnapshotSizes", { total: "410 MB", new: "2 MB" }))), h("div.lx-row-a", iconBtn("pin", null, is("UnpinSnapshot")), iconBtn("dots", null, cm("Menu")), iconBtn("trash", null, cm("Delete")))),
         h("div.lx-row", h("div.lx-row-main", h("div.lx-row-t", tx("After playing"), sep(), is("BadgeAfterPlaying"), sep(), is("BadgeImported"), sep(), is("BadgePinned")))),
-        srow(isp("UnreadableImages", { count: 1 }), is("UnreadableImagesHint"), gbtn(is("DeleteUnreadable"))),
-        h("div.lx-muted", is("SnapshotKeepHint", { last: 5, days: 7, weeks: 4 }))),
-        h("div", { style: { marginTop: "10px", display: "flex", gap: "8px" } }, btn(is("TakeSnapshotEllipsis"), { on: () => ctx.open("snapshotTake") })),
+        srow(isp("UnreadableImages", { count: 1 }), is("UnreadableImagesHint"), gbtn(is("DeleteUnreadable")))),
         ctx.state.instSettings === "noSnapshots" ? h("div.lx-muted", is("NoSnapshots")) : null],
       maint: () => card(
         srow(is("VerifyGameFiles"), is("VerifyHint"), btn(is("Verify"), { on: () => ctx.set("game", "verifying") }), { below: ctx.state.game === "verifying" ? h("div.lx-srow-hint", is("VerifyStarted")) : null }),
@@ -708,12 +714,12 @@
 
   // ---------- Lodestone Host page ----------
   const SERVERS = [
-    { name: "Survival SMP", ver: "1.20.1", loader: "Fabric 0.16.14", state: "running", players: [3, 20], shared: true, linked: true },
-    { name: "Creative world", ver: "1.21.1", loader: null, state: "stopped" },
-    { name: "All the Mods", ver: "1.20.1", loader: "Forge 1.20.1-47.4.28", state: "starting", busy: "BusyStarting" },
-    { name: "Old hub", ver: "1.8.9", loader: null, state: "crashed" },
-    { name: "Lobby", ver: "1.21.1", loader: "Paper", state: "stopping", busy: "BusyStopping" },
-    { name: "Test", ver: "1.21.1", loader: "Other", state: "unknown" },
+    { name: "Survival SMP", ver: "1.20.1", loader: "Fabric 0.16.14", state: "running", players: [3, 20], shared: true, linked: true, port: 25565 },
+    { name: "Creative world", ver: "1.21.1", loader: null, state: "stopped", port: 25566 },
+    { name: "All the Mods", ver: "1.20.1", loader: "Forge 1.20.1-47.4.28", state: "starting", busy: "BusyStarting", port: 25567 },
+    { name: "Old hub", ver: "1.8.9", loader: null, state: "crashed", port: 25568 },
+    { name: "Lobby", ver: "1.21.1", loader: "Paper", state: "stopping", busy: "BusyStopping", port: 25569 },
+    { name: "Test", ver: "1.21.1", loader: "Other", state: "unknown", port: 25570 },
   ];
   const stateLabel = (s) => sv({ running: "StateRunning", starting: "StateStarting", stopping: "StateStopping", stopped: "StateStopped", crashed: "StateCrashed", unknown: "StateUnknown", hidden: "StateHidden" }[s]);
   function serverRow(ctx, s, opts = {}) {
@@ -727,7 +733,11 @@
     return h("div.lx-srvrow", dot(s.state === "running" ? "on" : s.state === "crashed" ? "err" : s.state === "starting" ? "warn" : "off"),
       h("div.lx-grow", h("div.lx-srvrow-n", h("a", { style: { cursor: "pointer" }, onclick: () => ctx.go("server", { name: s.name }) }, tx(s.name)),
         s.shared ? h("span.lx-pill-tag", sv("SharedTag"), h("button", { onclick: () => ctx.set("toast", "copiedInvite") }, ic("copy"), sv("CopyInviteLink"))) : null),
-      h("div.lx-row-s", join(tx(s.ver), s.loader === "Other" ? sv("LoaderOther") : s.loader ? tx(s.loader) : null, s.players ? sv("PlayersOfMax", { count: s.players[0], max: s.players[1] }) : null, s.state !== "running" ? stateLabel(s.state) : null, s.hiddenAddr ? sv("AddressHidden") : null))),
+      h("div.lx-row-s", join(tx(s.ver), s.loader === "Other" ? sv("LoaderOther") : s.loader ? tx(s.loader) : null, s.players ? sv("PlayersOfMax", { count: s.players[0], max: s.players[1] }) : null, s.state !== "running" ? stateLabel(s.state) : null, s.hiddenAddr ? sv("AddressHidden") : null)),
+      // Magic localhost: the server's own port on this computer, or a forwarder's port for another host's
+      opts.magic && !s.hiddenAddr && (opts.magic !== "here" || s.port) ? h("div.lx-row-s", opts.magic === "here" ? sv("MagicAddressHere", { address: "127.0.0.1:" + s.port }) : opts.magic === "tunnel" ? sv("FriendAddress", { address: "127.0.0.1:36017" }) : sv("MagicAddressForwarded", { address: "127.0.0.1:" + (s.portTaken ? 40123 : 34121) }), " ", btn(cm("Copy"), { sm: true, kind: "g", icon: "copy" })) : null,
+      // another program had the saved port: this session's address, said on the row
+      opts.magic === "forwarded" && s.portTaken && !s.hiddenAddr ? h("div.lx-row-s", { style: { color: "var(--yellow)" } }, sv("MagicPortTakenRow", { port: 34121 })) : null),
       h("div.lx-row-a", actions));
   }
   function coreMenu(ctx, owner) {
@@ -755,10 +765,10 @@
     if (st === "direct") parts.push(h("div.lx-core", h("div.lx-grow.lx-muted", sv("DirectNote")), btn(sv("GetLodestoneCli"), { icon: "ext" })));
     if (st === "claimFailed") parts.push(h("div", { style: { padding: "0 18px" } }, note(sv("ClaimRefused"), "err")));
     if (claimed) {
-      parts.push(...SERVERS.map((s) => serverRow(ctx, s, { owner: true })));
+      parts.push(...SERVERS.map((s) => serverRow(ctx, s, { owner: true, magic: "here" })));
       parts.push(h("div", { style: { padding: "12px 18px" } }, h("div.lx-caps", sv("SharedWithFriends")), h("div.lx-muted", { style: { fontSize: "13px" } }, sv("SharedWithFriendsHint"))));
     } else if (st !== "direct") {
-      parts.push(serverRow(ctx, { name: "Survival SMP", ver: "1.20.1", loader: "Fabric 0.16.14", state: "running", players: [3, 20], shared: true }, {}),
+      parts.push(serverRow(ctx, { name: "Survival SMP", ver: "1.20.1", loader: "Fabric 0.16.14", state: "running", players: [3, 20], shared: true }, { magic: "tunnel" }),
         h("div", { style: { padding: "8px 18px 12px" } }, h("div.lx-muted", { style: { fontSize: "13px" } }, sv("ConnectToJoinDirectly"))));
     }
     return h("div.lx-corebox.lx-local", parts);
@@ -824,14 +834,14 @@
       h("div.lx-areah", h("div.lx-grow", h("div.lx-areah-t", sv("OnThisComputer"))), gbtn(sv("Rescan"))),
       localCore(ctx),
       friendsSection(ctx),
-      h("div.lx-hostsec", h("div.lx-hostsec-h", ic("user"), h("div.lx-grow", h("div.lx-hostsec-t", sv("FriendsTitle"), S.relay === "dev" ? h("span", { style: { color: "var(--yellow)", fontFamily: "Satoshi", fontSize: "13px", marginLeft: "10px" } }, sh("ConnectServiceInUse", { service: "connect-dev.lodestone.cc" })) : null), h("div.lx-hostsec-s", sv("FriendsHint"))),
+      h("div.lx-hostsec", h("div.lx-hostsec-h", ic("user"), h("div.lx-grow", h("div.lx-hostsec-t", sv("FriendsTitle"), S.relay === "dev" ? h("span", { style: { color: "var(--yellow)", fontFamily: "Satoshi", fontSize: "13px", marginLeft: "10px" } }, sh("ConnectServiceInUse", { service: "connect-dev.lodestone.cc" })) : null)),
         btn(sv("JoinAFriend"), { icon: "plus", on: () => ctx.open("joinFriend") })),
         S.friendServers === "some" ? [
           h("div.lx-srvrow", dot("on"), h("div.lx-grow", h("div.lx-srvrow-n", tx("Creative build"), badge(sv("FriendPlayingNow"), "green")), h("div.lx-row-s", sv("SharedBy", { name: "Alex's Lodestone" }), sep(), sv("FriendAddress", { address: "127.0.0.1:36017" }))), pbtn(sv("Play"), () => ctx.open("joinFriend"))),
           h("div.lx-srvrow", dot("off"), h("div.lx-grow", h("div.lx-srvrow-n", tx("Sam's survival")), h("div.lx-row-s", sv("SharedBy", { name: "Sam's Core" }))), btn(sv("FriendCheck"), { sm: true }), h("span.lx-muted", sv("FriendChecking")), gbtn(sv("StopTrusting"))),
           h("div.lx-srvrow", dot("on"), h("div.lx-grow", h("div.lx-srvrow-n", tx("Survival SMP")), h("div.lx-row-s", sv("SharedBy", { name: "Peter's Lodestone Core" }), sep(), sv("DirectConnection"))), pbtn(sv("Play")))]
           : null),
-      h("div.lx-areah", h("div.lx-grow", h("div.lx-areah-t", sv("OtherCoresTitle")), h("div.lx-areah-s", sv("OtherCoresHint"))), gbtn(sv("AddServer"), () => ctx.open("addServer"), "plus")),
+      h("div.lx-areah", h("div.lx-grow", h("div.lx-areah-t", sv("OtherCoresTitle"))), gbtn(sv("AddServer"), () => ctx.open("addServer"), "plus")),
       other === "none" ? empty("server", sv("NoOtherCores"), sv("NoServersHint"), [pbtn(sv("AddServer"), () => ctx.open("addServer"), "plus")]) : [
         h("div.lx-corebox", h("div.lx-core", h("span.lx-ibtn", { style: { width: "38px", height: "38px", border: 0, background: "var(--g700)" } }, ic("server")),
           h("div.lx-grow", h("div.lx-core-n", tx("Alex's server box")), h("div.lx-core-s", tx("https://192.168.1.42:16662"), sep(), other === "signedIn" ? sv("SignedInAs", { username: "peter" }) : sv("NotSignedIn"))),
@@ -840,8 +850,8 @@
           other === "certificate" ? h("div", { style: { padding: "4px 18px" } }, note(sv("CertUntrustedWarning", { computer: "this Mac" }), "warn", btn(sv("ReviewCertificate"), { sm: true, on: () => ctx.open("certificate") }))) :
             other === "certChanged" ? h("div", { style: { padding: "4px 18px" } }, note(sv("CertChangedWarning"), "err", btn(sv("ReviewNewCertificate"), { sm: true, on: () => ctx.open("certificate", { changed: true }) }))) :
               other === "notListed" ? h("div.lx-srvrow.lx-muted", sv("NotListedPublicly")) : other === "noPublic" ? h("div.lx-srvrow.lx-muted", sv("NoPublicServers")) : other === "noVisible" ? h("div.lx-srvrow.lx-muted", sv("NoVisibleServers")) :
-                [serverRow(ctx, { name: "Skyblock", ver: "1.21.1", loader: "Fabric 0.16.14", state: "running", players: [1, 10] }, {}),
-                  serverRow(ctx, { name: "Minigames", ver: "1.21.1", loader: "Paper", state: other === "signedIn" ? "stopped" : "hidden", hiddenAddr: true, busy: other === "busy" ? "BusyCreatingFiles" : null, busyVars: { done: 12, total: 48 } }, { signedIn: other === "signedIn" })]),
+                [serverRow(ctx, { name: "Skyblock", ver: "1.21.1", loader: "Fabric 0.16.14", state: "running", players: [1, 10], portTaken: other === "portTaken" }, { magic: "forwarded" }),
+                  serverRow(ctx, { name: "Minigames", ver: "1.21.1", loader: "Paper", state: other === "signedIn" ? "stopped" : "hidden", hiddenAddr: true, busy: other === "busy" ? "BusyCreatingFiles" : null, busyVars: { done: 12, total: 48 } }, { signedIn: other === "signedIn", magic: "forwarded" })]),
         h("div.lx-corebox", h("div.lx-core", h("span.lx-ibtn", { style: { width: "38px", height: "38px", border: 0, background: "var(--g700)" } }, ic("server")),
           h("div.lx-grow", h("div.lx-core-n", tx("Old laptop")), h("div.lx-core-s", tx("https://old-laptop.local:16662"), sep(), sv("NotSignedIn"))), h("span.lx-muted", sv("TrustedForMods")), toggle(false), btn(cm("SignIn"), { icon: "user" }), iconBtn("dots")),
           h("div", { style: { padding: "4px 18px" } }, note(sv("Offline"), "warn")))],
@@ -935,12 +945,12 @@
           ui.menu === "lang" ? menu([{ label: sh("LanguageSystem") }, { label: tx("English") }, { label: tx("Deutsch") }, { label: tx("\u7b80\u4f53\u4e2d\u6587") }], "lx-rmenu") : null)),
         srow(sh("Zoom"), tx("\u2318+  \u2318\u2212  \u23180"), [btn(tx("\u2212"), { sm: true }), h("span", { style: { width: "50px", textAlign: "center" } }, fm("Percent", { value: 100 })), btn(tx("+"), { sm: true })]),
         srow(sh("GroupAutomatically"), sh("GroupAutomaticallyHint"), toggle(S.groups !== "off", () => ctx.set("groups", S.groups === "off" ? "on" : "off"))),
-        srow(sh("WhenAGameStarts"), w === "stay" ? sh("AfterLaunchStayHint") : w === "quit" ? sh("AfterLaunchQuitHint") : null,
+        srow(sh("WhenAGameStarts"), w === "quit" ? sh("AfterLaunchQuitHint") : null,
           seg([["stay", sh("AfterLaunchStay")], ["minimize", sh("AfterLaunchMinimize")], ["quit", sh("AfterLaunchQuit")]], w, (k) => { ui.wgs = k; rerender() })))),
       section(sh("UpdatesSection"), card(
-        srow(sh("UpdateAutomatically"), sh("UpdateAutomaticallyHint"), toggle(upd !== "dev")),
-        srow(sh("BetaBuilds"), sh("BetaBuildsHint"), toggle(false)),
-        S.build === "dev" ? srow(sh("DeveloperBuilds"), sh("DeveloperBuildsHint"), toggle(true)) : null,
+        srow(sh("UpdateAutomatically"), null, toggle(upd !== "dev")),
+        srow(sh("BetaBuilds"), null, toggle(false)),
+        S.build === "dev" ? srow(sh("DeveloperBuilds"), null, toggle(true)) : null,
         status, upd !== "dev" ? srow(sh("BuildNumber", { build: 1398 }), null) : null)),
       h("div.lx-muted", { style: { fontSize: "13px" } }, sh("ViewMenu"), " \u00b7 ", sh("ZoomIn"), " \u00b7 ", sh("ZoomOut"), " \u00b7 ", sh("ActualSize"), " \u00b7 ", sh("EditMenu"), " \u00b7 ", sh("Undo"), " \u00b7 ", sh("Redo"), " \u00b7 ", sh("QuitApp", { app: "Lodestone Launcher" }), " \u00b7 ", cm("MinimizeWindow"), " \u00b7 ", cm("MaximizeWindow"), " \u00b7 ", cm("RestoreWindow")),
     ];
@@ -948,7 +958,7 @@
   function settingsDefaults(ctx) {
     return [h("div.lx-h3-sub", sh("DefaultsLead")), h("div.lx-sec", card(
       srow(sh("AutoConfigure"), sh("AutoConfigureHint"), toggle(true)),
-      srow(is("SnapshotAfterPlay"), is("SnapshotAfterPlayDefaultHint"), toggle(false)),
+      srow(is("SnapshotAfterPlay"), null, toggle(false)),
       srow(sh("Memory"), [sh("MemoryDefaultHint", { min: "512 MB", max: "4 GB" }), " ", is("TotalMemory", { computer: "This Mac", size: "16 GB" })], [field("512", null, { cls: "lx-num" }), h("span.lx-muted", sh("MegabytesUnit")), tx("\u2013"), field("4096"), h("span.lx-muted", sh("MegabytesUnit"))],
         { below: ctx.state.settingsUnsaved === "error" ? h("div", { style: { color: "#ff8a8a", fontSize: "13.5px", marginTop: "4px" } }, sh("MemoryError", { error: "" }), is("MemoryMinAboveMax"), " ", is("MemoryFormat"), " ", is("MemoryTooHigh", { computer: "this Mac", os: "macOS" })) : null }),
       srow(sh("Window"), null, [field("854"), tx("\u00d7"), field("480"), h("span.lx-muted", sh("Fullscreen")), toggle(false)], { below: ctx.state.settingsUnsaved === "error" ? h("div", { style: { color: "#ff8a8a", fontSize: "13.5px" } }, is("WindowSizeInvalid")) : h("div.lx-srow-hint", is("WindowFullscreen", { size: "854 \u00d7 480" })) }),
@@ -957,14 +967,13 @@
       srow(sh("EnvironmentVariables"), ctx.state.settingsUnsaved === "error" ? h("span", { style: { color: "#ff8a8a" } }, is("EnvInvalid", { error: "missing '='" })) : null, field(null, is("EnvPlaceholder")))))];
   }
   function settingsShared(ctx) {
-    return [h("div.lx-h3-sub", sh("SharedLead")),
-      section(sh("Source"), card(
+    return [section(sh("Source"), card(
         srow(sh("SyncFrom"), ctx.state.sharedMain === "none" ? sh("SyncFromNoneHint") : sh("SyncFromHint"), h("div", { style: { position: "relative" } }, select(ctx.state.sharedMain === "none" ? h("span", sh("NoInstance"), " ", h("span.lx-muted", sh("EditHereOnly"))) : tx("Survival 1.20.1"), { on: toggleMenu("main") }),
           ui.menu === "main" ? menu([{ label: tx("Survival 1.20.1") }, { label: tx("All the mods") }, "-", { label: sh("NoInstance"), right: h("span.lx-mright", sh("EditHereOnly")) }], "lx-rmenu") : null)),
         srow(sh("StartFromInstance"), null, btn(sh("CopyFromInstance"))),
         srow(sh("ClearShared"), sh("ClearSharedHint"), btn(sh("ClearEllipsis"))))),
       ctx.state.sharedMain === "none" ? note(sh("SyncedFromNone"), "info") : null,
-      section(sh("WhatsShared"), h("div.lx-h3-sub", sh("WhatsSharedLead")), card(["Controls", "Video", "Sound", "Accessibility", "Language"].map((c, i) => srow(sh("Category" + c), [sh("Category" + c + "Hint"), sep(), shp("Values", { count: [61, 24, 13, 37, 3][i] })], toggle(i !== 2))))),
+      section(sh("WhatsShared"), card(["Controls", "Video", "Sound", "Accessibility", "Language"].map((c, i) => srow(sh("Category" + c), [sh("Category" + c + "Hint"), sep(), shp("Values", { count: [61, 24, 13, 37, 3][i] })], toggle(i !== 2))))),
       section(sh("NarratorSection"), card(srow(sh("KeepNarratorOff"), sh("KeepNarratorOffHint"), toggle(true))), note(sh("NarratorKeptOff"), "ok"), h("div.lx-muted", sh("NarratorNotShared", { category: "Accessibility & chat" })), h("div.lx-muted", sh("NarratorPerInstance"))),
       section(sh("ServerList"), card(srow(sh("ServerList"), sh("ServerListHint"), toggle(false)))),
       h("div.lx-tbar", h("b", { style: { fontFamily: "Chillax", fontSize: "19px" } }, sh("WhatsShared")), h("span.lx-grow"), gbtn(sh("Hide")), gbtn(sh("Show")), btn(sh("ClearEveryShared"), { sm: true })),
@@ -1013,7 +1022,8 @@
       section(sh("StorageCacheAndLogs"), card(srow(sh("StorageCache"), null, [size("234 MB"), btn(sh("StorageClearEllipsis"), { sm: true, on: () => ctx.open("storageConfirm", { which: "Cache" }) })]),
         srow(sh("StorageLogs"), sh("StorageOldLogs", { size: "38 MB" }), [size("52 MB"), btn(sh("StorageDeleteOld"), { sm: true, on: () => ctx.open("storageConfirm", { which: "OldLogs" }) }), btn(sh("StorageDeleteAll"), { sm: true, on: () => ctx.open("storageConfirm", { which: "AllLogs" }) })]),
         srow(sh("StorageLeftovers"), null, [size("120 MB"), btn(sh("StorageRemoveEllipsis"), { sm: true, on: () => ctx.open("storageConfirm", { which: "Leftovers" }) })]),
-        srow(sh("StorageSnapshots"), shp("StorageSnapshotsHint", { count: 4, removable: 2 }), [size("640 MB"), btn(sh("StorageRemoveEllipsis"), { sm: true, on: () => ctx.open("storageConfirm", { which: "Snapshots" }) })]))),
+        srow(sh("StorageSnapshots"), shp("StorageSnapshotsHint", { count: 4, removable: 2 }), [size("640 MB"), btn(sh("StorageRemoveEllipsis"), { sm: true, on: () => ctx.open("storageConfirm", { which: "Snapshots" }) })]),
+        srow(sh("StorageWorldBackups"), ctx.state.storage === "noDeleted" ? shp("StorageWorldBackupsCount", { count: 7 }) : shp("StorageWorldBackupsHint", { count: 9, deleted: 2 }), [size("410 MB"), btn(sh("StorageRemoveEllipsis"), { sm: true, on: () => ctx.open("storageConfirm", { which: "WorldBackups" }) })]))),
       h("div.lx-muted", { style: { fontSize: "13px" } }, sh("StorageNoRuntimes"), " \u00b7 ", sh("StorageRemove"), " \u00b7 ", sh("StorageClear"), " \u00b7 ", sh("StorageDeleteConfirm"), " \u00b7 ", sh("StorageMoveHere"), " \u00b7 ", sh("StorageMoveCantUse", { error: "the folder isn't empty" }), " \u00b7 ", sh("StorageMoveStopGame")),
     ];
   }
@@ -1050,7 +1060,9 @@
       section(sh("SignInSection"), card(srow(sh("SignInAsLauncher"), sh("SignInAsLauncherHint"), toggle(ctx.state.account === "launcher", () => ctx.state.account === "launcher" ? ctx.open("turnOffLauncher") : ctx.open("launcherIdentity"))))),
       section(sh("OfflineAccountsSetting"), card(srow(sh("OfflineAccountsSetting"), [sh("OfflineAccountsSettingHint", { add: "Add offline account" }), " ", sh("OfflineAccountsAlwaysOn")], toggle(true)))),
       section(sh("FirstTimeSetupSection"), card(srow(sh("ResetFirstTimeSetup"), sh("ResetFirstTimeSetupHint"), btn(cm("Reset"), { on: () => ctx.set("toast", "firstTime") })))),
-      section(sh("DiagnosticsSection"), card(srow(sh("PerfMonitor"), sh("PerfMonitorHint"), btn(sh("PerfOpen"), { on: () => ctx.open("perf") })))),
+      section(sh("DiagnosticsSection"), card(srow(sh("PerfMonitor"), sh("PerfMonitorHint"), btn(sh("PerfOpen"), { on: () => ctx.open("perf") })),
+        srow(sh("LogsSetting"), sh("LogsHint", { path: "/Users/you/Library/Application Support/Lodestone Launcher/logs" }), btn(sh("OpenLogsFolder"), { sm: true })),
+        srow(sh("LogDetail"), [sh("LogDetailHint"), " ", sh("LogLevelFromEnv")], seg([["info", sh("LogInfo")], ["debug", sh("LogDebug")]], "info")))),
     ];
   }
 
@@ -1269,7 +1281,7 @@
     deleteWorld: (ctx) => confirmDlg(ctx, sh("DeleteNamed", { name: "Survival Island" }), [h("p", sh("DeleteWorldBody", { trash: "the Trash" })), h("p.lx-muted", cm("TheTrash"))], cm("MoveToTrash"), { danger: true }),
     replaceWorld: (ctx) => confirmDlg(ctx, sh("ReplaceWorldTitle", { name: "Survival Island" }), h("p", sh("ReplaceWorldBody", { name: "Survival Island", when: "today, 03:04" })), sh("BackUpAndReplace"), { danger: true }),
     mainOffer: (ctx) => dialog(ctx, sh("MainOfferTitle", { name: "Survival 1.20.1" }), [h("p", sh("MainOfferBody")), h("p.lx-muted", sh("MainChangeLater"))], [pbtn(sh("MakeItMain"), () => { ctx.close(); ctx.set("toast", "synced") }), btn(cm("NotNow"), { on: () => ctx.close() })], { narrow: true }),
-    mainSwitch: (ctx) => dialog(ctx, sh("MainOfferTitle", { name: "All the mods" }), [h("p", sh("MainSwitchBody", { current: "Survival 1.20.1", name: "All the mods" })), h("p.lx-muted", sh("MainChangeLater")), h("p.lx-muted", is("IsMainInstance"), " \u00b7 ", is("SharingMain"), " \u00b7 ", is("SharingOff"), " \u00b7 ", is("SharingNoMain"))],
+    mainSwitch: (ctx) => dialog(ctx, sh("MainOfferTitle", { name: "All the mods" }), [h("p", sh("MainSwitchBody", { current: "Survival 1.20.1", name: "All the mods" })), h("p.lx-muted", sh("MainChangeLater")), h("p.lx-muted", is("IsMainInstance"), " \u00b7 ", is("SharingMain"), " \u00b7 ", is("SharingNoMain"))],
       [pbtn(sh("MakeNameMain", { name: "All the mods" }), () => ctx.close()), btn(cm("Cancel"), { on: () => ctx.close() })], { narrow: true }),
     unsaved: (ctx) => dialog(ctx, sh("SaveChangesTitle"), [h("p", ctx.state.unsavedWhere === "defaults" ? sh("UnsavedDefaultsBody") : ctx.state.unsavedWhere === "this" ? sh("UnsavedThisInstanceBody") : sh("UnsavedInstanceBody", { name: "All the mods" }))],
       [pbtn(cm("Save"), () => ctx.close()), btn(cm("Discard"), { on: () => ctx.close() }), btn(cm("KeepEditing"), { on: () => ctx.close() })], { narrow: true }),
@@ -1312,9 +1324,9 @@
       h("p.lx-muted", sh("NoFilesChange")), h("p.lx-muted", sh("ModpackUpdateSafety"))],
       [pbtn(cm("Update"), () => ctx.close()), btn(cm("Cancel"), { on: () => ctx.close() })]),
     storageConfirm: (ctx) => { const w = ctx.state.storageWhich !== "fromButton" ? ctx.state.storageWhich : (ctx.dparams.which || "Cache"); const M = { GameFiles: ["StorageCleanGameFilesTitle", "StorageCleanGameFilesBody", "StorageRemove"], Runtimes: ["StorageCleanRuntimesTitle", "StorageCleanRuntimesBody", "StorageRemove"], Cache: ["StorageClearCacheTitle", "StorageClearCacheBody", "StorageClear"],
-      OldLogs: ["StorageDeleteOldLogsTitle", "StorageDeleteOldLogsBody", "StorageDeleteConfirm"], AllLogs: ["StorageDeleteAllLogsTitle", "StorageDeleteAllLogsBody", "StorageDeleteConfirm"], Leftovers: ["StorageCleanLeftoversTitle", "StorageCleanLeftoversBody", "StorageRemove"], Snapshots: ["StorageCleanSnapshotsTitle", null, "StorageRemove"] }[w];
-      // uses: sh("StorageCleanGameFilesTitle") sh("StorageCleanGameFilesBody") sh("StorageCleanRuntimesTitle") sh("StorageCleanRuntimesBody") sh("StorageClearCacheTitle") sh("StorageClearCacheBody") sh("StorageDeleteOldLogsTitle") sh("StorageDeleteOldLogsBody") sh("StorageDeleteAllLogsTitle") sh("StorageDeleteAllLogsBody") sh("StorageCleanLeftoversTitle") sh("StorageCleanLeftoversBody") sh("StorageCleanSnapshotsTitle") shp("StorageCleanSnapshotsBody")
-      return confirmDlg(ctx, sh(M[0]), h("p", M[1] ? sh(M[1], { size: "312 MB" }) : shp("StorageCleanSnapshotsBody", { count: 3 })), sh(M[2]), { danger: true }) },
+      OldLogs: ["StorageDeleteOldLogsTitle", "StorageDeleteOldLogsBody", "StorageDeleteConfirm"], AllLogs: ["StorageDeleteAllLogsTitle", "StorageDeleteAllLogsBody", "StorageDeleteConfirm"], Leftovers: ["StorageCleanLeftoversTitle", "StorageCleanLeftoversBody", "StorageRemove"], Snapshots: ["StorageCleanSnapshotsTitle", null, "StorageRemove"], WorldBackups: ["StorageCleanWorldBackupsTitle", null, "StorageRemove"] }[w];
+      // uses: sh("StorageCleanGameFilesTitle") sh("StorageCleanGameFilesBody") sh("StorageCleanRuntimesTitle") sh("StorageCleanRuntimesBody") sh("StorageClearCacheTitle") sh("StorageClearCacheBody") sh("StorageDeleteOldLogsTitle") sh("StorageDeleteOldLogsBody") sh("StorageDeleteAllLogsTitle") sh("StorageDeleteAllLogsBody") sh("StorageCleanLeftoversTitle") sh("StorageCleanLeftoversBody") sh("StorageCleanSnapshotsTitle") shp("StorageCleanSnapshotsBody") sh("StorageCleanWorldBackupsTitle") shp("StorageCleanWorldBackupsBody")
+      return confirmDlg(ctx, sh(M[0]), h("p", M[1] ? sh(M[1], { size: "312 MB" }) : w === "WorldBackups" ? shp("StorageCleanWorldBackupsBody", { count: 2, trash: "the Trash" }) : shp("StorageCleanSnapshotsBody", { count: 3 })), sh(M[2]), { danger: true }) },
     storageMove: (ctx) => { const st = ctx.state.storageMove; if (st === "moving") return dialog(ctx, sh("StorageMoving"), [h("p.lx-muted", sh("StorageMovingTo", { to: "/Volumes/Games/Lodestone" })), progress(40), h("div.lx-muted", sh("StorageMovingProgress", { done: "1.6 GB", total: "3.9 GB" }), " \u00b7 ", sh("StorageMovingPreparing")), h("p.lx-muted", sh("StorageMovingNote"))], [btn(cm("Cancel"))], { narrow: true, noClose: true });
       if (st === "failed") return dialog(ctx, sh("StorageMoveFailedTitle"), [h("p", sh("StorageMoveFailedBody", { from: "~/Library/Application Support/Lodestone Launcher", error: "The disk is full." })), h("p.lx-muted", sh("StorageMoveRestartFailed"))], [btn(cm("Ok"), { on: () => ctx.close() })], { narrow: true });
       if (st === "back") return confirmDlg(ctx, sh("StorageMoveBackTitle"), [h("p", sh("StorageMoveBackBody", { to: "~/Library/Application Support/Lodestone Launcher" })), h("p.lx-muted", sh("StorageMoveSize", { size: "3.9 GB" }))], sh("StorageMoveConfirm"));
@@ -1334,8 +1346,15 @@
         [pbtn(imp("ImportInstances", { count: 2 }), () => ctx.set("importState", "progress")), btn(im("ChooseFolder")), btn(cm("Cancel"), { on: () => ctx.close() })]) },
     stopImporting: (ctx) => dialog(ctx, im("StopImportingTitle"), h("p", im("StopImportingBody")), [dbtn(im("StopImporting"), () => ctx.close()), btn(im("KeepImporting"), { on: () => ctx.open("import") })], { narrow: true }),
     finderInterrupted: (ctx) => dialog(ctx, im("FinderInterruptedTitle", { name: "All the mods" }), h("p", im("FinderInterrupted", { name: "All the mods" })), [pbtn(im("FinderStart"), () => ctx.open("modFinder")), btn(im("FinderPutBack"), { on: () => ctx.close() })], { narrow: true }),
-    snapshotTake: (ctx) => dialog(ctx, is("TakeSnapshotTitle"), [h("div.lx-flabel", is("SnapshotName")), field("Before 1.21 update"), check(is("SnapshotIncludeEverything"), false), h("div.lx-muted", is("SnapshotIncludeEverythingHint")),
+    snapshotTake: (ctx) => dialog(ctx, is("TakeSnapshotTitle"), [h("div.lx-flabel", is("SnapshotName")), field("Before 1.21 update"),
       ctx.state.game === "playing" ? note(is("SnapshotGameRunning"), "warn") : null, h("div.lx-muted", is("TakingSnapshot"))], [pbtn(is("TakeSnapshot"), () => ctx.close()), btn(cm("Cancel"), { on: () => ctx.close() })], { narrow: true }),
+    worldBackupCreate: (ctx) => dialog(ctx, is("BackUpWorldTitle"), [h("div.lx-flabel", is("WorldBackupWorld")), seg([["a", tx("Survival Island")], ["b", tx("Castle Build")]], "a"), h("div.lx-flabel", is("SnapshotName")), field(null, is("WorldBackupDefaultName")),
+      h("div.lx-muted", is("BackingUpWorld", { name: "Survival Island" })), h("div.lx-muted", is("WorldBackedUp", { name: "Survival Island" })), h("div.lx-muted", is("NoWorldsToBackUp"))],
+      [pbtn(is("BackUpButton"), () => ctx.close()), btn(cm("Cancel"), { on: () => ctx.close() })], { narrow: true }),
+    worldBackupRestore: (ctx) => confirmDlg(ctx, is("RestoreWorldTitle", { world: "Survival Island" }), [h("p", is("RestoreWorldBody", { world: "Survival Island", name: "Before the dragon fight", when: "today, 03:04" })), h("p.lx-muted", is("RestoreWorldGoneBody", { world: "Survival Island", name: "Before the dragon fight", when: "today, 03:04" })),
+      h("div.lx-muted", is("SavingWorld")), h("div.lx-muted", is("UnpackingWorldBackup")), h("div.lx-muted", is("WorldRestored", { world: "Survival Island" }), " ", is("WorldRestoredSafety", { name: "Before restoring \u201cBefore the dragon fight\u201d" })), h("div.lx-muted", is("WorldRestoredAsNew", { folder: "New World (restored 2026-11-15)" })), h("div.lx-muted", is("RestoreButton"))],
+      is("SaveAndRestore"), { danger: true }),
+    worldBackupDelete: (ctx) => confirmDlg(ctx, is("DeleteWorldBackupTitle"), h("p", is("DeleteWorldBackupBody", { name: "Before the dragon fight", trash: "the Trash" })), cm("MoveToTrash"), { danger: true }),
     snapshotRestore: (ctx) => dialog(ctx, is("RestoreTitle", { name: "Before 1.21 update" }), [seg([["w", is("RestoreWorldsOnly")], ["m", is("RestoreWorldsAndMods")], ["e", is("RestoreEverything")], ["n", is("RestoreAsNew")]], "w"),
       card(srow(tx("World"), tx("412 MB"), check(tx("World"), true)), srow(tx("Old Hardcore"), is("WorldGoneNow", { size: "88 MB" }), check(tx("Old Hardcore"), false))),
       note([is("ModsDiffer"), " \u00b7 ", is("FilesDiffer"), h("div.lx-muted", isp("RestoreRemoves", { count: 1, names: "mods/new-mod-1.0.jar" })), h("div.lx-muted", isp("RestoreChanges", { count: 2, names: "mods/sodium.jar, config/sodium-options.json" })), is("RestoreModsToo")], "warn"), h("div.lx-muted", is("RestoreEverythingHint")), h("div.lx-flabel", is("RestoreAsNewName")), field("Survival 1.20.1 (Before 1.21 update)"),
@@ -1450,7 +1469,7 @@
       h("div.lx-mgroup", h("h3", is("SharedGameSettings")), sharedOptionsList(ctx0(), true)),
     ]],
     servers: ["Messages \u203a Lodestone Host page", () => [
-      mgroup(sv("ConnectAsOwner"), null, [h("div.lx-scard", { style: { maxWidth: "640px" } }, note(sv("ClaimFolderNotFound"), "err"), h("div", btn(sv("ChooseDataFolder")), " ", h("span.lx-muted", sv("ChooseDataFolderPrompt"))), h("div.lx-muted", tx("Lodestone Host \u2014 "), sv("ProductHostHint")), h("div.lx-muted", tx("Lodestone Core \u2014 "), sv("ProductCoreHint"))),
+      mgroup(sv("ConnectAsOwner"), null, [h("div.lx-scard", { style: { maxWidth: "640px" } }, note(sv("ClaimFolderNotFound"), "err"), h("div", btn(sv("ChooseDataFolder")), " ", h("span.lx-muted", sv("ChooseDataFolderPrompt"))), h("div.lx-muted", tx("127.0.0.1:16662 \u00b7 "), sv("ProductHostHint")), h("div.lx-muted", tx("127.0.0.1:16662 \u00b7 "), sv("ProductCoreHint"))),
         ...L(sv, "ClaimNoCore ClaimNotThisCore ClaimNoResult ClaimNoCertificate", (el) => te(null, el)), te(null, sv("ClaimFiles", { error: "permission denied" })), te(null, sv("ClaimInvalid", { error: "missing field" })), te(sv("CredentialsReadFailed"), tx("\u2026")), te(sv("CredentialsSaveFailed"), tx("\u2026"))]),
       mgroup(sv("CoreMoreActions", { name: "Peter's Lodestone Core" }), null, [h("div", badge(sv("SignedIn"), "green"), " ", badge(sv("LoaderOther"))),
         ...L(sv, "BusyFetching BusyCreating BusyChecking BusyUpdating BusyStopping", (el) => h("div.lx-muted", spinner(), " ", el)), h("div.lx-muted", spinner(), " ", sv("BusyUpdatingFiles", { done: 3, total: 9 }))]),
@@ -1468,8 +1487,8 @@
     ]],
     worlds: ["Messages \u203a Worlds", () => [
       mgroup(wd("Worlds"), null, [tl(wd("StopGameFirst"), "warn"), tl(wd("WaitForTask"), "warn"), tl(wd("Cancelled")),
-        ...[wd("RestoringBackup"), wd("ReplacingWorld"), wd("MovingToTrash", { name: "Castle Build", trash: "the Trash" }), wd("Renaming"), wd("Exporting", { name: "Castle Build" }), wd("ImportingWorlds")].map((el) => prog(el, 45)),
-        tl(wd("RestoredAsCopy", { folder: "Castle Build (2)" }), "ok"), tl(wd("Restored", { folder: "Castle Build" }), "ok"), tl(wd("RestoredWithSafety", { folder: "Castle Build", snapshot: "Before going back to \u201cBacked up Castle Build\u201d" }), "ok"), tl(wd("InTrash", { name: "Castle Build", trash: "the Trash" }), "ok"),
+        ...[wd("RestoringFromSnapshot"), wd("MovingToTrash", { name: "Castle Build", trash: "the Trash" }), wd("Renaming"), wd("Exporting", { name: "Castle Build" }), wd("ImportingWorlds")].map((el) => prog(el, 45)),
+        tl(wd("RestoredAsCopy", { folder: "Castle Build (2)" }), "ok"), tl(wd("Restored", { folder: "Castle Build" }), "ok"), tl(wd("RestoredWithSafety", { folder: "Castle Build", snapshot: "Before going back to \u201cBefore 1.21\u201d" }), "ok"), tl(wd("InTrash", { name: "Castle Build", trash: "the Trash" }), "ok"),
         tl(wd("RenamedTo", { name: "Castle" }), "ok"), tl(wd("RenamedToFolder", { name: "Castle", folder: "Castle (1)" }), "ok"), tl(wd("Exported", { name: "Castle", path: "~/Desktop", size: "117 MB" }), "ok"), tl(wd("Imported", { worlds: "Castle, Island" }), "ok"),
         te(null, wd("FileError", { name: "x.zip", error: "no level.dat" })), te(null, wd("ZipsOnly")), tl(wd("ImportWorldPrompt")), tl(wd("CopiedScreenshot"), "ok"), te(null, wd("CouldntCopy", { error: "\u2026" }))]),
     ]],
@@ -1544,18 +1563,19 @@
     game: ST("Game", "stopped preparing launching playing stopping verifying modpackUpdating crashed"),
     update: ST("Launcher update", "none notChecked checking available downloading ready failed dev"),
     build: ST("Build", "dev release"),
+    crashNotice: ST("Crash notice (top bar)", "off on"),
     toast: { label: "Notice (toast)", options: opts("none narrator undo redo settingsOf crashed signInExpired addAccount ready shareReady copied verified copiedKey copiedInvite skinCopied firstTime synced copiedValues"), default: "none" },
     groups: ST("Sidebar groups", "on off"),
     logs: ST("Logs tab", "filled empty nomatch"),
     content: ST("Content tab", "loaded loading empty offline vanilla gameRunning installing installed upToDate curseforge searching nothing filtered noFit readFailed"),
     worlds: ST("Worlds tab", "list empty reading gameRunning task done"),
-    instSettings: ST("Instance settings", "saved unsaved unlinked javaOld noSnapshots error"),
+    instSettings: ST("Instance settings", "saved unsaved unlinked javaOld noSnapshots afterPlayOwn error"),
     modpack: ST("Modpack (instance)", "update checking upToDate offline"),
     linkedCore: ST("Linked server's core", "present removed"),
     localCore: ST("Local core", "claimed unclaimed direct claimFailed scanning none"),
     friends: ST("Friend list", "noName linkWaiting reply pending compare share play list empty refreshing error"),
     friendServers: ST("Friends' servers", "none some"),
-    otherCores: ST("Other cores", "some signedIn certificate certChanged notListed noPublic noVisible busy none"),
+    otherCores: ST("Other cores", "some signedIn certificate certChanged notListed noPublic noVisible busy portTaken none"),
     lan: ST("On your network", "found looking none failed"),
     hostMsg: ST("Host page message", "none signedOut untrusted readFailed joinFailed notRunning createdWithoutMods connected"),
     relay: ST("Connect service (relay)", "default dev error env"),
@@ -1574,8 +1594,8 @@
     copyAs: ST("Copy with another version or loader", "newer same older vanilla reading checking offline failed noMods"),
     unsavedWhere: ST("Unsaved changes dialog", "instance this defaults"),
     bg: ST("Background picker", "image slideshow"),
-    storage: ST("Settings \u203a Storage", "counted counting error gameRunning freed"),
-    storageWhich: ST("Storage confirm (which)", "fromButton GameFiles Runtimes Cache OldLogs AllLogs Leftovers Snapshots"),
+    storage: ST("Settings \u203a Storage", "counted counting error gameRunning freed noDeleted"),
+    storageWhich: ST("Storage confirm (which)", "fromButton GameFiles Runtimes Cache OldLogs AllLogs Leftovers Snapshots WorldBackups"),
     storageMove: ST("Move data dialog", "confirm back moving failed"),
     settingsUnsaved: ST("Settings \u203a Instance defaults", "no yes error"),
     sharedMain: ST("Shared settings main instance", "set none"),
@@ -1628,7 +1648,10 @@
   R.finderInterrupted = dlg("Finish finding the mod?", DIALOG_SIMPLE.finderInterrupted, "Instance dialogs");
   R.deleteInstance = dlg("Delete instance", DIALOG_SIMPLE.deleteInstance, "Instance dialogs");
   R.deleteWorld = dlg("Delete world", DIALOG_SIMPLE.deleteWorld, "Instance dialogs");
-  R.replaceWorld = dlg("Replace world with backup", DIALOG_SIMPLE.replaceWorld, "Instance dialogs");
+  R.replaceWorld = dlg("Restore a world from a snapshot", DIALOG_SIMPLE.replaceWorld, "Instance dialogs");
+  R.worldBackupCreate = dlg("Back up a world", DIALOG_SIMPLE.worldBackupCreate, "Instance dialogs");
+  R.worldBackupRestore = dlg("Restore a world backup", DIALOG_SIMPLE.worldBackupRestore, "Instance dialogs");
+  R.worldBackupDelete = dlg("Delete a world backup", DIALOG_SIMPLE.worldBackupDelete, "Instance dialogs");
   R.screenshot = dlg("Screenshot viewer", DIALOG_SIMPLE.screenshot, "Instance dialogs");
   R.copyAs = dlg("Copy with another version or loader", copyAsDialog, "Instance dialogs");
   R.mainOffer = dlg("Make it your main instance?", DIALOG_SIMPLE.mainOffer, "Instance dialogs");

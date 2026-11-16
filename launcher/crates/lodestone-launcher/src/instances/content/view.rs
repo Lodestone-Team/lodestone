@@ -1709,8 +1709,8 @@ impl ContentView {
             .into_any_element()
     }
 
-    /// "Looking for something new?", with a button to each platform's view (searching
-    /// it for what is typed).
+    /// Below what's installed: a button to each platform's view (searching it for what
+    /// is typed).
     fn render_find_more(&mut self, kind: ContentKind, cx: &mut Context<Self>) -> AnyElement {
         let searching = !self.query(kind, cx).is_empty();
         let mut platforms = Vec::new();
@@ -1744,7 +1744,6 @@ impl ContentView {
             .justify_center()
             .gap_3()
             .py_4()
-            .child(muted(t(M::LookingForMore)))
             .children(platforms.into_iter().map(|(view, id, label)| {
                 Button::new((id, kind as usize), t(label))
                     .variant(ButtonVariant::Secondary)
@@ -2153,16 +2152,8 @@ impl ContentView {
                         .child(radio(selected_none && loader.is_some()))
                         .child(
                             div()
-                                .flex()
-                                .flex_col()
-                                .child(
-                                    div()
-                                        .font_weight(weights::BOLD.into())
-                                        .child(t(M::ShadersOff)),
-                                )
-                                .child(
-                                    small(t(M::NormalLook)).text_color(crate::theme::ink::faint()),
-                                ),
+                                .font_weight(weights::BOLD.into())
+                                .child(t(M::ShadersOff)),
                         )
                         .into_any_element(),
                     true,
@@ -3269,7 +3260,7 @@ fn filter_chip(
     on: bool,
 ) -> gpui::Stateful<gpui::Div> {
     let icon_color = if on {
-        colors::WHITE.into()
+        colors::WHITE
     } else {
         crate::theme::ink::secondary()
     };

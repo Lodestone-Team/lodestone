@@ -115,12 +115,12 @@ crate::i18n::messages! {
         // Dialogs over the window.
         /// The title of a dialog that deletes an instance or a world.
         DeleteNamed = "Delete {name}?",
-        DeleteWorldBody = "The world's folder moves to {trash}, so you can put it back from there. Its backups stay.",
-        DeleteInstanceBody = "The instance's folder, with its worlds, mods and settings, moves to {trash}. You can put it back from there. Its snapshots are kept until you remove them in Settings › Storage, and come back with it.",
-        ReplaceWorldTitle = "Replace {name} with this backup?",
-        /// {when} is when the backup was made: "today, 14:05".
-        ReplaceWorldBody = "{name} goes back to how it was {when}. A snapshot of the world as it is now is taken first and kept for 30 days.",
-        BackUpAndReplace = "Back up and replace",
+        DeleteWorldBody = "The world's folder moves to {trash}, so you can put it back from there. Its world backups stay.",
+        DeleteInstanceBody = "The instance's folder, with its worlds, mods and settings, moves to {trash}. You can put it back from there. Its snapshots and world backups are kept until you remove them in Settings › Storage, and come back with it.",
+        ReplaceWorldTitle = "Restore {name} from this snapshot?",
+        /// {when} is when the snapshot was taken: "today, 14:05".
+        ReplaceWorldBody = "{name} goes back to how it was {when}. A snapshot of the instance as it is now is taken first and kept for 30 days.",
+        BackUpAndReplace = "Snapshot and restore",
         RemoveAccountTitle = "Remove {name}?",
         RemoveAccountBody = "Lodestone Launcher forgets this account and deletes its saved sign-in from your {keychain}. You can add it again later.",
         RemoveAccount = "Remove account",
@@ -171,7 +171,7 @@ crate::i18n::messages! {
         ReplacedOwnFiles = "Your files the pack now provides ({count})",
         KeptFiles = "Kept as you changed them ({count})",
         WrittenFiles = "Configs and other files written ({count})",
-        ModpackUpdateSafety = "Your own mods, worlds and changed configs aren't touched. A snapshot of the instance is taken first, and every file that is replaced or removed is saved in the instance's backups folder.",
+        ModpackUpdateSafety = "Your own mods, worlds and changed configs aren't touched. A snapshot of the instance is taken first, and every file that is replaced or removed is kept inside the instance's folder, in backups/.",
 
         // Unsaved settings.
         SaveChangesTitle = "Save your changes?",
@@ -189,21 +189,19 @@ crate::i18n::messages! {
         Accounts = "Accounts",
         Developer = "Developer",
         DefaultsLead = "Each instance can change these in its own settings.",
-        SharedLead = "Keep your settings in sync across instances.",
         NoAccount = "No account",
         ManageAccounts = "Manage accounts",
         GroupAutomatically = "Group instances automatically",
         GroupAutomaticallyHint = "Sorts ungrouped instances by server or loader.",
         /// Settings > Instance defaults: a toggle, on by default.
         AutoConfigure = "Set up new instances automatically",
-        AutoConfigureHint = "Let Lodestone set things such as RAM, mouse sensitivity and other in-game settings automatically.",
+        AutoConfigureHint = "Picks memory and video settings for this computer and its mods, and copies your controls and language from your main instance or last game.",
         /// Settings > General: what the launcher does once a game's window opens.
         WhenAGameStarts = "When a game starts",
         AfterLaunchStay = "Stay open",
         AfterLaunchMinimize = "Minimize",
         AfterLaunchQuit = "Quit",
-        AfterLaunchStayHint = "The launcher stays open beside the game.",
-        AfterLaunchQuitHint = "The launcher quits once the game's window opens. The game keeps running, but its log, crash report and play time aren't recorded.",
+        AfterLaunchQuitHint = "The game keeps running, but its log, crash report and play time aren't recorded.",
         OfflineAccount = "Offline account",
         MicrosoftAccount = "Microsoft account",
         SignInAgain = "Sign in again",
@@ -241,8 +239,8 @@ crate::i18n::messages! {
         /// The placeholder of a shared value being edited.
         Value = "Value",
         SyncFrom = "Main instance",
-        SyncFromHint = "Settings you change in the main instance are copied to your other instances automatically.",
-        SyncFromNoneHint = "Without a main instance, the shared settings change only here.",
+        SyncFromHint = "Its in-game changes are copied to your other instances when they start.",
+        SyncFromNoneHint = "The shared settings change only here.",
         /// The offer to make a new instance the main one; also asked before another
         /// instance takes over as main.
         MainOfferTitle = "Make {name} your main instance?",
@@ -254,7 +252,7 @@ crate::i18n::messages! {
         /// Settings > Developer.
         FirstTimeSetupSection = "First-time setup",
         ResetFirstTimeSetup = "Reset first-time setup",
-        ResetFirstTimeSetupHint = "The next new instance is offered as your main instance again, keeping the narrator off is offered at the next start, and the Lodestone Host page offers Lodestone Host again. This clears your main instance; the shared values stay.",
+        ResetFirstTimeSetupHint = "Asks again about the main instance, the narrator and Lodestone Host. Clears your main instance; shared values stay.",
         FirstTimeSetupReset = "First-time setup is reset. Create an instance to see it.",
         StartFromInstance = "Start from an instance",
         CopyFromInstance = "Copy from instance…",
@@ -270,7 +268,6 @@ crate::i18n::messages! {
         /// A section of Shared game settings: where the values come from.
         Source = "Source",
         WhatsShared = "What's shared",
-        WhatsSharedLead = "Turn off each category you don't want to share.",
         CategoryControls = "Controls",
         CategoryVideo = "Video",
         CategorySound = "Sound",
@@ -386,7 +383,7 @@ crate::i18n::messages! {
         ConnectSection = "Lodestone Connect",
         /// Settings > Developer: the Lodestone Connect introduction service to use.
         ConnectService = "Connect service (relay)",
-        ConnectServiceHint = "For testing. The friend list uses this service. Invite links always use the service they name.",
+        ConnectServiceHint = "The friend list uses it. Invite links always use the service they name.",
         /// Under the setting, and next to Friends' servers, while the service in use isn't
         /// connect.lodestone.cc: {service} is its address, "connect-dev.lodestone.cc".
         ConnectServiceInUse = "Dev relay: {service}",
@@ -400,22 +397,22 @@ crate::i18n::messages! {
         /// Settings > Developer: what lodestone-launcher-cli may do.
         /// Settings > Developer > Coding agents.
         CodingAgentsSection = "Coding agents",
-        CodingAgentsLead = "Claude Code, Codex and other coding agents can drive the launcher through lodestone-launcher-cli. The launcher keeps guides for them in its data folder.",
+        CodingAgentsLead = "Coding agents such as Claude Code and Codex can drive the launcher through lodestone-launcher-cli.",
         AgentSkills = "Skills",
         AgentPrompt = "Set up a coding agent",
-        AgentPromptHint = "Paste this into your agent. It installs lodestone-launcher-cli, reads the skills, checks the connection and starts debugging with you.",
+        AgentPromptHint = "Paste it into your agent. It installs lodestone-launcher-cli, which needs Rust.",
         CopyPrompt = "Copy prompt",
         CommandLineSection = "Command line",
-        CommandLineLead = "lodestone-launcher-cli and other programs you run reach the launcher through a socket in its data folder. Only your user account can connect.",
+        CommandLineLead = "Programs such as lodestone-launcher-cli connect through a socket only your user account can use.",
         AllowCli = "Allow command-line connections",
-        AllowCliHint = "Off, the socket is closed and connected programs are dropped.",
+        AllowCliHint = "Turning it off disconnects connected programs.",
         /// What command-line programs may do.
         CliAccess = "Access",
-        CliAccessHint = "Read only answers questions but refuses anything that changes instances, settings, accounts or files.",
+        CliAccessHint = "Read only refuses changes to instances, settings, accounts or files.",
         CliFullControl = "Full control",
         CliReadOnly = "Read only",
         DebugTraces = "Debug traces",
-        DebugTracesHint = "Records what you click and what the launcher does, for lodestone-launcher-cli trace. Off, nothing is recorded.",
+        DebugTracesHint = "Records your clicks and what the launcher does, in memory only, for lodestone-launcher-cli trace.",
         /// Whether command-line programs may read game output.
         CliGameLogs = "Game logs",
         CliGameLogsHint = "Programs may read the game’s console output.",
@@ -440,7 +437,7 @@ crate::i18n::messages! {
         DiagnosticsSection = "Diagnostics",
         /// The performance monitor window, and its row in Settings > Developer.
         PerfMonitor = "Performance monitor",
-        PerfMonitorHint = "A small window with the launcher’s memory, CPU and frame times, and a running game’s, updated every second.",
+        PerfMonitorHint = "The launcher’s memory, CPU and frame times, and a running game’s memory and CPU.",
         PerfOpen = "Open monitor",
         /// The launcher's own process.
         PerfLauncher = "Launcher",
@@ -594,12 +591,9 @@ crate::i18n::messages! {
         /// Settings > General: the section about updating the launcher.
         UpdatesSection = "Updates",
         UpdateAutomatically = "Update automatically",
-        UpdateAutomaticallyHint = "Downloads new builds from GitHub in the background.",
         /// Settings > General > Updates: update to beta builds too.
         BetaBuilds = "Beta builds",
-        BetaBuildsHint = "Beta builds can have bugs.",
         DeveloperBuilds = "Developer builds",
-        DeveloperBuildsHint = "For Lodestone's developers: updates to dev builds, which can have bugs.",
         /// The running build: the number of commits it was built from.
         BuildNumber = "Build {build}",
         /// {commit} is the first seven characters of the commit.
@@ -717,7 +711,7 @@ crate::i18n::messages! {
         SkinTintStrength = "Tint strength",
         SkinBlur = "Blur",
         SkinMaterial = "Material",
-        SkinMaterialHint = "Lets what is behind the panel show through: the window's background, the page or a dialog. Blur and Frost show it blurred.",
+        SkinMaterialHint = "Lets what is behind the panel show through.",
         SkinMaterialTranslucent = "Translucent",
         SkinMaterialBlur = "Blur",
         SkinMaterialFrost = "Frost",
@@ -786,7 +780,7 @@ crate::i18n::messages! {
         SkinFixAll = "Fix all",
         /// {count} is a number.
         SkinChecksPass = "All text is readable ({count} checks).",
-        SkinChecksNote = "Readability is up to the skin: these are suggestions.",
+        SkinChecksNote = "These are suggestions.",
         /// Banners a skin offers, in an instance's background picker.
         SkinBanners = "From the skin",
         SkinBannerMissing = "This banner's skin is gone; the default is shown.",
@@ -861,7 +855,7 @@ crate::i18n::messages! {
         StorageCacheAndLogs = "Cache and logs",
         /// Settings > Storage: the section with the data folder's path.
         StorageDataFolder = "Data folder",
-        StorageDataFolderHint = "Where Lodestone stores your instances and worlds, accounts, settings and game files.",
+        StorageDataFolderHint = "Your instances and worlds, accounts, settings and game files.",
         StorageMoveEllipsis = "Move…",
         /// Moves the data folder back to the default folder.
         StorageMoveBackEllipsis = "Move back…",
@@ -935,6 +929,27 @@ crate::i18n::messages! {
         ModpackUpdateNoSnapshot = "No snapshot could be taken first, so nothing has changed. You can update without one, or fix the problem and try again.\n{error}",
         UpdateWithoutSnapshot = "Update without a snapshot",
         ReplaceWorldModsNote = "Only the world goes back; the instance's mods stay as they are. To put back the mods it ran with too, restore the snapshot from Settings › Snapshots.",
+        StorageWorldBackups = "World backups",
+        StorageCleanWorldBackupsTitle = "Remove the world backups of deleted instances?",
+        /// Settings > Developer > Diagnostics: the log files.
+        LogsSetting = "Logs",
+        /// {path} is the logs folder.
+        LogsHint = "What the launcher did, kept on this computer to help look into a problem. {path}",
+        OpenLogsFolder = "Open logs folder",
+        /// How much goes into the logs.
+        LogDetail = "Log detail",
+        LogDetailHint = "Debug writes more, for looking into a problem. It applies at once.",
+        /// The usual log detail.
+        LogInfo = "Info",
+        /// More log detail.
+        LogDebug = "Debug",
+        /// Shown instead of the hint while the LODESTONE_LOG environment variable sets the detail.
+        LogLevelFromEnv = "LODESTONE_LOG sets the detail while the launcher runs with it.",
+        /// The top bar, after the launcher crashed.
+        CrashNotice = "The launcher closed unexpectedly last time.",
+        /// Shows the logs folder.
+        OpenLogs = "Open logs",
+        DismissCrashNotice = "Dismiss",
     }
 
     pub enum ShellPlural {
@@ -960,5 +975,11 @@ crate::i18n::messages! {
         StorageSnapshotsHint = ("{count} snapshot and each instance's content history · {removable} can be removed", "{count} snapshots and each instance's content history · {removable} can be removed"),
         /// {count} is how many snapshots go.
         StorageCleanSnapshotsBody = ("This removes {count} snapshot: the ones the Launcher took on its own, and every snapshot of deleted instances, pinned ones too. Your instances' own and pinned snapshots stay. Files from the last hour are freed at the next clean-up.", "This removes {count} snapshots: the ones the Launcher took on its own, and every snapshot of deleted instances, pinned ones too. Your instances' own and pinned snapshots stay. Files from the last hour are freed at the next clean-up."),
+        /// {deleted} is how many of them are deleted instances'.
+        StorageWorldBackupsHint = ("{count} world backup · {deleted} of deleted instances", "{count} world backups · {deleted} of deleted instances"),
+        /// The same, when none are deleted instances'.
+        StorageWorldBackupsCount = ("{count} world backup", "{count} world backups"),
+        /// {trash} is the Trash, with its article.
+        StorageCleanWorldBackupsBody = ("This deletes {count} world backup of instances you deleted, also ones still in {trash}, for good. Your instances' world backups stay.", "This deletes {count} world backups of instances you deleted, also ones still in {trash}, for good. Your instances' world backups stay."),
     }
 }

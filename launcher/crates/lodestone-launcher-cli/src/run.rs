@@ -66,6 +66,17 @@ fn run(cli: &Cli, mode: Mode) -> Result<(), ErrorObject> {
         Ok(line)
     };
     let plan = plan::plan(&cli.command, &mut read_line)?;
+    if plan == Plan::LogsPath {
+        return logs_path(mode);
+    }
+    if let Plan::Call {
+        method: "logs.tail",
+        params,
+        ..
+    } = &plan
+    {
+        return connected::logs_tail(params.clone(), &cli.global, mode);
+    }
     if plan == Plan::Schema {
         let schema = crate::schema::schema();
         match mode {
@@ -78,6 +89,82 @@ fn run(cli: &Cli, mode: Mode) -> Result<(), ErrorObject> {
         return Ok(());
     }
     connected::run(plan, &cli.global, mode)
+}
+
+/// The launcher's logs folder, found the way the launcher finds it (the default data
+/// folder's `logs/`, which stays put when the data moves).
+fn logs_dir() -> Result<std::path::PathBuf, ErrorObject> {
+    let location = launcher_control::paths::locate().ok_or_else(|| {
+        ErrorObject::new(
+            launcher_control::codes::NOT_FOUND,
+            "No home folder, so the launcher's data folder is unknown.",
+        )
+    })?;
+    Ok(launcher_control::paths::logs_dir(&location.default))
+}
+
+/// `logs path`: the launcher's logs folder and its log files, read without the
+/// launcher.
+fn logs_path(mode: Mode) -> Result<(), ErrorObject> {
+    use launcher_control::logs;
+    let dir = logs_dir()?;
+    let files: Vec<serde_json::Value> = logs::files(&dir, logs::LOG_FILE)
+        .into_iter()
+        .filter_map(|path| {
+            let bytes = std::fs::metadata(&path).ok()?.len();
+            let name = path.file_name()?.to_string_lossy().into_owned();
+            Some(serde_json::json!({ "name": name, "bytes": bytes }))
+        })
+        .collect();
+    let value = serde_json::json!({
+        "dir": dir,
+        "file": dir.join(logs::LOG_FILE),
+        "crash_file": dir.join(logs::CRASH_FILE),
+        "previous_crash_file": dir.join(logs::PREVIOUS_CRASH_FILE),
+        "files": files,
+    });
+    output::result(mode, &value);
+    Ok(())
+}
+
+/// `logs tail` when no launcher answers: the file read here, as the launcher would
+/// (it is this user's own). `read_without_launcher` says so.
+fn local_tail(params: &serde_json::Value, mode: Mode) -> Result<(), ErrorObject> {
+    use launcher_control::{codes, logs};
+    let lines = params["lines"].as_u64().unwrap_or(200).clamp(1, 2000) as usize;
+    let severity = match params["level"].as_str() {
+        None => None,
+        Some(level @ ("error" | "warn" | "info" | "debug")) => logs::severity(level),
+        Some(other) => {
+            return Err(ErrorObject::new(
+                codes::INVALID_PARAMS,
+                format!("level is error, warn, info or debug, not {other:?}"),
+            ));
+        }
+    };
+    let file = logs_dir()?.join(logs::LOG_FILE);
+    let lines = logs::tail(&file, lines, severity).map_err(|err| {
+        ErrorObject::new(
+            codes::NOT_FOUND,
+            format!(
+                "No launcher answers, and {} can't be read: {err}",
+                file.display()
+            ),
+        )
+    })?;
+    let value = serde_json::json!({
+        "file": file,
+        "lines": lines,
+        "read_without_launcher": true,
+    });
+    match mode {
+        Mode::Human => {
+            eprintln!("No launcher answers; read {} directly.", file.display());
+            output::lines(&value);
+        }
+        Mode::Json => output::result(mode, &value),
+    }
+    Ok(())
 }
 
 /// Asks on the terminal; only when both stdin and stderr are one.
@@ -133,6 +220,20 @@ mod connected {
             Plan::Events { params, count } => events(&mut client, global, mode, params, count),
             Plan::Trace { params, count } => trace(&mut client, global, mode, params, count),
             Plan::PerfWatch { count } => perf_watch(&mut client, global, mode, count),
+            Plan::LogsPath => Ok(()),
+        }
+    }
+
+    /// `logs tail`: through the running launcher, which flushes first; when none
+    /// answers on the default socket (it crashed, or crashes at every start), the file
+    /// is read here.
+    pub fn logs_tail(params: Value, global: &Global, mode: Mode) -> Result<(), ErrorObject> {
+        match connect(global) {
+            Ok(mut client) => call(&mut client, global, mode, "logs.tail", params, false),
+            Err(err) if err.code == codes::NOT_RUNNING && global.socket.is_none() => {
+                super::local_tail(&params, mode)
+            }
+            Err(err) => Err(err),
         }
     }
 
@@ -238,6 +339,7 @@ mod connected {
                 Ok(value) => {
                     match (mode, method) {
                         (Mode::Human, "content.history") => output::history(&value),
+                        (Mode::Human, "logs.tail") => output::lines(&value),
                         _ => output::result(mode, &value),
                     }
                     return Ok(());

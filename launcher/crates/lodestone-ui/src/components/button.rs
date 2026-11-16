@@ -521,6 +521,10 @@ pub struct IconButton {
     /// The icon's color, when it says something (a server's power icon shows its
     /// state); faded grey otherwise.
     color: Option<Color>,
+    /// A smaller button, for one inside a line of text (a link beside a name).
+    small: bool,
+    /// Round and borderless, for one inside a pill (a notice's dismiss button).
+    round: bool,
     on_click: Option<ClickHandler>,
 }
 
@@ -532,8 +536,22 @@ impl IconButton {
             disabled: false,
             label: None,
             color: None,
+            small: false,
+            round: false,
             on_click: None,
         }
+    }
+
+    /// Round and borderless, its background only on hover: for one inside a pill.
+    pub fn round(mut self) -> Self {
+        self.round = true;
+        self
+    }
+
+    /// A smaller button that fits a line of text: a 10px icon with less padding.
+    pub fn small(mut self) -> Self {
+        self.small = true;
+        self
     }
 
     /// Colors the icon, in place of the faded grey.
@@ -589,12 +607,18 @@ impl RenderOnce for IconButton {
             .flex_none()
             .items_center()
             .justify_center()
-            // p-1.5 around a 1em-high icon, at text-medium.
-            .p(px(6.))
-            .rounded(radius::DEFAULT)
-            .bg(colors::GRAY_800)
-            .border_1()
-            .border_color(colors::GRAY_FADED.opacity(30))
+            // p-1.5 around a 1em-high icon, at text-medium (less for a small one).
+            .p(px(if self.small { 3. } else { 6. }))
+            .map(|this| {
+                if self.round {
+                    this.rounded_full()
+                } else {
+                    this.rounded(radius::DEFAULT)
+                        .bg(colors::GRAY_800)
+                        .border_1()
+                        .border_color(colors::GRAY_FADED.opacity(30))
+                }
+            })
             .when(self.disabled, |this| this.opacity(0.4))
             .when(!self.disabled, |this| {
                 this.cursor_pointer()
@@ -608,7 +632,7 @@ impl RenderOnce for IconButton {
             })
             .child(
                 self.icon
-                    .render(px(14.), color)
+                    .render(px(if self.small { 10. } else { 14. }), color)
                     .when(!self.disabled && !tinted, |icon| {
                         icon.group_hover("icon-button", |style| {
                             style.text_color(colors::WHITE.opacity(50))

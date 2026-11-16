@@ -14,6 +14,7 @@ pub mod discord_join;
 pub mod i18n;
 pub mod images;
 pub mod instances;
+pub mod logs;
 pub mod markdown;
 pub mod perf;
 #[cfg(feature = "screenshot")]

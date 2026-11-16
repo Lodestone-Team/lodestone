@@ -114,7 +114,7 @@ impl KeptViews {
             storage::write_atomic(&self.dir.join(PLACING), before.join("\n").as_bytes())
         {
             // naming one view too many only counts its files on disk as the server's
-            eprintln!("Couldn't note which server views are being placed: {err}");
+            log::warn!("Couldn't note which server views are being placed: {err}");
         }
     }
 

@@ -75,15 +75,15 @@ pub fn text(message: M) -> &'static str {
         M::PlayNamed => "启动“{name}”",
 
         M::DeleteNamed => "删除“{name}”？",
-        M::DeleteWorldBody => "该世界的文件夹会移到{trash}，你可以从那里恢复。它的备份会保留。",
+        M::DeleteWorldBody => "世界的文件夹会移到{trash}，你可以从那里恢复。它的世界备份会保留。",
         M::DeleteInstanceBody => {
-            "该实例的文件夹（包括其中的世界、模组和设置）会移到{trash}。你可以从那里恢复。它的快照会一直保留，直到你在“设置 › 存储”中移除；恢复实例时快照也会一起回来。"
+            "该实例的文件夹（包括其中的世界、模组和设置）会移到{trash}。你可以从那里恢复。它的快照和世界备份会一直保留，直到你在“设置 › 存储”中移除；恢复实例时它们也会一起回来。"
         }
-        M::ReplaceWorldTitle => "用此备份替换“{name}”？",
+        M::ReplaceWorldTitle => "从这个快照恢复“{name}”？",
         M::ReplaceWorldBody => {
-            "“{name}”会恢复到{when} 时的状态。会先为现在的世界拍摄快照，并保留 30 天。"
+            "{name} 将回到 {when} 时的状态。会先为实例现在的样子拍摄快照，并保留 30 天。"
         }
-        M::BackUpAndReplace => "备份并替换",
+        M::BackUpAndReplace => "拍摄快照并恢复",
         M::RemoveAccountTitle => "移除“{name}”？",
         M::RemoveAccountBody => {
             "Lodestone Launcher 会忘记此账户，并从你的{keychain}中删除其保存的登录信息。你之后可以重新添加。"
@@ -137,7 +137,7 @@ pub fn text(message: M) -> &'static str {
         M::KeptFiles => "保留你的改动（{count}）",
         M::WrittenFiles => "写入的配置文件和其他文件（{count}）",
         M::ModpackUpdateSafety => {
-            "你自己的模组、世界和修改过的配置不会被改动。会先为实例拍摄快照，被替换或删除的每个文件都会保存在实例的备份文件夹中。"
+            "你自己的模组、世界和修改过的配置不会被改动。会先为实例拍摄快照，被替换或删除的每个文件都会保存在实例文件夹的 backups/ 中。"
         }
 
         M::SaveChangesTitle => "保存更改？",
@@ -153,21 +153,19 @@ pub fn text(message: M) -> &'static str {
         M::Accounts => "账户",
         M::Developer => "开发者",
         M::DefaultsLead => "每个实例都可以在自己的设置中更改。",
-        M::SharedLead => "让各实例的设置保持同步。",
         M::NoAccount => "无账户",
         M::ManageAccounts => "管理账户",
         M::GroupAutomatically => "自动分组实例",
         M::GroupAutomaticallyHint => "按服务器或加载器为未分组的实例分组。",
         M::AutoConfigure => "自动设置新实例",
-        M::AutoConfigureHint => "让 Lodestone 自动设置内存、鼠标灵敏度和其他游戏内设置。",
+        M::AutoConfigureHint => {
+            "根据这台电脑和实例的模组选择内存和视频设置，并从你的主实例或上次游玩的游戏复制控制和语言设置。"
+        }
         M::WhenAGameStarts => "游戏启动后",
         M::AfterLaunchStay => "保持打开",
         M::AfterLaunchMinimize => "最小化",
         M::AfterLaunchQuit => "退出",
-        M::AfterLaunchStayHint => "启动器在游戏旁保持打开。",
-        M::AfterLaunchQuitHint => {
-            "游戏窗口打开后启动器退出。游戏会继续运行，但不会记录其日志、崩溃报告和游戏时长。"
-        }
+        M::AfterLaunchQuitHint => "游戏会继续运行，但不会记录其日志、崩溃报告和游戏时长。",
         M::OfflineAccount => "离线账户",
         M::MicrosoftAccount => "Microsoft 账户",
         M::SignInAgain => "重新登录",
@@ -193,8 +191,8 @@ pub fn text(message: M) -> &'static str {
         M::EditHereOnly => "仅在此处编辑",
         M::Value => "值",
         M::SyncFrom => "主实例",
-        M::SyncFromHint => "你在主实例中更改的设置会自动复制到其他实例。",
-        M::SyncFromNoneHint => "没有主实例时，共享设置只在这里更改。",
+        M::SyncFromHint => "它的游戏内更改会在其他实例启动时复制过去。",
+        M::SyncFromNoneHint => "共享设置只在这里更改。",
         M::MainOfferTitle => "将“{name}”设为主实例？",
         M::MainOfferBody => {
             "共享游戏设置让你的操作、视频、声音等选项在每个实例中保持一致。你在主实例游戏中更改的设置，会在其他实例启动时复制过去。"
@@ -208,7 +206,7 @@ pub fn text(message: M) -> &'static str {
         M::FirstTimeSetupSection => "首次设置",
         M::ResetFirstTimeSetup => "重置首次设置",
         M::ResetFirstTimeSetupHint => {
-            "下一个新建的实例会再次被提议设为主实例，下次启动时也会再次提议关闭复述功能，Lodestone Host 页面也会再次推荐 Lodestone Host。这会清除当前主实例；共享值保留。"
+            "会再次询问主实例、复述功能和 Lodestone Host。会清除你的主实例；共享值保留。"
         }
         M::FirstTimeSetupReset => "首次设置已重置。新建一个实例即可看到。",
         M::StartFromInstance => "从某个实例开始",
@@ -224,7 +222,6 @@ pub fn text(message: M) -> &'static str {
         M::ServerListHint => "即将推出。",
         M::Source => "来源",
         M::WhatsShared => "共享内容",
-        M::WhatsSharedLead => "关闭你不想共享的类别。",
         M::CategoryControls => "控制",
         M::CategoryVideo => "视频",
         M::CategorySound => "声音",
@@ -334,7 +331,7 @@ pub fn text(message: M) -> &'static str {
         M::OfflineAccountsSettingHint => "在账户菜单中显示“{add}”。仅供测试。",
         M::ConnectSection => "Lodestone Connect",
         M::ConnectService => "Connect 服务（中继）",
-        M::ConnectServiceHint => "仅供测试。好友列表使用此服务。邀请链接始终使用链接中指定的服务。",
+        M::ConnectServiceHint => "好友列表使用它。邀请链接始终使用链接中指定的服务。",
         M::ConnectServiceInUse => "开发中继：{service}",
         M::ConnectServiceEnv => {
             "已设置 {var}，因此启动器使用 {service}。取消设置后，此设置才会生效。"
@@ -350,27 +347,25 @@ pub fn text(message: M) -> &'static str {
         }
         M::CodingAgentsSection => "编程助手",
         M::CodingAgentsLead => {
-            "Claude Code、Codex 等编程助手可以通过 lodestone-launcher-cli 操作启动器。启动器在数据文件夹中为它们保存了指南。"
+            "Claude Code、Codex 等编程助手可以通过 lodestone-launcher-cli 操作启动器。"
         }
         M::AgentSkills => "技能",
         M::AgentPrompt => "设置编程助手",
-        M::AgentPromptHint => {
-            "将这段提示粘贴给你的助手。它会安装 lodestone-launcher-cli、阅读技能、检查连接，并开始和你一起调试。"
-        }
+        M::AgentPromptHint => "将它粘贴给你的助手。它会安装 lodestone-launcher-cli，这需要 Rust。",
         M::CopyPrompt => "复制提示",
         M::CommandLineSection => "命令行",
         M::CommandLineLead => {
-            "lodestone-launcher-cli 和你运行的其他程序通过启动器数据文件夹中的套接字与它通信。只有你的用户账户可以连接。"
+            "lodestone-launcher-cli 等程序通过一个只有你的用户账户能使用的套接字连接。"
         }
         M::AllowCli => "允许命令行连接",
-        M::AllowCliHint => "关闭后，套接字会关闭，已连接的程序会被断开。",
+        M::AllowCliHint => "关闭后，已连接的程序会被断开。",
         M::CliAccess => "权限",
-        M::CliAccessHint => "只读会回答查询，但拒绝任何会更改实例、设置、账户或文件的操作。",
+        M::CliAccessHint => "只读会拒绝对实例、设置、账户或文件的更改。",
         M::CliFullControl => "完全控制",
         M::CliReadOnly => "只读",
         M::DebugTraces => "调试跟踪",
         M::DebugTracesHint => {
-            "记录你的点击和启动器的操作，供 lodestone-launcher-cli trace 使用。关闭后不记录任何内容。"
+            "仅在内存中记录你的点击和启动器的操作，供 lodestone-launcher-cli trace 使用。"
         }
         M::CliGameLogs => "游戏日志",
         M::CliGameLogsHint => "程序可以读取游戏的控制台输出。",
@@ -387,7 +382,7 @@ pub fn text(message: M) -> &'static str {
         M::Disconnect => "断开连接",
         M::DiagnosticsSection => "诊断",
         M::PerfMonitor => "性能监视器",
-        M::PerfMonitorHint => "一个小窗口，每秒更新启动器及正在运行的游戏的内存、CPU 和帧时间。",
+        M::PerfMonitorHint => "启动器的内存、CPU 和帧时间，以及正在运行的游戏的内存和 CPU。",
         M::PerfOpen => "打开监视器",
         M::PerfLauncher => "启动器",
         M::PerfMemory => "内存",
@@ -540,11 +535,8 @@ pub fn text(message: M) -> &'static str {
 
         M::UpdatesSection => "更新",
         M::UpdateAutomatically => "自动更新",
-        M::UpdateAutomaticallyHint => "在后台从 GitHub 下载新构建。",
         M::BetaBuilds => "测试版构建",
-        M::BetaBuildsHint => "测试版构建可能有错误。",
         M::DeveloperBuilds => "开发者构建",
-        M::DeveloperBuildsHint => "供 Lodestone 开发者使用：更新到开发版构建，可能有错误。",
         M::BuildNumber => "构建 {build}",
         M::BuildNumberCommit => "构建 {build} · {commit}",
         M::DevelopmentBuild => "开发构建",
@@ -632,9 +624,7 @@ pub fn text(message: M) -> &'static str {
         M::SkinTintStrength => "色调强度",
         M::SkinBlur => "模糊",
         M::SkinMaterial => "材质",
-        M::SkinMaterialHint => {
-            "让面板后面的内容透出来：窗口背景、页面或对话框。模糊和磨砂会将其模糊显示。"
-        }
+        M::SkinMaterialHint => "让面板后面的内容透出来。",
         M::SkinMaterialTranslucent => "半透明",
         M::SkinMaterialBlur => "模糊",
         M::SkinMaterialFrost => "磨砂",
@@ -696,7 +686,7 @@ pub fn text(message: M) -> &'static str {
         M::SkinApplyFix => "应用建议的修正",
         M::SkinFixAll => "全部修正",
         M::SkinChecksPass => "所有文字都清晰可读（{count} 项检查）。",
-        M::SkinChecksNote => "可读性由皮肤决定：以下仅为建议。",
+        M::SkinChecksNote => "以下仅为建议。",
         M::SkinBanners => "来自皮肤",
         M::SkinBannerMissing => "此横幅所属的皮肤已不存在，正在显示默认横幅。",
         M::SkinEditorTitle => "皮肤编辑器",
@@ -766,7 +756,7 @@ pub fn text(message: M) -> &'static str {
         M::StorageOther => "设置和其他文件",
         M::StorageCacheAndLogs => "缓存和日志",
         M::StorageDataFolder => "数据文件夹",
-        M::StorageDataFolderHint => "Lodestone 存放你的实例和世界、账户、设置和游戏文件的位置。",
+        M::StorageDataFolderHint => "你的实例和世界、账户、设置和游戏文件。",
         M::StorageMoveEllipsis => "移动…",
         M::StorageMoveBackEllipsis => "移回…",
         M::StorageMoveHere => "移到这里",
@@ -845,6 +835,19 @@ pub fn text(message: M) -> &'static str {
         M::ReplaceWorldModsNote => {
             "只有世界会恢复；实例的模组保持不变。要同时恢复它当时使用的模组，请在“设置 › 快照”中恢复该快照。"
         }
+        M::StorageWorldBackups => "世界备份",
+        M::StorageCleanWorldBackupsTitle => "删除已删除实例的世界备份？",
+        M::LogsSetting => "日志",
+        M::LogsHint => "启动器做过的事，保存在这台电脑上，便于排查问题。{path}",
+        M::OpenLogsFolder => "打开日志文件夹",
+        M::LogDetail => "日志详细程度",
+        M::LogDetailHint => "“调试”会写入更多内容，便于排查问题。立即生效。",
+        M::LogInfo => "信息",
+        M::LogDebug => "调试",
+        M::LogLevelFromEnv => "启动器带着 LODESTONE_LOG 运行时，由它决定详细程度。",
+        M::CrashNotice => "启动器上次意外关闭。",
+        M::OpenLogs => "打开日志",
+        M::DismissCrashNotice => "关闭",
     }
 }
 
@@ -865,6 +868,12 @@ pub fn plural(message: P) -> [&'static str; 2] {
         }
         P::StorageCleanSnapshotsBody => {
             ["将删除 {count} 个快照：启动器自动拍摄的快照，以及已删除实例的所有快照（包括已固定的）。你的实例中你自己拍摄的和已固定的快照会保留。最近一小时内的文件会在下次清理时释放。";
+                2]
+        }
+        P::StorageWorldBackupsCount => ["{count} 个世界备份"; 2],
+        P::StorageWorldBackupsHint => ["{count} 个世界备份 · 其中 {deleted} 个属于已删除的实例"; 2],
+        P::StorageCleanWorldBackupsBody => {
+            ["将永久删除 {count} 个属于已删除实例的世界备份，包括仍在{trash}中的实例。你现有实例的世界备份会保留。";
                 2]
         }
     }

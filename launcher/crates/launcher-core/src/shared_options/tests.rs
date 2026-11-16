@@ -894,3 +894,26 @@ fn keeping_the_narrator_off_does_nothing_where_accessibility_isnt_shared() {
     world.launch("a", "1.21.11");
     assert_eq!(value(&options_of(&a), "narrator"), Some("1"));
 }
+
+/// A setting changed in-game is reported as replaced next launch only when the global
+/// set has a value for it: with nothing shared, the change stays as the player set it.
+#[test]
+fn only_changes_a_shared_value_replaces_are_reported() {
+    let world = World::new();
+    let a = world.instance("a", Some(&fixture("1.21.11")));
+    world.launch("a", "1.21.11");
+    play(&a, &[("simulationDistance", "5")]);
+    world.exit("a", "1.21.11");
+    let sharing = load_instance(&a).unwrap();
+    // Recorded (another instance may share a value later)...
+    assert!(sharing.changed.contains_key("simulationDistance"));
+    // ...but not reported: nothing would replace it.
+    assert!(sharing.replaced_next_launch(&world.profile()).is_empty());
+    // Once the global set has a value, the same change is reported.
+    world.set(&[("simulationDistance", "12")]);
+    assert!(
+        sharing
+            .replaced_next_launch(&world.profile())
+            .contains_key("simulationDistance")
+    );
+}

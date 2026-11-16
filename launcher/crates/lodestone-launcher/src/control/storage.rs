@@ -34,6 +34,7 @@ pub fn show(call: Call, cx: &mut App) -> Reply {
                     "cache": report.cache,
                     "leftovers": report.leftovers.bytes,
                     "images": report.images.bytes,
+                    "world_backups": report.world_backups.bytes,
                     "logs": report.logs.bytes,
                     "other": report.other,
                 }),
@@ -46,7 +47,8 @@ pub fn show(call: Call, cx: &mut App) -> Reply {
 
 #[derive(Deserialize)]
 struct CleanParams {
-    /// `game-files`, `runtimes`, `cache`, `leftovers`, `old-logs` or `logs`.
+    /// `game-files`, `runtimes`, `cache`, `leftovers`, `old-logs`, `logs`, `snapshots` or
+    /// `deleted-world-backups`.
     what: String,
 }
 
@@ -57,7 +59,7 @@ pub fn clean(call: Call, cx: &mut App) -> Reply {
         return ready(Err(api_error(
             codes::INVALID_PARAMS,
             format!(
-                "Unknown \"{}\": use game-files, runtimes, cache, leftovers, old-logs, logs or snapshots.",
+                "Unknown \"{}\": use game-files, runtimes, cache, leftovers, old-logs, logs, snapshots or deleted-world-backups.",
                 params.what
             ),
         )));
@@ -78,6 +80,9 @@ pub fn clean(call: Call, cx: &mut App) -> Reply {
         Clean::Snapshots => {
             "deletes the snapshots the Launcher took on its own (not pinned) and every deleted instance's snapshots, for good"
         }
+        Clean::DeletedWorldBackups => {
+            "deletes the world backups of instances that were deleted (also those in the Trash), for good"
+        }
     }));
     let instances = call.control.instances.read(cx);
     let running: Vec<String> = instances
@@ -95,12 +100,14 @@ pub fn clean(call: Call, cx: &mut App) -> Reply {
     let data = instances.data_dir().clone();
     let list = instances.list().to_vec();
     let images = instances.images();
+    let backups = instances.world_backups();
     cx.background_spawn(async move {
         let result = match what {
             Clean::Snapshots => {
                 let live: Vec<String> = list.iter().map(|i| i.id.clone()).collect();
                 disk::clean_snapshots(&data, &images, &live)
             }
+            Clean::DeletedWorldBackups => disk::clean_deleted_world_backups(&backups),
             _ => disk::clean(&data, &list, &running, what, &Cancel::new()),
         };
         launcher_core::trace::emit("storage.clean", || match &result {

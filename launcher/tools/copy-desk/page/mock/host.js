@@ -434,7 +434,7 @@
         players ? h("div.hx-meta", players) : null,
         tip(h("span.hx-chipaddr", tx(addr), icon("copy", 11)), N("CopyAddress")),
         h("div.hx-power", power(ist),
-          tip(btn(N("ShareShort"), { sm: true, icon: "link", iconSize: 13, on: () => { X.set("sharing", s.sharing === "off" ? "starting" : s.sharing); X.go("overview", { i: inst.i }) } }), N("ShareShortHint")))));
+          btn(N("ShareShort"), { sm: true, icon: "link", iconSize: 13, on: () => { X.set("sharing", s.sharing === "off" ? "starting" : s.sharing); X.go("overview", { i: inst.i }) } }))));
       const tabs = [
         ["overview", "chart", S("TabOverview")], ["settings", "gear", S("TabSettings")], ["console", "server", S("TabConsole")],
         ["files", "folder", S("TabFiles")],
@@ -512,7 +512,8 @@
       toast("info", FP("FilesUploading", { count: 3 })),
       toast("ok", F("FilesDeletedFile", { name: "server.properties" })),
       toast("ok", N("ShareCopied")),
-      toast("err", F("ConsoleSendFailed", { error: "the server is stopped" }), M("TryAgain")));
+      toast("err", F("ConsoleSendFailed", { error: "the server is stopped" }), M("TryAgain")),
+      toast("info", S("ClosedUnexpectedly"), S("OpenLogs")));
   }
 
   // bare screens (before the shell): core starting, failed, signing in
@@ -624,15 +625,15 @@
         pill(N("PlayerCount", { players, max: 20 })), tip(pill(h("span", tx("localhost:" + inst.port), " ", icon("copy", 12)), null, "hx-mono"), N("CopyAddress"))),
       tip(h("div.hx-lead", { style: { margin: "12px 0 0" } }, inst.desc ? tx(inst.desc) : N("NoDescription")), N("EditDescription")),
     ];
-    const share = h("div.hx-sec", h("div.hx-h2", N("ShareTitle")), h("div.hx-lead", N("ShareLead")), shareCard());
-    const perf = h("div.hx-sec", h("div.hx-h2", N("PerformanceTitle")), h("div.hx-lead", N("PerformanceLead")),
+    const share = h("div.hx-sec", h("div.hx-h2", N("ShareTitle")), shareCard());
+    const perf = h("div.hx-sec", h("div.hx-h2", N("PerformanceTitle")),
       h("div.hx-grid2", { style: { gap: "30px" } },
         h("div.hx-col", h("div.hx-muted.hx-small", tip(N("CpuLoad", { value: ist === "running" ? 23 : 0 }), N("CpuUsage"))), chart(N("UnitPercent"), "100%")),
         h("div.hx-col", h("div.hx-muted.hx-small", tip(N("MemoryUsed", { value: ist === "running" ? "1.8" : "0.0" }), N("MemoryUsage"))), chart(N("UnitGiB"), "48.0GiB"))));
     const plist = s.players === "some" && ist === "running"
       ? h("div.hx-card.hx-rows", ["Alex_mc", "Sam_mc"].map((p, i) => h("div.hx-srow", { style: { minHeight: "48px" } }, h("span.hx-avatar.hx-sm", { style: { background: i ? "#4a7" : "#c84", borderRadius: "6px" } }, tx(p[0])), h("span.hx-grow", tx(p)), i === 0 ? tip(h("span.hx-usertag", tx("peter")), N("PlayersLinkedUser"), { right: true }) : null)))
       : h("div.hx-dashed", icon("user", 18), h("span.hx-italic", N("PlayersNone")));
-    const pl = h("div.hx-sec", h("div.hx-h2", N("PlayersTitle")), h("div.hx-lead", N("PlayersLead")),
+    const pl = h("div.hx-sec", h("div.hx-h2", N("PlayersTitle")),
       h("div.hx-flex.hx-muted.hx-small", { style: { padding: "0 10px 8px" } }, N("PlayersSortByName"), icon("arrowDown", 14)), plist);
     const open = s.details === "open";
     const details = h("div.hx-sec",
@@ -718,10 +719,10 @@
           srow(tx("Message of the day"), h("span", tx("Shown in the server list."), s.validation === "on" ? h("div.hx-err-t", I("CannotBeEmpty")) : null), input("", { w: "w360", err: s.validation === "on" })),
           srow(tx("View distance"), h("span", tx("In chunks."), s.validation === "on" ? h("div.hx-err-t", I("MustBeGreaterThan", { min: 2 })) : null), input("10", { w: "w360" })),
           srow(tx("RCON password"), null, h("div.hx-flex", input("••••••••", { w: "w300" }), btn(I("ShowPassword"), { sm: true }), btn(I("HidePassword"), { sm: true }), btn(I("Revert"), { sm: true }))))),
-        ssec(I("Automation"), I("AutomationLead"), rows(
+        ssec(I("Automation"), null, rows(
           s.neverStarted === "on" ? srow(I("NotAvailable"), I("NotAvailableHint")) : [
             srow(I("AutoStart"), I("AutoStartHint"), toggle(false, null, s.role === "user")),
-            srow(I("RestartOnCrash"), I("RestartOnCrashHint"), toggle(true, null, s.role === "user"))],
+            srow(I("RestartOnCrash"), null, toggle(true, null, s.role === "user"))],
           s.role === "user" ? srow(h("span.hx-muted", I("NoPermission"))) : null)),
         ssec(C("ListingTitle"), C("ListingLead"), rows(srow(C("ListedPublicly"), s.role === "user" ? C("ListingOwnerOnly") : null, toggle(false, null, s.role === "user")))),
         friendsSection(),
@@ -731,13 +732,13 @@
           srow(I("PackRequired"), I("PackRequiredHint"), toggle(false)),
           srow(I("PackPrompt"), I("PackPromptHint"), input(null, { w: "w300" })),
           h("div.hx-srow", { style: { justifyContent: "flex-end" } }, h("span.hx-ok-t", M("Saved")), btn(I("PackRemove"), { sm: true }), btn(M("Save"), { v: "primary", sm: true })))),
-        ssec(I("Eula"), I("EulaLead"), rows(
+        ssec(I("Eula"), null, rows(
           s.eula === "accepted"
-            ? srow(I("EulaAccepted"), I("EulaAcceptedHint"), btn(I("EulaRead"), { sm: true, icon: "ext" }), { badge: icon("check", 15, "var(--green)") })
+            ? srow(I("EulaAccepted"), null, btn(I("EulaRead"), { sm: true, icon: "ext" }), { badge: icon("check", 15, "var(--green)") })
             : srow(I("EulaNotAccepted"), s.role === "user" ? I("EulaNoPermission") : I("EulaNotAcceptedHint"), h("div.hx-flex", btn(I("EulaRead"), { sm: true, icon: "ext" }), btn(I("EulaAgree"), { v: "primary", sm: true, dis: s.role === "user", on: () => X.set("eula", "accepted") }))),
           s.eula === "accepted" ? null : h("div.hx-srow.hx-err-t", I("EulaAcceptFailed", { error: "permission denied" })))),
-        ssec(I("DangerZone"), I("DangerZoneLead"), rows(
-          srow(I("DeleteServer"), s.role === "user" ? I("NoPermission") : I("DeleteServerHint"), btn(M("Delete"), { v: "danger", sm: true, dis: s.role === "user", on: () => X.open("delete-instance") })))),
+        ssec(I("DangerZone"), null, rows(
+          srow(I("DeleteServer"), s.role === "user" ? I("NoPermission") : null, btn(M("Delete"), { v: "danger", sm: true, dis: s.role === "user", on: () => X.open("delete-instance") })))),
       ];
     }
     return pageWrap(heading(S("TabSettings")), h("div", { style: { display: "flex", gap: "40px" } }, nav, h("div.hx-scontent", content)));
@@ -941,13 +942,43 @@
     return pageWrap(heading(S("TabEventLogs")), h("div.hx-muted", { style: { marginBottom: "14px" } }, I("EventLogsLead")), h("div", { style: { maxWidth: "866px" } }, body));
   }
 
+  function worldBackupsSection(running) {
+    const mode = st().worldBackups;
+    const wjob = mode === "running";
+    const busy = running || wjob;
+    const head = h("div.hx-flex", { style: { justifyContent: "space-between", alignItems: "flex-end", gap: "16px", marginBottom: "8px" } },
+      ssec(B("WorldSection"), B("WorldLead")),
+      tip(btn(B("WorldBackUp"), { v: "primary", icon: "save", dis: busy }), busy ? B("JobRunning") : null));
+    const job = wjob ? h("div.hx-card.hx-pad.hx-col", { style: { gap: "6px", marginBottom: "22px" } },
+      h("div.hx-flex", { style: { justifyContent: "space-between", alignItems: "center", gap: "8px" } }, h("span", { style: { flex: "1" } }, B("WorldBackingUp")), h("span.hx-muted.hx-small", FM("Percent", { value: 37 })), btn(M("Cancel"), { sm: true })),
+      h("div.hx-muted.hx-small", tx("Copying the world")),
+      h("div", { style: { height: "4px", borderRadius: "2px", background: "var(--g700)" } }, h("div", { style: { width: "37%", height: "4px", borderRadius: "2px", background: "var(--blue)" } }))) : null;
+    const world = (title, size, version, kindTag, extra, downloading) => srow(title, B("WorldSizeVersion", { size: FM("Megabytes", { size: size }), version: version }),
+      h("div.hx-flex", { style: { gap: "6px", alignItems: "center" } }, tip(btn(B("RestoreAction"), { sm: true, dis: busy }), busy ? B("JobRunning") : null),
+        downloading ? h("span.hx-flex", { style: { gap: "6px", alignItems: "center" } },
+          h("span", { style: { width: "72px", height: "4px", borderRadius: "2px", background: "var(--g700)", display: "inline-block" } }, h("span", { style: { width: "55%", height: "4px", borderRadius: "2px", background: "var(--blue)", display: "block" } })),
+          h("span.hx-muted.hx-small", FM("Percent", { value: 55 })), tip(btn(icon("x", 14), { sm: true }), M("Cancel")))
+          : tip(btn(icon("download", 14), { sm: true }), B("WorldDownloadLabel")),
+        tip(btn(icon("trash", 14, "var(--red2)"), { sm: true }), B("WorldDeleteLabel"))),
+      { below: h("div.hx-flex", { style: { gap: "6px", marginTop: "6px" } }, kindTag, extra) });
+    const list = mode === "empty" ? h("div.hx-card.hx-pad.hx-muted", B("WorldEmpty")) : rows(
+      world(tx("Before the raid"), 182, "1.21.4", tag(B("TagManual")), [tip(tag(B("TagLive"), "green"), B("TagLiveHint"))], mode === "download"),
+      world(tx("Before restoring “Spawn built”"), 176, "1.21.4", tip(tag(B("TagBeforeRestore")), B("WorldBeforeRestoreHint", { name: "Spawn built" })), []),
+      world(B("DateAt", { date: FM("ShortDate", { month: FM("November"), day: 8 }), time: "20:00" }), 171, "1.21.3", tag(B("TagManual")),
+        [tip(tag(B("TagLive"), "green"), B("TagLiveHint")), tip(tag(B("TagInconsistent"), "yellow"), B("WorldTagInconsistentHint")), tip(tag(BP("WorldLeftOut", { count: 2 }), "yellow"), B("WorldLeftOutHint"))]));
+    const usage = mode === "empty" ? null : h("div.hx-muted.hx-small", { style: { margin: "4px 0 8px" } },
+      BP("WorldCount", { count: 3 }), tx(" · "), FM("Megabytes", { size: 529 }), tx(" · "), B("StorageFree", { size: FM("Gigabytes", { size: "182" }) }));
+    const toasts = h("div.hx-muted.hx-small", { style: { marginTop: "12px" } }, B("WorldBackupDone"), tx(" · "), B("WorldBackupFailed"), tx(" · "), B("WorldDeleted"), tx(" · "), B("WorldDownloadFailed", { error: "timed out" }), tx(" · "), B("WorldDownloadCancelled"), tx(" · "), B("WorldCancelFailed", { error: "The world is being put in place and can't be cancelled now" }), tx(" · "), B("WorldRestoring"), tx(" · "), B("WorldLoadFailed", { error: "connection reset" }));
+    return h("div", { style: { marginBottom: "30px" } }, job, head, usage, list, toasts);
+  }
+
   function backupsPage() {
     const s = st(); const mode = s.backups;
     const running = mode === "list";
-    const head = h("div.hx-flex", { style: { justifyContent: "space-between", alignItems: "center", gap: "16px", marginBottom: "18px" } },
-      h("div.hx-muted.hx-small", B("Lead")),
+    const head = h("div.hx-flex", { style: { justifyContent: "space-between", alignItems: "flex-end", gap: "16px", marginBottom: "18px" } },
+      ssec(B("SnapshotsSection"), B("Lead")),
       tip(btn(B("BackUpNow"), { v: "primary", icon: "history", dis: running }), running ? B("JobRunning") : null));
-    if (mode === "failed") return pageWrap(heading(S("TabBackups")), head, h("div.hx-inlineerr", B("LoadFailed", { error: "connection reset" })));
+    if (mode === "failed") return pageWrap(heading(S("TabBackups")), worldBackupsSection(false), head, h("div.hx-inlineerr", B("LoadFailed", { error: "connection reset" })));
     const job = running ? h("div.hx-card.hx-pad.hx-col", { style: { gap: "6px", marginBottom: "22px" } },
       h("div.hx-flex", { style: { justifyContent: "space-between" } }, B("BackingUp"), h("span.hx-muted.hx-small", FM("Percent", { value: 42 }))),
       h("div.hx-muted.hx-small", tx("Storing files (1,204 of 2,880)")),
@@ -974,7 +1005,7 @@
     const storage = mode === "empty" ? null : h("div.hx-muted.hx-small", { style: { margin: "22px 0 8px" } },
       BP("Count", { count: 4 }), tx(" · "), B("StorageFiles", { size: FM("Gigabytes", { size: "4.8" }) }), tx(" · "), B("StorageStored", { size: FM("Gigabytes", { size: "1.3" }) }), tx(" · "), B("StorageFree", { size: FM("Gigabytes", { size: "182" }) }));
     const toasts = h("div.hx-muted.hx-small", { style: { marginTop: "18px" } }, B("BackupDone"), tx(" · "), B("BackupFailed"), tx(" · "), B("Deleted"), tx(" · "), B("Zipping"), tx(" · "), B("Downloaded", { name: "Survival SMP 20261112-120000-c3d4.zip" }), tx(" · "), B("DownloadFailed", { error: "timed out" }), tx(" · "), B("ScheduleSaveFailed", { error: "timed out" }), tx(" · "), B("NextBackupSoon"), tx(" · "), B("NextBackupWhenPlayerJoins"), tx(" · "), B("Restoring"), tx(" · "), B("NoSettingsPermission"), tx(" · "), B("NoWritePermission"), tx(" · "), B("NoSchedulePermission"));
-    return pageWrap(heading(S("TabBackups")), h("div", { style: { maxWidth: "680px" } }, head, job, schedule, storage, h("div", { style: { marginTop: mode === "empty" ? "22px" : "0" } }, list), toasts));
+    return pageWrap(heading(S("TabBackups")), h("div", { style: { maxWidth: "680px" } }, job, worldBackupsSection(running), head, schedule, storage, h("div", { style: { marginTop: mode === "empty" ? "22px" : "0" } }, list), toasts));
   }
   function backupRestoreDlg() {
     return dlg({ title: B("RestoreTitle", { name: FM("TodayAt", { time: "12:00" }) }) },
@@ -987,6 +1018,20 @@
       h("div", B("SafetyNote")),
       foot(btn(B("Restore"), { v: "dangerfill", lg: true }), btn(M("Cancel"), { lg: true, on: close })),
       h("div.hx-muted.hx-small", B("RestoreStarted", { name: FM("TodayAt", { time: "12:00" }) }), tx(" · "), B("RestoreDone"), tx(" · "), B("RestoreFailed")));
+  }
+  function worldBackupCreateDlg() {
+    return dlg({ title: B("WorldCreateTitle") },
+      h("div", B("WorldCreateBody")),
+      field(B("WorldName"), input(null)),
+      foot(btn(B("WorldCreate"), { v: "primary", lg: true }), btn(M("Cancel"), { lg: true, on: close })));
+  }
+  function worldBackupRestoreDlg(running) {
+    return dlg({ title: B("WorldRestoreTitle", { name: "Before the raid" }) },
+      h("div.hx-muted.hx-small", B("WorldRestoreBody")),
+      running ? h("div.hx-note.hx-yellow", B("WorldMustStop")) : null,
+      h("div", B("WorldSafetyNote")),
+      foot(btn(B("Restore"), { v: "dangerfill", lg: true, dis: running }), btn(M("Cancel"), { lg: true, on: close })),
+      h("div.hx-muted.hx-small", B("WorldRestoreStarted", { name: "Before the raid" }), tx(" · "), B("WorldRestoreDone"), tx(" · "), B("WorldRestoreFailed")));
   }
   function backupNewDlg() {
     return dlg({ title: B("NewTitle") },
@@ -1034,16 +1079,16 @@
         srow(C("CoreName"), s.validation === "on" ? h("span.hx-err-t", C("CoreNameTooLong", { max: 32 })) : null, input(coreName(), { w: "w300", err: s.validation === "on" })),
         srow(C("Domain"), h("span", C("DomainHint"), s.validation === "on" ? h("div.hx-err-t", C("DomainTooLong", { max: 253 })) : null), input(null, { ph: tx("127.0.0.1"), w: "w300" })),
         srow(C("RemoteAccess"), remoteOn ? C("RemoteAccessHintOn") : C("RemoteAccessHintOff"), toggle(remoteOn, remoteToggle, ro)))),
-      ssec(C("SectionPublic"), C("SectionPublicLead"), rows(
+      ssec(C("SectionPublic"), null, rows(
         srow(C("ListPublicly"), C("ListPubliclyHint"), toggle(pub, () => X.set("listPublic", pub ? "off" : "on"), ro)),
         noInstances() ? srow(h("span.hx-muted", C("NoJavaServers"))) :
-          srow(tx("Survival SMP"), pub ? shown : C("HiddenWhileOff", { shown: C("NotShown") }), h("div.hx-flex", h("span.hx-muted", C("ListingPublic")), toggle(false, null, !pub)), { below: flags }))),
+          srow(tx("Survival SMP"), pub ? shown : C("HiddenWhileOff", { shown: C("ShownText", { list: C("ShownNameVersion") }) }), h("div.hx-flex", h("span.hx-muted", C("ListingPublic")), toggle(false, null, !pub)), { below: flags }))),
       ssec(C("SectionInfo"), null, rows(
         srow(C("InfoCoreVersion"), null, tx("0.5.1")), srow(C("InfoHostVersion"), null, tx("0.6.0")), srow(C("InfoOs"), null, tx("macos")), srow(C("InfoArch"), null, tx("aarch64")),
         srow(C("InfoCpu"), null, tx("Apple M4 Pro")), srow(C("InfoCpuCores"), null, tx("14")), srow(C("InfoTotalRam"), null, s.ram === "none" ? C("InfoNoRam") : FM("Gigabytes", { size: 48 })),
         srow(C("InfoHttps"), null, s.tls === "none" ? C("TlsNone") : s.tls === "own" ? C("TlsUserProvided") : C("TlsSelfSigned")),
         s.tls === "none" ? null : srow(C("InfoFingerprint"), h("span.hx-mono.hx-tiny", tx("3F:9A:21:7C:0B:D4:55:E8:AA:19:C3:70:6E:42:9B:11:F0:8D:2C:67:B5:3E:94:0A:DD:71:58:C6:1F:83:2B:E9")), btn(M("Copy"), { sm: true })))),
-      ssec(C("SectionDanger"), C("SectionDangerLead"), rows(
+      ssec(C("SectionDanger"), null, rows(
         srow(C("SafeMode"), C("SafeModeHint"), toggle(s.safeMode === "on", () => (s.safeMode === "on" ? X.open("safe-mode-off") : X.set("safeMode", "on")), ro)),
         srow(C("CodeExecution"), h("span", C("CodeExecutionHint"), s.codeExec === "locked" ? h("div.hx-warn-t", C("CodeExecutionLocked")) : null),
           toggle(s.codeExec === "on", () => X.open("code-exec-off"), ro || s.codeExec === "locked")),
@@ -1055,10 +1100,9 @@
 
   function usersPage() {
     const s = st();
-    if (!isOwner()) return h("div.hx-col", h("div.hx-muted", C("UsersDescription")), h("div.hx-card.hx-pad.hx-muted", C("UsersOwnerOnly")));
+    if (!isOwner()) return h("div.hx-col", h("div.hx-card.hx-pad.hx-muted", C("UsersOwnerOnly")));
     const users = s.users === "several" ? [["peter", true, "owner"], ["jordan", false, "admin"], ["sam", false, ""]] : [["peter", true, "owner"]];
     return h("div.hx-col.hx-gap16",
-      h("div.hx-muted", { style: { fontSize: "16px" } }, C("UsersDescription")),
       h("div.hx-between", { style: { marginTop: "14px" } }, h("div", { style: { fontFamily: "Chillax", fontSize: "19px", fontWeight: 500 } }, C("AllMembersCount", { count: users.length })),
         btn(C("CreateUser"), { icon: "plus", lg: true, on: () => X.open("create-user") })),
       s.users === "loading" ? loading(C("LoadingUsers")) :
@@ -1074,17 +1118,17 @@
 
   function userPage() {
     const s = st();
-    const perm = (name, desc, on) => h("div.hx-perm", h("div.hx-st.hx-grow", h("div", { style: { fontWeight: 500, fontSize: "15px" } }, name), h("div.hx-muted.hx-small", desc)), toggle(on));
+    const perm = (name, desc, on) => h("div.hx-perm", h("div.hx-st.hx-grow", h("div", { style: { fontWeight: 500, fontSize: "15px" } }, name), desc ? h("div.hx-muted.hx-small", desc) : null), toggle(on));
     const safe = s.safeMode === "on";
     return h("div.hx-col", { style: { gap: "26px" } },
       h("div", btn(M("Back"), { icon: "back", on: () => X.open("settings-users") })),
       h("div.hx-flex", h("span.hx-avatar", { style: { background: "#3b8fd9" } }, tx("J")), h("span", { style: { fontSize: "20px", fontWeight: 600 } }, tx("jordan")), tag(C("Admin"))),
-      ssec(C("Permissions"), C("PermissionsLead", { username: "jordan" }), h("div.hx-card.hx-rows",
-        perm(C("PermCreateInstance"), C("PermCreateInstanceUser"), true),
+      ssec(C("Permissions"), null, h("div.hx-card.hx-rows",
+        perm(C("PermCreateInstance"), null, true),
         perm(C("PermDeleteInstance"), C("PermDeleteInstanceUser"), false),
-        perm(C("PermManagePermission"), C("PermManagePermissionUser"), false))),
+        perm(C("PermManagePermission"), null, false))),
       ssec(tx("Survival SMP"), null, h("div.hx-card.hx-rows",
-        perm(C("PermViewInstance"), C("PermViewInstanceUser"), true), perm(C("PermStartInstance"), C("PermStartInstanceUser"), true), perm(C("PermStopInstance"), C("PermStopInstanceUser"), true),
+        perm(C("PermViewInstance"), null, true), perm(C("PermStartInstance"), null, true), perm(C("PermStopInstance"), null, true),
         perm(C("PermConsole"), C("PermConsoleUser"), false), perm(C("PermInstanceSettings"), C("PermInstanceSettingsUser"), false),
         perm(C("PermReadResource"), C("PermReadResourceUser"), true), perm(C("PermWriteResource"), C("PermWriteResourceUser"), false),
         perm(C("PermReadFiles"), C("PermReadFilesUser"), false), perm(C("PermWriteFiles"), C("PermWriteFilesUser"), false)),
@@ -1097,7 +1141,7 @@
 
   function apiKeysSection(other) {
     const s = st();
-    const lead = other ? C("ApiKeysUserLead", { username: other }) : C("ApiKeysOwnLead");
+    const lead = other ? C("ApiKeysUserLead") : C("ApiKeysOwnLead");
     let list;
     if (s.apiKeys === "loading") list = h("div.hx-card.hx-pad", loading(C("LoadingApiKeys")));
     else if (s.apiKeys === "password") list = h("div.hx-card.hx-pad.hx-muted", C("PasswordSessionOnly"));
@@ -1123,7 +1167,7 @@
     if (s.mcAccounts === "tooold") list = h("div.hx-card.hx-pad.hx-muted", C("MinecraftTooOld"));
     else if (s.mcAccounts === "none") list = h("div.hx-card.hx-pad.hx-muted", other ? C("MinecraftUserEmpty", { username: other }) : C("MinecraftOwnEmpty"));
     else list = h("div.hx-card.hx-rows", ["Peter_mc", "PeterAlt"].map((n) => h("div.hx-srow", h("span.hx-avatar.hx-sm", { style: { borderRadius: "6px", background: "#7a5" } }, tx(n[0])), h("span.hx-grow", tx(n)), btn(M("Remove"), { sm: true, on: () => X.open("mc-remove") }))));
-    return ssec(C("MinecraftAccounts"), other ? C("MinecraftUserLead", { username: other }) : C("MinecraftOwnLead"), list);
+    return ssec(C("MinecraftAccounts"), other ? C("MinecraftUserLead") : C("MinecraftOwnLead"), list);
   }
 
   function profilePage() {
@@ -1135,7 +1179,7 @@
         srow(C("ProfilePassword"), nopw ? C("NoPasswordYet") : null, btn(nopw ? C("SetPassword") : C("ChangePassword"), { lg: true, on: () => X.open(nopw ? "owner-account" : "change-password") })))),
       ssec(C("Appearance"), C("AppearanceLead"), rows(
         srow(C("Language"), null, input(C("LanguageAuto", { language: "English" }), { select: true, w: "w240" })),
-        srow(C("Theme"), s.theme === "light" ? C("ThemeLightHint") : s.theme === "dark" ? C("ThemeDarkHint") : C("ThemeSystemHint"),
+        srow(C("Theme"), s.theme === "light" || s.theme === "dark" ? null : C("ThemeSystemHint"),
           h("div.hx-flex", ["system", "light", "dark"].map((th) => btn(th === "system" ? C("ThemeSystem") : th === "light" ? C("ThemeLight") : C("ThemeDark"), { sm: true, v: s.theme === th ? "primary" : null, on: () => X.set("theme", th) })))),
         srow(C("Zoom"), C("ZoomHint", { modifier: "⌘" }), h("div.hx-flex", btn(tx("−"), { sm: true }), h("span", { style: { fontSize: "17px", width: "50px", textAlign: "center" } }, FM("Percent", { value: 100 })), btn(tx("+"), { sm: true }), btn(M("Reset"), { sm: true }))),
         srow(C("ColoredConsole"), null, toggle(true)))),
@@ -1163,6 +1207,9 @@
         srow(C("UpdateAutomatically"), C("UpdateAutomaticallyHint"), toggle(!dis, null, dis)),
         srow(C("BetaBuilds"), C("BetaBuildsHint"), toggle(false, null, dis)),
         srow(C("DeveloperBuilds"), C("DeveloperBuildsHint"), toggle(s.dev === "on", null, dis)))),
+      ssec(C("LogsSection"), null, rows(
+        srow(C("LogFiles"), C("LogsHint", { path: "/Users/you/Library/Application Support/Lodestone Host/logs" }), btn(S("OpenLogFolder"), { sm: true })),
+        srow(C("LogDetail"), h("span", C("LogDetailHint"), h("div.hx-warn-t", C("LogLevelFromEnv"))), h("div.hx-flex", { style: { gap: "4px" } }, btn(C("LogInfo"), { sm: true, v: "primary" }), btn(C("LogDebug"), { sm: true }))))),
       ssec(C("DeveloperSection"), null, rows(
         srow(C("ConnectService"), h("span", C("ConnectServiceHint"),
           s.relay === "custom" ? h("div.hx-warn-t", C("ConnectServiceInUse", { service: "https://relay.test:8443" })) : null,
@@ -1187,29 +1234,29 @@
   const nav2 = (back, next, nextLabel, primary) => [back ? btn(M("Back"), { lg: true, on: () => X.open("create-" + back) }) : h("span"), btn(nextLabel || M("Next"), { lg: true, v: "primary", on: next ? () => X.open("create-" + next) : close, style: primary === false ? { opacity: ".6" } : null })];
   function createGames() {
     const s = st();
-    const card = (g, name, desc, extra) => h("div", { class: "hx-gamecard" + (g === "vanilla" ? " hx-on" : ""), onclick: () => X.open(g === "modpack" ? "create-modpack" : "create-basic") }, h("div.hx-gt", gameIc(g, true), typeof name === "string" ? tx(name) : name, extra || null), h("div.hx-muted.hx-italic", { style: { fontSize: "15.5px" } }, desc));
+    const card = (g, name, desc, extra) => h("div", { class: "hx-gamecard" + (g === "vanilla" ? " hx-on" : ""), onclick: () => X.open(g === "modpack" ? "create-modpack" : "create-basic") }, h("div.hx-gt", gameIc(g, true), typeof name === "string" ? tx(name) : name, extra || null), desc ? h("div.hx-muted.hx-italic", { style: { fontSize: "15.5px" } }, desc) : null);
     const content = s.createLoad === "loading" ? [loading(N("LoadingForm"))] : s.createLoad === "failed" ? [h("div.hx-err-t", N("GamesFailed", { error: "connection reset" })), h("div.hx-err-t", N("FormFailed", { error: "connection reset" }))] : [
       card("modpack", N("GameTypeModpack"), N("GameTypeModpackDescription"), h("span.hx-small", { style: { color: "var(--yellow)" } }, N("GameTypeNew"))),
       h("div.hx-grid2",
-        card("vanilla", "Minecraft", N("GameVanillaDescription")), card("fabric", "Fabric (Minecraft)", N("GameFabricDescription")),
+        card("vanilla", "Minecraft", null), card("fabric", "Fabric (Minecraft)", N("GameFabricDescription")),
         card("forge", "Forge (Minecraft)", N("GameForgeDescription")), card("paper", "Paper (Minecraft)", N("GamePaperDescription")),
         card("paper", "Spigot (Minecraft)", N("GameSpigotDescription")), card("vanilla", "Bedrock (Minecraft)", N("GameBedrockDescription")),
         card("vanilla", "Minecraft: Quilt", N("GameOtherDescription", { name: "Quilt" })), card("forge", "Terraria", N("GameGenericDescription", { name: "Terraria" })))];
-    return createShell("games", STEPS, N("GameTypeTitle"), N("GameTypeSubtitle"), content, nav2(null, "basic"));
+    return createShell("games", STEPS, N("GameTypeTitle"), null, content, nav2(null, "basic"));
   }
   function createBasic() {
     const s = st(); const err = s.validation === "on";
-    return createShell("basic", STEPS, N("StepBasicSettings"), N("BasicSettingsDescription"), [rows(
-      srow(N("FieldName"), h("span", N("FieldNameDescription"), err ? h("div.hx-err-t", N("ValidationRequired", { name: plain("host/instances/InstancesMsg/FieldName") })) : null), input(err ? "" : null, { ph: N("FieldNameDefault"), w: "w300", err })),
-      srow(N("FieldDescription"), N("FieldDescriptionDescription"), input(null, { w: "w300" }), { badge: h("span.hx-muted.hx-small", N("Optional")) })),
+    return createShell("basic", STEPS, N("StepBasicSettings"), null, [rows(
+      srow(N("FieldName"), err ? h("span.hx-err-t", N("ValidationRequired", { name: plain("host/instances/InstancesMsg/FieldName") })) : null, input(err ? "" : null, { ph: N("FieldNameDefault"), w: "w300", err })),
+      srow(N("FieldDescription"), null, input(null, { w: "w300" }), { badge: h("span.hx-muted.hx-small", N("Optional")) })),
       err ? h("div.hx-err-t", N("CheckFields")) : null], nav2("games", "server"));
   }
   function createServerStep() {
     const s = st(); const err = s.validation === "on";
-    return createShell("server", STEPS, N("StepServerSettings"), N("ServerSettingsDescription"), [
+    return createShell("server", STEPS, N("StepServerSettings"), null, [
       h("div.hx-muted", { style: { fontSize: "16px" } }, tx("Basic Settings")),
       rows(srow(tx("Version"), tx("The version of minecraft to use"), input("26.3", { select: true, w: "w300" })),
-        srow(N("FieldPort"), h("span", N("FieldPortDescription"), err ? h("div.hx-err-t", N("ValidationInteger", { name: "Port" })) : null), input(err ? "255.65" : "25565", { w: "w300", err }))),
+        srow(N("FieldPort"), err ? h("span.hx-err-t", N("ValidationInteger", { name: "Port" })) : null, input(err ? "255.65" : "25565", { w: "w300", err }))),
       h("div.hx-muted", { style: { fontSize: "16px" } }, tx("Advanced Settings")),
       rows(srow(N("FieldMinRam"), h("span", N("FieldMinRamDescription"), err ? h("div.hx-err-t", N("ValidationPositive", { name: "Minimum RAM" })) : null), input("1024", { w: "w300" })),
         srow(N("FieldMaxRam"), h("span", N("FieldMaxRamDescription"), err ? h("div.hx-err-t", N("MaxRamBelowMin")) : null), input("2048", { w: "w300", err })),
@@ -1222,8 +1269,8 @@
   }
   function createAuto() {
     const s = st();
-    return createShell("auto", STEPS, N("StepAutoSettings"), N("AutoSettingsDescription"), [rows(
-      srow(N("FieldAutoStart"), N("FieldAutoStartDescription"), toggle(false)), srow(N("FieldRestartOnCrash"), N("FieldRestartOnCrashDescription"), toggle(false))),
+    return createShell("auto", STEPS, N("StepAutoSettings"), null, [rows(
+      srow(N("FieldAutoStart"), N("FieldAutoStartDescription"), toggle(false)), srow(N("FieldRestartOnCrash"), null, toggle(false))),
     h("div.hx-grow"),
     h("div.hx-col.hx-gap4", check(s.eula === "accepted", N("EulaAgree", { link: h("span.hx-link.hx-u", N("EulaLink")) }), () => X.set("eula", s.eula === "accepted" ? "not" : "accepted")), h("div.hx-muted.hx-small", { style: { paddingLeft: "27px" } }, N("EulaRequired"))),
     s.validation === "on" ? h("div.hx-err-t", N("CreateFailed", { error: "port 25565 is in use" })) : null],
@@ -1264,14 +1311,14 @@
     else list = h("div.hx-col", ver("1.6.1", "release", true), ver("1.6.0", "release"), ver("1.7.0-beta.2", "beta"), ver("1.7.0-alpha.1", "alpha"), btn(NP("ModpackShowMore", { count: 12 }), { sm: true }),
       h("div.hx-card.hx-pad", h("div.hx-kv", N("ModpackSummaryModpack"), tx("Cobblemon Official Modpack 1.6.1"), N("ModpackSummaryLoader"), tx("Fabric 0.16.9 · Minecraft 1.21.1"), N("ModpackSummaryServerFiles"), N("ModpackSummaryServerFilesValue", { count: 84, size: FM("Megabytes", { size: 212 }) }))),
       loading(N("ModpackDownloadingSize", { size: FM("Megabytes", { size: 18 }) })), loading(N("ModpackDownloading")), loading(N("ModpackLoading")));
-    return createShell("version", MSTEPS, N("ModpackVersionTitle"), s.search === "uploaded" ? N("ModpackVersionUploaded") : N("ModpackVersionDescription"),
+    return createShell("version", MSTEPS, N("ModpackVersionTitle"), s.search === "uploaded" ? N("ModpackVersionUploaded") : null,
       [h("div.hx-muted.hx-small", N("ModpackVersionHint")), list], nav2("modpack", "mserver"));
   }
   function createModpackServer() {
     const s = st();
-    return createShell("mserver", MSTEPS, N("ModpackSettingsTitle"), N("ServerSettingsDescription"), [rows(
-      srow(N("FieldName"), N("FieldNameDescription"), input("Cobblemon", { w: "w300" })),
-      srow(N("FieldPort"), N("FieldPortDescription"), input("25565", { w: "w300" })),
+    return createShell("mserver", MSTEPS, N("ModpackSettingsTitle"), null, [rows(
+      srow(N("FieldName"), null, input("Cobblemon", { w: "w300" })),
+      srow(N("FieldPort"), null, input("25565", { w: "w300" })),
       srow(N("FieldMaxRam"), N("FieldMaxRamDescription"), input("6144", { w: "w300" })),
       srow(tx("Allowed mods"), h("span.hx-muted", N("NothingFound")), null)),
     h("div.hx-grow"),
@@ -1320,7 +1367,7 @@
     return dlg({ title: h("span", { style: { fontSize: "32px" } }, C("Cores")), w: 764 },
       h("div", { style: { fontSize: "16px", color: "var(--g400)" } }, C("CoresLead")),
       h("div.hx-card.hx-rows",
-        srow(C("ThisComputerCore"), C("ThisComputerHint"), remote ? btn(C("UseCore"), { sm: true, on: () => X.set("coreKind", "local") }) : tag(C("CurrentCore"), "green")),
+        srow(C("ThisComputerCore"), null, remote ? btn(C("UseCore"), { sm: true, on: () => X.set("coreKind", "local") }) : tag(C("CurrentCore"), "green")),
         s.remoteCores === "on" ? srow(tx("Home server"), h("span", tx("https://192.168.1.20:16662"),
           s.versionNote === "incompatible" ? h("div.hx-warn-t", C("VersionIncompatible", { theirs: "0.4.8", ours: "0.5.1" })) : s.versionNote === "patch" ? h("div.hx-muted", C("VersionPatch", { theirs: "0.5.0", ours: "0.5.1" })) : null),
           h("div.hx-flex", remote ? tag(C("CurrentCore"), "green") : btn(C("UseCore"), { sm: true, on: () => X.open("cores-signin") }), btn(C("RemoveCore"), { sm: true, v: "danger" }))) : null),
@@ -1337,7 +1384,7 @@
   }
   function apiCreateDlg() {
     const s = st(); const custom = s.keyAccess === "custom";
-    const perm = (n, d, mine) => h("div.hx-perm", { style: { padding: "8px 0", opacity: mine ? 1 : 0.5 } }, box(mine && n !== null), h("div.hx-grow", h("div", n), h("div.hx-muted.hx-small", d)), mine ? null : tip(icon("lock", 14, "var(--g500)"), C("NotYours"), { right: true }));
+    const perm = (n, d, mine) => h("div.hx-perm", { style: { padding: "8px 0", opacity: mine ? 1 : 0.5 } }, box(mine && n !== null), h("div.hx-grow", h("div", n), d ? h("div.hx-muted.hx-small", d) : null), mine ? null : tip(icon("lock", 14, "var(--g500)"), C("NotYours"), { right: true }));
     return dlg({ title: C("CreateApiKey"), w: 760 },
       h("div.hx-muted", C("CreateApiKeyLead")),
       field(C("ApiKeyName"), input(null, { err: s.validation === "on" }), null, s.validation === "on" ? h("span", C("ApiKeyNameRequired"), h("br"), C("ApiKeyNameTooLong", { max: 64 })) : null),
@@ -1346,8 +1393,8 @@
       field(C("Access"), h("div.hx-col", check(!custom, C("AccessFull"), () => X.set("keyAccess", "full")), check(custom, C("AccessCustom"), () => X.set("keyAccess", "custom")))),
       custom ? h("div.hx-col.hx-gap4",
         h("div.hx-muted.hx-small", C("OnlyYours")),
-        perm(C("PermCreateInstance"), C("PermCreateInstanceKey"), true), perm(C("PermDeleteInstance"), C("PermDeleteInstanceKey"), false), perm(C("PermManagePermission"), C("PermManagePermissionKey"), true),
-        perm(C("PermViewInstance"), C("PermViewInstanceKey"), true), perm(C("PermStartInstance"), C("PermStartInstanceKey"), true), perm(C("PermStopInstance"), C("PermStopInstanceKey"), true),
+        perm(C("PermCreateInstance"), null, true), perm(C("PermDeleteInstance"), C("PermDeleteInstanceKey"), false), perm(C("PermManagePermission"), null, true),
+        perm(C("PermViewInstance"), null, true), perm(C("PermStartInstance"), null, true), perm(C("PermStopInstance"), null, true),
         perm(C("PermConsole"), C("PermConsoleKey"), true), perm(C("PermInstanceSettings"), C("PermInstanceSettingsKey"), true), perm(C("PermReadResource"), C("PermReadResourceKey"), true),
         perm(C("PermWriteResource"), C("PermWriteResourceKey"), true), perm(C("PermReadFiles"), C("PermReadFilesKey"), true), perm(C("PermWriteFiles"), C("PermWriteFilesKey"), true),
         h("div.hx-label", { style: { marginTop: "8px" } }, C("KeyUnsafe")), h("div.hx-muted.hx-small", C("KeyUnsafeSafeMode")),
@@ -1464,7 +1511,7 @@
     "settings": { title: "Settings", group: "Instance", render: settingsPage },
     "console": { title: "Console", group: "Instance", render: consolePage },
     "files": { title: "Files", group: "Instance", render: filesPage },
-    "backups": { title: "Backups", group: "Instance", render: backupsPage },
+    "backups": { title: "Snapshots", group: "Instance", render: backupsPage },
     "mods": { title: "Mods: Installed", group: "Instance", render: modsPage },
     "mods-browse": { title: "Mods: Browse", group: "Instance", render: modsBrowsePage },
     "mods-project": { title: "Mods: project page", group: "Instance", render: modsProjectPage },
@@ -1515,9 +1562,13 @@
     "files-rename": { title: "Files: rename", group: "Dialogs", dialog: true, render: () => filesNameDlg("rename") },
     "files-delete": { title: "Files: delete", group: "Dialogs", dialog: true, render: filesDeleteDlg },
     "files-unsaved": { title: "Files: unsaved changes", group: "Dialogs", dialog: true, render: filesUnsavedDlg },
-    "backup-restore": { title: "Backups: restore", group: "Dialogs", dialog: true, render: backupRestoreDlg },
-    "backup-new": { title: "Backups: restore as a new server", group: "Dialogs", dialog: true, render: backupNewDlg },
-    "backup-delete": { title: "Backups: delete", group: "Dialogs", dialog: true, render: () => confirm(B("DeleteTitle"), B("DeleteBody", { name: "Before updating to 1.21.4" }), M("Delete"), "dangerfill") },
+    "backup-restore": { title: "Snapshots: restore", group: "Dialogs", dialog: true, render: backupRestoreDlg },
+    "backup-new": { title: "Snapshots: restore as a new server", group: "Dialogs", dialog: true, render: backupNewDlg },
+    "backup-delete": { title: "Snapshots: delete", group: "Dialogs", dialog: true, render: () => confirm(B("DeleteTitle"), B("DeleteBody", { name: "Before updating to 1.21.4" }), M("Delete"), "dangerfill") },
+    "world-backup-create": { title: "World backups: back up the world", group: "Dialogs", dialog: true, render: worldBackupCreateDlg },
+    "world-backup-restore": { title: "World backups: restore (server stopped)", group: "Dialogs", dialog: true, render: () => worldBackupRestoreDlg(false) },
+    "world-backup-restore-running": { title: "World backups: restore (server running)", group: "Dialogs", dialog: true, render: () => worldBackupRestoreDlg(true) },
+    "world-backup-delete": { title: "World backups: delete", group: "Dialogs", dialog: true, render: () => confirm(B("WorldDeleteTitle"), B("WorldDeleteBody", { name: "Before the raid" }), M("Delete"), "dangerfill") },
     "mods-delete": { title: "Mods: delete", group: "Dialogs", dialog: true, render: modsDeleteDlg },
     "mods-overwrite": { title: "Mods: replace files", group: "Dialogs", dialog: true, render: modsOverwriteDlg },
     "mods-incompatible": { title: "Mods: incompatible version", group: "Dialogs", dialog: true, render: modsIncompatibleDlg },
@@ -1557,7 +1608,8 @@
       browse: { label: "Mods browse", options: opt(["results", "Results"], ["none", "No results"], ["failed", "Search failed"], ["link", "Opening a link"]), default: "results" },
       project: { label: "Mod project page", options: opt(["mod", "A mod"], ["modpack", "A modpack"], ["clientonly", "Client only"], ["wrongtype", "Wrong type"], ["failed", "Couldn't load"]), default: "mod" },
       versions: { label: "Project versions", options: opt(["list", "List"], ["none", "None (show all off)"], ["noneall", "None at all"], ["failed", "Failed"]), default: "list" },
-      backups: { label: "Backups", options: opt(["list", "List, backing up"], ["idle", "List, nothing running"], ["off", "Schedule off"], ["empty", "None yet"], ["failed", "Couldn't load"]), default: "list" },
+      backups: { label: "Snapshots", options: opt(["list", "List, taking a snapshot"], ["idle", "List, nothing running"], ["off", "Schedule off"], ["empty", "None yet"], ["failed", "Couldn't load"]), default: "list" },
+      worldBackups: { label: "World backups", options: opt(["list", "List"], ["running", "Backing up the world"], ["download", "A download running"], ["empty", "None yet"]), default: "list" },
       eventlogs: { label: "Event logs", options: opt(["some", "Some events"], ["empty", "Empty"], ["failed", "Failed"]), default: "some" },
       createLoad: { label: "Create form", options: opt(["ok", "Loaded"], ["loading", "Loading"], ["failed", "Failed"]), default: "ok" },
       search: { label: "Modpack search", options: opt(["results", "Results"], ["loading", "Loading"], ["none", "No results"], ["failed", "Errors"], ["link", "Opening a link"], ["uploaded", "Uploaded .mrpack"]), default: "results" },

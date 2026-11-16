@@ -3,24 +3,20 @@ use crate::i18n::{InstanceMsg as M, InstancePlural as P};
 pub fn text(message: M) -> &'static str {
     match message {
         M::Automation => "自動化",
-        M::AutomationLead => "Lodestone 何時自動啟動此伺服器。",
         M::AutoStart => "自動啟動",
         M::AutoStartHint => "Lodestone Core 啟動時啟動此伺服器",
         M::RestartOnCrash => "當機後重新啟動",
-        M::RestartOnCrashHint => "此伺服器當機時重新啟動它",
         M::NotAvailable => "暫時無法使用",
         M::NotAvailableHint => "請至少啟動此伺服器一次",
         M::NoPermission => "沒有權限",
         M::SettingsFailed => "無法載入設定：{error}",
         M::DangerZone => "危險區域",
-        M::DangerZoneLead => "這些設定可能對你的伺服器造成無法復原的損害。",
         M::DeleteServer => "刪除伺服器",
-        M::DeleteServerHint => "永久刪除此伺服器及其資料",
         M::DeleteTitle => "刪除「{name}」",
         M::DeleteConfirm => "我了解，刪除此伺服器",
         M::DeleteCannotUndo => "此動作無法復原。",
         M::DeleteWarning => "此實例的設定和世界將被永久刪除。繼續之前，請備份所有重要資料。",
-        M::DeleteBackupsToo => "它的備份也會被刪除。",
+        M::DeleteBackupsToo => "它的快照和世界備份也會被刪除。",
         M::Deleting => "正在刪除 {name}…",
         M::CommandLineReadOnly => "此核心已停用程式碼執行，此設定為唯讀。",
         M::CommandLineOwnerOnly => "只有擁有者可以變更此設定。",
@@ -34,7 +30,7 @@ pub fn text(message: M) -> &'static str {
         M::ResourcePack => "資源包",
         M::ResourcePackLead => "玩家加入時會被要求下載的資源包。",
         M::PackUrl => "URL",
-        M::PackUrlHint => "資源包 zip 的直接連結。留空則不使用資源包。",
+        M::PackUrlHint => "資源包 .zip 的直接連結。",
         M::PackSha1 => "SHA-1",
         M::PackSha1Hint => "讓玩家可以驗證下載內容並快取資源包。",
         M::PackSha1Error => "SHA-1 應為 40 個十六進位字元。",
@@ -51,9 +47,7 @@ pub fn text(message: M) -> &'static str {
         M::PackNotAUrl => "這不是有效的 URL。",
         M::PackUrlScheme => "URL 必須以 http:// 或 https:// 開頭。",
         M::Eula => "Minecraft EULA",
-        M::EulaLead => "只有在你同意 Minecraft EULA 後，Minecraft 伺服器才能執行。",
         M::EulaAccepted => "已接受",
-        M::EulaAcceptedHint => "你已為此伺服器同意 Minecraft EULA。",
         M::EulaNotAccepted => "未接受",
         M::EulaNotAcceptedHint => "你同意 Minecraft EULA 之前，此伺服器不會啟動。",
         M::EulaRead => "閱讀 EULA",
@@ -63,7 +57,7 @@ pub fn text(message: M) -> &'static str {
         M::EulaDialogTitle => "接受 Minecraft EULA",
         M::EulaDialogBody => "你同意 Minecraft EULA 後，{name} 才能啟動。你同意嗎？",
         M::EulaAcceptAndStart => "我同意，啟動伺服器",
-        M::EventLogsLead => "此伺服器發生的事件，最新的在前。核心會保留最近的事件。",
+        M::EventLogsLead => "只保留最近的事件。",
         M::EventLogsEmpty => "還沒有任何事件",
         M::EventLogsFailed => "無法載入事件：{error}",
         M::EventState => "伺服器現在為{state}",
@@ -236,12 +230,10 @@ pub fn text(message: M) -> &'static str {
         }
         M::FriendsTitle => "好友",
         M::FriendsLead => {
-            "你在 Lodestone Launcher 中加入的好友可以看到你與他們分享的伺服器，不需要連結即可加入。在你勾選好友之前，不會分享任何內容。"
+            "你在 Lodestone Launcher 中加入的好友可以看到你與他們分享的伺服器，不需要連結即可加入。"
         }
         M::FriendsAddInLauncher => "在 Lodestone Launcher 中加入好友",
-        M::FriendsAddInLauncherHint => {
-            "你的好友名單由這台電腦上的 Lodestone Launcher 保存。在那裡加入好友後，即可在這裡與他們分享此伺服器。"
-        }
+        M::FriendsAddInLauncherHint => "這台電腦上的 Lodestone Launcher 保存你的好友名單。",
         M::FriendsLoading => "正在載入好友…",
         M::FriendsShareWith => "與 {name} 分享此伺服器",
         M::FriendsNotVerified => "未驗證",
@@ -280,9 +272,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::FriendsCertificateRetireConfirm => "停用並取得新憑證",
         M::FriendsCertificateRetired => "此核心的好友憑證已停用",
-        M::FriendsCertificateRetiredHint => {
-            "好友現在看不到此核心。為它取得新憑證，即可再次從這台電腦共享。"
-        }
+        M::FriendsCertificateRetiredHint => "好友現在看不到此核心。",
         M::FriendsCertificateNew => "取得新憑證",
         M::FriendsCertificateManual => {
             "好友現在看不到此核心。此核心無法自行產生新憑證：請結束 Lodestone Host，刪除 {path}，然後重新開啟。"

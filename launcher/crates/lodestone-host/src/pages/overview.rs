@@ -638,24 +638,12 @@ fn share_note(text_: &'static str) -> gpui::Div {
         .child(text_)
 }
 
-fn heading(title: &'static str, lead: &'static str) -> AnyElement {
+fn heading(title: &'static str) -> AnyElement {
     div()
-        .flex()
-        .flex_col()
-        .child(
-            div()
-                .text_size(text::H2)
-                .font_weight(weights::EXTRABOLD.face())
-                .text_color(ink::text())
-                .child(title),
-        )
-        .child(
-            div()
-                .text_size(text::H3)
-                .italic()
-                .text_color(ink::muted())
-                .child(lead),
-        )
+        .text_size(text::H2)
+        .font_weight(weights::EXTRABOLD.face())
+        .text_color(ink::text())
+        .child(title)
         .into_any_element()
 }
 
@@ -1165,7 +1153,7 @@ impl OverviewPage {
                 .flex_col()
                 .gap(px(16.))
                 .children(scroll_here)
-                .child(heading(t(M::ShareTitle), t(M::ShareLead)))
+                .child(heading(t(M::ShareTitle)))
                 .child(
                     card()
                         .when_some(friends, |card, friends| {
@@ -1375,7 +1363,7 @@ impl OverviewPage {
             .flex()
             .flex_col()
             .gap(px(16.))
-            .child(heading(t(M::PerformanceTitle), t(M::PerformanceLead)))
+            .child(heading(t(M::PerformanceTitle)))
             .child(
                 div()
                     .flex()
@@ -1497,7 +1485,7 @@ impl OverviewPage {
             .flex()
             .flex_col()
             .gap(px(12.))
-            .child(heading(t(M::PlayersTitle), t(M::PlayersLead)))
+            .child(heading(t(M::PlayersTitle)))
             .child(
                 div()
                     .id("players-sort")

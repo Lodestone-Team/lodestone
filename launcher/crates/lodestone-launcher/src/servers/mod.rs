@@ -29,6 +29,7 @@ mod host_offer;
 pub mod lan;
 pub mod lan_share;
 pub mod local;
+mod magic;
 pub mod view;
 // What the control API (`crate::control`) does with cores and servers.
 pub(crate) mod control;
@@ -778,6 +779,8 @@ pub struct Servers {
     _instances_changed: Option<Subscription>,
     /// "Share LAN worlds with friends": the person's own open worlds.
     pub lan_share: lan_share::LanShare,
+    /// Magic localhost: every server's address on this computer.
+    magic: magic::MagicState,
     /// Games opening worlds to LAN, and exiting, for [`lan_share`].
     _instances_events: Option<Subscription>,
 }
@@ -829,6 +832,7 @@ impl Servers {
             host_download: None,
             _instances_changed: None,
             lan_share: lan_share::LanShare::default(),
+            magic: Default::default(),
             _instances_events: None,
         };
         this._instances_changed = Some(cx.observe(&this.instances, |this, _, cx| {
@@ -843,8 +847,11 @@ impl Servers {
             cx.background_executor()
                 .timer(std::time::Duration::from_millis(500))
                 .await;
-            this.update(cx, |this, cx| this.lan_share_apply_setting(cx))
-                .ok();
+            this.update(cx, |this, cx| {
+                this.lan_share_apply_setting(cx);
+                this.sync_magic(cx);
+            })
+            .ok();
         }));
         this.load(cx);
         this.load_friends();
@@ -858,6 +865,7 @@ impl Servers {
             Ok(file) => file,
             Err(err) => {
                 let err = err.to_string();
+                log::warn!("couldn't read {}: {err}", self.file.display());
                 self.notice = Some(Notice::new(move || (t(M::ReadFailed).into(), err.clone())));
                 ServersFile::default()
             }
@@ -919,6 +927,7 @@ impl Servers {
         };
         if let Err(err) = store::save(&self.file, &file) {
             let err = err.to_string();
+            log::warn!("couldn't save {}: {err}", self.file.display());
             self.notice = Some(Notice::new(move || (t(M::SaveFailed).into(), err.clone())));
         }
     }
@@ -1103,12 +1112,25 @@ impl Servers {
                 };
                 this.cores[index].refreshing = false;
                 match result {
-                    Ok(list) => {
-                        let uuid = this.listed(index, list, cx);
+                    Ok((list, complete)) => {
+                        let uuid = this.listed(index, list, complete, cx);
                         this.fetch_share_links(&uuid, cx);
                     }
                     Err(CoreError::SignedOut) => this.signed_out(index, cx),
-                    Err(err) => this.cores[index].status = CoreStatus::Failed(err),
+                    Err(err) => {
+                        let core = &mut this.cores[index];
+                        // once per change, not on every poll
+                        let same = matches!(&core.status,
+                            CoreStatus::Failed(last) if last.to_string() == err.to_string());
+                        if !same {
+                            log::warn!(
+                                "listing the servers of {} ({}) failed: {err}",
+                                core.saved.name,
+                                core.saved.uuid
+                            );
+                        }
+                        core.status = CoreStatus::Failed(err);
+                    }
                 }
                 cx.notify();
             })
@@ -1118,7 +1140,14 @@ impl Servers {
 
     /// A list arrived: keep the name, and when another id answers, end trust and move
     /// the card (with its key and linked instances) to that id. Returns the core's id.
-    fn listed(&mut self, index: usize, list: ServerList, cx: &mut Context<Self>) -> String {
+    /// `complete`: see [`fetch_list`].
+    fn listed(
+        &mut self,
+        index: usize,
+        list: ServerList,
+        complete: bool,
+        cx: &mut Context<Self>,
+    ) -> String {
         let core = &mut self.cores[index];
         let mut changed = false;
         if core.saved.name != list.core_name {
@@ -1131,6 +1160,7 @@ impl Servers {
             changed = true;
             if *trust_ended {
                 let (name, address) = (core.saved.name.clone(), display_address(&core.url));
+                log::warn!("{name} is no longer trusted: its id changed");
                 self.notice = Some(Notice::new(move || {
                     (
                         tr!(M::NoLongerTrusted, name = name),
@@ -1160,6 +1190,9 @@ impl Servers {
         if changed {
             self.save();
         }
+        if let Some(index) = self.core_index(&uuid) {
+            self.magic_listed(index, complete, cx);
+        }
         uuid
     }
 
@@ -1172,6 +1205,7 @@ impl Servers {
         core.saved.key_expires_at = None;
         let uuid = core.saved.uuid.clone();
         let name = core.saved.name.clone();
+        log::info!("signed out of {name} ({uuid}): the core refused its key");
         self.save();
         self.notice = Some(Notice::new(move || {
             (
@@ -1218,6 +1252,7 @@ impl Servers {
             if let Err(err) = store::write_key(&*store, &uuid, &key).await {
                 this.update(cx, |this, cx| {
                     let err = format!("{err:#}");
+                    log::warn!("couldn't save the key for core {uuid}: {err}");
                     this.notice = Some(Notice::new(move || {
                         (
                             tr!(M::KeySaveFailed, keychain = t(CommonMsg::Keychain)),
@@ -1391,6 +1426,9 @@ impl Servers {
                         && core.saved.check_identity(&info.uuid)
                     {
                         let (name, address) = (core.saved.name.clone(), address.clone());
+                        log::warn!(
+                            "{name} is no longer trusted: another core answers at its address"
+                        );
                         this.notice = Some(Notice::new(move || {
                             (
                                 tr!(M::NoLongerTrusted, name = name),
@@ -1430,6 +1468,7 @@ impl Servers {
                     && saved.pin_certificate(pin)
                 {
                     let name = saved.name.clone();
+                    log::warn!("{name} is no longer trusted: it presents a new certificate");
                     this.notice = Some(Notice::new(move || {
                         (
                             tr!(M::NoLongerTrusted, name = name),
@@ -1547,6 +1586,7 @@ impl Servers {
                 let core = &mut self.cores[index];
                 if core.saved.pin_certificate(pin) {
                     let name = core.saved.name.clone();
+                    log::warn!("{name} is no longer trusted: its certificate changed");
                     self.notice = Some(Notice::new(move || {
                         (
                             tr!(M::NoLongerTrusted, name = name),
@@ -1761,6 +1801,7 @@ impl Servers {
         self.revoke_local_key(&uuid, cx);
         let core = self.cores.remove(index);
         self.save();
+        self.sync_magic(cx);
         if core.signed_in() {
             self.forget_local_key(&core.saved.uuid, cx);
             self.forget_key(core.saved.uuid, cx);
@@ -1777,6 +1818,7 @@ impl Servers {
     /// page isn't shown. `text` makes the title and the message.
     fn fail(&mut self, text: impl Fn() -> (String, String) + 'static, cx: &mut Context<Self>) {
         let (title, message) = text();
+        log::warn!("{}", failure_line(&title, &message));
         if self.friend_failure(&title, &message, cx) {
             return;
         }
@@ -2127,8 +2169,8 @@ impl Servers {
                                 ServerLoader::Vanilla | ServerLoader::Paper | ServerLoader::Spigot
                             ) =>
                     {
-                        eprintln!(
-                            "Couldn't ask {} for its files ({err}); making a plain instance",
+                        log::warn!(
+                            "couldn't ask {} for its files ({err}); making a plain instance",
                             server.name
                         );
                         this.create_plain(&core_uuid, &server, cx)
@@ -2634,7 +2676,7 @@ impl Servers {
             let prepared = match prepared {
                 Ok(prepared) => prepared,
                 Err(err) if joins_anyway(&err, &instance, &dirs, link.view.is_some()) => {
-                    eprintln!("Couldn't ask {name} for its files ({err}); joining as it is");
+                    log::warn!("couldn't ask {name} for its files ({err}); joining as it is");
                     return Ok(ImageCheck::InStep);
                 }
                 Err(err) => return Err(err),
@@ -2872,8 +2914,8 @@ impl Servers {
                 let Some(index) = this.core_index(&link.core_uuid) else {
                     return;
                 };
-                let list = match result {
-                    Ok(list) => list,
+                let (list, complete) = match result {
+                    Ok(fetched) => fetched,
                     Err(err) => {
                         this.cores[index].status = CoreStatus::Failed(err.clone());
                         let name = link.server_name.clone();
@@ -2892,7 +2934,7 @@ impl Servers {
                     .cloned();
                 let signed_in = this.cores[index].signed_in();
                 // the core may have a new id now
-                let core_uuid = this.listed(index, list, cx);
+                let core_uuid = this.listed(index, list, complete, cx);
                 let Some(server) = server else {
                     let name = link.server_name.clone();
                     return this.fail(
@@ -4032,14 +4074,20 @@ fn create_failed() -> String {
 }
 
 /// The list a core shows this device: the public one, plus (signed in) every server
-/// the key can view.
-async fn fetch_list(client: &CoreClient, key: Option<&Secret>) -> Result<ServerList, CoreError> {
+/// the key can view. With whether it is complete: signed in, its public half arrived
+/// too (a failed public half leaves the servers only it lists out), so a server
+/// missing from it is really gone ([`Servers::magic_listed`]).
+async fn fetch_list(
+    client: &CoreClient,
+    key: Option<&Secret>,
+) -> Result<(ServerList, bool), CoreError> {
     let public = client.public_servers().await;
     let Some(key) = key else {
-        return public;
+        return public.map(|list| (list, false));
     };
     let list = client.servers(key).await?;
-    Ok(merge_lists(list, public.ok()))
+    let complete = public.is_ok();
+    Ok((merge_lists(list, public.ok()), complete))
 }
 
 /// The signed-in list `signed_in` with the publicly listed servers it lacks from
@@ -4071,9 +4119,22 @@ pub fn create(
     cx.new(|cx| Servers::new(accounts, instances, cx))
 }
 
+/// The log's line for a failure the page shows (`title` and `message` as shown).
+fn failure_line(title: &str, message: &str) -> String {
+    format!("shown as an error: {title}: {message}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shown_failures_are_logged_as_shown() {
+        assert_eq!(
+            failure_line("Couldn't join Survival", "The core refused: 403"),
+            "shown as an error: Couldn't join Survival: The core refused: 403"
+        );
+    }
 
     fn server(uuid: &str) -> ServerInstance {
         ServerInstance {

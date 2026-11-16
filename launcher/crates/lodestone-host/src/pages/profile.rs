@@ -57,11 +57,12 @@ fn language_name(language: Language) -> String {
     }
 }
 
-fn theme_name(theme: Theme) -> (&'static str, &'static str) {
+/// A theme's name, and the line under the Theme row when it needs one.
+fn theme_name(theme: Theme) -> (&'static str, Option<&'static str>) {
     match theme {
-        Theme::System => (t(CoreMsg::ThemeSystem), t(CoreMsg::ThemeSystemHint)),
-        Theme::Light => (t(CoreMsg::ThemeLight), t(CoreMsg::ThemeLightHint)),
-        Theme::Dark => (t(CoreMsg::ThemeDark), t(CoreMsg::ThemeDarkHint)),
+        Theme::System => (t(CoreMsg::ThemeSystem), Some(t(CoreMsg::ThemeSystemHint))),
+        Theme::Light => (t(CoreMsg::ThemeLight), None),
+        Theme::Dark => (t(CoreMsg::ThemeDark), None),
     }
 }
 
@@ -446,7 +447,7 @@ impl ProfilePage {
                     .search_text(language_name(prefs.language))
                     .child(language),
                 SettingRow::new(t(CoreMsg::Theme))
-                    .hint(theme_name(prefs.theme).1)
+                    .hint_opt(theme_name(prefs.theme).1)
                     .keywords(t(CoreMsg::ThemeKeywords))
                     .child(theme),
                 SettingRow::new(t(CoreMsg::Zoom))

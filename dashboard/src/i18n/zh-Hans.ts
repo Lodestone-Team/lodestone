@@ -342,8 +342,6 @@ export const zhHans: Messages = {
   'settings.theme.light': '浅色',
   'settings.theme.dark': '深色',
   'settings.theme.systemHint': '跟随设备的浅色或深色设置',
-  'settings.theme.lightHint': '始终使用浅色',
-  'settings.theme.darkHint': '始终使用深色',
 
   'settings.toc.label': '章节',
 
@@ -353,34 +351,34 @@ export const zhHans: Messages = {
   'settings.core.title': '常规',
   'settings.core.section.core': '核心',
   'settings.core.section.public': '公开服务器',
-  'settings.core.section.publicLead': '无需登录即可查看。',
   'settings.core.section.info': '信息',
   'settings.core.section.danger': '危险区域',
-  'settings.core.section.dangerLead': '请谨慎更改。',
   'settings.core.name.label': '核心名称',
   'settings.core.name.empty': '名称不能为空',
   'settings.core.name.tooLong': '名称不能超过 {max} 个字符',
   'settings.core.domain.label': '公网域名或 IP',
   'settings.core.domain.tooLong': '域名不能超过 {max} 个字符',
   'settings.core.domain.tooltip':
-    '如果你已设置端口转发，这里填写你的公网 IP。否则请保持不变。',
+    '用于“复制 IP”和服务器概览。留空则使用核心的地址。',
   'settings.core.modpackChecks.label': '检查整合包更新',
   'settings.core.modpackChecks.hint':
-    '每隔几小时在 Modrinth 上查找服务器所用整合包的新版本，有新版本时通知。关闭后，服务器“模组”标签中的“检查更新”仍可使用。',
+    '每 6 小时检查一次，适用于从 Modrinth 整合包创建的服务器。仍可在服务器的“模组”标签中手动检查。',
   'settings.core.listPublicly.label': '公开列出服务器',
   'settings.core.listPublicly.hint':
     '任何能访问此核心的人都能看到你在下方设为公开的服务器。',
   'settings.core.localClaim.label': '允许本机上的应用获取所有者权限',
   'settings.core.localClaim.hint':
-    'Lodestone Launcher 可以通过证明自己能写入此核心的数据文件夹来成为所有者。能写入该文件夹的程序本来就能修改所有用户和设置，所以这只在共用电脑上有影响。',
+    'Lodestone Host 和 Launcher 通过核心的数据文件夹以所有者身份登录，无需密码。关闭后，它们会要求输入密码。',
   'settings.core.safeMode.label': '安全模式',
-  'settings.core.safeMode.hint': '仅所有者可获得此计算机的管理权限。',
+  'settings.core.safeMode.hint':
+    '只有所有者可以使用不安全权限，即使已将其授予他人。',
   'settings.core.safeMode.offTitle': '关闭安全模式？',
   'settings.core.safeMode.offBody':
     '确定要关闭安全模式吗？这样你就可以让自己以外的用户运行可能有危险的命令。请确保你信任所有获得这些权限的用户。',
   'settings.core.turnOff': '关闭',
   'settings.core.codeExecution.label': '代码执行',
-  'settings.core.codeExecution.hint': '自定义 Java 命令。',
+  'settings.core.codeExecution.hint':
+    '自定义 Java 命令和参数，以及添加或修改脚本文件。',
   'settings.core.codeExecution.locked':
     '已被此核心的管理员锁定（LODESTONE_DISABLE_CODE_EXECUTION 或 --disable-code-execution）。',
   'settings.core.codeExecution.offTitle': '关闭代码执行？',
@@ -421,7 +419,6 @@ export const zhHans: Messages = {
 
   'settings.users.documentTitle': '用户设置',
   'settings.users.title': '用户',
-  'settings.users.description': '此核心上的账户及其权限。',
   'settings.users.allUsers': '所有用户',
   'settings.users.allMembers': '所有成员',
   'settings.users.allMembersCount': '所有成员（{count}）',
@@ -432,70 +429,34 @@ export const zhHans: Messages = {
   'settings.users.loadingUser': '正在加载该用户',
   'settings.users.loadingServers': '正在加载服务器',
   'settings.users.permissions': '权限',
-  'settings.users.permissionsLead': '{username} 在此核心上可以执行的操作。',
   'settings.users.unsafePermissions': '不安全权限',
   'settings.users.unsafePermissionsLead': '关闭安全模式后才能授予非所有者。',
 
   'settings.permission.can_create_instance.title': '创建服务器',
-  'settings.permission.can_create_instance.user': '该用户可以创建新服务器。',
-  'settings.permission.can_create_instance.key': '该密钥可以创建新服务器。',
   'settings.permission.can_delete_instance.title': '删除服务器',
-  'settings.permission.can_delete_instance.user': '该用户可以删除任何服务器。',
-  'settings.permission.can_delete_instance.key': '该密钥可以删除任何服务器。',
+  'settings.permission.can_delete_instance.hint': '此核心上的任何服务器。',
   'settings.permission.can_read_global_file.title': '读取全局文件',
-  'settings.permission.can_read_global_file.user':
-    '该用户可以读取运行 Lodestone Core 的计算机上的任何文件。',
-  'settings.permission.can_read_global_file.key':
-    '该密钥可以读取运行 Lodestone Core 的计算机上的任何文件。',
+  'settings.permission.can_read_global_file.hint':
+    '核心所在计算机上的任何文件，包括用户文件。这足以用任何人的身份登录，甚至是所有者。',
   'settings.permission.can_view_instance.title': '查看服务器',
-  'settings.permission.can_view_instance.user': '该用户可以看到这些服务器。',
-  'settings.permission.can_view_instance.key': '该密钥可以看到这些服务器。',
   'settings.permission.can_start_instance.title': '启动服务器',
-  'settings.permission.can_start_instance.user': '该用户可以启动这些服务器。',
-  'settings.permission.can_start_instance.key': '该密钥可以启动这些服务器。',
   'settings.permission.can_stop_instance.title': '停止服务器',
-  'settings.permission.can_stop_instance.user': '该用户可以停止这些服务器。',
-  'settings.permission.can_stop_instance.key': '该密钥可以停止这些服务器。',
   'settings.permission.can_access_instance_console.title': '访问服务器控制台',
-  'settings.permission.can_access_instance_console.user':
-    '该用户可以读取这些服务器的控制台并向其发送命令。这实际上相当于授予服务器的管理员（OP）权限。',
-  'settings.permission.can_access_instance_console.key':
-    '该密钥可以读取这些服务器的控制台并向其发送命令。这实际上相当于授予服务器的管理员（OP）权限。',
+  'settings.permission.can_access_instance_console.hint':
+    '包括发送命令，实际上相当于管理员（OP）权限。',
   'settings.permission.can_access_instance_setting.title': '访问服务器设置',
-  'settings.permission.can_access_instance_setting.user':
-    '该用户可以读取和更改这些服务器的设置。',
-  'settings.permission.can_access_instance_setting.key':
-    '该密钥可以读取和更改这些服务器的设置。',
   'settings.permission.can_read_instance_resource.title': '读取服务器资源',
-  'settings.permission.can_read_instance_resource.user':
-    '该用户可以读取这些服务器的资源（世界、模组等）。',
-  'settings.permission.can_read_instance_resource.key':
-    '该密钥可以读取这些服务器的资源（世界、模组等）。',
+  'settings.permission.can_read_instance_resource.hint': '世界、模组等。',
   'settings.permission.can_read_instance_file.title': '读取服务器文件',
-  'settings.permission.can_read_instance_file.user':
-    '该用户可以读取这些服务器的文件。',
-  'settings.permission.can_read_instance_file.key':
-    '该密钥可以读取这些服务器的文件。',
   'settings.permission.can_write_instance_resource.title': '修改服务器资源',
-  'settings.permission.can_write_instance_resource.user':
-    '该用户可以修改这些服务器的资源（世界、模组等）。',
-  'settings.permission.can_write_instance_resource.key':
-    '该密钥可以修改这些服务器的资源（世界、模组等）。',
+  'settings.permission.can_write_instance_resource.hint': '世界、模组等。',
   'settings.permission.can_write_instance_file.title': '修改服务器文件',
-  'settings.permission.can_write_instance_file.user':
-    '该用户可以修改这些服务器的文件。',
-  'settings.permission.can_write_instance_file.key':
-    '该密钥可以修改这些服务器的文件。',
   'settings.permission.can_write_global_file.title': '修改全局文件',
-  'settings.permission.can_write_global_file.user':
-    '该用户可以修改运行 Lodestone Core 的计算机上的任何文件。',
-  'settings.permission.can_write_global_file.key':
-    '该密钥可以修改运行 Lodestone Core 的计算机上的任何文件。',
+  'settings.permission.can_write_global_file.hint':
+    '核心所在计算机上的任何文件，这足以在上面运行任何程序。',
   'settings.permission.can_manage_permission.title': '管理权限',
-  'settings.permission.can_manage_permission.user':
-    '该用户可以管理其他用户的权限。',
-  'settings.permission.can_manage_permission.key':
-    '该密钥可以管理其他用户的权限。',
+  'settings.permission.can_manage_permission.hint':
+    '其他用户的权限，不包括自己的。只有所有者可以授予不安全权限。',
 
   'settings.profile.documentTitle': '用户个人资料',
   'settings.profile.title': '个人资料',
@@ -524,8 +485,7 @@ export const zhHans: Messages = {
   'settings.minecraft.ownLead': '从 Lodestone Launcher 关联。',
   'settings.minecraft.ownEmpty':
     '尚未关联 Minecraft 账户。在 Lodestone Launcher 中登录此核心即可关联。',
-  'settings.minecraft.userLead':
-    '{username} 从 Lodestone Launcher 关联的 Minecraft 账户。',
+  'settings.minecraft.userLead': '从 Lodestone Launcher 关联。',
   'settings.minecraft.userEmpty': '{username} 没有关联的 Minecraft 账户。',
   'settings.minecraft.tooOld': '此核心版本太旧，无法关联 Minecraft 账户。',
   'settings.minecraft.removeTitle': '移除 Minecraft 账户',
@@ -537,8 +497,7 @@ export const zhHans: Messages = {
   'settings.apiKeys.ownLead':
     '让 CLI、脚本和智能体无需密码即可以你的身份操作。',
   'settings.apiKeys.ownEmpty': '你还没有 API 密钥。',
-  'settings.apiKeys.userLead':
-    '{username} 创建的密钥。吊销后，使用它的程序会立即失去访问权限。',
+  'settings.apiKeys.userLead': '吊销后，使用它的程序会立即失去访问权限。',
   'settings.apiKeys.userEmpty': '{username} 没有 API 密钥。',
   'settings.apiKeys.create': '创建 API 密钥',
   'settings.apiKeys.created': '已创建 API 密钥“{name}”',
@@ -584,8 +543,7 @@ export const zhHans: Messages = {
   'settings.apiKeys.access.custom': '自定义',
   'settings.apiKeys.chooseOne': '请至少选择一项权限。',
   'settings.apiKeys.createKey': '创建密钥',
-  'settings.apiKeys.onlyYours':
-    '密钥只能拥有你自己拥有的权限。你没有的权限和服务器显示为灰色。',
+  'settings.apiKeys.onlyYours': '密钥只能拥有你自己拥有的权限。',
   'settings.apiKeys.notYours': '你没有此权限。',
   'settings.apiKeys.noServers': '没有你可以看到的服务器。',
   'settings.apiKeys.unsafe': '不安全设置',
@@ -644,7 +602,6 @@ export const zhHans: Messages = {
 
   // InstancePerformance
   'server.performance.title': '服务器监控',
-  'server.performance.lead': '此实例对你的 Lodestone Core 的资源占用',
   'server.performance.cpuLoad': 'CPU 负载：{value}%',
   'server.performance.memoryUsed': '已用内存：{value} GiB',
   'server.performance.loadingGraph': '正在加载图表',
@@ -668,19 +625,15 @@ export const zhHans: Messages = {
   // InstanceSettings
   'server.settings.pageTitle': '服务器设置',
   'server.settings.automation': '自动化',
-  'server.settings.automationLead': 'Lodestone 何时自动启动此服务器。',
   'server.settings.autoStart': '自动启动',
-  'server.settings.autoStartHint': 'Lodestone Core 启动时启动此服务器',
+  'server.settings.autoStartHint': 'Lodestone Core 启动时。',
   'server.settings.restartOnCrash': '崩溃后重启',
-  'server.settings.restartOnCrashHint': '此服务器崩溃时重新启动它',
   'server.settings.notAvailable': '暂时不可用',
   'server.settings.notAvailableHint': '请至少启动此服务器一次',
   'server.settings.noPermission': '没有权限',
   'server.settings.dangerZone': '危险区域',
-  'server.settings.dangerZoneLead':
-    '这些设置可能对你的服务器造成不可逆的损害。',
   'server.settings.deleteServer': '删除服务器',
-  'server.settings.deleteServerHint': '永久删除此服务器及其数据',
+  'server.settings.deleteServerHint': '它的世界、快照和世界备份也会被删除。',
   'server.settings.deleteTitle': '删除“{name}”',
   'server.settings.deleteConfirm': '我明白，删除此服务器',
   'server.settings.deleteCannotUndo': '此操作无法撤销。',
@@ -692,9 +645,8 @@ export const zhHans: Messages = {
 
   // PublicListingSetting
   'server.share.title': '共享',
-  'server.share.lead': '拥有链接的人可在 Lodestone Launcher 中加入',
   'server.share.off':
-    '把链接发给你想一起玩的人。他们在 Lodestone Launcher 中打开后，游戏会直接连接到这台电脑，无需端口转发。',
+    '好友在 Lodestone Launcher 中打开链接，即可直接连接到这台电脑，无需端口转发。',
   'server.share.start': '共享',
   'server.share.state.starting': '正在启动…',
   'server.share.state.sharing': '共享中',
@@ -743,7 +695,7 @@ export const zhHans: Messages = {
   'server.resourcePack.title': '资源包',
   'server.resourcePack.lead': '玩家加入时会被要求下载的资源包。',
   'server.resourcePack.url': 'URL',
-  'server.resourcePack.urlHint': '资源包 zip 的直接链接。留空则不使用资源包。',
+  'server.resourcePack.urlHint': '资源包 .zip 的直接链接。',
   'server.resourcePack.sha1Hint': '让玩家可以校验下载内容并缓存资源包。',
   'server.resourcePack.sha1Error': 'SHA-1 应为 40 个十六进制字符。',
   'server.resourcePack.compute': '计算',
@@ -751,8 +703,7 @@ export const zhHans: Messages = {
   'server.resourcePack.required': '强制使用资源包',
   'server.resourcePack.requiredHint': '拒绝资源包的玩家会被断开连接。',
   'server.resourcePack.prompt': '提示信息',
-  'server.resourcePack.promptHint':
-    '询问玩家时显示的消息。纯文本或 JSON 文本组件。',
+  'server.resourcePack.promptHint': '纯文本或 JSON 文本组件。',
   'server.resourcePack.remove': '移除资源包',
   'server.resourcePack.saved': '资源包已保存',
   'server.resourcePack.savedRestart': '资源包已保存。重启服务器后生效。',
@@ -765,7 +716,6 @@ export const zhHans: Messages = {
   'server.card.power': '电源',
   'server.card.copyIp': '复制 IP',
   'server.card.share': '共享',
-  'server.card.shareHint': '通过链接共享此服务器',
   'server.card.online': '{players}/{max} 在线',
 
   // InstanceCard：启动未接受 Minecraft EULA 的服务器
@@ -843,10 +793,7 @@ export const zhHans: Messages = {
   'create.step.selectModpack': '选择整合包',
   'create.step.selectVersion': '选择版本',
 
-  // InstanceCreateForm: the pages' subtitles, buttons and errors
-  'create.basicSettings.description': '服务器的基本设置。',
-  'create.serverSettings.description': '配置你的服务器。',
-  'create.autoSettings.description': '自动配置你的服务器。',
+  // InstanceCreateForm: the buttons and errors
   'create.checkFields': '请确保所有字段都已正确填写',
   'create.createServer': '创建服务器',
   'create.createFailed': '创建服务器出错：{error}',
@@ -858,20 +805,16 @@ export const zhHans: Messages = {
 
   // form.ts and ModpackCreateForm: the dashboard's own setup fields
   'create.field.name': '名称',
-  'create.field.nameDescription': '服务器的名称',
   'create.field.nameDefault': '我的服务器',
   'create.field.description': '描述',
-  'create.field.descriptionDescription': '服务器的描述',
   'create.field.port': '端口',
-  'create.field.portDescription': '服务器运行的端口',
   'create.field.minRam': '最小内存',
-  'create.field.minRamDescription': '分配给服务器的最小内存，单位为 MB',
+  'create.field.minRamDescription': '单位为 MB。',
   'create.field.maxRam': '最大内存',
-  'create.field.maxRamDescription': '分配给服务器的最大内存，单位为 MB',
+  'create.field.maxRamDescription': '单位为 MB。',
   'create.field.autoStart': '自动启动',
-  'create.field.autoStartDescription': '应用程序启动时自动启动服务器',
+  'create.field.autoStartDescription': 'Lodestone Core 启动时。',
   'create.field.restartOnCrash': '崩溃后重启',
-  'create.field.restartOnCrashDescription': '服务器崩溃后自动重启',
 
   // form.ts: validation of a setting; {name} is the setting's name (often sent by the core, untranslated)
   'create.validation.required': '“{name}”为必填项',
@@ -888,26 +831,20 @@ export const zhHans: Messages = {
 
   // GameTypeSelectForm: the first step, picking a game
   'create.gameType.title': '选择游戏',
-  'create.gameType.subtitle': '你的服务器将用于什么？',
   'create.gameType.new': '新功能',
   'create.gameType.modpack': 'Modrinth 整合包',
-  'create.gameType.modpackDescription':
-    '从 Modrinth 整合包创建 Fabric、Forge 或 NeoForge 服务器',
+  'create.gameType.modpackDescription': 'Fabric、Forge 或 NeoForge。',
 
   // GameTypeMappings: games' titles and descriptions
   'create.game.genericTitle': '{name}（通用）',
-  'create.game.vanillaDescription': 'Mojang 官方的标准原版 Minecraft 服务器。',
-  'create.game.forgeDescription':
-    '模组框架，可用于安装模组并自定义你的 Minecraft 体验。',
+  'create.game.vanillaDescription': 'Mojang 官方原版。不支持模组或插件。',
+  'create.game.forgeDescription': '运行 Forge 模组。',
   'create.game.neoforgeDescription':
     '社区维护的 Forge 分支，有自己的模组，适用于 Minecraft 1.20.2 及更高版本。',
-  'create.game.fabricDescription': '轻量级的 Minecraft 模组工具链。',
-  'create.game.paperDescription':
-    '高性能的 Spigot 分支，旨在修复游戏玩法和机制上的不一致。',
-  'create.game.spigotDescription':
-    '经过修改的 Minecraft 服务器软件，支持插件，提供更高的性能和更多自定义选项。',
+  'create.game.fabricDescription': '运行 Fabric 模组。',
+  'create.game.paperDescription': '更快的 Spigot 分支。运行插件。',
+  'create.game.spigotDescription': '运行 Bukkit 和 Spigot 插件。',
   'create.game.otherDescription': '未知的 Minecraft 变体：{name}',
-  'create.game.bedrockDescription': 'Minecraft Bedrock Edition 服务器。',
   'create.game.genericDescription': '未知游戏：{name}',
 
   // CreateInstanceFlow: read by screen readers while the dialog loads
@@ -915,14 +852,12 @@ export const zhHans: Messages = {
 
   // ModpackCreateForm: creating a server from a Modrinth modpack
   'create.modpack.sourceTitle': '选择整合包',
-  'create.modpack.sourceDescription':
-    '搜索 Modrinth、粘贴 Modrinth 链接，或上传 .mrpack 文件。支持 Fabric、Forge 和 NeoForge 整合包。',
+  'create.modpack.sourceDescription': 'Fabric、Forge 和 NeoForge 整合包。',
   'create.modpack.searchPlaceholder': '搜索整合包，或粘贴 Modrinth 链接',
   'create.modpack.onlyFabric': '仅显示 Fabric 整合包',
   'create.modpack.upload': '上传 .mrpack',
   'create.modpack.versionTitle': '选择版本',
   'create.modpack.versionUploaded': '已上传的整合包。',
-  'create.modpack.versionDescription': '选择要安装的整合包版本。',
   'create.modpack.downloading': '正在下载整合包文件以读取其内容…',
   'create.modpack.downloadingSize': '正在下载整合包文件（{size}）以读取其内容…',
   'create.modpack.versionHint':

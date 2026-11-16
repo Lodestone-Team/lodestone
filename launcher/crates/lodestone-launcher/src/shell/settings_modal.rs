@@ -78,8 +78,8 @@ impl SettingsPage {
     fn lead(self) -> Option<&'static str> {
         match self {
             SettingsPage::Defaults => Some(t(M::DefaultsLead)),
-            SettingsPage::Shared => Some(t(M::SharedLead)),
             SettingsPage::General
+            | SettingsPage::Shared
             | SettingsPage::Skin
             | SettingsPage::Accounts
             | SettingsPage::Storage
@@ -617,8 +617,7 @@ impl LauncherShell {
             SettingRow::new(t(M::WhenAGameStarts))
                 .keywords(t(M::WhenAGameStartsKeywords))
                 .hint_opt(match after_launch {
-                    AfterLaunch::Stay => Some(t(M::AfterLaunchStayHint)),
-                    AfterLaunch::Minimize => None,
+                    AfterLaunch::Stay | AfterLaunch::Minimize => None,
                     AfterLaunch::Quit => Some(t(M::AfterLaunchQuitHint)),
                 })
                 .child(segmented(
@@ -842,61 +841,55 @@ impl LauncherShell {
             })
             .when_some(action, |row, action| row.child(action));
         let dev_row = offer_dev.then(|| {
-            SettingRow::new(t(M::DeveloperBuilds))
-                .hint(t(M::DeveloperBuildsHint))
-                .child(
-                    Toggle::new("developer-builds", dev)
-                        .label(t(M::DeveloperBuilds))
-                        .disabled(build.is_none())
-                        .on_change(cx.listener(|this, value: &bool, _, cx| {
-                            let channel = if *value {
-                                UpdateChannel::Dev
-                            } else {
-                                UpdateChannel::Stable
-                            };
-                            this.instances.update(cx, |instances, cx| {
-                                instances.set_update_channel(channel, cx)
-                            });
-                            this.updater
-                                .update(cx, |updater, cx| updater.channel_changed(cx));
-                        })),
-                )
+            SettingRow::new(t(M::DeveloperBuilds)).child(
+                Toggle::new("developer-builds", dev)
+                    .label(t(M::DeveloperBuilds))
+                    .disabled(build.is_none())
+                    .on_change(cx.listener(|this, value: &bool, _, cx| {
+                        let channel = if *value {
+                            UpdateChannel::Dev
+                        } else {
+                            UpdateChannel::Stable
+                        };
+                        this.instances.update(cx, |instances, cx| {
+                            instances.set_update_channel(channel, cx)
+                        });
+                        this.updater
+                            .update(cx, |updater, cx| updater.channel_changed(cx));
+                    })),
+            )
         });
         [
-            SettingRow::new(t(M::UpdateAutomatically))
-                .hint(t(M::UpdateAutomaticallyHint))
-                .child(
-                    Toggle::new("auto-update", auto_update)
-                        .label(t(M::UpdateAutomatically))
-                        .disabled(build.is_none())
-                        .on_change(cx.listener(|this, value: &bool, _, cx| {
-                            let on = *value;
-                            this.instances
-                                .update(cx, |instances, cx| instances.set_auto_update(on, cx));
-                            this.updater
-                                .update(cx, |updater, cx| updater.automatic_changed(cx));
-                        })),
-                ),
-            SettingRow::new(t(M::BetaBuilds))
-                .hint(t(M::BetaBuildsHint))
-                .child(
-                    // Developer builds include betas.
-                    Toggle::new("beta-builds", channel != UpdateChannel::Stable)
-                        .label(t(M::BetaBuilds))
-                        .disabled(build.is_none() || dev)
-                        .on_change(cx.listener(|this, value: &bool, _, cx| {
-                            let channel = if *value {
-                                UpdateChannel::Beta
-                            } else {
-                                UpdateChannel::Stable
-                            };
-                            this.instances.update(cx, |instances, cx| {
-                                instances.set_update_channel(channel, cx)
-                            });
-                            this.updater
-                                .update(cx, |updater, cx| updater.channel_changed(cx));
-                        })),
-                ),
+            SettingRow::new(t(M::UpdateAutomatically)).child(
+                Toggle::new("auto-update", auto_update)
+                    .label(t(M::UpdateAutomatically))
+                    .disabled(build.is_none())
+                    .on_change(cx.listener(|this, value: &bool, _, cx| {
+                        let on = *value;
+                        this.instances
+                            .update(cx, |instances, cx| instances.set_auto_update(on, cx));
+                        this.updater
+                            .update(cx, |updater, cx| updater.automatic_changed(cx));
+                    })),
+            ),
+            SettingRow::new(t(M::BetaBuilds)).child(
+                // Developer builds include betas.
+                Toggle::new("beta-builds", channel != UpdateChannel::Stable)
+                    .label(t(M::BetaBuilds))
+                    .disabled(build.is_none() || dev)
+                    .on_change(cx.listener(|this, value: &bool, _, cx| {
+                        let channel = if *value {
+                            UpdateChannel::Beta
+                        } else {
+                            UpdateChannel::Stable
+                        };
+                        this.instances.update(cx, |instances, cx| {
+                            instances.set_update_channel(channel, cx)
+                        });
+                        this.updater
+                            .update(cx, |updater, cx| updater.channel_changed(cx));
+                    })),
+            ),
         ]
         .into_iter()
         .chain(dev_row)

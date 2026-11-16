@@ -151,6 +151,11 @@ enum Modal {
         dialog: Entity<crate::instances::snapshots::SnapshotDialog>,
         _events: Subscription,
     },
+    /// Making, restoring or deleting a world backup.
+    WorldBackup {
+        dialog: Entity<crate::instances::world_backups::WorldBackupDialog>,
+        _events: Subscription,
+    },
     /// "Import from another launcher".
     Import {
         dialog: Entity<ImportDialog>,
@@ -242,11 +247,11 @@ enum Modal {
         name: String,
         focus: FocusHandle,
     },
-    /// Replacing a world with one of its backups.
+    /// Restoring a world, in place, from a snapshot that holds it.
     ReplaceWorld {
         folder: String,
         name: String,
-        backup: crate::instances::worlds::Backup,
+        backup: crate::instances::worlds::SnapshotCopy,
         focus: FocusHandle,
     },
     /// What a modpack update will do, before it does it.
@@ -316,7 +321,7 @@ pub struct LauncherShell {
     /// The Discord status, and what Settings > General > Discord says about it.
     discord: Entity<crate::discord::DiscordPresence>,
     /// The Settings tab of the selected instance, rebuilt when the selection changes.
-    settings: Option<(Entity<InstanceSettings>, [Subscription; 8])>,
+    settings: Option<(Entity<InstanceSettings>, [Subscription; 9])>,
     page: Page,
     tab: InstanceTab,
     /// The launcher's Settings, a large dialog under the other dialogs.
@@ -369,6 +374,9 @@ pub struct LauncherShell {
     undo_toast: Toast,
     /// The notification that offers "Keep the narrator off", while it's shown.
     narrator_offer: Option<narrator_offer::NarratorOffer>,
+    /// The top bar's "closed unexpectedly last time", until it's dismissed: the last
+    /// run crashed ([`launcher_core::logging::Started::previous_crash`]).
+    pub crash_notice: Option<launcher_core::logging::Crash>,
     /// Shows it shortly after the window opens.
     narrator_offer_pending: Option<Task<()>>,
     _observe: Vec<Subscription>,
@@ -409,6 +417,7 @@ impl LauncherShell {
                 InstancesEvent::LaunchFailed { title, message, .. }
                 | InstancesEvent::PlayFailed { title, message, .. }
                 | InstancesEvent::Notice { title, message, .. } => {
+                    crate::instances::log_shown(event);
                     let focus = cx.focus_handle();
                     this.open_modal(
                         Modal::LaunchFailed {
@@ -512,6 +521,9 @@ impl LauncherShell {
         let worlds = cx.new(|cx| WorldsView::new(instances.clone(), cx));
         observe.push(cx.subscribe(&worlds, |this, _, event, cx| {
             let modal = match event {
+                WorldsEvent::WorldBackup(request) => {
+                    return this.open_world_backup(request.clone(), cx);
+                }
                 WorldsEvent::Delete { folder, name } => Modal::DeleteWorld {
                     folder: folder.clone(),
                     name: name.clone(),
@@ -682,6 +694,7 @@ impl LauncherShell {
             undo_toast: Toast::default(),
             narrator_offer: None,
             narrator_offer_pending: None,
+            crash_notice: launcher_core::logging::started().and_then(|s| s.previous_crash),
             _observe: observe,
             // Redrawing the whole window takes the main thread about 10 ms, so it only
             // happens when a label changes ("2 hours ago" changes once an hour), not
@@ -1246,6 +1259,15 @@ impl LauncherShell {
                             this.open_snapshot(request.clone(), cx)
                         },
                     ),
+                    cx.subscribe(
+                        &settings,
+                        |this,
+                         _,
+                         crate::instances::world_backups::WorldBackupRequested(request),
+                         cx| {
+                            this.open_world_backup(request.clone(), cx)
+                        },
+                    ),
                 ];
                 self.settings = Some((settings, subscriptions));
             }
@@ -1437,8 +1459,8 @@ impl LauncherShell {
                 return;
             }
         }
-        let snapshot_busy =
-            matches!(current, Some(Modal::Snapshot { dialog, .. }) if dialog.read(cx).busy());
+        let snapshot_busy = matches!(current, Some(Modal::Snapshot { dialog, .. }) if dialog.read(cx).busy())
+            || matches!(current, Some(Modal::WorldBackup { dialog, .. }) if dialog.read(cx).busy());
         let wait = searching.is_some()
             || snapshot_busy
             || matches!(current, Some(Modal::ConfirmRosetta { .. }))
@@ -1838,6 +1860,7 @@ impl LauncherShell {
             Some(Modal::NewInstance { dialog: open, .. }) => open.entity_id() == dialog,
             Some(Modal::Import { dialog: open, .. }) => open.entity_id() == dialog,
             Some(Modal::Snapshot { dialog: open, .. }) => open.entity_id() == dialog,
+            Some(Modal::WorldBackup { dialog: open, .. }) => open.entity_id() == dialog,
             Some(Modal::Share { dialog: open, .. }) => open.entity_id() == dialog,
             Some(Modal::AddModpack { dialog: open, .. }) => open.entity_id() == dialog,
             Some(Modal::SignIn { dialog: open, .. }) => open.entity_id() == dialog,
@@ -1961,6 +1984,40 @@ impl LauncherShell {
             },
             cx,
         );
+    }
+
+    /// Opens the world backup dialog for `request`.
+    pub fn open_world_backup(
+        &mut self,
+        request: crate::instances::world_backups::WorldBackupRequest,
+        cx: &mut Context<Self>,
+    ) {
+        use crate::instances::world_backups::{WorldBackupDialog, WorldBackupDismissed};
+        self.account_menu_open = false;
+        let instances = self.instances.clone();
+        let dialog = cx.new(|cx| WorldBackupDialog::new(instances, request, cx));
+        let subscription = cx.subscribe(&dialog, |this, dialog, _: &WorldBackupDismissed, cx| {
+            if this.is_open_dialog(dialog.entity_id()) {
+                this.close_modal(cx)
+            }
+        });
+        self.open_modal(
+            Modal::WorldBackup {
+                dialog,
+                _events: subscription,
+            },
+            cx,
+        );
+    }
+
+    /// The open world backup dialog, for the offscreen screenshots.
+    pub fn world_backup_dialog(
+        &self,
+    ) -> Option<&Entity<crate::instances::world_backups::WorldBackupDialog>> {
+        match self.modal.current() {
+            Some(Modal::WorldBackup { dialog, .. }) => Some(dialog),
+            _ => None,
+        }
     }
 
     /// The open snapshot dialog, for the offscreen screenshots.
@@ -2469,6 +2526,7 @@ impl LauncherShell {
             Modal::NewInstance { dialog, .. } => dialog.clone().into_any_element(),
             Modal::Import { dialog, .. } => dialog.clone().into_any_element(),
             Modal::Snapshot { dialog, .. } => dialog.clone().into_any_element(),
+            Modal::WorldBackup { dialog, .. } => dialog.clone().into_any_element(),
             Modal::Share { dialog, .. } => dialog.clone().into_any_element(),
             Modal::AddModpack { dialog, .. } => dialog.clone().into_any_element(),
             Modal::ModFinder { finder, .. } => finder.clone().into_any_element(),
@@ -3223,6 +3281,17 @@ impl Render for LauncherShell {
     }
 }
 
+/// What "When a game starts" does when a game's window opens. Never quit while the
+/// launcher is `busy` (another instance installing or starting, a modpack import, a
+/// "Find it for me" search whose tries are the games opening): quitting would stop
+/// that half way. The window is minimized instead, and comes back when the game exits.
+fn after_game_opens(after: AfterLaunch, busy: bool) -> AfterLaunch {
+    match after {
+        AfterLaunch::Quit if busy => AfterLaunch::Minimize,
+        after => after,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3258,17 +3327,6 @@ mod tests {
             assert_eq!(after_game_opens(after, true), after);
             assert_eq!(after_game_opens(after, false), after);
         }
-    }
-}
-
-/// What "When a game starts" does when a game's window opens. Never quit while the
-/// launcher is `busy` (another instance installing or starting, a modpack import, a
-/// "Find it for me" search whose tries are the games opening): quitting would stop
-/// that half way. The window is minimized instead, and comes back when the game exits.
-fn after_game_opens(after: AfterLaunch, busy: bool) -> AfterLaunch {
-    match after {
-        AfterLaunch::Quit if busy => AfterLaunch::Minimize,
-        after => after,
     }
 }
 
@@ -3397,6 +3455,206 @@ mod mod_finder_tests {
             assert!(!shell.modal.is_open());
             assert!(shell.queued_modals.is_empty());
         });
+    }
+
+    /// A world backup dialog at work isn't closed by a dialog that arrives on its own, and
+    /// can't be closed itself (no Escape or click outside); deleting is short and can be.
+    /// It opens on the world asked for, else the most recently played, and a restore as a
+    /// new world starts at once.
+    #[test]
+    fn a_busy_world_backup_dialog_is_never_replaced() {
+        use crate::instances::world_backups::WorldBackupRequest;
+        let mut cx = TestAppContext::single();
+        cx.update(crate::components::init);
+        let (shell, cx) = cx.add_window_view(|_, cx| {
+            let accounts = crate::preview::accounts("signed-out", cx);
+            let instances = crate::preview::instances("sidebar-groups", &accounts, cx);
+            LauncherShell::new(accounts, instances, cx)
+        });
+        cx.run_until_parked();
+        let id = shell.read_with(cx, |shell, cx| {
+            shell.instances.read(cx).list()[0].id.clone()
+        });
+        shell.update(cx, |shell, cx| {
+            shell.open_world_backup(
+                WorldBackupRequest::BackUp {
+                    instance: id.clone(),
+                    world: Some("Castle".into()),
+                },
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        let dialog = shell.read_with(cx, |shell, _| shell.world_backup_dialog().cloned().unwrap());
+        // the instance has no worlds: the one asked for stays chosen, and Back up waits
+        assert_eq!(
+            dialog.read_with(cx, |dialog, _| dialog.test_chosen()),
+            (Some(0), Some("Castle".into()))
+        );
+        dialog.update(cx, |dialog, _| dialog.test_set_working(true));
+        assert!(dialog.read_with(cx, |dialog, _| dialog.busy()));
+        shell.update(cx, |shell, cx| {
+            let focus = cx.focus_handle();
+            shell.open_modal(
+                Modal::LaunchFailed {
+                    title: "Couldn't download".into(),
+                    message: "offline".into(),
+                    focus,
+                },
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        shell.read_with(cx, |shell, _| {
+            assert!(shell.world_backup_dialog().is_some(), "still working");
+            assert_eq!(shell.queued_modals.len(), 1);
+        });
+        dialog.update(cx, |dialog, _| dialog.test_set_working(false));
+        shell.update(cx, |shell, cx| shell.close_modal(cx));
+        cx.run_until_parked();
+        assert_eq!(
+            shown_title(&shell, cx).as_deref(),
+            Some("Couldn't download")
+        );
+        shell.update(cx, |shell, cx| shell.close_modal(cx));
+
+        // Deleting is short: the dialog isn't busy while it runs.
+        let backup: launcher_core::world_backups::WorldBackup =
+            serde_json::from_value(serde_json::json!({
+                "version": 1, "id": "20261115-120000-abcd", "instance_created": 0,
+                "instance_name": "x", "folder": "W", "name": "Mine", "kind": "manual",
+                "created": 0, "bytes": 1, "world_bytes": 1, "files": 1,
+            }))
+            .unwrap();
+        shell.update(cx, |shell, cx| {
+            shell.open_world_backup(
+                WorldBackupRequest::Delete {
+                    instance: id.clone(),
+                    backup: backup.clone(),
+                },
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        let dialog = shell.read_with(cx, |shell, _| shell.world_backup_dialog().cloned().unwrap());
+        dialog.update(cx, |dialog, _| dialog.test_set_working(true));
+        assert!(!dialog.read_with(cx, |dialog, _| dialog.busy()));
+        shell.update(cx, |shell, cx| shell.close_modal(cx));
+        cx.run_until_parked();
+
+        // A restore as a new world starts at once (here it fails: there is no such
+        // backup), and says how it ended.
+        shell.update(cx, |shell, cx| {
+            shell.open_world_backup(
+                WorldBackupRequest::Restore {
+                    instance: id,
+                    backup,
+                    to: launcher_core::world_backups::RestoreTo::NewWorld,
+                },
+                cx,
+            )
+        });
+        let dialog = shell.read_with(cx, |shell, _| shell.world_backup_dialog().cloned().unwrap());
+        assert!(dialog.read_with(cx, |dialog, _| dialog.busy()));
+        cx.run_until_parked();
+        assert!(!dialog.read_with(cx, |dialog, _| dialog.busy()));
+    }
+
+    /// While another job writes the instance's files, backing up and restoring are
+    /// refused at once rather than waiting for its lock with Cancel doing nothing; a
+    /// delete still runs.
+    #[test]
+    fn world_backup_work_waits_for_no_other_job() {
+        use crate::instances::world_backups::WorldBackupRequest;
+        use launcher_core::world_backups::RestoreTo;
+        let mut cx = TestAppContext::single();
+        cx.update(crate::components::init);
+        let (shell, cx) = cx.add_window_view(|_, cx| {
+            let accounts = crate::preview::accounts("signed-out", cx);
+            let instances = crate::preview::instances("sidebar-groups", &accounts, cx);
+            LauncherShell::new(accounts, instances, cx)
+        });
+        cx.run_until_parked();
+        let id = shell.read_with(cx, |shell, cx| {
+            shell.instances.read(cx).list()[0].id.clone()
+        });
+        let other_job = shell.read_with(cx, |shell, cx| {
+            shell.instances.read(cx).mark_files_busy(&id)
+        });
+        let backup: launcher_core::world_backups::WorldBackup =
+            serde_json::from_value(serde_json::json!({
+                "version": 1, "id": "20261115-120000-abcd", "instance_created": 0,
+                "instance_name": "x", "folder": "W", "name": "Mine", "kind": "manual",
+                "created": 0, "bytes": 1, "world_bytes": 1, "files": 1,
+            }))
+            .unwrap();
+        let busy_message: gpui::SharedString =
+            crate::i18n::t(crate::i18n::InstancesMsg::FilesBusy).into();
+        for to in [RestoreTo::NewWorld, RestoreTo::InPlace] {
+            shell.update(cx, |shell, cx| {
+                shell.open_world_backup(
+                    WorldBackupRequest::Restore {
+                        instance: id.clone(),
+                        backup: backup.clone(),
+                        to,
+                    },
+                    cx,
+                )
+            });
+            cx.run_until_parked();
+            let dialog =
+                shell.read_with(cx, |shell, _| shell.world_backup_dialog().cloned().unwrap());
+            if to == RestoreTo::InPlace {
+                // Waits for its confirmation.
+                dialog.update(cx, |dialog, cx| dialog.test_go(cx));
+            }
+            assert_eq!(
+                dialog.read_with(cx, |dialog, _| dialog.test_failed()),
+                Some(busy_message.clone()),
+                "{to:?}"
+            );
+            assert!(!dialog.read_with(cx, |dialog, _| dialog.busy()));
+            shell.update(cx, |shell, cx| shell.close_modal(cx));
+            cx.run_until_parked();
+        }
+        shell.update(cx, |shell, cx| {
+            shell.open_world_backup(
+                WorldBackupRequest::BackUp {
+                    instance: id.clone(),
+                    world: Some("Castle".into()),
+                },
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        let dialog = shell.read_with(cx, |shell, _| shell.world_backup_dialog().cloned().unwrap());
+        dialog.update(cx, |dialog, cx| dialog.test_go(cx));
+        assert_eq!(
+            dialog.read_with(cx, |dialog, _| dialog.test_failed()),
+            Some(busy_message.clone())
+        );
+        shell.update(cx, |shell, cx| shell.close_modal(cx));
+        cx.run_until_parked();
+        // Nor a delete, which would otherwise wait for the instance's lock for as long as
+        // the other job runs.
+        shell.update(cx, |shell, cx| {
+            shell.open_world_backup(
+                WorldBackupRequest::Delete {
+                    instance: id.clone(),
+                    backup: backup.clone(),
+                },
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        let dialog = shell.read_with(cx, |shell, _| shell.world_backup_dialog().cloned().unwrap());
+        dialog.update(cx, |dialog, cx| dialog.test_go(cx));
+        cx.run_until_parked();
+        assert_eq!(
+            dialog.read_with(cx, |dialog, _| dialog.test_failed()),
+            Some(busy_message)
+        );
+        drop(other_job);
     }
 
     /// A snapshot dialog that is taking, restoring or importing isn't closed by a dialog

@@ -1268,9 +1268,11 @@ pub fn prepare(
         content.label = Some(label(server_name, backup));
         content.parent = None;
         content.seal();
-        content
-            .validate()
-            .map_err(|e| internal(format!("The backup's content image can't be exported: {e}")))?;
+        content.validate().map_err(|e| {
+            internal(format!(
+                "The snapshot's content image can't be exported: {e}"
+            ))
+        })?;
     }
     image.content = content.as_ref().map(|c| c.id.clone());
     image.label = Some(label(server_name, backup));
@@ -1283,7 +1285,7 @@ pub fn prepare(
     image.validate().map_err(|e| Error {
         kind: ErrorKind::Conflict,
         source: color_eyre::eyre::eyre!(
-            "This backup can't be exported: {e}. Its backup excludes may leave no room for what an export takes out"
+            "This snapshot can't be exported: {e}. Its excludes may leave no room for what an export takes out"
         ),
     })?;
     left_out.sort();
@@ -1469,7 +1471,7 @@ fn clean_object(store: &Store, entry: &Entry, secrets: Secrets) -> Result<Outcom
         Ok(bytes) => bytes,
         Err(e) => {
             tracing::warn!(
-                "The backup's copy of {shown} can't be read, so the export leaves it out: {e}"
+                "The snapshot's copy of {shown} can't be read, so the export leaves it out: {e}"
             );
             return Ok(Outcome::Withhold);
         }
@@ -1593,7 +1595,7 @@ fn holds_credential(
         },
         Err(e) => {
             tracing::warn!(
-                "The backup's copy of {shown} can't be read, so the export leaves it out: {e}"
+                "The snapshot's copy of {shown} can't be read, so the export leaves it out: {e}"
             );
             true
         }

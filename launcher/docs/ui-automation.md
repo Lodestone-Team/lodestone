@@ -113,7 +113,8 @@ labels and values are the same.
 ## Limits
 
 - **Dialog text isn't in the tree**, only a dialog's buttons and inputs. Read results
-  from files (instance JSON, logs, crash reports), the
+  from files (instance JSON, logs, crash reports; the apps' own log files are in
+  [logs.md](logs.md)), the
   [command line](../crates/lodestone-launcher-cli/README.md), or a screenshot.
 - **Some actions bring the window forward on purpose**: opening an invite link,
   bringing the launcher back after a game crashes, opening the skin editor or the

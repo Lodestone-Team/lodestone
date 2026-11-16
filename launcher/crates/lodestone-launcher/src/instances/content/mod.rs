@@ -891,6 +891,7 @@ impl ContentView {
                         }
                     }
                     Err(err) => {
+                        log::warn!("listing the {kind:?} content of instance {id} failed: {err}");
                         let section = this.section_mut(kind);
                         section.listing = Load::Failed(err.to_string().into());
                         section.follow = None;
@@ -927,7 +928,10 @@ impl ContentView {
                 }
                 this.shader_offer = match result {
                     Ok(offer) => Load::Ready(offer),
-                    Err(err) => Load::Failed(err.to_string().into()),
+                    Err(err) => {
+                        log::warn!("finding a shader loader for instance {id} failed: {err}");
+                        Load::Failed(err.to_string().into())
+                    }
                 };
                 cx.notify();
             })
@@ -1641,7 +1645,10 @@ impl ContentView {
                 }
                 this.mod_loader_offer = match result {
                     Ok(pick) => Load::Ready(pick.map(|(kind, _)| kind)),
-                    Err(err) => Load::Failed(err.to_string().into()),
+                    Err(err) => {
+                        log::warn!("finding a mod loader for instance {id} failed: {err}");
+                        Load::Failed(err.to_string().into())
+                    }
                 };
                 cx.notify();
             })
@@ -1811,7 +1818,10 @@ impl ContentView {
                 }
                 this.section_mut(kind).browse.results = match result {
                     Ok(results) => Load::Ready(results),
-                    Err(err) => Load::Failed(err.to_string().into()),
+                    Err(err) => {
+                        log::warn!("searching for {kind:?} content failed: {err}");
+                        Load::Failed(err.to_string().into())
+                    }
                 };
                 cx.notify();
             })
@@ -1897,7 +1907,10 @@ impl ContentView {
                 {
                     view.project = match project {
                         Ok(project) => Load::Ready(project),
-                        Err(err) => Load::Failed(err.to_string().into()),
+                        Err(err) => {
+                            log::warn!("opening project {opened} failed: {err}");
+                            Load::Failed(err.to_string().into())
+                        }
                     };
                     view.versions = match versions {
                         Ok(versions) => Load::Ready(versions),

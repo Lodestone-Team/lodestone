@@ -264,13 +264,29 @@ impl Staged {
         replaced: &HashSet<String>,
         placed: &[String],
     ) -> Result<Staged, ImageError> {
+        Self::with_folders(root, staging, owned, replaced, placed, &[])
+    }
+
+    /// [`Self::new`] for a restore that also places `folders` (relative paths), empty ones
+    /// included: a world backup's zip lists its folders. Such a folder on disk is replaced
+    /// by the staged one, not carried, even with nothing replaced or placed inside it.
+    pub(crate) fn with_folders(
+        root: &Path,
+        staging: String,
+        owned: &[String],
+        replaced: &HashSet<String>,
+        placed: &[String],
+        folders: &[String],
+    ) -> Result<Staged, ImageError> {
         let staging_dir = root.join(format!("{STAGING_PREFIX}{staging}"));
-        let touched = folders_of(
+        let mut touched = folders_of(
             replaced
                 .iter()
                 .map(String::as_str)
-                .chain(placed.iter().map(String::as_str)),
+                .chain(placed.iter().map(String::as_str))
+                .chain(folders.iter().map(String::as_str)),
         );
+        touched.extend(folders.iter().cloned());
         let placed_set: HashSet<&str> = placed.iter().map(String::as_str).collect();
         let mut entries = Vec::new();
         let mut carried = Vec::new();
@@ -286,6 +302,14 @@ impl Staged {
                     "the restore can't handle the path {path:?}"
                 )));
             }
+            // The swap would rename through a linked folder, but its rollback refuses to
+            // (it could move files out of somewhere else), so a failure or a crash there
+            // couldn't be undone.
+            if !no_links_above(root, path) {
+                return Err(ImageError::Invalid(format!(
+                    "a folder on the way to {path} is a link (or not a folder), which a restore can't go through; put the real folder back in its place and try again"
+                )));
+            }
             let on_disk = join_rel(root, path);
             let meta = fs::symlink_metadata(&on_disk).ok();
             if meta.as_ref().is_some_and(|m| m.file_type().is_symlink()) {
@@ -298,7 +322,7 @@ impl Staged {
             }
             if meta.as_ref().is_some_and(|m| !m.is_dir()) && !replaced.contains(path) {
                 return Err(ImageError::Invalid(format!(
-                    "{path} isn't in the safety snapshot, so the restore won't replace it; close what holds it, or move it away, and try again"
+                    "{path} isn't in the safety snapshot or world backup, so the restore won't replace it; close what holds it, or move it away, and try again"
                 )));
             }
             entries.push(JournalEntry {
@@ -312,12 +336,20 @@ impl Staged {
         }
         // A carried path the staging also has: on a disk that takes two spellings for one
         // name, the snapshot's copy would lose to it; elsewhere, it is a file the safety
-        // snapshot couldn't take that the restore would overwrite.
+        // snapshot couldn't take that the restore would overwrite. A carried path that
+        // holds something placed (a link, or a file, where the restore places a folder)
+        // is one too, found here before anything is staged, and so is one inside a folder
+        // on disk where the restore places a file of that name.
         if let Some(clash) = carried.iter().find(|path| {
-            placed_set.contains(path.as_str()) || exists(&join_rel(&staging_dir, path))
+            placed_set.contains(path.as_str())
+                || touched.contains(path.as_str())
+                || folders_of(std::iter::once(path.as_str()))
+                    .iter()
+                    .any(|folder| placed_set.contains(folder.as_str()))
+                || exists(&join_rel(&staging_dir, path))
         }) {
             return Err(ImageError::Invalid(format!(
-                "{clash} on disk isn't in the safety snapshot, or is spelled differently from the snapshot's copy (letter case or accents); rename or move it away, and try again"
+                "{clash} on disk isn't in the safety snapshot or world backup, or is spelled differently from the restored copy (letter case or accents); rename or move it away, and try again"
             )));
         }
         Ok(Staged {
@@ -739,7 +771,7 @@ fn remove_journal(path: &Path) {
 }
 
 /// Whether no folder on the way to `rel` under `base` is a link or a file.
-fn no_links_above(base: &Path, rel: &str) -> bool {
+pub(crate) fn no_links_above(base: &Path, rel: &str) -> bool {
     let mut current = base.to_path_buf();
     let parts: Vec<&str> = rel.split('/').collect();
     for part in &parts[..parts.len().saturating_sub(1)] {
@@ -993,13 +1025,24 @@ pub(crate) fn remove_leftovers(root: &Path) {
             }
         } else if let Some(suffix) = name.strip_prefix(STAGING_PREFIX) {
             let leftovers = root.join(format!("{LEFTOVERS_PREFIX}{suffix}"));
-            let _ = keep_strays_mapped(&path, &leftovers, &|rel| {
+            // a file that couldn't be moved is logged by `keep_strays_mapped`
+            let kept = keep_strays_mapped(&path, &leftovers, &|rel| {
                 let (first, rest) = rel.split_once('/')?;
                 first
                     .strip_prefix(".rollback-")
                     .is_some_and(|n| n.bytes().all(|b| b.is_ascii_digit()))
                     .then(|| rest.to_string())
             });
+            if let Some(kept) = kept {
+                super::warn(
+                    "images.restore",
+                    "",
+                    &format!(
+                        "files a rollback set aside in a restore without a journal are kept in {}",
+                        kept.display()
+                    ),
+                );
+            }
             discard(root, &path);
         }
     }
