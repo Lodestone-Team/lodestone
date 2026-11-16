@@ -27,14 +27,19 @@ use launcher_core::{
     game::launch::JoinServer,
 };
 
+use lodestone_ui::values::truncate::sanitize;
+
 use super::{Servers, ServersEvent, extras::note};
 use crate::components::{
     KeyboardFocus,
     a11y::{Accessible, Role},
 };
 use crate::{
-    components::{Button, ButtonSize, ButtonVariant, Dialog, Icon, LoadingDots},
-    i18n::{ServersMsg as M, t, tr},
+    components::{
+        Button, ButtonSize, ButtonVariant, Dialog, Fact, FactLine, FactValue, Icon, Kind,
+        LoadingDots, ObjectCard, ProductPhrase, readable::object_name,
+    },
+    i18n::{FactMsg, ServersMsg as M, format, t, tr},
     theme::{self, colors, fonts, radius, text, weights},
 };
 
@@ -343,81 +348,91 @@ impl Servers {
 /// "Join with…": the instances to start, most recently played first.
 pub fn render_picker(servers: &Entity<Servers>, picker: &LanPicker, cx: &App) -> AnyElement {
     let this = servers.read(cx);
-    let mut instances: Vec<(String, String, String, Option<u64>)> = this
+    // each instance's game and loader, the facts to match against the world
+    let mut instances: Vec<(String, String, Vec<Fact>, Option<u64>)> = this
         .instances
         .read(cx)
         .list()
         .iter()
         .map(|i| {
-            (
-                i.id.clone(),
-                i.name.clone(),
-                match i.loader.kind() {
-                    Some(kind) => format!("{} · {}", i.game_version, kind.label()),
-                    None => i.game_version.clone(),
-                },
-                i.last_played,
-            )
+            let mut facts = vec![Fact::bare_named(
+                t(FactMsg::Game),
+                crate::instances::facts::game(&i.game_version),
+            )];
+            if let Some(kind) = i.loader.kind() {
+                facts.push(Fact::bare_named(
+                    t(FactMsg::Loader),
+                    ProductPhrase::new(kind.into(), ""),
+                ));
+            }
+            (i.id.clone(), i.name.clone(), facts, i.last_played)
         })
         .collect();
     instances.sort_by(|a, b| b.3.cmp(&a.3).then_with(|| a.1.cmp(&b.1)));
     let close = servers.clone();
     let world = picker.world.clone();
-    Dialog::new(
-        "lan-join",
-        tr!(
-            M::JoinWorld,
-            world = launcher_core::mc_text::strip(&world_title(&world))
-        ),
-        picker.focus.clone(),
-    )
-    .on_close(move |_, cx| {
-        close.update(cx, |this, cx| {
-            this.extras.lan_picker.close(cx);
-        })
-    })
-    .child(
-        div()
-            .flex()
-            .flex_col()
-            .gap_2()
-            .child(note(tr!(M::PickInstance, address = world.address())))
-            .when(instances.is_empty(), |this| {
-                this.child(note(t(M::NoInstancesYet)))
+    let world_name = launcher_core::mc_text::strip(&world_title(&world));
+    Dialog::new("lan-join", t(M::JoinWorld), picker.focus.clone())
+        .on_close(move |_, cx| {
+            close.update(cx, |this, cx| {
+                this.extras.lan_picker.close(cx);
             })
-            .children(instances.into_iter().map(|(id, name, detail, _)| {
-                let servers = servers.clone();
-                let pick = id.clone();
-                let pick_id = SharedString::from(format!("lan-pick-{id}"));
-                div()
-                    .id(pick_id.clone())
-                    .accessible(Role::Button, pick_id, name.clone())
-                    .aria_description(detail.clone())
-                    .keyboard_focus()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_3()
-                    .px_3()
-                    .py_2()
-                    .rounded(radius::LG)
-                    .cursor_pointer()
-                    .bg(colors::GRAY_800)
-                    .hover(|s| s.bg(colors::GRAY_700))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .truncate()
-                            .font_weight(weights::BOLD.into())
-                            .text_color(crate::theme::ink::text())
-                            .child(name),
-                    )
-                    .child(note(detail).flex_none())
-                    .on_press(move |_, _, cx| {
-                        servers.update(cx, |this, cx| this.join_lan(&pick, cx))
-                    })
-            })),
-    )
-    .into_any_element()
+        })
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(
+                    ObjectCard::new(sanitize(&world_name, 120))
+                        .kind(Kind::World)
+                        .id("lan-join-world")
+                        .fact(Fact::new(
+                            t(FactMsg::Address),
+                            FactValue::mono(world.address()),
+                        )),
+                )
+                .child(note(t(M::PickInstance)))
+                .when(instances.is_empty(), |this| {
+                    this.child(note(t(M::NoInstancesYet)))
+                })
+                .children(instances.into_iter().map(|(id, name, facts, _)| {
+                    let servers = servers.clone();
+                    let pick = id.clone();
+                    let pick_id = SharedString::from(format!("lan-pick-{id}"));
+                    let detail: Vec<String> =
+                        facts.iter().map(|fact| fact.label().to_string()).collect();
+                    div()
+                        .id(pick_id.clone())
+                        .accessible(Role::Button, pick_id.clone(), name.clone())
+                        .aria_description(format::list(&detail))
+                        .keyboard_focus()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_3()
+                        .px_3()
+                        .py_2()
+                        .rounded(radius::LG)
+                        .cursor_pointer()
+                        .bg(colors::GRAY_800)
+                        .hover(|s| s.bg(colors::GRAY_700))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .flex_1()
+                                .min_w_0()
+                                .child(object_name(sanitize(&name, 120)))
+                                .child(
+                                    FactLine::row(SharedString::from(format!("{pick_id}-facts")))
+                                        .facts(facts),
+                                ),
+                        )
+                        .on_press(move |_, _, cx| {
+                            servers.update(cx, |this, cx| this.join_lan(&pick, cx))
+                        })
+                })),
+        )
+        .into_any_element()
 }

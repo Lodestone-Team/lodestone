@@ -119,3 +119,48 @@ pub fn ping(ms: u64) -> Fact {
 pub fn server_players(server: &ServerInstance) -> Option<Fact> {
     players(server.state, server.player_count, server.max_player_count)
 }
+
+/// A game or loader written as one string ("Fabric 0.16.11", "Vanilla"), as a phrase
+/// when it names a product, and as it is otherwise.
+pub fn phrase(text: &str) -> FactValue {
+    let text = text.trim();
+    let (name, version) = text.split_once(' ').unwrap_or((text, ""));
+    match ProductPhrase::from_name(name, version.trim().to_string()) {
+        Some(phrase) => phrase.into(),
+        None => FactValue::text(text.to_string()),
+    }
+}
+
+/// The card naming a server under a dialog's title, with its game and loader (or the
+/// host it is on) as facts.
+pub fn server_card(name: &str) -> crate::components::ObjectCard {
+    crate::components::ObjectCard::new(lodestone_ui::values::truncate::sanitize(name, 120))
+        .kind(crate::components::Kind::Server)
+}
+
+/// The host a server is on, as a muted chip keyed Host.
+pub fn host_fact(name: &str) -> Fact {
+    Fact::new(
+        t(FactMsg::Host),
+        crate::components::ObjectChip::new(lodestone_ui::values::truncate::sanitize(name, 64))
+            .kind(crate::components::Kind::Computer)
+            .muted(),
+    )
+}
+
+/// The card naming a host, with its address as an exact value.
+pub fn host_card(name: &str, address: &str) -> crate::components::ObjectCard {
+    crate::components::ObjectCard::new(lodestone_ui::values::truncate::sanitize(name, 64))
+        .kind(crate::components::Kind::Computer)
+        .fact(Fact::new(
+            t(FactMsg::Address),
+            FactValue::mono(address.to_string()),
+        ))
+}
+
+/// [`server_card`] with the server's game and loader as phrases.
+pub fn server_versions_card(server: &ServerInstance) -> crate::components::ObjectCard {
+    versions(server)
+        .into_iter()
+        .fold(server_card(&server.name), |card, fact| card.fact(fact))
+}

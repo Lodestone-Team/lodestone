@@ -182,40 +182,39 @@ pub fn text(message: M) -> &'static str {
         M::CoreAnswered => "主機回應了 {status}：{message}",
         M::CoreInvalidReply => "主機傳送了 Lodestone Launcher 無法解讀的回應：{detail}",
 
-        M::DifferentMods => "{name} 的模組有所不同",
+        M::DifferentMods => "模組與伺服器不同",
         M::DifferentModsBody => {
-            "自此實例取得伺服器的模組以來，它們已有變動（{changes}）。請先更新才能加入；你自己的模組會維持原樣，被取代的檔案會保留在實例的備份中。"
+            "自從此實例取得伺服器的模組以來，它們已經有所變更。請先更新才能加入；你自己的模組保持不變，被取代的檔案會保存在實例的備份中。"
         }
-        M::ChangeNew => "新增：{name}",
-        M::ChangeChanged => "已變更：{name}",
-        M::ChangeRemoved => "已移除：{name}",
-        M::ChangeConfig => "設定檔：{name}",
-        M::NoChanges => "沒有變更",
+        M::ChangeNew => "新增",
+        M::ChangeChanged => "已變更",
+        M::ChangeRemoved => "已移除",
+        M::ChangeConfig => "設定檔和其他檔案",
         M::UpdateAndPlay => "更新並開始遊戲",
         M::PlayAnyway => "仍要開始遊戲",
 
-        M::CertChangedTitle => "{name} 的憑證已變更",
+        M::CertChangedTitle => "憑證已變更",
         M::CertTrustTitle => "要信任此主機的憑證嗎？",
         M::CertChangedIntro => {
-            "位於 {address} 的主機出示的 HTTPS 憑證與你信任的不同。主機會在內建憑證即將到期或位址變更時產生新憑證，但這也可能表示有人正在攔截連線。"
+            "這個主機提供的 HTTPS 憑證與你信任的不同。主機會在內建憑證即將到期或位址變更時產生新憑證，但這也可能代表有人在攔截連線。"
         }
         M::CertUntrustedIntro => {
-            "{os} 不信任 {name} 在 {address} 上使用的 HTTPS 憑證。主機會自行產生憑證，因此第一次連線時出現這種情況是正常的。"
+            "{os} 不信任這個主機的 HTTPS 憑證。主機會自行產生憑證，所以第一次連線時出現這種情況是正常的。"
         }
         M::FingerprintTrustedBefore => "先前信任的憑證（SHA-256）",
         M::FingerprintPresented => "目前出示的憑證（SHA-256）",
         M::FingerprintCaption => "憑證指紋（SHA-256）",
         M::CertIfMatch => {
-            "如果兩者相符，就信任它：Lodestone Launcher 之後只會為 {host} 接受這一個憑證，並在它變更時提醒你。"
+            "如果相符，就信任它：Lodestone Launcher 之後只接受這個憑證，並在它變更時提醒你。"
         }
         M::CertIfMatchChanged => {
-            "如果兩者相符，就信任它：Lodestone Launcher 之後只會為 {host} 接受這一個憑證，並在它變更時提醒你。已信任其模組的主機會改為不受信任，直到你重新信任它。"
+            "如果相符，就信任它：Lodestone Launcher 之後只接受這個憑證，並在它變更時提醒你。已信任其模組的主機將不再受信任，直到你再次信任它。"
         }
+        M::TrustedOnlyFor => "僅信任於",
         M::TrustNewCertificate => "信任新憑證",
         M::TrustCertificate => "信任憑證",
 
-        M::TrustTitle => "你信任 {name} 嗎？",
-        M::CoreAt => "{name}，位址為 {address}。",
+        M::TrustTitle => "信任這個主機？",
         M::TrustAfterAdd => {
             "在你信任它之前，Lodestone Launcher 會在安裝伺服器的模組前先讓你看過它們。你之後可以用主機卡片上的「{setting}」變更此設定。"
         }
@@ -226,49 +225,46 @@ pub fn text(message: M) -> &'static str {
 
         M::AdvisoryTitle => "此伺服器的模組將在{computer} 上執行",
         M::AdvisoryNew => {
-            "{core} 上 {server} 的實例會取得這些檔案。模組就是程式：它們執行時擁有與你相同的檔案和帳號存取權限。"
+            "此伺服器的實例會取得這些檔案。模組是程式：它們執行時擁有與你相同的檔案和帳號存取權限。"
         }
         M::AdvisoryUpdate => {
-            "更新為 {core} 上 {server} 的模組會安裝這些檔案。模組就是程式：它們執行時擁有與你相同的檔案和帳號存取權限。"
+            "更新到此伺服器的模組會安裝這些檔案。模組是程式：它們執行時擁有與你相同的檔案和帳號存取權限。"
         }
         M::ModrinthUnreachable => "無法連線到 Modrinth，因此無法核對任何檔案。",
-        M::UploadedNotChecked => "上傳到伺服器的檔案 — 未經 Modrinth 核對（{count}）",
-        M::AlsoOnModrinth => "也在 Modrinth 上（{count}）",
-        M::AlsoFiles => "另有 {files}。",
-        M::AlsoFilesScripts => "另有 {files}。腳本檔案（KubeJS、CraftTweaker）同樣可以驅動程式碼。",
-        M::OnlyIfYouTrust => "只有在你信任 {core} 的擁有者時才繼續。",
+        M::UploadedNotChecked => "上傳到伺服器，未經 Modrinth 檢查",
+        M::AlsoOnModrinth => "Modrinth 上也有",
+        M::ConfigFilesKey => "設定檔",
+        M::ScriptFilesKey => "指令碼檔案",
+        M::OtherFilesKey => "其他檔案",
+        M::CanRunCode => "可執行程式碼",
+        M::ScriptsNote => "指令碼檔案（KubeJS、CraftTweaker）也能驅動程式碼。",
+        M::OnlyIfYouTrust => "只有在你信任主機的擁有者時才繼續。",
         M::AdvisoryTrustNote => {
             "「{button}」也會讓之後來自它的模組直接安裝，不再詢問。{explanation}"
         }
         M::InstallThisTime => "僅這次安裝",
-        M::TrustAndInstall => "信任 {core} 並安裝",
+        M::TrustAndInstall => "信任並安裝",
         M::BusyPreparing => "正在等待伺服器準備檔案…",
         M::BusyBasePack => "正在取得伺服器的模組包（{done} / {total}）…",
-        M::LacksFiles => "{name} 有你無法取得的檔案",
+        M::LacksFiles => "伺服器有你無法取得的檔案",
         M::LacksFilesBody => {
             "你的實例已有伺服器的檔案，但伺服器還有一些無法分享的檔案。沒有它們你可能無法加入。"
         }
-        M::InstallTitle => "安裝 {name} 的檔案？",
-        M::InstallIntro => {
-            "{core} 上 {server} 的新實例將取得 Minecraft {version}（{loader}），以及來自伺服器的這些檔案。"
-        }
-        M::SummaryBase => "模組包：{pack} {version}",
-        M::SummaryAddedMods => "伺服器新增的模組（{count}）",
-        M::SummaryServerOnly => "只有伺服器才有的檔案（{count}）",
-        M::SummaryDownload => "下載：{size}",
-        M::MissingTitle => "伺服器無法分享的檔案（{count}）",
+        M::InstallTitle => "安裝伺服器的檔案？",
+        M::InstallIntro => "新實例會取得這個遊戲版本和載入器，以及來自伺服器的這些檔案。",
+        M::SummaryAddedMods => "伺服器新增的模組",
+        M::SummaryServerOnly => "只有伺服器才有的檔案",
+        M::MissingTitle => "伺服器無法分享的檔案",
         M::MissingNote => "你將沒有這些檔案，缺少它們可能無法加入。請詢問伺服器的擁有者。",
-        M::MissingLine => "{name}（{reason}）",
-        M::WithheldSymlink => "它是一個連結",
+        M::WithheldSymlink => "符號連結",
         M::WithheldUnreadable => "無法讀取",
-        M::WithheldBadName => "其名稱無法分享",
-        M::WithheldKeptChanging => "它一直在變化",
+        M::WithheldBadName => "名稱無法分享",
+        M::WithheldKeptChanging => "一直在變更",
         M::WithheldCurseForge => "CurseForge 不允許",
         M::WithheldOther => "未分享",
-        M::CurseForgeTitle => "請自行從 CurseForge 下載（{count}）",
+        M::CurseForgeTitle => "請自行從 CurseForge 下載這些",
         M::CurseForgeNote => "它們的作者不允許其他應用程式下載。",
         M::Install => "安裝",
-        M::ChangeLoader => "載入器：{loader}",
         M::ErrUpdateLodestone => {
             "此伺服器執行的是較新版本的 Lodestone。請更新 Lodestone Launcher 後再加入。"
         }
@@ -339,7 +335,7 @@ pub fn text(message: M) -> &'static str {
             "{computer} 上的金鑰無法傳送聊天或指令。如果你的使用者可以使用主控台，請重新登入並允許「{option}」。"
         }
         M::OfflineCantLink => "離線帳號無法連結：它們的 UUID 是由名稱產生的，因此無法證明身分。",
-        M::LinkedTo => "已將 {account} 連結到 {user}。",
+        M::LinkedTo => "帳號已連結。",
         M::YourLodestoneUser => "你的 Lodestone 使用者",
         M::Connecting => "正在連線…",
         M::Live => "即時",
@@ -353,7 +349,8 @@ pub fn text(message: M) -> &'static str {
         M::MinecraftAccount => "Minecraft 帳號",
         M::CoreTooOldToLink => "此主機的版本太舊，無法連結 Minecraft 帳號。",
         M::Unlink => "取消連結",
-        M::LinkAccount => "將 {account} 連結到 {user}",
+        M::LinkAccount => "連結",
+        M::LodestoneUser => "Lodestone 使用者",
         M::LinkCheckHint => "主機會使用這次登入向 Microsoft 確認此帳號屬於你，只用一次，不會保留。",
         M::SignInMicrosoftToLink => {
             "使用 Microsoft 帳號登入，即可將它連結到你的 Lodestone 使用者。"
@@ -380,13 +377,14 @@ pub fn text(message: M) -> &'static str {
         M::SignedOutRightAway => "主機在你登入後立刻將你登出。請再試一次。",
         M::AddCoreFirst => "請先在「Lodestone Host」頁面新增你的主機。",
         M::HostIntro => {
-            "用 {name} 在主機上建立伺服器：包括它的模組和設定，以及你選擇的世界。只有玩家需要的模組、你的帳號和你自己的設定都留在這裡。伺服器建立後處於停止狀態。"
+            "根據此實例在主機上建立伺服器：包括它的模組、設定檔以及你選擇的世界。僅玩家需要的模組、你的帳號和你自己的設定會留在這裡。伺服器建立後處於停止狀態。"
         }
         M::HostWorlds => "要傳送的世界",
         M::HostWorldsHint => "下一步選擇哪個世界成為伺服器的世界。不傳送世界則建立新世界。",
         M::HostNoWorlds => "此實例沒有世界：伺服器會建立一個新世界。",
         M::HostWorldsLoading => "正在尋找實例的世界…",
-        M::HostStageSending => "正在傳送到主機（{done}/{total}）…",
+        M::HostStageSending => "正在傳送到主機…",
+        M::Sent => "已傳送",
         M::HostStageReading => "主機正在讀取檔案…",
         M::HostPort => "連接埠",
         M::HostPortInvalid => "請輸入 1 到 65535 之間的連接埠。",
@@ -395,12 +393,13 @@ pub fn text(message: M) -> &'static str {
         M::HostNameControl => "伺服器名稱不能包含控制字元。",
         M::HostCreatingHint => "你可以關閉此視窗：主機會繼續設定伺服器，準備好後此實例會連結到它。",
         M::HostCreated => {
-            "{name} 已在 {core} 上，連接埠 {port}。它處於停止狀態：準備好後，從「Lodestone Host」頁面或控制台啟動它。此實例已連結到它，點選「開始遊戲」即可加入。"
+            "它目前處於停止狀態：準備好後，請在「Lodestone Host」頁面或控制面板中啟動它。此實例已連結到它，所以「開始遊戲」會加入它。"
         }
         M::HostCreatedUnlinked => {
-            "{name} 已在 {core} 上，連接埠 {port}。它處於停止狀態：準備好後，從「Lodestone Host」頁面或控制台啟動它。此實例在此期間已被刪除，因此沒有任何實例連結到它。"
+            "它目前處於停止狀態：準備好後，請在「Lodestone Host」頁面或控制面板中啟動它。實例在此期間已被刪除，所以沒有任何內容連結到它。"
         }
-        M::HostCreatedRelinked => "此實例之前連結到 {server}；現在它屬於新伺服器。",
+        M::HostCreatedRelinked => "此實例之前連結到另一個伺服器；現在它屬於新的伺服器。",
+        M::LinkedBefore => "之前連結",
         M::HostLeftOut => "伺服器上沒有的內容",
         M::HostCreationFailed => "主機無法建立伺服器：{error}",
         M::HostCreationFailedPlain => "主機無法建立伺服器。",
@@ -408,27 +407,29 @@ pub fn text(message: M) -> &'static str {
             "主機仍在設定伺服器。準備好後它會出現在「Lodestone Host」頁面上；此實例還沒有連結到它。"
         }
         M::HostTooOld => {
-            "{core} 上的 Lodestone 版本太舊，無法從檔案建立伺服器。請在那台電腦上更新它，然後重試。"
+            "該主機的 Lodestone 版本太舊，無法從檔案建立伺服器。請在那台電腦上更新它，然後重試。"
         }
-        M::HostNoPermission => "你在 {core} 上的使用者無法建立伺服器。請聯絡它的擁有者。",
+        M::HostNoPermission => "你在這個主機上的使用者無法建立伺服器。請詢問其擁有者。",
         M::HostGameRunning => "請先結束遊戲：遊戲執行時無法傳送它的世界。",
         M::DownloadWorldAction => "下載這個世界…",
-        M::DownloadWorldTitle => "下載 {server} 的世界",
+        M::DownloadWorldTitle => "下載世界",
         M::DownloadWorldIntro => {
-            "用 {server} 的一個備份在這台電腦上新增實例：包括它的世界和玩家會取得的模組。伺服器的設定、管理員和插件都留在伺服器上。"
+            "根據此伺服器的一個備份，在這台電腦上建立新實例：包括它的世界以及玩家取得的模組。伺服器的設定、管理員和外掛仍保留在伺服器上。"
         }
         M::DownloadWorldSignIn => "請用可以讀取此伺服器檔案的使用者登入。",
         M::DownloadWorldNeedsPassword => "請輸入你在此主機上的使用者名稱和密碼。",
         M::DownloadWorldBackups => "備份",
-        M::DownloadWorldMidWrite => "在伺服器執行時建立，可能正在寫入中",
+        M::DownloadWorldMidWrite => "在伺服器執行時備份：世界可能在寫入途中被保存。",
+        M::TakenWhileRunning => "執行時備份",
         M::DownloadWorldBackUpNow => "立即備份",
         M::DownloadWorldBackUpNowHint => "伺服器目前狀態的備份",
         M::DownloadWorldButton => "下載",
         M::DownloadWorldBackingUp => "主機正在備份伺服器…",
         M::DownloadWorldPreparing => "主機正在準備檔案…",
-        M::DownloadWorldDownloading => "正在下載（{done}/{total}）…",
+        M::DownloadWorldDownloading => "正在下載…",
+        M::Downloaded => "已下載",
         M::DownloadWorldTooOld => {
-            "{core} 上的 Lodestone 版本太舊，無法傳送世界。請在那台電腦上更新它，然後重試。"
+            "該主機的 Lodestone 版本太舊，無法傳送世界。請在那台電腦上更新它，然後重試。"
         }
         M::DownloadWorldNothingToDownload => {
             "此伺服器沒有備份，而你的使用者無法備份它。請讓它的擁有者備份後再試。"
@@ -462,10 +463,8 @@ pub fn text(message: M) -> &'static str {
         M::AlreadyAddedBody => "此連結指向本頁上的一個伺服器，它的那一列已醒目顯示。",
         M::OnYourNetwork => "你的網路",
         M::OnYourNetworkHint => "此網路上已在區域網路上公開的世界。",
-        M::JoinWorld => "加入 {world}",
-        M::PickInstance => {
-            "選擇用來遊玩的實例。它需要與位於 {address} 的世界有相同的 Minecraft 版本和模組。"
-        }
+        M::JoinWorld => "加入區域網路世界",
+        M::PickInstance => "選擇用於遊玩的實例。它需要與這個世界相同的 Minecraft 版本和模組。",
         M::NoInstancesYet => "你還沒有任何實例。請先建立一個。",
 
         M::FriendsTitle => "來自邀請連結的伺服器",
@@ -575,12 +574,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
             ["它包含伺服器的檔案。缺少 {count} 個伺服器無法分享的檔案。按下「開始遊戲」即可加入。";
                 2]
         }
-        P::ModsAdded => ["新增 {count} 個"; 2],
-        P::ModsUpdated => ["更新 {count} 個"; 2],
-        P::ModsRemoved => ["移除 {count} 個"; 2],
-        P::OtherFiles => ["{count} 個其他檔案"; 2],
-        P::ConfigFiles => ["{count} 個設定檔"; 2],
-        P::ScriptFiles => ["{count} 個腳本檔案"; 2],
         P::AndMore => ["還有 {count} 個"; 2],
     }
 }
