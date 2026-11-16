@@ -40,7 +40,7 @@ pub fn text(message: M) -> &'static str {
         M::Snapshot => "{version}（快照）",
         M::PlayedAt => "上次遊玩：{time}",
         M::BackUp => "建立備份",
-        M::Copies => "副本",
+        M::BackupsAndSnapshots => "備份與快照",
         M::Export => "匯出…",
         M::DeleteWorld => "刪除…",
 
@@ -90,7 +90,6 @@ pub fn text(message: M) -> &'static str {
         M::NoSnapshotsOfWorld => "還沒有快照包含這個世界。可以在設定 › 快照中拍攝。",
         M::RestoreEllipsis => "還原…",
         M::RestoreAsNewWorld => "還原為新世界",
-        M::RestoreThisWorld => "還原這個世界…",
     }
 }
 

@@ -592,6 +592,8 @@ pub struct Instances {
     world_backups: Arc<WorldBackups>,
     /// Each instance's world backups, newest first, once read (see world_backups.rs).
     world_backup_rows: HashMap<String, Vec<WorldBackup>>,
+    /// Of each instance's world backups read, the world folders no longer in `saves/`.
+    world_backup_gone: HashMap<String, std::collections::HashSet<String>>,
     world_backup_tasks: HashMap<String, Task<()>>,
     /// How many times each instance's world backups changed (`WorldBackups::watch`), so
     /// the Worlds tab reads them again.
@@ -764,6 +766,7 @@ impl Instances {
             images,
             world_backups,
             world_backup_rows: HashMap::new(),
+            world_backup_gone: HashMap::new(),
             world_backup_tasks: HashMap::new(),
             world_backup_revisions: HashMap::new(),
         };

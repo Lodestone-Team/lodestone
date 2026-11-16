@@ -97,7 +97,7 @@ The user also sees each connected program (this CLI says
 - **Destructive commands need `--yes`, and you need the user's OK first.** Without it they
   fail with exit 5 and change nothing; the message says what would happen. These are:
   `instances delete`, `worlds delete`, `worlds restore-snapshot --mode replace`,
-  `world-backups restore` in place (without `--new`), `world-backups delete`,
+  `world-backups restore --mode replace`, `world-backups delete`,
   `content remove`, `accounts remove`, `cores remove`, `cores trust`, `friends remove`,
   `friend-list answer`, `friend-list accept`, `friend-list verify`, `friend-list remove`,
   `friend-list retire-core`, `friend-list retire`, `shared clear`,
@@ -334,9 +334,10 @@ means a world backup; a snapshot is of the whole instance:
 lodestone-launcher-cli worlds list Survival                                 # world_backups and snapshots per world
 lodestone-launcher-cli world-backups create Survival "New World" --name "Before the raid"  # long
 lodestone-launcher-cli world-backups list Survival --world "New World"      # newest first, with each zip's path
-lodestone-launcher-cli world-backups restore Survival latest --world "New World" --yes  # long; in place
-lodestone-launcher-cli world-backups restore Survival "Before the raid" --new           # long; a new world beside it
-lodestone-launcher-cli world-backups delete Survival "Before the raid" --yes            # to the Trash
+lodestone-launcher-cli world-backups restore Survival latest --world "New World" --mode replace --yes  # long; in place
+lodestone-launcher-cli world-backups restore Survival "Before the raid"     # long; a new world beside it
+lodestone-launcher-cli world-backups delete Survival "Before the raid" --yes  # to the Trash
+lodestone-launcher-cli world-backups list Survival --world "Hardcore run"   # a deleted world: found by its backups
 lodestone-launcher-cli world-backups list --deleted                         # kept from deleted instances
 lodestone-launcher-cli worlds snapshots Survival "New World"                # the snapshots that hold it
 lodestone-launcher-cli worlds restore-snapshot Survival "New World"         # a new world from the newest
@@ -729,8 +730,8 @@ Back up a world (quit the game first; ask the user before stopping it):
 ```sh
 lodestone-launcher-cli play status Survival                 # must be idle
 lodestone-launcher-cli worlds list Survival
-lodestone-launcher-cli worlds backup Survival "New World"
-lodestone-launcher-cli worlds backups Survival "New World"  # the snapshots that hold it, newest first
+lodestone-launcher-cli world-backups create Survival "New World"   # long; a zip of the world
+lodestone-launcher-cli world-backups list Survival --world "New World"  # its world backups, newest first
 ```
 
 Update everything:

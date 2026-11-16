@@ -503,6 +503,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::DeleteUnreadableNote => "Elles sont supprimées définitivement.",
         M::WorldBackups => "Sauvegardes de mondes",
+        M::SnapshotsGroup => "Instantanés de toute l’instance",
         M::WorldBackupsHint => {
             "Des copies d’un monde en .zip, gardées jusqu’à ce que vous les supprimiez. Elles s’ouvrent partout."
         }
@@ -520,10 +521,10 @@ pub fn text(message: M) -> &'static str {
         M::NoWorldsToBackUp => "Cette instance n’a pas encore de monde.",
         M::RestoreWorldTitle => "Restaurer {world}\u{a0}?",
         M::RestoreWorldBody => {
-            "{world} revient à son état de {when}. Le monde tel qu’il est maintenant est d’abord enregistré dans une autre sauvegarde de monde."
+            "{world} revient à son état dans «\u{a0}{name}\u{a0}» ({when}). Le monde tel qu’il est maintenant est d’abord enregistré dans une autre sauvegarde de monde."
         }
         M::RestoreWorldGoneBody => {
-            "{world} n’est plus dans cette instance. Il revient tel qu’il était {when}."
+            "{world} n’est plus dans cette instance. Il revient tel qu’il était dans «\u{a0}{name}\u{a0}» ({when})."
         }
         M::SaveAndRestore => "Enregistrer et restaurer",
         M::SavingWorld => "Enregistrement du monde tel qu’il est…",

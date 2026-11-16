@@ -559,15 +559,15 @@ pub const METHODS: &[Method] = &[
         "The snapshots that hold a world.",
         worlds::snapshots,
     ),
-    method(
+    destructive(
         "worlds.restore_snapshot",
-        "Restores a world from a snapshot that holds it (snapshot: id, name or latest) as a new world beside it (mode: copy), or in its place after a safety snapshot (mode: replace, needs confirm).",
+        "Restores a world from a snapshot that holds it (snapshot: id, name or latest) as a new world beside it (mode: new, the default), or in its place after a safety snapshot (mode: replace, needs confirm).",
         worlds::restore_snapshot,
     ),
     // world backups
     method(
         "world_backups.list",
-        "An instance's world backups (zips of one world each), newest first (world: only that world's); deleted: true lists deleted instances' world backups.",
+        "An instance's world backups (zips of one world each), newest first (world: only that world's, also one no longer in the instance); deleted: true lists deleted instances' world backups.",
         world_backups::list,
     ),
     method(
@@ -575,14 +575,14 @@ pub const METHODS: &[Method] = &[
         "Backs up a world as a zip (world: its folder or name; name). A job; jobs.cancel stops it.",
         world_backups::create,
     ),
-    method(
+    destructive(
         "world_backups.restore",
-        "Restores a world backup (backup: id, name, or latest with world): mode replace puts it in place after a safety world backup (needs confirm), mode new as a new world beside it. A job; jobs.cancel stops it.",
+        "Restores a world backup (backup: id, name, or latest with world): mode new (the default) as a new world beside it, mode replace in place after a safety world backup (needs confirm). A job; jobs.cancel stops it.",
         world_backups::restore,
     ),
     destructive(
         "world_backups.delete",
-        "Moves a world backup's zip to the Trash.",
+        "Moves a world backup's zip to the Trash (backup: id, name, or latest with world).",
         world_backups::delete,
     ),
     destructive(
@@ -1830,6 +1830,8 @@ mod tests {
             "snapshots.restore",
             "snapshots.delete",
             "world_backups.delete",
+            "world_backups.restore",
+            "worlds.restore_snapshot",
             // only the user can say they compared safety codes
             "friend_list.verify",
             "friend_list.answer_link",

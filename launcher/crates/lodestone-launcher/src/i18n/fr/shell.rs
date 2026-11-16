@@ -91,7 +91,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::ReplaceWorldTitle => "Restaurer {name} depuis cet instantané\u{202F}?",
         M::ReplaceWorldBody => {
-            "{name} revient à son état de {when}. Un instantané du monde tel qu’il est maintenant est pris d’abord et gardé 30\u{a0}jours."
+            "{name} revient à son état de {when}. Un instantané de l’instance telle qu’elle est maintenant est pris d’abord et gardé 30\u{a0}jours."
         }
         M::BackUpAndReplace => "Prendre un instantané et restaurer",
         M::RemoveAccountTitle => "Retirer {name}\u{202F}?",
@@ -157,7 +157,7 @@ pub fn text(message: M) -> &'static str {
         M::KeptFiles => "Gardés tels que vous les avez modifiés ({count})",
         M::WrittenFiles => "Configurations et autres fichiers écrits ({count})",
         M::ModpackUpdateSafety => {
-            "Vos propres mods, mondes et configurations modifiées ne sont pas touchés. Un instantané de l’instance est pris d’abord, et chaque fichier remplacé ou supprimé est gardé dans le dossier de sauvegardes de l’instance."
+            "Vos propres mods, mondes et configurations modifiées ne sont pas touchés. Un instantané de l’instance est pris d’abord, et chaque fichier remplacé ou supprimé est gardé dans le dossier de l’instance, sous backups/."
         }
 
         M::SaveChangesTitle => "Enregistrer vos modifications\u{202F}?",
@@ -987,6 +987,10 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::StorageCleanSnapshotsBody => [
             "Cela supprime {count}\u{a0}instantané\u{a0}: ceux pris par le Launcher et tous ceux des instances supprimées, épinglés compris. Ceux de vos instances que vous avez pris ou épinglés restent. Les fichiers de la dernière heure sont libérés au prochain nettoyage.",
             "Cela supprime {count}\u{a0}instantanés\u{a0}: ceux pris par le Launcher et tous ceux des instances supprimées, épinglés compris. Ceux de vos instances que vous avez pris ou épinglés restent. Les fichiers de la dernière heure sont libérés au prochain nettoyage.",
+        ],
+        P::StorageWorldBackupsCount => [
+            "{count}\u{a0}sauvegarde de monde",
+            "{count}\u{a0}sauvegardes de mondes",
         ],
         P::StorageWorldBackupsHint => [
             "{count}\u{a0}sauvegarde de monde · {deleted} d’instances supprimées",

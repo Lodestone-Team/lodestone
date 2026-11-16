@@ -93,7 +93,7 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                     .update(cx, |shell, cx| {
                         if let Some(settings) = shell.settings_view().cloned() {
                             settings.update(cx, |settings, cx| {
-                                settings.preview_section(t(M::WorldBackups));
+                                settings.preview_section(t(M::InstanceSnapshots));
                                 cx.notify();
                             });
                         }

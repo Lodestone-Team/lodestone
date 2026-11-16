@@ -663,24 +663,13 @@ impl Render for StorageSettings {
         };
 
         // The total, and a bar by category.
+        let [instances, game_files, runtimes, cache, other] = bar_parts(&report);
         let parts: Vec<(Color, &'static str, u64)> = vec![
-            (
-                INSTANCES,
-                t(M::StorageInstances),
-                report.instances_total() + report.images.bytes,
-            ),
-            (
-                GAME_FILES,
-                t(M::StorageGameFiles),
-                report.game_files.total(),
-            ),
-            (RUNTIMES, t(M::StorageRuntimes), report.runtimes_total()),
-            (
-                CACHE,
-                t(M::StorageCache),
-                report.cache + report.leftovers.bytes,
-            ),
-            (OTHER, t(M::StorageOther), report.other),
+            (INSTANCES, t(M::StorageInstances), instances),
+            (GAME_FILES, t(M::StorageGameFiles), game_files),
+            (RUNTIMES, t(M::StorageRuntimes), runtimes),
+            (CACHE, t(M::StorageCache), cache),
+            (OTHER, t(M::StorageOther), other),
         ];
         let total = report.total().max(1);
         let bar =
@@ -857,11 +846,15 @@ impl Render for StorageSettings {
         if world_backups.backups + world_backups.deleted > 0 || world_backups.bytes > 0 {
             instance_rows.push(
                 SettingRow::new(t(M::StorageWorldBackups))
-                    .hint(trn!(
-                        P::StorageWorldBackupsHint,
-                        world_backups.backups + world_backups.deleted,
-                        deleted = world_backups.deleted
-                    ))
+                    .hint(if world_backups.deleted > 0 {
+                        trn!(
+                            P::StorageWorldBackupsHint,
+                            world_backups.backups + world_backups.deleted,
+                            deleted = world_backups.deleted
+                        )
+                    } else {
+                        trn!(P::StorageWorldBackupsCount, world_backups.backups)
+                    })
                     .child(size(world_backups.bytes))
                     .child(remove_button(
                         "storage-clean-world-backups",
@@ -1117,5 +1110,35 @@ impl super::LauncherShell {
             self.modal
                 .open(super::Modal::StorageClean { what, bytes, focus }, cx);
         }
+    }
+}
+
+/// The bar's parts, in its order: instances (their folders, snapshots and world
+/// backups), game files, runtimes, the cache, and everything else. They add up to
+/// [`Report::total`].
+fn bar_parts(report: &Report) -> [u64; 5] {
+    [
+        report.instances_total() + report.images.bytes + report.world_backups.bytes,
+        report.game_files.total(),
+        report.runtimes_total(),
+        report.cache + report.leftovers.bytes,
+        report.other,
+    ]
+}
+
+#[cfg(test)]
+mod bar_tests {
+    use super::*;
+
+    #[test]
+    fn the_bars_parts_add_up_to_the_total() {
+        let mut report = Report::default();
+        report.images.bytes = 7;
+        report.world_backups.bytes = 640;
+        report.cache = 3;
+        report.leftovers.bytes = 5;
+        report.other = 11;
+        report.game_files.versions = 13;
+        assert_eq!(bar_parts(&report).iter().sum::<u64>(), report.total());
     }
 }

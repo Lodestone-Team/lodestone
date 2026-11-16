@@ -81,7 +81,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::ReplaceWorldTitle => "从这个快照恢复“{name}”？",
         M::ReplaceWorldBody => {
-            "{name} 将回到 {when} 时的状态。会先为世界现在的样子拍摄快照，并保留 30 天。"
+            "{name} 将回到 {when} 时的状态。会先为实例现在的样子拍摄快照，并保留 30 天。"
         }
         M::BackUpAndReplace => "拍摄快照并恢复",
         M::RemoveAccountTitle => "移除“{name}”？",
@@ -137,7 +137,7 @@ pub fn text(message: M) -> &'static str {
         M::KeptFiles => "保留你的改动（{count}）",
         M::WrittenFiles => "写入的配置文件和其他文件（{count}）",
         M::ModpackUpdateSafety => {
-            "你自己的模组、世界和修改过的配置不会被改动。会先为实例拍摄快照，被替换或删除的每个文件都会保存在实例的备份文件夹中。"
+            "你自己的模组、世界和修改过的配置不会被改动。会先为实例拍摄快照，被替换或删除的每个文件都会保存在实例文件夹的 backups/ 中。"
         }
 
         M::SaveChangesTitle => "保存更改？",
@@ -831,6 +831,7 @@ pub fn plural(message: P) -> [&'static str; 2] {
             ["将删除 {count} 个快照：启动器自动拍摄的快照，以及已删除实例的所有快照（包括已固定的）。你的实例中你自己拍摄的和已固定的快照会保留。最近一小时内的文件会在下次清理时释放。";
                 2]
         }
+        P::StorageWorldBackupsCount => ["{count} 个世界备份"; 2],
         P::StorageWorldBackupsHint => ["{count} 个世界备份 · 其中 {deleted} 个属于已删除的实例"; 2],
         P::StorageCleanWorldBackupsBody => {
             ["将永久删除 {count} 个属于已删除实例的世界备份，包括仍在{trash}中的实例。你现有实例的世界备份会保留。";

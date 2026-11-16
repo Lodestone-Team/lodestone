@@ -242,8 +242,9 @@ struct RestoreParams {
     /// The snapshot: its id, its name, or `latest` (the newest holding the world).
     #[serde(default = "latest")]
     snapshot: String,
-    /// `copy` (a new world beside it) or `replace` (the world, after a safety snapshot).
-    #[serde(default = "copy")]
+    /// `new` (a new world beside it) or `replace` (the world, after a safety snapshot),
+    /// as `world_backups.restore` has them.
+    #[serde(default = "new_world")]
     mode: String,
 }
 
@@ -251,8 +252,8 @@ fn latest() -> String {
     "latest".into()
 }
 
-fn copy() -> String {
-    "copy".into()
+fn new_world() -> String {
+    "new".into()
 }
 
 /// `worlds.restore_snapshot`: puts the world back from a snapshot that holds it, as a new
@@ -289,7 +290,7 @@ fn restore_found(
     cx: &mut App,
 ) -> Reply {
     let replace = match params.mode.as_str() {
-        "copy" => false,
+        "new" => false,
         "replace" => {
             tri!(call.confirm(format!(
                 "replaces the world \"{}\" with the snapshot \"{}\" (a safety snapshot of it is taken first)",
@@ -301,7 +302,7 @@ fn restore_found(
         other => {
             return ready(Err(api_error(
                 codes::INVALID_PARAMS,
-                format!("No restore mode \"{other}\": copy or replace."),
+                format!("No restore mode \"{other}\": new or replace."),
             )));
         }
     };

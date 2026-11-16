@@ -534,6 +534,8 @@ crate::i18n::messages! {
         /// Settings › Snapshots: the section of zips of single worlds.
         WorldBackups = "World backups",
         WorldBackupsHint = "Zip copies of one world, kept until you delete them. They open anywhere.",
+        /// Settings › Snapshots: the heading of the snapshots, below the world backups.
+        SnapshotsGroup = "Snapshots of the whole instance",
         /// The row, and the dialog's title.
         BackUpWorldTitle = "Back up a world",
         BackUpWorldEllipsis = "Back up a world…",
@@ -555,9 +557,9 @@ crate::i18n::messages! {
         NoWorldsToBackUp = "This instance has no worlds yet.",
         /// {world} is the world's name.
         RestoreWorldTitle = "Restore {world}?",
-        /// {when} is when the world backup was made: "today, 14:05".
-        RestoreWorldBody = "{world} goes back to how it was {when}. The world as it is now is saved first, as another world backup.",
-        RestoreWorldGoneBody = "{world} isn't in this instance any more. It comes back as it was {when}.",
+        /// {name} is the world backup's name; {when} is when it was made: "today, 14:05".
+        RestoreWorldBody = "{world} goes back to how it was in “{name}” ({when}). The world as it is now is saved first, as another world backup.",
+        RestoreWorldGoneBody = "{world} isn't in this instance any more. It comes back as it was in “{name}” ({when}).",
         SaveAndRestore = "Save and restore",
         SavingWorld = "Saving the world as it is now…",
         UnpackingWorldBackup = "Unpacking the world backup…",

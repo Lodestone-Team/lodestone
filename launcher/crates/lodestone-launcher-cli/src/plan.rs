@@ -1055,19 +1055,27 @@ pub fn plan(
                 instance,
                 backup,
                 world,
-                new,
+                mode,
             } => long(
                 "world_backups.restore",
                 vec![
                     ("instance", json!(instance)),
                     ("backup", json!(backup)),
                     ("world", json!(world)),
-                    ("mode", json!(if *new { "new" } else { "replace" })),
+                    ("mode", json!(mode)),
                 ],
             ),
-            WorldBackups::Delete { instance, backup } => call(
+            WorldBackups::Delete {
+                instance,
+                backup,
+                world,
+            } => call(
                 "world_backups.delete",
-                vec![("instance", json!(instance)), ("backup", json!(backup))],
+                vec![
+                    ("instance", json!(instance)),
+                    ("backup", json!(backup)),
+                    ("world", json!(world)),
+                ],
             ),
         },
         Command::Snapshots(c) => {
@@ -1494,15 +1502,32 @@ mod tests {
                 "S",
                 "latest",
                 "--world",
-                "World"
+                "World",
+                "--mode",
+                "replace"
             ])
             .1,
             json!({ "instance": "S", "backup": "latest", "world": "World", "mode": "replace" })
         );
+        // Both restores spell their modes alike, and default to the one that replaces
+        // nothing.
         assert_eq!(
-            call_of(&["world-backups", "restore", "S", "Before", "--new"]).1,
+            call_of(&["world-backups", "restore", "S", "Before"]).1,
             json!({ "instance": "S", "backup": "Before", "mode": "new" })
         );
+        assert_eq!(
+            call_of(&["worlds", "restore-snapshot", "S", "World"]).1["mode"],
+            "new"
+        );
+        for argv in [
+            ["world-backups", "restore", "S", "Before", "--mode", "copy"],
+            ["worlds", "restore-snapshot", "S", "World", "--mode", "copy"],
+        ] {
+            let argv: Vec<&str> = std::iter::once("lodestone-launcher-cli")
+                .chain(argv)
+                .collect();
+            assert!(Cli::try_parse_from(argv).is_err());
+        }
         assert_eq!(
             call_of(&["world-backups", "delete", "S", "Before"]),
             (
@@ -1510,6 +1535,10 @@ mod tests {
                 json!({ "instance": "S", "backup": "Before" }),
                 false
             )
+        );
+        assert_eq!(
+            call_of(&["world-backups", "delete", "S", "latest", "--world", "World"]).1,
+            json!({ "instance": "S", "backup": "latest", "world": "World" })
         );
         assert_eq!(
             call_of(&["storage", "clean", "deleted-world-backups"]).1,
@@ -1913,5 +1942,74 @@ mod tests {
             crate::run::mode(&quiet.global, true),
             crate::output::Mode::Human
         );
+    }
+
+    /// The words of a shell line as `sh` would split them (quotes, no expansion).
+    fn shell_words(line: &str) -> Vec<String> {
+        let mut words = Vec::new();
+        let mut word = String::new();
+        let (mut quote, mut in_word) = (None, false);
+        for c in line.chars() {
+            match (quote, c) {
+                (Some(q), c) if c == q => quote = None,
+                (Some(_), c) => word.push(c),
+                (None, '"' | '\'') => {
+                    quote = Some(c);
+                    in_word = true;
+                }
+                (None, c) if c.is_whitespace() => {
+                    if in_word {
+                        words.push(std::mem::take(&mut word));
+                        in_word = false;
+                    }
+                }
+                (None, c) => {
+                    word.push(c);
+                    in_word = true;
+                }
+            }
+        }
+        if in_word {
+            words.push(word);
+        }
+        words
+    }
+
+    /// Every command SKILL.md shows parses, so an agent following a recipe never meets a
+    /// command that was renamed or removed.
+    #[test]
+    fn every_command_in_the_skill_parses() {
+        let skill = include_str!("../SKILL.md");
+        let mut checked = 0;
+        let mut in_block = false;
+        for line in skill.lines() {
+            if line.starts_with("```") {
+                in_block = !in_block;
+                continue;
+            }
+            if !in_block {
+                continue;
+            }
+            // Each command of the line, before a comment: `a && b`, `x | a`, `a; b`.
+            let line = line.split(" #").next().unwrap_or(line);
+            let mut commands = vec![line];
+            for separator in [" && ", " || ", "; ", " | "] {
+                commands = commands.iter().flat_map(|c| c.split(separator)).collect();
+            }
+            for command in commands.iter().map(|c| c.trim()) {
+                if !command.starts_with("lodestone-launcher-cli ") {
+                    continue;
+                }
+                let words = shell_words(command);
+                if words.iter().any(|w| w.contains('<') || w.contains('$')) {
+                    continue;
+                }
+                if let Err(err) = Cli::try_parse_from(&words) {
+                    panic!("SKILL.md: {command}\n{err}");
+                }
+                checked += 1;
+            }
+        }
+        assert!(checked > 100, "{checked}");
     }
 }

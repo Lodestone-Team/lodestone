@@ -1079,13 +1079,14 @@ tool, so a player can take a world anywhere. "World backup" always means the zip
 
 `launcher/crates/launcher-core/src/world_backups/` (`mod.rs`, `restore.rs`), the shared
 zip code in `worlds/zip.rs`, the window's `instances/world_backups.rs` (Settings ›
-Snapshots' "World backups" section and its dialog) and the Worlds tab.
+Snapshots' "World backups" group and its dialog) and the Worlds tab.
 
 - **Files.** `<data>/world-backups/<instance id>/<world folder>/<id>.zip` and its
   `<id>.json`, outside the instance folder, so snapshots, exports and "Host this" never
   take them. The id has a snapshot record id's shape (`YYYYMMDD-HHMMSS-xxxx`, UTC). The
-  zip's one top folder is the world's folder (`<world folder>/level.dat`, …), deflated, so
-  it unzips into any `saves` folder. The `.json` (`WorldBackup`, `version` 1, at most
+  zip's one top folder is the world's folder (`<world folder>/level.dat`, …), so it unzips
+  into any `saves` folder. Files already compressed (`.mca`, `.mcc`, `.mcr`, `.dat`,
+  `.dat_old`, `.png`, `.gz`, `.zip`, `.jar`) are stored as they are; the rest deflated. The `.json` (`WorldBackup`, `version` 1, at most
   64 KiB) has the id, the owner's `instance_created` and name, the world's folder, the
   name (the user's, cut to 200 characters, else "World backup"), the kind (`manual` or
   `before_restore`, with `restored`: the name of the backup whose restore it came before),
@@ -1094,7 +1095,9 @@ Snapshots' "World backups" section and its dialog) and the Worlds tab.
   count). The zip is written as `.<id>.zip.<16 hex>.part` beside it, flushed and renamed
   (the folder flushed on Unix), and the `.json` last (`storage::write_atomic`): only a
   backup with both is listed, so none is ever half a zip.
-- **What a zip holds.** Every file of the world, without following links. Left out:
+- **What a zip holds.** Every file of the world, without following links (each file is
+  opened with `O_NOFOLLOW` on Unix and must be a plain file, so one swapped for a link or
+  a pipe after the world was listed refuses the backup). Left out:
   `session.lock` and Lodestone's working files (`.lodestone-…`, `paths::always_excluded`),
   and, counted and listed, links and names a canonical path can't hold
   (`CanonicalPath::new("saves/w/<path>")`: Windows device and 8.3 names, invisible
@@ -1118,58 +1121,86 @@ Snapshots' "World backups" section and its dialog) and the Worlds tab.
 - **Making one** (`WorldBackups::create`, the Settings section's "Back up a world…", the
   Worlds tab's "Back up", `world_backups.create`): under the instance's record lock in a
   counted write of the image store, refused while a game session of the instance runs or
-  the game has that world open (its `session.lock`, `worlds::open_in_game`), and without
-  room for the world's size and 1 GiB on the backups' disk. Cancel, a session that
-  begins or the game opening the world stops it at the next file and leaves nothing.
+  the game has that world open (its `session.lock`, `worlds::open_in_game`), for a folder
+  without `level.dat` (no restore could take it), and without room for the world's size
+  and 1 GiB on the backups' disk. Cancel, a session that begins or the game opening the
+  world stops it at the next file or 8 MiB of a large one, and leaves nothing.
 - **Restoring one in place** (`RestoreTo::InPlace`, "Restore…" after a confirmation,
   `world_backups.restore` mode `replace` with confirm): as a snapshot's restore, under the
   record lock, refused while a game session runs or any world of the instance is open, an
-  unfinished restore undone first. The zip is checked whole before anything is written
-  (`worlds::zip::check`, shape `OneWorldFolder`), then room on both disks (the zip's
-  unpacked size and 1 GiB on the instance's; the world and 1 GiB on the backups'), then a
-  **safety world backup** of the world as it is ("Before restoring “<name>”", kept like
-  any other; none when the world isn't there any more), refused when it fails or is
-  cancelled. The zip is unpacked into `<instance>/.lodestone-restore-staging-<16>/minecraft/saves/<world>/`
-  and swapped in with M5's journaled swap (`images/swap.rs`, `restore-journal.json`): the
-  world's folder is owned, what the safety backup zipped is what it replaces, and
-  everything else in the world is carried back (`session.lock`, links, names no zip
-  holds). A crash is finished or undone at the next start or by Play, as for snapshots.
-  Only that world changes; nothing is recorded in the content history (worlds aren't
-  content).
+  unfinished restore undone first, and only for a backup kept under a folder name a backup
+  is made under (`check_world_folder`). The zip is checked whole before anything is
+  written (`worlds::zip::check`, shape `OneWorldFolder`), then what the swap would refuse
+  (from the list of what the safety backup will zip, `worlds::zip::plan`), then room: the
+  zip's unpacked size plus the world's size plus 1 GiB when the instance and the backups
+  share a disk (the usual case), else each with 1 GiB on its own disk. Then a **safety
+  world backup** of the world as it is ("Before restoring “<name>”", the restored name cut
+  so the whole fits 200 characters; none when the world isn't there any more), refused
+  when it fails or is cancelled. The zip is unpacked into
+  `<instance>/.lodestone-restore-staging-<16>/minecraft/saves/<world>/` and swapped in
+  with M5's journaled swap (`images/swap.rs`, `restore-journal.json`,
+  `Staged::with_folders`): the world's folder is owned, what the safety backup zipped is
+  what it replaces, every folder the zip lists (an empty `datapacks/` too) is the zip's,
+  and everything else in the world is carried back (`session.lock`, links, names no zip
+  holds, folders only on disk). Just before the swap, open worlds and a game session are
+  checked again (a game this Launcher didn't start may open a world while a large zip
+  unpacks). A restore that ends with the world unchanged (refused, cancelled while
+  unpacking, or rolled back) deletes the safety backup it made; one whose swap couldn't be
+  undone keeps it. A crash is finished or undone at the next start or by Play, as for
+  snapshots. Only that world changes; nothing is recorded in the content history (worlds
+  aren't content). Files written into the world meanwhile are kept aside
+  (`restore-leftovers-<16>/`), which the dialog says.
 - **As a new world** (`RestoreTo::NewWorld`, "Restore as a new world", mode `new`): the
   zip unpacked beside the others as "<world> (restored <date>)" (its `level.dat` name too),
   replacing nothing, no safety backup.
 - **Deleting one** moves its zip to the Trash, then deletes its `.json`; when the Trash
   fails nothing changes.
+- **Renaming a world** in the Launcher (the Worlds tab, `WorldBackups::rename_world`)
+  moves its backups' folder with it under the record lock, the new folder a name free in
+  both `saves/` and the backups' folder, the world put back if the backups can't move. A
+  world renamed outside the Launcher leaves its backups under the old folder name, listed
+  as no longer in the instance.
 - **Checking a zip** (`worlds::zip::check`, also used by world imports): only the central
-  directory is read, and the whole zip is refused for more than 500,000 entries or 64 GB
+  directory is read, and the whole zip is refused for more than 500,000 entries or 64 GiB
   stated, an encrypted entry, a name `mrpack::check_pack_path` or a canonical path refuses
   (absolute, `..`, `\`, `:`, device names, …), two names one file on a disk that ignores
   case (`paths::case_collisions`, `ſ` and `s` too), a file that is also a folder or is
   listed twice, and, for a backup, an entry outside its one top folder or no `level.dat`.
   Links, `__MACOSX` and `.DS_Store`, `session.lock` and `.lodestone-…` entries are
   skipped. Unpacking (`extract_into`) creates each file new, copies at most its stated
-  size plus one byte (a larger one refuses the zip), flushes it, asks Cancel before each
-  entry, and removes what it unpacked on any failure.
-- **The window.** Settings › Snapshots has two sections: "World backups" ("Back up a
-  world…"; the backups grouped by world, a world no longer in the instance said so; per
-  row Restore…, Restore as a new world, Show in Finder, Delete) and "Snapshots" (as in
-  M5). One dialog makes (a pick of the worlds when there are several, a name), restores
-  (in place after a confirmation that the world as it is is saved first; as a new world at
-  once) and deletes; while it works it can't be closed, and Cancel stops the work. The
-  Worlds tab's "Back up" is a tab job with Cancel; a world's "Copies" button (its number
-  counts both sections) opens a panel with "World backups" (its zips, with the same
-  buttons, which open the dialog) and "In snapshots" (the snapshots holding it, M5's
-  restore as a new world and in place). The lists follow `WorldBackups::watch`. Names the
-  Launcher gave ("World backup", "Before restoring “<name>”") are shown translated.
+  size plus one byte (a larger one refuses the zip), asks Cancel before each entry, and
+  removes what it unpacked on any failure. What it unpacks is made durable as one batch
+  (`lodestone_image::store::durable`: each file and folder handed to the drive, then one
+  flush of the drive's cache), not with a cache flush per file.
+- **The window.** Settings › Snapshots is one section (one entry in the list beside the
+  page) with two groups, each under its own heading: "World backups" ("Back up a world…";
+  each world's backups in a card under the world's name, a world no longer in the instance
+  said so; per row Restore…, Restore as a new world, Show in Finder, Delete) and
+  "Snapshots of the whole instance" (as in M5, its lead the retention). One dialog makes
+  (a pick of the worlds when there are several, a name), restores (in place after a
+  confirmation naming the backup and saying the world as it is is saved first; as a new
+  world at once) and deletes; while it works it can't be closed, and Cancel stops the
+  work. The Worlds tab's "Back up" is a tab job with Cancel, as are rename and delete,
+  which wait for any other job writing the instance (Settings' world backup dialog, an
+  install, a modpack update). A world's "Backups & snapshots" button (its number counts
+  both sections) opens a panel with "World backups" (its zips, with the same buttons,
+  which open the dialog) and "In snapshots" (the snapshots holding it); both list
+  Restore… (in place, asking first) then Restore as a new world. The lists follow
+  `WorldBackups::watch`. Names the Launcher gave ("World backup", "Before restoring
+  “<name>”") are shown translated.
 - **Control API and CLI.** `world_backups.list` (`instance`, `world`; or `deleted`),
   `world_backups.create` (`instance`, `world`, `name`), `world_backups.restore`
-  (`instance`, `backup`: an id, a name, or `latest` with `world`; `mode` `replace` with
-  confirm, or `new`), `world_backups.delete` (confirm); making and restoring are jobs of
+  (`instance`, `backup`: an id, a name, or `latest` with `world`; `mode` `new`, the
+  default, or `replace` with confirm; destructive), `world_backups.delete` (`backup` as
+  for restore, `world`; confirm). `world` is a world's folder or name, matched first
+  against the backups' own folders and world names, so a world no longer in the instance
+  is found by its backups; backups are looked up in the background.
+  `worlds.restore_snapshot` takes the same `mode` `new` or `replace` (destructive); making and restoring are jobs of
   kind `world_backups` that `jobs.cancel` stops, and no snapshot or world backup job of an
   instance starts while another runs. Records carry the zip's `path`. `worlds.list` counts
-  each world's `world_backups` and `snapshots`. The CLI: `world-backups list|create|restore|delete`,
-  `storage clean deleted-world-backups`.
+  each world's `world_backups` and `snapshots`. The CLI: `world-backups list|create|restore|delete`
+  (`restore --mode new|replace`, `delete --world`), `worlds restore-snapshot --mode
+  new|replace`, `storage clean deleted-world-backups`.
 
 ## Milestones
 
@@ -2856,7 +2887,7 @@ the world backup zips is read or converted.
   instance" given a name that is blank once control and invisible characters are gone
   names the instance "<instance> (<snapshot>)" (the snapshot's name without them), so the
   name never refuses what was staged. The window and the control API refuse an in-place restore
-  (the Snapshots dialog, `snapshots.restore`, the Worlds tab's "Restore this world…" and
+  (the Snapshots dialog, `snapshots.restore`, the Worlds tab's "Restore…" and
   "Restore as a new world" on a snapshot, `worlds.restore_snapshot`) while another job writes the instance's files
   (`Instances::files_or_pack_busy`: a tab's job holding them busy, an install, or a
   modpack update or add-on pack being applied, which mark nothing busy); and applying a
@@ -2940,7 +2971,7 @@ the world backup zips is read or converted.
   with up to five names: the files it puts back, removes and changes. With "The
   worlds and their mods" or "Everything" chosen, the same lines say what the restore will
   change, with the loader version it goes back to.
-  The Worlds tab's "Restore this world…" says that only the world goes back and points to the
+  The Worlds tab's "Restore…" on a snapshot says that only the world goes back and points to the
   Snapshots list for its mods. Known limit: the preview compares with the current content
   image without the quick check, so a mod dropped in by hand since the last record isn't
   in the list (the restore itself records it first, and replaces it). Known limit: a full
@@ -3100,9 +3131,9 @@ the world backup zips is read or converted.
   and an export stops when the dialog goes. The restore dialog is wider (680 px), so its
   four choices fit on one line. Since WB2 the
   Worlds tab's "Back up" makes a world backup, a zip of that world ("World backups"); the
-  panel its "Copies" button opens has an "In snapshots" section that lists the snapshots holding
+  panel its "Backups & snapshots" button opens has an "In snapshots" section that lists the snapshots holding
   the world, each with the world's own size there and "with N other worlds", with
-  "Restore as a new world" and "Restore this world…" (a world-only restore; both stop on
+  "Restore…" (a world-only restore, in place) and "Restore as a new world" (both stop on
   Cancel while staging); a snapshot change re-reads only those, not the worlds. `.lodeimg` files open
   the import dialog when dropped or picked with Import…; a `.lodesnap` is refused as no
   modpack, whose message says snapshots shared from Lodestone end in `.lodeimg`.
@@ -4131,9 +4162,12 @@ developer's brief left them open. The developer decided: world backups are manua
   nothing is renamed when an instance is deleted, put back from the Trash or its id is
   reused, and a crash can't leave backups half moved. Entries of the instances folder
   that aren't readable instances are never cleaned.
-- **World identity is the folder.** A renamed world's backups stay under the old folder,
-  which Settings lists as a world no longer in the instance; restoring one in place
-  recreates the old folder beside the renamed world. Nothing renames or moves backups.
+- **World identity is the folder.** A world renamed in the Launcher takes its backups
+  along (`WorldBackups::rename_world`), so a world later given the old name never inherits
+  them. A world renamed or deleted outside the Launcher leaves its backups under the old
+  folder, which Settings lists as a world no longer in the instance, and which the control
+  API's `world` finds by the backups' folder or world name; restoring one in place
+  recreates the old folder.
 - **The zip** has one top folder, the world's; `session.lock` and `.lodestone-…` names are
   never in it; links and names a canonical path refuses are left out, counted and listed
   in the `.json` and the row's details ("N files left out"). Restoring in place carries
@@ -4145,13 +4179,26 @@ developer's brief left them open. The developer decided: world backups are manua
   refuses them (`WorldBackupError::Suspended`). Making one is refused while a session runs
   or the game has that world open, and stopped when a session begins or the world opens;
   restoring in place is refused while any world is open (as M5's restore, since the
-  safety backup and the swap must not race the game). Restoring as a new world isn't
+  safety backup and the swap must not race the game), checked again just before the
+  swap. Making one is refused while any game session of the instance runs, not only
+  while that world is open, deliberately stricter than the brief: a world the running
+  game hasn't opened yet could be opened mid-zip, and a session is what the record lock
+  and Play already coordinate on. Restoring as a new world isn't
   refused by the core while the game runs (it replaces nothing, as `restore_world_copy`),
   but the dialog refuses it.
 - **Deleting** moves the zip to the Trash; Storage's clean-up of deleted instances'
   backups deletes them for good. There is no rename, export (the zip itself is the
   export, Show in Finder), schedule or pruning. Safety backups are kept like any other
-  and named "Before restoring “<name>”" (plain English data, like content labels).
+  and named "Before restoring “<name>”" (plain English data, like content labels), the
+  restored name cut so the whole name fits 200 characters. A restore that leaves the
+  world unchanged (refused after the safety backup, cancelled while unpacking, rolled
+  back) deletes its safety backup, since each is a full-size zip that nothing prunes;
+  the swap's own checks run before the safety backup from the list it will zip
+  (`worlds::zip::plan`), so most refusals come before it is made.
+- **A world without `level.dat`.** A manual backup of it is refused (no restore could take
+  it). The safety backup before a restore is made anyway (the world may be broken, the
+  reason for restoring) and keeps the files the restore replaces; such a zip can't be
+  restored by Lodestone but opens with any zip tool.
 - **Names in the window.** The `.json` keeps the English names the Launcher gives
   (`labels::WORLD_BACKUP`, `labels::before_restoring`), which the control API and CLI
   show. The window shows them in the user's language (`world_backups::shown_name`): a name
@@ -4171,32 +4218,48 @@ developer's brief left them open. The developer decided: world backups are manua
   before an import too. A third-party world zip with such a name is now refused, with a
   message naming it, where it used to import.
 - **Free space.** Making one: the world's size and 1 GiB on the backups' disk. Restoring
-  in place: the zip's stated unpacked size and 1 GiB on the instance's disk, and the
-  world's size and 1 GiB on the backups' disk for the safety backup. As a new world: the
-  stated size and 1 GiB.
+  in place: when the instance folder and the backups folder are on one disk (the same
+  device on Unix, the same volume elsewhere; taken as one when that can't be told), the
+  zip's stated unpacked size plus the world's size plus 1 GiB, once; otherwise the stated
+  size and 1 GiB on the instance's disk and the world's size and 1 GiB on the backups'.
+  All before the safety backup. As a new world: the stated size and 1 GiB.
+- **Zip contents and speed.** Files already compressed (region files, gzip NBT, images,
+  zips) are stored, the rest deflated: deflating region files gains almost nothing and
+  made backing up a large world bound by one core (about 70 MB/s). Cancel is asked
+  between 8 MiB chunks of a large file too. Files are opened without following links and
+  must be plain files. Unpacking makes its files durable as one batch
+  (`lodestone_image::store::durable`) rather than with a drive cache flush per file
+  (`F_FULLFSYNC` on macOS, about 6 ms each), which also speeds up world imports.
 - **Crashes.** A `.part` older than an hour is deleted by the startup sweep; a `.json`
   without its zip (a crash during a delete) is deleted; a zip without its `.json` (a crash
   between them: the user's copy) is kept as a manual backup named "World backup" of its
-  live instance, with what its `level.dat` says. A restore's crash is M5's journal's.
+  live instance, with what its `level.dat` says, unless the zip is older than that
+  instance (a deleted instance whose id was reused made it): such a zip is left alone. A restore's crash is M5's journal's.
 - **Snapshots cover the whole folder.** "Include mods and configs" (`Take::full`, the
   dialog's checkbox, `snapshots.create`'s `everything`, `--everything`) and the row's
   "With mods" are gone; a snapshot is still a full image when its content can't be linked
   (`SnapshotRecord::full` stays). The section's hint says "Copies of the whole instance
   folder to go back to or share."
 - **Words.** "World backup" is the zip and "snapshot" the image everywhere in the
-  Launcher: the Worlds tab's button that opens a world's panel is "Copies" (counting its
-  world backups and the snapshots holding it), the after-play hints say a snapshot copies
-  the whole instance folder, the Worlds tab's snapshot rows say "Restore as a new world" and "Restore this
-  world…", the confirmation "Restore <world> from this snapshot?" with "Snapshot and
-  restore", and the job "Restoring the world from the snapshot". `labels::backed_up`
-  ("Backed up <world>") is gone.
+  Launcher: the Worlds tab's button that opens a world's panel is "Backups & snapshots"
+  (counting its world backups and the snapshots holding it), the after-play hints say a
+  snapshot copies the whole instance folder, the Worlds tab's snapshot rows say
+  "Restore…" and "Restore as a new world" as its world backup rows do, the confirmation
+  "Restore <world> from this snapshot?" (a snapshot of the instance is taken first) with
+  "Snapshot and restore", and the job "Restoring the world from the snapshot". A modpack
+  update's replaced files are "kept inside the instance's folder, in backups/", never
+  "the instance's backups". Storage's row says how many world backups are deleted
+  instances' only when some are. `labels::backed_up` ("Backed up <world>") is gone.
 - **API and CLI names.** `world_backups.list`, `create`, `restore`, `delete`; job kind
   `world_backups`; `worlds.backups` became `worlds.snapshots`, `worlds.restore` became
-  `worlds.restore_snapshot` (mode `copy` or `replace`), `worlds.backup` is gone, and
+  `worlds.restore_snapshot` (mode `new` or `replace`, as `world_backups.restore`; both
+  default to `new` and both are destructive in `meta.methods`), `worlds.backup` is gone, and
   `worlds.list`'s `backups` became `world_backups` and `snapshots`. The CLI follows
   (`world-backups …`, `worlds snapshots`, `worlds restore-snapshot`). Storage's clean-up is
   `deleted-world-backups`; `storage.show` has `world_backups` (`bytes`, `backups`,
   `deleted`, `deleted_bytes`), and the world backups folder isn't "other".
 - **Test hook.** `WorldBackups::before_swap` (tests only) runs just before an in-place
   restore's swap, to write into the world meanwhile and check what is kept aside.
-- **The shared crate is unchanged.**
+- **The shared crate** gains only `lodestone_image::store::durable` (`write_out`,
+  `write_out_dir`, `full_flush`: public wrappers of the store's batch flush), an additive
+  change.

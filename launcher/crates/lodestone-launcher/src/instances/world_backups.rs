@@ -6,6 +6,7 @@
 //! The work runs on background threads; the dialog shows its progress.
 
 use std::{
+    collections::HashSet,
     sync::{
         Arc,
         atomic::{AtomicU8, Ordering},
@@ -102,24 +103,48 @@ impl Instances {
         self.world_backup_rows.get(id).map(Vec::as_slice)
     }
 
-    /// Reads the instance's world backups again, in the background.
+    /// Of the instance's world backups read, the world folders no longer in its `saves/`.
+    pub fn world_backup_gone(&self, id: &str) -> Option<&HashSet<String>> {
+        self.world_backup_gone.get(id)
+    }
+
+    /// Reads the instance's world backups again, in the background, with which of their
+    /// worlds are gone (so drawing never looks at the disk).
     pub fn load_world_backups(&mut self, id: &str, cx: &mut Context<Self>) {
         let backups = self.world_backups();
+        let saves = worlds::saves_dir(&self.content_dirs(id));
         let key = id.to_string();
         let read = cx.background_spawn({
             let key = key.clone();
-            async move { backups.list(&key).unwrap_or_default() }
+            async move {
+                let list = backups.list(&key).unwrap_or_default();
+                let gone: HashSet<String> = list
+                    .iter()
+                    .map(|b| b.folder.clone())
+                    .filter(|folder| !saves.join(folder).is_dir())
+                    .collect();
+                (list, gone)
+            }
         });
         let task = cx.spawn(async move |this, cx| {
-            let list = read.await;
+            let (list, gone) = read.await;
             this.update(cx, |this, cx| {
                 this.world_backup_tasks.remove(&key);
+                this.world_backup_gone.insert(key.clone(), gone);
                 this.world_backup_rows.insert(key, list);
                 cx.notify();
             })
             .ok();
         });
         self.world_backup_tasks.insert(id.to_string(), task);
+    }
+
+    /// Reads the instance's world backups again if they were read (a world was deleted,
+    /// renamed or added, so which of their worlds are gone may have changed).
+    pub fn world_backups_read_again(&mut self, id: &str, cx: &mut Context<Self>) {
+        if self.world_backup_rows.contains_key(id) {
+            self.load_world_backups(id, cx);
+        }
     }
 
     /// After a world backup was made, restored or deleted here: the lists read again, and
@@ -393,7 +418,16 @@ impl WorldBackupDialog {
                         .map_err(|e| e.to_string())?;
                     Ok(match to {
                         RestoreTo::InPlace => {
-                            tr!(M::WorldRestored, world = display_text(backup.world_name())).into()
+                            let mut message =
+                                tr!(M::WorldRestored, world = display_text(backup.world_name()));
+                            // Files written into the world meanwhile, moved aside: said here,
+                            // as a snapshot's restore says it.
+                            if let Some(kept) = &restored.kept_aside {
+                                message.push(' ');
+                                message
+                                    .push_str(&tr!(M::RestoreKeptAside, folder = kept.display()));
+                            }
+                            message.into()
                         }
                         RestoreTo::NewWorld => {
                             tr!(M::WorldRestoredAsNew, folder = restored.folder).into()
@@ -614,10 +648,16 @@ impl Render for WorldBackupDialog {
                 let when = super::snapshots::when(backup.created).to_lowercase();
                 let world = display_text(backup.world_name()).into_owned();
                 if *to == RestoreTo::InPlace {
+                    let name = shown_name(backup);
                     body = body.child(div().whitespace_normal().child(if self.world_exists {
-                        tr!(M::RestoreWorldBody, world = world, when = when)
+                        tr!(M::RestoreWorldBody, world = world, name = name, when = when)
                     } else {
-                        tr!(M::RestoreWorldGoneBody, world = world, when = when)
+                        tr!(
+                            M::RestoreWorldGoneBody,
+                            world = world,
+                            name = name,
+                            when = when
+                        )
                     }));
                     primary = Some((
                         t(if self.world_exists {

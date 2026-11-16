@@ -659,6 +659,11 @@ impl WorldsView {
                     else {
                         return;
                     };
+                    // A world deleted, renamed or added: Settings' world backups say which
+                    // of their worlds are gone.
+                    this.instances.update(cx, |instances, cx| {
+                        instances.world_backups_read_again(&id, cx)
+                    });
                     // The jobs are all about worlds, whichever section is open now.
                     let message = match result {
                         Ok(message) => (message.into(), false, Section::Worlds),
@@ -711,6 +716,11 @@ impl WorldsView {
     /// job's progress, and stopped by its Cancel. The list follows through the world
     /// backups' watch, also when the job ends while another instance is shown.
     pub fn back_up(&mut self, folder: String, name: String, cx: &mut Context<Self>) {
+        // Settings' world backup dialog, an install or a modpack update: it would wait for
+        // them, its Cancel doing nothing meanwhile.
+        if self.other_job_writes(cx) {
+            return;
+        }
         self.expanded = Some(folder.clone());
         self.panel = WorldPanel::Backups;
         let backups = self.instances.read(cx).world_backups();
@@ -795,6 +805,10 @@ impl WorldsView {
 
     /// Moves the world to the Trash (after the window's confirmation).
     pub fn delete_world(&mut self, folder: String, name: String, cx: &mut Context<Self>) {
+        // A restore of it in Settings would put it back.
+        if self.other_job_writes(cx) {
+            return;
+        }
         self.run(
             JobLabel::MovingToTrash(name.clone()),
             move |dirs, _, _| {
@@ -806,7 +820,7 @@ impl WorldsView {
     }
 
     pub fn start_rename(&mut self, folder: String, name: String, cx: &mut Context<Self>) {
-        if !self.can_change(cx) {
+        if !self.can_change(cx) || self.other_job_writes(cx) {
             return;
         }
         let input = cx.new(|cx| {
@@ -824,10 +838,15 @@ impl WorldsView {
             return;
         };
         let name = input.read(cx).text().trim().to_string();
+        let backups = self.instances.read(cx).world_backups();
+        let instance = self.instance_id.clone().unwrap_or_default();
         self.run(
             JobLabel::Renaming,
-            move |dirs, _, _| {
-                let new_folder = worlds::rename(dirs, &folder, &name)?;
+            move |_, _, _| {
+                // Its world backups go with it.
+                let new_folder = backups
+                    .rename_world(&instance, &folder, &name)
+                    .map_err(backup_error)?;
                 Ok(if new_folder == folder {
                     tr!(M::RenamedTo, name = name)
                 } else {
@@ -1761,9 +1780,13 @@ impl WorldsView {
                             Button::new(
                                 ("backups", index),
                                 match zips.len() + copies.len() {
-                                    0 => t(M::Copies).to_string(),
+                                    0 => t(M::BackupsAndSnapshots).to_string(),
                                     count => {
-                                        format!("{} {}", t(M::Copies), format::number(count as u64))
+                                        format!(
+                                            "{} {}",
+                                            t(M::BackupsAndSnapshots),
+                                            format::number(count as u64)
+                                        )
                                     }
                                 },
                             )
@@ -2459,21 +2482,11 @@ impl WorldsView {
                                 .text_color(crate::theme::ink::muted()),
                             ),
                     )
+                    // As the world backups above: in place (asking first), then as a new
+                    // world.
                     .child(
-                        Button::new(("restore-copy", id), t(M::RestoreAsNewWorld))
+                        Button::new(("restore-replace", id), t(M::RestoreEllipsis))
                             .variant(ButtonVariant::Secondary)
-                            .size(ButtonSize::Slim)
-                            .disabled(busy)
-                            .on_click({
-                                let (folder, backup) = (folder.to_string(), backup.clone());
-                                cx.listener(move |this, _, _, cx| {
-                                    this.restore_copy(folder.clone(), backup.clone(), cx)
-                                })
-                            }),
-                    )
-                    .child(
-                        Button::new(("restore-replace", id), t(M::RestoreThisWorld))
-                            .variant(ButtonVariant::Ghost)
                             .size(ButtonSize::Slim)
                             .disabled(busy)
                             .on_click({
@@ -2487,6 +2500,18 @@ impl WorldsView {
                                             backup: backup.clone(),
                                         });
                                     }
+                                })
+                            }),
+                    )
+                    .child(
+                        Button::new(("restore-copy", id), t(M::RestoreAsNewWorld))
+                            .variant(ButtonVariant::Ghost)
+                            .size(ButtonSize::Slim)
+                            .disabled(busy)
+                            .on_click({
+                                let (folder, backup) = (folder.to_string(), backup.clone());
+                                cx.listener(move |this, _, _, cx| {
+                                    this.restore_copy(folder.clone(), backup.clone(), cx)
                                 })
                             }),
                     ),

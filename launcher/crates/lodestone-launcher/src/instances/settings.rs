@@ -52,9 +52,10 @@ use crate::{
         Button, ButtonSize, ButtonVariant, Dropdown, Icon, IconButton, LoadingDots, TextInput,
         Toggle, segmented,
         settings::{
-            FindSetting, SearchRow, SectionNav, SettingRow, SettingsQuery, SettingsSearch,
-            SettingsSearchChanged, Toast, content_width, left_overlay, link, muted_link, nav_width,
-            popover_panel, section_list, section_menu_button, tag, unsaved_bar, value,
+            FindSetting, SearchRow, SearchSection, SectionNav, SettingRow, SettingsQuery,
+            SettingsSearch, SettingsSearchChanged, Toast, content_width, left_overlay, link,
+            muted_link, nav_width, popover_panel, section_list, section_menu_button, tag,
+            unsaved_bar, value,
         },
     },
     file_dialog,
@@ -2640,12 +2641,7 @@ impl Render for InstanceSettings {
             ));
         }
 
-        // World backups, then snapshots.
-        push_section(
-            &mut sections,
-            t(M::WorldBackups).into(),
-            self.render_world_backups(&query, cx),
-        );
+        // Snapshots: the world backups, then the snapshots of the whole instance.
         push_section(
             &mut sections,
             t(M::InstanceSnapshots).into(),
@@ -2946,20 +2942,24 @@ fn note(text_: &'static str) -> AnyElement {
 }
 
 impl InstanceSettings {
-    /// The instance's world backups, by world (in the order of each world's newest), with
-    /// a button to make one.
-    fn render_world_backups(
+    /// The Snapshots section's first group: its heading, a card with the button that
+    /// backs up a world, then each world's backups under the world's name (worlds in the
+    /// order of their newest backup).
+    fn world_backup_group(
         &mut self,
-        query: &SettingsQuery,
+        section: SearchSection,
         cx: &mut Context<Self>,
-    ) -> Option<gpui::Div> {
+    ) -> SearchSection {
         use super::world_backups::{WorldBackupRequest, WorldBackupRequested};
         use launcher_core::world_backups::RestoreTo;
         let id = self.instance_id.clone();
-        let (list, backups, saves) = self.instances.update(cx, |instances, cx| {
+        let (list, gone, backups) = self.instances.update(cx, |instances, cx| {
             let list = instances.world_backup_list(&id, cx).map(<[_]>::to_vec);
-            let saves = launcher_core::worlds::saves_dir(&instances.content_dirs(&id));
-            (list, instances.world_backups(), saves)
+            let gone = instances
+                .world_backup_gone(&id)
+                .cloned()
+                .unwrap_or_default();
+            (list, gone, instances.world_backups())
         });
         let back_up = Button::new("back-up-world", t(M::BackUpWorldEllipsis))
             .variant(ButtonVariant::Secondary)
@@ -2970,11 +2970,17 @@ impl InstanceSettings {
                     world: None,
                 }))
             }));
-        let mut items = vec![SettingRow::new(t(M::BackUpWorldTitle)).child(back_up)];
+        let mut first = vec![SettingRow::new(t(M::BackUpWorldTitle)).child(back_up)];
         let list = list.unwrap_or_default();
         if list.is_empty() {
-            items.push(SettingRow::new(t(M::NoWorldBackups)));
+            first.push(SettingRow::new(t(M::NoWorldBackups)));
         }
+        let mut section = section
+            .child(group_heading(
+                t(M::WorldBackups),
+                Some(t(M::WorldBackupsHint)),
+            ))
+            .card(first);
         // Grouped by world folder, each group where its newest backup is.
         let mut folders: Vec<&str> = Vec::new();
         for backup in &list {
@@ -2986,19 +2992,14 @@ impl InstanceSettings {
         for folder in folders {
             let group: Vec<_> = list.iter().filter(|b| b.folder == folder).collect();
             let world = display_text(group[0].world_name()).into_owned();
-            let mut hint = Vec::new();
+            let mut about = Vec::new();
             if world != folder {
-                hint.push(folder.to_string());
+                about.push(folder.to_string());
             }
-            if !saves.join(folder).is_dir() {
-                hint.push(t(M::WorldNotHere).to_string());
+            if gone.contains(folder) {
+                about.push(t(M::WorldNotHere).to_string());
             }
-            let header = SettingRow::new(world).key(("world-backup-world", index));
-            items.push(if hint.is_empty() {
-                header
-            } else {
-                header.hint(hint.join(" · "))
-            });
+            let mut rows = Vec::new();
             for backup in group {
                 index += 1;
                 let request = |make: fn(
@@ -3018,9 +3019,11 @@ impl InstanceSettings {
                     details.push(trn!(P::WorldBackupLeftOut, backup.left_out_count as usize));
                 }
                 let zip = backups.zip_path(&id, backup);
-                items.push(
+                rows.push(
                     SettingRow::new(super::world_backups::shown_name(backup))
                         .key(("world-backup-row", index))
+                        // Found by its world's name too.
+                        .keywords(world.clone())
                         .hint(details.join(" · "))
                         .child(
                             div()
@@ -3084,11 +3087,11 @@ impl InstanceSettings {
                 );
             }
             index += 1;
+            section = section
+                .child(world_label(index, world, about.join(" · ")))
+                .card(rows);
         }
-        query
-            .section(t(M::WorldBackups), Some(t(M::WorldBackupsHint).into()))
-            .card(items)
-            .finish()
+        section
     }
 
     /// The instance's snapshots, newest first, with a button to take one.
@@ -3291,11 +3294,67 @@ impl InstanceSettings {
             days = policy.keep_daily,
             weeks = policy.keep_weekly
         );
-        query
-            .section(t(M::InstanceSnapshots), Some(keep.into()))
+        let section = query.section(t(M::InstanceSnapshots), None);
+        self.world_backup_group(section, cx)
+            .child(group_heading(t(M::SnapshotsGroup), Some(keep.as_str())))
             .card(items)
             .finish()
     }
+}
+
+/// A heading inside a section, over a group of its cards, with a grey line under it.
+fn group_heading(title: &'static str, lead: Option<&str>) -> AnyElement {
+    div()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .pt_2()
+        .child(
+            div()
+                .text_size(theme::text_size(text::MEDIUM))
+                .font_weight(weights::BOLD.into())
+                .text_color(crate::theme::ink::text())
+                .child(title),
+        )
+        .when_some(lead, |this, lead| {
+            this.child(
+                div()
+                    .whitespace_normal()
+                    .text_size(theme::text_size(text::SMALL))
+                    .text_color(crate::theme::ink::muted())
+                    .child(lead.to_string()),
+            )
+        })
+        .into_any_element()
+}
+
+/// The name of the world whose backups the card below it lists, with its folder and
+/// whether it is gone: small, bold and grey, so it reads as a label of the card rather
+/// than one of its rows.
+fn world_label(index: usize, world: String, about: String) -> AnyElement {
+    div()
+        .id(("world-backup-world", index))
+        .flex()
+        .flex_row()
+        .items_baseline()
+        .gap_2()
+        .px_1()
+        .text_size(theme::text_size(text::SMALL))
+        .child(
+            div()
+                .font_weight(weights::BOLD.into())
+                .text_color(crate::theme::ink::secondary())
+                .child(world),
+        )
+        .when(!about.is_empty(), |this| {
+            this.child(
+                div()
+                    .truncate()
+                    .text_color(crate::theme::ink::muted())
+                    .child(about),
+            )
+        })
+        .into_any_element()
 }
 
 #[cfg(test)]

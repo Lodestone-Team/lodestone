@@ -439,6 +439,7 @@ pub fn text(message: M) -> &'static str {
         M::SnapshotAfterPlayOwnHint => "遊玩後複製整個實例資料夾。僅為此實例設定。",
         M::DeleteUnreadableNote => "它們將被永久刪除。",
         M::WorldBackups => "世界備份",
+        M::SnapshotsGroup => "整個實例的快照",
         M::WorldBackupsHint => "單一世界的 zip 副本，會一直保留到你刪除為止。在任何地方都能開啟。",
         M::BackUpWorldTitle => "備份世界",
         M::BackUpWorldEllipsis => "備份世界…",
@@ -454,9 +455,11 @@ pub fn text(message: M) -> &'static str {
         M::NoWorldsToBackUp => "此實例還沒有世界。",
         M::RestoreWorldTitle => "還原 {world}？",
         M::RestoreWorldBody => {
-            "{world} 將回到 {when} 時的狀態。會先把世界現在的樣子另存為一個世界備份。"
+            "{world} 將回到「{name}」（{when}）時的狀態。會先把世界現在的樣子另存為一個世界備份。"
         }
-        M::RestoreWorldGoneBody => "{world} 已不在此實例中。它會以 {when} 時的狀態回來。",
+        M::RestoreWorldGoneBody => {
+            "{world} 已不在此實例中。它會以「{name}」（{when}）時的狀態回來。"
+        }
         M::SaveAndRestore => "儲存並還原",
         M::SavingWorld => "正在儲存世界現在的樣子…",
         M::UnpackingWorldBackup => "正在解壓縮世界備份…",

@@ -624,7 +624,7 @@
       rows.push(h("div.lx-row", h("span.lx-world-ic"),
         h("div.lx-row-main", h("div.lx-row-t", tx(name), hard ? badge(wd("Hardcore"), "red") : null, h("span.lx-row-v", tx(folder))),
           h("div.lx-row-s", join(wd("PlayedAt", { time: played }), mode === "Hardcore" ? wd("Hardcore") : wd(mode), cheats ? wd("Cheats") : null, snap ? wd("Snapshot", { version: ver }) : tx(ver), tx(size)))),
-        h("div.lx-row-a", btn(wd("BackUp"), { icon: "dl", sm: true }), gbtn([wd("Copies"), backups ? " " + backups : ""]), gbtn(cm("Rename")), gbtn(wd("Export")), gbtn(cm("OpenFolder")), btn(wd("DeleteWorld"), { kind: "d", sm: true, on: () => ctx.open("deleteWorld") }))));
+        h("div.lx-row-a", btn(wd("BackUp"), { icon: "dl", sm: true }), gbtn([wd("BackupsAndSnapshots"), backups ? " " + backups : ""]), gbtn(cm("Rename")), gbtn(wd("Export")), gbtn(cm("OpenFolder")), btn(wd("DeleteWorld"), { kind: "d", sm: true, on: () => ctx.open("deleteWorld") }))));
       if (idx === 0) rows.push(h("div", { style: { padding: "8px 18px 12px 88px", background: "var(--g875)" } },
         h("div.lx-caps", { style: { margin: "4px 0 8px" } }, wd("WorldBackupsHeading")),
         [["Today, 03:04", is("WorldBackupDefaultName")], ["Yesterday, 21:40", tx("Before the dragon fight")]].map(([when, name]) => h("div", { style: { display: "flex", alignItems: "center", gap: "8px", padding: "6px 0" } }, h("span.lx-grow", tx(when), sep(), name), h("span.lx-muted", tx("39 MB")),
@@ -632,7 +632,7 @@
         h("div.lx-muted", { style: { fontSize: "13px", marginTop: "6px" } }, wd("NoWorldBackupsYet")),
         h("div.lx-caps", { style: { margin: "12px 0 8px" } }, wd("InSnapshots")),
         h("div", { style: { display: "flex", alignItems: "center", gap: "8px", padding: "6px 0" } }, h("span.lx-grow", tx("Nov 8, 2026"), sep(), tx("Before 1.21 update")), h("span.lx-muted", tx("39 MB"), sep(), wdp("WithOtherWorlds", { count: 2 })),
-          btn(wd("RestoreAsNewWorld"), { sm: true }), gbtn(wd("RestoreThisWorld"), () => ctx.open("replaceWorld"))),
+          btn(wd("RestoreEllipsis"), { sm: true, on: () => ctx.open("replaceWorld") }), gbtn(wd("RestoreAsNewWorld"))),
         h("div.lx-muted", { style: { fontSize: "13px", marginTop: "6px" } }, wd("NoSnapshotsOfWorld"))));
     });
     out.push(card(rows));
@@ -640,7 +640,7 @@
   }
 
   // ---------- Settings tab ----------
-  const ISEC = [["general", "General"], ["game", "GameAndLoader"], ["modpack", "Modpack"], ["linked", "LinkedServer"], ["java", "JavaAndMemory"], ["launch", "LaunchOptions"], ["shared", "SharedGameSettings"], ["worldBackups", "WorldBackups"], ["snapshots", "InstanceSnapshots"], ["maint", "Maintenance"]];
+  const ISEC = [["general", "General"], ["game", "GameAndLoader"], ["modpack", "Modpack"], ["linked", "LinkedServer"], ["java", "JavaAndMemory"], ["launch", "LaunchOptions"], ["shared", "SharedGameSettings"], ["snapshots", "InstanceSnapshots"], ["maint", "Maintenance"]];
   const COLORS = ["#59B2F3", "#22c7e0", "#6DD277", "#9be060", "#EFB440", "#f08a40", "#e35d6a", "#ee3fd0", "#a98bf5", "#f2f2f2"];
   const swatches = () => h("div.lx-swatches", h("span.lx-chip", sh("SkinUseSkins")), COLORS.map((c) => h("i", { style: { background: c } })));
   const LOADERS = [["vanilla", "Vanilla", "AboutVanilla", "V", "#4caf50"], ["fabric", "Fabric", "AboutFabric", "F", "#dbd0b4"], ["quilt", "Quilt", "AboutQuilt", "Q", "#8b4fd8"], ["forge", "Forge", "AboutForge", "F", "#2f3a6a"], ["neoforge", "NeoForge", "AboutNeoForge", "N", "#e07a2c"]];
@@ -687,14 +687,15 @@
           ...[["Controls", 12, 2], ["Video", 9, 0], ["Sound", 14, 0], ["Accessibility", 20, 1], ["Language", 3, 0]].map(([c, s, o]) =>
             srow(is("Category" + c), [is("Category" + c + "Description"), sep(), isp("SharedCount", { count: s }), o ? [sep(), isp("OverriddenCount", { count: o })] : null], gbtn(is("Show"))))),
         h("div.lx-scard", { style: { marginTop: "12px" } }, h("div", isp("ChangedInGame", { count: 2, names: "FOV, Brightness" })), h("div", { style: { display: "flex", gap: "8px" } }, btn(is("KeepForInstance"), { sm: true }), gbtn(is("Dismiss"))))],
-      worldBackups: () => [h("div.lx-h3-sub", is("WorldBackupsHint")), card(
+      snapshots: () => [h("div.lx-h3", is("WorldBackups")), h("div.lx-h3-sub", is("WorldBackupsHint")), card(
         srow(is("BackUpWorldTitle"), null, btn(is("BackUpWorldEllipsis"), { sm: true, on: () => ctx.open("worldBackupCreate") })),
-        srow(tx("Survival Island"), tx("New World")),
-        h("div.lx-row", h("div.lx-row-main", h("div.lx-row-t", tx("Before the dragon fight")), h("div.lx-row-s", tx("Today, 03:04"), sep(), tx("39 MB"))), h("div.lx-row-a", btn(is("RestoreEllipsis"), { sm: true, on: () => ctx.open("worldBackupRestore") }), gbtn(is("RestoreAsNewWorld")), gbtn(cm("ShowInFileManager")), gbtn(cm("Delete"), () => ctx.open("worldBackupDelete")))),
-        h("div.lx-row", h("div.lx-row-main", h("div.lx-row-t", is("WorldBackupBeforeRestoring", { name: "World backup" })), h("div.lx-row-s", tx("Yesterday, 21:40"), sep(), tx("38 MB"), sep(), isp("WorldBackupLeftOut", { count: 2 }))), h("div.lx-row-a", btn(is("RestoreEllipsis"), { sm: true }), gbtn(is("RestoreAsNewWorld")), gbtn(cm("ShowInFileManager")), gbtn(cm("Delete")))),
-        srow(tx("One Life"), [tx("Hardcore run"), sep(), is("WorldNotHere")])),
-        ctx.state.instSettings === "noSnapshots" ? h("div.lx-muted", is("NoWorldBackups")) : null],
-      snapshots: () => [h("div.lx-h3-sub", is("SnapshotsHint")), card(
+        ctx.state.instSettings === "noSnapshots" ? srow(is("NoWorldBackups")) : null),
+        h("div.lx-caps", { style: { margin: "10px 4px 6px" } }, tx("Survival Island"), " ", h("span.lx-muted", tx("New World"))),
+        card(h("div.lx-row", h("div.lx-row-main", h("div.lx-row-t", tx("Before the dragon fight")), h("div.lx-row-s", tx("Today, 03:04"), sep(), tx("39 MB"))), h("div.lx-row-a", btn(is("RestoreEllipsis"), { sm: true, on: () => ctx.open("worldBackupRestore") }), gbtn(is("RestoreAsNewWorld")), gbtn(cm("ShowInFileManager")), gbtn(cm("Delete"), () => ctx.open("worldBackupDelete")))),
+        h("div.lx-row", h("div.lx-row-main", h("div.lx-row-t", is("WorldBackupBeforeRestoring", { name: "World backup" })), h("div.lx-row-s", tx("Yesterday, 21:40"), sep(), tx("38 MB"), sep(), isp("WorldBackupLeftOut", { count: 2 }))), h("div.lx-row-a", btn(is("RestoreEllipsis"), { sm: true }), gbtn(is("RestoreAsNewWorld")), gbtn(cm("ShowInFileManager")), gbtn(cm("Delete"))))),
+        h("div.lx-caps", { style: { margin: "10px 4px 6px" } }, tx("One Life"), " ", h("span.lx-muted", tx("Hardcore run"), sep(), is("WorldNotHere"))),
+        card(h("div.lx-row", h("div.lx-row-main", h("div.lx-row-t", is("WorldBackupDefaultName")), h("div.lx-row-s", tx("Nov 2, 2026"), sep(), tx("22 MB"))), h("div.lx-row-a", btn(is("RestoreEllipsis"), { sm: true }), gbtn(is("RestoreAsNewWorld")), gbtn(cm("ShowInFileManager")), gbtn(cm("Delete"))))),
+        h("div.lx-h3", { style: { marginTop: "16px" } }, is("SnapshotsGroup")), h("div.lx-h3-sub", is("SnapshotsHint")), card(
         srow(is("SnapshotAfterPlay"), is("SnapshotAfterPlayHint"), toggle(false)),
         h("div.lx-row", h("div.lx-row-main", h("div.lx-row-t", tx("Before 1.21 update")), h("div.lx-row-s", tx("Nov 8, 2026"), sep(), tx("World"), sep(), is("SnapshotSizes", { total: "412 MB", new: "38 MB" }))), h("div.lx-row-a", btn(is("RestoreEllipsis"), { sm: true, on: () => ctx.open("snapshotRestore") }), btn(is("ExportEllipsis"), { sm: true, on: () => ctx.open("snapshotExport") }), gbtn(is("PinSnapshot")), gbtn(cm("Delete"), () => ctx.open("snapshotDelete")))),
         h("div.lx-row", h("div.lx-row-main", h("div.lx-row-t", tx("Before updating Sodium"), sep(), is("BadgeAutomatic")), h("div.lx-row-s", tx("Nov 9, 2026"), sep(), is("SnapshotSizes", { total: "410 MB", new: "2 MB" }))), h("div.lx-row-a", btn(is("RestoreEllipsis"), { sm: true }), btn(is("ExportEllipsis"), { sm: true }), gbtn(is("UnpinSnapshot")), gbtn(cm("Delete")))),
@@ -1025,7 +1026,7 @@
         srow(sh("StorageLogs"), sh("StorageOldLogs", { size: "38 MB" }), [size("52 MB"), btn(sh("StorageDeleteOld"), { sm: true, on: () => ctx.open("storageConfirm", { which: "OldLogs" }) }), btn(sh("StorageDeleteAll"), { sm: true, on: () => ctx.open("storageConfirm", { which: "AllLogs" }) })]),
         srow(sh("StorageLeftovers"), null, [size("120 MB"), btn(sh("StorageRemoveEllipsis"), { sm: true, on: () => ctx.open("storageConfirm", { which: "Leftovers" }) })]),
         srow(sh("StorageSnapshots"), shp("StorageSnapshotsHint", { count: 4, removable: 2 }), [size("640 MB"), btn(sh("StorageRemoveEllipsis"), { sm: true, on: () => ctx.open("storageConfirm", { which: "Snapshots" }) })]),
-        srow(sh("StorageWorldBackups"), shp("StorageWorldBackupsHint", { count: 9, deleted: 2 }), [size("410 MB"), btn(sh("StorageRemoveEllipsis"), { sm: true, on: () => ctx.open("storageConfirm", { which: "WorldBackups" }) })]))),
+        srow(sh("StorageWorldBackups"), ctx.state.storage === "noDeleted" ? shp("StorageWorldBackupsCount", { count: 7 }) : shp("StorageWorldBackupsHint", { count: 9, deleted: 2 }), [size("410 MB"), btn(sh("StorageRemoveEllipsis"), { sm: true, on: () => ctx.open("storageConfirm", { which: "WorldBackups" }) })]))),
       h("div.lx-muted", { style: { fontSize: "13px" } }, sh("StorageNoRuntimes"), " \u00b7 ", sh("StorageRemove"), " \u00b7 ", sh("StorageClear"), " \u00b7 ", sh("StorageDeleteConfirm"), " \u00b7 ", sh("StorageMoveHere"), " \u00b7 ", sh("StorageMoveCantUse", { error: "the folder isn't empty" }), " \u00b7 ", sh("StorageMoveStopGame")),
     ];
   }
@@ -1351,7 +1352,7 @@
     worldBackupCreate: (ctx) => dialog(ctx, is("BackUpWorldTitle"), [h("div.lx-flabel", is("WorldBackupWorld")), seg([["a", tx("Survival Island")], ["b", tx("Castle Build")]], "a"), h("div.lx-flabel", is("SnapshotName")), field(null, is("WorldBackupDefaultName")),
       h("div.lx-muted", is("BackingUpWorld", { name: "Survival Island" })), h("div.lx-muted", is("WorldBackedUp", { name: "Survival Island" })), h("div.lx-muted", is("NoWorldsToBackUp"))],
       [pbtn(is("BackUpButton"), () => ctx.close()), btn(cm("Cancel"), { on: () => ctx.close() })], { narrow: true }),
-    worldBackupRestore: (ctx) => confirmDlg(ctx, is("RestoreWorldTitle", { world: "Survival Island" }), [h("p", is("RestoreWorldBody", { world: "Survival Island", when: "today, 03:04" })), h("p.lx-muted", is("RestoreWorldGoneBody", { world: "Survival Island", when: "today, 03:04" })),
+    worldBackupRestore: (ctx) => confirmDlg(ctx, is("RestoreWorldTitle", { world: "Survival Island" }), [h("p", is("RestoreWorldBody", { world: "Survival Island", name: "Before the dragon fight", when: "today, 03:04" })), h("p.lx-muted", is("RestoreWorldGoneBody", { world: "Survival Island", name: "Before the dragon fight", when: "today, 03:04" })),
       h("div.lx-muted", is("SavingWorld")), h("div.lx-muted", is("UnpackingWorldBackup")), h("div.lx-muted", is("WorldRestored", { world: "Survival Island" })), h("div.lx-muted", is("WorldRestoredAsNew", { folder: "New World (restored 2026-11-15)" })), h("div.lx-muted", is("RestoreButton"))],
       is("SaveAndRestore"), { danger: true }),
     worldBackupDelete: (ctx) => confirmDlg(ctx, is("DeleteWorldBackupTitle"), h("p", is("DeleteWorldBackupBody", { name: "Before the dragon fight", trash: "the Trash" })), cm("MoveToTrash"), { danger: true }),
@@ -1551,7 +1552,7 @@
   }
 
   // ---------- registration ----------
-  // uses (data-driven keys): sh("Play") sh("TabContent") sh("TabWorlds") sh("Settings") sh("TabLogs") is("General") is("GameAndLoader") is("Modpack") is("LinkedServer") is("JavaAndMemory") is("LaunchOptions") is("SharedGameSettings") is("WorldBackups") is("InstanceSnapshots") is("Maintenance")
+  // uses (data-driven keys): sh("Play") sh("TabContent") sh("TabWorlds") sh("Settings") sh("TabLogs") is("General") is("GameAndLoader") is("Modpack") is("LinkedServer") is("JavaAndMemory") is("LaunchOptions") is("SharedGameSettings") is("InstanceSnapshots") is("Maintenance")
   // uses: is("AboutVanilla") is("AboutFabric") is("AboutQuilt") is("AboutForge") is("AboutNeoForge") is("KindRelease") is("KindSnapshot") is("KindBeta") is("KindAlpha") is("KindOther")
   // uses: wd("Survival") wd("Creative") wd("Adventure") wd("Spectator") sv("StateRunning") sv("StateStarting") sv("StateStopping") sv("StateStopped") sv("StateCrashed") sv("StateUnknown") sv("StateHidden") sv("BusyStarting") sv("BusyCreatingFiles")
   // uses: sh("InstanceDefaults") sh("SharedGameSettings") sh("General") sh("Skin") sh("Storage") sh("Accounts") sh("Developer")
@@ -1593,7 +1594,7 @@
     copyAs: ST("Copy with another version or loader", "newer same older vanilla reading checking offline failed noMods"),
     unsavedWhere: ST("Unsaved changes dialog", "instance this defaults"),
     bg: ST("Background picker", "image slideshow"),
-    storage: ST("Settings \u203a Storage", "counted counting error gameRunning freed"),
+    storage: ST("Settings \u203a Storage", "counted counting error gameRunning freed noDeleted"),
     storageWhich: ST("Storage confirm (which)", "fromButton GameFiles Runtimes Cache OldLogs AllLogs Leftovers Snapshots"),
     storageMove: ST("Move data dialog", "confirm back moving failed"),
     settingsUnsaved: ST("Settings \u203a Instance defaults", "no yes error"),

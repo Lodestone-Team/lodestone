@@ -56,7 +56,7 @@ crate::i18n::messages! {
         BackUp = "Back up",
         /// A world's button: opens its world backups and the snapshots that hold it. A
         /// number beside it counts both.
-        Copies = "Copies",
+        BackupsAndSnapshots = "Backups & snapshots",
         Export = "Export…",
         DeleteWorld = "Delete…",
 
@@ -114,8 +114,6 @@ crate::i18n::messages! {
         NoSnapshotsOfWorld = "No snapshot holds this world yet. Settings › Snapshots takes them.",
         RestoreEllipsis = "Restore…",
         RestoreAsNewWorld = "Restore as a new world",
-        /// A snapshot's row: puts this world back from it, in place.
-        RestoreThisWorld = "Restore this world…",
     }
 
     pub enum WorldsPlural {

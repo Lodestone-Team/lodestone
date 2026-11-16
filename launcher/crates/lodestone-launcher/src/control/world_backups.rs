@@ -8,6 +8,7 @@ use std::sync::Arc;
 use gpui::{App, AppContext as _};
 use launcher_control::{ErrorObject, codes};
 use launcher_core::{
+    content::InstanceDirs,
     game::download::{CancelToken, Progress as Downloads},
     instances::Instance,
     world_backups::{RestoreTo, WorldBackup, WorldBackupError, WorldBackupKind, WorldBackups},
@@ -133,6 +134,100 @@ fn refresh(control: &Control, instance: &str, cx: &mut App) {
     super::worlds::refresh_view(control, instance, cx);
 }
 
+/// The world folder `reference` names for the instance's world backups `list`: a folder
+/// they are kept under, a world on disk ([`super::worlds::find_world`]), or, for a world no
+/// longer in the instance (deleted or renamed outside the Launcher), a folder or world
+/// name of its backups in any case. Blocking: it reads the worlds' `level.dat`s.
+fn world_folder(
+    list: &[WorldBackup],
+    dirs: &InstanceDirs,
+    reference: &str,
+) -> Result<String, ErrorObject> {
+    if list.iter().any(|b| b.folder == reference) {
+        return Ok(reference.to_string());
+    }
+    let on_disk = super::worlds::find_world(dirs, reference);
+    if let Ok(world) = &on_disk {
+        return Ok(world.folder.clone());
+    }
+    let mut folders: Vec<&str> = list
+        .iter()
+        .filter(|b| {
+            b.folder.eq_ignore_ascii_case(reference)
+                || b.level_name
+                    .as_deref()
+                    .is_some_and(|n| n.eq_ignore_ascii_case(reference))
+        })
+        .map(|b| b.folder.as_str())
+        .collect();
+    folders.sort_unstable();
+    folders.dedup();
+    match folders.as_slice() {
+        [one] => Ok(one.to_string()),
+        [] => Err(on_disk.err().unwrap_or_else(|| {
+            api_error(
+                codes::NOT_FOUND,
+                format!("No world is called \"{reference}\"."),
+            )
+        })),
+        _ => Err(api_error(
+            codes::AMBIGUOUS,
+            format!(
+                "World backups of more than one world are called \"{reference}\"; use its folder."
+            ),
+        )
+        .with_data(json!({ "matches": folders }))),
+    }
+}
+
+/// The instance's world backups, only the world `world`'s when given. Blocking.
+fn backups_of(
+    backups: &WorldBackups,
+    dirs: &InstanceDirs,
+    instance: &Instance,
+    world: Option<&str>,
+) -> Result<Vec<WorldBackup>, ErrorObject> {
+    let list = backups.list(&instance.id).map_err(backup_error)?;
+    Ok(match world {
+        Some(reference) => {
+            let folder = world_folder(&list, dirs, reference)?;
+            list.into_iter().filter(|b| b.folder == folder).collect()
+        }
+        None => list,
+    })
+}
+
+/// Finds the backup `reference` (with `world`, among that world's; `latest` needs it) in
+/// the background, then runs `then` with it on the window's thread.
+fn with_backup(
+    call: Call,
+    world: Option<String>,
+    reference: String,
+    then: impl FnOnce(Call, Instance, WorldBackup, &mut App) -> Reply + 'static,
+    cx: &mut App,
+) -> Reply {
+    let instance = tri!(call.control.instance_param(&call, cx));
+    if world.is_none() && reference == "latest" {
+        return ready(Err(api_error(
+            codes::INVALID_PARAMS,
+            "latest needs the world (world: its folder or name).",
+        )));
+    }
+    let backups = call.control.instances.read(cx).world_backups();
+    let dirs = call.control.instances.read(cx).content_dirs(&instance.id);
+    let found = cx.background_spawn({
+        let instance = instance.clone();
+        async move {
+            let list = backups_of(&backups, &dirs, &instance, world.as_deref())?;
+            find(&list, &instance, &reference)
+        }
+    });
+    cx.spawn(async move |cx| {
+        let backup = found.await?;
+        cx.update(|cx| then(call, instance, backup, cx)).await
+    })
+}
+
 #[derive(Deserialize)]
 struct ListParams {
     #[serde(default)]
@@ -160,20 +255,13 @@ pub fn list(call: Call, cx: &mut App) -> Reply {
         });
     }
     let instance = tri!(call.control.instance_param(&call, cx));
-    let folder = match &params.world {
-        Some(reference) => {
-            let dirs = call.control.instances.read(cx).content_dirs(&instance.id);
-            Some(tri!(super::worlds::find_world(&dirs, reference)).folder)
-        }
-        None => None,
-    };
+    let dirs = call.control.instances.read(cx).content_dirs(&instance.id);
     cx.background_spawn(async move {
-        let list = backups.list(&instance.id).map_err(backup_error)?;
+        let list = backups_of(&backups, &dirs, &instance, params.world.as_deref())?;
         Ok(json!({
             "instance": instance.id,
             "world_backups": list
                 .iter()
-                .filter(|b| folder.as_ref().is_none_or(|f| *f == b.folder))
                 .map(|b| record_json(&backups, &instance.id, b))
                 .collect::<Vec<_>>(),
         }))
@@ -231,49 +319,47 @@ struct RestoreParams {
     /// Only this world's backups are looked at: its folder or name.
     #[serde(default)]
     world: Option<String>,
-    /// `replace` (in place, after a safety world backup) or `new` (a new world).
-    #[serde(default = "replace")]
+    /// `new` (a new world beside it, the default) or `replace` (in place, after a safety
+    /// world backup), as `worlds.restore_snapshot` has them.
+    #[serde(default = "new_world")]
     mode: String,
 }
 
-fn replace() -> String {
-    "replace".into()
+fn new_world() -> String {
+    "new".into()
 }
 
 /// `world_backups.restore`: puts a world backup back in place (with confirm) or as a new
 /// world.
 pub fn restore(call: Call, cx: &mut App) -> Reply {
     let params: RestoreParams = params!(call);
-    let instance = tri!(call.control.instance_param(&call, cx));
     let to = match params.mode.as_str() {
         "replace" => RestoreTo::InPlace,
         "new" => RestoreTo::NewWorld,
         other => {
             return ready(Err(api_error(
                 codes::INVALID_PARAMS,
-                format!("No restore mode \"{other}\": replace or new."),
+                format!("No restore mode \"{other}\": new or replace."),
             )));
         }
     };
-    let folder = match &params.world {
-        Some(reference) => {
-            let dirs = call.control.instances.read(cx).content_dirs(&instance.id);
-            Some(tri!(super::worlds::find_world(&dirs, reference)).folder)
-        }
-        None if params.backup == "latest" => {
-            return ready(Err(api_error(
-                codes::INVALID_PARAMS,
-                "latest needs the world (world: its folder or name).",
-            )));
-        }
-        None => None,
-    };
-    let backups = call.control.instances.read(cx).world_backups();
-    let list: Vec<WorldBackup> = tri!(backups.list(&instance.id).map_err(backup_error))
-        .into_iter()
-        .filter(|b| folder.as_ref().is_none_or(|f| *f == b.folder))
-        .collect();
-    let backup = tri!(find(&list, &instance, &params.backup));
+    with_backup(
+        call,
+        params.world,
+        params.backup,
+        move |call, instance, backup, cx| restore_found(call, instance, backup, to, cx),
+        cx,
+    )
+}
+
+/// [`restore`] once the backup is found.
+fn restore_found(
+    call: Call,
+    instance: Instance,
+    backup: WorldBackup,
+    to: RestoreTo,
+    cx: &mut App,
+) -> Reply {
     if to == RestoreTo::InPlace {
         tri!(call.confirm(format!(
             "puts the world \"{}\" back as it was in the world backup \"{}\" (the world as it is now is saved first as a world backup)",
@@ -290,6 +376,7 @@ pub fn restore(call: Call, cx: &mut App) -> Reply {
             "Another job is changing the instance's files; try again when it is done.",
         )));
     }
+    let backups = instances.world_backups();
     let busy = instances.mark_files_busy(&instance.id);
     let label = format!("Restoring {} from {}", backup.world_name(), backup.name);
     let id = instance.id.clone();
@@ -319,22 +406,28 @@ pub fn restore(call: Call, cx: &mut App) -> Reply {
 
 #[derive(Deserialize)]
 struct DeleteParams {
+    /// The backup: its id, its name, or `latest` (with `world`: the newest of that world).
     backup: String,
+    /// Only this world's backups are looked at: its folder or name.
+    #[serde(default)]
+    world: Option<String>,
 }
 
 /// `world_backups.delete`: moves a world backup's zip to the Trash.
 pub fn delete(call: Call, cx: &mut App) -> Reply {
     let params: DeleteParams = params!(call);
-    let instance = tri!(call.control.instance_param(&call, cx));
-    let backups = call.control.instances.read(cx).world_backups();
-    let list = tri!(backups.list(&instance.id).map_err(backup_error));
-    let backup = tri!(find(&list, &instance, &params.backup));
+    with_backup(call, params.world, params.backup, delete_found, cx)
+}
+
+/// [`delete`] once the backup is found.
+fn delete_found(call: Call, instance: Instance, backup: WorldBackup, cx: &mut App) -> Reply {
     tri!(call.confirm(format!(
         "moves the world backup \"{}\" of \"{}\" to the Trash",
         backup.name,
         backup.world_name()
     )));
     tri!(super::snapshots::idle(&call.control, &instance, cx));
+    let backups = call.control.instances.read(cx).world_backups();
     let control = call.control.clone();
     let id = instance.id.clone();
     let work =
@@ -344,4 +437,68 @@ pub fn delete(call: Call, cx: &mut App) -> Reply {
         cx.update(|cx| refresh(&control, &instance.id, cx));
         Ok(json!({ "deleted": deleted, "trash": true }))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use launcher_core::world_backups::WorldBackupKind;
+
+    fn backup(id: &str, folder: &str, level_name: Option<&str>) -> WorldBackup {
+        WorldBackup {
+            version: 1,
+            id: id.into(),
+            instance_created: 1,
+            instance_name: "Survival".into(),
+            folder: folder.into(),
+            name: "World backup".into(),
+            kind: WorldBackupKind::Manual,
+            restored: None,
+            created: 0,
+            level_name: level_name.map(str::to_string),
+            game_version: None,
+            data_version: None,
+            bytes: 0,
+            world_bytes: 0,
+            files: 0,
+            left_out: Vec::new(),
+            left_out_count: 0,
+        }
+    }
+
+    /// A world deleted (or renamed outside the Launcher) is still found by its folder or
+    /// name among its backups, so `latest` and `--world` work for the world one most
+    /// wants back.
+    #[test]
+    fn a_world_no_longer_in_the_instance_is_found_among_its_backups() {
+        let temp = tempfile::tempdir().unwrap();
+        let dirs = InstanceDirs::new(temp.path());
+        let list = [
+            backup("20261115-120000-0001", "New World", Some("Hardcore run")),
+            backup("20261115-120000-0002", "Other", Some("Islands")),
+            backup("20261115-120000-0003", "Twin", Some("Same")),
+            backup("20261115-120000-0004", "Twin 2", Some("Same")),
+        ];
+        for (reference, folder) in [
+            ("New World", "New World"),
+            ("new world", "New World"),
+            ("Hardcore run", "New World"),
+            ("HARDCORE RUN", "New World"),
+            ("Islands", "Other"),
+        ] {
+            assert_eq!(
+                world_folder(&list, &dirs, reference).unwrap(),
+                folder,
+                "{reference}"
+            );
+        }
+        assert_eq!(
+            world_folder(&list, &dirs, "Nothing").unwrap_err().code,
+            codes::NOT_FOUND
+        );
+        assert_eq!(
+            world_folder(&list, &dirs, "Same").unwrap_err().code,
+            codes::AMBIGUOUS
+        );
+    }
 }
