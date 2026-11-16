@@ -1285,7 +1285,7 @@ of M2 adds its own subsection.
   excludes the baseline was taken under (kept with it in `content-state.json`), and records
   "Changed outside Lodestone" when they differ; when they don't but the backup policy's
   excludes that can reach content changed since (which changes what an image holds, and its
-  id), it records "Changed the backup excludes". It waits at most 10 s for the last stop's
+  id), it records "Changed the snapshot excludes". It waits at most 10 s for the last stop's
   content work and then at most 10 s for an operation in progress, and never fails a
   start; but a record that already has the gate when that wait ends (a merged record that
   began just before) runs to its end first, since noting the start takes the instance's lock
@@ -2026,7 +2026,7 @@ player" has the protocol itself).
   whose first part is or may be `mods`). A translation may leave out less than the policy
   did, never more, so content images hold what such a pattern names; backups, which take
   the policy's patterns themselves, still leave it out. A server that had such a pattern
-  records "Changed the backup excludes" once at its next check before a start. A view's
+  records "Changed the snapshot excludes" once at its next check before a start. A view's
   `excludes` therefore only name files players don't need; its `withheld` files are ones
   no image could hold, and a player lists those it would need ("What a view places").
 - **Only `side=client`.** A server view carries configs and secrets; `side=server` is 400.
@@ -4158,8 +4158,8 @@ open. The code is `core/src/backups/world/` (`store.rs`, `writer.rs`, `reader.rs
   dialog's Restore while any job runs. A world job leaves the service however its task
   ends (a drop guard that removes only its own entries, by task id, since it may run after
   the next job took the lock), and a restore of a server whose last restore couldn't be
-  undone says to restart Lodestone rather than to stop the server. A server in the Error
-  state counts as stopped for a restore, as for a snapshot's.
+  undone says to restart Lodestone rather than to stop the server. Only a server in the
+  Stopped state is restored into (`lock_stopped` refuses every other, Error included).
 - **Names.** Two backups of a server finishing in the same second with the same random
   suffix never replace each other: under the record lock the final name is checked free
   and another id drawn if not. A `<id>.zip` that is a link is neither listed nor loaded.
@@ -4181,8 +4181,28 @@ open. The code is `core/src/backups/world/` (`store.rs`, `writer.rs`, `reader.rs
   renames neither snapshots nor world backups, and its admin client has no call for it.
 - **Not in scope.** Uploading or importing a world zip from elsewhere, scheduled world
   backups, pruning, a cancel for snapshot jobs. `crates/lodestone-image` only gained
-  `paths::CaseTree` (additive). Extracting a world backup flushes each file only on unix,
-  as a snapshot restore does.
+  `paths::CaseTree` and `store::flush` (`write_out`, `write_out_dir`, `full_flush`, the
+  store's batched flushing made public; additive).
+- **Flushing a restore.** Unpacking a world backup and writing a snapshot's files for a
+  restore flush in one batch, as materializing does: each file and folder is handed to the
+  drive (`store::flush`), and the staging folder gets one full flush before the swap (on
+  Apple platforms a plain `fsync(2)` per file and one `F_FULLFSYNC`, on Linux one
+  `syncfs(2)`), not a full flush per file, which took minutes for a world of many files.
+  Only on unix: on Windows a folder can't be flushed, so the swap can't be made durable
+  either way.
+- **Late cancels.** A world backup closes its cancel (under the job's lock, as a restore
+  does before its swap) when the copy is done and it starts saving, so a cancel from then
+  on gets 409 rather than a success for a backup that is then listed. A restore registers
+  its job as soon as it holds the job lock and the stopped lock, before it plans: the file
+  API's refusal during a restore and the refusal to delete a world backup while a world job
+  runs hold while it plans; its Start event, and so the list's `running`, wait until the
+  restore is checked, so a refusal is only the route's response.
+- **Adopted zips.** A zip found without its sidecar (a crash between the zip's rename and
+  the sidecar's write) whose only top folder is named like a split folder (`…_nether`,
+  `…_the_end`) and has no `region` folder of its own is a split server's dimension, so its
+  level is the name's prefix; with a `region` folder it is a vanilla level of that name.
+- **Zip times.** A file's time is written in the zip's DOS fields in the core's local time,
+  as other zip tools read them, and read back the same way (only for show).
 - **Fewer walks.** The plan a request makes (a backup's check, a restore's safety plan) is
   the one the job writes from, so a stopped world is walked once to plan and once to copy;
   the copy's own walk is what takes region files a running server creates during its save

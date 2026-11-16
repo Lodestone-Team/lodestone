@@ -73,18 +73,36 @@ impl Env {
         )
     }
 
-    async fn back_up(&self, source: &WorldSource, name: &str) -> WorldBackupRecord {
+    /// `write_backup` with the plan its callers make first.
+    async fn write_backup(
+        &self,
+        source: &WorldSource,
+        live: Option<Live<'_>>,
+        new: NewBackup,
+        phase: Phase,
+        token: &CancellationToken,
+    ) -> Result<WorldBackupRecord, Error> {
+        let (root, layout, limits) = (
+            source.root.clone(),
+            source.layout.clone(),
+            self.service.limits,
+        );
+        let plan = blocking(move || plan_world(&root, &layout, true, limits)).await?;
         self.service
-            .write_backup(
-                source,
-                None,
-                manual(name),
-                None,
-                self.job(JobKind::WorldBackup).phase(0.0, 100.0),
-                &CancellationToken::new(),
-            )
+            .write_backup(source, live, new, plan, phase, token, None)
             .await
-            .unwrap()
+    }
+
+    async fn back_up(&self, source: &WorldSource, name: &str) -> WorldBackupRecord {
+        self.write_backup(
+            source,
+            None,
+            manual(name),
+            self.job(JobKind::WorldBackup).phase(0.0, 100.0),
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap()
     }
 
     fn server_files(&self) -> Vec<String> {
@@ -144,7 +162,6 @@ fn manual(name: &str) -> NewBackup {
         kind: WorldBackupKind::Manual,
         name: Some(name.to_string()),
         before_restoring: None,
-        require_level_dat: true,
         refuse_left_out: false,
     }
 }
@@ -206,7 +223,6 @@ async fn a_running_world_is_quiesced() {
     let server = FakeServer::new();
     let mut lines = FakeLines::new(vec![system(SAVED)]);
     let record = env
-        .service
         .write_backup(
             &env.source("world", false),
             Some(Live {
@@ -215,7 +231,6 @@ async fn a_running_world_is_quiesced() {
                 limits: short(),
             }),
             manual("Live"),
-            None,
             env.job(JobKind::WorldBackup).phase(0.0, 100.0),
             &CancellationToken::new(),
         )
@@ -236,7 +251,6 @@ async fn a_running_world_is_quiesced() {
     let server = FakeServer::new();
     let mut lines = FakeLines::new(Vec::new());
     let record = env
-        .service
         .write_backup(
             &env.source("world", false),
             Some(Live {
@@ -245,7 +259,6 @@ async fn a_running_world_is_quiesced() {
                 limits: short(),
             }),
             manual("Quiet"),
-            None,
             env.job(JobKind::WorldBackup).phase(0.0, 100.0),
             &CancellationToken::new(),
         )
@@ -265,7 +278,6 @@ async fn a_cancelled_or_failed_backup_leaves_nothing() {
     let server = FakeServer::new();
     let mut lines = FakeLines::new(vec![system(SAVED)]);
     let error = env
-        .service
         .write_backup(
             &env.source("world", false),
             Some(Live {
@@ -274,7 +286,6 @@ async fn a_cancelled_or_failed_backup_leaves_nothing() {
                 limits: short(),
             }),
             manual("Cancelled"),
-            None,
             env.job(JobKind::WorldBackup).phase(0.0, 100.0),
             &token,
         )
@@ -291,12 +302,10 @@ async fn a_cancelled_or_failed_backup_leaves_nothing() {
 
     // stopped, cancelled
     let error = env
-        .service
         .write_backup(
             &env.source("world", false),
             None,
             manual("Cancelled"),
-            None,
             env.job(JobKind::WorldBackup).phase(0.0, 100.0),
             &token,
         )
@@ -307,12 +316,10 @@ async fn a_cancelled_or_failed_backup_leaves_nothing() {
 
     // no world
     let error = env
-        .service
         .write_backup(
             &env.source("survival", false),
             None,
             manual("None"),
-            None,
             env.job(JobKind::WorldBackup).phase(0.0, 100.0),
             &CancellationToken::new(),
         )
@@ -322,6 +329,60 @@ async fn a_cancelled_or_failed_backup_leaves_nothing() {
     assert!(env.folder_names().is_empty());
 }
 
+/// A world backup closes its cancel before it saves, so a cancel that comes later is
+/// refused rather than reported done; one that came first still stops it.
+#[tokio::test]
+async fn a_backup_closes_its_cancel_before_saving() {
+    let env = env();
+    vanilla_world(&env.root());
+    let source = env.source("world", false);
+    let plan = plan_world(&source.root, &source.layout, true, env.service.limits).unwrap();
+    let write = |token: CancellationToken, open: Arc<StdMutex<bool>>| {
+        let (env, source, plan) = (&env, &source, plan.clone());
+        async move {
+            env.service
+                .write_backup(
+                    source,
+                    None,
+                    manual("Closing"),
+                    plan,
+                    env.job(JobKind::WorldBackup).phase(0.0, 100.0),
+                    &token,
+                    Some(&open),
+                )
+                .await
+        }
+    };
+    let open = Arc::new(StdMutex::new(true));
+    write(CancellationToken::new(), open.clone()).await.unwrap();
+    assert!(!*open.lock().unwrap());
+    let token = CancellationToken::new();
+    let cancellable = Arc::new(StdMutex::new(false));
+    env.service.add_job(
+        &uuid(),
+        WorldJob {
+            task_id: "9".to_string(),
+            kind: JobKind::WorldBackup,
+            cancel: token.clone(),
+            cancellable,
+        },
+    );
+    let refused = env.service.cancel(&uuid(), "9").unwrap_err();
+    assert!(matches!(refused.kind, ErrorKind::Conflict));
+    assert!(refused.source.to_string().contains("being saved"));
+    assert!(!token.is_cancelled());
+    env.service.remove_job(&uuid(), "9");
+
+    let token = CancellationToken::new();
+    token.cancel();
+    let error = write(token, Arc::new(StdMutex::new(true)))
+        .await
+        .unwrap_err();
+    assert_eq!(error.source.to_string(), "Cancelled");
+    assert_eq!(env.service.list(&uuid()).await.unwrap().backups.len(), 1);
+    assert_eq!(env.folder_names().len(), 2);
+}
+
 /// Space another large write is filling isn't counted on.
 #[tokio::test]
 async fn no_room_is_refused() {
@@ -329,12 +390,10 @@ async fn no_room_is_refused() {
     vanilla_world(&env.root());
     let held = env.service.images.large_writes.reserve(u64::MAX / 2);
     let error = env
-        .service
         .write_backup(
             &env.source("world", false),
             None,
             manual("Full"),
-            None,
             env.job(JobKind::WorldBackup).phase(0.0, 100.0),
             &CancellationToken::new(),
         )
@@ -569,22 +628,27 @@ async fn cancel_finds_only_its_own_task_and_stops_at_the_swap() {
     assert_eq!(env.service.job_kind(&uuid(), "7"), None);
 }
 
-/// The Files API refuses changes while a world backup is restored, as for a snapshot.
+/// The Files API refuses changes while a world backup is restored, as for a snapshot:
+/// from when the restore registers, before it is planned and its Start event is sent, which
+/// the list waits for.
 #[tokio::test]
 async fn a_world_restore_counts_as_restoring() {
     let env = env();
     let job = env.job(JobKind::WorldRestore);
-    job.begin();
     env.service.backups.register(&uuid(), &job);
+    assert!(env.service.backups.restoring(&uuid()));
+    assert!(env.service.list(&uuid()).await.unwrap().running.is_none());
+    job.begin();
     assert!(env.service.backups.restoring(&uuid()));
     let running = env.service.list(&uuid()).await.unwrap().running.unwrap();
     assert_eq!(running.kind, JobKind::WorldRestore);
-    env.service.backups.unregister(&uuid());
+    env.service.backups.unregister_task(&uuid(), &job.task_id());
     let job = env.job(JobKind::WorldBackup);
     job.begin();
     env.service.backups.register(&uuid(), &job);
     assert!(!env.service.backups.restoring(&uuid()));
-    env.service.backups.unregister(&uuid());
+    env.service.backups.unregister_task(&uuid(), &job.task_id());
+    assert!(env.service.list(&uuid()).await.unwrap().running.is_none());
 }
 
 #[test]
@@ -758,12 +822,10 @@ async fn a_world_too_large_to_restore_is_refused() {
     let first = env.back_up(&source, "Small").await;
     write(&env.root(), "world/region/r.1.0.mca", b"0123456789");
     let error = env
-        .service
         .write_backup(
             &source,
             None,
             manual("Large"),
-            None,
             env.job(JobKind::WorldBackup).phase(0.0, 100.0),
             &CancellationToken::new(),
         )
@@ -914,11 +976,10 @@ async fn a_fifo_in_the_world_never_blocks_a_backup_or_a_restore() {
             .expect("blocked on the fifo")
     }
 
-    let second = within(env.service.write_backup(
+    let second = within(env.write_backup(
         &source,
         None,
         manual("Second"),
-        None,
         env.job(JobKind::WorldBackup).phase(0.0, 100.0),
         &CancellationToken::new(),
     ))

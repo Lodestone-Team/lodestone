@@ -99,9 +99,6 @@ pub struct NewBackup {
     pub kind: WorldBackupKind,
     pub name: Option<String>,
     pub before_restoring: Option<String>,
-    /// Refuse a level without a `level.dat` (NotFound); a restore's safety backup takes
-    /// one all the same.
-    pub require_level_dat: bool,
     /// Refuse (Conflict) a backup that left anything out: a restore deletes what its
     /// safety backup doesn't hold, so that backup must hold everything.
     pub refuse_left_out: bool,
@@ -389,9 +386,12 @@ impl WorldBackupService {
             })?;
         let cancellable = job.cancellable.lock().unwrap_or_else(|e| e.into_inner());
         if !*cancellable {
-            return Err(conflict(
-                "The world is being put in place and can't be cancelled now",
-            ));
+            return Err(conflict(match job.kind {
+                JobKind::WorldBackup => {
+                    "The world backup is being saved and can't be cancelled now"
+                }
+                _ => "The world is being put in place and can't be cancelled now",
+            }));
         }
         job.cancel.cancel();
         Ok(())
@@ -402,18 +402,22 @@ impl WorldBackupService {
 
     /// Writes a world backup of `source` (see the module): the zip inside `live`'s save
     /// pause when given (the server runs), else as it is (the caller holds
-    /// `lock_stopped`), then its sidecar. `plan` is the world's plan when the caller has
-    /// just made it (under the same job lock), else it is planned here. `phase` gets
-    /// 0..95 for the copy and the rest for saving. On failure or cancellation (`token`)
-    /// nothing is left.
+    /// `lock_stopped`), then its sidecar. `plan` is the world's plan, made by the caller
+    /// under the same job lock: it sizes the copy and refused a world too large to restore
+    /// before anything is reserved or paused. `phase` gets 0..95 for the copy and the rest
+    /// for saving. On failure or cancellation (`token`) nothing is left. With
+    /// `cancellable` (the job's flag, see [`WorldJob`]) the save clears it first, so a
+    /// cancel that comes too late is refused rather than reported done.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn write_backup(
         &self,
         source: &WorldSource,
         live: Option<Live<'_>>,
         new: NewBackup,
-        plan: Option<WorldPlan>,
+        plan: WorldPlan,
         phase: Phase,
         token: &CancellationToken,
+        cancellable: Option<&StdMutex<bool>>,
     ) -> Result<WorldBackupRecord, Error> {
         let uuid = source.uuid.clone();
         let dir = self.store.dir(&uuid)?;
@@ -421,16 +425,6 @@ impl WorldBackupService {
         let part = self.store.part_path(&uuid, &id)?;
         let zip = self.store.zip_path(&uuid, &id)?;
         phase.report(0.0, Some("Looking at the world"));
-        // the copy re-walks inside the save pause; the plan sizes it and refuses a world
-        // too large to restore before anything is reserved or paused
-        let plan = match plan {
-            Some(plan) => plan,
-            None => {
-                let (root, layout) = (source.root.clone(), source.layout.clone());
-                let (require, limits) = (new.require_level_dat, self.limits);
-                blocking(move || plan_world(&root, &layout, require, limits)).await?
-            }
-        };
         let reserved = {
             let (large_writes, dir) = (self.images.large_writes.clone(), dir.clone());
             let total = plan.total_bytes;
@@ -508,7 +502,17 @@ impl WorldBackupService {
                 return Err(e);
             }
         };
-        if token.is_cancelled() {
+        let too_late = match cancellable {
+            // checked and closed in one step, as `cancel` checks it
+            Some(cancellable) => {
+                let mut open = cancellable.lock().unwrap_or_else(|e| e.into_inner());
+                let cancelled = token.is_cancelled();
+                *open = false;
+                cancelled
+            }
+            None => token.is_cancelled(),
+        };
+        if too_late {
             remove_part(part.clone()).await;
             return Err(cancelled());
         }
@@ -663,13 +667,14 @@ impl WorldBackupService {
         job.begin();
         self.backups.register(&uuid, &job);
         let token = self.backups.cancel_token().child_token();
+        let cancellable = Arc::new(StdMutex::new(true));
         self.add_job(
             &uuid,
             WorldJob {
                 task_id: job.task_id(),
                 kind: JobKind::WorldBackup,
                 cancel: token.clone(),
-                cancellable: Arc::new(StdMutex::new(true)),
+                cancellable: cancellable.clone(),
             },
         );
         let task_id = job.task_id();
@@ -692,7 +697,6 @@ impl WorldBackupService {
                 kind: WorldBackupKind::Manual,
                 name,
                 before_restoring: None,
-                require_level_dat: true,
                 refuse_left_out: false,
             };
             let result = if guards.stopped.is_none() {
@@ -709,9 +713,10 @@ impl WorldBackupService {
                         &source,
                         Some(live),
                         new,
-                        Some(plan),
+                        plan,
                         job.phase(0.0, 100.0),
                         &token,
+                        Some(&cancellable),
                     )
                     .await;
                 console(if result.is_ok() {
@@ -725,9 +730,10 @@ impl WorldBackupService {
                     &source,
                     None,
                     new,
-                    Some(plan),
+                    plan,
                     job.phase(0.0, 100.0),
                     &token,
+                    Some(&cancellable),
                 )
                 .await
             };
@@ -782,8 +788,9 @@ impl WorldBackupService {
             ));
         }
         let must_stop = || conflict("Stop the server before restoring a world backup");
-        // a server in Error isn't running either, as for a snapshot's restore
-        if !matches!(instance.state().await, State::Stopped | State::Error) {
+        // `lock_stopped` checks this again under its lock; this gives the same answer
+        // before the job lock is taken
+        if instance.state().await != State::Stopped {
             return Err(must_stop());
         }
         let job_guard = self.backups.lock_job(&uuid)?;
@@ -792,15 +799,10 @@ impl WorldBackupService {
             .await
             .map_err(|_| must_stop())?;
         let server_name = instance.name().await;
-        let ctx = InstanceContext::of(&instance, Vec::new()).await;
-        let source = WorldSource::of(&ctx, server_name.clone())?;
-        let prepared = self
-            .prepare_restore(&source, &record, check.is_some())
-            .await?;
-        if let Some(check) = &check {
-            check(&prepared.plan, &prepared.current)?;
-        }
-
+        // registered before planning, which can take a while for a large world: the file
+        // API refuses changes from here (one could add a folder the safety plan missed and
+        // the swap then deletes), and so does deleting the backup being read. Its Start
+        // event waits until the restore is checked, so a refusal is only the response
         let job = Job::new(
             state.event_broadcaster.clone(),
             JobKind::WorldRestore,
@@ -810,7 +812,6 @@ impl WorldBackupService {
             },
             caused_by,
         );
-        job.begin();
         self.backups.register(&uuid, &job);
         let token = self.backups.cancel_token().child_token();
         let cancellable = Arc::new(StdMutex::new(true));
@@ -824,12 +825,22 @@ impl WorldBackupService {
             },
         );
         let task_id = job.task_id();
-        let this = self.clone();
         let cleanup = JobCleanup {
             service: self.clone(),
             uuid: uuid.clone(),
             task_id: task_id.clone(),
         };
+        let ctx = InstanceContext::of(&instance, Vec::new()).await;
+        let source = WorldSource::of(&ctx, server_name.clone())?;
+        let prepared = self
+            .prepare_restore(&source, &record, check.is_some())
+            .await?;
+        if let Some(check) = &check {
+            check(&prepared.plan, &prepared.current)?;
+        }
+
+        job.begin();
+        let this = self.clone();
         self.backups.spawn(async move {
             let _cleanup = cleanup;
             let _job_guard = job_guard;
@@ -1089,12 +1100,14 @@ impl WorldBackupService {
                 kind: WorldBackupKind::BeforeRestore,
                 name: Some(safety_name(label)),
                 before_restoring: Some(label.to_string()),
-                require_level_dat: false,
                 refuse_left_out: true,
             },
-            Some(plan),
+            plan,
             phase,
             token,
+            // the restore's own flag stays open until its swap: a cancel while this saves
+            // still leaves the world unchanged, and the safety backup is deleted again
+            None,
         )
         .await
     }

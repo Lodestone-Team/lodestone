@@ -766,12 +766,13 @@ fn write_files(
         }
         #[cfg(not(unix))]
         let _ = placed_mode;
-        // on disk before the swap puts it in place and deletes the file it replaces. Only
-        // on unix, where the folders are flushed too (`sync_tree`): on Windows a folder
-        // can't be, so flushing every file (FlushFileBuffers) would make restores of big
-        // worlds minutes slower and still not make the swap durable
+        // on disk before the swap puts it in place and deletes the file it replaces: handed
+        // to the drive here, made durable by `sync_tree`'s one flush at the end. Only on
+        // unix, where the folders are flushed too: on Windows a folder can't be, so
+        // flushing every file would make restores of big worlds slower and still not make
+        // the swap durable
         #[cfg(unix)]
-        out.sync_all()
+        lodestone_image::store::flush::write_out(&out)
             .map_err(|e| io_error(e, format!("Failed to write {}", file.disk)))?;
         done = done.saturating_add(file.entry.size);
         progress(done, total);
@@ -797,20 +798,25 @@ pub(crate) fn sync_dir(dir: &Path) -> io::Result<()> {
     Ok(())
 }
 
-/// Flushes `dir` and every folder in it, so files written into them can't vanish in a
-/// power loss after the swap.
+/// Flushes `dir` and every folder in it, and the files written into them (each handed to
+/// the drive with `flush::write_out`), so none can vanish in a power loss after the swap.
+/// One batch with a single full flush at the end (lodestone_image's `flush`): a full flush
+/// per file or folder costs about 6 ms each on Apple platforms, minutes for a big world.
+/// Only on unix (see [`write_files`]).
 fn sync_tree(dir: &Path) -> Result<(), Error> {
+    use lodestone_image::store::flush;
     if cfg!(not(unix)) {
         return Ok(());
     }
+    let failed = |e| io_error(e, "Failed to flush the restore");
     for entry in walkdir::WalkDir::new(dir).follow_links(false) {
         let entry =
             entry.map_err(|e| Error::from(eyre!(e).wrap_err("Failed to flush the restore")))?;
         if entry.file_type().is_dir() {
-            sync_dir(entry.path()).map_err(|e| io_error(e, "Failed to flush the restore"))?;
+            flush::write_out_dir(entry.path()).map_err(failed)?;
         }
     }
-    Ok(())
+    flush::full_flush(dir).map_err(failed)
 }
 
 /// A backup's files staged inside the server folder, ready to [`swap`](Staged::swap) in.

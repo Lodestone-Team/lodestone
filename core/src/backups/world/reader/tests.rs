@@ -396,3 +396,19 @@ fn a_cancelled_extraction_stops() {
     assert!(extract_into(&zip, &plan, &staging, &|_, _| {}, &|| false).is_err());
     assert_eq!(fs::read(staging.join("world/level.dat")).unwrap(), b"mine");
 }
+
+/// A file's time goes into the zip in local time, as other zip tools read it, and comes
+/// back as the same moment (to the even second).
+#[test]
+fn zip_times_round_trip_in_local_time() {
+    use chrono::{Local, TimeZone, Timelike};
+    let at = Local
+        .with_ymd_and_hms(2024, 6, 1, 12, 34, 56)
+        .earliest()
+        .unwrap();
+    let zipped = crate::backups::world::writer::zip_time(at.into()).unwrap();
+    assert_eq!((zipped.hour(), zipped.minute()), (12, 34));
+    let back: chrono::DateTime<Local> = system_time(zipped).unwrap().into();
+    assert_eq!(back, at);
+    assert_eq!(back.second(), 56);
+}

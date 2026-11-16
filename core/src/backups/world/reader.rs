@@ -121,7 +121,10 @@ fn checked_name(raw: &[u8], is_dir: bool) -> Result<String, Error> {
     Ok(trimmed.to_string())
 }
 
+/// A zip entry's time, read as the local time the writer wrote it in (`zip_time`); the
+/// earlier of the two when a clock change makes it ambiguous. Only for show.
 fn system_time(time: zip::DateTime) -> Option<std::time::SystemTime> {
+    use chrono::TimeZone;
     let date = chrono::NaiveDate::from_ymd_opt(
         i32::from(time.year()),
         u32::from(time.month()),
@@ -132,7 +135,7 @@ fn system_time(time: zip::DateTime) -> Option<std::time::SystemTime> {
         u32::from(time.minute()),
         u32::from(time.second()),
     )?;
-    Some(at.and_utc().into())
+    Some(chrono::Local.from_local_datetime(&at).earliest()?.into())
 }
 
 fn open(zip_path: &Path) -> Result<zip::ZipArchive<BufReader<File>>, Error> {
@@ -357,12 +360,11 @@ pub fn extract_into(
             // only the time it shows; the world is right either way
             let _ = out.set_modified(modified);
         }
-        // on disk before the swap puts it in place and deletes the world it replaces. Only
-        // on unix, where the folders are flushed too (`sync_tree`): on Windows a folder
-        // can't be, so flushing every file (FlushFileBuffers) would make restores of big
-        // worlds minutes slower and still not make the swap durable
+        // on disk before the swap puts it in place and deletes the world it replaces:
+        // handed to the drive here, made durable by the staging's `sync_tree`, one flush
+        // for the whole world. Only on unix, as for a snapshot's restore (`write_files`)
         #[cfg(unix)]
-        out.sync_all().map_err(|e| io_error(e, &file.disk))?;
+        lodestone_image::store::flush::write_out(&out).map_err(|e| io_error(e, &file.disk))?;
     }
     Ok(())
 }

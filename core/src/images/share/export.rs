@@ -1471,7 +1471,7 @@ fn clean_object(store: &Store, entry: &Entry, secrets: Secrets) -> Result<Outcom
         Ok(bytes) => bytes,
         Err(e) => {
             tracing::warn!(
-                "The backup's copy of {shown} can't be read, so the export leaves it out: {e}"
+                "The snapshot's copy of {shown} can't be read, so the export leaves it out: {e}"
             );
             return Ok(Outcome::Withhold);
         }
@@ -1595,7 +1595,7 @@ fn holds_credential(
         },
         Err(e) => {
             tracing::warn!(
-                "The backup's copy of {shown} can't be read, so the export leaves it out: {e}"
+                "The snapshot's copy of {shown} can't be read, so the export leaves it out: {e}"
             );
             true
         }

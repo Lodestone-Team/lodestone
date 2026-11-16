@@ -333,10 +333,12 @@ pub fn needs_large_file(size: u64) -> bool {
     size >= u64::from(u32::MAX) - LARGE_FILE_MARGIN
 }
 
-/// A file's time as a zip has it (to the even second, from 1980); `None` before that.
-fn zip_time(time: SystemTime) -> Option<zip::DateTime> {
+/// A file's time as a zip has it (to the even second, from 1980); `None` before that. In
+/// the core's local time, as Finder, Explorer and unzip read a zip's DOS time fields, so a
+/// world unzipped by hand shows the times its files had.
+pub(super) fn zip_time(time: SystemTime) -> Option<zip::DateTime> {
     use chrono::{Datelike, Timelike};
-    let time: chrono::DateTime<chrono::Utc> = time.into();
+    let time: chrono::DateTime<chrono::Local> = time.into();
     zip::DateTime::from_date_and_time(
         u16::try_from(time.year()).ok()?,
         time.month() as u8,

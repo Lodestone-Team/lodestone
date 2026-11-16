@@ -18,7 +18,7 @@
 //! Everything here is blocking; the service holds the server's record lock around a list,
 //! a final rename with its sidecar, and a delete.
 
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::fs;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
@@ -233,8 +233,12 @@ impl WorldStore {
         let size = fs::metadata(&zip)
             .map_err(|e| io_error(e, "Failed to read the world backup"))?
             .len();
-        let (folders, file_count) = zip_top_folders(&zip)?;
-        let level = adopted_level(&folders)
+        let TopFolders {
+            folders,
+            with_region,
+            files: file_count,
+        } = zip_top_folders(&zip)?;
+        let level = adopted_level(&folders, &with_region)
             .ok_or_else(|| err(ErrorKind::Internal, "The zip has no world folder"))?;
         lodestone_image::ServerLayout::new(level.clone(), [], false).map_err(|e| {
             err(
@@ -348,11 +352,15 @@ fn checked_id(id: &str) -> Result<&str, Error> {
 /// The level of a zip adopted with these top folders: the one the others are the split
 /// folders of, or, when the zip holds only a split server's `_nether` and `_the_end`
 /// folders (a restore's safety backup of a world whose level was gone), the level they
-/// name.
-fn adopted_level(folders: &[String]) -> Option<String> {
+/// name. A lone folder named like a split folder is one when it has no `region` folder of
+/// its own (Paper keeps a split dimension's regions in `DIM-1` or `DIM1` inside it), and
+/// otherwise a vanilla level that happens to be called that: taking a split Nether as the
+/// level would put its `level.dat` over the overworld's on restore.
+fn adopted_level(folders: &[String], with_region: &BTreeSet<String>) -> Option<String> {
     let split_of = |top: &str| {
         top.strip_suffix("_nether")
             .or_else(|| top.strip_suffix("_the_end"))
+            .filter(|prefix| !prefix.is_empty())
             .map(str::to_string)
     };
     let level = folders.iter().find(|top| {
@@ -360,14 +368,13 @@ fn adopted_level(folders: &[String]) -> Option<String> {
             .iter()
             .any(|other| split_of(top).as_deref() == Some(other.as_str()))
     })?;
-    if folders.len() > 1 {
-        if let Some(prefix) = split_of(level) {
-            if folders
-                .iter()
-                .all(|top| split_of(top).as_deref() == Some(&prefix))
-            {
-                return Some(prefix);
-            }
+    if let Some(prefix) = split_of(level) {
+        let all_split = folders
+            .iter()
+            .all(|top| split_of(top).as_deref() == Some(&prefix));
+        let lone_split = folders.len() == 1 && !with_region.contains(level);
+        if all_split && (folders.len() > 1 || lone_split) {
+            return Some(prefix);
         }
     }
     Some(level.clone())
@@ -420,17 +427,22 @@ fn read_record(path: &Path, id: &str) -> Result<Option<WorldBackupRecord>, Error
 
 /// The top folders of the zip at `path`, sorted, and its number of files. Reads only its
 /// directory; at most [`MAX_ADOPTED_TOPS`] tops.
-fn zip_top_folders(path: &Path) -> Result<(Vec<String>, u64), Error> {
+fn zip_top_folders(path: &Path) -> Result<TopFolders, Error> {
     let file = fs::File::open(path).map_err(|e| io_error(e, "Failed to open the zip"))?;
     let archive = zip::ZipArchive::new(io::BufReader::new(file))
         .map_err(|e| err(ErrorKind::Internal, format!("The zip can't be read: {e}")))?;
-    let mut tops = std::collections::BTreeSet::new();
+    let mut tops = BTreeSet::new();
+    let mut with_region = BTreeSet::new();
     let mut files = 0u64;
     for name in archive.file_names() {
         let name =
             name.map_err(|e| err(ErrorKind::Internal, format!("The zip can't be read: {e}")))?;
-        if let Some(top) = name.split('/').next().filter(|top| !top.is_empty()) {
+        let mut parts = name.split('/');
+        if let Some(top) = parts.next().filter(|top| !top.is_empty()) {
             tops.insert(top.to_string());
+            if parts.next() == Some("region") {
+                with_region.insert(top.to_string());
+            }
         }
         if !name.ends_with('/') {
             files += 1;
@@ -439,7 +451,19 @@ fn zip_top_folders(path: &Path) -> Result<(Vec<String>, u64), Error> {
             return Err(err(ErrorKind::Internal, "The zip isn't a world backup"));
         }
     }
-    Ok((tops.into_iter().collect(), files))
+    Ok(TopFolders {
+        folders: tops.into_iter().collect(),
+        with_region,
+        files,
+    })
+}
+
+/// What adopting a zip reads from its names: its top folders, those with a `region` folder
+/// directly inside, and how many files it holds.
+struct TopFolders {
+    folders: Vec<String>,
+    with_region: BTreeSet<String>,
+    files: u64,
 }
 
 #[cfg(test)]
@@ -695,22 +719,37 @@ pub(crate) mod tests {
 
     #[test]
     fn adopted_levels() {
-        let level =
-            |tops: &[&str]| adopted_level(&tops.iter().map(|t| t.to_string()).collect::<Vec<_>>());
-        assert_eq!(level(&["world"]).as_deref(), Some("world"));
-        assert_eq!(level(&["world", "world_nether"]).as_deref(), Some("world"));
+        let level = |tops: &[&str], with_region: &[&str]| {
+            adopted_level(
+                &tops.iter().map(|t| t.to_string()).collect::<Vec<_>>(),
+                &with_region.iter().map(|t| t.to_string()).collect(),
+            )
+        };
+        assert_eq!(level(&["world"], &[]).as_deref(), Some("world"));
         assert_eq!(
-            level(&["world", "world_nether", "world_the_end"]).as_deref(),
+            level(&["world", "world_nether"], &["world"]).as_deref(),
+            Some("world")
+        );
+        assert_eq!(
+            level(&["world", "world_nether", "world_the_end"], &["world"]).as_deref(),
             Some("world")
         );
         // a safety backup of split folders whose level was gone
         assert_eq!(
-            level(&["world_nether", "world_the_end"]).as_deref(),
+            level(&["world_nether", "world_the_end"], &[]).as_deref(),
             Some("world")
         );
-        // alone, a folder is its own level (a vanilla level may be called that)
-        assert_eq!(level(&["mine_nether"]).as_deref(), Some("mine_nether"));
-        assert_eq!(level(&[]), None);
+        // a split folder alone names its level, so its level.dat never lands on the
+        // overworld's
+        assert_eq!(level(&["world_nether"], &[]).as_deref(), Some("world"));
+        assert_eq!(level(&["world_the_end"], &[]).as_deref(), Some("world"));
+        // a lone folder with regions of its own is a vanilla level called that
+        assert_eq!(
+            level(&["mine_nether"], &["mine_nether"]).as_deref(),
+            Some("mine_nether")
+        );
+        assert_eq!(level(&["_nether"], &[]).as_deref(), Some("_nether"));
+        assert_eq!(level(&[], &[]), None);
     }
 
     /// A zip that is a link isn't a backup to `load` either (the list never shows it), so

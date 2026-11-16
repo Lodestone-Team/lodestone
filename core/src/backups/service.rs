@@ -218,6 +218,15 @@ impl Job {
             .started
     }
 
+    fn kind(&self) -> JobKind {
+        self.0
+            .progress
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .status
+            .kind
+    }
+
     /// The job as the list shows it, once it has started.
     fn status(&self) -> Option<RunningJob> {
         let progress = self.0.progress.lock().unwrap_or_else(|e| e.into_inner());
@@ -782,8 +791,13 @@ impl BackupService {
     /// Whether a snapshot or a world backup is being restored into the server (in place)
     /// now.
     pub fn restoring(&self, uuid: &InstanceUuid) -> bool {
-        self.running_job(uuid)
-            .is_some_and(|job| matches!(job.kind, JobKind::Restore | JobKind::WorldRestore))
+        // a world restore registers before its Start event, while it plans, so this
+        // doesn't wait for the list to show it
+        self.running
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(uuid)
+            .is_some_and(|job| matches!(job.kind(), JobKind::Restore | JobKind::WorldRestore))
     }
 
     /// Whether a snapshot, a world backup or either's restore of the server is running.
@@ -829,15 +843,8 @@ impl BackupService {
             .insert(uuid.clone(), job.clone());
     }
 
-    pub(crate) fn unregister(&self, uuid: &InstanceUuid) {
-        self.running
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(uuid);
-    }
-
-    /// [`Self::unregister`], only while the running job is `task_id`: a job ending after
-    /// it let go of the job lock never removes the next job's entry.
+    /// Forgets the server's running job, only while it is `task_id`: every job ends after
+    /// it let go of the job lock, so it must never remove the next job's entry.
     pub(crate) fn unregister_task(&self, uuid: &InstanceUuid, task_id: &str) {
         let mut running = self.running.lock().unwrap_or_else(|e| e.into_inner());
         if running
@@ -1709,7 +1716,7 @@ impl BackupService {
                     message: message.clone(),
                 },
             );
-            this.unregister(&uuid);
+            this.unregister_task(&uuid, &job.task_id());
         });
         Ok(task_id)
     }
@@ -1797,7 +1804,7 @@ impl BackupService {
                 );
             }
         }
-        self.unregister(&uuid);
+        self.unregister_task(&uuid, &job.task_id());
         if let Ok(Created {
             image: Some(_), id, ..
         }) = &result
@@ -1974,7 +1981,7 @@ impl BackupService {
                     message: message.clone(),
                 },
             );
-            this.unregister(&uuid);
+            this.unregister_task(&uuid, &job.task_id());
             if let Some(safety) = safety {
                 this.apply_retention(&uuid, Some(&safety)).await;
             }
@@ -2237,7 +2244,8 @@ impl BackupService {
                     };
                     return Err(conflict(format!(
                         "Couldn't include {first}{others} in the safety snapshot, so the \
-                         restore couldn't be undone. Check that Lodestone can read them"
+                         restore couldn't be undone. Check that Lodestone can read them, or \
+                         restore without the safety snapshot"
                     ))
                     .into());
                 }
