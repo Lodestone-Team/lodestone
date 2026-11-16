@@ -337,8 +337,6 @@ export const zhHant: Messages = {
   'settings.theme.light': '淺色',
   'settings.theme.dark': '深色',
   'settings.theme.systemHint': '跟隨裝置的淺色或深色設定',
-  'settings.theme.lightHint': '一律使用淺色',
-  'settings.theme.darkHint': '一律使用深色',
 
   'settings.toc.label': '章節',
 
@@ -348,34 +346,34 @@ export const zhHant: Messages = {
   'settings.core.title': '一般',
   'settings.core.section.core': '核心',
   'settings.core.section.public': '公開伺服器',
-  'settings.core.section.publicLead': '無須登入即可查看。',
   'settings.core.section.info': '資訊',
   'settings.core.section.danger': '危險區域',
-  'settings.core.section.dangerLead': '請謹慎變更。',
   'settings.core.name.label': '核心名稱',
   'settings.core.name.empty': '名稱不能是空白',
   'settings.core.name.tooLong': '名稱不能超過 {max} 個字元',
   'settings.core.domain.label': '公開網域或 IP',
   'settings.core.domain.tooLong': '網域不能超過 {max} 個字元',
   'settings.core.domain.tooltip':
-    '如果你已設定連接埠轉送，這裡填入你的公開 IP。否則請維持不變。',
+    '用於「複製 IP」和伺服器概覽。留空則使用核心的位址。',
   'settings.core.modpackChecks.label': '檢查模組包更新',
   'settings.core.modpackChecks.hint':
-    '每隔幾小時在 Modrinth 上查找伺服器所用模組包的新版本，有新版本時通知。關閉後，伺服器「模組」分頁中的「檢查更新」仍可使用。',
+    '每 6 小時檢查一次，適用於從 Modrinth 模組包建立的伺服器。仍可在伺服器的「模組」分頁中手動檢查。',
   'settings.core.listPublicly.label': '公開列出伺服器',
   'settings.core.listPublicly.hint':
     '任何能連到此核心的人都能看到你在下方設為公開的伺服器。',
   'settings.core.localClaim.label': '允許本機上的應用程式取得擁有者權限',
   'settings.core.localClaim.hint':
-    'Lodestone Launcher 可以藉由證明自己能寫入此核心的資料夾來成為擁有者。能寫入該資料夾的程式本來就能修改所有使用者和設定，所以這只在共用電腦上有影響。',
+    'Lodestone Host 和 Launcher 透過核心的資料夾以擁有者身分登入，無需密碼。關閉後，它們會要求輸入密碼。',
   'settings.core.safeMode.label': '安全模式',
-  'settings.core.safeMode.hint': '僅擁有者可取得此電腦的管理權限。',
+  'settings.core.safeMode.hint':
+    '只有擁有者可以使用不安全的權限，即使已將其授予他人。',
   'settings.core.safeMode.offTitle': '要關閉安全模式嗎？',
   'settings.core.safeMode.offBody':
     '確定要關閉安全模式嗎？這樣你就能讓自己以外的使用者執行可能有危險的指令。請確認你信任所有取得這些權限的使用者。',
   'settings.core.turnOff': '關閉',
   'settings.core.codeExecution.label': '程式碼執行',
-  'settings.core.codeExecution.hint': '自訂 Java 指令。',
+  'settings.core.codeExecution.hint':
+    '自訂 Java 指令和引數，以及新增或修改指令碼檔案。',
   'settings.core.codeExecution.locked':
     '已被此核心的管理員鎖定（LODESTONE_DISABLE_CODE_EXECUTION 或 --disable-code-execution）。',
   'settings.core.codeExecution.offTitle': '要關閉程式碼執行嗎？',
@@ -415,7 +413,6 @@ export const zhHant: Messages = {
 
   'settings.users.documentTitle': '使用者設定',
   'settings.users.title': '使用者',
-  'settings.users.description': '此核心上的帳戶及其權限。',
   'settings.users.allUsers': '所有使用者',
   'settings.users.allMembers': '所有成員',
   'settings.users.createUser': '建立新使用者',
@@ -425,72 +422,34 @@ export const zhHant: Messages = {
   'settings.users.loadingUser': '正在載入該使用者',
   'settings.users.loadingServers': '正在載入伺服器',
   'settings.users.permissions': '權限',
-  'settings.users.permissionsLead': '此使用者在此核心上可執行的操作。',
   'settings.users.unsafePermissions': '不安全的權限',
   'settings.users.unsafePermissionsLead': '關閉安全模式後才能授予非擁有者。',
 
   'settings.permission.can_create_instance.title': '建立伺服器',
-  'settings.permission.can_create_instance.user':
-    '此使用者可以建立新的伺服器。',
-  'settings.permission.can_create_instance.key': '此金鑰可以建立新的伺服器。',
   'settings.permission.can_delete_instance.title': '刪除伺服器',
-  'settings.permission.can_delete_instance.user':
-    '此使用者可以刪除任何伺服器。',
-  'settings.permission.can_delete_instance.key': '此金鑰可以刪除任何伺服器。',
+  'settings.permission.can_delete_instance.hint': '此核心上的任何伺服器。',
   'settings.permission.can_read_global_file.title': '讀取全域檔案',
-  'settings.permission.can_read_global_file.user':
-    '此使用者可以讀取執行 Lodestone Core 的電腦上的任何檔案。',
-  'settings.permission.can_read_global_file.key':
-    '此金鑰可以讀取執行 Lodestone Core 的電腦上的任何檔案。',
+  'settings.permission.can_read_global_file.hint':
+    '核心所在電腦上的任何檔案，包括使用者檔案。這足以用任何人的身分登入，甚至是擁有者。',
   'settings.permission.can_view_instance.title': '檢視伺服器',
-  'settings.permission.can_view_instance.user': '此使用者可以看到這些伺服器。',
-  'settings.permission.can_view_instance.key': '此金鑰可以看到這些伺服器。',
   'settings.permission.can_start_instance.title': '啟動伺服器',
-  'settings.permission.can_start_instance.user': '此使用者可以啟動這些伺服器。',
-  'settings.permission.can_start_instance.key': '此金鑰可以啟動這些伺服器。',
   'settings.permission.can_stop_instance.title': '停止伺服器',
-  'settings.permission.can_stop_instance.user': '此使用者可以停止這些伺服器。',
-  'settings.permission.can_stop_instance.key': '此金鑰可以停止這些伺服器。',
   'settings.permission.can_access_instance_console.title': '存取伺服器主控台',
-  'settings.permission.can_access_instance_console.user':
-    '此使用者可以讀取這些伺服器的主控台並傳送指令。這實際上等於授予伺服器的管理員（OP）權限。',
-  'settings.permission.can_access_instance_console.key':
-    '此金鑰可以讀取這些伺服器的主控台並傳送指令。這實際上等於授予伺服器的管理員（OP）權限。',
+  'settings.permission.can_access_instance_console.hint':
+    '包括傳送指令，實際上等於管理員（OP）權限。',
   'settings.permission.can_access_instance_setting.title': '存取伺服器設定',
-  'settings.permission.can_access_instance_setting.user':
-    '此使用者可以讀取和變更這些伺服器的設定。',
-  'settings.permission.can_access_instance_setting.key':
-    '此金鑰可以讀取和變更這些伺服器的設定。',
   'settings.permission.can_read_instance_resource.title': '讀取伺服器資源',
-  'settings.permission.can_read_instance_resource.user':
-    '此使用者可以讀取這些伺服器的資源（世界、模組等）。',
-  'settings.permission.can_read_instance_resource.key':
-    '此金鑰可以讀取這些伺服器的資源（世界、模組等）。',
+  'settings.permission.can_read_instance_resource.hint': '世界、模組等。',
   'settings.permission.can_read_instance_file.title': '讀取伺服器檔案',
-  'settings.permission.can_read_instance_file.user':
-    '此使用者可以讀取這些伺服器的檔案。',
-  'settings.permission.can_read_instance_file.key':
-    '此金鑰可以讀取這些伺服器的檔案。',
   'settings.permission.can_write_instance_resource.title': '修改伺服器資源',
-  'settings.permission.can_write_instance_resource.user':
-    '此使用者可以修改這些伺服器的資源（世界、模組等）。',
-  'settings.permission.can_write_instance_resource.key':
-    '此金鑰可以修改這些伺服器的資源（世界、模組等）。',
+  'settings.permission.can_write_instance_resource.hint': '世界、模組等。',
   'settings.permission.can_write_instance_file.title': '修改伺服器檔案',
-  'settings.permission.can_write_instance_file.user':
-    '此使用者可以修改這些伺服器的檔案。',
-  'settings.permission.can_write_instance_file.key':
-    '此金鑰可以修改這些伺服器的檔案。',
   'settings.permission.can_write_global_file.title': '修改全域檔案',
-  'settings.permission.can_write_global_file.user':
-    '此使用者可以修改執行 Lodestone Core 的電腦上的任何檔案。',
-  'settings.permission.can_write_global_file.key':
-    '此金鑰可以修改執行 Lodestone Core 的電腦上的任何檔案。',
+  'settings.permission.can_write_global_file.hint':
+    '核心所在電腦上的任何檔案，這足以在上面執行任何程式。',
   'settings.permission.can_manage_permission.title': '管理權限',
-  'settings.permission.can_manage_permission.user':
-    '此使用者可以管理其他使用者的權限。',
-  'settings.permission.can_manage_permission.key':
-    '此金鑰可以管理其他使用者的權限。',
+  'settings.permission.can_manage_permission.hint':
+    '其他使用者的權限，不包括自己的。只有擁有者可以授予不安全的權限。',
 
   'settings.profile.documentTitle': '使用者個人資料',
   'settings.profile.title': '個人資料',
@@ -519,8 +478,7 @@ export const zhHant: Messages = {
   'settings.minecraft.ownLead': '從 Lodestone Launcher 連結。',
   'settings.minecraft.ownEmpty':
     '尚未連結 Minecraft 帳戶。在 Lodestone Launcher 中登入此核心即可連結。',
-  'settings.minecraft.userLead':
-    '此使用者從 Lodestone Launcher 連結的 Minecraft 帳號。',
+  'settings.minecraft.userLead': '從 Lodestone Launcher 連結。',
   'settings.minecraft.userEmpty': '沒有連結的 Minecraft 帳號。',
   'settings.minecraft.tooOld': '此核心版本太舊，無法連結 Minecraft 帳戶。',
   'settings.minecraft.removeTitle': '移除帳號連結？',
@@ -530,8 +488,7 @@ export const zhHant: Messages = {
   'settings.apiKeys.ownLead':
     '讓 CLI、指令碼和代理程式無須密碼即可以你的身分操作。',
   'settings.apiKeys.ownEmpty': '你還沒有 API 金鑰。',
-  'settings.apiKeys.userLead':
-    '此使用者建立的金鑰。撤銷後，使用它的程式將失去存取權限。',
+  'settings.apiKeys.userLead': '撤銷後，使用它的程式會立即失去存取權。',
   'settings.apiKeys.userEmpty': '沒有 API 金鑰。',
   'settings.apiKeys.create': '建立 API 金鑰',
   'settings.apiKeys.loading': '正在載入 API 金鑰',
@@ -567,8 +524,7 @@ export const zhHant: Messages = {
   'settings.apiKeys.access.custom': '自訂',
   'settings.apiKeys.chooseOne': '請至少選擇一項權限。',
   'settings.apiKeys.createKey': '建立金鑰',
-  'settings.apiKeys.onlyYours':
-    '金鑰只能擁有你自己擁有的權限。你沒有的權限和伺服器會顯示為灰色。',
+  'settings.apiKeys.onlyYours': '金鑰只能擁有你自己擁有的權限。',
   'settings.apiKeys.notYours': '你沒有此權限。',
   'settings.apiKeys.noServers': '沒有你可以看到的伺服器。',
   'settings.apiKeys.unsafe': '不安全的設定',
@@ -619,7 +575,6 @@ export const zhHant: Messages = {
 
   // InstancePerformance
   'server.performance.title': '伺服器監控',
-  'server.performance.lead': '此實例對你的 Lodestone Core 的資源使用量',
   'server.performance.loadingGraph': '正在載入圖表',
   'server.performance.cpuUsage': 'CPU 使用率',
   'server.performance.memoryUsage': '記憶體使用量',
@@ -641,19 +596,15 @@ export const zhHant: Messages = {
   // InstanceSettings
   'server.settings.pageTitle': '伺服器設定',
   'server.settings.automation': '自動化',
-  'server.settings.automationLead': 'Lodestone 何時自動啟動此伺服器。',
   'server.settings.autoStart': '自動啟動',
-  'server.settings.autoStartHint': 'Lodestone Core 啟動時啟動此伺服器',
+  'server.settings.autoStartHint': 'Lodestone Core 啟動時。',
   'server.settings.restartOnCrash': '當機後重新啟動',
-  'server.settings.restartOnCrashHint': '此伺服器當機時重新啟動它',
   'server.settings.notAvailable': '暫時無法使用',
   'server.settings.notAvailableHint': '請至少啟動此伺服器一次',
   'server.settings.noPermission': '沒有權限',
   'server.settings.dangerZone': '危險區域',
-  'server.settings.dangerZoneLead':
-    '這些設定可能對你的伺服器造成無法復原的損害。',
   'server.settings.deleteServer': '刪除伺服器',
-  'server.settings.deleteServerHint': '永久刪除此伺服器及其資料',
+  'server.settings.deleteServerHint': '它的世界、快照和世界備份也會被刪除。',
   'server.settings.deleteTitle': '刪除伺服器？',
   'server.settings.deleteConfirm': '我了解，刪除此伺服器',
   'server.settings.deleteCannotUndo': '此操作無法復原。',
@@ -665,9 +616,8 @@ export const zhHant: Messages = {
 
   // PublicListingSetting
   'server.share.title': '分享',
-  'server.share.lead': '擁有連結的人可在 Lodestone Launcher 中加入',
   'server.share.off':
-    '把連結傳給你想一起玩的人。他們在 Lodestone Launcher 中開啟後，遊戲會直接連線到這台電腦，無需連接埠轉送。',
+    '好友在 Lodestone Launcher 中開啟連結，即可直接連線到這台電腦，無需連接埠轉送。',
   'server.share.start': '分享',
   'server.share.state.starting': '正在啟動…',
   'server.share.state.sharing': '分享中',
@@ -713,15 +663,14 @@ export const zhHant: Messages = {
   'server.resourcePack.title': '資源包',
   'server.resourcePack.lead': '玩家加入時會被要求下載的資源包。',
   'server.resourcePack.url': 'URL',
-  'server.resourcePack.urlHint': '資源包 zip 的直接連結。留空則不使用資源包。',
+  'server.resourcePack.urlHint': '資源包 .zip 的直接連結。',
   'server.resourcePack.sha1Hint': '讓玩家可以驗證下載內容並快取資源包。',
   'server.resourcePack.sha1Error': 'SHA-1 應為 40 個十六進位字元。',
   'server.resourcePack.compute': '計算',
   'server.resourcePack.required': '強制使用資源包',
   'server.resourcePack.requiredHint': '拒絕資源包的玩家會被中斷連線。',
   'server.resourcePack.prompt': '提示訊息',
-  'server.resourcePack.promptHint':
-    '詢問玩家時顯示的訊息。純文字或 JSON 文字元件。',
+  'server.resourcePack.promptHint': '純文字或 JSON 文字元件。',
   'server.resourcePack.remove': '移除資源包',
   'server.resourcePack.saved': '資源包已儲存',
   'server.resourcePack.savedRestart': '資源包已儲存。重新啟動伺服器後生效。',
@@ -734,7 +683,6 @@ export const zhHant: Messages = {
   'server.card.power': '電源',
   'server.card.copyIp': '複製 IP',
   'server.card.share': '分享',
-  'server.card.shareHint': '透過連結分享此伺服器',
 
   // InstanceCard：啟動未接受 Minecraft EULA 的伺服器
   'server.eula.title': '接受 Minecraft EULA',
@@ -803,10 +751,7 @@ export const zhHant: Messages = {
   'create.step.selectModpack': '選擇模組包',
   'create.step.selectVersion': '選擇版本',
 
-  // InstanceCreateForm: the pages' subtitles, buttons and errors
-  'create.basicSettings.description': '伺服器的基本設定。',
-  'create.serverSettings.description': '設定你的伺服器。',
-  'create.autoSettings.description': '自動設定你的伺服器。',
+  // InstanceCreateForm: the buttons and errors
   'create.checkFields': '請確認所有欄位都已正確填寫',
   'create.createServer': '建立伺服器',
   'create.createFailed': '建立伺服器時發生錯誤：{error}',
@@ -818,20 +763,16 @@ export const zhHant: Messages = {
 
   // form.ts and ModpackCreateForm: the dashboard's own setup fields
   'create.field.name': '名稱',
-  'create.field.nameDescription': '伺服器的名稱',
   'create.field.nameDefault': '我的伺服器',
   'create.field.description': '說明',
-  'create.field.descriptionDescription': '伺服器的說明',
   'create.field.port': '連接埠',
-  'create.field.portDescription': '伺服器執行時使用的連接埠',
   'create.field.minRam': '最小記憶體',
-  'create.field.minRamDescription': '分配給伺服器的最小記憶體，單位為 MB',
+  'create.field.minRamDescription': '單位為 MB。',
   'create.field.maxRam': '最大記憶體',
-  'create.field.maxRamDescription': '分配給伺服器的最大記憶體，單位為 MB',
+  'create.field.maxRamDescription': '單位為 MB。',
   'create.field.autoStart': '自動啟動',
-  'create.field.autoStartDescription': '應用程式啟動時自動啟動伺服器',
+  'create.field.autoStartDescription': 'Lodestone Core 啟動時。',
   'create.field.restartOnCrash': '當機時重新啟動',
-  'create.field.restartOnCrashDescription': '伺服器當機時自動重新啟動',
 
   // form.ts: validation of a setting; {name} is the setting's name (often sent by the core, untranslated)
   'create.validation.required': '「{name}」為必填欄位',
@@ -848,26 +789,20 @@ export const zhHant: Messages = {
 
   // GameTypeSelectForm: the first step, picking a game
   'create.gameType.title': '選擇遊戲',
-  'create.gameType.subtitle': '你的伺服器要用來做什麼？',
   'create.gameType.new': '新功能',
   'create.gameType.modpack': 'Modrinth 模組包',
-  'create.gameType.modpackDescription':
-    '從 Modrinth 模組包建立 Fabric、Forge 或 NeoForge 伺服器',
+  'create.gameType.modpackDescription': 'Fabric、Forge 或 NeoForge。',
 
   // GameTypeMappings: games' titles and descriptions
   'create.game.genericTitle': '{name}（通用）',
-  'create.game.vanillaDescription': 'Mojang 官方的標準原版 Minecraft 伺服器。',
-  'create.game.forgeDescription':
-    '模組框架，可用來安裝模組並自訂你的 Minecraft 體驗。',
+  'create.game.vanillaDescription': 'Mojang 官方原版。不支援模組或外掛程式。',
+  'create.game.forgeDescription': '執行 Forge 模組。',
   'create.game.neoforgeDescription':
     '社群維護的 Forge 分支，有自己的模組，適用於 Minecraft 1.20.2 及更新版本。',
-  'create.game.fabricDescription': '輕量級的 Minecraft 模組工具鏈。',
-  'create.game.paperDescription':
-    '高效能的 Spigot 分支，旨在修正遊戲玩法與機制上的不一致。',
-  'create.game.spigotDescription':
-    '經過修改的 Minecraft 伺服器軟體，支援外掛程式，提供更佳的效能與更多自訂選項。',
+  'create.game.fabricDescription': '執行 Fabric 模組。',
+  'create.game.paperDescription': '更快的 Spigot 分支。執行外掛程式。',
+  'create.game.spigotDescription': '執行 Bukkit 和 Spigot 外掛程式。',
   'create.game.otherDescription': '未知的 Minecraft 變體：{name}',
-  'create.game.bedrockDescription': 'Minecraft Bedrock Edition 伺服器。',
   'create.game.genericDescription': '未知的遊戲：{name}',
 
   // CreateInstanceFlow: read by screen readers while the dialog loads
@@ -875,14 +810,12 @@ export const zhHant: Messages = {
 
   // ModpackCreateForm: creating a server from a Modrinth modpack
   'create.modpack.sourceTitle': '選擇模組包',
-  'create.modpack.sourceDescription':
-    '搜尋 Modrinth、貼上 Modrinth 連結，或上傳 .mrpack 檔案。支援 Fabric、Forge 和 NeoForge 模組包。',
+  'create.modpack.sourceDescription': 'Fabric、Forge 和 NeoForge 模組包。',
   'create.modpack.searchPlaceholder': '搜尋模組包，或貼上 Modrinth 連結',
   'create.modpack.onlyFabric': '僅顯示 Fabric 模組包',
   'create.modpack.upload': '上傳 .mrpack',
   'create.modpack.versionTitle': '選擇版本',
   'create.modpack.versionUploaded': '已上傳的模組包。',
-  'create.modpack.versionDescription': '選擇要安裝的模組包版本。',
   'create.modpack.downloading': '正在下載模組包檔案以讀取其內容…',
   'create.modpack.versionHint':
     '選擇一個版本以查看其內容。Lodestone 會下載該版本的模組包檔案來讀取；在你點擊「建立伺服器」之前，不會安裝任何內容。',

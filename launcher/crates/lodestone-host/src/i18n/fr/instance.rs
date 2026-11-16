@@ -3,28 +3,22 @@ use crate::i18n::{InstanceMsg as M, InstancePlural as P};
 pub fn text(message: M) -> &'static str {
     match message {
         M::Automation => "Automatisation",
-        M::AutomationLead => "Quand Lodestone démarre ce serveur de lui-même.",
         M::AutoStart => "Démarrage automatique",
         M::AutoStartHint => "Démarrer ce serveur au démarrage de Lodestone Core",
         M::RestartOnCrash => "Redémarrer après un plantage",
-        M::RestartOnCrashHint => "Redémarrer ce serveur s’il plante",
         M::NotAvailable => "Indisponible pour le moment",
         M::NotAvailableHint => "Essayez de démarrer ce serveur au moins une fois",
         M::NoPermission => "Pas d’autorisation",
         M::SettingsFailed => "Impossible de charger les paramètres : {error}",
         M::DangerZone => "Zone dangereuse",
-        M::DangerZoneLead => {
-            "Ces paramètres peuvent causer des dommages irréversibles à votre serveur."
-        }
         M::DeleteServer => "Supprimer le serveur",
-        M::DeleteServerHint => "Supprime définitivement ce serveur et ses données",
         M::DeleteTitle => "Supprimer « {name} »",
         M::DeleteConfirm => "Je comprends, supprimer ce serveur",
         M::DeleteCannotUndo => "Cette action est irréversible.",
         M::DeleteWarning => {
             "Les paramètres et mondes de cette instance seront définitivement supprimés. Sauvegardez vos données importantes avant de continuer."
         }
-        M::DeleteBackupsToo => "Ses sauvegardes sont supprimées aussi.",
+        M::DeleteBackupsToo => "Ses instantanés et ses sauvegardes du monde sont supprimés aussi.",
         M::Deleting => "Suppression de {name}…",
         M::CommandLineReadOnly => {
             "Lecture seule tant que l’exécution de code est désactivée sur ce core."
@@ -42,7 +36,7 @@ pub fn text(message: M) -> &'static str {
             "Un pack que les joueurs sont invités à télécharger en rejoignant le serveur."
         }
         M::PackUrl => "URL",
-        M::PackUrlHint => "Un lien direct vers le zip du pack. Laissez vide pour aucun pack.",
+        M::PackUrlHint => "Un lien direct vers le .zip du pack.",
         M::PackSha1 => "SHA-1",
         M::PackSha1Hint => {
             "Permet aux joueurs de vérifier le téléchargement et de mettre le pack en cache."
@@ -65,11 +59,7 @@ pub fn text(message: M) -> &'static str {
         M::PackNotAUrl => "Ce n’est pas une URL.",
         M::PackUrlScheme => "L’URL doit commencer par http:// ou https://.",
         M::Eula => "CLUF de Minecraft",
-        M::EulaLead => {
-            "Un serveur Minecraft ne fonctionne qu’après votre accord avec le CLUF de Minecraft."
-        }
         M::EulaAccepted => "Accepté",
-        M::EulaAcceptedHint => "Vous avez accepté le CLUF de Minecraft pour ce serveur.",
         M::EulaNotAccepted => "Non accepté",
         M::EulaNotAcceptedHint => {
             "Ce serveur ne démarre pas tant que vous n’avez pas accepté le CLUF de Minecraft."
@@ -83,9 +73,7 @@ pub fn text(message: M) -> &'static str {
             "{name} ne démarre qu’après votre accord avec le CLUF de Minecraft. L’acceptez-vous ?"
         }
         M::EulaAcceptAndStart => "J’accepte, démarrer le serveur",
-        M::EventLogsLead => {
-            "Ce qui est arrivé à ce serveur, du plus récent au plus ancien. Le core garde les événements récents."
-        }
+        M::EventLogsLead => "Seuls les événements récents sont conservés.",
         M::EventLogsEmpty => "Rien ne s’est encore passé",
         M::EventLogsFailed => "Impossible de charger les événements : {error}",
         M::EventState => "Le serveur est maintenant : {state}",
@@ -284,11 +272,11 @@ pub fn text(message: M) -> &'static str {
         }
         M::FriendsTitle => "Amis",
         M::FriendsLead => {
-            "Les amis ajoutés dans Lodestone Launcher voient les serveurs que vous partagez avec eux et les rejoignent sans lien. Rien n’est partagé tant que vous ne cochez pas un ami."
+            "Les amis ajoutés dans Lodestone Launcher voient les serveurs que vous partagez avec eux et les rejoignent sans lien."
         }
         M::FriendsAddInLauncher => "Ajoutez des amis dans Lodestone Launcher",
         M::FriendsAddInLauncherHint => {
-            "Votre liste d’amis est gérée par Lodestone Launcher sur cet ordinateur. Une fois que vous y avez des amis, vous pouvez partager ce serveur avec eux ici."
+            "Lodestone Launcher, sur cet ordinateur, garde votre liste d’amis."
         }
         M::FriendsLoading => "Chargement de vos amis…",
         M::FriendsShareWith => "Partager ce serveur avec {name}",
@@ -332,9 +320,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::FriendsCertificateRetireConfirm => "Retirer et en obtenir un nouveau",
         M::FriendsCertificateRetired => "Le certificat d’ami de ce core a été retiré",
-        M::FriendsCertificateRetiredHint => {
-            "Vos amis ne voient plus ce core. Donnez-lui un nouveau certificat pour partager de nouveau depuis cet ordinateur."
-        }
+        M::FriendsCertificateRetiredHint => "Vos amis ne voient plus ce core.",
         M::FriendsCertificateNew => "Obtenir un nouveau certificat",
         M::FriendsCertificateManual => {
             "Vos amis ne voient plus ce core. Ce core ne peut pas créer lui-même un nouveau certificat : quittez Lodestone Host, supprimez {path}, puis rouvrez-le."

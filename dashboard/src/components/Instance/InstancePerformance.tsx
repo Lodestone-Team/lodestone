@@ -46,9 +46,6 @@ export default function InstancePerformance() {
       <h2 className="text-h2 font-extrabold tracking-medium">
         {t('server.performance.title')}
       </h2>
-      <h3 className="text-h3 font-medium tracking-medium text-white/50 italic">
-        {t('server.performance.lead')}
-      </h3>
       <div className="mt-4 grid grid-cols-1 gap-10 @3xl:grid-cols-2">
         <div>
           <StatTile

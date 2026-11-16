@@ -15,8 +15,8 @@ pub fn text(message: M) -> &'static str {
         M::ConnectAsOwner => "以擁有者身分連線",
         M::ChooseDataFolder => "選擇資料夾…",
         M::ChooseDataFolderPrompt => "選擇",
-        M::ProductHostHint => "桌面應用程式，控制面板在視窗中",
-        M::ProductCoreHint => "獨立的伺服器程式，或 Docker",
+        M::ProductHostHint => "Lodestone Host",
+        M::ProductCoreHint => "Lodestone Core",
         M::ConnectedAsOwner => "已以擁有者身分連線到 {name}",
         M::ConnectedMadeOwner => {
             "它還沒有擁有者，因此 Lodestone Launcher 建立了擁有者帳號 {username}。"
@@ -45,7 +45,6 @@ pub fn text(message: M) -> &'static str {
         M::AddServer => "新增主機",
         M::Dismiss => "關閉",
         M::OtherCoresTitle => "其他主機和伺服器",
-        M::OtherCoresHint => "你透過位址新增的其他電腦上的主機，以及你透過邀請連結加入的伺服器。",
         M::NoOtherCores => "還沒有其他主機或伺服器",
         M::NoServersHint => "透過位址新增主機，或用別人傳給你的邀請連結新增伺服器。",
 
@@ -182,7 +181,7 @@ pub fn text(message: M) -> &'static str {
 
         M::DifferentMods => "{name} 的模組有所不同",
         M::DifferentModsBody => {
-            "自此實例取得伺服器的模組以來，它們已有變動（{changes}）。請先更新才能加入；你自己的模組會維持原樣，被取代的檔案會保留在實例的備份中。"
+            "自此實例取得伺服器的模組以來，它們已有變動（{changes}）。請先更新才能加入；你自己的模組會維持原樣，被取代的檔案會保留在實例資料夾的 backups/ 中。"
         }
         M::ChangeNew => "新增：{name}",
         M::ChangeChanged => "已變更：{name}",
@@ -321,7 +320,7 @@ pub fn text(message: M) -> &'static str {
         M::SignInIntro => {
             "登入後即可啟動和停止伺服器，並查看沒有公開列出的伺服器。Lodestone Launcher 會為{computer} 產生專用金鑰；你的密碼不會被儲存。"
         }
-        M::AddIntro => "主機的位址。不登入時，你會看到其擁有者公開列出的伺服器。",
+        M::AddIntro => "不登入時，你只會看到其擁有者公開列出的伺服器。",
         M::Address => "位址",
         M::SignInOptional => "登入（選填）",
         M::KeyExpiresAfter => "{computer} 上的金鑰有效期限",
@@ -345,7 +344,7 @@ pub fn text(message: M) -> &'static str {
         M::ConsoleNotShown => "未顯示主控台",
         M::OutputAppearsHere => "伺服器的輸出會顯示在這裡。",
         M::Send => "傳送",
-        M::ChatHint => "文字會透過 /say 傳給所有人。以 / 開頭即可執行指令。",
+        M::ChatHint => "文字會透過 /say 傳給所有人。",
         M::Console => "主控台",
         M::JumpToLatest => "跳到最新",
         M::MinecraftAccount => "Minecraft 帳號",
@@ -420,7 +419,6 @@ pub fn text(message: M) -> &'static str {
         M::DownloadWorldBackups => "備份",
         M::DownloadWorldMidWrite => "在伺服器執行時建立，可能正在寫入中",
         M::DownloadWorldBackUpNow => "立即備份",
-        M::DownloadWorldBackUpNowHint => "伺服器目前狀態的備份",
         M::DownloadWorldButton => "下載",
         M::DownloadWorldBackingUp => "主機正在備份伺服器…",
         M::DownloadWorldPreparing => "主機正在準備檔案…",
@@ -468,7 +466,6 @@ pub fn text(message: M) -> &'static str {
         M::NoInstancesYet => "你還沒有任何實例。請先建立一個。",
 
         M::FriendsTitle => "來自邀請連結的伺服器",
-        M::FriendsHint => "別人透過 Lodestone Connect 邀請連結與你分享的伺服器。",
         M::JoinAFriend => "新增伺服器",
         M::SharedBy => "由 {name} 共享",
         M::SharedWithFriends => "已與好友分享",
@@ -486,9 +483,7 @@ pub fn text(message: M) -> &'static str {
         M::ViaInternet => "透過網際網路",
         M::JoinFriendTitle => "加入伺服器",
         M::AddServerTitle => "新增伺服器",
-        M::JoinFriendIntro => {
-            "貼上別人傳給你的邀請連結，它以 https://connect.lodestone.cc/j/ 開頭。即使伺服器目前離線，「新增」也會儲存它。"
-        }
+        M::JoinFriendIntro => "即使伺服器目前離線，「新增」也會儲存它。",
         M::InvitePlaceholder => "邀請連結（https://connect.lodestone.cc/j/…）",
         M::NotAnInvite => {
             "這不是 Lodestone 邀請連結。邀請連結以 https://connect.lodestone.cc/j/ 開頭。"

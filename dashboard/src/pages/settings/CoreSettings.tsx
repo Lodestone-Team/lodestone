@@ -533,10 +533,7 @@ export const CoreSettings = () => {
           </SettingsCard>
         </SettingsSection>
         {can_change_core_settings && listPubliclySupported && (
-          <SettingsSection
-            title={t('settings.core.section.public')}
-            lead={t('settings.core.section.publicLead')}
-          >
+          <SettingsSection title={t('settings.core.section.public')}>
             <SettingsCard>
               {listInstancesPubliclyField}
               <PublicInstanceRows
@@ -585,11 +582,7 @@ export const CoreSettings = () => {
             )}
           </SettingsCard>
         </SettingsSection>
-        <SettingsSection
-          title={t('settings.core.section.danger')}
-          lead={t('settings.core.section.dangerLead')}
-          danger
-        >
+        <SettingsSection title={t('settings.core.section.danger')} danger>
           <SettingsCard danger>
             {unsafeModeField}
             {can_change_core_settings && codeExecutionField}

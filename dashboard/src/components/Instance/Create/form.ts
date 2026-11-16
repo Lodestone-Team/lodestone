@@ -11,12 +11,12 @@ export const formId = 'minecraftCreateNewInstanceForm';
 export const basicSettingsPage = (): SectionManifest => ({
   section_id: 'basic_settings',
   name: t('create.step.basicSettings'),
-  description: t('create.basicSettings.description'),
+  description: '',
   settings: {
     name: {
       setting_id: 'name',
       name: t('create.field.name'),
-      description: t('create.field.nameDescription'),
+      description: '',
       value: {
         type: 'String',
         value: '',
@@ -36,7 +36,7 @@ export const basicSettingsPage = (): SectionManifest => ({
     description: {
       setting_id: 'description',
       name: t('create.field.description'),
-      description: t('create.field.descriptionDescription'),
+      description: '',
       value: {
         type: 'String',
         value: '',
@@ -59,7 +59,7 @@ export const basicSettingsPage = (): SectionManifest => ({
 export const autoSettingsPage = (): SectionManifest => ({
   section_id: 'auto_settings',
   name: t('create.step.autoSettings'),
-  description: t('create.autoSettings.description'),
+  description: '',
   settings: {
     auto_start: {
       setting_id: 'auto_start',
@@ -83,7 +83,7 @@ export const autoSettingsPage = (): SectionManifest => ({
     restart_on_crash: {
       setting_id: 'restart_on_crash',
       name: t('create.field.restartOnCrash'),
-      description: t('create.field.restartOnCrashDescription'),
+      description: '',
       value: {
         type: 'Boolean',
         value: false,

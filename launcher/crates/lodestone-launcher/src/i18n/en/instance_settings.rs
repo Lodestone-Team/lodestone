@@ -156,7 +156,7 @@ crate::i18n::messages! {
         // Java & memory, Launch options.
         /// Sets a value for this instance instead of the launcher's.
         ChangeSetting = "Change",
-        JavaMemoryLead = "Defaults come from the launcher's settings.",
+        JavaMemoryLead = "Memory's default is set in Settings › Instance defaults.",
         Memory = "Memory",
         Checking = "Checking…",
         /// {major} is "21", {version} is "21.0.5".
@@ -196,8 +196,6 @@ crate::i18n::messages! {
         NoSnapshots = "No snapshots yet.",
         SnapshotSizes = "{total}, {new} new",
         SnapshotNothingNew = "{total}, nothing new",
-        /// A snapshot's details: it holds the mods and configs, not only the worlds.
-        SnapshotWithMods = "With mods",
         PreparingFile = "Preparing the file…",
         DragToShare = "Drag the file into another app, or:",
         SaveAsEllipsis = "Save as…",
@@ -211,17 +209,8 @@ crate::i18n::messages! {
         ImportServerTitle = "New instance from a server’s world",
         CreateInstanceButton = "Create instance",
         SnapshotGameRunning = "Stop the game first.",
-        SnapshotsHint = "Copies of this instance's worlds and files to go back to or share.",
-        /// Take a snapshot: a full image rather than worlds linked to the mods.
-        SnapshotIncludeEverything = "Include mods and configs",
-        SnapshotIncludeEverythingHint = "Without it, the snapshot keeps the worlds and other files, and remembers the mods they ran with.",
         /// The Settings tab's toggle; also Settings › Instance defaults' default.
         SnapshotAfterPlay = "Take a snapshot after each play session",
-        SnapshotAfterPlayHint = "Copies the worlds after you play. Follows Settings › Instance defaults, where it is off unless you turn it on.",
-        /// Settings › Instance defaults' toggle.
-        SnapshotAfterPlayDefaultHint = "Copies the worlds after each play session, for instances that don't set it themselves. Off unless you turn it on.",
-        /// {last}, {days} and {weeks} are numbers.
-        SnapshotKeepHint = "Snapshots the Launcher takes on its own are kept for a while: the last {last}, one a day for {days} days and one a week for {weeks} weeks. Yours stay until you delete them.",
         /// Badges on a snapshot's row.
         BadgeAutomatic = "Automatic",
         BadgeAfterPlaying = "After playing",
@@ -304,7 +293,7 @@ crate::i18n::messages! {
         /// The Game & loader row that leads to a copy: an instance's version and loader
         /// never change.
         ChangeVersionOrLoader = "Another version or loader",
-        ChangeVersionOrLoaderHint = "An instance keeps the version and loader it was made with. A copy can have others.",
+        ChangeVersionOrLoaderHint = "Makes a copy. This instance stays as it is.",
         /// The Maintenance row that opens "Copy with another version or loader".
         CopyAs = "Copy with another version or loader",
         /// Opens "Copy with another version or loader".
@@ -392,15 +381,14 @@ crate::i18n::messages! {
         DeleteButton = "Delete…",
 
         // Shared game settings.
-        SharedLead = "Keep your settings in sync across instances.",
+        SharedLead = "Key bindings, video, sound and other in-game options, the same in each instance that shares them.",
         UseSharedSettings = "Use shared settings",
-        SharingOff = "This instance keeps its own options.",
         /// {name} is the main instance's name.
         SharingFrom = "Gets in-game changes from {name}.",
         SharingMain = "In-game changes here update every instance.",
         SharingNoMain = "No main instance: shared values change only in Settings.",
         MainInstance = "Main instance",
-        MainInstanceHint = "Settings you change in-game in your main instance are copied to every instance that shares them, the next time it starts. Only one instance is the main one.",
+        MainInstanceHint = "Its in-game changes reach the other sharing instances when they next start.",
         IsMainInstance = "This is your main instance",
         MakeMain = "Make main",
         StopGameToChange = "Stop the game to change these: it rewrites options.txt when it quits.",
@@ -515,8 +503,8 @@ crate::i18n::messages! {
         /// The Settings section of the packs added to an instance.
         AddedModpacks = "Added modpacks",
         AddModpackRow = "Add a modpack",
-        AddModpackHint = "Add a modpack's mods and configs to this instance, next to the ones it has.",
-        AddModpackServerHint = "Add a modpack's mods, such as client optimizations, next to {server}'s. The server's mods stay as they are.",
+        AddModpackHint = "Nothing the instance has is replaced.",
+        AddModpackServerHint = "For client mods such as optimizations. {server}'s mods stay as they are.",
         AddModpackEllipsis = "Add a modpack…",
         RemoveAddedModpackNote = "Removes the files the pack added. Files you changed stay.",
         SnapshotsNotChanged = "The snapshots couldn't be changed",
@@ -534,8 +522,40 @@ crate::i18n::messages! {
         ImportNoRoom = "The disk doesn't have room for it: it needs {size}, 1 GB of it to spare, and {free} is free.",
         ImportSpaceFree = "Needs {size} of disk space, 1 GB of it to spare; {free} is free.",
         ExportNotDownloadable = "These can't be downloaded, so whoever imports the file won't get them: {files}.",
-        SnapshotAfterPlayOwnHint = "Copies the worlds after you play. Set for this instance.",
         DeleteUnreadableNote = "They are deleted for good.",
+        /// Settings › Snapshots: the heading of the list of snapshots, below the snapshot settings.
+        SnapshotsGroup = "Saved snapshots",
+        /// The row, and the dialog's title.
+        BackUpWorldTitle = "Back up a world",
+        RestoreAsNewWorld = "Restore as a new world",
+        /// Back up a world: the label over the worlds to pick from.
+        WorldBackupWorld = "World",
+        /// The name field's placeholder: the name a world backup gets when none is given.
+        WorldBackupDefaultName = "World backup",
+        /// The name of the world backup made before another is restored; {name} is that
+        /// backup's name.
+        WorldBackupBeforeRestoring = "Before restoring “{name}”",
+        BackUpButton = "Back up",
+        /// {name} is the world's name.
+        BackingUpWorld = "Backing up {name}…",
+        WorldBackedUp = "Backed up {name}.",
+        NoWorldsToBackUp = "This instance has no worlds yet.",
+        /// {world} is the world's name. A title, not a question: it stays once the restore ends.
+        RestoreWorldTitle = "Restore {world}",
+        /// {name} is the world backup's name; {when} is when it was made: "today, 14:05".
+        RestoreWorldBody = "{world} goes back to how it was in “{name}” ({when}). The world as it is now is saved first, as another world backup.",
+        RestoreWorldGoneBody = "{world} isn't in this instance any more. It comes back as it was in “{name}” ({when}).",
+        SaveAndRestore = "Save and restore",
+        SavingWorld = "Saving the world as it is now…",
+        UnpackingWorldBackup = "Unpacking the world backup…",
+        WorldRestored = "Restored {world}.",
+        /// Said after WorldRestored. {name} is the world backup made of the world just before.
+        WorldRestoredSafety = "The world as it was is in the world backup “{name}”.",
+        /// {folder} is the new world's folder.
+        WorldRestoredAsNew = "Restored as a new world, {folder}.",
+        DeleteWorldBackupTitle = "Delete this world backup?",
+        /// {name} is the backup's name; {trash} is the Trash, with its article.
+        DeleteWorldBackupBody = "“{name}” moves to {trash}.",
     }
 
     pub enum InstanceSettingsPlural {
@@ -609,5 +629,7 @@ crate::i18n::messages! {
         ImportCarriedMods = ("{count} of them is in the file itself, not downloaded from Modrinth or CurseForge: {names}", "{count} of them are in the file itself, not downloaded from Modrinth or CurseForge: {names}"),
         /// A server's backup (Lodestone Host's export) opened as an instance.
         ImportFromServer = ("A server’s backup from {server}: its world, with the mods its players get. {count} server file isn’t taken (the server’s settings, operators and plugins).", "A server’s backup from {server}: its world, with the mods its players get. {count} server files aren’t taken (the server’s settings, operators and plugins)."),
+        /// Files of the world the zip couldn't hold: links, or names some disks can't keep.
+        WorldBackupLeftOut = ("{count} file left out", "{count} files left out"),
     }
 }

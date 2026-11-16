@@ -156,7 +156,7 @@ impl Render for MinecraftLinksSection {
                 t(CoreMsg::MinecraftOwnEmpty).to_string(),
             ),
             Owner::User(_, username) => (
-                tr!(CoreMsg::MinecraftUserLead, username = username),
+                t(CoreMsg::MinecraftUserLead).to_string(),
                 tr!(CoreMsg::MinecraftUserEmpty, username = username),
             ),
         };

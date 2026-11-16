@@ -2,7 +2,8 @@
 import type { JobKind } from "./JobKind";
 
 /**
- * The backup or restore of a server that is running now.
+ * The job of a server that is running now: a snapshot, a world backup or either's
+ * restore (they share one lock per server).
  */
 export type RunningJob = { kind: JobKind, 
 /**

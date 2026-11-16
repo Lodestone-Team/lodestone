@@ -364,29 +364,21 @@ export default function InstanceCard({
         )}
       >
         {canShare ? (
-          <Tooltip
-            showArrow={false}
-            overlay={<span>{t('server.card.shareHint')}</span>}
-            placement="bottom"
-            trigger={['hover']}
-            mouseEnterDelay={0.2}
+          <button
+            type="button"
+            onClick={openShare}
+            className={clsx(
+              chipClass,
+              'group flex cursor-pointer flex-row items-center justify-center gap-2 whitespace-nowrap select-none',
+              'focus-visible:ring-4 focus-visible:ring-blue-faded/50 focus-visible:outline-hidden'
+            )}
           >
-            <button
-              type="button"
-              onClick={openShare}
-              className={clsx(
-                chipClass,
-                'group flex cursor-pointer flex-row items-center justify-center gap-2 whitespace-nowrap select-none',
-                'focus-visible:ring-4 focus-visible:ring-blue-faded/50 focus-visible:outline-hidden'
-              )}
-            >
-              <FontAwesomeIcon
-                icon={faLink}
-                className="text-gray-faded/25 group-hover:text-gray-500"
-              />
-              {t('server.card.share')}
-            </button>
-          </Tooltip>
+            <FontAwesomeIcon
+              icon={faLink}
+              className="text-gray-faded/25 group-hover:text-gray-500"
+            />
+            {t('server.card.share')}
+          </button>
         ) : (
           <ClipboardTextfield
             className={chipClass}

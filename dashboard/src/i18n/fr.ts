@@ -360,8 +360,6 @@ export const fr: Messages = {
   'settings.theme.dark': 'Sombre',
   'settings.theme.systemHint':
     'Suit le réglage clair ou sombre de votre appareil',
-  'settings.theme.lightHint': 'Toujours clair',
-  'settings.theme.darkHint': 'Toujours sombre',
 
   'settings.toc.label': 'Sections',
 
@@ -371,10 +369,8 @@ export const fr: Messages = {
   'settings.core.title': 'Général',
   'settings.core.section.core': 'Core',
   'settings.core.section.public': 'Serveurs publics',
-  'settings.core.section.publicLead': 'Visible sans connexion.',
   'settings.core.section.info': 'Informations',
   'settings.core.section.danger': 'Zone de danger',
-  'settings.core.section.dangerLead': 'À modifier avec prudence.',
   'settings.core.name.label': 'Nom du core',
   'settings.core.name.empty': 'Le nom ne peut pas être vide',
   'settings.core.name.tooLong': 'Le nom ne peut pas dépasser {max} caractères',
@@ -382,27 +378,28 @@ export const fr: Messages = {
   'settings.core.domain.tooLong':
     'Le domaine ne peut pas dépasser {max} caractères',
   'settings.core.domain.tooltip':
-    'C’est votre IP publique si vous avez configuré une redirection de port. Sinon, laissez tel quel.',
+    'Affiché par « Copier l’IP » et dans la vue d’ensemble du serveur. Si c’est vide, l’adresse du core est utilisée.',
   'settings.core.modpackChecks.label':
     'Rechercher les mises à jour des modpacks',
   'settings.core.modpackChecks.hint':
-    'Toutes les quelques heures, chercher sur Modrinth de nouvelles versions des modpacks dont les serveurs sont issus, et le signaler. « Rechercher une mise à jour » dans l’onglet Mods d’un serveur fonctionne toujours quand c’est désactivé.',
+    'Toutes les 6 heures, pour les serveurs issus d’un modpack Modrinth. L’onglet Mods d’un serveur peut toujours vérifier à la main.',
   'settings.core.listPublicly.label': 'Lister les serveurs publiquement',
   'settings.core.listPublicly.hint':
     'Toute personne qui peut joindre ce core voit les serveurs que vous rendez publics ci-dessous.',
   'settings.core.localClaim.label':
     'Autoriser les applications de cet ordinateur à obtenir l’accès propriétaire',
   'settings.core.localClaim.hint':
-    'Lodestone Launcher peut devenir propriétaire en prouvant qu’il peut écrire dans le dossier de données de ce core. Tout ce qui peut y écrire peut déjà modifier chaque utilisateur et réglage\u00a0: cela ne compte que sur un ordinateur partagé.',
+    'Lodestone Host et Launcher se connectent en tant que propriétaire grâce au dossier de données du core, sans mot de passe. Quand c’est désactivé, ils demandent le mot de passe.',
   'settings.core.safeMode.label': 'Mode sécurisé',
   'settings.core.safeMode.hint':
-    'Réserve l’accès administrateur de cette machine au propriétaire.',
+    'Seul le propriétaire peut utiliser les autorisations à risque, même si elles sont accordées à d’autres.',
   'settings.core.safeMode.offTitle': 'Désactiver le mode sécurisé ?',
   'settings.core.safeMode.offBody':
     'Voulez-vous vraiment désactiver le mode sécurisé ? Vous pourrez alors permettre à d’autres utilisateurs que vous d’exécuter des commandes potentiellement dangereuses. Assurez-vous de faire confiance à tous les utilisateurs à qui vous donnez ces autorisations.',
   'settings.core.turnOff': 'Désactiver',
   'settings.core.codeExecution.label': 'Exécution de code',
-  'settings.core.codeExecution.hint': 'Commandes Java personnalisées.',
+  'settings.core.codeExecution.hint':
+    'Commandes et arguments Java personnalisés, et ajout ou modification de fichiers de script.',
   'settings.core.codeExecution.locked':
     'Verrouillé par l’administrateur de ce core (LODESTONE_DISABLE_CODE_EXECUTION ou --disable-code-execution).',
   'settings.core.codeExecution.offTitle': 'Désactiver l’exécution de code ?',
@@ -447,7 +444,6 @@ export const fr: Messages = {
 
   'settings.users.documentTitle': 'Paramètres des utilisateurs',
   'settings.users.title': 'Utilisateurs',
-  'settings.users.description': 'Les comptes de ce core et leurs droits.',
   'settings.users.allUsers': 'Tous les utilisateurs',
   'settings.users.allMembers': 'Tous les membres',
   'settings.users.createUser': 'Nouvel utilisateur',
@@ -457,88 +453,43 @@ export const fr: Messages = {
   'settings.users.loadingUser': 'Chargement de l’utilisateur',
   'settings.users.loadingServers': 'Chargement des serveurs',
   'settings.users.permissions': 'Autorisations',
-  'settings.users.permissionsLead':
-    'Ce que cet utilisateur peut faire sur ce core.',
   'settings.users.unsafePermissions': 'Autorisations à risque',
   'settings.users.unsafePermissionsLead':
     'Désactivez le mode sécurisé pour les accorder à d’autres utilisateurs.',
 
   'settings.permission.can_create_instance.title': 'Créer des serveurs',
-  'settings.permission.can_create_instance.user':
-    'L’utilisateur peut créer de nouveaux serveurs.',
-  'settings.permission.can_create_instance.key':
-    'La clé peut créer de nouveaux serveurs.',
   'settings.permission.can_delete_instance.title': 'Supprimer des serveurs',
-  'settings.permission.can_delete_instance.user':
-    'L’utilisateur peut supprimer n’importe quel serveur.',
-  'settings.permission.can_delete_instance.key':
-    'La clé peut supprimer n’importe quel serveur.',
+  'settings.permission.can_delete_instance.hint':
+    'N’importe quel serveur de ce core.',
   'settings.permission.can_read_global_file.title': 'Lire les fichiers globaux',
-  'settings.permission.can_read_global_file.user':
-    'L’utilisateur peut lire n’importe quel fichier de l’ordinateur sur lequel Lodestone Core s’exécute.',
-  'settings.permission.can_read_global_file.key':
-    'La clé peut lire n’importe quel fichier de l’ordinateur sur lequel Lodestone Core s’exécute.',
+  'settings.permission.can_read_global_file.hint':
+    'N’importe quel fichier de l’ordinateur du core, y compris le fichier des utilisateurs. Cela suffit pour se connecter en tant que n’importe qui, même le propriétaire.',
   'settings.permission.can_view_instance.title': 'Voir les serveurs',
-  'settings.permission.can_view_instance.user':
-    'L’utilisateur peut voir ces serveurs.',
-  'settings.permission.can_view_instance.key': 'La clé peut voir ces serveurs.',
   'settings.permission.can_start_instance.title': 'Démarrer les serveurs',
-  'settings.permission.can_start_instance.user':
-    'L’utilisateur peut démarrer ces serveurs.',
-  'settings.permission.can_start_instance.key':
-    'La clé peut démarrer ces serveurs.',
   'settings.permission.can_stop_instance.title': 'Arrêter les serveurs',
-  'settings.permission.can_stop_instance.user':
-    'L’utilisateur peut arrêter ces serveurs.',
-  'settings.permission.can_stop_instance.key':
-    'La clé peut arrêter ces serveurs.',
   'settings.permission.can_access_instance_console.title':
     'Accéder à la console des serveurs',
-  'settings.permission.can_access_instance_console.user':
-    'L’utilisateur peut lire la console de ces serveurs et y envoyer des commandes. Cela donne de fait un accès opérateur au serveur.',
-  'settings.permission.can_access_instance_console.key':
-    'La clé peut lire la console de ces serveurs et y envoyer des commandes. Cela donne de fait un accès opérateur au serveur.',
+  'settings.permission.can_access_instance_console.hint':
+    'Y compris l’envoi de commandes : c’est de fait un accès opérateur.',
   'settings.permission.can_access_instance_setting.title':
     'Accéder aux paramètres des serveurs',
-  'settings.permission.can_access_instance_setting.user':
-    'L’utilisateur peut lire et modifier les paramètres de ces serveurs.',
-  'settings.permission.can_access_instance_setting.key':
-    'La clé peut lire et modifier les paramètres de ces serveurs.',
   'settings.permission.can_read_instance_resource.title':
     'Lire les ressources des serveurs',
-  'settings.permission.can_read_instance_resource.user':
-    'L’utilisateur peut lire les ressources (mondes, mods, etc.) de ces serveurs.',
-  'settings.permission.can_read_instance_resource.key':
-    'La clé peut lire les ressources (mondes, mods, etc.) de ces serveurs.',
+  'settings.permission.can_read_instance_resource.hint': 'Mondes, mods, etc.',
   'settings.permission.can_read_instance_file.title':
     'Lire les fichiers des serveurs',
-  'settings.permission.can_read_instance_file.user':
-    'L’utilisateur peut lire les fichiers de ces serveurs.',
-  'settings.permission.can_read_instance_file.key':
-    'La clé peut lire les fichiers de ces serveurs.',
   'settings.permission.can_write_instance_resource.title':
     'Modifier les ressources des serveurs',
-  'settings.permission.can_write_instance_resource.user':
-    'L’utilisateur peut modifier les ressources (mondes, mods, etc.) de ces serveurs.',
-  'settings.permission.can_write_instance_resource.key':
-    'La clé peut modifier les ressources (mondes, mods, etc.) de ces serveurs.',
+  'settings.permission.can_write_instance_resource.hint': 'Mondes, mods, etc.',
   'settings.permission.can_write_instance_file.title':
     'Modifier les fichiers des serveurs',
-  'settings.permission.can_write_instance_file.user':
-    'L’utilisateur peut modifier les fichiers de ces serveurs.',
-  'settings.permission.can_write_instance_file.key':
-    'La clé peut modifier les fichiers de ces serveurs.',
   'settings.permission.can_write_global_file.title':
     'Modifier les fichiers globaux',
-  'settings.permission.can_write_global_file.user':
-    'L’utilisateur peut modifier n’importe quel fichier de l’ordinateur sur lequel Lodestone Core s’exécute.',
-  'settings.permission.can_write_global_file.key':
-    'La clé peut modifier n’importe quel fichier de l’ordinateur sur lequel Lodestone Core s’exécute.',
+  'settings.permission.can_write_global_file.hint':
+    'N’importe quel fichier de l’ordinateur du core, ce qui suffit pour y exécuter n’importe quel programme.',
   'settings.permission.can_manage_permission.title': 'Gérer les autorisations',
-  'settings.permission.can_manage_permission.user':
-    'L’utilisateur peut gérer les autorisations des autres utilisateurs.',
-  'settings.permission.can_manage_permission.key':
-    'La clé peut gérer les autorisations des autres utilisateurs.',
+  'settings.permission.can_manage_permission.hint':
+    'Celles des autres utilisateurs, pas les siennes. Seul le propriétaire peut accorder les autorisations à risque.',
 
   'settings.profile.documentTitle': 'Profil utilisateur',
   'settings.profile.title': 'Profil',
@@ -571,8 +522,7 @@ export const fr: Messages = {
   'settings.minecraft.ownLead': 'Liés depuis Lodestone Launcher.',
   'settings.minecraft.ownEmpty':
     'Aucun compte Minecraft n’est lié. Connectez-vous à ce core dans Lodestone Launcher pour en lier un.',
-  'settings.minecraft.userLead':
-    'Les comptes Minecraft que cet utilisateur a liés depuis Lodestone Launcher.',
+  'settings.minecraft.userLead': 'Liés depuis Lodestone Launcher.',
   'settings.minecraft.userEmpty': 'Aucun compte Minecraft lié.',
   'settings.minecraft.tooOld':
     'Ce core est trop ancien pour lier des comptes Minecraft.',
@@ -585,7 +535,7 @@ export const fr: Messages = {
     'Permettent à la CLI, aux scripts et aux agents d’agir en votre nom sans votre mot de passe.',
   'settings.apiKeys.ownEmpty': 'Vous n’avez aucune clé d’API.',
   'settings.apiKeys.userLead':
-    'Les clés que cet utilisateur a créées. En révoquer une coupe l’accès de ce qui l’utilise.',
+    'En révoquer une coupe l’accès de tout ce qui l’utilise.',
   'settings.apiKeys.userEmpty': 'Aucune clé d’API.',
   'settings.apiKeys.create': 'Créer une clé d’API',
   'settings.apiKeys.loading': 'Chargement des clés d’API',
@@ -625,7 +575,7 @@ export const fr: Messages = {
   'settings.apiKeys.chooseOne': 'Choisissez au moins une autorisation.',
   'settings.apiKeys.createKey': 'Créer la clé',
   'settings.apiKeys.onlyYours':
-    'Une clé ne peut avoir que les autorisations que vous avez vous-même. Les autorisations et les serveurs que vous n’avez pas sont grisés.',
+    'Une clé ne peut avoir que les autorisations que vous avez vous-même.',
   'settings.apiKeys.notYours': 'Vous n’avez pas cette autorisation.',
   'settings.apiKeys.noServers': 'Vous ne voyez aucun serveur.',
   'settings.apiKeys.unsafe': 'Paramètres à risque',
@@ -678,8 +628,6 @@ export const fr: Messages = {
 
   // InstancePerformance
   'server.performance.title': 'Surveillance du serveur',
-  'server.performance.lead':
-    'Utilisation de votre Lodestone Core par l’instance',
   'server.performance.loadingGraph': 'Chargement du graphique',
   'server.performance.cpuUsage': 'Utilisation du CPU',
   'server.performance.memoryUsage': 'Utilisation de la mémoire',
@@ -702,23 +650,17 @@ export const fr: Messages = {
   // InstanceSettings
   'server.settings.pageTitle': 'Paramètres du serveur',
   'server.settings.automation': 'Automatisation',
-  'server.settings.automationLead':
-    'Quand Lodestone démarre ce serveur de lui-même.',
   'server.settings.autoStart': 'Démarrage automatique',
-  'server.settings.autoStartHint':
-    'Démarrer ce serveur au démarrage de Lodestone Core',
+  'server.settings.autoStartHint': 'Au démarrage de Lodestone Core.',
   'server.settings.restartOnCrash': 'Redémarrer après un plantage',
-  'server.settings.restartOnCrashHint': 'Redémarrer ce serveur s’il plante',
   'server.settings.notAvailable': 'Indisponible pour le moment',
   'server.settings.notAvailableHint':
     'Essayez de démarrer ce serveur au moins une fois',
   'server.settings.noPermission': 'Pas d’autorisation',
   'server.settings.dangerZone': 'Zone dangereuse',
-  'server.settings.dangerZoneLead':
-    'Ces paramètres peuvent causer des dommages irréversibles à votre serveur.',
   'server.settings.deleteServer': 'Supprimer le serveur',
   'server.settings.deleteServerHint':
-    'Supprime définitivement ce serveur et ses données',
+    'Ses mondes, ses instantanés et ses sauvegardes du monde sont aussi supprimés.',
   'server.settings.deleteTitle': 'Supprimer le serveur ?',
   'server.settings.deleteConfirm': 'Je comprends, supprimer ce serveur',
   'server.settings.deleteCannotUndo': 'Cette action est irréversible.',
@@ -730,10 +672,8 @@ export const fr: Messages = {
 
   // PublicListingSetting
   'server.share.title': 'Partager',
-  'server.share.lead':
-    'Les personnes ayant le lien rejoignent depuis Lodestone Launcher',
   'server.share.off':
-    "Envoyez un lien à qui vous voulez. Ces personnes l'ouvrent dans Lodestone Launcher, et leur jeu se connecte directement à cet ordinateur. Aucune redirection de port nécessaire.",
+    'Vos amis ouvrent le lien dans Lodestone Launcher et se connectent directement à cet ordinateur. Aucune redirection de port nécessaire.',
   'server.share.start': 'Partager',
   'server.share.state.starting': 'Démarrage…',
   'server.share.state.sharing': 'Partagé',
@@ -785,8 +725,7 @@ export const fr: Messages = {
   'server.resourcePack.lead':
     'Un pack que les joueurs sont invités à télécharger en rejoignant le serveur.',
   'server.resourcePack.url': 'URL',
-  'server.resourcePack.urlHint':
-    'Un lien direct vers le zip du pack. Laissez vide pour aucun pack.',
+  'server.resourcePack.urlHint': 'Un lien direct vers le .zip du pack.',
   'server.resourcePack.sha1Hint':
     'Permet aux joueurs de vérifier le téléchargement et de mettre le pack en cache.',
   'server.resourcePack.sha1Error':
@@ -796,8 +735,7 @@ export const fr: Messages = {
   'server.resourcePack.requiredHint':
     'Les joueurs qui le refusent sont déconnectés.',
   'server.resourcePack.prompt': 'Message',
-  'server.resourcePack.promptHint':
-    'Le message affiché quand le pack est proposé aux joueurs. Texte brut ou composant de texte JSON.',
+  'server.resourcePack.promptHint': 'Texte brut ou composant de texte JSON.',
   'server.resourcePack.remove': 'Retirer le pack',
   'server.resourcePack.saved': 'Pack de ressources enregistré',
   'server.resourcePack.savedRestart':
@@ -811,7 +749,6 @@ export const fr: Messages = {
   'server.card.power': 'Alimentation',
   'server.card.copyIp': 'Copier l’IP',
   'server.card.share': 'Partager',
-  'server.card.shareHint': 'Partager ce serveur avec un lien',
 
   // InstanceCard : démarrer un serveur dont le CLUF de Minecraft n’est pas accepté
   'server.eula.title': 'Accepter le CLUF de Minecraft',
@@ -894,12 +831,7 @@ export const fr: Messages = {
   'create.step.selectModpack': 'Choisir un modpack',
   'create.step.selectVersion': 'Choisir une version',
 
-  // InstanceCreateForm: the pages' subtitles, buttons and errors
-  'create.basicSettings.description':
-    'Les paramètres de base de votre serveur.',
-  'create.serverSettings.description': 'Configurez votre serveur.',
-  'create.autoSettings.description':
-    'Configurez automatiquement votre serveur.',
+  // InstanceCreateForm: the buttons and errors
   'create.checkFields': 'Vérifiez que les champs sont correctement remplis',
   'create.createServer': 'Créer le serveur',
   'create.createFailed': 'Erreur lors de la création du serveur : {error}',
@@ -912,24 +844,16 @@ export const fr: Messages = {
 
   // form.ts and ModpackCreateForm: the dashboard's own setup fields
   'create.field.name': 'Nom',
-  'create.field.nameDescription': 'Le nom du serveur',
   'create.field.nameDefault': 'Mon serveur',
   'create.field.description': 'Description',
-  'create.field.descriptionDescription': 'La description du serveur',
   'create.field.port': 'Port',
-  'create.field.portDescription': 'Le port sur lequel exécuter le serveur',
   'create.field.minRam': 'Mémoire minimale',
-  'create.field.minRamDescription':
-    'La quantité minimale de mémoire à allouer au serveur, en Mo',
+  'create.field.minRamDescription': 'En Mo.',
   'create.field.maxRam': 'Mémoire maximale',
-  'create.field.maxRamDescription':
-    'La quantité maximale de mémoire à allouer au serveur, en Mo',
+  'create.field.maxRamDescription': 'En Mo.',
   'create.field.autoStart': 'Démarrage automatique',
-  'create.field.autoStartDescription':
-    'Le serveur démarrera automatiquement au lancement de l’application',
+  'create.field.autoStartDescription': 'Au démarrage de Lodestone Core.',
   'create.field.restartOnCrash': 'Redémarrer en cas de plantage',
-  'create.field.restartOnCrashDescription':
-    'Le serveur redémarrera automatiquement s’il plante',
 
   // form.ts: validation of a setting; {name} is the setting's name (often sent by the core, untranslated)
   'create.validation.required': 'Le champ {name} est obligatoire',
@@ -949,28 +873,21 @@ export const fr: Messages = {
 
   // GameTypeSelectForm: the first step, picking a game
   'create.gameType.title': 'Choisissez un jeu',
-  'create.gameType.subtitle': 'À quoi servira votre serveur ?',
   'create.gameType.new': 'Nouveau',
   'create.gameType.modpack': 'Modpack Modrinth',
-  'create.gameType.modpackDescription':
-    'Créer un serveur Fabric, Forge ou NeoForge à partir d’un modpack Modrinth',
+  'create.gameType.modpackDescription': 'Fabric, Forge ou NeoForge.',
 
   // GameTypeMappings: games' titles and descriptions
   'create.game.genericTitle': '{name} (générique)',
-  'create.game.vanillaDescription':
-    'Serveur Minecraft vanilla standard de Mojang.',
-  'create.game.forgeDescription':
-    'Framework de modding pour installer des mods et personnaliser votre expérience Minecraft.',
+  'create.game.vanillaDescription': 'Vanilla, de Mojang. Sans mods ni plugins.',
+  'create.game.forgeDescription': 'Exécute les mods Forge.',
   'create.game.neoforgeDescription':
     'Fork communautaire de Forge, avec ses propres mods, pour Minecraft 1.20.2 et versions ultérieures.',
-  'create.game.fabricDescription':
-    'Chaîne d’outils de modding légère pour Minecraft.',
+  'create.game.fabricDescription': 'Exécute les mods Fabric.',
   'create.game.paperDescription':
-    'Fork de Spigot hautes performances qui vise à corriger les incohérences de gameplay et de mécaniques.',
-  'create.game.spigotDescription':
-    'Logiciel de serveur Minecraft modifié, compatible avec les plugins, aux performances et options de personnalisation améliorées.',
+    'Fork plus rapide de Spigot. Exécute les plugins.',
+  'create.game.spigotDescription': 'Exécute les plugins Bukkit et Spigot.',
   'create.game.otherDescription': 'Variante de Minecraft inconnue : {name}',
-  'create.game.bedrockDescription': 'Serveur Minecraft Bedrock Edition.',
   'create.game.genericDescription': 'Jeu inconnu : {name}',
 
   // CreateInstanceFlow: read by screen readers while the dialog loads
@@ -978,16 +895,13 @@ export const fr: Messages = {
 
   // ModpackCreateForm: creating a server from a Modrinth modpack
   'create.modpack.sourceTitle': 'Choisissez un modpack',
-  'create.modpack.sourceDescription':
-    'Recherchez sur Modrinth, collez un lien Modrinth ou importez un fichier .mrpack. Les modpacks Fabric, Forge et NeoForge sont pris en charge.',
+  'create.modpack.sourceDescription': 'Modpacks Fabric, Forge et NeoForge.',
   'create.modpack.searchPlaceholder':
     'Rechercher des modpacks ou coller un lien Modrinth',
   'create.modpack.onlyFabric': 'Afficher uniquement les modpacks Fabric',
   'create.modpack.upload': 'Importer un .mrpack',
   'create.modpack.versionTitle': 'Choisissez une version',
   'create.modpack.versionUploaded': 'Le modpack importé.',
-  'create.modpack.versionDescription':
-    'Choisissez la version du modpack à installer.',
   'create.modpack.downloading':
     'Téléchargement du fichier du modpack pour le lire…',
   'create.modpack.versionHint':

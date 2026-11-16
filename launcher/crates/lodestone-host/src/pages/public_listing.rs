@@ -34,20 +34,21 @@ fn shown_text(scope: &PublicScope) -> String {
     )
 }
 
-/// The row's line under its name: what is shown, or why it can't change.
-pub fn description(scope: &PublicScope, switch_on: bool, can_edit: bool) -> String {
+/// The row's line under its name: what is shown, or why it can't change. None for a
+/// server that isn't listed and can be.
+pub fn description(scope: &PublicScope, switch_on: bool, can_edit: bool) -> Option<String> {
     if !can_edit {
-        t(CoreMsg::ListingOwnerOnly).to_string()
+        Some(t(CoreMsg::ListingOwnerOnly).to_string())
     } else if !switch_on && !scope.listed {
-        t(CoreMsg::TurnOnFirst).to_string()
+        Some(t(CoreMsg::TurnOnFirst).to_string())
     } else if scope.listed {
-        if switch_on {
+        Some(if switch_on {
             shown_text(scope)
         } else {
             tr!(CoreMsg::HiddenWhileOff, shown = shown_text(scope))
-        }
+        })
     } else {
-        t(CoreMsg::NotShown).to_string()
+        None
     }
 }
 
@@ -85,7 +86,7 @@ pub fn scope_row(
     });
     SettingRow::new(label.clone())
         .key(id.clone())
-        .hint(description(&scope, switch_on, can_edit))
+        .hint_opt(description(&scope, switch_on, can_edit))
         .child(
             div()
                 .text_size(text::SMALL)
@@ -128,15 +129,22 @@ mod tests {
         lodestone_ui::i18n::force(lodestone_ui::i18n::Locale::En);
         let mut scope = PublicScope::default();
         assert_eq!(
-            description(&scope, true, false),
-            t(CoreMsg::ListingOwnerOnly)
+            description(&scope, true, false).as_deref(),
+            Some(t(CoreMsg::ListingOwnerOnly))
         );
-        assert_eq!(description(&scope, false, true), t(CoreMsg::TurnOnFirst));
-        assert_eq!(description(&scope, true, true), t(CoreMsg::NotShown));
+        assert_eq!(
+            description(&scope, false, true).as_deref(),
+            Some(t(CoreMsg::TurnOnFirst))
+        );
+        assert_eq!(description(&scope, true, true), None);
         scope.listed = true;
         scope.address = true;
-        let shown = description(&scope, true, true);
+        let shown = description(&scope, true, true).unwrap();
         assert!(shown.contains("name and version") && shown.contains("address"));
-        assert!(description(&scope, false, true).ends_with("is off."));
+        assert!(
+            description(&scope, false, true)
+                .unwrap()
+                .ends_with("is off.")
+        );
     }
 }

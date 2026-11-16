@@ -48,8 +48,8 @@ use crate::components::{
 };
 use crate::{
     components::{
-        Button, ButtonSize, ButtonVariant, Dropdown, Icon, IconButton, LoadingDots, TextInput,
-        Toggle, segmented,
+        Button, ButtonSize, ButtonVariant, Dropdown, Icon, IconButton, ListRow, LoadingDots,
+        TextInput, Toggle, segmented,
         settings::{
             FindSetting, SearchRow, SectionNav, SettingRow, SettingsQuery, SettingsSearch,
             SettingsSearchChanged, Toast, content_width, left_overlay, link, muted_link, nav_width,
@@ -204,6 +204,8 @@ pub struct InstanceSettings {
     /// "Delete them" (images that can't be read) was clicked and waits for the second
     /// click: they go for good.
     confirm_delete_unreadable: bool,
+    /// The snapshot whose "…" menu is open.
+    snapshot_menu: Option<String>,
     /// The icon picker, when it is open, and its tab.
     icon_picker: Option<IconTab>,
     /// The tile colour emoji icons are put on.
@@ -246,6 +248,7 @@ impl EventEmitter<DeleteRequested> for InstanceSettings {}
 impl EventEmitter<HostRequested> for InstanceSettings {}
 impl EventEmitter<FindModRequested> for InstanceSettings {}
 impl EventEmitter<super::snapshots::SnapshotRequested> for InstanceSettings {}
+impl EventEmitter<super::world_backups::WorldBackupRequested> for InstanceSettings {}
 impl EventEmitter<ShareRequested> for InstanceSettings {}
 impl EventEmitter<AddModpackRequested> for InstanceSettings {}
 impl EventEmitter<CopyAsRequested> for InstanceSettings {}
@@ -427,6 +430,7 @@ impl InstanceSettings {
             preparing_update: false,
             confirm_unlink: false,
             confirm_delete_unreadable: false,
+            snapshot_menu: None,
             icon_picker: None,
             emoji_tile: appearance::TILE_COLORS[1],
             background_picker: false,
@@ -2638,7 +2642,7 @@ impl Render for InstanceSettings {
             ));
         }
 
-        // Snapshots.
+        // Snapshots: the world backups, then the snapshots of the whole instance.
         push_section(
             &mut sections,
             t(M::InstanceSnapshots).into(),
@@ -2938,7 +2942,76 @@ fn note(text_: &'static str) -> AnyElement {
         .into_any_element()
 }
 
+/// A row action a "…" menu item runs after closing the menu.
+type ClickAction = Box<dyn Fn(&gpui::ClickEvent, &mut Window, &mut App)>;
+
 impl InstanceSettings {
+    /// A snapshot's "…": Restore… and Export….
+    fn render_snapshot_menu(
+        &self,
+        index: usize,
+        snapshot: &str,
+        name: &str,
+        restore: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+        export: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let open = self.snapshot_menu.as_deref() == Some(snapshot);
+        let toggle = {
+            let snapshot = snapshot.to_string();
+            cx.listener(move |this, _, _, cx| {
+                this.snapshot_menu = if this.snapshot_menu.as_deref() == Some(snapshot.as_str()) {
+                    None
+                } else {
+                    Some(snapshot.clone())
+                };
+                cx.notify();
+            })
+        };
+        let entity = cx.entity().downgrade();
+        let close_then = move |action: ClickAction| {
+            let entity = entity.clone();
+            move |event: &gpui::ClickEvent, window: &mut Window, cx: &mut App| {
+                entity
+                    .update(cx, |this, cx| {
+                        this.snapshot_menu = None;
+                        cx.notify();
+                    })
+                    .ok();
+                action(event, window, cx);
+            }
+        };
+        Dropdown::new(
+            IconButton::new(("snapshot-menu", index), Icon::Ellipsis)
+                .label(format!("{}: {}", t(CommonMsg::Menu), name))
+                .on_click(toggle),
+        )
+        .align_end()
+        .when(open, |this| {
+            let close = cx.listener(|this, _: &(), _, cx| {
+                this.snapshot_menu = None;
+                cx.notify();
+            });
+            let panel = popover_panel(SharedString::from(format!("snapshot-menu-list-{index}")))
+                .w(px(200.))
+                .child(
+                    ListRow::new(("snapshot-menu-restore", index), t(M::RestoreEllipsis))
+                        .icon(Icon::ClockRotateLeft)
+                        .on_click(close_then(Box::new(restore))),
+                )
+                .child(
+                    ListRow::new(("snapshot-menu-export", index), t(M::ExportEllipsis))
+                        .icon(Icon::Upload)
+                        .on_click(close_then(Box::new(export))),
+                );
+            this.popover(
+                SharedString::from(format!("snapshot-menu-popover-{index}")),
+                panel,
+                move |window, cx| close(&(), window, cx),
+            )
+        })
+    }
+
     /// The instance's snapshots, newest first, with a button to take one.
     fn render_snapshots(
         &mut self,
@@ -2947,20 +3020,13 @@ impl InstanceSettings {
     ) -> Option<gpui::Div> {
         use super::snapshots::{SnapshotRequest, SnapshotRequested, badge, details};
         let id = self.instance_id.clone();
-        let (list, after_play, own_after_play, policy) =
-            self.instances.update(cx, |instances, cx| {
-                let list = instances.snapshot_list(&id, cx).cloned();
-                let after_play = instances.snapshot_after_play(&id);
-                let instance = instances.list().iter().find(|i| i.id == id).cloned();
-                let settings = instance.as_ref().and_then(|i| i.snapshots);
-                let policy = launcher_core::images::SnapshotPolicy::of(settings.as_ref());
-                (
-                    list,
-                    after_play,
-                    settings.and_then(|s| s.after_play),
-                    policy,
-                )
-            });
+        let (list, after_play, own_after_play) = self.instances.update(cx, |instances, cx| {
+            let list = instances.snapshot_list(&id, cx).cloned();
+            let after_play = instances.snapshot_after_play(&id);
+            let instance = instances.list().iter().find(|i| i.id == id).cloned();
+            let settings = instance.as_ref().and_then(|i| i.snapshots);
+            (list, after_play, settings.and_then(|s| s.after_play))
+        });
         let take = Button::new("take-snapshot", t(M::TakeSnapshotEllipsis))
             .variant(ButtonVariant::Secondary)
             .size(ButtonSize::Slim)
@@ -2969,16 +3035,9 @@ impl InstanceSettings {
                     this.instance_id.clone(),
                 )))
             }));
-        let mut items = vec![
-            SettingRow::new(t(M::TakeSnapshotTitle))
-                .hint(t(M::SnapshotsHint))
-                .child(take),
+        let settings = vec![
+            SettingRow::new(t(M::TakeSnapshotTitle)).child(take),
             SettingRow::new(t(M::SnapshotAfterPlay))
-                .hint(t(if own_after_play.is_some() {
-                    M::SnapshotAfterPlayOwnHint
-                } else {
-                    M::SnapshotAfterPlayHint
-                }))
                 .when(own_after_play.is_some(), |row| {
                     row.child(
                         muted_link("snapshot-after-play-default", t(M::UseDefault)).on_press(
@@ -3013,6 +3072,7 @@ impl InstanceSettings {
                         })),
                 ),
         ];
+        let mut items = Vec::new();
         match list {
             None => items.push(SettingRow::new(t(M::NoSnapshots))),
             Some(list) => {
@@ -3036,6 +3096,11 @@ impl InstanceSettings {
                             })
                         })
                     };
+                    let (restore, export, delete) = (
+                        request(SnapshotRequest::Restore),
+                        request(SnapshotRequest::Export),
+                        request(SnapshotRequest::Delete),
+                    );
                     let name = match badge(&record) {
                         Some(badge) => format!("{} · {}", record.name_shown(), t(badge)),
                         None => record.name_shown(),
@@ -3048,46 +3113,33 @@ impl InstanceSettings {
                                 div()
                                     .flex()
                                     .flex_row()
+                                    .items_center()
                                     .gap_1()
                                     .child(
-                                        Button::new(
-                                            ("snapshot-restore", index),
-                                            t(M::RestoreEllipsis),
-                                        )
-                                        .variant(ButtonVariant::Secondary)
-                                        .size(ButtonSize::Slim)
-                                        .on_click(request(SnapshotRequest::Restore)),
-                                    )
-                                    .child(
-                                        Button::new(
-                                            ("snapshot-export", index),
-                                            t(M::ExportEllipsis),
-                                        )
-                                        .variant(ButtonVariant::Secondary)
-                                        .size(ButtonSize::Slim)
-                                        .on_click(request(SnapshotRequest::Export)),
-                                    )
-                                    .child(
-                                        Button::new(
-                                            ("snapshot-pin", index),
-                                            t(if record.pinned {
+                                        IconButton::new(("snapshot-pin", index), Icon::Thumbtack)
+                                            .label(t(if record.pinned {
                                                 M::UnpinSnapshot
                                             } else {
                                                 M::PinSnapshot
-                                            }),
-                                        )
-                                        .variant(ButtonVariant::Ghost)
-                                        .size(ButtonSize::Slim)
-                                        .on_click(pin),
+                                            }))
+                                            .when(record.pinned, |button| {
+                                                button.color(crate::theme::accent::light())
+                                            })
+                                            .on_click(pin),
                                     )
+                                    .child(self.render_snapshot_menu(
+                                        index,
+                                        &record.id,
+                                        &record.name_shown(),
+                                        restore,
+                                        export,
+                                        cx,
+                                    ))
                                     .child(
-                                        Button::new(
-                                            ("snapshot-delete", index),
-                                            t(CommonMsg::Delete),
-                                        )
-                                        .variant(ButtonVariant::Ghost)
-                                        .size(ButtonSize::Slim)
-                                        .on_click(request(SnapshotRequest::Delete)),
+                                        IconButton::new(("snapshot-delete", index), Icon::TrashCan)
+                                            .label(t(CommonMsg::Delete))
+                                            .color(colors::RED_200)
+                                            .on_click(delete),
                                     ),
                             ),
                     );
@@ -3132,18 +3184,39 @@ impl InstanceSettings {
                 }
             }
         }
-        // How long automatic snapshots are kept: the section's grey lead, not a setting.
-        let keep = tr!(
-            M::SnapshotKeepHint,
-            last = policy.keep_last,
-            days = policy.keep_daily,
-            weeks = policy.keep_weekly
-        );
         query
-            .section(t(M::InstanceSnapshots), Some(keep.into()))
+            .section(t(M::InstanceSnapshots), None)
+            .card(settings)
+            .child(group_heading(t(M::SnapshotsGroup), None))
             .card(items)
             .finish()
     }
+}
+
+/// A heading inside a section, over a group of its cards, with a grey line under it.
+fn group_heading(title: &'static str, lead: Option<&str>) -> AnyElement {
+    div()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .pt_2()
+        .child(
+            div()
+                .text_size(theme::text_size(text::MEDIUM))
+                .font_weight(weights::BOLD.into())
+                .text_color(crate::theme::ink::text())
+                .child(title),
+        )
+        .when_some(lead, |this, lead| {
+            this.child(
+                div()
+                    .whitespace_normal()
+                    .text_size(theme::text_size(text::SMALL))
+                    .text_color(crate::theme::ink::muted())
+                    .child(lead.to_string()),
+            )
+        })
+        .into_any_element()
 }
 
 #[cfg(test)]

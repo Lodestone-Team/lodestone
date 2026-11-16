@@ -116,15 +116,22 @@ const StepTitle = ({
   description,
 }: {
   title: string;
-  description: string;
+  description?: string;
 }) => (
   <>
-    <div className="text-left text-h2 leading-7 font-extrabold tracking-medium text-white">
+    <div
+      className={cn(
+        'text-left text-h2 leading-7 font-extrabold tracking-medium text-white',
+        !description && 'mb-4'
+      )}
+    >
       {title}
     </div>
-    <div className="mb-4 text-left text-medium leading-4 font-mediumbold text-white/50 italic">
-      {description}
-    </div>
+    {description && (
+      <div className="mb-4 text-left text-medium leading-4 font-mediumbold text-white/50 italic">
+        {description}
+      </div>
+    )}
   </>
 );
 
@@ -628,7 +635,7 @@ export default function ModpackCreateForm({
                 description={
                   source?.type === 'upload'
                     ? t('create.modpack.versionUploaded')
-                    : t('create.modpack.versionDescription')
+                    : undefined
                 }
               />
               {projectId && (
@@ -686,10 +693,7 @@ export default function ModpackCreateForm({
                 validateOnChange={false}
               >
                 <Form id={SETTINGS_FORM_ID}>
-                  <StepTitle
-                    title={t('create.modpack.settingsTitle')}
-                    description={t('create.serverSettings.description')}
-                  />
+                  <StepTitle title={t('create.modpack.settingsTitle')} />
                   {info && (
                     <ObjectCard
                       compact
@@ -717,20 +721,17 @@ export default function ModpackCreateForm({
                       name="name"
                       label={t('create.field.name')}
                       type="text"
-                      description={t('create.field.nameDescription')}
                     />
                     <FormInputField
                       name="description"
                       label={t('create.field.description')}
                       type="text"
-                      description={t('create.field.descriptionDescription')}
                       optional
                     />
                     <FormInputField
                       name="port"
                       label={t('create.field.port')}
                       type="number"
-                      description={t('create.field.portDescription')}
                     />
                   </div>
                   <div className={cn(sectionClass, 'mt-6')}>
@@ -758,7 +759,6 @@ export default function ModpackCreateForm({
                       name="restart_on_crash"
                       label={t('create.field.restartOnCrash')}
                       options={['false', 'true']}
-                      description={t('create.field.restartOnCrashDescription')}
                     />
                   </div>
                   <div className="mt-6">

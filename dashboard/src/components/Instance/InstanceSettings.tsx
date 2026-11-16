@@ -46,12 +46,13 @@ const STARTUP_SETTINGS = [
   {
     key: 'restart_on_crash',
     labelKey: 'server.settings.restartOnCrash',
-    descriptionKey: 'server.settings.restartOnCrashHint',
+    descriptionKey: null,
   },
 ] as const satisfies ReadonlyArray<{
   key: StartupSetting;
   labelKey: MessageKey;
-  descriptionKey: MessageKey;
+  /** none when the label says it all */
+  descriptionKey: MessageKey | null;
 }>;
 
 /** Toggles for auto start and restart on crash. */
@@ -98,7 +99,6 @@ function StartupSettings({
     <SettingsSection
       id="server-settings-automation"
       title={t('server.settings.automation')}
-      lead={t('server.settings.automationLead')}
     >
       <SettingsCard>
         {STARTUP_SETTINGS.map(({ key, labelKey, descriptionKey }) => (
@@ -107,7 +107,9 @@ function StartupSettings({
             className="group relative"
             label={t(labelKey)}
             labelId={`startup-setting-${key}`}
-            hint={canEdit ? t(descriptionKey) : disabledReason}
+            hint={
+              canEdit ? descriptionKey && t(descriptionKey) : disabledReason
+            }
           >
             <Toggle
               value={pending[key] ?? instance[key]}
@@ -312,7 +314,6 @@ export default function InstanceSetting() {
         <SettingsSection
           id="server-settings-danger"
           title={t('server.settings.dangerZone')}
-          lead={t('server.settings.dangerZoneLead')}
           danger
         >
           <SettingsCard danger>

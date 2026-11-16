@@ -439,8 +439,6 @@ export const en = {
   'settings.theme.light': 'Light',
   'settings.theme.dark': 'Dark',
   'settings.theme.systemHint': 'Follows your device’s light or dark setting',
-  'settings.theme.lightHint': 'Always light',
-  'settings.theme.darkHint': 'Always dark',
 
   // SettingsWithToc: the list of the page's sections, on the left
   'settings.toc.label': 'Sections',
@@ -454,10 +452,8 @@ export const en = {
   'settings.core.title': 'General',
   'settings.core.section.core': 'Core',
   'settings.core.section.public': 'Public servers',
-  'settings.core.section.publicLead': 'Visible without signing in.',
   'settings.core.section.info': 'Information',
   'settings.core.section.danger': 'Danger zone',
-  'settings.core.section.dangerLead': 'Change these with care.',
   'settings.core.name.label': 'Core name',
   'settings.core.name.empty': 'Name cannot be empty',
   'settings.core.name.tooLong': 'Name cannot be longer than {max} characters',
@@ -465,27 +461,28 @@ export const en = {
   'settings.core.domain.tooLong':
     'Domain cannot be longer than {max} characters',
   'settings.core.domain.tooltip':
-    'This is your public IP if you are port-forwarded. If not, leave this as is.',
+    'Shown by Copy IP and the server overview. Empty uses the core’s address.',
   'settings.core.modpackChecks.label': 'Check for modpack updates',
   'settings.core.modpackChecks.hint':
-    'Every few hours, look on Modrinth for newer versions of the modpacks servers were made from, and say when one is out. Check for an update on a server’s Mods tab still works when this is off.',
+    'Every 6 hours, for servers made from a Modrinth modpack. A server’s Mods tab can still check by hand.',
   'settings.core.listPublicly.label': 'List servers publicly',
   'settings.core.listPublicly.hint':
     'Anyone who can reach this core sees the servers you make public below.',
   'settings.core.localClaim.label':
     'Let apps on this computer claim owner access',
   'settings.core.localClaim.hint':
-    'Lodestone Launcher can become the owner by proving it can write to this core’s data folder. Anything that can write there can already change every user and setting, so this only matters on a shared computer.',
+    'Lodestone Host and Launcher sign in as the owner through the core’s data folder, without a password. When this is off, they ask for the password.',
   'settings.core.safeMode.label': 'Safe mode',
   'settings.core.safeMode.hint':
-    'Keeps admin access to this machine for the owner only.',
+    'Only the owner can use unsafe permissions, even when they’re granted to others.',
   'settings.core.safeMode.offTitle': 'Turn off safe mode?',
   'settings.core.safeMode.offBody':
     'Are you sure you want to turn off safe mode? This will allow you to give users other than yourself the ability to run potentially dangerous commands. Make sure you trust all the users you give these permissions to.',
   /** the confirm button of the "Turn off safe mode / code execution?" dialogs */
   'settings.core.turnOff': 'Turn off',
   'settings.core.codeExecution.label': 'Code execution',
-  'settings.core.codeExecution.hint': 'Custom Java commands.',
+  'settings.core.codeExecution.hint':
+    'Custom Java commands and arguments, and adding or changing script files.',
   'settings.core.codeExecution.locked':
     'Locked by this core’s administrator (LODESTONE_DISABLE_CODE_EXECUTION or --disable-code-execution).',
   'settings.core.codeExecution.offTitle': 'Turn off code execution?',
@@ -531,7 +528,6 @@ export const en = {
   /** the browser tab title, before " - Lodestone" */
   'settings.users.documentTitle': 'User Settings',
   'settings.users.title': 'Users',
-  'settings.users.description': 'Accounts on this core and what each can do.',
   'settings.users.allUsers': 'All users',
   'settings.users.allMembers': 'All members',
   'settings.users.createUser': 'Create new user',
@@ -541,85 +537,42 @@ export const en = {
   'settings.users.loadingUser': 'Loading the user',
   'settings.users.loadingServers': 'Loading servers',
   'settings.users.permissions': 'Permissions',
-  'settings.users.permissionsLead': 'What this user can do on this core.',
   'settings.users.unsafePermissions': 'Unsafe permissions',
   'settings.users.unsafePermissionsLead':
     'Turn off safe mode to grant these to non-owners.',
 
-  // Permissions: the title, and what it allows a user or an API key
+  // Permissions: the title, and a hint (for some) shown to users and API keys alike
   'settings.permission.can_create_instance.title': 'Create Servers',
-  'settings.permission.can_create_instance.user':
-    'The user can create new servers.',
-  'settings.permission.can_create_instance.key':
-    'The key can create new servers.',
   'settings.permission.can_delete_instance.title': 'Delete Servers',
-  'settings.permission.can_delete_instance.user':
-    'The user can delete any server.',
-  'settings.permission.can_delete_instance.key':
-    'The key can delete any server.',
+  'settings.permission.can_delete_instance.hint': 'Any server on this core.',
   'settings.permission.can_read_global_file.title': 'Read Global Files',
-  'settings.permission.can_read_global_file.user':
-    'The user can read any file on the computer Lodestone Core is running on.',
-  'settings.permission.can_read_global_file.key':
-    'The key can read any file on the computer Lodestone Core is running on.',
+  'settings.permission.can_read_global_file.hint':
+    'Any file on the core’s computer, including the users file. That is enough to sign in as anyone, even the owner.',
   'settings.permission.can_view_instance.title': 'View Servers',
-  'settings.permission.can_view_instance.user':
-    'The user can see these servers.',
-  'settings.permission.can_view_instance.key': 'The key can see these servers.',
   'settings.permission.can_start_instance.title': 'Start Servers',
-  'settings.permission.can_start_instance.user':
-    'The user can start these servers.',
-  'settings.permission.can_start_instance.key':
-    'The key can start these servers.',
   'settings.permission.can_stop_instance.title': 'Stop Servers',
-  'settings.permission.can_stop_instance.user':
-    'The user can stop these servers.',
-  'settings.permission.can_stop_instance.key':
-    'The key can stop these servers.',
   'settings.permission.can_access_instance_console.title':
     'Access Server Console',
-  'settings.permission.can_access_instance_console.user':
-    'The user can read and send commands to the console of these servers. This essentially gives operator access to the server.',
-  'settings.permission.can_access_instance_console.key':
-    'The key can read and send commands to the console of these servers. This essentially gives operator access to the server.',
+  'settings.permission.can_access_instance_console.hint':
+    'Includes sending commands: essentially operator access.',
   'settings.permission.can_access_instance_setting.title':
     'Access Server Settings',
-  'settings.permission.can_access_instance_setting.user':
-    'The user can read and change the settings of these servers.',
-  'settings.permission.can_access_instance_setting.key':
-    'The key can read and change the settings of these servers.',
   'settings.permission.can_read_instance_resource.title':
     'Read Server Resources',
-  'settings.permission.can_read_instance_resource.user':
-    'The user can read the resources (worlds, mods, etc.) of these servers.',
-  'settings.permission.can_read_instance_resource.key':
-    'The key can read the resources (worlds, mods, etc.) of these servers.',
+  'settings.permission.can_read_instance_resource.hint':
+    'Worlds, mods and the like.',
   'settings.permission.can_read_instance_file.title': 'Read Server Files',
-  'settings.permission.can_read_instance_file.user':
-    'The user can read the files of these servers.',
-  'settings.permission.can_read_instance_file.key':
-    'The key can read the files of these servers.',
   'settings.permission.can_write_instance_resource.title':
     'Modify Server Resources',
-  'settings.permission.can_write_instance_resource.user':
-    'The user can modify the resources (worlds, mods, etc.) of these servers.',
-  'settings.permission.can_write_instance_resource.key':
-    'The key can modify the resources (worlds, mods, etc.) of these servers.',
+  'settings.permission.can_write_instance_resource.hint':
+    'Worlds, mods and the like.',
   'settings.permission.can_write_instance_file.title': 'Modify Server Files',
-  'settings.permission.can_write_instance_file.user':
-    'The user can modify the files of these servers.',
-  'settings.permission.can_write_instance_file.key':
-    'The key can modify the files of these servers.',
   'settings.permission.can_write_global_file.title': 'Modify Global Files',
-  'settings.permission.can_write_global_file.user':
-    'The user can modify any file on the computer Lodestone Core is running on.',
-  'settings.permission.can_write_global_file.key':
-    'The key can modify any file on the computer Lodestone Core is running on.',
+  'settings.permission.can_write_global_file.hint':
+    'Any file on the core’s computer, which is enough to run any program on it.',
   'settings.permission.can_manage_permission.title': 'Manage Permissions',
-  'settings.permission.can_manage_permission.user':
-    'The user can manage the permissions of other users.',
-  'settings.permission.can_manage_permission.key':
-    'The key can manage the permissions of other users.',
+  'settings.permission.can_manage_permission.hint':
+    'Other users’, not their own. Only the owner can grant the unsafe ones.',
 
   // Profile page
   /** the browser tab title, before " - Lodestone" */
@@ -655,8 +608,7 @@ export const en = {
   'settings.minecraft.ownLead': 'Linked from Lodestone Launcher.',
   'settings.minecraft.ownEmpty':
     'No Minecraft account is linked. Sign in to this core in Lodestone Launcher to link one.',
-  'settings.minecraft.userLead':
-    'The Minecraft accounts this user linked from Lodestone Launcher.',
+  'settings.minecraft.userLead': 'Linked from Lodestone Launcher.',
   'settings.minecraft.userEmpty': 'No linked Minecraft accounts.',
   'settings.minecraft.tooOld':
     'This core is too old to link Minecraft accounts.',
@@ -670,8 +622,7 @@ export const en = {
   'settings.apiKeys.ownLead':
     'Let the CLI, scripts and agents act as you without your password.',
   'settings.apiKeys.ownEmpty': 'You have no API keys.',
-  'settings.apiKeys.userLead':
-    'Keys this user created. Revoking one cuts off what uses it.',
+  'settings.apiKeys.userLead': 'Revoking one cuts off whatever uses it.',
   'settings.apiKeys.userEmpty': 'No API keys.',
   /** a button and the title of its dialog */
   'settings.apiKeys.create': 'Create API key',
@@ -714,7 +665,7 @@ export const en = {
   'settings.apiKeys.createKey': 'Create key',
   // Custom access: the permission editor
   'settings.apiKeys.onlyYours':
-    'A key can only have permissions you have yourself. The permissions and servers you don’t have are grayed out.',
+    'A key can only have permissions you have yourself.',
   'settings.apiKeys.notYours': 'You don’t have this permission.',
   'settings.apiKeys.noServers': 'There are no servers you can see.',
   'settings.apiKeys.unsafe': 'Unsafe Settings',
@@ -770,7 +721,6 @@ export const en = {
 
   // InstancePerformance: CPU and memory graphs
   'server.performance.title': 'Server Monitors',
-  'server.performance.lead': 'Instance’s usage of your Lodestone Core',
   'server.performance.loadingGraph': 'Loading the graph',
   'server.performance.cpuUsage': 'CPU Usage',
   'server.performance.memoryUsage': 'Memory Usage',
@@ -798,23 +748,17 @@ export const en = {
   // InstanceSettings
   'server.settings.pageTitle': 'Server Settings',
   'server.settings.automation': 'Automation',
-  'server.settings.automationLead':
-    'When Lodestone starts this server by itself.',
   'server.settings.autoStart': 'Auto start',
-  'server.settings.autoStartHint':
-    'Start this server when Lodestone Core starts',
+  'server.settings.autoStartHint': 'When Lodestone Core starts.',
   'server.settings.restartOnCrash': 'Restart on crash',
-  'server.settings.restartOnCrashHint': 'Start this server again if it crashes',
   /** a section of the core's settings that has none yet */
   'server.settings.notAvailable': 'Not available at this moment',
   'server.settings.notAvailableHint': 'Try to start this server at least once',
   'server.settings.noPermission': 'No permission',
   'server.settings.dangerZone': 'Danger zone',
-  'server.settings.dangerZoneLead':
-    'These settings can cause irreversible damage to your server.',
   'server.settings.deleteServer': 'Delete server',
   'server.settings.deleteServerHint':
-    'Permanently deletes this server and its data',
+    'Its worlds, snapshots and world backups are deleted too.',
   /** the title of the confirmation dialog; the server is shown under it */
   'server.settings.deleteTitle': 'Delete server?',
   'server.settings.deleteConfirm': 'I understand, delete this server',
@@ -828,9 +772,8 @@ export const en = {
 
   // PublicListingSetting: what a server shows without signing in
   'server.share.title': 'Share',
-  'server.share.lead': 'People with the link join from Lodestone Launcher',
   'server.share.off':
-    'Send a link to anyone you want to play with. They open it in Lodestone Launcher, and their game connects straight to this computer. No port forwarding needed.',
+    'Friends open the link in Lodestone Launcher and connect straight to this computer. No port forwarding needed.',
   'server.share.start': 'Share',
   'server.share.state.starting': 'Starting…',
   'server.share.state.sharing': 'Sharing',
@@ -884,8 +827,7 @@ export const en = {
   'server.resourcePack.lead':
     'A pack players are asked to download when they join.',
   'server.resourcePack.url': 'URL',
-  'server.resourcePack.urlHint':
-    'A direct link to the pack zip. Leave it empty for none.',
+  'server.resourcePack.urlHint': 'A direct link to the pack’s .zip.',
   'server.resourcePack.sha1Hint':
     'Lets players check the download and cache the pack.',
   'server.resourcePack.sha1Error': 'The SHA-1 is 40 hexadecimal characters.',
@@ -895,8 +837,7 @@ export const en = {
   'server.resourcePack.requiredHint':
     'Players who decline it are disconnected.',
   'server.resourcePack.prompt': 'Prompt',
-  'server.resourcePack.promptHint':
-    'The message shown when players are asked. Plain text, or a JSON text component.',
+  'server.resourcePack.promptHint': 'Plain text or a JSON text component.',
   'server.resourcePack.remove': 'Remove pack',
   'server.resourcePack.saved': 'Resource pack saved',
   'server.resourcePack.savedRestart':
@@ -913,7 +854,6 @@ export const en = {
   'server.card.copyIp': 'Copy IP',
   /** opens the Overview's Share section */
   'server.card.share': 'Share',
-  'server.card.shareHint': 'Share this server with a link',
 
   // InstanceCard: starting a server whose Minecraft EULA isn't accepted
   'server.eula.title': 'Accept the Minecraft EULA',
@@ -1008,10 +948,7 @@ export const en = {
   'create.step.selectModpack': 'Select Modpack',
   'create.step.selectVersion': 'Select Version',
 
-  // InstanceCreateForm: the pages' subtitles, buttons and errors
-  'create.basicSettings.description': 'Basic settings for your server.',
-  'create.serverSettings.description': 'Configure your server.',
-  'create.autoSettings.description': 'Automatically configure your server.',
+  // InstanceCreateForm: the buttons and errors
   'create.checkFields': 'Please ensure your fields are filled out correctly',
   /** the button on the last step that creates the server */
   'create.createServer': 'Create Server',
@@ -1028,25 +965,17 @@ export const en = {
 
   // form.ts and ModpackCreateForm: the dashboard's own setup fields
   'create.field.name': 'Name',
-  'create.field.nameDescription': 'The name of the server',
   /** the name a new server gets unless the user changes it */
   'create.field.nameDefault': 'My Server',
   'create.field.description': 'Description',
-  'create.field.descriptionDescription': 'The description of the server',
   'create.field.port': 'Port',
-  'create.field.portDescription': 'The port to run the server on',
   'create.field.minRam': 'Minimum RAM',
-  'create.field.minRamDescription':
-    'The minimum amount of RAM to allocate to the server, in MB',
+  'create.field.minRamDescription': 'In MB.',
   'create.field.maxRam': 'Maximum RAM',
-  'create.field.maxRamDescription':
-    'The maximum amount of RAM to allocate to the server, in MB',
+  'create.field.maxRamDescription': 'In MB.',
   'create.field.autoStart': 'Auto Start',
-  'create.field.autoStartDescription':
-    'The server will start automatically when the application starts',
+  'create.field.autoStartDescription': 'When Lodestone Core starts.',
   'create.field.restartOnCrash': 'Restart on Crash',
-  'create.field.restartOnCrashDescription':
-    'The server will restart automatically if it crashes',
 
   // form.ts: validation of a setting; {name} is the setting's name (often sent by the core, untranslated)
   'create.validation.required': '{name} is required',
@@ -1064,31 +993,23 @@ export const en = {
 
   // GameTypeSelectForm: the first step, picking a game
   'create.gameType.title': 'Select a game',
-  'create.gameType.subtitle': 'What will your server be used for?',
   /** a badge next to the Modrinth modpack card's title */
   'create.gameType.new': 'New',
   'create.gameType.modpack': 'Modrinth modpack',
-  'create.gameType.modpackDescription':
-    'Create a Fabric, Forge or NeoForge server from a Modrinth modpack',
+  'create.gameType.modpackDescription': 'Fabric, Forge or NeoForge.',
 
   // GameTypeMappings: games' titles and descriptions
   /** {name}: the game's name, as the core sends it */
   'create.game.genericTitle': '{name} (Generic)',
-  'create.game.vanillaDescription':
-    'Standard vanilla Minecraft server from Mojang.',
-  'create.game.forgeDescription':
-    'Modding framework that allows you to install mods and customize your Minecraft experience.',
+  'create.game.vanillaDescription': 'Vanilla, from Mojang. No mods or plugins.',
+  'create.game.forgeDescription': 'Runs Forge mods.',
   'create.game.neoforgeDescription':
     'Community fork of Forge with its own mods, for Minecraft 1.20.2 and later.',
-  'create.game.fabricDescription':
-    'Lightweight modding toolchain for Minecraft.',
-  'create.game.paperDescription':
-    'High-performance Spigot fork that aims to fix gameplay and mechanics inconsistencies.',
-  'create.game.spigotDescription':
-    'Modified Minecraft server software that supports plugins, offering enhanced performance and customization options.',
+  'create.game.fabricDescription': 'Runs Fabric mods.',
+  'create.game.paperDescription': 'Faster Spigot fork. Runs plugins.',
+  'create.game.spigotDescription': 'Runs Bukkit and Spigot plugins.',
   /** {name}: the variant's name, as the core sends it */
   'create.game.otherDescription': 'Unknown Minecraft variant: {name}',
-  'create.game.bedrockDescription': 'Minecraft Bedrock Edition server.',
   /** {name}: the game's name, as the core sends it */
   'create.game.genericDescription': 'Unknown game: {name}',
 
@@ -1097,15 +1018,13 @@ export const en = {
 
   // ModpackCreateForm: creating a server from a Modrinth modpack
   'create.modpack.sourceTitle': 'Select a modpack',
-  'create.modpack.sourceDescription':
-    'Search Modrinth, paste a Modrinth link, or upload a .mrpack file. Fabric, Forge and NeoForge modpacks are supported.',
+  'create.modpack.sourceDescription': 'Fabric, Forge and NeoForge modpacks.',
   'create.modpack.searchPlaceholder':
     'Search modpacks, or paste a Modrinth link',
   'create.modpack.onlyFabric': 'Only show Fabric modpacks',
   'create.modpack.upload': 'Upload .mrpack',
   'create.modpack.versionTitle': 'Select a version',
   'create.modpack.versionUploaded': 'The uploaded modpack.',
-  'create.modpack.versionDescription': 'Pick the modpack version to install.',
   'create.modpack.downloading': 'Downloading the modpack file to read it…',
   /** "Create Server" is the label of the last step's button (create.createServer) */
   'create.modpack.versionHint':

@@ -36,6 +36,7 @@ use std::{
 
 use serde::Serialize;
 
+use crate::world_backups::{WorldBackups, WorldBackupsUsage};
 use crate::{
     game::{
         assets::AssetIndex,
@@ -236,6 +237,8 @@ pub struct Report {
     pub logs: Logs,
     /// The image store: content history and snapshots of every instance.
     pub images: ImagesUsage,
+    /// World backups: zips of single worlds ([`crate::world_backups`]).
+    pub world_backups: WorldBackupsUsage,
     /// Settings, accounts and other small files, and anything else in the folder.
     pub other: u64,
 }
@@ -264,6 +267,7 @@ impl Report {
             + self.cache
             + self.leftovers.bytes
             + self.images.bytes
+            + self.world_backups.bytes
             + self.other
     }
 }
@@ -282,6 +286,9 @@ pub enum Clean {
     /// Snapshots the Launcher took on its own, and deleted instances' snapshots
     /// ([`clean_snapshots`], through the image store).
     Snapshots,
+    /// Deleted instances' world backups ([`clean_deleted_world_backups`], through
+    /// [`WorldBackups`]).
+    DeletedWorldBackups,
 }
 
 impl Clean {
@@ -295,6 +302,7 @@ impl Clean {
             Clean::OldLogs => "old-logs",
             Clean::AllLogs => "logs",
             Clean::Snapshots => "snapshots",
+            Clean::DeletedWorldBackups => "deleted-world-backups",
         }
     }
 
@@ -307,6 +315,7 @@ impl Clean {
             Clean::OldLogs,
             Clean::AllLogs,
             Clean::Snapshots,
+            Clean::DeletedWorldBackups,
         ]
         .into_iter()
         .find(|clean| clean.name() == name)
@@ -489,6 +498,10 @@ fn scan_on(
         bytes: sizer.size(&data.image_store_dir())?,
         ..images_usage(&data.image_store_dir(), instances)
     };
+    report.world_backups = WorldBackupsUsage {
+        bytes: sizer.size(&data.world_backups_dir())?,
+        ..WorldBackups::usage(data, instances)
+    };
 
     // Everything else at the top of the data directory.
     let known: HashSet<PathBuf> = [
@@ -499,6 +512,7 @@ fn scan_on(
         data.assets_dir(),
         data.cache_dir(),
         data.image_store_dir(),
+        data.world_backups_dir(),
     ]
     .into_iter()
     .collect();
@@ -536,6 +550,20 @@ pub fn clean_snapshots(
     Ok(Cleaned {
         bytes: before.saturating_sub(measure()),
         files: cleaned.records + cleaned.retired,
+    })
+}
+
+/// Settings › Storage's world backup clean-up ([`Clean::DeletedWorldBackups`]): deletes
+/// for good the world backups of instances that are gone (see [`crate::world_backups`]),
+/// each instance's under its record lock.
+pub fn clean_deleted_world_backups(backups: &WorldBackups) -> Result<Cleaned, DiskError> {
+    let cleaned = backups.clean_deleted().map_err(|e| DiskError::Remove {
+        path: "world backups".into(),
+        reason: e.to_string(),
+    })?;
+    Ok(Cleaned {
+        bytes: cleaned.bytes,
+        files: cleaned.backups,
     })
 }
 
@@ -612,6 +640,13 @@ fn clean_on(
             return Err(DiskError::Remove {
                 path: data.image_store_dir().display().to_string(),
                 reason: "snapshots are cleaned through the image store".into(),
+            });
+        }
+        Clean::DeletedWorldBackups => {
+            // Under each instance's record lock: see clean_deleted_world_backups.
+            return Err(DiskError::Remove {
+                path: data.world_backups_dir().display().to_string(),
+                reason: "world backups are cleaned through WorldBackups".into(),
             });
         }
         Clean::Cache => {
@@ -1811,6 +1846,54 @@ mod tests {
         assert_eq!(report.other, before.other, "the store isn't other");
         let total_on_disk = Sizer::new(&Cancel::new()).size(data.root()).unwrap();
         assert_eq!(report.total(), total_on_disk);
+    }
+
+    #[test]
+    fn world_backups_are_counted_apart() {
+        let (_tmp, data, instances) = fixture();
+        let before = scan(&data, &instances, &Cancel::new()).unwrap();
+        assert_eq!(before.world_backups, WorldBackupsUsage::default());
+        let live = &instances[0];
+        let sidecar = |id: &str, created: u64| {
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1, "id": id, "instance_created": created, "instance_name": "x",
+                "folder": "W", "name": "World backup", "kind": "manual", "created": 0,
+                "bytes": 3, "world_bytes": 3, "files": 1,
+            }))
+            .unwrap()
+        };
+        let backup = |instance: &str, id: &str, created: u64| {
+            let dir = data.world_backups_dir().join(instance).join("W");
+            write(&dir.join(format!("{id}.zip")), b"zip");
+            write(&dir.join(format!("{id}.json")), &sidecar(id, created));
+        };
+        backup(&live.id, "20260101-000000-0001", live.created);
+        // the same id, made by an earlier instance of that name: a deleted one's
+        backup(&live.id, "20260101-000000-0002", live.created + 1);
+        backup("gone", "20260101-000000-0003", 5);
+        let report = scan(&data, &instances, &Cancel::new()).unwrap();
+        assert_eq!(report.world_backups.backups, 1);
+        assert_eq!(report.world_backups.deleted, 2);
+        assert_eq!(report.world_backups.deleted_bytes, 6);
+        assert_eq!(
+            report.world_backups.bytes,
+            Sizer::new(&Cancel::new())
+                .size(&data.world_backups_dir())
+                .unwrap()
+        );
+        assert_eq!(report.other, before.other, "world backups aren't other");
+        let total_on_disk = Sizer::new(&Cancel::new()).size(data.root()).unwrap();
+        assert_eq!(report.total(), total_on_disk);
+        assert!(
+            clean(
+                &data,
+                &instances,
+                &[],
+                Clean::DeletedWorldBackups,
+                &Cancel::new()
+            )
+            .is_err()
+        );
     }
 
     #[test]

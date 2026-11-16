@@ -149,6 +149,7 @@ pub const SCENES: &[&str] = &[
     "modpack-added-settings",
     "worlds",
     "worlds-backups",
+    "worlds-menu",
     "worlds-datapacks",
     "screenshots",
     "screenshot-view",
@@ -222,6 +223,10 @@ pub const SCENES: &[&str] = &[
     "snapshot-import-server-downloaded",
     "snapshot-import-server-done",
     "snapshot-import-pack-skipped",
+    "world-backup-create",
+    "world-backup-restore",
+    "world-backup-restore-new",
+    "world-backup-restored",
 ];
 
 /// Keys pressed once a scene has settled, before the screenshot, to show where
@@ -586,6 +591,7 @@ fn has_instances(scene: &str) -> bool {
         || scene == "share-code-pack"
         || is_worlds_scene(scene)
         || snapshots::is_scene(scene)
+        || world_backups::is_scene(scene)
         || scene.starts_with("copy-as")
         || scene == "instance-settings-game"
         || scene == "instance-settings-maintenance"
@@ -805,7 +811,10 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
                 }
                 if name == "Survival 1.20.1" && is_worlds_scene(scene) {
                     worlds::fill(&store.dir(&instance.id));
-                    snapshots::fill_worlds(&data_dir, &instance);
+                    world_backups::fill_worlds(&data_dir, &instance);
+                }
+                if name == "Survival 1.20.1" && world_backups::is_scene(scene) {
+                    world_backups::fill(&data_dir, &store, &instance);
                 }
                 if name == "Survival 1.20.1" && scene.starts_with("modpack-add") {
                     modpacks::fill_server(&store.dir(&instance.id), scene);
@@ -1039,6 +1048,7 @@ mod server_detail;
 mod servers;
 mod shared;
 mod snapshots;
+mod world_backups;
 mod worlds;
 
 pub use shared::{window_height, window_width};
@@ -1220,6 +1230,7 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             shell.preview_confirm_rosetta("1.8.9", reason, cx);
         }
         scene if snapshots::is_scene(scene) => snapshots::apply(scene, shell, cx),
+        scene if world_backups::is_scene(scene) => world_backups::apply(scene, shell, cx),
         scene if is_worlds_scene(scene) => {
             shell.select_tab(InstanceTab::Worlds, cx);
             let view = shell.worlds().clone();
@@ -1852,6 +1863,12 @@ fn storage_report() -> launcher_core::disk::Report {
             snapshots: 7,
             removable: 3,
             retired_instances: 1,
+        },
+        world_backups: launcher_core::world_backups::WorldBackupsUsage {
+            bytes: 640 * MB,
+            backups: 9,
+            deleted: 2,
+            deleted_bytes: 120 * MB,
         },
         other: 400_000,
     }
