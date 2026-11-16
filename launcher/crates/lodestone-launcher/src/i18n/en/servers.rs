@@ -187,7 +187,7 @@ crate::i18n::messages! {
         // ===== "<server> has different mods" =====
         DifferentMods = "{name} has different mods",
         /// {changes} is a list such as "2 added, 1 updated, 3 other files".
-        DifferentModsBody = "The server's mods changed since this instance got them ({changes}). Update first so you can join; your own mods stay as they are, and the files that are replaced are kept in the instance's backups.",
+        DifferentModsBody = "The server's mods changed since this instance got them ({changes}). Update first so you can join; your own mods stay as they are, and the files that are replaced are kept inside the instance's folder, in backups/.",
         /// A mod or file the update adds.
         ChangeNew = "New: {name}",
         ChangeChanged = "Changed: {name}",

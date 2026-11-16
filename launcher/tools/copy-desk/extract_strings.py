@@ -134,6 +134,10 @@ def extract():
 
 if __name__ == "__main__":
     from collections import Counter
+    # The only argument is the output file. One that looks like an option ("--help") is
+    # refused rather than written to: a file named after a flag is easy to miss.
+    if len(sys.argv) > 2 or (len(sys.argv) == 2 and sys.argv[1].startswith("-")):
+        sys.exit("usage: extract_strings.py [OUT.json]  (prints to stdout without one)")
     out = extract()
     json.dump(out, open(sys.argv[1], "w") if len(sys.argv) > 1 else sys.stdout, ensure_ascii=False, indent=0)
     print(len(out), "strings;", sum(1 for o in out if "forms" in o), "plurals;",

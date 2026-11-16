@@ -279,9 +279,12 @@ pub fn before_game_change(game_version: &str, loader: Loader, version: Option<&s
     }
 }
 
-/// A world backed up from the Worlds tab: a manual snapshot.
-pub fn backed_up(world: &str) -> String {
-    format!("Backed up {world}")
+/// A world backup's name when the user gives it none.
+pub const WORLD_BACKUP: &str = "World backup";
+
+/// The safety world backup made before the world backup `name` is restored.
+pub fn before_restoring(name: &str) -> String {
+    format!("Before restoring \u{201c}{name}\u{201d}")
 }
 
 /// "Find it for me" ended: the mods it found stay off, or every mod it turned off is back.
@@ -440,6 +443,9 @@ mod tests {
             before_game_change("1.21.1", Loader::Fabric, Some("0.16.10")),
             "Before moving to Minecraft 1.21.1 with Fabric 0.16.10"
         );
-        assert_eq!(backed_up("New World"), "Backed up New World");
+        assert_eq!(
+            before_restoring("Base"),
+            "Before restoring \u{201c}Base\u{201d}"
+        );
     }
 }

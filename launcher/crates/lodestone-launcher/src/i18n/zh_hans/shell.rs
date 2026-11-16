@@ -75,15 +75,15 @@ pub fn text(message: M) -> &'static str {
         M::PlayNamed => "启动“{name}”",
 
         M::DeleteNamed => "删除“{name}”？",
-        M::DeleteWorldBody => "该世界的文件夹会移到{trash}，你可以从那里恢复。它的备份会保留。",
+        M::DeleteWorldBody => "世界的文件夹会移到{trash}，你可以从那里恢复。它的世界备份会保留。",
         M::DeleteInstanceBody => {
-            "该实例的文件夹（包括其中的世界、模组和设置）会移到{trash}。你可以从那里恢复。它的快照会一直保留，直到你在“设置 › 存储”中移除；恢复实例时快照也会一起回来。"
+            "该实例的文件夹（包括其中的世界、模组和设置）会移到{trash}。你可以从那里恢复。它的快照和世界备份会一直保留，直到你在“设置 › 存储”中移除；恢复实例时它们也会一起回来。"
         }
-        M::ReplaceWorldTitle => "用此备份替换“{name}”？",
+        M::ReplaceWorldTitle => "从这个快照恢复“{name}”？",
         M::ReplaceWorldBody => {
-            "“{name}”会恢复到{when} 时的状态。会先为现在的世界拍摄快照，并保留 30 天。"
+            "{name} 将回到 {when} 时的状态。会先为实例现在的样子拍摄快照，并保留 30 天。"
         }
-        M::BackUpAndReplace => "备份并替换",
+        M::BackUpAndReplace => "拍摄快照并恢复",
         M::RemoveAccountTitle => "移除“{name}”？",
         M::RemoveAccountBody => {
             "Lodestone Launcher 会忘记此账户，并从你的{keychain}中删除其保存的登录信息。你之后可以重新添加。"
@@ -137,7 +137,7 @@ pub fn text(message: M) -> &'static str {
         M::KeptFiles => "保留你的改动（{count}）",
         M::WrittenFiles => "写入的配置文件和其他文件（{count}）",
         M::ModpackUpdateSafety => {
-            "你自己的模组、世界和修改过的配置不会被改动。会先为实例拍摄快照，被替换或删除的每个文件都会保存在实例的备份文件夹中。"
+            "你自己的模组、世界和修改过的配置不会被改动。会先为实例拍摄快照，被替换或删除的每个文件都会保存在实例文件夹的 backups/ 中。"
         }
 
         M::SaveChangesTitle => "保存更改？",
@@ -811,6 +811,8 @@ pub fn text(message: M) -> &'static str {
         M::ReplaceWorldModsNote => {
             "只有世界会恢复；实例的模组保持不变。要同时恢复它当时使用的模组，请在“设置 › 快照”中恢复该快照。"
         }
+        M::StorageWorldBackups => "世界备份",
+        M::StorageCleanWorldBackupsTitle => "删除已删除实例的世界备份？",
     }
 }
 
@@ -827,6 +829,12 @@ pub fn plural(message: P) -> [&'static str; 2] {
         }
         P::StorageCleanSnapshotsBody => {
             ["将删除 {count} 个快照：启动器自动拍摄的快照，以及已删除实例的所有快照（包括已固定的）。你的实例中你自己拍摄的和已固定的快照会保留。最近一小时内的文件会在下次清理时释放。";
+                2]
+        }
+        P::StorageWorldBackupsCount => ["{count} 个世界备份"; 2],
+        P::StorageWorldBackupsHint => ["{count} 个世界备份 · 其中 {deleted} 个属于已删除的实例"; 2],
+        P::StorageCleanWorldBackupsBody => {
+            ["将永久删除 {count} 个属于已删除实例的世界备份，包括仍在{trash}中的实例。你现有实例的世界备份会保留。";
                 2]
         }
     }

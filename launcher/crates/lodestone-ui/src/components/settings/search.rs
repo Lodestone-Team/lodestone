@@ -473,6 +473,24 @@ impl SearchSection {
         self
     }
 
+    /// `label` (a line naming what the card is about), then a card of the rows that
+    /// match; neither when no row does, so a search never leaves a label without its card.
+    pub fn labelled_card(
+        mut self,
+        label: impl IntoElement,
+        rows: impl IntoIterator<Item = impl Into<SearchRow>>,
+    ) -> Self {
+        let shown = self
+            .query
+            .filter(rows.into_iter().map(Into::into), self.all);
+        if !shown.is_empty() {
+            self.found += shown.len();
+            self.parts.push(Part::Context(label.into_any_element()));
+            self.parts.push(Part::Found(card(shown).into_any_element()));
+        }
+        self
+    }
+
     /// A setting outside a card, shown if it matches.
     pub fn row(mut self, row: impl Into<SearchRow>) -> Self {
         let row = row.into();
@@ -751,6 +769,13 @@ mod tests {
                 .card([SearchRow::from(div().into_any_element())])
                 .row(SearchRow::new(div(), ["Ram disk"]));
             assert_eq!(other.found, 1);
+            // a labelled card: its label only with rows under it
+            let labelled = query
+                .section("Backups", None)
+                .labelled_card(div(), [SettingRow::new("Window size")])
+                .labelled_card(div(), rows());
+            assert_eq!(labelled.found, 1);
+            assert_eq!(labelled.parts.len(), 2, "one label and its card");
             // nothing typed: everything, and still counted
             let all = SettingsQuery::default();
             assert!(all.card(rows()).is_some());

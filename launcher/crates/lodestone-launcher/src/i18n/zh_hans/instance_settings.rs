@@ -159,7 +159,6 @@ pub fn text(message: M) -> &'static str {
         M::NoSnapshots => "还没有快照。",
         M::SnapshotSizes => "{total}，其中新增 {new}",
         M::SnapshotNothingNew => "{total}，无新增",
-        M::SnapshotWithMods => "含模组",
         M::PreparingFile => "正在准备文件…",
         M::DragToShare => "将文件拖到其他应用中，或：",
         M::SaveAsEllipsis => "另存为…",
@@ -175,17 +174,13 @@ pub fn text(message: M) -> &'static str {
         M::ImportServerTitle => "从服务器的世界新建实例",
         M::CreateInstanceButton => "创建实例",
         M::SnapshotGameRunning => "请先停止游戏。",
-        M::SnapshotsHint => "此实例的世界和文件的副本，可用于恢复或分享。",
-        M::SnapshotIncludeEverything => "包含模组和配置",
-        M::SnapshotIncludeEverythingHint => {
-            "不勾选时，快照保留世界和其他文件，并记住它们运行时使用的模组。"
-        }
+        M::SnapshotsHint => "整个实例文件夹的副本，可用于恢复或分享。",
         M::SnapshotAfterPlay => "每次游戏结束后拍摄快照",
         M::SnapshotAfterPlayHint => {
-            "游玩后复制世界。跟随“设置 › 实例默认设置”，默认关闭，除非你开启。"
+            "游玩后复制整个实例文件夹。跟随“设置 › 实例默认设置”，默认关闭，除非你开启。"
         }
         M::SnapshotAfterPlayDefaultHint => {
-            "每次游戏结束后复制世界，适用于未自行设置的实例。默认关闭，除非你开启。"
+            "每次游戏结束后复制整个实例文件夹，适用于未自行设置的实例。默认关闭，除非你开启。"
         }
         M::SnapshotKeepHint => {
             "启动器自动拍摄的快照会保留一段时间：最近 {last} 个、{days} 天内每天一个、{weeks} 周内每周一个。你自己拍摄的快照会一直保留，直到你删除。"
@@ -441,8 +436,36 @@ pub fn text(message: M) -> &'static str {
         M::ImportNoRoom => "磁盘空间不足：需要 {size}（含 1 GB 余量），可用 {free}。",
         M::ImportSpaceFree => "需要 {size} 磁盘空间（含 1 GB 余量）；可用 {free}。",
         M::ExportNotDownloadable => "这些无法下载，因此导入该文件的人不会得到它们：{files}。",
-        M::SnapshotAfterPlayOwnHint => "游玩后复制世界。仅为此实例设置。",
+        M::SnapshotAfterPlayOwnHint => "游玩后复制整个实例文件夹。仅为此实例设置。",
         M::DeleteUnreadableNote => "它们将被永久删除。",
+        M::WorldBackups => "世界备份",
+        M::SnapshotsGroup => "整个实例的快照",
+        M::WorldBackupsHint => "单个世界的 zip 副本，会一直保留到你删除为止。在任何地方都能打开。",
+        M::BackUpWorldTitle => "备份世界",
+        M::BackUpWorldEllipsis => "备份世界…",
+        M::NoWorldBackups => "还没有世界备份。",
+        M::WorldNotHere => "已不在此实例中",
+        M::RestoreAsNewWorld => "恢复为新世界",
+        M::WorldBackupWorld => "世界",
+        M::WorldBackupDefaultName => "世界备份",
+        M::WorldBackupBeforeRestoring => "恢复“{name}”之前",
+        M::BackUpButton => "备份",
+        M::BackingUpWorld => "正在备份 {name}…",
+        M::WorldBackedUp => "已备份 {name}。",
+        M::NoWorldsToBackUp => "此实例还没有世界。",
+        M::RestoreWorldTitle => "恢复 {world}",
+        M::RestoreWorldBody => {
+            "{world} 将回到“{name}”（{when}）时的状态。会先把世界现在的样子另存为一个世界备份。"
+        }
+        M::RestoreWorldGoneBody => "{world} 已不在此实例中。它会以“{name}”（{when}）时的状态回来。",
+        M::SaveAndRestore => "保存并恢复",
+        M::SavingWorld => "正在保存世界现在的样子…",
+        M::UnpackingWorldBackup => "正在解压世界备份…",
+        M::WorldRestored => "已恢复 {world}。",
+        M::WorldRestoredSafety => "原来的世界保存在世界备份“{name}”中。",
+        M::WorldRestoredAsNew => "已恢复为新世界 {folder}。",
+        M::DeleteWorldBackupTitle => "删除这个世界备份？",
+        M::DeleteWorldBackupBody => "“{name}”会移到{trash}。",
     }
 }
 
@@ -487,5 +510,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
             "来自 {server} 的服务器备份：包括它的世界和玩家会获得的模组。{count} 个服务器文件不会被带入（服务器的设置、管理员和插件）。",
             "来自 {server} 的服务器备份：包括它的世界和玩家会获得的模组。{count} 个服务器文件不会被带入（服务器的设置、管理员和插件）。",
         ],
+        P::WorldBackupLeftOut => ["{count} 个文件未包含"; 2],
     }
 }

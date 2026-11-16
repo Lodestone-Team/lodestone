@@ -14,8 +14,6 @@ crate::i18n::messages! {
         // What is running, over its progress bar. {name} is a world's name; {trash} is
         // the Trash, with its article.
         BackingUp = "Backing up {name}",
-        RestoringBackup = "Restoring the backup",
-        ReplacingWorld = "Replacing the world with the backup",
         MovingToTrash = "Moving {name} to {trash}",
         Renaming = "Renaming",
         Exporting = "Exporting {name}",
@@ -56,12 +54,11 @@ crate::i18n::messages! {
         /// {time} is "Today, 14:30", "Yesterday, 09:12" or a date.
         PlayedAt = "Played {time}",
         BackUp = "Back up",
-        Backups = "Backups",
+        /// A world's button: opens its world backups and the snapshots that hold it. A
+        /// number beside it counts both.
+        BackupsAndSnapshots = "Backups & snapshots",
         Export = "Export…",
         DeleteWorld = "Delete…",
-        NoBackupsYet = "No snapshots of this world yet. \"Back up\" takes one; Settings › Snapshots lists them all.",
-        RestoreAsCopy = "Restore as copy",
-        ReplaceWorld = "Replace world…",
 
         // A world's data packs.
         DataPacks = "Data packs",
@@ -107,6 +104,16 @@ crate::i18n::messages! {
         /// In the large view: "3 of 12".
         Position = "{index} of {count}",
         CopyImage = "Copy image",
+        /// Over the progress bar while a world comes back from a snapshot.
+        RestoringFromSnapshot = "Restoring the world from the snapshot",
+        /// A world's panel: its zips.
+        WorldBackupsHeading = "World backups",
+        NoWorldBackupsYet = "No world backups of this world yet. Back up makes one.",
+        /// A world's panel: the snapshots of the whole instance that hold this world.
+        InSnapshots = "In snapshots",
+        NoSnapshotsOfWorld = "No snapshot holds this world yet. Settings › Snapshots takes them.",
+        RestoreEllipsis = "Restore…",
+        RestoreAsNewWorld = "Restore as a new world",
     }
 
     pub enum WorldsPlural {

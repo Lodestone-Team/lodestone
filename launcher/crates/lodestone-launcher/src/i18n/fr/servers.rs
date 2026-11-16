@@ -230,7 +230,7 @@ pub fn text(message: M) -> &'static str {
 
         M::DifferentMods => "{name} a des mods différents",
         M::DifferentModsBody => {
-            "Les mods du serveur ont changé depuis que cette instance les a reçus ({changes}). Mettez-la d’abord à jour pour pouvoir rejoindre le serveur\u{202F}; vos propres mods restent tels quels, et les fichiers remplacés sont conservés dans les sauvegardes de l’instance."
+            "Les mods du serveur ont changé depuis que cette instance les a reçus ({changes}). Mettez-la d’abord à jour pour pouvoir rejoindre le serveur\u{202F}; vos propres mods restent tels quels, et les fichiers remplacés sont conservés dans le dossier de l’instance, sous backups/."
         }
         M::ChangeNew => "Nouveau\u{a0}: {name}",
         M::ChangeChanged => "Modifié\u{a0}: {name}",

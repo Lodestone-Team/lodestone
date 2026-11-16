@@ -182,7 +182,7 @@ pub fn text(message: M) -> &'static str {
 
         M::DifferentMods => "{name} 的模組有所不同",
         M::DifferentModsBody => {
-            "自此實例取得伺服器的模組以來，它們已有變動（{changes}）。請先更新才能加入；你自己的模組會維持原樣，被取代的檔案會保留在實例的備份中。"
+            "自此實例取得伺服器的模組以來，它們已有變動（{changes}）。請先更新才能加入；你自己的模組會維持原樣，被取代的檔案會保留在實例資料夾的 backups/ 中。"
         }
         M::ChangeNew => "新增：{name}",
         M::ChangeChanged => "已變更：{name}",
