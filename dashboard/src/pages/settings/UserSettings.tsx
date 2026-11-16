@@ -208,7 +208,7 @@ export const UserSettings = () => {
           label={t(permission.titleKey)}
           labelId={labelId}
           disabled={disabled}
-          hint={t(permission.userKey)}
+          hint={permission.hintKey && t(permission.hintKey)}
           below={
             <>
               {typeof currentSettings === 'object' && !instanceList && (
@@ -315,21 +315,14 @@ export const UserSettings = () => {
                 {t('settings.users.allUsers')}
               </SettingsLink>
             </span>
-          ) : (
-            t('settings.users.description')
-          )
+          ) : undefined
         }
       >
         {UserBoxes}
         {openingUser && <PermissionsSkeleton />}
         {selectedUser && (
           <>
-            <SettingsSection
-              title={t('settings.users.permissions')}
-              lead={t('settings.users.permissionsLead', {
-                username: selectedUser.username,
-              })}
-            >
+            <SettingsSection title={t('settings.users.permissions')}>
               <SettingsCard>
                 {UserPermissions(NormalPermissions, false)}
               </SettingsCard>

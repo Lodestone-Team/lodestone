@@ -15,7 +15,7 @@ export default function UserApiKeys({ user }: { user: PublicUser }) {
   return (
     <SettingsSection
       title={t('settings.apiKeys.title')}
-      lead={t('settings.apiKeys.userLead', { username: user.username })}
+      lead={t('settings.apiKeys.userLead')}
     >
       <ApiKeyList
         keys={keys}
