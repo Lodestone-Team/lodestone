@@ -5,10 +5,13 @@
 
 use super::{LauncherShell, Modal};
 use crate::theme::px;
-use crate::{components::segmented, theme::colors};
+use crate::{
+    components::segmented,
+    theme::{Tone, colors},
+};
 use crate::{
     components::{
-        Button, ButtonSize, ButtonVariant, Dialog, Icon, Toggle,
+        Button, ButtonSize, ButtonVariant, Dialog, Icon, StatusBadge, Toggle, ValueField,
         settings::{SearchRow, SettingRow, SettingsQuery},
     },
     i18n::{CommonMsg, ShellMsg as M, ShellPlural as P, format, t, tr, trn},
@@ -179,10 +182,13 @@ fn command_line(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> Vec<S
     };
     let root = shell.accounts.read(cx).data_dir().root().to_path_buf();
     let path_text: SharedString = socket.display().to_string().into();
-    let socket_hint: SharedString = if cli.enabled {
-        path_text.clone()
-    } else {
-        format!("{} · {}", t(M::SocketClosed), path_text).into()
+    // the socket's state as a badge, its path in a field to copy and reveal
+    let closed = (!cli.enabled).then(|| StatusBadge::new(t(M::SocketClosed), Tone::Neutral));
+    let socket_field = {
+        let socket = socket.clone();
+        ValueField::new("cli-socket", path_text.clone())
+            .label(t(M::SocketPath))
+            .on_reveal(move |_, cx| cx.reveal_path(&socket))
     };
     vec![
         SettingRow::new(t(M::AllowCli))
@@ -221,24 +227,22 @@ fn command_line(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> Vec<S
                 Toggle::new("cli-game-logs", cli.game_logs)
                     .on_change(set(|cli, on| cli.game_logs = on)),
             ),
-        SettingRow::new(t(M::SocketPath)).hint(socket_hint).child(
-            div()
-                .flex()
-                .flex_row()
-                .gap_2()
-                .child(
-                    Button::new("cli-copy-socket", t(M::CopyPath))
-                        .size(ButtonSize::Slim)
-                        .on_click(move |_, _, cx| {
-                            cx.write_to_clipboard(ClipboardItem::new_string(path_text.to_string()))
-                        }),
-                )
-                .child(
-                    Button::new("cli-open-data", t(M::OpenDataFolder))
-                        .size(ButtonSize::Slim)
-                        .on_click(move |_, _, cx| cx.open_with_system(&root)),
-                ),
-        ),
+        SettingRow::new(t(M::SocketPath))
+            .search_text(path_text.clone())
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .children(closed)
+                    .child(
+                        Button::new("cli-open-data", t(M::OpenDataFolder))
+                            .size(ButtonSize::Slim)
+                            .on_click(move |_, _, cx| cx.open_with_system(&root)),
+                    ),
+            )
+            .below(socket_field),
     ]
 }
 

@@ -18,15 +18,15 @@ use crate::components::{
 use crate::{
     accounts::SessionState,
     components::{
-        Button, ButtonSize, ButtonVariant, Dialog, Dropdown, Icon, IconButton, ListRow, Toggle,
-        segmented,
+        Button, ButtonSize, ButtonVariant, Dialog, Dropdown, Fact, FactLine, FactValue, Icon,
+        IconButton, ListRow, ProgressBlock, StatusBadge, Toggle, segmented,
         settings::{
             SettingRow, content_width, left_overlay, link, muted_link, popover_panel,
             select_button, tag, unsaved_bar,
         },
     },
-    i18n::{self, CommonMsg, Language, ShellMsg, ShellMsg as M, t, tr},
-    theme::{self, colors, fonts, leading, radius, text, weights},
+    i18n::{self, CommonMsg, FactMsg, Language, ShellMsg, ShellMsg as M, ValueMsg, t, tr},
+    theme::{self, Tone, colors, fonts, leading, radius, text, weights},
     updater::UpdateState,
 };
 
@@ -667,12 +667,28 @@ impl LauncherShell {
         // Only developers see "Developer builds": in a developer build, or once on.
         let offer_dev = dev || build.is_some_and(|build| build.dev);
         let can_restart = updater.can_restart(cx);
+        // the build's number as the label, its commit as an exact value of its own
         let label = match build {
-            Some(build) => match build.short_commit() {
-                Some(commit) => tr!(M::BuildNumberCommit, build = build.number, commit = commit),
-                None => tr!(M::BuildNumber, build = build.number),
-            },
+            Some(build) => tr!(M::BuildNumber, build = build.number),
             None => t(M::DevelopmentBuild).to_string(),
+        };
+        let commit = build.and_then(|build| build.short_commit()).map(|commit| {
+            FactLine::row("build-commit").fact(Fact::new(
+                t(FactMsg::Commit),
+                FactValue::mono(commit.to_string()),
+            ))
+        });
+        // a download in progress: a badge, the new build and its percent over a bar
+        let progress = match &state {
+            UpdateState::Downloading { build, done, total } => Some(
+                ProgressBlock::new(
+                    "update-progress",
+                    StatusBadge::new(t(ValueMsg::Downloading), Tone::Info),
+                    tr!(M::BuildNumber, build = build),
+                )
+                .percent(UpdateState::percent(done, *total).min(100) as u8),
+            ),
+            _ => None,
         };
         let (status, failed): (SharedString, bool) = match &state {
             UpdateState::Unavailable => (t(M::UpdatesUnavailable).into(), false),
@@ -682,15 +698,7 @@ impl LauncherShell {
             UpdateState::Available(found) => {
                 (tr!(M::UpdateAvailable, build = found.build()).into(), false)
             }
-            UpdateState::Downloading { build, done, total } => (
-                tr!(
-                    M::UpdateDownloading,
-                    build = build,
-                    percent = i18n::format::percent(UpdateState::percent(done, *total))
-                )
-                .into(),
-                false,
-            ),
+            UpdateState::Downloading { .. } => (SharedString::default(), false),
             UpdateState::Ready { build } if can_restart => {
                 (tr!(M::UpdateReady, build = build).into(), false)
             }
@@ -741,11 +749,23 @@ impl LauncherShell {
             .map(|row| {
                 if failed {
                     row.note(status, colors::RED_200)
+                } else if status.is_empty() {
+                    row
                 } else {
                     row.hint(status)
                 }
             })
-            .when_some(action, |row, action| row.child(action));
+            .when_some(action, |row, action| row.child(action))
+            .when(commit.is_some() || progress.is_some(), |row| {
+                row.below(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap_2()
+                        .children(commit)
+                        .children(progress),
+                )
+            });
         let dev_row = offer_dev.then(|| {
             SettingRow::new(t(M::DeveloperBuilds))
                 .hint(t(M::DeveloperBuildsHint))

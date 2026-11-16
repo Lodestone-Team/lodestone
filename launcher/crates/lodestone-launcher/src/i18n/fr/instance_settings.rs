@@ -385,6 +385,8 @@ pub fn text(message: M) -> &'static str {
             "Arrêtez le jeu pour modifier ceci\u{a0}: il réécrit options.txt en quittant."
         }
         M::NotShared => "Non partagé (Paramètres du launcher)",
+        M::SharedKey => "Partagés",
+        M::OverriddenKey => "Remplacés",
         M::ShareAll => "Tout partager",
         M::OverrideAll => "Tout remplacer",
         M::Show => "Afficher",
@@ -537,8 +539,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
             "{count} activés ou désactivés",
         ],
         P::CodePackChanges => ["+ {count} modification", "+ {count} modifications"],
-        P::SharedCount => ["{count}\u{a0}partagé", "{count}\u{a0}partagés"],
-        P::OverriddenCount => ["{count}\u{a0}remplacé", "{count}\u{a0}remplacés"],
         P::AndMore => [
             "{names} et {count}\u{a0}autre",
             "{names} et {count}\u{a0}autres",

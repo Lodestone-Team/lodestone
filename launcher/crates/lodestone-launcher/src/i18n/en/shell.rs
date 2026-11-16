@@ -594,16 +594,12 @@ crate::i18n::messages! {
         DeveloperBuildsHint = "For Lodestone's developers: updates to dev builds, which can have bugs.",
         /// The running build: the number of commits it was built from.
         BuildNumber = "Build {build}",
-        /// {commit} is the first seven characters of the commit.
-        BuildNumberCommit = "Build {build} · {commit}",
         DevelopmentBuild = "Development build",
         UpdatesUnavailable = "This build wasn't published on GitHub, so it doesn't update itself.",
         UpdateNotChecked = "Checks GitHub for new builds every few hours.",
         UpdateChecking = "Looking for a newer build…",
         UpToDate = "This is the newest build.",
         UpdateAvailable = "Build {build} is available.",
-        /// {percent} is how much is done: "42%".
-        UpdateDownloading = "Downloading build {build}… {percent}",
         UpdateReady = "Build {build} is installed. Restart to use it.",
         UpdateReadyPlaying = "Build {build} is installed. You can restart once the game is closed.",
         /// {error} is in English, from the updater.

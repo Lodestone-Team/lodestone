@@ -25,7 +25,9 @@ use launcher_core::{
 use super::{Instances, shared_options_i18n};
 use crate::{
     components::{
-        Button, ButtonSize, ButtonVariant, Slider, TextInput, Toggle, segmented,
+        Button, ButtonSize, ButtonVariant, Icon, Num, Slider, TextInput, Toggle,
+        readable::key_value,
+        segmented,
         settings::{
             SearchRow, SettingRow, SettingsQuery, SettingsSearch, link, muted_link, tag, value,
         },
@@ -407,14 +409,37 @@ impl InstanceSharedSettings {
         let shared = self.state.profile.shares(category);
         let overridden = rows.iter().filter(|r| r.overridden).count();
         let with_value = rows.iter().filter(|r| r.shared.is_some()).count();
-        let summary = if !shared {
-            t(M::NotShared).to_string()
+        // how many values are shared and overridden, each a count after its icon,
+        // whose tooltip gives the key
+        let count = |icon: Icon, key: &'static str, n: usize| {
+            div()
+                .id(SharedString::from(format!(
+                    "shared-count-{category:?}-{key}"
+                )))
+                .tooltip(crate::components::text_tooltip(key_value(
+                    key,
+                    &format::number(n as u64),
+                )))
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(px(4.))
+                .child(icon.render(px(12.), colors::GRAY_500))
+                .child(Num::count(n as u64))
+        };
+        let summary: AnyElement = if !shared {
+            div().child(t(M::NotShared)).into_any_element()
         } else {
-            let mut parts = vec![trn!(P::SharedCount, with_value)];
-            if overridden > 0 {
-                parts.push(trn!(P::OverriddenCount, overridden));
-            }
-            parts.join(" · ")
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(px(12.))
+                .child(count(Icon::Link, t(M::SharedKey), with_value))
+                .when(overridden > 0, |this| {
+                    this.child(count(Icon::Pen, t(M::OverriddenKey), overridden))
+                })
+                .into_any_element()
         };
         let keys: Vec<String> = rows.iter().map(|r| r.key.clone()).collect();
         let all_overridden = !rows.is_empty() && overridden == rows.len();

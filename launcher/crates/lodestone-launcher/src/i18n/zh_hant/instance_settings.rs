@@ -343,6 +343,8 @@ pub fn text(message: M) -> &'static str {
         M::MakeMain => "設為主實例",
         M::StopGameToChange => "請先停止遊戲再變更：遊戲結束時會重寫 options.txt。",
         M::NotShared => "未共用（啟動器設定）",
+        M::SharedKey => "共用",
+        M::OverriddenKey => "已覆寫",
         M::ShareAll => "全部共用",
         M::OverrideAll => "全部覆寫",
         M::Show => "顯示",
@@ -460,8 +462,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
         }
         P::ShareToggledCount => ["啟用或停用 {count} 項"; 2],
         P::CodePackChanges => ["+ {count} 項變更"; 2],
-        P::SharedCount => ["{count} 項共用"; 2],
-        P::OverriddenCount => ["{count} 項覆寫"; 2],
         P::AndMore => ["{names}及另外 {count} 項"; 2],
         P::ChangedInGame => {
             ["你在遊戲中變更的 {count} 項設定（{names}）將在下次啟動時被共用值取代。"; 2]

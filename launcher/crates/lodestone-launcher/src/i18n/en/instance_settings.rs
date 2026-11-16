@@ -413,6 +413,10 @@ crate::i18n::messages! {
         StopGameToChange = "Stop the game to change these: it rewrites options.txt when it quits.",
         /// A category the launcher's Settings doesn't share.
         NotShared = "Not shared (launcher Settings)",
+        /// A shared game settings category: the key of how many of its values are shared (the count shows after a link icon).
+        SharedKey = "Shared",
+        /// The key of how many this instance overrides (after a pencil icon).
+        OverriddenKey = "Overridden",
         ShareAll = "Share all",
         OverrideAll = "Override all",
         Show = "Show",
@@ -567,10 +571,6 @@ crate::i18n::messages! {
         ShareToggledCount = ("{count} turned off or on", "{count} turned off or on"),
         /// After "Gaycraft 5.0 from Modrinth" in the New instance dialog.
         CodePackChanges = ("+ {count} change", "+ {count} changes"),
-        /// How many of a category's settings are shared.
-        SharedCount = ("{count} shared", "{count} shared"),
-        /// How many of a category's settings this instance sets itself.
-        OverriddenCount = ("{count} overridden", "{count} overridden"),
         /// The names of a few settings and how many more there are: "FOV, Brightness,
         /// Max FPS and 2 more".
         AndMore = ("{names} and {count} more", "{names} and {count} more"),

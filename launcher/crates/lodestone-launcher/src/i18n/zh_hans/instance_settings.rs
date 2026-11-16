@@ -343,6 +343,8 @@ pub fn text(message: M) -> &'static str {
         M::MakeMain => "设为主实例",
         M::StopGameToChange => "请先停止游戏再更改：游戏退出时会重写 options.txt。",
         M::NotShared => "未共享（启动器设置）",
+        M::SharedKey => "共享",
+        M::OverriddenKey => "已覆盖",
         M::ShareAll => "全部共享",
         M::OverrideAll => "全部覆盖",
         M::Show => "显示",
@@ -460,8 +462,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
         }
         P::ShareToggledCount => ["启用或禁用 {count} 项"; 2],
         P::CodePackChanges => ["+ {count} 项更改"; 2],
-        P::SharedCount => ["{count} 项共享"; 2],
-        P::OverriddenCount => ["{count} 项覆盖"; 2],
         P::AndMore => ["{names}及另外 {count} 项"; 2],
         P::ChangedInGame => {
             ["你在游戏中更改的 {count} 项设置（{names}）将在下次启动时被共享值替换。"; 2]
