@@ -132,14 +132,14 @@ impl LiveServer for MinecraftInstance {
 pub struct JobGuards {
     _job: OwnedMutexGuard<()>,
     /// `lock_stopped`: the server is stopped and can't start. `None` for a live backup.
-    stopped: Option<OwnedMutexGuard<()>>,
+    pub(crate) stopped: Option<OwnedMutexGuard<()>>,
     /// The server's mods lock, for a restore.
     _mods: Option<OwnedMutexGuard<()>>,
 }
 
 /// A running backup or restore: its progression event and what `GET …/backups` shows.
 #[derive(Clone)]
-struct Job(Arc<JobInner>);
+pub(crate) struct Job(Arc<JobInner>);
 
 struct JobInner {
     broadcaster: EventBroadcaster,
@@ -159,7 +159,7 @@ struct JobProgress {
 }
 
 impl Job {
-    fn new(
+    pub(crate) fn new(
         broadcaster: EventBroadcaster,
         kind: JobKind,
         title: String,
@@ -188,12 +188,12 @@ impl Job {
         }))
     }
 
-    fn task_id(&self) -> String {
+    pub(crate) fn task_id(&self) -> String {
         self.0.event_id.inner().to_string()
     }
 
     /// Sends the Start event, once.
-    fn begin(&self) {
+    pub(crate) fn begin(&self) {
         let start = self
             .0
             .pending_start
@@ -227,7 +227,7 @@ impl Job {
     /// Moves the progress to `at` (0..=100; it never goes back), with a new message if
     /// given. The update events carry deltas that add up to 100; they are sent when the
     /// message changes, a whole percent was made, or a while passed.
-    fn report(&self, at: f64, message: Option<&str>) {
+    pub(crate) fn report(&self, at: f64, message: Option<&str>) {
         let mut progress = self.0.progress.lock().unwrap_or_else(|e| e.into_inner());
         let at = at.clamp(progress.status.progress, 100.0);
         let new_message = message.is_some_and(|m| m != progress.status.message);
@@ -254,7 +254,7 @@ impl Job {
     }
 
     /// Sends the End event, if the Start was sent.
-    fn end(&self, success: bool, message: &str, value: ProgressionEndValue) {
+    pub(crate) fn end(&self, success: bool, message: &str, value: ProgressionEndValue) {
         if !self.started() {
             return;
         }
@@ -270,7 +270,7 @@ impl Job {
     }
 
     /// The part of the job from `base` to `base + span` percent.
-    fn phase(&self, base: f64, span: f64) -> Phase {
+    pub(crate) fn phase(&self, base: f64, span: f64) -> Phase {
         Phase {
             job: self.clone(),
             base,
@@ -281,21 +281,21 @@ impl Job {
 
 /// A part of a job's progress: 0..=100 within the phase maps onto its share of the job.
 #[derive(Clone)]
-struct Phase {
+pub(crate) struct Phase {
     job: Job,
     base: f64,
     span: f64,
 }
 
 impl Phase {
-    fn report(&self, at: f64, message: Option<&str>) {
+    pub(crate) fn report(&self, at: f64, message: Option<&str>) {
         self.job.report(
             self.base + self.span * at.clamp(0.0, 100.0) / 100.0,
             message,
         );
     }
 
-    fn begin(&self) {
+    pub(crate) fn begin(&self) {
         self.job.begin();
     }
 }
@@ -435,7 +435,7 @@ impl From<Error> for RestoreFailure {
 }
 
 /// How a swap ended, as far as the server folder goes.
-enum SwapOutcome {
+pub(crate) enum SwapOutcome {
     /// The swap was undone: the folder is as it was.
     RolledBack(Error),
     /// The folder may be half swapped: its journal is left for the repair at the next start.
@@ -445,7 +445,7 @@ enum SwapOutcome {
 /// The swap's result, from its blocking task. A task that panicked or was cancelled
 /// stopped somewhere in the renames, so the folder may be half swapped: that is broken,
 /// never unchanged.
-fn swap_outcome(
+pub(crate) fn swap_outcome(
     joined: Result<Result<(), SwapError>, tokio::task::JoinError>,
 ) -> Result<(), SwapOutcome> {
     match joined {
@@ -779,25 +779,27 @@ impl BackupService {
         lock_in(&self.jobs, uuid).try_lock_owned().ok()
     }
 
-    /// Whether a backup or restore of the server is running.
-    /// Whether a backup is being restored into the server (in place) now.
+    /// Whether a snapshot or a world backup is being restored into the server (in place)
+    /// now.
     pub fn restoring(&self, uuid: &InstanceUuid) -> bool {
         self.running_job(uuid)
-            .is_some_and(|job| job.kind == JobKind::Restore)
+            .is_some_and(|job| matches!(job.kind, JobKind::Restore | JobKind::WorldRestore))
     }
 
+    /// Whether a snapshot, a world backup or either's restore of the server is running.
     pub fn job_running(&self, uuid: &InstanceUuid) -> bool {
         lock_in(&self.jobs, uuid).try_lock().is_err()
     }
 
-    fn lock_job(&self, uuid: &InstanceUuid) -> Result<OwnedMutexGuard<()>, Error> {
-        self.try_lock_job(uuid)
-            .ok_or_else(|| conflict("A backup or restore of this server is already running"))
+    pub(crate) fn lock_job(&self, uuid: &InstanceUuid) -> Result<OwnedMutexGuard<()>, Error> {
+        self.try_lock_job(uuid).ok_or_else(|| {
+            conflict("A snapshot, world backup or restore of this server is already running")
+        })
     }
 
     /// The job mutex, and `lock_stopped` when the server is stopped. A running server is
     /// backed up live; one starting or stopping is refused.
-    async fn take_guards(
+    pub(crate) async fn take_guards(
         &self,
         instance: &MinecraftInstance,
         what: &str,
@@ -820,21 +822,32 @@ impl BackupService {
         })
     }
 
-    fn register(&self, uuid: &InstanceUuid, job: &Job) {
+    pub(crate) fn register(&self, uuid: &InstanceUuid, job: &Job) {
         self.running
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .insert(uuid.clone(), job.clone());
     }
 
-    fn unregister(&self, uuid: &InstanceUuid) {
+    pub(crate) fn unregister(&self, uuid: &InstanceUuid) {
         self.running
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .remove(uuid);
     }
 
-    fn running_job(&self, uuid: &InstanceUuid) -> Option<RunningJob> {
+    /// Keeps a server whose restore couldn't be undone from starting until the core
+    /// restarts and repairs it, with its `lock_stopped` guard.
+    pub(crate) fn mark_broken(&self, uuid: &InstanceUuid, stopped: OwnedMutexGuard<()>) {
+        self.broken
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(uuid.clone(), stopped);
+    }
+
+    /// The job that holds the server's job mutex, once it has started: a snapshot, a world
+    /// backup or either's restore.
+    pub(crate) fn running_job(&self, uuid: &InstanceUuid) -> Option<RunningJob> {
         self.running
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -1593,7 +1606,7 @@ impl BackupService {
         message
     }
 
-    fn failure_message(&self, what: &str, e: &Error) -> String {
+    pub(crate) fn failure_message(&self, what: &str, e: &Error) -> String {
         if self.cancel.is_cancelled() {
             format!("{what} was stopped because Lodestone is shutting down")
         } else {
@@ -2283,10 +2296,7 @@ impl BackupService {
                 // the journal stays for the repair at the next start; until then the server
                 // stays stopped
                 if let Some(stopped) = guards.stopped.take() {
-                    self.broken
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .insert(uuid.clone(), stopped);
+                    self.mark_broken(&uuid, stopped);
                 }
                 Err(RestoreFailure::Broken(err(
                     ErrorKind::Internal,

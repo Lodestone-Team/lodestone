@@ -150,12 +150,12 @@ pub struct ExportedBackup {
 }
 
 /// The Minecraft server `uuid`. 404 when there is none (Docker containers included).
-fn minecraft(state: &AppState, uuid: &InstanceUuid) -> Result<MinecraftInstance, Error> {
+pub(super) fn minecraft(state: &AppState, uuid: &InstanceUuid) -> Result<MinecraftInstance, Error> {
     let GameInstance::MinecraftInstance(instance) = get_instance(state, uuid)?;
     Ok(instance)
 }
 
-fn denied(message: &str) -> Error {
+pub(super) fn denied(message: &str) -> Error {
     Error {
         kind: ErrorKind::PermissionDenied,
         source: eyre!("{message}"),
@@ -262,7 +262,7 @@ async fn put_policy(
 /// Whether a user without `WriteGlobalFile` may not have a restore add, change or remove
 /// `path` (relative to the server folder): the file API's rule for a server's files,
 /// Lodestone's own `.lodestone*` files included.
-fn restore_protected(path: &str, is_dir: bool) -> bool {
+pub(super) fn restore_protected(path: &str, is_dir: bool) -> bool {
     is_instance_protected(FsPath::new(""), FsPath::new(path), is_dir)
 }
 
@@ -298,7 +298,7 @@ fn check_restore_diff(state: &AppState, user: &User, diff: &RestoreDiff) -> Resu
     Ok(())
 }
 
-fn can_write_global_files(state: &AppState, user: &User) -> Result<(), Error> {
+pub(super) fn can_write_global_files(state: &AppState, user: &User) -> Result<(), Error> {
     user.try_action(&UserAction::WriteGlobalFile, state.safe_mode())
 }
 

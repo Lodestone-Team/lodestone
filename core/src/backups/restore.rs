@@ -915,6 +915,72 @@ pub fn stage(
     result
 }
 
+/// Stages whole top-level folders of the server for a swap: makes the staging folder,
+/// lets `fill` write into it what each of `tops` becomes (a top it leaves out is removed by
+/// the swap), and flushes it. The swap then replaces exactly `tops` and nothing else; none
+/// of what is in them now is kept. A world backup's restore uses this
+/// (`crate::backups::world`), with the same journal and recovery as a snapshot's.
+///
+/// Each top must be a plain folder name, and may not be a link or a file now. On failure the
+/// staging folder is deleted and nothing else has changed.
+pub fn stage_folders(
+    server_root: &Path,
+    tops: &[String],
+    fill: &mut dyn FnMut(&Path) -> Result<(), Error>,
+) -> Result<Staged, Error> {
+    for top in tops {
+        if !valid_rel_path(top) || top.contains('/') {
+            return Err(bad_request(format!("{top} isn't a folder name")));
+        }
+        match disk_kind(&server_root.join(top)) {
+            Some(DiskKind::Link) => {
+                return Err(bad_request(format!(
+                    "{top} is a link; restore can't replace it"
+                )))
+            }
+            Some(DiskKind::File) => {
+                return Err(bad_request(format!(
+                    "{top} is a file in the way of the restore; move it first"
+                )))
+            }
+            _ => {}
+        }
+    }
+    let staging = random_suffix();
+    let staging_dir = server_root.join(format!("{STAGING_PREFIX}{staging}"));
+    fs::create_dir(&staging_dir)
+        .map_err(|e| io_error(e, "Failed to create the restore's staging folder"))?;
+    let result = (|| -> Result<Staged, Error> {
+        fill(&staging_dir)?;
+        sync_tree(&staging_dir)?;
+        let mut owned = Vec::new();
+        for top in tops {
+            owned.push(JournalEntry {
+                path: top.clone(),
+                had_old: exists(&server_root.join(top)),
+                had_new: exists(&staging_dir.join(top)),
+            });
+        }
+        Ok(Staged {
+            server_root: server_root.to_path_buf(),
+            staging: staging.clone(),
+            old: random_suffix(),
+            owned,
+            carried: Vec::new(),
+            software: None,
+            rename_budget: SWAP_RENAME_BUDGET,
+            #[cfg(test)]
+            faults: Faults::default(),
+        })
+    })();
+    if result.is_err() {
+        if let Err(e) = fs::remove_dir_all(&staging_dir) {
+            warn!("Failed to delete {}: {e}", staging_dir.display());
+        }
+    }
+    result
+}
+
 /// The paths inside the owned folder `owned` that the restore keeps as they are: links,
 /// files it doesn't replace (`replaced`), and folders holding no file it replaces or places
 /// (`touched_dirs` are those that do). Where a kept path and a staged one meet, the kept

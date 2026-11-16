@@ -52,6 +52,16 @@ pub fn path_to_backups() -> PathBuf {
 /// The backup store's folder name in the data folder.
 pub const BACKUPS_DIR: &str = "backups";
 
+/// The world backups (`<lodestone>/world-backups`), see [`crate::backups::world`]. Like
+/// [`path_to_backups`], only the file API's list of Lodestone's own data and `run_with`
+/// use it; tests give each core its own folder.
+pub fn path_to_world_backups() -> PathBuf {
+    lodestone_path().join(WORLD_BACKUPS_DIR)
+}
+
+/// The world backups' folder name in the data folder.
+pub const WORLD_BACKUPS_DIR: &str = "world-backups";
+
 static APP_STATE: OnceLock<AppState> = OnceLock::new();
 
 pub fn init_app_state(app_state: AppState) {

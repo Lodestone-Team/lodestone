@@ -323,7 +323,7 @@ pub fn remove_leftover_markers(store: &Store) -> Vec<InstanceUuid> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Mutex;
 
@@ -331,16 +331,17 @@ mod tests {
     use crate::events::{CausedBy, InstanceEvent};
     use crate::types::Snowflake;
 
-    const SAVED: &str = "[12:34:56] [Server thread/INFO]: Saved the game";
+    pub(crate) const SAVED: &str = "[12:34:56] [Server thread/INFO]: Saved the game";
 
-    struct FakeServer {
+    /// A running server that records the commands it gets.
+    pub(crate) struct FakeServer {
         commands: Mutex<Vec<String>>,
-        running: AtomicBool,
+        pub(crate) running: AtomicBool,
         fail: Option<&'static str>,
     }
 
     impl FakeServer {
-        fn new() -> FakeServer {
+        pub(crate) fn new() -> FakeServer {
             FakeServer {
                 commands: Mutex::new(Vec::new()),
                 running: AtomicBool::new(true),
@@ -348,7 +349,7 @@ mod tests {
             }
         }
 
-        fn commands(&self) -> Vec<String> {
+        pub(crate) fn commands(&self) -> Vec<String> {
             self.commands.lock().unwrap().clone()
         }
     }
@@ -369,10 +370,10 @@ mod tests {
     }
 
     /// Gives the lines it was made with, then nothing (the server is quiet).
-    struct FakeLines(std::collections::VecDeque<ConsoleLine>);
+    pub(crate) struct FakeLines(std::collections::VecDeque<ConsoleLine>);
 
     impl FakeLines {
-        fn new(lines: Vec<ConsoleLine>) -> FakeLines {
+        pub(crate) fn new(lines: Vec<ConsoleLine>) -> FakeLines {
             FakeLines(lines.into())
         }
     }
@@ -387,14 +388,14 @@ mod tests {
         }
     }
 
-    fn system(text: &str) -> ConsoleLine {
+    pub(crate) fn system(text: &str) -> ConsoleLine {
         ConsoleLine::Line {
             system: true,
             text: text.to_string(),
         }
     }
 
-    fn short() -> Limits {
+    pub(crate) fn short() -> Limits {
         Limits {
             save_wait: Duration::from_millis(200),
             save_off_cap: Duration::from_secs(10),

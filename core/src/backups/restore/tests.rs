@@ -1417,3 +1417,120 @@ fn under_matches_whole_parts() {
     assert!(!under("world2/level.dat", "world"));
     assert!(!under("worl", "world"));
 }
+
+// ---------------------------------------------------------------------------------------
+// Whole folders (a world backup's restore)
+
+/// A Paper server with its world in three folders and other files beside them; whole
+/// folders staged for `world`, `world_nether` and `world_the_end`, the new world having no
+/// End.
+fn staged_world(env: &Env) -> (Staged, BTreeMap<String, Option<Vec<u8>>>) {
+    let root = &env.root;
+    write(root, "server.properties", b"level-name=world");
+    write(root, "mods/a.jar", b"mod");
+    write(root, "plugins/p.jar", b"plugin");
+    write(root, "world/level.dat", b"old level");
+    write(root, "world/region/r.0.0.mca", b"old region");
+    write(root, "world_nether/DIM-1/region/r.0.0.mca", b"old nether");
+    write(root, "world_the_end/DIM1/region/r.0.0.mca", b"old end");
+    let before = snapshot(root);
+    let tops = ["world", "world_nether", "world_the_end"].map(String::from);
+    let staged = stage_folders(root, &tops, &mut |staging| {
+        write(staging, "world/level.dat", b"new level");
+        write(
+            staging,
+            "world_nether/DIM-1/region/r.0.0.mca",
+            b"new nether",
+        );
+        Ok(())
+    })
+    .unwrap();
+    (staged, before)
+}
+
+#[test]
+fn whole_folders_are_swapped_and_nothing_else_changes() {
+    let env = env();
+    let (staged, before) = staged_world(&env);
+    staged.swap(&env.journal()).unwrap();
+    let after = snapshot(&env.root);
+    assert_eq!(read(&env.root, "world/level.dat").unwrap(), "new level");
+    // nothing of the old folders is kept
+    assert!(!env.root.join("world/region").exists());
+    assert_eq!(
+        read(&env.root, "world_nether/DIM-1/region/r.0.0.mca").unwrap(),
+        "new nether"
+    );
+    // a folder the new world lacks is gone, and so is its old copy
+    assert!(!env.root.join("world_the_end").exists());
+    // everything outside the folders is as it was
+    let outside = |files: &BTreeMap<String, Option<Vec<u8>>>| -> BTreeMap<String, Option<Vec<u8>>> {
+        files
+            .iter()
+            .filter(|(path, _)| !path.starts_with("world"))
+            .map(|(p, c)| (p.clone(), c.clone()))
+            .collect()
+    };
+    assert_eq!(outside(&after), outside(&before));
+    assert!(!env.journal().exists());
+    // no work folders are left
+    assert!(after
+        .keys()
+        .all(|path| !path.starts_with(".lodestone-restore")));
+}
+
+#[test]
+fn whole_folders_recover_after_a_crash_at_every_rename() {
+    // 3 old folders moved aside, 2 new ones in
+    for crash_after in 0..=5 {
+        let env = env();
+        let (mut staged, before) = staged_world(&env);
+        staged.faults.crash_after = Some(crash_after);
+        assert!(matches!(
+            staged.swap(&env.journal()),
+            Err(SwapError::Broken(_))
+        ));
+        let recovery = env.recover();
+        assert_eq!(recovery.repaired, vec![uuid()], "crash after {crash_after}");
+        assert_eq!(snapshot(&env.root), before, "crash after {crash_after}");
+    }
+    for fail_after in [0, 1, 3, 4] {
+        let env = env();
+        let (mut staged, before) = staged_world(&env);
+        staged.faults.fail_after = Some(fail_after);
+        assert!(matches!(
+            staged.swap(&env.journal()),
+            Err(SwapError::RolledBack(_))
+        ));
+        assert_eq!(snapshot(&env.root), before, "fail after {fail_after}");
+    }
+}
+
+#[test]
+fn whole_folders_refuse_links_files_and_failures_before_anything_moves() {
+    let env = env();
+    let root = &env.root;
+    write(root, "world_nether", b"a file");
+    let before = snapshot(root);
+    let tops = ["world".to_string(), "world_nether".to_string()];
+    let error = stage_folders(root, &tops, &mut |_| Ok(())).unwrap_err();
+    assert!(matches!(error.kind, ErrorKind::BadRequest));
+    assert!(stage_folders(root, &["../x".to_string()], &mut |_| Ok(())).is_err());
+    assert!(stage_folders(root, &["a/b".to_string()], &mut |_| Ok(())).is_err());
+    #[cfg(unix)]
+    {
+        fs::remove_file(root.join("world_nether")).unwrap();
+        std::os::unix::fs::symlink(root.join("mods"), root.join("world_nether")).unwrap();
+        assert!(stage_folders(root, &tops, &mut |_| Ok(())).is_err());
+        fs::remove_file(root.join("world_nether")).unwrap();
+        write(root, "world_nether", b"a file");
+    }
+    // a fill that fails leaves no staging folder
+    let error = stage_folders(root, &["world".to_string()], &mut |staging| {
+        write(staging, "world/level.dat", b"half");
+        Err(err(ErrorKind::BadRequest, "the zip is damaged"))
+    })
+    .unwrap_err();
+    assert_eq!(error.source.to_string(), "the zip is damaged");
+    assert_eq!(snapshot(root), before);
+}
