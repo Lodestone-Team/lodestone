@@ -646,7 +646,7 @@ impl Render for SharedSettings {
                 .card([narrator])
                 .finish(),
             query
-                .section(t(M::WhatsShared), Some(t(M::WhatsSharedLead).into()))
+                .section(t(M::WhatsShared), None)
                 .card(categories)
                 .finish(),
         ];

@@ -24,8 +24,10 @@ crate::i18n::messages! {
         ConnectAsOwner = "Connect as owner",
         ChooseDataFolder = "Choose folder…",
         ChooseDataFolderPrompt = "Choose",
-        ProductHostHint = "the desktop app, with the dashboard in a window",
-        ProductCoreHint = "the server program on its own, or Docker",
+        /// After a host's address on this computer, when it doesn't say what started it: the
+        /// product's name.
+        ProductHostHint = "Lodestone Host",
+        ProductCoreHint = "Lodestone Core",
         ConnectedAsOwner = "Connected to {name} as its owner",
         ConnectedMadeOwner = "It had no owner yet, so Lodestone Launcher made the owner account {username}.",
         ConnectedOwnerKey = "This launcher has an owner key for it now. You can revoke it from the host's dashboard.",
@@ -49,7 +51,6 @@ crate::i18n::messages! {
         Dismiss = "Dismiss",
         /// "Other hosts": hosts added by address, on other computers.
         OtherCoresTitle = "Other hosts and servers",
-        OtherCoresHint = "Hosts on other computers that you added by their address, and servers you joined with an invite link.",
         NoOtherCores = "No other hosts or servers yet",
         NoServersHint = "Add a host by its address, or add a server with the invite link someone sent you.",
 
@@ -321,7 +322,7 @@ crate::i18n::messages! {
         /// The dialog's title when signing in to a host that is added already.
         SignInTitle = "Sign in to server",
         SignInIntro = "Sign in to start and stop servers and see the ones that aren't listed publicly. Lodestone Launcher makes its own key for {computer}; your password isn't kept.",
-        AddIntro = "The address of a host. Without signing in you see the servers its owner lists publicly.",
+        AddIntro = "Without signing in, you see only the servers its owner lists publicly.",
         Address = "Address",
         SignInOptional = "Sign in (optional)",
         /// Before the choices "90 days", "1 year", "Never".
@@ -349,7 +350,7 @@ crate::i18n::messages! {
         ConsoleNotShown = "The console isn't shown",
         OutputAppearsHere = "The server's output appears here.",
         Send = "Send",
-        ChatHint = "Text is said to everyone with /say. Start with / to run a command.",
+        ChatHint = "Text is said to everyone with /say.",
         Console = "Console",
         JumpToLatest = "Jump to latest",
         MinecraftAccount = "Minecraft account",
@@ -416,7 +417,6 @@ crate::i18n::messages! {
         DownloadWorldBackups = "Backup",
         DownloadWorldMidWrite = "taken while it ran, may be caught mid-write",
         DownloadWorldBackUpNow = "Back up now",
-        DownloadWorldBackUpNowHint = "A backup of the server as it is now",
         DownloadWorldButton = "Download",
         DownloadWorldBackingUp = "The host is backing the server up…",
         DownloadWorldPreparing = "The host is preparing the file…",
@@ -458,7 +458,6 @@ crate::i18n::messages! {
 
         // ===== Friends' servers (Lodestone Connect) =====
         FriendsTitle = "Servers from invite links",
-        FriendsHint = "Servers people shared with you through a Lodestone Connect invite link.",
         JoinAFriend = "Add server",
         /// {name} is the name of the friend's host.
         SharedBy = "Shared by {name}",
@@ -485,7 +484,7 @@ crate::i18n::messages! {
         JoinFriendTitle = "Join a server",
         /// The paste dialog's title, from "Add server".
         AddServerTitle = "Add a server",
-        JoinFriendIntro = "Paste the invite link someone sent you. It starts with https://connect.lodestone.cc/j/. Add saves the server even if it's offline right now.",
+        JoinFriendIntro = "Add saves the server even if it's offline right now.",
         InvitePlaceholder = "Invite link (https://connect.lodestone.cc/j/…)",
         NotAnInvite = "That isn't a Lodestone invite link. Invite links start with https://connect.lodestone.cc/j/.",
         PasteInviteFirst = "Paste an invite link first.",

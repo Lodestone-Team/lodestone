@@ -637,19 +637,19 @@ impl Render for InstanceSharedSettings {
         let changed = self.state.sharing.replaced_next_launch(&self.state.profile);
 
         let source = if !enabled {
-            t(M::SharingOff).to_string()
+            None
         } else if is_preferred {
-            t(M::SharingMain).to_string()
+            Some(t(M::SharingMain).to_string())
         } else {
-            match &preferred_name {
+            Some(match &preferred_name {
                 Some(name) => tr!(M::SharingFrom, name = name),
                 None => t(M::SharingNoMain).to_string(),
-            }
+            })
         };
 
         let mut items: Vec<SearchRow> = vec![
             SettingRow::new(t(M::UseSharedSettings))
-                .hint(source)
+                .hint_opt(source)
                 .child(
                     Toggle::new("use-shared-settings", enabled)
                         .label(t(M::UseSharedSettings))

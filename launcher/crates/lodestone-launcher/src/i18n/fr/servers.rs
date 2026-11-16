@@ -15,8 +15,8 @@ pub fn text(message: M) -> &'static str {
         M::ConnectAsOwner => "Se connecter en tant que propriétaire",
         M::ChooseDataFolder => "Choisir le dossier…",
         M::ChooseDataFolderPrompt => "Choisir",
-        M::ProductHostHint => "l’application de bureau, avec le tableau de bord dans une fenêtre",
-        M::ProductCoreHint => "le programme serveur seul, ou Docker",
+        M::ProductHostHint => "Lodestone Host",
+        M::ProductCoreHint => "Lodestone Core",
         M::ConnectedAsOwner => "Connecté à {name} en tant que propriétaire",
         M::ConnectedMadeOwner => {
             "Il n’avait pas encore de propriétaire\u{202F}: Lodestone Launcher a créé le compte propriétaire {username}."
@@ -55,9 +55,6 @@ pub fn text(message: M) -> &'static str {
         M::AddServer => "Ajouter un hôte",
         M::Dismiss => "Masquer",
         M::OtherCoresTitle => "Autres hôtes et serveurs",
-        M::OtherCoresHint => {
-            "Les hôtes d’autres ordinateurs ajoutés par leur adresse, et les serveurs rejoints avec un lien d’invitation."
-        }
         M::NoOtherCores => "Aucun autre hôte ni serveur pour l’instant",
         M::NoServersHint => {
             "Ajoutez un hôte par son adresse, ou un serveur avec le lien d’invitation qu’on vous a envoyé."
@@ -388,7 +385,7 @@ pub fn text(message: M) -> &'static str {
             "Connectez-vous pour démarrer et arrêter des serveurs et voir ceux qui ne sont pas listés publiquement. Lodestone Launcher crée sa propre clé pour {computer}\u{202F}; votre mot de passe n’est pas conservé."
         }
         M::AddIntro => {
-            "L’adresse d’un hôte. Sans vous connecter, vous voyez les serveurs que son propriétaire liste publiquement."
+            "Sans vous connecter, vous ne voyez que les serveurs que son propriétaire liste publiquement."
         }
         M::Address => "Adresse",
         M::SignInOptional => "Connexion (facultatif)",
@@ -419,9 +416,7 @@ pub fn text(message: M) -> &'static str {
         M::ConsoleNotShown => "La console n’est pas affichée",
         M::OutputAppearsHere => "La sortie du serveur s’affiche ici.",
         M::Send => "Envoyer",
-        M::ChatHint => {
-            "Le texte est dit à tous avec /say. Commencez par / pour exécuter une commande."
-        }
+        M::ChatHint => "Le texte est dit à tous avec /say.",
         M::Console => "Console",
         M::JumpToLatest => "Aller à la fin",
         M::MinecraftAccount => "Compte Minecraft",
@@ -518,7 +513,6 @@ pub fn text(message: M) -> &'static str {
         M::DownloadWorldBackups => "Sauvegarde",
         M::DownloadWorldMidWrite => "faite pendant qu’il tournait, peut-être en pleine écriture",
         M::DownloadWorldBackUpNow => "Sauvegarder maintenant",
-        M::DownloadWorldBackUpNowHint => "Une sauvegarde du serveur tel qu’il est maintenant",
         M::DownloadWorldButton => "Télécharger",
         M::DownloadWorldBackingUp => "L’hôte sauvegarde le serveur…",
         M::DownloadWorldPreparing => "L’hôte prépare le fichier…",
@@ -574,9 +568,6 @@ pub fn text(message: M) -> &'static str {
         M::NoInstancesYet => "Vous n’avez pas encore d’instance. Créez-en une d’abord.",
 
         M::FriendsTitle => "Serveurs des liens d’invitation",
-        M::FriendsHint => {
-            "Les serveurs qu’on vous a partagés par un lien d’invitation Lodestone Connect."
-        }
         M::JoinAFriend => "Ajouter un serveur",
         M::SharedBy => "Partagé par {name}",
         M::SharedWithFriends => "Partagé avec des amis",
@@ -597,7 +588,7 @@ pub fn text(message: M) -> &'static str {
         M::JoinFriendTitle => "Rejoindre un serveur",
         M::AddServerTitle => "Ajouter un serveur",
         M::JoinFriendIntro => {
-            "Collez le lien d’invitation qu’on vous a envoyé. Il commence par https://connect.lodestone.cc/j/. Ajouter enregistre le serveur même s’il est hors ligne pour l’instant."
+            "Ajouter enregistre le serveur même s’il est hors ligne pour l’instant."
         }
         M::InvitePlaceholder => "Lien d’invitation (https://connect.lodestone.cc/j/…)",
         M::NotAnInvite => {
