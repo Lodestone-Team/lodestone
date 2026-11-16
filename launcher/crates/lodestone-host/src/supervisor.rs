@@ -125,7 +125,10 @@ impl Supervisor {
                     if exited(&shared).is_some() {
                         break;
                     }
+                    // asked only once the port takes connections, so a normal start
+                    // logs no failed requests
                     if let Ok(client) = &client
+                        && listening(config.port)
                         && client.info().await.is_ok()
                     {
                         ready = true;
@@ -293,6 +296,12 @@ fn prepare() -> Result<CoreConfig, String> {
         log_file: Default::default(),
         connect_service: CoreConfig::connect_service_now(),
     })
+}
+
+/// Whether something takes connections on this computer's `port`.
+fn listening(port: u16) -> bool {
+    let address = std::net::SocketAddr::from((std::net::Ipv4Addr::LOCALHOST, port));
+    std::net::TcpStream::connect_timeout(&address, Duration::from_millis(200)).is_ok()
 }
 
 /// The core's exit status, once it has exited.
