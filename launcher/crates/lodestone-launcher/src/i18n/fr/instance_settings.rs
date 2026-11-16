@@ -117,7 +117,7 @@ pub fn text(message: M) -> &'static str {
         M::ViewOnModrinth => "Voir sur Modrinth",
         M::DownloadingNewVersion => "Téléchargement de la nouvelle version…",
         M::CheckingModrinth => "Vérification sur Modrinth…",
-        M::UpdateTo => "Mettre à jour vers {version}…",
+        M::UpdateModpack => "Mettre à jour…",
         M::UpToDate => "À jour",
         M::CheckForUpdates => "Rechercher des mises à jour",
         M::ModrinthUnreachable => "Modrinth est injoignable.",
@@ -137,10 +137,11 @@ pub fn text(message: M) -> &'static str {
         M::JavaMemoryLead => "Les valeurs par défaut viennent des paramètres du launcher.",
         M::Memory => "Mémoire",
         M::Checking => "Vérification…",
-        M::JavaFound => "Java {major} (version {version})",
-        M::JavaTooOld => {
-            "Java {major} (version {version}). Minecraft {game} demande Java {needed} ou plus récent."
-        }
+        M::JavaTooOldBadge => "Trop ancien",
+        M::JavaFitsBadge => "Convient",
+        M::JavaFoundKey => "Trouvé",
+        M::JavaVersion => "Java {version}",
+        M::JavaOrNewer => "Java {major} ou plus récent",
         M::MojangJavaVersion => "Java {major} de Mojang",
         M::MojangJava => "Java de Mojang",
         M::AzulZulu8 => "Azul Zulu\u{a0}8, fait pour Apple Silicon",

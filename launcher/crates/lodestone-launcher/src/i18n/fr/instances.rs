@@ -129,12 +129,12 @@ pub fn text(message: M) -> &'static str {
         M::LogSource => "Journal à afficher",
         M::LogThisSession => "Cette session",
         M::LogNoFiles => "Aucun journal ni rapport de plantage antérieur pour l’instant.",
-        M::LogKindLog => "Journal",
-        M::LogKindCrash => "Rapport de plantage",
-        M::LogKindJvm => "Plantage de Java",
         M::LogReading => "Lecture de {name}",
         M::LogReadFailed => "Impossible de lire {name} : {error}",
         M::LogFileEmpty => "Ce fichier est vide.",
+        M::LogLines => "Lignes",
+        M::LogLinesNotShown => "Non affichées",
+        M::LogFollowing => "En direct",
 
         M::ImportTitle => "Importer depuis un autre launcher",
         M::ImportFromHere => "Importer depuis ce dossier",
@@ -312,15 +312,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::FilesLeftOut => [
             "{count} fichier a été ignoré\u{a0}: {name}.",
             "{count} fichiers ont été ignorés, par exemple {name}.",
-        ],
-        P::LogLinesSkipped => [
-            "{count} ligne au début n’est pas affichée",
-            "les {count} premières lignes ne sont pas affichées",
-        ],
-        P::LinesShown => ["{shown} ligne sur {count}", "{shown} lignes sur {count}"],
-        P::LinesShownFollowing => [
-            "{shown} ligne sur {count} · suivi en direct",
-            "{shown} lignes sur {count} · suivi en direct",
         ],
         P::ProblemAndMore => [
             "{problem} (et {count} autre)",

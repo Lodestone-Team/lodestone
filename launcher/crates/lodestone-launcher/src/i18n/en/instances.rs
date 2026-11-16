@@ -142,12 +142,15 @@ crate::i18n::messages! {
         LogSource = "Log to show",
         LogThisSession = "This session",
         LogNoFiles = "No earlier logs or crash reports yet.",
-        LogKindLog = "Log",
-        LogKindCrash = "Crash report",
-        LogKindJvm = "Java crash",
         LogReading = "Reading {name}",
         LogReadFailed = "Couldn’t read {name}: {error}",
         LogFileEmpty = "This file is empty.",
+        /// The Logs footer: the key of the lines shown of the total ("1,204 / 5,000").
+        LogLines = "Lines",
+        /// The key of how many lines at the start of a very long file aren't shown.
+        LogLinesNotShown = "Not shown",
+        /// A badge while the log follows new output.
+        LogFollowing = "Following",
 
         // Import from another launcher.
         ImportTitle = "Import from another launcher",
@@ -313,18 +316,6 @@ crate::i18n::messages! {
         FilesLeftOut = (
             "{count} file was left out: {name}.",
             "{count} files were left out, such as {name}."
-        ),
-        /// After the footer's count, for a very long file: only its last lines are shown.
-        LogLinesSkipped = (
-            "the first {count} line isn’t shown",
-            "the first {count} lines aren’t shown"
-        ),
-        /// The console's footer: rows shown of the total.
-        LinesShown = ("{shown} of {count} line", "{shown} of {count} lines"),
-        /// The same while it follows new output.
-        LinesShownFollowing = (
-            "{shown} of {count} line · following",
-            "{shown} of {count} lines · following"
         ),
         /// A launcher's first problem, and how many more it has.
         ProblemAndMore = ("{problem} (and {count} more)", "{problem} (and {count} more)"),

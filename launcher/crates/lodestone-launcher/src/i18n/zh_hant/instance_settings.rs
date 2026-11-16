@@ -112,7 +112,7 @@ pub fn text(message: M) -> &'static str {
         M::ViewOnModrinth => "在 Modrinth 上查看",
         M::DownloadingNewVersion => "正在下載新版本…",
         M::CheckingModrinth => "正在檢查 Modrinth…",
-        M::UpdateTo => "更新至 {version}…",
+        M::UpdateModpack => "更新…",
         M::UpToDate => "已是最新版本",
         M::CheckForUpdates => "檢查更新",
         M::ModrinthUnreachable => "無法連線至 Modrinth。",
@@ -132,10 +132,11 @@ pub fn text(message: M) -> &'static str {
         M::JavaMemoryLead => "預設值來自啟動器設定。",
         M::Memory => "記憶體",
         M::Checking => "正在檢查…",
-        M::JavaFound => "Java {major}（版本 {version}）",
-        M::JavaTooOld => {
-            "Java {major}（版本 {version}）。Minecraft {game} 需要 Java {needed} 或更新版本。"
-        }
+        M::JavaTooOldBadge => "版本過舊",
+        M::JavaFitsBadge => "可用",
+        M::JavaFoundKey => "偵測到",
+        M::JavaVersion => "Java {version}",
+        M::JavaOrNewer => "Java {major} 或更新版本",
         M::MojangJavaVersion => "Mojang 提供的 Java {major}",
         M::MojangJava => "Mojang 提供的 Java",
         M::AzulZulu8 => "適用於 Apple 晶片的 Azul Zulu 8",

@@ -573,7 +573,10 @@ fn version_row(index: usize, version: &MojangVersion, selected: bool) -> gpui::S
             version.id.clone(),
         )
         .aria_selected(selected)
-        .aria_description(format!("{} · {date}", kind_label(version.kind)))
+        .aria_description(format::list(&[
+            kind_label(version.kind).to_string(),
+            date.to_string(),
+        ]))
         .keyboard_focus()
         .flex()
         .flex_row()
