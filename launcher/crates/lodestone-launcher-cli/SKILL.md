@@ -96,7 +96,8 @@ The user also sees each connected program (this CLI says
 
 - **Destructive commands need `--yes`, and you need the user's OK first.** Without it they
   fail with exit 5 and change nothing; the message says what would happen. These are:
-  `instances delete`, `worlds delete`, `worlds restore --replace`,
+  `instances delete`, `worlds delete`, `worlds restore-snapshot --mode replace`,
+  `world-backups restore` in place (without `--new`), `world-backups delete`,
   `content remove`, `accounts remove`, `cores remove`, `cores trust`, `friends remove`,
   `friend-list answer`, `friend-list accept`, `friend-list verify`, `friend-list remove`,
   `friend-list retire-core`, `friend-list retire`, `shared clear`,
@@ -324,21 +325,28 @@ lodestone-launcher-cli modpacks remove SMP fabulously-optimized     # exit 5: wh
 lodestone-launcher-cli modpacks remove SMP fabulously-optimized --yes
 ```
 
-Worlds (a world's backups are the snapshots that hold it):
+Worlds, and world backups: a world backup is a plain .zip of one world (it opens with
+any zip tool), made by hand and kept until deleted; restoring one in place first saves
+the world as it is as another world backup ("Before restoring …"). "Back up my world"
+means a world backup; a snapshot is of the whole instance:
 
 ```sh
-lodestone-launcher-cli worlds list Survival
-lodestone-launcher-cli worlds backup Survival "New World"                   # long; a snapshot named after it
-lodestone-launcher-cli worlds backups Survival "New World"                  # the snapshots that hold it
-lodestone-launcher-cli worlds restore Survival "New World"                  # a copy beside it, from the newest
-lodestone-launcher-cli worlds restore Survival "New World" --snapshot "Before 1.21" --replace --yes
+lodestone-launcher-cli worlds list Survival                                 # world_backups and snapshots per world
+lodestone-launcher-cli world-backups create Survival "New World" --name "Before the raid"  # long
+lodestone-launcher-cli world-backups list Survival --world "New World"      # newest first, with each zip's path
+lodestone-launcher-cli world-backups restore Survival latest --world "New World" --yes  # long; in place
+lodestone-launcher-cli world-backups restore Survival "Before the raid" --new           # long; a new world beside it
+lodestone-launcher-cli world-backups delete Survival "Before the raid" --yes            # to the Trash
+lodestone-launcher-cli world-backups list --deleted                         # kept from deleted instances
+lodestone-launcher-cli worlds snapshots Survival "New World"                # the snapshots that hold it
+lodestone-launcher-cli worlds restore-snapshot Survival "New World"         # a new world from the newest
+lodestone-launcher-cli worlds restore-snapshot Survival "New World" --snapshot "Before 1.21" --mode replace --yes
 lodestone-launcher-cli worlds delete Survival "Old World" --yes
 ```
 
-Snapshots are images in the launcher's image store: the instance's worlds and other
-files (options, servers, screenshots), linked to the mods and configs they ran with,
-which are stored once however many snapshots use them. `--everything` takes the mods and
-configs as files too. The launcher also takes them on its own before mod, modpack,
+Snapshots are images in the launcher's image store of the whole instance folder: its
+worlds and other files (options, servers, screenshots), linked to the mods and configs
+they ran with, which are stored once however many snapshots use them. The launcher also takes them on its own before mod, modpack,
 server and loader version updates, before a restore (a safety snapshot), and after
 playing when the user turns that on. A failed snapshot stops a modpack update (the
 error says why; the window offers to update without one); a mod update goes on and its
@@ -366,13 +374,14 @@ What the replies say beyond the obvious:
 - `snapshots restore` in place: `kept_aside` is a folder in the instance where files
   written meanwhile by another job were moved rather than lost; tell the user.
 - Snapshot records carry `world_details` (each world's folder, own name and size) and
-  `full` (it holds the mods and configs too).
+  `full` (it holds the mods and configs as files, when they couldn't be linked).
+- `world-backups restore`: `safety_world_backup` is the backup of the world as it was;
+  `kept_aside` as for snapshots.
 
 ```sh
 lodestone-launcher-cli snapshots list Survival                                   # newest first, with the policy
 lodestone-launcher-cli snapshots list --deleted                                  # kept from deleted instances
 lodestone-launcher-cli snapshots create Survival --name "Before 1.21"           # long
-lodestone-launcher-cli snapshots create Survival --everything                   # mods and configs too
 lodestone-launcher-cli snapshots restore Survival "Before 1.21" --preview       # what it replaces, how the mods differ
 lodestone-launcher-cli snapshots restore Survival latest --world "New World" --yes        # only that world
 lodestone-launcher-cli snapshots restore Survival latest --scope worlds_and_mods --yes    # the worlds and their mods
@@ -538,6 +547,7 @@ lodestone-launcher-cli storage clean runtimes --yes     # Java runtimes no versi
 lodestone-launcher-cli storage clean cache --yes
 lodestone-launcher-cli storage clean leftovers --yes    # unfinished modpack downloads/imports
 lodestone-launcher-cli storage clean old-logs --yes     # older than 30 days; `logs` for all
+lodestone-launcher-cli storage clean deleted-world-backups --yes  # deleted instances' world backups, for good
 ```
 
 Game files and runtimes download again when needed; logs are deleted for good. Removing
