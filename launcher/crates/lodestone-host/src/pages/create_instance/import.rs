@@ -458,7 +458,7 @@ impl ImportFlow {
             .gap(px(12.))
             .child(wizard::title(
                 t(M::ImportFolderTitle),
-                t(M::ImportFolderSubtitle),
+                Some(t(M::ImportFolderSubtitle)),
             ))
             .child(
                 div()
@@ -488,10 +488,10 @@ impl ImportFlow {
             return div().into_any_element();
         };
         let error = |key: &str| self.errors.get(key).cloned();
-        let text_row = |name: M, description: M, input: &Entity<TextInput>, key: &str| {
+        let text_row = |name: M, description: Option<M>, input: &Entity<TextInput>, key: &str| {
             fields::row(
                 t(name),
-                t(description),
+                description.map(|d| t(d).into()),
                 false,
                 input.clone().into_any_element(),
                 error(key),
@@ -611,10 +611,7 @@ impl ImportFlow {
             .flex()
             .flex_col()
             .gap(px(16.))
-            .child(wizard::title(
-                t(M::ModpackSettingsTitle),
-                t(M::ImportSettingsSubtitle),
-            ))
+            .child(wizard::title(t(M::ModpackSettingsTitle), None))
             .child(
                 div()
                     .mt(px(-12.))
@@ -627,29 +624,19 @@ impl ImportFlow {
                 [software].into_iter().chain(version).collect(),
             ))
             .child(fields::section(vec![
-                text_row(
-                    M::FieldName,
-                    M::FieldNameDescription,
-                    &settings.name,
-                    "name",
-                ),
-                text_row(
-                    M::FieldPort,
-                    M::FieldPortDescription,
-                    &settings.port,
-                    "port",
-                ),
+                text_row(M::FieldName, None, &settings.name, "name"),
+                text_row(M::FieldPort, None, &settings.port, "port"),
             ]))
             .child(fields::section(vec![
                 text_row(
                     M::FieldMinRam,
-                    M::FieldMinRamDescription,
+                    Some(M::FieldMinRamDescription),
                     &settings.min_ram,
                     "min_ram",
                 ),
                 text_row(
                     M::FieldMaxRam,
-                    M::FieldMaxRamDescription,
+                    Some(M::FieldMaxRamDescription),
                     &settings.max_ram,
                     "max_ram",
                 ),

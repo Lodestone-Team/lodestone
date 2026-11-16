@@ -13,56 +13,46 @@ use lodestone_ui::{
 
 use crate::i18n::{CoreMsg, t};
 
-/// A permission's name, what it lets a user do, and what it lets a key do.
-pub fn messages(permission: Permission) -> (CoreMsg, CoreMsg, CoreMsg) {
+/// A permission's name, and what it lets a user and a key do, for the ones that need
+/// saying.
+pub fn messages(permission: Permission) -> (CoreMsg, Option<(CoreMsg, CoreMsg)>) {
     use CoreMsg::*;
     match permission {
-        Permission::CreateInstance => (
-            PermCreateInstance,
-            PermCreateInstanceUser,
-            PermCreateInstanceKey,
-        ),
+        Permission::CreateInstance => (PermCreateInstance, None),
         Permission::DeleteInstance => (
             PermDeleteInstance,
-            PermDeleteInstanceUser,
-            PermDeleteInstanceKey,
+            Some((PermDeleteInstanceUser, PermDeleteInstanceKey)),
         ),
         Permission::ReadGlobalFile => (
             PermReadGlobalFile,
-            PermReadGlobalFileUser,
-            PermReadGlobalFileKey,
+            Some((PermReadGlobalFileUser, PermReadGlobalFileKey)),
         ),
-        Permission::ViewInstance => (PermViewInstance, PermViewInstanceUser, PermViewInstanceKey),
-        Permission::StartInstance => (
-            PermStartInstance,
-            PermStartInstanceUser,
-            PermStartInstanceKey,
-        ),
-        Permission::StopInstance => (PermStopInstance, PermStopInstanceUser, PermStopInstanceKey),
-        Permission::Console => (PermConsole, PermConsoleUser, PermConsoleKey),
+        Permission::ViewInstance => (PermViewInstance, None),
+        Permission::StartInstance => (PermStartInstance, None),
+        Permission::StopInstance => (PermStopInstance, None),
+        Permission::Console => (PermConsole, Some((PermConsoleUser, PermConsoleKey))),
         Permission::InstanceSettings => (
             PermInstanceSettings,
-            PermInstanceSettingsUser,
-            PermInstanceSettingsKey,
+            Some((PermInstanceSettingsUser, PermInstanceSettingsKey)),
         ),
-        Permission::ReadResource => (PermReadResource, PermReadResourceUser, PermReadResourceKey),
-        Permission::ReadFiles => (PermReadFiles, PermReadFilesUser, PermReadFilesKey),
+        Permission::ReadResource => (
+            PermReadResource,
+            Some((PermReadResourceUser, PermReadResourceKey)),
+        ),
+        Permission::ReadFiles => (PermReadFiles, Some((PermReadFilesUser, PermReadFilesKey))),
         Permission::WriteResource => (
             PermWriteResource,
-            PermWriteResourceUser,
-            PermWriteResourceKey,
+            Some((PermWriteResourceUser, PermWriteResourceKey)),
         ),
-        Permission::WriteFiles => (PermWriteFiles, PermWriteFilesUser, PermWriteFilesKey),
+        Permission::WriteFiles => (
+            PermWriteFiles,
+            Some((PermWriteFilesUser, PermWriteFilesKey)),
+        ),
         Permission::WriteGlobalFile => (
             PermWriteGlobalFile,
-            PermWriteGlobalFileUser,
-            PermWriteGlobalFileKey,
+            Some((PermWriteGlobalFileUser, PermWriteGlobalFileKey)),
         ),
-        Permission::ManagePermission => (
-            PermManagePermission,
-            PermManagePermissionUser,
-            PermManagePermissionKey,
-        ),
+        Permission::ManagePermission => (PermManagePermission, None),
     }
 }
 
@@ -88,18 +78,21 @@ pub fn rows(
 ) -> Vec<SettingRow> {
     list.iter()
         .map(|&permission| {
-            let (title, user, key) = messages(permission);
+            let (title, hints) = messages(permission);
             let row_allowed = if permission.per_instance() {
                 instances.iter().any(|i| allowed(permission, Some(&i.uuid)))
             } else {
                 allowed(permission, None)
             };
-            let mut hint = t(if for_key { key } else { user }).to_string();
+            let mut hint = hints.map(|(user, key)| t(if for_key { key } else { user }).to_string());
             if !row_allowed && let Some(extra) = extra_hint {
-                hint = format!("{hint} {extra}");
+                hint = Some(match hint {
+                    Some(hint) => format!("{hint} {extra}"),
+                    None => extra.to_string(),
+                });
             }
             let row_id = SharedString::from(format!("{id}-{permission:?}"));
-            let row = SettingRow::new(t(title)).key(row_id.clone()).hint(hint);
+            let row = SettingRow::new(t(title)).key(row_id.clone()).hint_opt(hint);
             match permission.list(value) {
                 Some(granted) => {
                     let grid: AnyElement = if instances.is_empty() {
