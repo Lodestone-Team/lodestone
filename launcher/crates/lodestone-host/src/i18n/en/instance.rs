@@ -4,20 +4,16 @@ crate::i18n::messages! {
     pub enum InstanceMsg {
         /// The Settings tab (`InstanceSettings.tsx`).
         Automation = "Automation",
-        AutomationLead = "When Lodestone starts this server by itself.",
         AutoStart = "Auto start",
         AutoStartHint = "Start this server when Lodestone Core starts",
         RestartOnCrash = "Restart on crash",
-        RestartOnCrashHint = "Start this server again if it crashes",
         /// A section of the core's settings that has none yet.
         NotAvailable = "Not available at this moment",
         NotAvailableHint = "Try to start this server at least once",
         NoPermission = "No permission",
         SettingsFailed = "Couldn’t load the settings: {error}",
         DangerZone = "Danger zone",
-        DangerZoneLead = "These settings can cause irreversible damage to your server.",
         DeleteServer = "Delete server",
-        DeleteServerHint = "Permanently deletes this server and its data",
         /// The title of the confirmation dialog; {name} is the server's name.
         DeleteTitle = "Delete “{name}”",
         DeleteConfirm = "I understand, delete this server",
@@ -42,7 +38,7 @@ crate::i18n::messages! {
         ResourcePack = "Resource pack",
         ResourcePackLead = "A pack players are asked to download when they join.",
         PackUrl = "URL",
-        PackUrlHint = "A direct link to the pack zip. Leave it empty for none.",
+        PackUrlHint = "A direct link to the pack’s .zip.",
         PackSha1 = "SHA-1",
         PackSha1Hint = "Lets players check the download and cache the pack.",
         PackSha1Error = "The SHA-1 is 40 hexadecimal characters.",
@@ -62,9 +58,7 @@ crate::i18n::messages! {
         PackUrlScheme = "The URL must start with http:// or https://.",
         /// The Minecraft EULA: only the user accepts it, with their own click.
         Eula = "Minecraft EULA",
-        EulaLead = "A Minecraft server only runs after you agree to the Minecraft EULA.",
         EulaAccepted = "Accepted",
-        EulaAcceptedHint = "You agreed to the Minecraft EULA for this server.",
         EulaNotAccepted = "Not accepted",
         EulaNotAcceptedHint = "This server doesn’t start until you agree to the Minecraft EULA.",
         EulaRead = "Read the EULA",
@@ -80,7 +74,7 @@ crate::i18n::messages! {
         /// Accepts the EULA and starts the server.
         EulaAcceptAndStart = "I agree, start the server",
         /// The Event logs tab: what happened to this server.
-        EventLogsLead = "What happened to this server, newest first. The core keeps the recent events.",
+        EventLogsLead = "Only recent events are kept.",
         EventLogsEmpty = "Nothing has happened yet",
         EventLogsFailed = "Couldn’t load the events: {error}",
         /// {state} is the server's new state, such as Running.
@@ -254,9 +248,9 @@ crate::i18n::messages! {
         ModsIncompatibleBody = "{title} {version} is made for {loaders} {gameVersions}, not {loader} {gameVersion}. It may crash the server.",
         /// The Settings tab's Friends section (launcher/docs/friends.md).
         FriendsTitle = "Friends",
-        FriendsLead = "Friends you added in Lodestone Launcher see the servers you share with them, and join without a link. Nothing is shared until you tick a friend.",
+        FriendsLead = "Friends you added in Lodestone Launcher see the servers you share with them, and join without a link.",
         FriendsAddInLauncher = "Add friends in Lodestone Launcher",
-        FriendsAddInLauncherHint = "Your friend list is kept by Lodestone Launcher on this computer. Once you have friends there, you can share this server with them here.",
+        FriendsAddInLauncherHint = "Lodestone Launcher on this computer keeps your friend list.",
         FriendsLoading = "Loading your friends…",
         /// A checkbox; {name} is the friend's name.
         FriendsShareWith = "Share this server with {name}",
@@ -295,7 +289,7 @@ crate::i18n::messages! {
         FriendsCertificateRetireConfirm = "Retire and get a new one",
         /// The core's certificate was retired (here, or in Lodestone Launcher).
         FriendsCertificateRetired = "This core’s friend certificate was retired",
-        FriendsCertificateRetiredHint = "Friends don’t see this core now. Get it a new certificate to share from this computer again.",
+        FriendsCertificateRetiredHint = "Friends don’t see this core now.",
         FriendsCertificateNew = "Get a new certificate",
         /// For a core too old to make a new certificate; {path} is the certificate's file.
         FriendsCertificateManual = "Friends don’t see this core now. This core can’t make a new certificate itself: quit Lodestone Host, delete {path}, and open it again.",

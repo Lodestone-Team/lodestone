@@ -32,10 +32,10 @@ crate::i18n::messages! {
         EveryHour = "Every hour",
         EveryDay = "Every day",
         OnlyWhenActive = "Only when players were on",
-        OnlyWhenActiveHint = "Skips the snapshot when nobody played since the last one.",
+        OnlyWhenActiveHint = "Since the last snapshot.",
         /// How many automatic snapshots are kept.
         Keep = "Keep",
-        KeepHint = "How many automatic snapshots are kept. Manual and pinned snapshots are always kept.",
+        KeepHint = "Automatic snapshots only. Manual and pinned ones are always kept.",
         KeepFewer = "Fewer",
         KeepNormal = "Normal",
         KeepMore = "More",
