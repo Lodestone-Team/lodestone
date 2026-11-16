@@ -172,6 +172,15 @@ impl WorldBackups {
                 }
                 staged
             };
+            #[cfg(test)]
+            if let Some(meanwhile) = self
+                .before_swap
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .take()
+            {
+                meanwhile();
+            }
             let kept_aside = match staged.swap(&locked.journal) {
                 Ok(kept) => kept,
                 Err(SwapError::RolledBack(e)) | Err(SwapError::Broken(e)) => return Err(e.into()),

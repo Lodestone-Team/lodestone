@@ -219,6 +219,11 @@ pub struct WorldBackups {
     /// Failures the tests make the next in-place restore's swap simulate.
     #[cfg(test)]
     pub(crate) faults: Mutex<Option<crate::images::swap::Faults>>,
+    /// What the tests do just before the next in-place restore's swap, once it is staged
+    /// and checked: another job writing into the world meanwhile.
+    #[cfg(test)]
+    #[allow(clippy::type_complexity)]
+    pub(crate) before_swap: Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }
 
 /// A backup's two files.
@@ -287,6 +292,8 @@ impl WorldBackups {
             fake_free: Mutex::default(),
             #[cfg(test)]
             faults: Mutex::default(),
+            #[cfg(test)]
+            before_swap: Mutex::default(),
         })
     }
 
@@ -451,6 +458,7 @@ impl WorldBackups {
         let owner = self.instance(instance)?;
         let dirs = InstanceDirs::new(self.instances().dir(instance));
         let world = worlds::world_dir(&dirs, folder)?;
+        worlds::zip::check_world_folder(folder)?;
         let saves = worlds::saves_dir(&dirs);
         let only = [folder.to_string()];
         if worlds::open_in_game(&saves, Some(&only)).is_some() {

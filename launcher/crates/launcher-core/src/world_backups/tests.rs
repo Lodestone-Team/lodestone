@@ -598,6 +598,92 @@ fn restoring_in_place_saves_the_world_first_and_changes_only_that_world() {
 }
 
 #[test]
+fn what_is_written_into_the_world_during_a_restore_is_kept_aside() {
+    // A file that appears in the world after the safety backup listed what the restore
+    // replaces, and after the restore checked what it carries back, is neither replaced nor
+    // carried: the swap keeps it in `restore-leftovers-<16>/` rather than deleting it.
+    let s = Setup::new();
+    let backup = s.back_up("World", None);
+    s.write("saves/World/region/r.0.0.mca", b"region v2");
+    let late = s.game("saves/World/data/late.dat");
+    *s.backups.before_swap.lock().unwrap() = Some(Box::new(move || {
+        std::fs::create_dir_all(late.parent().unwrap()).unwrap();
+        std::fs::write(&late, b"written meanwhile").unwrap();
+    }));
+
+    let restored = s.restore(&backup.id, RestoreTo::InPlace).unwrap();
+    let kept = restored.kept_aside.expect("kept aside");
+    assert_eq!(kept.parent(), Some(s.store.dir(&s.id).as_path()));
+    assert!(
+        kept.file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with(crate::images::swap::LEFTOVERS_PREFIX),
+        "{kept:?}"
+    );
+    assert_eq!(
+        std::fs::read(kept.join("minecraft/saves/World/data/late.dat")).unwrap(),
+        b"written meanwhile"
+    );
+    // The world is the backup's; the safety backup has what it replaced.
+    assert!(!s.game("saves/World/data/late.dat").exists());
+    assert_eq!(s.world_files("World")["region/r.0.0.mca"], b"region v1");
+    let safety = restored.safety.unwrap();
+    assert!(
+        !zip_names(&s.backups.zip_path(&s.id, &safety)).contains(&"World/data/late.dat".into())
+    );
+}
+
+#[test]
+fn every_folder_a_backup_takes_restores_and_the_rest_are_refused_first() {
+    let s = Setup::new();
+    // Folder names `is_plain_name` finds but no zip restore takes (on Windows the disk
+    // can't hold the dotted ones, and `world_dir` refuses them).
+    let mut refused = vec!["aux", "com1", "nul.txt", "CON"];
+    if !cfg!(windows) {
+        refused.extend(["World.", "World "]);
+    }
+    for folder in refused {
+        s.world(folder, b"region");
+        let err = s
+            .backups
+            .create(&s.id, folder, None, &Progress::default(), NEVER)
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("can't be restored from a zip"),
+            "{folder:?}: {err}"
+        );
+    }
+    assert!(s.list().is_empty(), "nothing listed");
+    assert!(
+        files(&s.backup_dir()).is_empty(),
+        "nothing written: {:?}",
+        files(&s.backup_dir())
+    );
+
+    // Names inside a world the zip check refuses are left out, so the zip still restores.
+    let long = "d".repeat(250);
+    s.world("Odd name (1) é", b"region v1");
+    s.write("saves/Odd name (1) é/data/a..b.dat", b"two dots");
+    s.write(
+        &format!("saves/Odd name (1) é/{long}/{long}/x.dat"),
+        b"too long a zip name",
+    );
+    s.write("saves/Odd name (1) é/data/kept.dat", b"kept");
+    let backup = s.back_up("Odd name (1) é", None);
+    assert_eq!(backup.left_out_count, 2, "{:?}", backup.left_out);
+    let zip = s.backups.zip_path(&s.id, &backup);
+    worlds::zip::check(&zip, Shape::OneWorldFolder, worlds::Limits::default()).unwrap();
+    s.write("saves/Odd name (1) é/region/r.0.0.mca", b"region v2");
+    s.restore(&backup.id, RestoreTo::InPlace).unwrap();
+    let world = s.world_files("Odd name (1) é");
+    assert_eq!(world["region/r.0.0.mca"], b"region v1");
+    assert_eq!(world["data/kept.dat"], b"kept");
+    let copy = s.restore(&backup.id, RestoreTo::NewWorld).unwrap();
+    assert_eq!(s.world_files(&copy.folder)["data/kept.dat"], b"kept");
+}
+
+#[test]
 fn a_world_deleted_since_comes_back_without_a_safety_backup() {
     let s = Setup::new();
     let backup = s.back_up("World", None);

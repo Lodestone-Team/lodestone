@@ -128,16 +128,37 @@ fn world_path(relative: &str) -> Result<CanonicalPath, String> {
     CanonicalPath::new(format!("saves/w/{relative}")).map_err(|e| e.to_string())
 }
 
+/// Why a zip of the world folder `folder` couldn't be restored, if it couldn't: its name
+/// must pass what [`check`] asks of every entry (the top folder's included) and be a
+/// canonical path in the game folder (`saves/<folder>`), as a restore's swap asks.
+/// [`crate::content::is_plain_name`], which finds the world, allows names these refuse,
+/// such as `aux`, or `World.` outside Windows. World backups check this before zipping,
+/// so a backup is never made that no restore would take.
+pub fn check_world_folder(folder: &str) -> Result<(), WorldError> {
+    let refused = |why: String| {
+        WorldError::Invalid(format!(
+            "The world's folder name {folder:?} can't be restored from a zip ({why}). Rename the folder and try again."
+        ))
+    };
+    check_pack_path(&format!("{folder}/"), true, &WriteAll).map_err(|e| refused(e.to_string()))?;
+    CanonicalPath::new(format!("saves/{folder}")).map_err(|e| refused(e.to_string()))?;
+    Ok(())
+}
+
 /// The files and folders under `dir` a zip takes, relative with `/`, and the names it
 /// leaves out. Links are never followed. A folder whose name is left out is left out
-/// whole.
+/// whole. A name is taken only when [`check`] would take it in the zip, under `prefix/`.
+///
+/// A folder that holds only names the zip doesn't take is left out too, rather than going
+/// in empty: restoring in place carries such a folder back whole from the world on disk,
+/// which it couldn't do were the zip to place an empty folder of that name there.
 struct Collected {
     entries: Vec<(String, PathBuf, bool)>,
     left_out: Vec<String>,
     left_out_count: u64,
 }
 
-fn collect(dir: &Path) -> Result<Collected, WorldError> {
+fn collect(dir: &Path, prefix: &str) -> Result<Collected, WorldError> {
     let mut found = Collected {
         entries: Vec::new(),
         left_out: Vec::new(),
@@ -149,6 +170,17 @@ fn collect(dir: &Path) -> Result<Collected, WorldError> {
             found.left_out.push(name);
         }
     }
+    // The folders holding a name not taken (left out, or never zipped).
+    let mut held_back: HashSet<String> = HashSet::new();
+    let mut hold_back = |child: &str| {
+        let mut folder = child;
+        while let Some((parent, _)) = folder.rsplit_once('/') {
+            if !held_back.insert(parent.to_string()) {
+                break;
+            }
+            folder = parent;
+        }
+    };
     let mut stack = vec![(dir.to_path_buf(), String::new())];
     while let Some((path, relative)) = stack.pop() {
         let mut entries: Vec<_> = fs::read_dir(&path)
@@ -164,18 +196,28 @@ fn collect(dir: &Path) -> Result<Collected, WorldError> {
                 format!("{relative}/{name}")
             };
             if entry.file_name().to_str().is_none() {
+                hold_back(&child);
                 leave_out(&mut found, child);
                 continue;
             }
             let kind = entry.file_type().map_err(io_error(&entry.path()))?;
             let canonical = match world_path(&child) {
-                Ok(canonical) => canonical,
-                Err(_) => {
+                // `check` also refuses some names a canonical path allows (`a..b`), and
+                // zip names longer than it takes.
+                Ok(canonical)
+                    if check_pack_path(&format!("{prefix}/{child}"), kind.is_dir(), &WriteAll)
+                        .is_ok() =>
+                {
+                    canonical
+                }
+                _ => {
+                    hold_back(&child);
                     leave_out(&mut found, child);
                     continue;
                 }
             };
             if always_excluded(&canonical) {
+                hold_back(&child);
                 continue;
             }
             if kind.is_dir() {
@@ -184,10 +226,29 @@ fn collect(dir: &Path) -> Result<Collected, WorldError> {
             } else if kind.is_file() {
                 found.entries.push((child, entry.path(), false));
             } else {
+                hold_back(&child);
                 leave_out(&mut found, child);
             }
         }
     }
+    // A held-back folder stays when the zip takes something inside it: a file, or a folder
+    // that isn't held back itself.
+    let mut keep: HashSet<String> = HashSet::new();
+    for (child, _, is_dir) in &found.entries {
+        if *is_dir && held_back.contains(child) {
+            continue;
+        }
+        let mut folder = child.as_str();
+        while let Some((parent, _)) = folder.rsplit_once('/') {
+            if !keep.insert(parent.to_string()) {
+                break;
+            }
+            folder = parent;
+        }
+    }
+    found
+        .entries
+        .retain(|(child, _, is_dir)| !is_dir || !held_back.contains(child) || keep.contains(child));
     found.entries.sort_by(|a, b| a.0.cmp(&b.0));
     Ok(found)
 }
@@ -220,7 +281,7 @@ pub fn write_zip(
     progress: &Progress,
     stop: &dyn Fn() -> Result<(), WorldError>,
 ) -> Result<Written, WorldError> {
-    let collected = collect(dir)?;
+    let collected = collect(dir, prefix)?;
     let entries = &collected.entries;
     let total_bytes: u64 = entries
         .iter()
@@ -727,6 +788,59 @@ mod tests {
         assert_eq!(written.left_out_count, 2);
         assert_eq!(written.left_out, ["CON.txt", "link"]);
         assert!(!written.files.iter().any(|f| f.contains("lodestone")));
+    }
+
+    #[test]
+    fn folders_holding_only_names_left_out_stay_out_and_every_zip_passes_the_check() {
+        let temp = tempfile::tempdir().unwrap();
+        let src = temp.path().join("World");
+        world(&src);
+        // Only a name no disk keeps, nested: both folders stay out of the zip.
+        fs::create_dir_all(src.join("odd/deeper")).unwrap();
+        fs::write(src.join("odd/deeper/CON.txt"), b"x").unwrap();
+        // Two dots in a name, and a zip name longer than `check` takes.
+        let long = "d".repeat(250);
+        fs::create_dir_all(src.join(format!("data/{long}"))).unwrap();
+        fs::write(src.join(format!("data/{long}/{}", "e".repeat(255))), b"x").unwrap();
+        fs::write(src.join("data/a..b.dat"), b"x").unwrap();
+        // An empty folder, and one holding a name left out beside one taken, stay in.
+        fs::create_dir_all(src.join("empty")).unwrap();
+        fs::create_dir_all(src.join("mixed")).unwrap();
+        fs::write(src.join("mixed/aux"), b"x").unwrap();
+        fs::write(src.join("mixed/kept.dat"), b"x").unwrap();
+        let out = temp.path().join("w.zip");
+        let written = write_zip(&src, "World", &out, &Progress::default(), &|| Ok(())).unwrap();
+        assert_eq!(written.left_out_count, 4, "{:?}", written.left_out);
+        let checked = check(&out, Shape::OneWorldFolder, Limits::default()).unwrap();
+        let mut archive = zip::ZipArchive::new(File::open(&out).unwrap()).unwrap();
+        let names: Vec<String> = (0..archive.len())
+            .map(|i| archive.by_index(i).unwrap().name().unwrap().to_string())
+            .collect();
+        let long_folder = format!("World/data/{long}/");
+        for gone in [
+            "World/odd/",
+            "World/odd/deeper/",
+            "World/data/",
+            &long_folder,
+        ] {
+            assert!(!names.iter().any(|n| n == gone), "{gone} in {names:?}");
+        }
+        for kept in ["World/empty/", "World/mixed/", "World/mixed/kept.dat"] {
+            assert!(names.iter().any(|n| n == kept), "{kept} not in {names:?}");
+        }
+        assert!(checked.files().any(|f| f == "mixed/kept.dat"));
+    }
+
+    #[test]
+    fn a_world_folder_name_no_restore_takes_is_refused() {
+        for folder in ["World", "Odd name (1) é", "World.zip"] {
+            check_world_folder(folder).unwrap();
+        }
+        for folder in [
+            "aux", "COM1", "nul.txt", "World.", "World ", "a..b", "LODEST~1",
+        ] {
+            assert!(check_world_folder(folder).is_err(), "{folder:?}");
+        }
     }
 
     #[test]
