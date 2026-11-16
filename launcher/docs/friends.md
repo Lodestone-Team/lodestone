@@ -404,6 +404,63 @@ someone on the network spoofing this computer's address) can have it shared only
 answers a status ping, so it's at most another Minecraft server of this computer, and
 only friends reach it.
 
+## Magic localhost for every server
+
+Every server row on the Lodestone Host page shows a Magic localhost address with a Copy
+button: `127.0.0.1:<port>`, which any Minecraft client (the official launcher, another
+launcher) can join, and which stays the same from session to session so an entry in
+Minecraft's server list keeps working. How it works depends on where the server is:
+
+- **A server on a core on this computer** (a card in "On this computer": claimed here,
+  found by the scan, or at a loopback address) is at its own port:
+  `127.0.0.1:<server port>`, "(while the server runs)". Nothing listens for it and nothing
+  is saved. A core that hides a server's port shows no address.
+- **A server on another host**, added by address (signed in or not), gets a port of its
+  own, "(while Lodestone Launcher is open)". A forwarder listens there on 127.0.0.1 only
+  and passes each connection on to the core's host at the server's game port: the same
+  place Play joins. It never uses a Lodestone Connect tunnel, since these hosts are
+  reached directly, as Play reaches them.
+- **A server through Lodestone Connect** (an invite link's server, a friend's server)
+  keeps its own Magic localhost: the tunnel's game port, "(while connected)". A server
+  added from an invite link without joining now gets its port at once, so its row shows
+  the address before the first join.
+
+**Ports.** Both kinds of saved port are picked in 30000 to 39999 from a hash of an id
+(`friends::port_choices`): a host's server from `core:<core address>/<server id>` (the
+address, because a core gets a new id each time it starts), a friend's server from its
+friend id. The first free choice is saved: host servers' in `servers.json`, under their
+core (`magic_ports`: the server id, the port, and the server's game port so the forwarder
+opens at startup), friends' in `friends.json` (`game_port`). Each kind avoids every port
+the other has saved. A signed-in list drops the ports of servers it no longer lists; a
+public list only adds, so ports stay while signed out.
+
+**Lifetime.** The forwarders open from `servers.json` shortly after the Launcher starts
+and stay open while it runs, rather than on first use: an outside client connects
+without touching the Launcher, so there is no use to wait for, and the page's lists are
+only fetched while it is shown. An idle forwarder is one socket. A server that is
+stopped still shows its address; joining it fails (the forwarder closes the connection)
+until it runs, as for friends.
+
+**Port in use.** Opening a forwarder probes its saved port and binds it, else any free
+port, exactly as a tunnel's game port does (`connect::bind_game`). The row shows the
+address actually in use, and the page says once per session "Port … was in use". The
+saved port stays for next time.
+
+**Limits and safety.** At most 64 saved ports per core, 256 forwarders and 32
+connections per forwarder (more are closed at once); 10 seconds to resolve and connect.
+Saved entries are checked when read (port in range, a plain server id of at most 64
+characters, a non-zero game port). A forwarder only ever forwards to its core's own host
+at the port the core names, which is where Play connects already, so it is not an open
+proxy; a core at a loopback address gets none (its servers are "on this computer"), and
+a connection never goes to the forwarder's own address. The host's name is resolved for
+each connection, so a changed address counts. Connections a forwarder couldn't pass on
+are logged (a refused one, a stopped server, at debug level only).
+
+Known gaps: a core reached at a loopback address through an SSH tunnel counts as this
+computer, so its servers show `127.0.0.1:<server port>`; a server on this computer bound
+to one specific address (`server-ip`) doesn't answer on 127.0.0.1; and a server whose
+port changed is forwarded to the old port until the page fetches its list again.
+
 ## Mods
 
 - Trust stays per server, tied to its certificate (`trusted_as`). A friend's server
@@ -587,6 +644,11 @@ A core registers one **session** with all its records, and waits on one WebSocke
   commands. LAN worlds: `launcher-core/src/cores/lan_open.rs` (detecting),
   `launcher-core/src/friend_list/lan.rs` (the certificate, the state, the host) and
   `lodestone-launcher/src/servers/lan_share.rs`. Host: sharing an instance with chosen friends, and syncing its core.
+- Magic localhost for every server: `launcher-core/src/cores/magic_localhost.rs` (the
+  saved ports, the address a row shows, the forwarders) and
+  `lodestone-launcher/src/servers/magic.rs` (opening them from `servers.json`, the
+  rows' addresses, the port-in-use notice); the control API's `servers.list` returns
+  `magic_address`, `magic_address_kind` and `magic_port_taken`.
 
 The Launcher and the Host share one friend list: the file in the Launcher's data folder
 and the Keychain items `friend-identity` and `friend-list-key` (account "Lodestone
