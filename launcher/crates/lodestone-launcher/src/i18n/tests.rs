@@ -118,3 +118,20 @@ fn chinese_messages_are_translated() {
         problems.join("\n")
     );
 }
+
+/// `tr_spans!` and `trn_spans!` look messages up through this crate's `i18n`, the
+/// launcher's own areas and the shared ones alike.
+#[test]
+fn typed_spans_resolve_through_the_launchers_messages() {
+    use lodestone_ui::{
+        i18n::spans::{Num, Obj},
+        values::Role,
+    };
+    let spans = lodestone_ui::tr_spans!(ShellMsg::SettingsOf, name = Obj("Survival"));
+    let (range, role) = spans.runs()[0].clone();
+    assert_eq!((&spans.plain()[range], role), ("Survival", Role::Object));
+    let spans = lodestone_ui::tr_spans!(ValueMsg::KeyValue, key = "Size", value = Num(4));
+    assert!(spans.plain().contains('4'));
+    let spans = lodestone_ui::trn_spans!(ValuePlural::ShowMore, 2);
+    assert_eq!(spans.runs()[0].1, Role::Number);
+}

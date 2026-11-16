@@ -21,6 +21,9 @@
 //! - [`trn!`]: a message with a count, picking the plural form the locale needs:
 //!   `trn!(ShellPlural::Instances, count)`. `{count}` is filled in with the count,
 //!   grouped as the locale writes numbers.
+//! - [`tr_spans!`](crate::tr_spans) and [`trn_spans!`](crate::trn_spans): the same with
+//!   role-tagged values (`name = Obj(name)`), as an element that styles each value
+//!   where the translation puts it ([`spans`]).
 //! - [`Text`]: a label kept in a component (a text field's placeholder) that follows
 //!   the language when it changes.
 //! - [`format`]: numbers, sizes, dates and how long ago something was.
@@ -29,6 +32,7 @@
 //! the language ([`apply`]) and redrawing the windows updates every view at once.
 
 pub mod format;
+pub mod spans;
 mod system;
 
 pub mod en;
@@ -134,6 +138,15 @@ impl Locale {
             Locale::En => n == 1,
             Locale::Fr => n < 2,
             Locale::ZhHans | Locale::ZhHant => false,
+        }
+    }
+
+    /// Whether the language is written right to left, so arrows and from-to values
+    /// are mirrored. None of the four is yet; the components ask, so one that is
+    /// works when it is added.
+    pub fn is_rtl(self) -> bool {
+        match self {
+            Locale::En | Locale::Fr | Locale::ZhHans | Locale::ZhHant => false,
         }
     }
 
