@@ -395,14 +395,26 @@ pub fn scrub_str(text: &str) -> Option<String> {
     changed.then(|| words.join(" "))
 }
 
-/// A core's download link (`…/file/<key>`) with its key blanked: the key is all a
-/// download needs.
+/// A core's download link (`…/file/<key>`, or the relative `file/<key>` a request
+/// path has) with its key blanked: the key is all a download needs.
 fn scrub_download_key(word: &str) -> Option<String> {
-    let start = word.find("/file/")? + "/file/".len();
-    let end = word[start..]
-        .find(|c: char| !c.is_ascii_alphanumeric())
-        .map_or(word.len(), |n| start + n);
-    (end - start >= 16).then(|| format!("{}{REDACTED}{}", &word[..start], &word[end..]))
+    let (start, end) = word.match_indices("file/").find_map(|(at, _)| {
+        let start = at + "file/".len();
+        let end = word[start..]
+            .find(|c: char| !c.is_ascii_alphanumeric())
+            .map_or(word.len(), |n| start + n);
+        (opens_download_key(&word[..start]) && end - start >= 16).then_some((start, end))
+    })?;
+    Some(format!("{}{REDACTED}{}", &word[..start], &word[end..]))
+}
+
+/// Whether `before` ends with a core's `file/` path segment, so what follows is a
+/// download key: `/api/v1/file/`, a request path's `file/`, or `"path":"file/`. A
+/// word that only ends in `file/` (`profile/`) doesn't.
+fn opens_download_key(before: &str) -> bool {
+    before
+        .strip_suffix("file/")
+        .is_some_and(|rest| !rest.ends_with(|c: char| c.is_ascii_alphanumeric()))
 }
 
 /// A URL (or path) with secret query parameters blanked, or `None` when it has none.
@@ -820,13 +832,17 @@ fn scrub_base64_runs(line: &str) -> Option<String> {
         }
         let run = &line[start..at];
         let touches = |b: Option<&u8>| matches!(b, Some(b'.' | b':'));
+        // a sentence's full stop doesn't touch it: only a `.` with more after it
+        // (`x.zip`, `host.example`) makes it a name
+        let full_stop = bytes.get(at) == Some(&b'.')
+            && bytes.get(at + 1).is_none_or(|b| !b.is_ascii_alphanumeric());
         let base64 = run.len() >= 40
             && run.contains('+')
             && run.bytes().any(|b| b.is_ascii_uppercase())
             && run.bytes().any(|b| b.is_ascii_lowercase())
             && run.bytes().any(|b| b.is_ascii_digit())
             && !touches(start.checked_sub(1).and_then(|n| bytes.get(n)))
-            && !touches(bytes.get(at));
+            && (full_stop || !touches(bytes.get(at)));
         if base64 {
             out.push_str(&line[copied..start]);
             out.push_str(REDACTED);
@@ -872,7 +888,7 @@ fn scrub_token_runs(line: &str) -> Option<String> {
         let after = line[end..].chars().next();
         let in_path = matches!(before, Some('/' | '\\')) || matches!(after, Some('/' | '\\'));
         // a core's download link, `/api/v1/file/<key>`: the key is all it takes
-        let download_key = line[..start].ends_with("/file/")
+        let download_key = opens_download_key(&line[..start])
             && run.len() >= 16
             && run.chars().all(|c| c.is_ascii_alphanumeric());
         let from = if let Some(key) = run.find("lsk_").filter(|&n| run.len() - n >= 20) {
@@ -1080,10 +1096,15 @@ mod tests {
         let mut value = json!({
             "path": "/api/v1/file/Ab3dE5gH7jK9mN1pQ3sT5vW7yZ9bC1dE",
             "other": "/api/v1/file/short",
+            "relative": "file/Ab3dE5gH7jK9mN1pQ3sT5vW7yZ9bC1dE",
+            "profile": "profile/Ab3dE5gH7jK9mN1pQ3sT5vW7yZ9bC1dE",
         });
         scrub(&mut value);
         assert_eq!(value["path"], "/api/v1/file/[redacted]");
         assert_eq!(value["other"], "/api/v1/file/short");
+        // a request path, as core_http events carry it
+        assert_eq!(value["relative"], "file/[redacted]");
+        assert_eq!(value["profile"], "profile/Ab3dE5gH7jK9mN1pQ3sT5vW7yZ9bC1dE");
     }
 
     #[test]
@@ -1169,6 +1190,22 @@ mod tests {
                 "error sending request for url (https://core.example:16662/api/v1/file/Ab3dE5gH7jK9mN1pQ3sT5vW7yZ9bC1dE): client error (Connect)",
                 "error sending request for url (https://core.example:16662/api/v1/file/[redacted]): client error (Connect)",
             ),
+            (
+                r#"core_http.error {"host":"203.0.113.5","method":"DELETE","path":"file/Ab3dE5gH7jK9mN1pQ3sT5vW7yZ9bC1dE"}"#,
+                r#"core_http.error {"host":"203.0.113.5","method":"DELETE","path":"file/[redacted]"}"#,
+            ),
+            (
+                "GET file/Ab3dE5gH7jK9mN1pQ3sT5vW7yZ9bC1dE failed",
+                "GET file/[redacted] failed",
+            ),
+            (
+                "refresh failed: EwBYA+pvBAAUKods63Ys1fGlwiccIFJ+qE1hANsAAZmYz5Hb3Ug5R/WabcDEF123/xyzXYZ789==.",
+                "refresh failed: [redacted].",
+            ),
+            (
+                "saved /home/steve/profile/Ab3dE5gH7jK9mN1pQ3sT5vW7yZ9bC1dE.json",
+                "saved /home/steve/profile/Ab3dE5gH7jK9mN1pQ3sT5vW7yZ9bC1dE.json",
+            ),
         ];
         for (input, expected) in cases {
             assert_eq!(scrub_line(input), expected, "{input}");
@@ -1198,6 +1235,8 @@ mod tests {
         "xbl EwAoA+pvBAAUKods63Ys1fGlwiccIFJ+qE1hANsAAZ/abcDEF123+ghiJKL456/xyzXYZ789==",
         "joining https://connect.lodestone.cc/j/ABCDEFGH#0123456789abcdef0123 failed",
         "GET /api/v1/file/Ab3dE5gH7jK9mN1pQ3sT5vW7yZ9bC1dE",
+        r#"{"path":"file/Ab3dE5gH7jK9mN1pQ3sT5vW7yZ9bC1dE"}"#,
+        "refresh failed: EwBYA+pvBAAUKods63Ys1fGlwiccIFJ+qE1hANsAAZmYz5Hb3Ug5R/WabcDEF123/xyzXYZ789==.",
         r#"{"token": 123456}"#,
     ];
 

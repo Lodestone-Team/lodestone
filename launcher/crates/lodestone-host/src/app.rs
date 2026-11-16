@@ -53,7 +53,8 @@ pub struct HostApp {
     /// A warning for the next shell: why it is back on this computer's core.
     notice: Option<String>,
     /// The last run crashed: said once, on the first shell, once the window has been
-    /// seen ([`launcher_core::logging::Started::previous_crash`]).
+    /// seen ([`launcher_core::logging::Started::previous_crash`]); until then the
+    /// failure screens say it too, for a start that never gets to a shell.
     crash_notice: Option<launcher_core::logging::Crash>,
     /// The window has been active: a Host started hidden at sign-in hasn't been seen
     /// until the person opens it, and a toast would run out before then.
@@ -386,13 +387,13 @@ impl Render for HostApp {
                     _ => self.supervisor.read(cx).status.clone(),
                 };
                 let this = cx.entity().downgrade();
-                onboarding::core_status(&status, move |_, cx| {
+                onboarding::core_status(&status, self.crash_notice.is_some(), move |_, cx| {
                     this.update(cx, |this, cx| this.retry_core(cx)).ok();
                 })
             }
             Phase::Failed(error) => {
                 let this = cx.entity().downgrade();
-                onboarding::sign_in_failed(error, move |_, cx| {
+                onboarding::sign_in_failed(error, self.crash_notice.is_some(), move |_, cx| {
                     this.update(cx, |this, cx| this.retry_sign_in(cx)).ok();
                 })
             }

@@ -30,9 +30,7 @@ fn a_panic_on_a_background_thread_is_logged_and_kept() {
         version: "9.9.9-test".into(),
     });
     assert!(started.previous_crash.is_none());
-    assert!(!started.env_override);
-    let log_file = logging::log_file().unwrap();
-    assert_eq!(log_file, dir.join("launcher.log"));
+    let log_file = dir.join("launcher.log");
     assert!(log_file.starts_with(data.path()));
 
     let joined = thread::Builder::new()
@@ -84,6 +82,19 @@ fn a_panic_on_a_background_thread_is_logged_and_kept() {
             .unwrap()
             .contains("an older crash")
     );
+
+    // Survived panics fill the crash file; the one that ends the run is still kept,
+    // after the run's first.
+    for _ in 0..6 {
+        let _ = thread::spawn(|| panic!("{}", "long ".repeat(3000))).join();
+    }
+    let _ = thread::spawn(|| panic!("the fatal panic")).join();
+    let crash = fs::read_to_string(dir.join(CRASH_FILE)).unwrap();
+    assert!(crash.starts_with(header), "the first report leads");
+    assert!(crash.contains("a timer made outside a runtime"));
+    assert!(crash.contains("(later panics left out; the newest:)"));
+    assert!(crash.contains("the fatal panic"), "the newest is kept");
+    assert!(crash.len() < 6 * 15_000, "bounded: {}", crash.len());
 
     // The next start notices it, once; a clean quit after that shows nothing.
     let run_id = header.split(' ').nth(1).unwrap().to_string();
@@ -226,6 +237,63 @@ fn a_panic_on_a_background_thread_is_logged_and_kept() {
         "{text}"
     );
     assert!(!text.contains("alex") && !text.contains("said"), "{text}");
+
+    // A core's refusal (a 4xx) is logged where the reply arrives, for callers that
+    // only show it inline; a 404 (a probe) stays at debug.
+    let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+    let port = server.server_addr().to_ip().unwrap().port();
+    let answer = std::thread::spawn(move || {
+        for status in [403, 404] {
+            let request = server.recv().unwrap();
+            let body = format!(r#"{{"causes": ["refused with {status}"]}}"#);
+            let _ =
+                request.respond(tiny_http::Response::from_string(body).with_status_code(status));
+        }
+    });
+    let client = launcher_core::cores::CoreClient::new(
+        launcher_core::http::default_client().unwrap(),
+        url::Url::parse(&format!("http://127.0.0.1:{port}")).unwrap(),
+    );
+    assert!(futures::executor::block_on(client.info()).is_err());
+    assert!(futures::executor::block_on(client.info()).is_err());
+    answer.join().unwrap();
+    logging::flush();
+    let text = fs::read_to_string(&log_file).unwrap();
+    assert!(
+        text.contains("GET info on 127.0.0.1: 403 refused with 403"),
+        "{text}"
+    );
+    assert!(!text.contains("refused with 404"), "{text}");
+
+    // A download key in a traced request path (`DELETE file/<key>` while the core is
+    // away) never reaches the log.
+    launcher_core::trace::emit("core_http.error", || {
+        serde_json::json!({
+            "method": "DELETE",
+            "host": "203.0.113.5",
+            "path": "file/Ab3dE5gH7jK9mN1pQ3sT5vW7yZ9bC1dE",
+            "error": "error sending request",
+        })
+    });
+    logging::flush();
+    let text = fs::read_to_string(&log_file).unwrap();
+    assert!(text.contains(r#""path":"file/[redacted]""#), "{text}");
+    assert!(!text.contains("Ab3dE5gH7jK9mN1pQ3sT5vW7yZ9bC1dE"), "{text}");
+
+    // A core answering 500 to a poll: a couple of lines a minute, not one a poll.
+    for _ in 0..6 {
+        launcher_core::trace::emit(
+            "core_http.response",
+            || serde_json::json!({ "method": "GET", "host": "198.51.100.7", "path": "info", "status": 500 }),
+        );
+    }
+    logging::flush();
+    let text = fs::read_to_string(&log_file).unwrap();
+    assert_eq!(
+        text.matches(r#""host":"198.51.100.7""#).count(),
+        2,
+        "{text}"
+    );
 
     logging::end_session();
     assert!(!dir.join(logging::SESSION_FILE).exists());

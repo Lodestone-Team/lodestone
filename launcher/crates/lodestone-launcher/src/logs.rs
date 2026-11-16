@@ -9,9 +9,10 @@ use std::path::PathBuf;
 use gpui::App;
 use launcher_core::logging::{self, AppKind, Config, LogLevel, Started};
 
-/// Starts logging, before anything else that could fail. The offscreen scenes
-/// (`scene`) log to their own data folder's `logs/` when `LODESTONE_LAUNCHER_DATA_DIR`
-/// names one, and otherwise only to the terminal.
+/// Starts logging, before anything else that could fail. The offscreen scenes and
+/// other builds with the `screenshot` feature (`scene`) log to their own data folder's
+/// `logs/` when `LODESTONE_LAUNCHER_DATA_DIR` names one, and otherwise only to the
+/// terminal.
 pub fn start(scene: bool) -> Started {
     let location = launcher_control::paths::locate();
     let dir = match (&location, scene) {

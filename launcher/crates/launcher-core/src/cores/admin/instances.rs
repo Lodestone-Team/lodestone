@@ -543,9 +543,24 @@ pub struct PerformanceReport {
 }
 
 impl PerformanceReport {
-    /// A frame of the monitor stream.
+    /// A frame of the monitor stream. One that doesn't read (a core that changed the
+    /// frame's shape) is logged, a few lines a minute, with serde's error but never
+    /// the frame.
     pub fn parse(frame: &str) -> Option<Self> {
-        serde_json::from_str(frame).ok()
+        static UNREADABLE: crate::logging::Throttle = crate::logging::Throttle::new();
+        serde_json::from_str(frame)
+            .inspect_err(|err| {
+                UNREADABLE.log(
+                    "monitor",
+                    log::Level::Warn,
+                    module_path!(),
+                    format_args!(
+                        "couldn't read a frame of the monitor stream: {}",
+                        crate::logging::serde_error(err)
+                    ),
+                );
+            })
+            .ok()
     }
 }
 

@@ -64,8 +64,14 @@ pub fn begin(dir: &Path, run_id: &str, version: &str) -> Option<Crash> {
         started: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
         version: version.to_string(),
     };
-    if let Ok(bytes) = serde_json::to_vec_pretty(&marker) {
-        let _ = write_atomically(&dir.join(SESSION_FILE), &bytes);
+    let path = dir.join(SESSION_FILE);
+    let written = serde_json::to_vec_pretty(&marker)
+        .map_err(std::io::Error::other)
+        .and_then(|bytes| write_atomically(&path, &bytes));
+    if written.is_err() {
+        // (a full disk) the crashed run's marker mustn't stay, or every start would
+        // report its crash again; removing works on a full disk
+        let _ = fs::remove_file(&path);
     }
     crash
 }
@@ -91,12 +97,14 @@ pub fn crash_header(run_id: &str, at: &str, app: &str, version: &str) -> String 
 /// The crash `dir`'s crash file describes, if it is run `run_id`'s.
 fn crash_of(dir: &Path, run_id: &str) -> Option<Crash> {
     let file = dir.join(CRASH_FILE);
-    let mut text = String::new();
+    let mut bytes = Vec::new();
     fs::File::open(&file)
         .ok()?
         .take(MAX_CRASH_READ)
-        .read_to_string(&mut text)
+        .read_to_end(&mut bytes)
         .ok()?;
+    // the cut may land inside a character; only the first lines matter
+    let text = String::from_utf8_lossy(&bytes);
     let mut lines = text.lines();
     let mut header = lines.next()?.split(' ');
     if header.next()? != "run" || header.next()? != run_id {
@@ -128,10 +136,14 @@ pub fn write_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     options.write(true).create(true).truncate(true);
     #[cfg(unix)]
     std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    options.open(&temp)?.write_all(bytes)?;
-    fs::rename(&temp, path).inspect_err(|_| {
-        let _ = fs::remove_file(&temp);
-    })
+    options
+        .open(&temp)
+        .and_then(|mut file| file.write_all(bytes))
+        .and_then(|()| fs::rename(&temp, path))
+        .inspect_err(|_| {
+            // (a full disk) no temporary file is left behind
+            let _ = fs::remove_file(&temp);
+        })
 }
 
 #[cfg(test)]
@@ -200,6 +212,40 @@ mod tests {
         let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode(&logs.join(SESSION_FILE)), 0o600);
         assert_eq!(mode(&logs), 0o700);
+    }
+
+    #[test]
+    fn a_long_crash_file_cut_inside_a_character_is_still_read() {
+        let dir = tempfile::tempdir().unwrap();
+        begin(dir.path(), "a", "1.0.0");
+        crash(dir.path(), "a");
+        let mut text = fs::read_to_string(dir.path().join(CRASH_FILE)).unwrap();
+        while text.len() < MAX_CRASH_READ as usize - 1 {
+            text.push('x');
+        }
+        // `é` is two bytes: the read stops between them
+        text.push_str("é and more");
+        fs::write(dir.path().join(CRASH_FILE), text).unwrap();
+        let noticed = begin(dir.path(), "b", "1.0.0").expect("the crash");
+        assert_eq!(noticed.summary, "something broke");
+    }
+
+    #[test]
+    fn a_marker_that_cant_be_written_reports_a_crash_only_once() {
+        let dir = tempfile::tempdir().unwrap();
+        begin(dir.path(), "a", "1.0.0");
+        crash(dir.path(), "a");
+        // the new marker can't be written (a full disk, here a folder in the way)
+        let temp = dir
+            .path()
+            .join(format!("{SESSION_FILE}.{}.tmp", std::process::id()));
+        fs::create_dir(&temp).unwrap();
+        assert!(begin(dir.path(), "b", "1.0.0").is_some());
+        assert!(
+            !dir.path().join(SESSION_FILE).exists(),
+            "a's marker is gone"
+        );
+        assert_eq!(begin(dir.path(), "c", "1.0.0"), None, "not again");
     }
 
     #[test]

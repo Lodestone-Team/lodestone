@@ -1169,6 +1169,8 @@ impl AdminClient {
             INSTALL_TIMEOUT,
         )
         .await
+        // a transport error names the URL, key and all, and it is shown in a toast
+        .map_err(|err| err.without(key))
     }
 }
 

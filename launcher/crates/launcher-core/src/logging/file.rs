@@ -54,6 +54,8 @@ pub struct RotatingFile {
     released: bool,
     /// Lines written while released, at most [`BUFFER`] bytes.
     pending: String,
+    /// Lines that didn't fit in `pending`, said on [`Self::resume`].
+    dropped: usize,
     /// Renames a file; a seam for tests, where the rename has to fail.
     rename: fn(&Path, &Path) -> io::Result<()>,
 }
@@ -77,6 +79,7 @@ impl RotatingFile {
             checked: Instant::now(),
             released: false,
             pending: String::new(),
+            dropped: 0,
             rename: |from, to| fs::rename(from, to),
         };
         // A rotation that stopped halfway (the app quit in it) is finished first.
@@ -123,6 +126,8 @@ impl RotatingFile {
         if self.released {
             if self.pending.len() + text.len() <= BUFFER {
                 self.pending.push_str(text);
+            } else {
+                self.dropped += text.lines().count().max(1);
             }
             return;
         }
@@ -170,6 +175,11 @@ impl RotatingFile {
         let pending = std::mem::take(&mut self.pending);
         if !pending.is_empty() {
             self.write(&pending);
+        }
+        match std::mem::take(&mut self.dropped) {
+            0 => {}
+            1 => self.write("… 1 line left out while the log was closed\n"),
+            n => self.write(&format!("… {n} lines left out while the log was closed\n")),
         }
     }
 
@@ -221,14 +231,20 @@ impl RotatingFile {
         }
     }
 
-    /// Moves the older files up one (dropping the oldest) and `name.rotating` to
-    /// `name.1`.
+    /// Moves the older files up one and `name.rotating` to `name.1`. Only the files
+    /// below the first gap move, oldest first, and the oldest file is only dropped
+    /// when there is no gap; the first move that fails stops it, leaving
+    /// `name.rotating` for the next try. So a file another program holds (Windows) is
+    /// waited for, and a try that can't move it drops nothing.
     fn shift_in_staging(&mut self) {
-        let _ = fs::remove_file(self.rotated(self.keep));
-        for n in (1..self.keep).rev() {
-            let from = self.rotated(n);
-            if from.exists() {
-                let _ = (self.rename)(&from, &self.rotated(n + 1));
+        let gap = match (1..=self.keep).find(|&n| !self.rotated(n).exists()) {
+            Some(gap) => gap,
+            None if fs::remove_file(self.rotated(self.keep)).is_ok() => self.keep,
+            None => return,
+        };
+        for n in (1..gap).rev() {
+            if (self.rename)(&self.rotated(n), &self.rotated(n + 1)).is_err() {
+                return;
             }
         }
         let _ = (self.rename)(&self.staging(), &self.rotated(1));
@@ -400,6 +416,43 @@ mod tests {
     }
 
     #[test]
+    fn a_rotated_file_that_cant_move_costs_no_history_on_retries() {
+        let dir = tempfile::tempdir().unwrap();
+        for n in 1..=5 {
+            fs::write(
+                dir.path().join(format!("x.log.{n}")),
+                format!("history {n}\n"),
+            )
+            .unwrap();
+        }
+        let mut file = RotatingFile::with_limits(dir.path(), "x.log", 100, 5);
+        // `.1` can't be moved (Windows: a viewer holds it open)
+        file.rename = |from, to| {
+            if from.extension().is_some_and(|e| e == "1") {
+                Err(io::Error::other("held by another program"))
+            } else {
+                fs::rename(from, to)
+            }
+        };
+        // a few megabytes: a rotation and several retries
+        let line = format!("{:<1023}\n", "line");
+        for _ in 0..4 * 1024 {
+            file.write(&line);
+        }
+        file.flush();
+        let read = |name: &str| fs::read_to_string(dir.path().join(name)).unwrap();
+        // the first try dropped the oldest to make room and moved what it could; the
+        // retries dropped nothing more
+        assert_eq!(read("x.log.1"), "history 1\n");
+        assert!(!dir.path().join("x.log.2").exists());
+        for n in 3..=5 {
+            assert_eq!(read(&format!("x.log.{n}")), format!("history {}\n", n - 1));
+        }
+        assert!(dir.path().join("x.log.rotating").exists());
+        assert!(read("x.log").len() > 3 * 1024 * 1024, "writing carried on");
+    }
+
+    #[test]
     fn a_rotation_cut_short_is_finished_at_open() {
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join("app.log.1"), "older\n").unwrap();
@@ -485,6 +538,23 @@ mod tests {
         assert_eq!(
             fs::read_to_string(logs.join("app.log")).unwrap(),
             "one\ntwo\nthree\n"
+        );
+
+        // what doesn't fit in memory meanwhile is counted, not lost quietly
+        file.release();
+        for n in 0..1000 {
+            file.write(&format!("{n:<39}\n"));
+        }
+        file.resume();
+        file.flush();
+        let text = fs::read_to_string(logs.join("app.log")).unwrap();
+        let kept = BUFFER / 40;
+        assert!(
+            text.ends_with(&format!(
+                "… {} lines left out while the log was closed\n",
+                1000 - kept
+            )),
+            "{text}"
         );
     }
 

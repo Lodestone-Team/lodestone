@@ -88,24 +88,36 @@ pub fn emit(topic: &str, data: impl FnOnce() -> Value) {
     let host = data["host"].as_str().filter(|host| !host.is_empty());
     let unreachable = topic.ends_with(".error") && host.is_some();
     if is_failure(topic, &data) {
-        let mut scrubbed = data.clone();
-        lodestone_trace::scrub(&mut scrubbed);
+        // scrubbed only when a line is written, not for a quiet or throttled one
+        let scrubbed = Scrubbed(&data);
         let outage = host
             .filter(|_| unreachable)
             .map(|host| (host, OUTAGES.begin(host, Instant::now())));
-        match outage {
-            Some((host, Outage::Started)) => log::warn!(
+        match (outage, host) {
+            (Some((host, Outage::Started)), _) => log::warn!(
                 target: crate::logging::TRACE_TARGET,
                 "{topic} {scrubbed} (more failed requests to {host} aren't logged until it answers)"
             ),
-            Some((_, Outage::Quiet)) => {}
-            Some((host, Outage::Untracked)) => THROTTLE.log(
+            (Some((_, Outage::Quiet)), _) => {}
+            (Some((host, Outage::Untracked)), _) => THROTTLE.log(
                 host,
                 log::Level::Warn,
                 crate::logging::TRACE_TARGET,
                 format_args!("{topic} {scrubbed}"),
             ),
-            _ => THROTTLE.log(
+            // a server error from a host (a core answering 500 to a poll all day):
+            // a couple of lines a minute for each request, so it can't rotate the
+            // rest of the history away
+            (None, Some(host)) if topic.ends_with(".response") => SERVER_ERRORS.log(
+                &format!(
+                    "{topic} {host} {}",
+                    data["path"].as_str().unwrap_or_default()
+                ),
+                log::Level::Warn,
+                crate::logging::TRACE_TARGET,
+                format_args!("{topic} {scrubbed}"),
+            ),
+            (None, _) => THROTTLE.log(
                 topic,
                 log::Level::Warn,
                 crate::logging::TRACE_TARGET,
@@ -124,6 +136,20 @@ pub fn emit(topic: &str, data: impl FnOnce() -> Value) {
 
 /// The hosts whose requests are failing, so a failure is logged once per outage.
 static OUTAGES: Outages = Outages::new();
+
+/// Server errors answering requests to a host, by host and path.
+static SERVER_ERRORS: crate::logging::Throttle = crate::logging::Throttle::with_limit(2);
+
+/// An event's data as it is logged: scrubbed, when it is formatted.
+struct Scrubbed<'a>(&'a Value);
+
+impl std::fmt::Display for Scrubbed<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut value = self.0.clone();
+        lodestone_trace::scrub(&mut value);
+        write!(f, "{value}")
+    }
+}
 
 /// What a failed request to a host means for the log.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

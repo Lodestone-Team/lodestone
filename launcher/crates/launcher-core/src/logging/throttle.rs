@@ -35,6 +35,7 @@ struct Window {
 /// Counts lines by key. Usually a `static`.
 pub struct Throttle {
     windows: Mutex<BTreeMap<String, Window>>,
+    per_window: u32,
 }
 
 impl Default for Throttle {
@@ -45,8 +46,15 @@ impl Default for Throttle {
 
 impl Throttle {
     pub const fn new() -> Self {
+        Self::with_limit(PER_WINDOW)
+    }
+
+    /// A throttle that lets `per_window` lines per key through each minute, for a line
+    /// that says nothing new when it repeats (a server error answering a poll).
+    pub const fn with_limit(per_window: u32) -> Self {
         Self {
             windows: Mutex::new(BTreeMap::new()),
+            per_window,
         }
     }
 
@@ -77,7 +85,7 @@ impl Throttle {
                 n => Allowed::YesAfterSuppressing(n),
             };
         }
-        if window.count < PER_WINDOW {
+        if window.count < self.per_window {
             window.count += 1;
             Allowed::Yes
         } else {
@@ -124,6 +132,15 @@ mod tests {
             Allowed::YesAfterSuppressing(5)
         );
         assert_eq!(throttle.allow_at("events", later), Allowed::Yes);
+    }
+
+    #[test]
+    fn a_throttle_can_let_fewer_through() {
+        let throttle = Throttle::with_limit(2);
+        let start = Instant::now();
+        assert_eq!(throttle.allow_at("poll", start), Allowed::Yes);
+        assert_eq!(throttle.allow_at("poll", start), Allowed::Yes);
+        assert_eq!(throttle.allow_at("poll", start), Allowed::No);
     }
 
     #[test]

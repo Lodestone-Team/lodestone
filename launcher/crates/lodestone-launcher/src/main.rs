@@ -31,8 +31,11 @@ fn main() {
     let scene = lodestone_launcher::preview::requested_scene().is_some();
     #[cfg(not(feature = "screenshot"))]
     let scene = false;
-    // The log file and the panic hook, before anything else can fail.
-    lodestone_launcher::logs::start(scene);
+    // The log file and the panic hook, before anything else can fail. A build with the
+    // screenshot feature skips the single-instance check, so even without a scene it
+    // logs like one: never into the folder of a launcher running beside it, whose
+    // crash marker it would replace.
+    lodestone_launcher::logs::start(scene || cfg!(feature = "screenshot"));
     // A data folder move finished before this restart: remove the old folder, in
     // the background (it can be large). Not for the offscreen scenes, which use
     // made-up data.

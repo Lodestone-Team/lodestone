@@ -111,8 +111,6 @@ pub struct Config {
 pub struct Started {
     /// The last run ended in this crash: the app shows a notice, once.
     pub previous_crash: Option<Crash>,
-    /// [`ENV`] sets the filter, so the setting does nothing.
-    pub env_override: bool,
 }
 
 /// What [`install`] set up, for the rest of the app.
@@ -168,10 +166,7 @@ pub fn install(config: Config) -> Started {
         run_id: run_id.clone(),
     });
     logger.start_flusher();
-    let started = Started {
-        previous_crash,
-        env_override,
-    };
+    let started = Started { previous_crash };
     let _ = INSTALLED.set(Installed {
         app: config.app,
         dir: config.dir,
@@ -229,12 +224,6 @@ pub fn level() -> LogLevel {
 /// The logs folder, once [`install`] set one.
 pub fn logs_dir() -> Option<PathBuf> {
     INSTALLED.get()?.dir.clone()
-}
-
-/// The app's log file, once [`install`] set one.
-pub fn log_file() -> Option<PathBuf> {
-    let installed = INSTALLED.get()?;
-    Some(installed.dir.as_ref()?.join(installed.app.file_name()))
 }
 
 /// Whether [`ENV`] sets the filter.

@@ -4591,7 +4591,13 @@ Persistent logging for the Launcher and the Host (not an instance-images milesto
   second log line can't carry the value either.
 - **Download keys.** An image, backup or world download through a core's
   `GET /file/{key}` that fails leaves the key out of its error (a transport error names
-  the URL), and the scrubbers blank a `/file/…` key as a backstop.
+  the URL), and the scrubbers blank a `/file/…` key as a backstop. The core client's
+  traces carry a request's path as `file/[redacted]` (a download's release,
+  `DELETE file/{key}`, too), and the scrubbers also blank a relative `file/…` key.
+- **Refusals.** A core's 4xx answer (an image or backup listing refused) is logged where
+  the reply arrives, with the method, path, host, status and the core's message,
+  throttled per request; 404s and 401s on a key are at debug. A 5xx from a host is
+  logged at most twice a minute per request.
 - **Unreachable hosts.** A request that couldn't reach its host (an image sync against
   a core that is off) is logged once per outage, and again when the host answers; a host
   that fails and answers by turns is logged once a minute at most. Game file downloads
@@ -4600,7 +4606,8 @@ Persistent logging for the Launcher and the Host (not an instance-images milesto
   gains `scrub_line`, an additive function; `is_secret_name` ignores case, `-` and `_`
   (`privateKey`) and knows `passphrase`, `pass` and `pwd` (the last two as whole
   names), and `scrub`/`scrub_str` also blank percent-encoded secrets, `invite`/`link`
-  values in query strings and download keys (stricter, nothing removed).
+  values in query strings and download keys, relative `file/…` ones included (stricter,
+  nothing removed).
 
 ### ML decisions
 
