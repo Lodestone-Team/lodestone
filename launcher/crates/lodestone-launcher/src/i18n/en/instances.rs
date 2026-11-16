@@ -245,7 +245,7 @@ crate::i18n::messages! {
         // Finding the mod that crashes the game.
         /// The crash dialog's button that starts the search.
         FindModButton = "Find it for me",
-        FinderTitle = "Find the mod that crashes {name}",
+        FinderTitle = "Find the mod that crashes the game",
         FinderIntro = "Lodestone Launcher will start the game a few times, turning off half of the mods that might be causing the crash each time, until only one is left. Afterwards, your mods go back to how they were.",
         FinderAutomatic = "The game crashed during startup, so you don't need to do anything. Each try ends when the game crashes or gets to the main menu.",
         FinderManual = "The game crashed while you were playing, so you'll need to play each try. Do whatever made it crash before. If it crashes again, the next try starts on its own. If it doesn't, press It didn't crash.",
@@ -253,8 +253,16 @@ crate::i18n::messages! {
         FinderByHand = "Play each try and do whatever made the game crash. If it crashes, the next try starts on its own. If it doesn't, press It didn't crash.",
         FinderStart = "Start",
         FinderReading = "Checking your mods",
-        /// A heading: the try being played, 1, 2, 3…
-        FinderTry = "Try {number}",
+        /// The search's numbers, keys over values: which try this is,
+        FinderTryKey = "Try",
+        /// how many mods are left to check,
+        FinderLeftKey = "Left to check",
+        /// how many are turned off in this try,
+        FinderOffKey = "Turned off",
+        /// and about how many tries are left.
+        FinderTriesLeftKey = "Tries left",
+        /// An estimate: "About 4".
+        About = "About {count}",
         FinderStarting = "Starting the game",
         FinderWaiting = "Waiting to see if the game crashes",
         FinderSettling = "Made it to the main menu. Checking that it stays open",
@@ -264,9 +272,13 @@ crate::i18n::messages! {
         FinderItCrashed = "It crashed",
         FinderStopping = "Stopping the game",
         FinderFound = "Found it",
-        FinderFoundOne = "The game doesn't crash when {name} is turned off.",
-        FinderFoundGroup = "The game doesn't crash with these turned off: {names}. They depend on each other, so they can only be turned off together.",
-        FinderAlsoOff = "The mods that need it stay off too: {names}.",
+        FinderFoundOne = "The game doesn't crash when this mod is turned off.",
+        FinderFoundGroup = "The game doesn't crash with these turned off. They depend on each other, so they can only be turned off together.",
+        FinderAlsoOff = "The mods that need it stay off too.",
+        /// Over the mods that stay off with the one found, with their count as a badge.
+        FinderAlsoOffHeading = "Also turned off",
+        /// Over the mods found when they can only be turned off together.
+        FinderFoundTogether = "Turned off together",
         FinderKeepOff = "Keep it off",
         FinderPutBack = "Turn everything back on",
         FinderNotFound = "The game kept crashing even with those mods turned off, so the cause probably isn't a mod, or the crash only happens sometimes. Your mods are back to how they were.",
@@ -274,8 +286,8 @@ crate::i18n::messages! {
         FinderFailed = "Something went wrong and the search stopped. Your mods are back to how they were.",
         FinderStopped = "Search stopped. Your mods are back to how they were.",
         FinderStop = "Stop",
-        FinderInterruptedTitle = "Finish finding the mod in {name}?",
-        FinderInterrupted = "Lodestone Launcher closed in the middle of a search, so some of {name}'s mods are still turned off.",
+        FinderInterruptedTitle = "Finish finding the mod?",
+        FinderInterrupted = "Lodestone Launcher closed in the middle of a search, so some of its mods are still turned off.",
         /// {error} says what went wrong.
         FinderPutBackFailed = "Some mods couldn't be turned back on: {error}",
 
@@ -328,10 +340,6 @@ crate::i18n::messages! {
         ),
         /// A modpack's progress.
         DownloadingFiles = ("Downloading {count} file", "Downloading {count} files"),
-        /// The mod finder's progress.
-        FinderModsLeft = ("{count} mod left to check", "{count} mods left to check"),
-        FinderModsOff = ("{count} mod turned off", "{count} mods turned off"),
-        FinderTriesLeft = ("About {count} more try", "About {count} more tries"),
 
         /// After removing a pack added to an instance.
         AddedPackFilesRemoved = (

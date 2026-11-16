@@ -194,7 +194,7 @@ pub fn text(message: M) -> &'static str {
         M::NoVersions => "此模組包沒有任何版本。",
         M::LoadingVersions => "正在載入版本",
         M::FindModButton => "幫我找出來",
-        M::FinderTitle => "找出造成「{name}」當機的模組",
+        M::FinderTitle => "找出造成遊戲當機的模組",
         M::FinderIntro => {
             "啟動器會多次啟動遊戲，每次停用可能造成當機的模組中的一半，直到只剩下一個。完成後，你的模組會恢復原狀。"
         }
@@ -209,7 +209,11 @@ pub fn text(message: M) -> &'static str {
         }
         M::FinderStart => "開始",
         M::FinderReading => "正在檢查你的模組",
-        M::FinderTry => "第 {number} 次嘗試",
+        M::FinderTryKey => "嘗試",
+        M::FinderLeftKey => "待檢查",
+        M::FinderOffKey => "已停用",
+        M::FinderTriesLeftKey => "剩餘嘗試",
+        M::About => "約 {count}",
         M::FinderStarting => "正在啟動遊戲",
         M::FinderWaiting => "正在等待，看遊戲是否當機",
         M::FinderSettling => "已進入主選單，正在確認遊戲不會關閉",
@@ -219,11 +223,11 @@ pub fn text(message: M) -> &'static str {
         M::FinderItCrashed => "當機了",
         M::FinderStopping => "正在停止遊戲",
         M::FinderFound => "找到了",
-        M::FinderFoundOne => "停用 {name} 後，遊戲不會當機。",
-        M::FinderFoundGroup => {
-            "停用這些模組後，遊戲不會當機：{names}。它們彼此相依，只能一起停用。"
-        }
-        M::FinderAlsoOff => "相依於它的模組也會保持停用：{names}。",
+        M::FinderFoundOne => "停用這個模組後，遊戲不會當機。",
+        M::FinderFoundGroup => "停用這些模組後，遊戲不會當機。它們相互依賴，因此只能一起停用。",
+        M::FinderAlsoOff => "需要它的模組也會保持停用。",
+        M::FinderAlsoOffHeading => "同時停用",
+        M::FinderFoundTogether => "一起停用",
         M::FinderKeepOff => "保持停用",
         M::FinderPutBack => "全部重新啟用",
         M::FinderNotFound => {
@@ -235,8 +239,10 @@ pub fn text(message: M) -> &'static str {
         M::FinderFailed => "發生問題，尋找已停止。你的模組已恢復原狀。",
         M::FinderStopped => "已停止尋找。你的模組已恢復原狀。",
         M::FinderStop => "停止",
-        M::FinderInterruptedTitle => "要完成在「{name}」中尋找模組嗎？",
-        M::FinderInterrupted => "啟動器在尋找途中關閉了，所以「{name}」的部分模組仍處於停用狀態。",
+        M::FinderInterruptedTitle => "要完成尋找模組嗎？",
+        M::FinderInterrupted => {
+            "Lodestone Launcher 在尋找過程中停用了，因此它的一些模組仍處於停用狀態。"
+        }
         M::FinderPutBackFailed => "部分模組無法重新啟用：{error}",
 
         M::AddingName => "正在加入 {name}",
@@ -271,9 +277,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
             ["有 {count} 個檔案需要從 CurseForge 網站下載：實例的「內容」分頁會列出它們。"; 2]
         }
         P::DownloadingFiles => ["正在下載 {count} 個檔案"; 2],
-        P::FinderModsLeft => ["還有 {count} 個模組待檢查"; 2],
-        P::FinderModsOff => ["已停用 {count} 個模組"; 2],
-        P::FinderTriesLeft => ["大約還需 {count} 次嘗試"; 2],
 
         P::AddedPackFilesRemoved => ["已移除 {pack} 的 {count} 個檔案。"; 2],
         P::AddedPackFilesKept => ["你修改過的 {count} 個檔案已保留。"; 2],

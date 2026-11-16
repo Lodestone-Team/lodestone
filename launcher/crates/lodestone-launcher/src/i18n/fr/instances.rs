@@ -224,7 +224,7 @@ pub fn text(message: M) -> &'static str {
         M::NoVersions => "Ce modpack n’a aucune version.",
         M::LoadingVersions => "Chargement des versions",
         M::FindModButton => "Le trouver pour moi",
-        M::FinderTitle => "Trouver le mod qui fait planter {name}",
+        M::FinderTitle => "Trouver le mod qui fait planter le jeu",
         M::FinderIntro => {
             "Lodestone Launcher va lancer le jeu plusieurs fois, en désactivant à chaque fois la moitié des mods qui pourraient causer le plantage, jusqu’à ce qu’il n’en reste qu’un. Ensuite, vos mods reviennent comme avant."
         }
@@ -239,7 +239,11 @@ pub fn text(message: M) -> &'static str {
         }
         M::FinderStart => "Commencer",
         M::FinderReading => "Vérification de vos mods",
-        M::FinderTry => "Essai {number}",
+        M::FinderTryKey => "Essai",
+        M::FinderLeftKey => "Restant à vérifier",
+        M::FinderOffKey => "Désactivés",
+        M::FinderTriesLeftKey => "Essais restants",
+        M::About => "Environ {count}",
         M::FinderStarting => "Lancement du jeu",
         M::FinderWaiting => "En attente d’un éventuel plantage",
         M::FinderSettling => "Le menu principal est atteint. Vérification que le jeu reste ouvert",
@@ -251,11 +255,13 @@ pub fn text(message: M) -> &'static str {
         M::FinderItCrashed => "Il a planté",
         M::FinderStopping => "Arrêt du jeu",
         M::FinderFound => "Trouvé",
-        M::FinderFoundOne => "Le jeu ne plante pas quand {name} est désactivé.",
+        M::FinderFoundOne => "Le jeu ne plante pas quand ce mod est désactivé.",
         M::FinderFoundGroup => {
-            "Le jeu ne plante pas quand ceux-ci sont désactivés\u{a0}: {names}. Ils dépendent les uns des autres, donc ils ne peuvent être désactivés qu’ensemble."
+            "Le jeu ne plante pas quand ceux-ci sont désactivés. Ils dépendent les uns des autres, donc ils ne peuvent être désactivés qu’ensemble."
         }
-        M::FinderAlsoOff => "Les mods qui en ont besoin restent aussi désactivés\u{a0}: {names}.",
+        M::FinderAlsoOff => "Les mods qui en ont besoin restent désactivés aussi.",
+        M::FinderAlsoOffHeading => "Désactivés aussi",
+        M::FinderFoundTogether => "Désactivés ensemble",
         M::FinderKeepOff => "Le garder désactivé",
         M::FinderPutBack => "Tout réactiver",
         M::FinderNotFound => {
@@ -269,9 +275,9 @@ pub fn text(message: M) -> &'static str {
         }
         M::FinderStopped => "Recherche arrêtée. Vos mods sont revenus comme avant.",
         M::FinderStop => "Arrêter",
-        M::FinderInterruptedTitle => "Terminer la recherche du mod dans {name}\u{202F}?",
+        M::FinderInterruptedTitle => "Terminer la recherche du mod\u{202F}?",
         M::FinderInterrupted => {
-            "Lodestone Launcher s’est fermé au milieu d’une recherche, donc certains mods de {name} sont encore désactivés."
+            "Lodestone Launcher s’est fermé au milieu d’une recherche, donc certains de ses mods sont encore désactivés."
         }
         M::FinderPutBackFailed => "Certains mods n’ont pas pu être réactivés\u{a0}: {error}",
 
@@ -325,15 +331,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::DownloadingFiles => [
             "Téléchargement de {count} fichier",
             "Téléchargement de {count} fichiers",
-        ],
-        P::FinderModsLeft => [
-            "{count} mod reste à vérifier",
-            "{count} mods restent à vérifier",
-        ],
-        P::FinderModsOff => ["{count} mod désactivé", "{count} mods désactivés"],
-        P::FinderTriesLeft => [
-            "Environ {count} essai de plus",
-            "Environ {count} essais de plus",
         ],
 
         P::AddedPackFilesRemoved => [
