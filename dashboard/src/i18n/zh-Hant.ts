@@ -762,19 +762,13 @@ export const zhHant: Messages = {
   'server.loading.settingUp': '正在設定',
 
   // apis.ts
-  'server.api.deletedFile': '已刪除檔案：{name}',
-  'server.api.deletedDirectory': '已刪除資料夾：{path}',
-  'server.api.downloadFailed': '下載 {name} 失敗：{error}',
   'server.api.uploading': {
     other: '正在上傳 {count} 個檔案',
   },
-  'server.api.moveFailed': '移動 {name} 失敗：{error}',
   'server.api.zipFailed': '無法開始壓縮：{error}',
   'server.api.zipping': {
     other: '正在壓縮 {count} 個項目…',
   },
-  'server.api.unzipFailed': '解壓縮 {name} 失敗：{error}',
-  'server.api.unzipping': '正在解壓縮 {name}…',
   'server.api.tooManyAttemptsSeconds': {
     other: '登入失敗次數過多。請等待 {count} 秒後再試一次。',
   },
@@ -955,13 +949,16 @@ export const zhHant: Messages = {
   'files.toolbar.upload': '上傳',
   'files.cutToClipboard': { other: '已剪下 {count} 個檔案到剪貼簿' },
   'files.zippingForDownload': '正在壓縮資料夾以供下載…',
-  'files.downloadFailed': '下載 {name} 失敗：{error}',
   'files.onlyFilesUnzip': '只能解壓縮檔案',
   'files.onlyFilesUpload': '只能上傳檔案',
-  'files.delete.title': { other: '刪除 {count} 個檔案' },
   'files.delete.message': '確定要刪除以下項目嗎？',
-  'files.delete.directory': '（資料夾）',
-  'files.delete.unknownType': '（未知類型）',
+  'files.delete.titleOne': '刪除檔案？',
+  'files.delete.titleMany': '刪除檔案？',
+  'files.toast.deleted': '已刪除',
+  'files.toast.downloadFailed': '無法下載',
+  'files.toast.moveFailed': '無法移動',
+  'files.toast.unzipFailed': '無法解壓縮',
+  'files.toast.unzipping': '正在解壓縮…',
   'files.loadingFile': '正在載入檔案',
   'files.editor.title': '檔案編輯器',
   'files.editor.selectFile': '選擇一個檔案以檢視其內容',
@@ -979,14 +976,11 @@ export const zhHant: Messages = {
   // FileContextMenu: the right-click menu of the file list
   'files.contextMenu.cut': '剪下',
   'files.contextMenu.paste': '貼上',
-  'files.contextMenu.pasteInto': '貼上到 {name}',
+  'files.contextMenu.pasteInto': '貼上至',
   'files.contextMenu.zip': '壓縮',
-  'files.contextMenu.zipTo': '壓縮為 {archive}',
-  'files.contextMenu.zipFile': '將 {name} 壓縮為 {archive}',
-  'files.contextMenu.zipFiles': { other: '將 {count} 個檔案壓縮為 {archive}' },
   'files.contextMenu.unzipHere': '解壓縮到這裡',
   'files.contextMenu.unzipHereSmart': '智慧解壓縮到這裡',
-  'files.contextMenu.unzipTo': '解壓縮到 {name}',
+  'files.contextMenu.unzipTo': '解壓縮至資料夾',
   'files.contextMenu.copiedToClipboard': {
     other: '已複製 {count} 個項目到剪貼簿',
   },
@@ -1004,7 +998,7 @@ export const zhHant: Messages = {
   'files.createFolder.label': '為資料夾命名',
   'files.createFolder.placeholder': '未命名資料夾',
   'files.createFolder.submit': '建立資料夾',
-  'files.nameTaken': '此資料夾中已有 {name}',
+  'files.nameTaken': '此資料夾中已有同名項目',
   'files.rename.label': '為檔案命名',
   'files.rename.submit': '重新命名檔案',
 
@@ -1278,4 +1272,5 @@ export const zhHant: Messages = {
   'values.key.status': '狀態',
   'values.key.cpuLoad': 'CPU 負載',
   'values.key.memoryUsed': '已用記憶體',
+  'files.contextMenu.items': '{count} 項',
 };

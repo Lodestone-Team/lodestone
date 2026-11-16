@@ -6,7 +6,7 @@ import { useT } from 'i18n';
 
 export interface DialogProps {
   /** the action and kind only ("Delete server?"); the object goes in `object` */
-  title: string;
+  title: ReactNode;
   /** the object acted on, usually an ObjectCard, shown under the title */
   object?: ReactNode;
   children: ReactNode;

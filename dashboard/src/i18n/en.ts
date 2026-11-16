@@ -954,22 +954,15 @@ export const en = {
   'server.loading.settingUp': 'Setting up',
 
   // apis.ts: toasts and errors of file and sign-in requests
-  'server.api.deletedFile': 'Deleted file: {name}',
-  'server.api.deletedDirectory': 'Deleted directory: {path}',
-  /** {error} is the error message */
-  'server.api.downloadFailed': 'Failed to download {name}: {error}',
   'server.api.uploading': {
     one: 'Uploading {count} file',
     other: 'Uploading {count} files',
   },
-  'server.api.moveFailed': 'Failed to move {name}: {error}',
   'server.api.zipFailed': 'Failed to initiate zip: {error}',
   'server.api.zipping': {
     one: 'Zipping {count} item…',
     other: 'Zipping {count} items…',
   },
-  'server.api.unzipFailed': 'Failed to unzip {name}: {error}',
-  'server.api.unzipping': 'Unzipping {name}…',
   'server.api.tooManyAttemptsSeconds': {
     one: 'Too many failed sign-in attempts. Wait {count} second, then try again.',
     other:
@@ -1206,19 +1199,21 @@ export const en = {
   },
   /** a toast: a folder is compressed before it is downloaded */
   'files.zippingForDownload': 'Zipping directory for download…',
-  /** {name} is a file name, {error} the reason */
-  'files.downloadFailed': 'Failed to download {name}: {error}',
   'files.onlyFilesUnzip': 'Only files can be unzipped',
   /** a toast when a folder is dropped to upload it */
   'files.onlyFilesUpload': 'Only files can be uploaded',
-  /** the title of the dialog confirming a deletion */
-  'files.delete.title': { one: 'Delete file', other: 'Delete {count} files' },
   /** followed by the list of files and folders */
   'files.delete.message': 'Are you sure you want to delete the following?',
-  /** after a folder’s name in the list */
-  'files.delete.directory': '(Directory)',
-  /** after the name of an entry that is neither a file nor a folder */
-  'files.delete.unknownType': '(Unknown)',
+  /** the dialog title; the file is listed under it */
+  'files.delete.titleOne': 'Delete file?',
+  /** the dialog title; the number is a badge after it, the files are listed under it */
+  'files.delete.titleMany': 'Delete files?',
+  /** toast outcomes, under the file’s name */
+  'files.toast.deleted': 'Deleted',
+  'files.toast.downloadFailed': 'Couldn’t download',
+  'files.toast.moveFailed': 'Couldn’t move',
+  'files.toast.unzipFailed': 'Couldn’t unzip',
+  'files.toast.unzipping': 'Unzipping…',
   /** for screen readers, while a file loads */
   'files.loadingFile': 'Loading file',
   /** shown in the editor pane when no file can be shown */
@@ -1250,25 +1245,16 @@ export const en = {
   // FileContextMenu: the right-click menu of the file list
   'files.contextMenu.cut': 'Cut',
   'files.contextMenu.paste': 'Paste',
-  /** {name} is a folder name */
-  'files.contextMenu.pasteInto': 'Paste into {name}',
+  /** the folder’s name is shown in mono under it */
+  'files.contextMenu.pasteInto': 'Paste into',
   /** compresses files into a .zip archive */
   'files.contextMenu.zip': 'Zip',
-  /** {archive} is the archive’s file name, e.g. “world.zip” */
-  'files.contextMenu.zipTo': 'Zip to {archive}',
-  /** {name} is a file name, {archive} the archive’s file name */
-  'files.contextMenu.zipFile': 'Zip {name} to {archive}',
-  /** {archive} is the archive’s file name, “Archive.zip” */
-  'files.contextMenu.zipFiles': {
-    one: 'Zip {count} file to {archive}',
-    other: 'Zip {count} files to {archive}',
-  },
   /** extracts the archive into the folder being shown */
   'files.contextMenu.unzipHere': 'Unzip here',
   /** extracts the archive, without its single top-level folder if it has one */
   'files.contextMenu.unzipHereSmart': 'Unzip here (smart)',
-  /** {name} is the folder the archive is extracted to (its name without the extension) */
-  'files.contextMenu.unzipTo': 'Unzip to {name}',
+  /** the folder’s name is shown in mono under it */
+  'files.contextMenu.unzipTo': 'Unzip to a folder',
   /** a toast after Copy: files and folders */
   'files.contextMenu.copiedToClipboard': {
     one: '{count} item copied to clipboard',
@@ -1294,8 +1280,7 @@ export const en = {
   /** the placeholder of the folder name field */
   'files.createFolder.placeholder': 'Untitled folder',
   'files.createFolder.submit': 'Create folder',
-  /** New file or New folder with the name of something already in the folder */
-  'files.nameTaken': '{name} already exists in this folder',
+  'files.nameTaken': 'Something with this name is already in this folder',
   /** the new name of a file or folder */
   'files.rename.label': 'Name your file',
   'files.rename.submit': 'Rename file',
@@ -1637,4 +1622,6 @@ export const en = {
   'values.key.status': 'Status',
   'values.key.cpuLoad': 'CPU load',
   'values.key.memoryUsed': 'Memory used',
+  /** the menu’s header when several files are ticked */
+  'files.contextMenu.items': '{count} items',
 } as const;

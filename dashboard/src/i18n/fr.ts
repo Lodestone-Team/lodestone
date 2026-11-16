@@ -845,21 +845,15 @@ export const fr: Messages = {
   'server.loading.settingUp': 'Configuration',
 
   // apis.ts
-  'server.api.deletedFile': 'Fichier supprimé : {name}',
-  'server.api.deletedDirectory': 'Dossier supprimé : {path}',
-  'server.api.downloadFailed': 'Échec du téléchargement de {name} : {error}',
   'server.api.uploading': {
     one: 'Importation de {count} fichier',
     other: 'Importation de {count} fichiers',
   },
-  'server.api.moveFailed': 'Échec du déplacement de {name} : {error}',
   'server.api.zipFailed': 'Échec du lancement de la compression : {error}',
   'server.api.zipping': {
     one: 'Compression de {count} élément…',
     other: 'Compression de {count} éléments…',
   },
-  'server.api.unzipFailed': 'Échec de la décompression de {name} : {error}',
-  'server.api.unzipping': 'Décompression de {name}…',
   'server.api.tooManyAttemptsSeconds': {
     one: 'Trop de tentatives de connexion échouées. Patientez {count} seconde, puis réessayez.',
     other:
@@ -1075,17 +1069,17 @@ export const fr: Messages = {
     other: '{count} fichiers coupés dans le presse-papiers',
   },
   'files.zippingForDownload': 'Compression du dossier pour le téléchargement…',
-  'files.downloadFailed': 'Échec du téléchargement de {name} : {error}',
   'files.onlyFilesUnzip': 'Seuls les fichiers peuvent être extraits',
   'files.onlyFilesUpload': 'Seuls des fichiers peuvent être importés',
-  'files.delete.title': {
-    one: 'Supprimer le fichier',
-    other: 'Supprimer {count} fichiers',
-  },
   'files.delete.message':
     'Voulez-vous vraiment supprimer les éléments suivants ?',
-  'files.delete.directory': '(dossier)',
-  'files.delete.unknownType': '(type inconnu)',
+  'files.delete.titleOne': 'Supprimer le fichier ?',
+  'files.delete.titleMany': 'Supprimer les fichiers ?',
+  'files.toast.deleted': 'Supprimé',
+  'files.toast.downloadFailed': 'Impossible de télécharger',
+  'files.toast.moveFailed': 'Impossible de déplacer',
+  'files.toast.unzipFailed': 'Impossible de décompresser',
+  'files.toast.unzipping': 'Décompression…',
   'files.loadingFile': 'Chargement du fichier',
   'files.editor.title': 'Éditeur de fichiers',
   'files.editor.selectFile':
@@ -1110,17 +1104,11 @@ export const fr: Messages = {
   // FileContextMenu: the right-click menu of the file list
   'files.contextMenu.cut': 'Couper',
   'files.contextMenu.paste': 'Coller',
-  'files.contextMenu.pasteInto': 'Coller dans {name}',
+  'files.contextMenu.pasteInto': 'Coller dans',
   'files.contextMenu.zip': 'Compresser',
-  'files.contextMenu.zipTo': 'Compresser en {archive}',
-  'files.contextMenu.zipFile': 'Compresser {name} en {archive}',
-  'files.contextMenu.zipFiles': {
-    one: 'Compresser {count} fichier en {archive}',
-    other: 'Compresser {count} fichiers en {archive}',
-  },
   'files.contextMenu.unzipHere': 'Extraire ici',
   'files.contextMenu.unzipHereSmart': 'Extraire ici (intelligent)',
-  'files.contextMenu.unzipTo': 'Extraire dans {name}',
+  'files.contextMenu.unzipTo': 'Décompresser dans un dossier',
   'files.contextMenu.copiedToClipboard': {
     one: '{count} élément copié dans le presse-papiers',
     other: '{count} éléments copiés dans le presse-papiers',
@@ -1140,7 +1128,7 @@ export const fr: Messages = {
   'files.createFolder.label': 'Nommez votre dossier',
   'files.createFolder.placeholder': 'Dossier sans titre',
   'files.createFolder.submit': 'Créer le dossier',
-  'files.nameTaken': '{name} existe déjà dans ce dossier',
+  'files.nameTaken': 'Un élément de ce nom existe déjà dans ce dossier',
   'files.rename.label': 'Nommez votre fichier',
   'files.rename.submit': 'Renommer le fichier',
 
@@ -1444,4 +1432,5 @@ export const fr: Messages = {
   'values.key.status': 'Statut',
   'values.key.cpuLoad': 'Charge du processeur',
   'values.key.memoryUsed': 'Mémoire utilisée',
+  'files.contextMenu.items': '{count} éléments',
 };

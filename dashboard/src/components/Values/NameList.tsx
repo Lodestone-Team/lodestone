@@ -14,7 +14,8 @@ export type NameListItem = {
 };
 
 export type NameListGroup = {
-  heading: string;
+  /** left out when the dialog's title already says what the list is */
+  heading?: string;
   tone?: 'neutral' | 'success' | 'danger';
   items: NameListItem[];
 };
@@ -47,10 +48,12 @@ function Group({
     ) : null;
   return (
     <div className="flex min-w-0 flex-col gap-0.5">
-      <div className="flex items-center gap-1.5 text-small font-mediumbold text-gray-400">
-        {group.heading}
-        <CountBadge count={group.items.length} />
-      </div>
+      {group.heading && (
+        <div className="flex items-center gap-1.5 text-small font-mediumbold text-gray-400">
+          {group.heading}
+          <CountBadge count={group.items.length} />
+        </div>
+      )}
       <ul className="flex min-w-0 flex-col">
         {shown.map((item) => (
           <li
@@ -103,9 +106,9 @@ export function NameList({
   if (shown.length === 0) return null;
   return (
     <div className={cn('@container flex min-w-0 flex-col gap-3', className)}>
-      {shown.map((group) => (
+      {shown.map((group, i) => (
         <Group
-          key={group.heading}
+          key={group.heading ?? i}
           group={group}
           collapsedAfter={collapsedAfter}
         />

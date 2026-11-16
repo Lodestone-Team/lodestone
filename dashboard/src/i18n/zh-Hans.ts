@@ -759,19 +759,13 @@ export const zhHans: Messages = {
   'server.loading.settingUp': '正在设置',
 
   // apis.ts
-  'server.api.deletedFile': '已删除文件：{name}',
-  'server.api.deletedDirectory': '已删除文件夹：{path}',
-  'server.api.downloadFailed': '下载 {name} 失败：{error}',
   'server.api.uploading': {
     other: '正在上传 {count} 个文件',
   },
-  'server.api.moveFailed': '移动 {name} 失败：{error}',
   'server.api.zipFailed': '无法开始压缩：{error}',
   'server.api.zipping': {
     other: '正在压缩 {count} 个项目…',
   },
-  'server.api.unzipFailed': '解压 {name} 失败：{error}',
-  'server.api.unzipping': '正在解压 {name}…',
   'server.api.tooManyAttemptsSeconds': {
     other: '登录失败次数过多。请等待 {count} 秒后重试。',
   },
@@ -952,13 +946,16 @@ export const zhHans: Messages = {
   'files.toolbar.upload': '上传',
   'files.cutToClipboard': { other: '已剪切 {count} 个文件到剪贴板' },
   'files.zippingForDownload': '正在压缩文件夹以供下载…',
-  'files.downloadFailed': '下载 {name} 失败：{error}',
   'files.onlyFilesUnzip': '只能解压文件',
   'files.onlyFilesUpload': '只能上传文件',
-  'files.delete.title': { other: '删除 {count} 个文件' },
   'files.delete.message': '确定要删除以下项目吗？',
-  'files.delete.directory': '（文件夹）',
-  'files.delete.unknownType': '（未知类型）',
+  'files.delete.titleOne': '删除文件？',
+  'files.delete.titleMany': '删除文件？',
+  'files.toast.deleted': '已删除',
+  'files.toast.downloadFailed': '无法下载',
+  'files.toast.moveFailed': '无法移动',
+  'files.toast.unzipFailed': '无法解压',
+  'files.toast.unzipping': '正在解压…',
   'files.loadingFile': '正在加载文件',
   'files.editor.title': '文件编辑器',
   'files.editor.selectFile': '选择一个文件以查看其内容',
@@ -976,14 +973,11 @@ export const zhHans: Messages = {
   // FileContextMenu: the right-click menu of the file list
   'files.contextMenu.cut': '剪切',
   'files.contextMenu.paste': '粘贴',
-  'files.contextMenu.pasteInto': '粘贴到 {name}',
+  'files.contextMenu.pasteInto': '粘贴到',
   'files.contextMenu.zip': '压缩',
-  'files.contextMenu.zipTo': '压缩为 {archive}',
-  'files.contextMenu.zipFile': '将 {name} 压缩为 {archive}',
-  'files.contextMenu.zipFiles': { other: '将 {count} 个文件压缩为 {archive}' },
   'files.contextMenu.unzipHere': '解压到此处',
   'files.contextMenu.unzipHereSmart': '智能解压到此处',
-  'files.contextMenu.unzipTo': '解压到 {name}',
+  'files.contextMenu.unzipTo': '解压到文件夹',
   'files.contextMenu.copiedToClipboard': {
     other: '已复制 {count} 个项目到剪贴板',
   },
@@ -1001,7 +995,7 @@ export const zhHans: Messages = {
   'files.createFolder.label': '为文件夹命名',
   'files.createFolder.placeholder': '未命名文件夹',
   'files.createFolder.submit': '创建文件夹',
-  'files.nameTaken': '此文件夹中已有 {name}',
+  'files.nameTaken': '此文件夹中已有同名项目',
   'files.rename.label': '为文件命名',
   'files.rename.submit': '重命名文件',
 
@@ -1275,4 +1269,5 @@ export const zhHans: Messages = {
   'values.key.status': '状态',
   'values.key.cpuLoad': 'CPU 负载',
   'values.key.memoryUsed': '已用内存',
+  'files.contextMenu.items': '{count} 项',
 };
