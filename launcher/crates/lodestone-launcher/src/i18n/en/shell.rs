@@ -55,10 +55,8 @@ crate::i18n::messages! {
         Servers = "Lodestone Host",
         /// The sidebar link to the Friends page.
         Friends = "Friends",
-        /// Under the sidebar and the Settings pages.
-        AppVersion = "Lodestone Launcher v{version}",
-        /// A row's tooltip: {when} is "Played 2 hours ago", {time} "2 h 5 min".
-        PlayedInTotal = "{when} · {time} in total",
+        /// Under the sidebar and the Settings pages, before the version as a tag.
+        AppName = "Lodestone Launcher",
         /// A modpack being imported: "45% · Downloading mods".
         ImportProgress = "{percent} · {label}",
         /// An automatic sidebar group of instances with a mod loader: "Fabric (modded)".
@@ -75,12 +73,7 @@ crate::i18n::messages! {
         // The Play tab.
         NoInstanceSelected = "No instance selected",
         NoInstanceSelectedHint = "Select an instance in the sidebar to get started.",
-        MinecraftVersion = "Minecraft {version}",
-        /// {loader} is the loader with its version: "Fabric 0.16.14".
-        MinecraftWith = "Minecraft {version} with {loader}",
-        /// {game} is "Minecraft 1.20.1 with Fabric 0.16.14", {time} "2 h 5 min".
-        HeroPlayed = "{game}. Played for {time}.",
-        HeroNotPlayed = "{game}. Press Play to download it and start the game.",
+        HeroNotPlayed = "Press Play to download it and start the game.",
         CreateFirstInstance = "Create your first instance",
         InstanceExplainer = "An instance is a Minecraft version with its own mods, worlds and settings.",
         ContentPlaceholder = "Content appears here once you have an instance.",
@@ -89,7 +82,6 @@ crate::i18n::messages! {
         LogsPlaceholder = "Logs appear here once you have an instance.",
         /// Under the instance's name: {server} is a server, {core} a host.
         LinkedTo = "Linked to {server} on {core}",
-        LinkedToRemoved = "Linked to {server} on {core} (that host was removed from the Lodestone Host page)",
         /// Under the instance's name, on an Apple silicon Mac, for a version that runs
         /// in an Intel Java (Minecraft 1.13.2 and older).
         RunsUnderRosetta = "Runs under Rosetta 2: Mojang made no Apple silicon build of some libraries this version needs. Slower to start, then plays normally.",
@@ -109,12 +101,16 @@ crate::i18n::messages! {
         ServerStopped = "Stopped",
         ServerUnreachable = "Can't reach it",
         ServerChecking = "Checking…",
+        /// In the header's Server cell, for a host since removed from the Lodestone Host page.
+        HostRemoved = "Host removed",
         /// The Play button over an instance's icon in the sidebar, for assistive technology.
         PlayNamed = "Play {name}",
 
         // Dialogs over the window.
         /// The title of a dialog that deletes an instance or a world.
         DeleteNamed = "Delete {name}?",
+        /// The title of the dialog that deletes an instance; the instance is in a card under it.
+        DeleteInstanceTitle = "Delete instance?",
         DeleteWorldBody = "The world's folder moves to {trash}, so you can put it back from there. Its backups stay.",
         DeleteInstanceBody = "The instance's folder, with its worlds, mods and settings, moves to {trash}. You can put it back from there. Its snapshots are kept until you remove them in Settings › Storage, and come back with it.",
         ReplaceWorldTitle = "Replace {name} with this backup?",
@@ -126,9 +122,8 @@ crate::i18n::messages! {
         RemoveAccount = "Remove account",
         /// {description} is the crash's own text, in English.
         MinecraftCrashed = "Minecraft crashed: {description}.",
-        MinecraftExitCode = "Minecraft stopped with exit code {code}.",
         MinecraftStopped = "Minecraft stopped unexpectedly.",
-        CrashTitle = "{name} crashed",
+        CrashTitle = "Game crashed",
         /// A heading in the crash dialog (shown in capitals).
         LikelyCause = "Likely cause",
         OpenCrashReport = "Open crash report",
@@ -161,16 +156,15 @@ crate::i18n::messages! {
         CopyLog = "Copy log",
 
         // A modpack update.
-        UpdateTitle = "Update {name}?",
-        /// {pack} is the modpack, {from} and {to} its versions, {size} "38 MB".
-        ModpackSummary = "{pack} {from} → {to}. Minecraft {game} with {loader}. {size} to download.",
+        /// The title of the dialog that updates an instance's modpack; the instance is in a card under it.
+        UpdateInstanceTitle = "Update instance?",
         NoFilesChange = "No files change; only the version is recorded.",
-        UpdatedFiles = "Updated ({count})",
-        AddedFiles = "Added ({count})",
-        RemovedFiles = "Removed ({count})",
-        ReplacedOwnFiles = "Your files the pack now provides ({count})",
-        KeptFiles = "Kept as you changed them ({count})",
-        WrittenFiles = "Configs and other files written ({count})",
+        UpdatedFiles = "Updated",
+        AddedFiles = "Added",
+        RemovedFiles = "Removed",
+        ReplacedOwnFiles = "Your files the pack now provides",
+        KeptFiles = "Kept as you changed them",
+        WrittenFiles = "Configs and other files written",
         ModpackUpdateSafety = "Your own mods, worlds and changed configs aren't touched. A snapshot of the instance is taken first, and every file that is replaced or removed is saved in the instance's backups folder.",
 
         // Unsaved settings.

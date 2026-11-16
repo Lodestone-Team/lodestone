@@ -2,7 +2,6 @@
 //! pages listed on the left and the open page on the right. Other dialogs, such as
 //! signing in, open over it.
 
-use crate::components::RichText;
 use crate::skin::Skinned;
 use crate::theme::px;
 use gpui::{AnyElement, Context, FocusHandle, IntoElement, SharedString, Window, div, prelude::*};
@@ -495,10 +494,7 @@ impl LauncherShell {
                 .px_2p5()
                 .text_size(theme::text_size(text::CAPTION))
                 .text_color(crate::theme::ink::faint())
-                .child(RichText::new(tr!(
-                    M::AppVersion,
-                    version = env!("CARGO_PKG_VERSION")
-                ))),
+                .child(super::sidebar::app_version()),
         )
     }
 

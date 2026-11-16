@@ -7,6 +7,7 @@ mod auto_config;
 pub mod console;
 pub mod content;
 mod copy_as;
+pub mod facts;
 pub mod fields;
 mod files;
 pub mod import;

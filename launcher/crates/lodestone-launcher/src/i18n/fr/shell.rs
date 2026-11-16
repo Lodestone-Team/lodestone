@@ -34,8 +34,7 @@ pub fn text(message: M) -> &'static str {
         M::ImportInstances => "Importer…",
         M::Servers => "Lodestone Host",
         M::Friends => "Amis",
-        M::AppVersion => "Lodestone Launcher v{version}",
-        M::PlayedInTotal => "{when} · {time} au total",
+        M::AppName => "Lodestone Launcher",
         M::ImportProgress => "{percent} · {label}",
         M::GroupModded => "{loader} (moddé)",
         M::Vanilla => "Vanilla",
@@ -46,10 +45,7 @@ pub fn text(message: M) -> &'static str {
         M::NoInstanceSelectedHint => {
             "Sélectionnez une instance dans la barre latérale pour commencer."
         }
-        M::MinecraftVersion => "Minecraft {version}",
-        M::MinecraftWith => "Minecraft {version} avec {loader}",
-        M::HeroPlayed => "{game}. Temps de jeu\u{a0}: {time}.",
-        M::HeroNotPlayed => "{game}. Appuyez sur Jouer pour la télécharger et lancer le jeu.",
+        M::HeroNotPlayed => "Appuyez sur Jouer pour la télécharger et lancer le jeu.",
         M::CreateFirstInstance => "Créez votre première instance",
         M::InstanceExplainer => {
             "Une instance est une version de Minecraft avec ses propres mods, mondes et paramètres."
@@ -61,9 +57,6 @@ pub fn text(message: M) -> &'static str {
         }
         M::LogsPlaceholder => "Les journaux s’affichent ici une fois que vous avez une instance.",
         M::LinkedTo => "Liée à {server} sur {core}",
-        M::LinkedToRemoved => {
-            "Liée à {server} sur {core} (cet hôte a été retiré de la page Lodestone Host)"
-        }
         M::RunsUnderRosetta => {
             "S’exécute via Rosetta\u{a0}2\u{a0}: Mojang n’a pas fait de version Apple Silicon de certaines bibliothèques dont cette version a besoin. Démarrage plus lent, puis fonctionnement normal."
         }
@@ -80,9 +73,11 @@ pub fn text(message: M) -> &'static str {
         M::ServerStopped => "Arrêté",
         M::ServerUnreachable => "Injoignable",
         M::ServerChecking => "Vérification…",
+        M::HostRemoved => "Hôte retiré",
         M::PlayNamed => "Jouer à {name}",
 
         M::DeleteNamed => "Supprimer {name}\u{202F}?",
+        M::DeleteInstanceTitle => "Supprimer l’instance\u{202F}?",
         M::DeleteWorldBody => {
             "Le dossier du monde est placé dans {trash}, d’où vous pouvez le récupérer. Ses sauvegardes sont conservées."
         }
@@ -100,9 +95,8 @@ pub fn text(message: M) -> &'static str {
         }
         M::RemoveAccount => "Retirer le compte",
         M::MinecraftCrashed => "Minecraft a planté\u{a0}: {description}.",
-        M::MinecraftExitCode => "Minecraft s’est arrêté avec le code de sortie {code}.",
         M::MinecraftStopped => "Minecraft s’est arrêté de façon inattendue.",
-        M::CrashTitle => "{name} a planté",
+        M::CrashTitle => "Le jeu a planté",
         M::LikelyCause => "Cause probable",
         M::OpenCrashReport => "Ouvrir le rapport de plantage",
         M::CauseWrongJava => {
@@ -145,17 +139,14 @@ pub fn text(message: M) -> &'static str {
         }
         M::CopyLog => "Copier le journal",
 
-        M::UpdateTitle => "Mettre à jour {name}\u{202F}?",
-        M::ModpackSummary => {
-            "{pack} {from} → {to}. Minecraft {game} avec {loader}. {size} à télécharger."
-        }
+        M::UpdateInstanceTitle => "Mettre à jour l’instance\u{202F}?",
         M::NoFilesChange => "Aucun fichier ne change\u{202F}; seule la version est enregistrée.",
-        M::UpdatedFiles => "Mis à jour ({count})",
-        M::AddedFiles => "Ajoutés ({count})",
-        M::RemovedFiles => "Supprimés ({count})",
-        M::ReplacedOwnFiles => "Vos fichiers désormais fournis par le pack ({count})",
-        M::KeptFiles => "Gardés tels que vous les avez modifiés ({count})",
-        M::WrittenFiles => "Configurations et autres fichiers écrits ({count})",
+        M::UpdatedFiles => "Mis à jour",
+        M::AddedFiles => "Ajoutés",
+        M::RemovedFiles => "Supprimés",
+        M::ReplacedOwnFiles => "Vos fichiers désormais fournis par le pack",
+        M::KeptFiles => "Gardés tels que vous les avez modifiés",
+        M::WrittenFiles => "Configurations et autres fichiers écrits",
         M::ModpackUpdateSafety => {
             "Vos propres mods, mondes et configurations modifiées ne sont pas touchés. Un instantané de l’instance est pris d’abord, et chaque fichier remplacé ou supprimé est gardé dans le dossier de sauvegardes de l’instance."
         }

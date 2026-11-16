@@ -26,6 +26,7 @@ use crate::skin::Skinned;
 use crate::theme::px;
 use launcher_core::ui_skin::SurfaceId;
 pub use launcher_settings::LauncherSettings;
+use lodestone_ui::values::truncate::sanitize;
 use settings_modal::SettingsModal;
 pub use settings_modal::SettingsPage;
 pub use shared_settings::SharedSettings;
@@ -54,11 +55,13 @@ use crate::{
         skin_dialog::{SkinDialog, SkinDialogDismissed},
     },
     components::{
-        Button, ButtonVariant, Dialog, DialogSlot, RichText, UnderDialogs, focus,
+        Button, ButtonVariant, CountBadge, Dialog, DialogSlot, DiffValue, FactList, FactValue,
+        Kind, Num, ObjectCard, ProductPhrase, RichText, UnderDialogs, ValueField, ValueKind,
+        VersionTag, focus,
         settings::{FindSetting, SettingsSearch, Toast},
         window_frame,
     },
-    i18n::{CommonMsg, ShellMsg as M, ShellPlural as P, format, t, tr, trn},
+    i18n::{CommonMsg, FactMsg, ShellMsg as M, ShellPlural as P, t, tr, trn},
     instances::{
         CrashInfo, Instances, InstancesEvent,
         add_modpack::{AddModpackDialog, AddModpackDismissed},
@@ -128,15 +131,6 @@ pub(crate) fn loader_name(loader: Loader) -> &'static str {
     match loader.kind() {
         Some(kind) => kind.label(),
         None => t(M::Vanilla),
-    }
-}
-
-/// The instance's loader with its version, "Fabric 0.16.14", or "Vanilla" in the
-/// current language.
-pub(crate) fn loader_label(instance: &Instance) -> String {
-    match instance.loader.kind() {
-        Some(_) => instance.loader_label(),
-        None => t(M::Vanilla).to_string(),
     }
 }
 
@@ -878,7 +872,7 @@ impl LauncherShell {
         const SHOWN: usize = 6;
         let plan = &prompt.plan;
         let entity = cx.entity();
-        let list = |title: String, items: Vec<String>, color: theme::Color| {
+        let list = |title: &'static str, items: Vec<String>, color: theme::Color| {
             let more = items.len().saturating_sub(SHOWN);
             div()
                 .flex()
@@ -886,10 +880,15 @@ impl LauncherShell {
                 .gap_0p5()
                 .child(
                     div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap(px(6.))
                         .text_size(theme::text_size(text::SMALL))
                         .font_weight(weights::BOLD.into())
                         .text_color(color)
-                        .child(title),
+                        .child(title)
+                        .child(CountBadge::new(items.len() as u64)),
                 )
                 .children(items.into_iter().take(SHOWN).map(|item| {
                     div()
@@ -909,12 +908,11 @@ impl LauncherShell {
                     )
                 })
         };
-        let count = |n: usize| format::number(n as u64);
         let name = |path: &String| path.rsplit('/').next().unwrap_or(path).to_string();
         let mut groups = Vec::new();
         if !plan.updated.is_empty() {
             groups.push(list(
-                tr!(M::UpdatedFiles, count = count(plan.updated.len())),
+                t(M::UpdatedFiles),
                 plan.updated
                     .iter()
                     .map(|(old, new)| {
@@ -930,21 +928,21 @@ impl LauncherShell {
         }
         if !plan.added.is_empty() {
             groups.push(list(
-                tr!(M::AddedFiles, count = count(plan.added.len())),
+                t(M::AddedFiles),
                 plan.added.iter().map(name).collect(),
                 colors::GREEN_300,
             ));
         }
         if !plan.removed.is_empty() {
             groups.push(list(
-                tr!(M::RemovedFiles, count = count(plan.removed.len())),
+                t(M::RemovedFiles),
                 plan.removed.iter().map(name).collect(),
                 colors::RED_200,
             ));
         }
         if !plan.replaced_own.is_empty() {
             groups.push(list(
-                tr!(M::ReplacedOwnFiles, count = count(plan.replaced_own.len())),
+                t(M::ReplacedOwnFiles),
                 plan.replaced_own.clone(),
                 colors::YELLOW_300,
             ));
@@ -956,121 +954,131 @@ impl LauncherShell {
             .cloned()
             .collect();
         if !kept.is_empty() {
-            groups.push(list(
-                tr!(M::KeptFiles, count = count(kept.len())),
-                kept,
-                colors::GRAY_400,
-            ));
+            groups.push(list(t(M::KeptFiles), kept, colors::GRAY_400));
         }
         if !plan.overrides_written.is_empty() {
             groups.push(list(
-                tr!(M::WrittenFiles, count = count(plan.overrides_written.len())),
+                t(M::WrittenFiles),
                 plan.overrides_written.clone(),
                 colors::GRAY_400,
             ));
         }
-        let loader = match &plan.loader {
-            Some(loader) => format!("{} {}", loader.kind.label(), loader.version),
-            None => t(M::Vanilla).to_string(),
-        };
-        let summary = tr!(
-            M::ModpackSummary,
-            pack = plan.record.title,
-            from = if prompt.from_version.is_empty() {
-                "?"
-            } else {
-                &prompt.from_version
-            },
-            to = plan.record.version_number,
-            game = plan.game_version,
-            loader = loader,
-            size = format::bytes_binary(plan.download_size()),
-        );
-        Dialog::new(
-            "modpack-update",
-            tr!(M::UpdateTitle, name = prompt.instance_name),
-            focus,
-        )
-        .width(px(560.))
-        .on_close({
-            let entity = entity.clone();
-            move |_, cx| {
-                entity.update(cx, |this, cx| {
-                    this.discard_pending_update(cx);
-                    this.close_modal(cx)
-                })
-            }
-        })
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap_3()
-                .text_color(crate::theme::ink::secondary())
-                .child(div().whitespace_normal().child(summary))
-                .when(!plan.changes_files(), |this| {
-                    this.child(div().child(t(M::NoFilesChange)))
-                })
-                .child(
-                    div()
-                        .id("modpack-update-plan")
-                        .flex()
-                        .flex_col()
-                        .gap_2()
-                        .max_h(px(260.))
-                        .overflow_y_scroll()
-                        .px_3()
-                        .py_2()
-                        .rounded(radius::LG)
-                        .bg(colors::GRAY_900)
-                        .children(groups),
-                )
-                .child(
-                    div()
-                        .whitespace_normal()
-                        .text_size(theme::text_size(text::SMALL))
-                        .child(match &prompt.snapshot_failed {
-                            None => t(M::ModpackUpdateSafety).to_string(),
-                            Some(error) => tr!(M::ModpackUpdateNoSnapshot, error = error),
-                        }),
-                ),
-        )
-        .footer(
-            Button::new(
-                "confirm-modpack-update",
-                if prompt.snapshot_failed.is_some() {
-                    t(M::UpdateWithoutSnapshot)
-                } else {
-                    t(CommonMsg::Update)
-                },
+        // the pack's change, the game and loader it brings, and the download, as a
+        // table: the instance is the card above it
+        let pack_change: FactValue = if prompt.from_version.is_empty() {
+            VersionTag::new(plan.record.version_number.clone()).into()
+        } else {
+            DiffValue::versions(
+                prompt.from_version.clone(),
+                plan.record.version_number.clone(),
             )
-            .variant(ButtonVariant::Primary)
-            .on_click(cx.listener(|this, _, _, cx| {
-                let update = match this.modal.close(cx) {
-                    Some(Modal::ModpackUpdate { prompt, .. }) => {
-                        let mut prompt = (**prompt).clone();
-                        prompt.without_snapshot = prompt.snapshot_failed.is_some();
-                        Some(prompt)
-                    }
-                    _ => None,
-                };
-                this.show_queued_modal_soon(cx);
-                if let Some(prompt) = update {
-                    this.instances.update(cx, |instances, cx| {
-                        instances.apply_modpack_update(prompt, cx)
-                    });
+            .into()
+        };
+        let mut summary = FactList::new("modpack-update-summary")
+            .row(sanitize(&plan.record.title, 64), pack_change)
+            .row(
+                t(FactMsg::Game),
+                crate::instances::facts::game(&plan.game_version),
+            );
+        summary = match &plan.loader {
+            Some(loader) => summary.row(
+                t(FactMsg::Loader),
+                ProductPhrase::new(loader.kind.into(), loader.version.clone()),
+            ),
+            None => summary.row(t(FactMsg::Loader), FactValue::text(t(FactMsg::Vanilla))),
+        };
+        let summary = summary.row(t(FactMsg::Download), Num::bytes(plan.download_size()));
+        let card = self
+            .instances
+            .read(cx)
+            .list()
+            .iter()
+            .find(|instance| instance.id == prompt.instance_id)
+            .map(|instance| ObjectCard::new(instance.name.clone()).kind(Kind::Instance))
+            .unwrap_or_else(|| crate::instances::facts::named_card(&prompt.instance_name))
+            .compact(true);
+        Dialog::new("modpack-update", t(M::UpdateInstanceTitle), focus)
+            .width(px(560.))
+            .on_close({
+                let entity = entity.clone();
+                move |_, cx| {
+                    entity.update(cx, |this, cx| {
+                        this.discard_pending_update(cx);
+                        this.close_modal(cx)
+                    })
                 }
-            })),
-        )
-        .footer(
-            Button::new("cancel-modpack-update", t(CommonMsg::Cancel))
-                .variant(ButtonVariant::Secondary)
+            })
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_3()
+                    .text_color(crate::theme::ink::secondary())
+                    .child(card)
+                    .child(summary)
+                    .when(!plan.changes_files(), |this| {
+                        this.child(div().child(t(M::NoFilesChange)))
+                    })
+                    .child(
+                        div()
+                            .id("modpack-update-plan")
+                            .flex()
+                            .flex_col()
+                            .gap_2()
+                            .max_h(px(260.))
+                            .overflow_y_scroll()
+                            .px_3()
+                            .py_2()
+                            .rounded(radius::LG)
+                            .bg(colors::GRAY_900)
+                            .children(groups),
+                    )
+                    .child(
+                        div()
+                            .whitespace_normal()
+                            .text_size(theme::text_size(text::SMALL))
+                            .child(match &prompt.snapshot_failed {
+                                None => t(M::ModpackUpdateSafety).to_string(),
+                                Some(error) => tr!(M::ModpackUpdateNoSnapshot, error = error),
+                            }),
+                    ),
+            )
+            .footer(
+                Button::new(
+                    "confirm-modpack-update",
+                    if prompt.snapshot_failed.is_some() {
+                        t(M::UpdateWithoutSnapshot)
+                    } else {
+                        t(CommonMsg::Update)
+                    },
+                )
+                .variant(ButtonVariant::Primary)
                 .on_click(cx.listener(|this, _, _, cx| {
-                    this.discard_pending_update(cx);
-                    this.close_modal(cx)
+                    let update = match this.modal.close(cx) {
+                        Some(Modal::ModpackUpdate { prompt, .. }) => {
+                            let mut prompt = (**prompt).clone();
+                            prompt.without_snapshot = prompt.snapshot_failed.is_some();
+                            Some(prompt)
+                        }
+                        _ => None,
+                    };
+                    this.show_queued_modal_soon(cx);
+                    if let Some(prompt) = update {
+                        this.instances.update(cx, |instances, cx| {
+                            instances.apply_modpack_update(prompt, cx)
+                        });
+                    }
                 })),
-        )
-        .into_any_element()
+            )
+            .footer(
+                Button::new("cancel-modpack-update", t(CommonMsg::Cancel))
+                    .variant(ButtonVariant::Secondary)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.discard_pending_update(cx);
+                        this.close_modal(cx)
+                    })),
+            )
+            .into_any_element()
     }
 
     fn render_world_dialog(&self, modal: &Modal, cx: &mut Context<Self>) -> Option<AnyElement> {
@@ -1766,13 +1774,7 @@ impl LauncherShell {
     /// Closes the dialog; it fades out.
     /// After "Move to Trash" in the Delete dialog: closes it, or shows why the instance
     /// couldn't be moved (in its own dialog if that one was closed meanwhile).
-    fn instance_deleted(
-        &mut self,
-        id: &str,
-        name: &str,
-        result: Result<(), String>,
-        cx: &mut Context<Self>,
-    ) {
+    fn instance_deleted(&mut self, id: &str, result: Result<(), String>, cx: &mut Context<Self>) {
         let showing = matches!(
             self.modal.current(),
             Some(Modal::DeleteInstance { id: shown, .. }) if shown == id
@@ -1796,7 +1798,7 @@ impl LauncherShell {
                 let focus = cx.focus_handle();
                 self.open_modal(
                     Modal::LaunchFailed {
-                        title: tr!(M::DeleteNamed, name = name).into(),
+                        title: t(M::DeleteInstanceTitle).into(),
                         message: err.into(),
                         focus,
                     },
@@ -2471,6 +2473,13 @@ impl LauncherShell {
                     turned_off,
                     error: error.clone(),
                     can_find: self.can_find_mod(crash, cx),
+                    instance: self
+                        .instances
+                        .read(cx)
+                        .list()
+                        .iter()
+                        .find(|instance| instance.id == crash.instance_id)
+                        .cloned(),
                 },
                 close(cx),
                 cx,
@@ -2630,49 +2639,60 @@ impl LauncherShell {
                 // moving a large instance to the Trash takes a while
                 let deleting =
                     self.instances.read(cx).file_op(&id) == Some(crate::instances::FileOp::Delete);
-                Dialog::new(
-                    "delete-instance",
-                    tr!(M::DeleteNamed, name = name),
-                    focus.clone(),
-                )
-                .on_close(close(cx))
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap_2()
-                        .text_color(crate::theme::ink::secondary())
-                        .child(tr!(M::DeleteInstanceBody, trash = t(CommonMsg::TheTrash)))
-                        .when_some(error.clone(), |this, error| {
-                            this.child(div().text_color(colors::RED_200).child(error))
-                        }),
-                )
-                .footer(
-                    Button::new("confirm-delete-instance", t(CommonMsg::MoveToTrash))
-                        .variant(ButtonVariant::Danger)
-                        .disabled(deleting)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            let task = this
-                                .instances
-                                .update(cx, |instances, cx| instances.delete(&id, cx));
-                            let (id, name) = (id.clone(), name.clone());
-                            cx.spawn(async move |this, cx| {
-                                let result = task.await;
-                                this.update(cx, |this, cx| {
-                                    this.instance_deleted(&id, &name, result, cx)
+                // the instance in a card under the title, which names only the action
+                let card = self
+                    .instances
+                    .read(cx)
+                    .list()
+                    .iter()
+                    .find(|instance| instance.id == id)
+                    .map(crate::instances::facts::card)
+                    .unwrap_or_else(|| crate::instances::facts::named_card(&name));
+                Dialog::new("delete-instance", t(M::DeleteInstanceTitle), focus.clone())
+                    .on_close(close(cx))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_3()
+                            .text_color(crate::theme::ink::secondary())
+                            .child(card)
+                            .child(
+                                div().whitespace_normal().child(tr!(
+                                    M::DeleteInstanceBody,
+                                    trash = t(CommonMsg::TheTrash)
+                                )),
+                            )
+                            .when_some(error.clone(), |this, error| {
+                                this.child(div().text_color(colors::RED_200).child(error))
+                            }),
+                    )
+                    .footer(
+                        Button::new("confirm-delete-instance", t(CommonMsg::MoveToTrash))
+                            .variant(ButtonVariant::Danger)
+                            .disabled(deleting)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                let task = this
+                                    .instances
+                                    .update(cx, |instances, cx| instances.delete(&id, cx));
+                                let id = id.clone();
+                                cx.spawn(async move |this, cx| {
+                                    let result = task.await;
+                                    this.update(cx, |this, cx| {
+                                        this.instance_deleted(&id, result, cx)
+                                    })
+                                    .ok();
                                 })
-                                .ok();
-                            })
-                            .detach();
-                            cx.notify();
-                        })),
-                )
-                .footer(
-                    Button::new("cancel-delete-instance", t(CommonMsg::Cancel))
-                        .variant(ButtonVariant::Secondary)
-                        .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx))),
-                )
-                .into_any_element()
+                                .detach();
+                                cx.notify();
+                            })),
+                    )
+                    .footer(
+                        Button::new("cancel-delete-instance", t(CommonMsg::Cancel))
+                            .variant(ButtonVariant::Secondary)
+                            .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx))),
+                    )
+                    .into_any_element()
             }
             Modal::ToggleMod { prompt, focus } => self.render_toggle_mod(prompt, focus.clone(), cx),
             Modal::StorageClean { what, bytes, focus } => {
@@ -2766,6 +2786,8 @@ struct CrashState<'a> {
     error: Option<SharedString>,
     /// Whether to offer "Find it for me".
     can_find: bool,
+    /// The instance that crashed, for its card (`None` once it's gone).
+    instance: Option<Instance>,
 }
 
 /// The crash dialog's section on the mods the crash points at: one mod when the
@@ -2878,113 +2900,125 @@ fn render_crash(
     cx: &mut Context<LauncherShell>,
 ) -> AnyElement {
     let summary = &crash.summary;
-    let headline = match (&summary.description, crash.exit_code) {
-        (Some(description), _) => tr!(M::MinecraftCrashed, description = description),
-        (None, Some(code)) => tr!(M::MinecraftExitCode, code = code),
-        (None, None) => t(M::MinecraftStopped).to_string(),
+    let headline = match &summary.description {
+        Some(description) => tr!(M::MinecraftCrashed, description = description),
+        None => t(M::MinecraftStopped).to_string(),
     };
+    // the exit code, to copy, when the crash has no description of its own
+    let exit_code = crash
+        .exit_code
+        .filter(|_| summary.description.is_none())
+        .map(|code| {
+            ValueField::new("crash-exit-code", code.to_string())
+                .label(t(FactMsg::ExitCode))
+                .kind(ValueKind::Code)
+        });
+    // the instance in a card under the title, which names only what happened
+    let card = state
+        .instance
+        .as_ref()
+        .map(crate::instances::facts::card)
+        .unwrap_or_else(|| crate::instances::facts::named_card(&crash.instance_name));
     let report = crash.report.clone();
     let log_text = crash.log_text.clone();
     let copied = state.copied;
     let can_find = state.can_find;
     let suspects = render_suspects(crash, &state, cx);
     let finder_crash = crash.clone();
-    Dialog::new(
-        "crash",
-        tr!(M::CrashTitle, name = crash.instance_name),
-        focus,
-    )
-    .on_close(on_close)
-    .child(
-        div()
-            .flex()
-            .flex_col()
-            .gap_3()
-            .child(
-                div()
-                    .text_color(crate::theme::ink::secondary())
-                    .child(RichText::new(headline)),
+    Dialog::new("crash", t(M::CrashTitle), focus)
+        .on_close(on_close)
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_3()
+                .child(card)
+                .child(
+                    div()
+                        .text_color(crate::theme::ink::secondary())
+                        .child(RichText::new(headline)),
+                )
+                .children(exit_code)
+                .when_some(summary.exception.clone(), |this, exception| {
+                    this.child(
+                        div()
+                            .px_3()
+                            .py_2()
+                            .rounded(radius::LG)
+                            .bg(colors::GRAY_900)
+                            .border_1()
+                            .border_color(colors::RED_200.opacity(30))
+                            .font_family(fonts::mono())
+                            .text_size(theme::text_size(text::SMALL))
+                            .text_color(colors::RED_200)
+                            .child(RichText::new(exception)),
+                    )
+                })
+                .when(!summary.causes.is_empty(), |this| {
+                    this.child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .text_size(theme::text_size(text::SMALL))
+                                    .font_weight(weights::BOLD.into())
+                                    .text_color(crate::theme::ink::muted())
+                                    .child(t(M::LikelyCause).to_uppercase()),
+                            )
+                            .children(summary.causes.iter().map(|cause| {
+                                div()
+                                    .text_size(theme::text_size(text::MEDIUM))
+                                    .text_color(crate::theme::ink::text())
+                                    .child(cause_text(*cause))
+                            })),
+                    )
+                })
+                .children(suspects),
+        )
+        .when(can_find, |this| {
+            this.footer(
+                Button::new(
+                    "find-crashing-mod",
+                    t(crate::i18n::InstancesMsg::FindModButton),
+                )
+                .variant(ButtonVariant::Primary)
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.open_mod_finder(&finder_crash, window, cx)
+                })),
             )
-            .when_some(summary.exception.clone(), |this, exception| {
-                this.child(
-                    div()
-                        .px_3()
-                        .py_2()
-                        .rounded(radius::LG)
-                        .bg(colors::GRAY_900)
-                        .border_1()
-                        .border_color(colors::RED_200.opacity(30))
-                        .font_family(fonts::mono())
-                        .text_size(theme::text_size(text::SMALL))
-                        .text_color(colors::RED_200)
-                        .child(RichText::new(exception)),
-                )
-            })
-            .when(!summary.causes.is_empty(), |this| {
-                this.child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap_1()
-                        .child(
-                            div()
-                                .text_size(theme::text_size(text::SMALL))
-                                .font_weight(weights::BOLD.into())
-                                .text_color(crate::theme::ink::muted())
-                                .child(t(M::LikelyCause).to_uppercase()),
-                        )
-                        .children(summary.causes.iter().map(|cause| {
-                            div()
-                                .text_size(theme::text_size(text::MEDIUM))
-                                .text_color(crate::theme::ink::text())
-                                .child(cause_text(*cause))
-                        })),
-                )
-            })
-            .children(suspects),
-    )
-    .when(can_find, |this| {
-        this.footer(
+        })
+        .when_some(report, |this, report| {
+            this.footer(
+                Button::new("open-crash-report", t(M::OpenCrashReport))
+                    .variant(if can_find {
+                        ButtonVariant::Secondary
+                    } else {
+                        ButtonVariant::Primary
+                    })
+                    .on_click(move |_, _, cx| cx.open_with_system(&report)),
+            )
+        })
+        .footer(
             Button::new(
-                "find-crashing-mod",
-                t(crate::i18n::InstancesMsg::FindModButton),
+                "copy-crash-log",
+                if copied {
+                    t(CommonMsg::Copied)
+                } else {
+                    t(M::CopyLog)
+                },
             )
-            .variant(ButtonVariant::Primary)
-            .on_click(cx.listener(move |this, _, window, cx| {
-                this.open_mod_finder(&finder_crash, window, cx)
+            .variant(ButtonVariant::Secondary)
+            .on_click(cx.listener(move |this, _, _, cx| {
+                cx.write_to_clipboard(ClipboardItem::new_string(log_text.clone()));
+                if let Some(Modal::Crash { copied, .. }) = this.modal.current_mut() {
+                    *copied = true;
+                }
+                cx.notify();
             })),
         )
-    })
-    .when_some(report, |this, report| {
-        this.footer(
-            Button::new("open-crash-report", t(M::OpenCrashReport))
-                .variant(if can_find {
-                    ButtonVariant::Secondary
-                } else {
-                    ButtonVariant::Primary
-                })
-                .on_click(move |_, _, cx| cx.open_with_system(&report)),
-        )
-    })
-    .footer(
-        Button::new(
-            "copy-crash-log",
-            if copied {
-                t(CommonMsg::Copied)
-            } else {
-                t(M::CopyLog)
-            },
-        )
-        .variant(ButtonVariant::Secondary)
-        .on_click(cx.listener(move |this, _, _, cx| {
-            cx.write_to_clipboard(ClipboardItem::new_string(log_text.clone()));
-            if let Some(Modal::Crash { copied, .. }) = this.modal.current_mut() {
-                *copied = true;
-            }
-            cx.notify();
-        })),
-    )
-    .into_any_element()
+        .into_any_element()
 }
 
 impl LauncherShell {

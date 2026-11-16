@@ -34,8 +34,7 @@ pub fn text(message: M) -> &'static str {
         M::ImportInstances => "匯入實例…",
         M::Servers => "Lodestone Host",
         M::Friends => "好友",
-        M::AppVersion => "Lodestone Launcher v{version}",
-        M::PlayedInTotal => "{when} · 共 {time}",
+        M::AppName => "Lodestone Launcher",
         M::ImportProgress => "{percent} · {label}",
         M::GroupModded => "{loader}（模組）",
         M::Vanilla => "原版",
@@ -44,10 +43,7 @@ pub fn text(message: M) -> &'static str {
 
         M::NoInstanceSelected => "未選取實例",
         M::NoInstanceSelectedHint => "在側邊欄中選擇一個實例即可開始。",
-        M::MinecraftVersion => "Minecraft {version}",
-        M::MinecraftWith => "Minecraft {version}，{loader}",
-        M::HeroPlayed => "{game}。已遊玩 {time}。",
-        M::HeroNotPlayed => "{game}。按下「開始遊戲」即可下載並啟動遊戲。",
+        M::HeroNotPlayed => "按下「開始遊戲」即可下載並啟動遊戲。",
         M::CreateFirstInstance => "建立你的第一個實例",
         M::InstanceExplainer => "實例是一個 Minecraft 版本，擁有自己的模組、世界和設定。",
         M::ContentPlaceholder => "有了實例後，內容會顯示在這裡。",
@@ -55,9 +51,6 @@ pub fn text(message: M) -> &'static str {
         M::SettingsPlaceholder => "有了實例後，設定會顯示在這裡。",
         M::LogsPlaceholder => "有了實例後，日誌會顯示在這裡。",
         M::LinkedTo => "已連結到 {core} 上的 {server}",
-        M::LinkedToRemoved => {
-            "已連結到 {core} 上的 {server}（該主機已從「Lodestone Host」頁面移除）"
-        }
         M::RunsUnderRosetta => {
             "透過 Rosetta 2 執行：Mojang 沒有為這個版本需要的部分程式庫製作 Apple 晶片版本。啟動較慢，之後可以正常遊玩。"
         }
@@ -74,9 +67,11 @@ pub fn text(message: M) -> &'static str {
         M::ServerStopped => "已停止",
         M::ServerUnreachable => "無法連線",
         M::ServerChecking => "正在檢查…",
+        M::HostRemoved => "主機已移除",
         M::PlayNamed => "啟動「{name}」",
 
         M::DeleteNamed => "刪除「{name}」？",
+        M::DeleteInstanceTitle => "刪除實例？",
         M::DeleteWorldBody => "這個世界的資料夾會移到{trash}，你可以從那裡還原。它的備份會保留。",
         M::DeleteInstanceBody => {
             "這個實例的資料夾（包括其中的世界、模組和設定）會移到{trash}。你可以從那裡還原。它的快照會一直保留，直到你在「設定 › 儲存空間」中移除；還原實例時快照也會一起回來。"
@@ -92,9 +87,8 @@ pub fn text(message: M) -> &'static str {
         }
         M::RemoveAccount => "移除帳號",
         M::MinecraftCrashed => "Minecraft 已當機：{description}。",
-        M::MinecraftExitCode => "Minecraft 已停止，結束代碼為 {code}。",
         M::MinecraftStopped => "Minecraft 意外停止。",
-        M::CrashTitle => "「{name}」已當機",
+        M::CrashTitle => "遊戲已當機",
         M::LikelyCause => "可能的原因",
         M::OpenCrashReport => "開啟當機報告",
         M::CauseWrongJava => {
@@ -129,15 +123,14 @@ pub fn text(message: M) -> &'static str {
         }
         M::CopyLog => "複製日誌",
 
-        M::UpdateTitle => "更新「{name}」？",
-        M::ModpackSummary => "{pack} {from} → {to}。Minecraft {game}，{loader}。需下載 {size}。",
+        M::UpdateInstanceTitle => "更新實例？",
         M::NoFilesChange => "沒有檔案變更，只會記錄新版本。",
-        M::UpdatedFiles => "已更新（{count}）",
-        M::AddedFiles => "已新增（{count}）",
-        M::RemovedFiles => "已移除（{count}）",
-        M::ReplacedOwnFiles => "原本屬於你、現由模組包提供的檔案（{count}）",
-        M::KeptFiles => "保留你的變更（{count}）",
-        M::WrittenFiles => "寫入的設定檔和其他檔案（{count}）",
+        M::UpdatedFiles => "已更新",
+        M::AddedFiles => "已新增",
+        M::RemovedFiles => "已移除",
+        M::ReplacedOwnFiles => "原本屬於你、現由模組包提供的檔案",
+        M::KeptFiles => "保留你的變更",
+        M::WrittenFiles => "寫入的設定檔和其他檔案",
         M::ModpackUpdateSafety => {
             "你自己的模組、世界和修改過的設定不會被更動。會先為實例拍攝快照，被取代或刪除的每個檔案都會保存在實例的備份資料夾中。"
         }
