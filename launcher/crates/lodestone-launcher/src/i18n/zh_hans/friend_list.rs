@@ -7,7 +7,7 @@ pub fn text(message: M) -> &'static str {
         M::AddFriend => "添加好友",
         M::Refreshing => "正在查看好友状态…",
         M::You => "你",
-        M::YourSafetyCode => "你的安全码：{code}",
+        M::YourSafetyCode => "你的安全码",
         M::NoNameYet => "先选择好友会看到的名字，然后用好友链接添加他们。",
         M::ChooseName => "选择名字",
         M::EditName => "修改名字",
@@ -15,23 +15,26 @@ pub fn text(message: M) -> &'static str {
         M::OpenFailed => "无法打开你的好友列表",
         M::ActionFailed => "无法更新你的好友列表",
         M::NoFriendsYet => "还没有好友。创建一个好友链接，发给你认识的人。",
-        M::RefreshProblem => "有些好友无法查看：{error}",
+        M::RefreshProblem => "部分好友无法检查",
         M::LinksTitle => "你的好友链接",
-        M::LinkWaiting => "正在等待回复。仅可使用一次，有效期至 {time}。",
+        M::LinkWaiting => "等待回复",
+        M::LinkUses => "可用次数",
+        M::LinkUsesOnce => "一次",
         M::CancelLink => "取消链接",
         M::CheckAnswers => "查看回复",
-        M::ReplyFrom => "{name} 回复了你的好友链接",
-        M::SafetyCode => "安全码：{code}",
-        M::SameNameAs => "你已经有一位叫 {names} 的好友。继续之前，请确认这是另一个人。",
+        M::ReplyFrom => "回复了你的好友链接",
+        M::SafetyCode => "安全码",
+        M::MinecraftName => "Minecraft 玩家名",
+        M::SameNameAs => "你已经有一个同名的好友。继续之前，请确认这是另一个人。",
+        M::SameNameTag => "同名：",
         M::Accept => "接受",
         M::Ignore => "忽略",
-        M::WaitingFor => "正在等待 {name} 确认",
         M::NotVerified => "未验证",
+        M::WaitingToConfirm => "等待确认",
         M::Verified => "安全码一致",
         M::Hidden => "已对其隐藏",
         M::Retired => "已停用此好友列表",
-        M::TheirName => "对方的名字：{name}",
-        M::OnlineOn => "在线：{cores}",
+        M::TheirName => "对方的名字",
         M::NotSharingNow => "目前没有与你共享",
         M::SharesNothing => "尚未与你共享任何服务器",
         M::Servers => "服务器",
@@ -61,28 +64,28 @@ pub fn text(message: M) -> &'static str {
         M::OtherService => {
             "这个链接属于 {host}，不是此启动器使用的 Lodestone Connect 服务，因此无法在这里打开。"
         }
-        M::PreviewFrom => "这个链接来自 {name}",
-        M::PreviewCompare => "成为好友后，请通过语音或当面与 {name} 核对安全码。只添加你认识的人。",
-        M::AlreadyFriends => "你和 {name} 已经是好友了。",
+        M::PreviewFrom => "好友链接来自",
+        M::PreviewCompare => "成为好友后，请通过语音或当面与对方核对安全码。只添加你认识的人。",
+        M::AlreadyFriends => "已是好友",
         M::PlaysAs => {
-            "对方的启动器显示其 Minecraft 玩家名为 {name}。Lodestone 不会核实这一点：只有安全码才能证明确实是对方本人。"
+            "对方的启动器显示其 Minecraft 玩家名如上。Lodestone 不会核实这一点：只有安全码才能证明确实是对方本人。"
         }
-        M::Added => "{name} 已在你的好友列表中。对方确认前不会共享任何内容。",
+        M::Added => "已在你的好友列表中。对方确认前不会共享任何内容。",
         M::NeedNameFirst => "请先选择你的名字：好友会在你的回复中看到它。",
         M::NameTitle => "你的名字",
         M::NameBody => "好友会看到这个名字。如果你修改了它，好友的启动器下次查看时会看到新名字。",
         M::NamePlaceholder => "你的名字",
         M::NameEmpty => "请选择一个好友会看到的名字。",
         M::UseMinecraftName => "使用我的 Minecraft 名字",
-        M::VerifyTitle => "与 {name} 核对安全码",
+        M::VerifyTitle => "核对安全码",
         M::VerifyBody => {
-            "给 {name} 打电话或当面见面，互相念出你们的安全码。如果一致，说明你们成为好友时没有人从中冒充。不要在发送链接的那个聊天里核对。"
+            "给对方打电话或当面见面，互相念出你们的安全码。如果一致，说明你们成为好友时没有人从中冒充。不要在发送链接的那个聊天里核对。"
         }
         M::YourCode => "你的安全码",
-        M::TheirCode => "{name} 的安全码",
+        M::TheirCode => "对方的安全码",
         M::CodesMatch => "安全码一致",
-        M::RenameTitle => "重命名 {name}",
-        M::RenameBody => "只有你能看到这个名字。对方自己选择的名字是 {name}。",
+        M::RenameTitle => "重命名好友",
+        M::RenameBody => "只有你能看到这个名字。",
         M::NicknamePlaceholder => "昵称",
         M::UseTheirName => "使用对方的名字",
         M::Retire => "停用身份",
@@ -95,18 +98,18 @@ pub fn text(message: M) -> &'static str {
         }
         M::RetireUnderstood => "我明白：所有好友都会被移除，且此操作无法撤销",
         M::RetireConfirm => "停用身份",
-        M::SharingFrom => "从 {core} 共享",
+        M::SharingFrom => "共享自",
         M::RetireCore => "停用",
-        M::RetireCoreTitle => "要停用 {name} 吗？",
+        M::RetireCoreTitle => "停用主机？",
         M::RetireCoreBody => {
-            "你的好友会被告知不再使用 {name}：他们不再看到它的服务器，也不再信任其中的模组。电脑丢失、被盗，或你不再从它共享时，请这样做。"
+            "你的好友会被告知不再使用这个主机：他们不再看到它的服务器，也不再信任其中的模组。电脑丢失、被盗，或你不再从它共享时，请这样做。"
         }
         M::RetireCoreWarning => {
             "此操作无法撤销。即使此主机再次同步，好友也不会再看到它。要再次从那台电脑共享，它需要新的好友证书：那台电脑上的 Lodestone Host 会在服务器设置的“好友”部分提供。"
         }
         M::RetireCoreConfirm => "停用主机",
-        M::NameLike => "与 {names} 同名：请确认对方是谁",
-        M::RemoveTitle => "要移除 {name} 吗？",
+        M::NameLikeBody => "请确认你知道这是谁。",
+        M::RemoveTitle => "移除好友？",
         M::RemoveBody => {
             "你将看不到对方的服务器，对方也看不到你的。你的主机下次同步时，会停止与对方共享。要重新成为好友，需要其中一人创建新的好友链接。你发给对方的邀请链接仍然有效，直到你在 Lodestone Host 中生成新链接。"
         }
@@ -118,7 +121,7 @@ pub fn text(message: M) -> &'static str {
         M::LanNoneOpen => {
             "目前没有对局域网开放的世界。在游戏中打开一个世界，然后选择“对局域网开放”。"
         }
-        M::LanSharing => "已与好友分享：{world}",
+        M::LanSharing => "已与好友共享",
         M::LanStarting => "正在准备分享…",
         M::LanProblem => "无法分享你的局域网世界：{error}",
         M::LanNoList => "请先添加好友：只有好友列表中的人能看到你的局域网世界。",
@@ -128,10 +131,9 @@ pub fn text(message: M) -> &'static str {
         M::LanWorld => "局域网世界",
         M::OpenNow => "现已开放",
         M::LanOpenStatus => "有一个开放中的局域网世界",
-        M::LanJoinNote => "仅在 {name} 的游戏开放它时可以加入。",
+        M::LanJoinNote => "仅在对方的游戏开放它时可以加入。",
         M::LanNeedsMicrosoft => "需要 Microsoft 账户：这个世界处于正版验证模式。",
-        M::LanNeedsVersion => "请使用 Minecraft {version} 游玩。",
-        M::LanModded => "它使用 {loader}：你需要相同的模组。",
+        M::LanModded => "你需要相同的模组才能加入。",
     }
 }
 
@@ -140,6 +142,5 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::AnsweredTimes => {
             ["这个链接收到了 {count} 个回复。可能有其他人拿到了这个链接：接受前请核对安全码。"; 2]
         }
-        P::LanFriendsJoined => ["{count} 位好友已加入"; 2],
     }
 }

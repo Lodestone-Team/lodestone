@@ -20,6 +20,7 @@ pub mod detail;
 mod detail_view;
 pub mod download_world;
 pub mod extras;
+pub mod facts;
 pub mod friend_list;
 mod friend_list_view;
 pub mod friends;

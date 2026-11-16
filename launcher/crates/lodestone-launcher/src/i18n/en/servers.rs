@@ -24,8 +24,9 @@ crate::i18n::messages! {
         ConnectAsOwner = "Connect as owner",
         ChooseDataFolder = "Choose folder…",
         ChooseDataFolderPrompt = "Choose",
-        ProductHostHint = "the desktop app, with the dashboard in a window",
-        ProductCoreHint = "the server program on its own, or Docker",
+        /// Under a host found on this computer that Lodestone Host runs.
+        ProductHostHint = "Desktop app, with the dashboard in a window",
+        ProductCoreHint = "Server program on its own, or Docker",
         /// After Connect as owner; the host is in a chip over it.
         ConnectedAsOwner = "Connected as owner",
         /// Its user name is in a field to copy under it, keyed OwnerAccount.
@@ -33,7 +34,8 @@ crate::i18n::messages! {
         ConnectedOwnerKey = "This launcher has an owner key for it now. You can revoke it from the host's dashboard.",
         /// The key of the user name of the owner account the launcher made.
         OwnerAccount = "Owner account",
-        StartedBy = "Started by {who}",
+        /// The key of what started a host here: Lodestone CLI, Lodestone Host or Docker.
+        StartedBy = "Started by",
         StartedDirectly = "Started directly",
         DirectNote = "This host was started directly. It is meant to be run with lodestone_cli, which installs it and keeps it updated.",
         GetLodestoneCli = "Get lodestone_cli",
@@ -68,8 +70,10 @@ crate::i18n::messages! {
         /// At the bottom of a host's "…" menu: the launcher only accepts the host's own
         /// HTTPS certificate, the one the user trusted.
         CertificatePinned = "Certificate pinned",
-        /// After the host's address: "192.168.1.20:16662 · Signed in as peter".
-        SignedInAs = "Signed in as {username}",
+        /// The key of the user a host's card is signed in as, in its icon's tooltip.
+        SignedInAs = "Signed in as",
+        /// The small button after a host's address.
+        CopyAddress = "Copy address",
         SignedIn = "Signed in",
         NotSignedIn = "Not signed in: public servers only",
         /// The toggle on a host's card.
@@ -460,11 +464,11 @@ crate::i18n::messages! {
         Join = "Join",
         /// In the paste dialog: saves the server without joining it.
         AddInvite = "Add",
+        /// In muted ink where the name of a server added from a link goes, until its host answers.
+        UnnamedServer = "Unnamed server",
+        /// The badge beside it: its name and version show once its host answers.
+        WaitingForReply = "Waiting for its host",
         AddAndJoin = "Add and join",
-        /// A server added from a link whose host hasn't answered yet; {link} is the
-        /// link without its secret part.
-        ServerFromLink = "Server from {link}",
-        AddedNotAnswered = "Added. Its name and version show once its host answers.",
         /// "Add" with a link to a server that is saved already (its row is highlighted).
         AlreadyAddedTitle = "Already added",
         AlreadyAddedBody = "This link is for a server on this page. Its row is highlighted.",
@@ -478,8 +482,8 @@ crate::i18n::messages! {
         FriendsTitle = "Servers from invite links",
         FriendsHint = "Servers people shared with you through a Lodestone Connect invite link.",
         JoinAFriend = "Add server",
-        /// {name} is the name of the friend's host.
-        SharedBy = "Shared by {name}",
+        /// The key of the host that shares a server through an invite link.
+        SharedBy = "Shared by",
         /// Under a host in "On this computer": servers it shares with an invite link that
         /// the user joined here.
         SharedWithFriends = "Shared with friends",
@@ -494,12 +498,13 @@ crate::i18n::messages! {
         FriendChecking = "Checking…",
         FriendPlayingNow = "Playing now",
         StopTrusting = "Stop trusting",
-        /// {how} is one of the Via… messages; {ms} the round trip time.
-        ConnectedVia = "Connected directly {how}, {ms} ms",
-        ViaSameComputer = "on the same computer",
-        ViaLocalNetwork = "over your local network",
-        ViaIpv6 = "over IPv6",
-        ViaInternet = "over the internet",
+        /// How this computer reaches a friend's server, keyed Connection.
+        ConnectionSameComputer = "Same computer",
+        ConnectionLocalNetwork = "Local network",
+        ConnectionIpv6 = "IPv6",
+        ConnectionInternet = "Internet",
+        /// A round trip, keyed Ping: the number is styled apart from its unit.
+        PingMs = "{ms} ms",
         JoinFriendTitle = "Join a server",
         /// The paste dialog's title, from "Add server".
         AddServerTitle = "Add a server",
@@ -507,22 +512,16 @@ crate::i18n::messages! {
         InvitePlaceholder = "Invite link (https://connect.lodestone.cc/j/…)",
         NotAnInvite = "That isn't a Lodestone invite link. Invite links start with https://connect.lodestone.cc/j/.",
         PasteInviteFirst = "Paste an invite link first.",
-        ConnectingTo = "Connecting to {name}…",
         ConnectingToFriend = "Connecting to your friend's server…",
         StageFinding = "Finding a direct way between your network and your friend's. This takes a few seconds.",
         StageFindingSlow = "Still looking. Some networks take up to a minute.",
         StageReading = "Connected. Reading the server's details…",
-        /// Labels in the server's card.
-        FactVersion = "Version",
-        FactMods = "Mods",
-        FactStatus = "Status",
-        FactConnection = "Connection",
-        FactInstance = "Instance",
         FriendHasMods = "This server uses mods. Lodestone Launcher installs the same ones for you.",
         FriendNoMods = "None needed",
-        /// {name} is an instance's name.
-        PlaysWithLinked = "{name}, made for this server. Its mods are kept in step.",
-        PlaysWithInstance = "Your instance {name}, which has the same version.",
+        /// The badge beside the instance Play uses: its mods are kept in step with the server's.
+        MadeForThisServer = "Made for this server",
+        /// The badge beside an instance that has the server's version.
+        SameVersion = "Same version",
         MakesInstance = "Play makes a new instance with the same version.",
         MakesInstanceWithMods = "Play makes a new instance with the server's version and mods.",
         FriendServerStopped = "The server is stopped",
@@ -555,11 +554,12 @@ crate::i18n::messages! {
         InviteLinkKey = "Invite link",
         FriendsReadFailed = "Couldn't read your friends' servers",
         FriendsSaveFailed = "Couldn't save your friends' servers",
-        /// On a friend's server's row. {address} is 127.0.0.1:<port>, the same every
-        /// time; it works while the launcher is connected to the server.
-        /// "Magic localhost" names the feature: a tunnelled server always answers at the
-        /// same address on this computer.
-        FriendAddress = "Magic localhost: {address} (while connected)",
+        /// The key of a friend's server's address on this computer, 127.0.0.1:<port>, the same every time.
+        /// "Magic localhost" names the feature: a tunnelled server always answers at the same
+        /// address on this computer.
+        MagicLocalhost = "Magic localhost",
+        /// Beside that address.
+        WhileConnected = "Works while you're connected.",
         /// The address to use this time and the usual port are in fields under it.
         FriendPortTaken = "Port was in use",
         /// {address} is this session's 127.0.0.1:<port>; {port} the usual one.

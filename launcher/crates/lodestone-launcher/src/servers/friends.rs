@@ -387,10 +387,10 @@ pub fn join_error_text(error: &JoinError) -> (String, String) {
 /// How this computer reaches the host, in a few words.
 pub fn connection_label(kind: ConnectionKind) -> &'static str {
     t(match kind {
-        ConnectionKind::SameComputer => M::ViaSameComputer,
-        ConnectionKind::LocalNetwork => M::ViaLocalNetwork,
-        ConnectionKind::Ipv6 => M::ViaIpv6,
-        ConnectionKind::Internet => M::ViaInternet,
+        ConnectionKind::SameComputer => M::ConnectionSameComputer,
+        ConnectionKind::LocalNetwork => M::ConnectionLocalNetwork,
+        ConnectionKind::Ipv6 => M::ConnectionIpv6,
+        ConnectionKind::Internet => M::ConnectionInternet,
     })
 }
 

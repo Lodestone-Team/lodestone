@@ -9,7 +9,7 @@ pub fn text(message: M) -> &'static str {
         M::AddFriend => "Ajouter un ami",
         M::Refreshing => "Vérification de vos amis…",
         M::You => "Vous",
-        M::YourSafetyCode => "Votre code de sécurité\u{a0}: {code}",
+        M::YourSafetyCode => "Votre code de sécurité",
         M::NoNameYet => {
             "Choisissez le nom que verront vos amis, puis ajoutez-les avec un lien d’ami."
         }
@@ -21,25 +21,28 @@ pub fn text(message: M) -> &'static str {
         M::NoFriendsYet => {
             "Pas encore d’amis. Créez un lien d’ami et envoyez-le à quelqu’un que vous connaissez."
         }
-        M::RefreshProblem => "Certains amis n’ont pas pu être vérifiés\u{a0}: {error}",
+        M::RefreshProblem => "Certains amis n’ont pas pu être vérifiés",
         M::LinksTitle => "Vos liens d’ami",
-        M::LinkWaiting => "En attente d’une réponse. Utilisable une fois, jusqu’à {time}.",
+        M::LinkWaiting => "En attente de réponse",
+        M::LinkUses => "Utilisations",
+        M::LinkUsesOnce => "Une fois",
         M::CancelLink => "Annuler le lien",
         M::CheckAnswers => "Vérifier les réponses",
-        M::ReplyFrom => "{name} a répondu à votre lien d’ami",
-        M::SafetyCode => "Code de sécurité\u{a0}: {code}",
+        M::ReplyFrom => "A répondu à votre lien d’ami",
+        M::SafetyCode => "Code de sécurité",
+        M::MinecraftName => "Nom Minecraft",
         M::SameNameAs => {
-            "Vous avez déjà un ami nommé {names}. Assurez-vous qu’il s’agit bien de quelqu’un d’autre avant de continuer."
+            "Vous avez déjà un ami de ce nom. Assurez-vous qu’il s’agit de quelqu’un d’autre avant de continuer."
         }
+        M::SameNameTag => "Même nom que",
         M::Accept => "Accepter",
         M::Ignore => "Ignorer",
-        M::WaitingFor => "En attente de la confirmation de {name}",
         M::NotVerified => "Non vérifié",
+        M::WaitingToConfirm => "En attente de confirmation",
         M::Verified => "Codes identiques",
         M::Hidden => "Masqué pour cet ami",
         M::Retired => "N’utilise plus cette liste d’amis",
-        M::TheirName => "Son nom\u{a0}: {name}",
-        M::OnlineOn => "En ligne\u{a0}: {cores}",
+        M::TheirName => "Son nom",
         M::NotSharingNow => "Ne partage rien avec vous pour le moment",
         M::SharesNothing => "Ne partage encore aucun serveur avec vous",
         M::Servers => "Serveurs",
@@ -71,16 +74,16 @@ pub fn text(message: M) -> &'static str {
         M::OtherService => {
             "Ce lien est destiné à {host}, qui n’est pas le service Lodestone Connect qu’utilise ce lanceur\u{202F}: il ne peut pas être ouvert ici."
         }
-        M::PreviewFrom => "Ce lien vient de {name}",
+        M::PreviewFrom => "Lien d’ami de",
         M::PreviewCompare => {
-            "Une fois amis, comparez vos codes de sécurité avec {name} de vive voix ou en personne. N’ajoutez que des personnes que vous connaissez."
+            "Une fois amis, comparez vos codes de sécurité de vive voix ou en personne. N’ajoutez que des personnes que vous connaissez."
         }
-        M::AlreadyFriends => "Vous êtes déjà ami avec {name}.",
+        M::AlreadyFriends => "Déjà amis",
         M::PlaysAs => {
-            "Son lanceur indique que cette personne joue à Minecraft sous le nom {name}. Lodestone ne le vérifie pas\u{a0}: seul le code de sécurité montre que c’est bien elle."
+            "Son lanceur indique que cette personne joue à Minecraft sous ce nom. Lodestone ne le vérifie pas\u{a0}: seul le code de sécurité montre que c’est bien elle."
         }
         M::Added => {
-            "{name} est dans votre liste d’amis. Rien n’est partagé tant qu’il n’a pas confirmé."
+            "Dans votre liste d’amis. Rien n’est partagé tant que cette personne n’a pas confirmé."
         }
         M::NeedNameFirst => {
             "Choisissez d’abord votre nom\u{a0}: votre ami le verra avec votre réponse."
@@ -92,15 +95,15 @@ pub fn text(message: M) -> &'static str {
         M::NamePlaceholder => "Votre nom",
         M::NameEmpty => "Choisissez un nom que verront vos amis.",
         M::UseMinecraftName => "Utiliser mon nom Minecraft",
-        M::VerifyTitle => "Comparer les codes de sécurité avec {name}",
+        M::VerifyTitle => "Comparer les codes de sécurité",
         M::VerifyBody => {
-            "Appelez {name} ou retrouvez-le, et lisez-vous vos codes. S’ils sont identiques, personne ne s’est interposé quand vous êtes devenus amis. Ne les comparez pas dans la discussion par laquelle le lien est passé."
+            "Appelez cette personne ou retrouvez-la, et lisez-vous vos codes. S’ils sont identiques, personne ne s’est interposé quand vous êtes devenus amis. Ne les comparez pas dans la discussion par laquelle le lien est passé."
         }
         M::YourCode => "Votre code",
-        M::TheirCode => "Code de {name}",
+        M::TheirCode => "Son code",
         M::CodesMatch => "Les codes sont identiques",
-        M::RenameTitle => "Renommer {name}",
-        M::RenameBody => "Vous seul voyez ce nom. Le nom qu’il a choisi est {name}.",
+        M::RenameTitle => "Renommer l’ami",
+        M::RenameBody => "Vous seul voyez ce nom.",
         M::NicknamePlaceholder => "Surnom",
         M::UseTheirName => "Utiliser son nom",
         M::Retire => "Retirer l’identité",
@@ -115,18 +118,18 @@ pub fn text(message: M) -> &'static str {
             "J’ai compris\u{a0}: tous mes amis sont retirés, et c’est irréversible"
         }
         M::RetireConfirm => "Retirer l’identité",
-        M::SharingFrom => "Partage depuis {core}",
+        M::SharingFrom => "Partage depuis",
         M::RetireCore => "Retirer",
-        M::RetireCoreTitle => "Retirer {name}\u{202F}?",
+        M::RetireCoreTitle => "Retirer l’hôte\u{202F}?",
         M::RetireCoreBody => {
-            "Vos amis sont prévenus d’oublier {name} : ils ne voient plus ses serveurs et ne font plus confiance à leurs mods. Faites-le pour un ordinateur perdu ou volé, ou depuis lequel vous ne partagez plus."
+            "Vos amis sont prévenus d’oublier cet hôte\u{a0}: ils ne voient plus ses serveurs et ne font plus confiance à leurs mods. Faites-le pour un ordinateur perdu ou volé, ou depuis lequel vous ne partagez plus."
         }
         M::RetireCoreWarning => {
             "C’est irréversible. Cet hôte n’est plus jamais montré à vos amis, même s’il se synchronise. Pour partager de nouveau depuis cet ordinateur, il lui faut un nouveau certificat d’ami : Lodestone Host sur cet ordinateur en propose un dans les Paramètres d’un serveur, sous Amis."
         }
         M::RetireCoreConfirm => "Retirer l’hôte",
-        M::NameLike => "Même nom que {names} : vérifiez de qui il s’agit",
-        M::RemoveTitle => "Retirer {name}\u{202F}?",
+        M::NameLikeBody => "Assurez-vous de savoir qui c’est.",
+        M::RemoveTitle => "Retirer l’ami\u{202F}?",
         M::RemoveBody => {
             "Vous ne voyez plus ses serveurs, et il ne voit plus les vôtres. Vos hôtes cessent de partager avec lui la prochaine fois qu’ils se synchronisent. Pour redevenir amis, l’un de vous crée un nouveau lien d’ami. Les liens d’invitation que vous lui avez envoyés fonctionnent jusqu’à ce que vous en créiez de nouveaux dans Lodestone Host."
         }
@@ -138,7 +141,7 @@ pub fn text(message: M) -> &'static str {
         M::LanNoneOpen => {
             "Aucun monde n’est ouvert en LAN pour l’instant. Dans le jeu, ouvrez un monde et choisissez Ouvrir au LAN."
         }
-        M::LanSharing => "Partagé avec vos amis\u{a0}: {world}",
+        M::LanSharing => "Partagé avec vos amis",
         M::LanStarting => "Préparation du partage…",
         M::LanProblem => "Impossible de partager vos mondes LAN\u{a0}: {error}",
         M::LanNoList => {
@@ -152,12 +155,11 @@ pub fn text(message: M) -> &'static str {
         M::LanWorld => "Monde LAN",
         M::OpenNow => "ouvert maintenant",
         M::LanOpenStatus => "A un monde LAN ouvert",
-        M::LanJoinNote => "Accessible tant que le jeu de {name} le garde ouvert.",
+        M::LanJoinNote => "Accessible tant que son jeu le garde ouvert.",
         M::LanNeedsMicrosoft => {
             "Nécessite un compte Microsoft\u{a0}: le monde est en mode en ligne."
         }
-        M::LanNeedsVersion => "Jouez-y avec Minecraft {version}.",
-        M::LanModded => "Il utilise {loader}\u{a0}: il vous faut les mêmes mods.",
+        M::LanModded => "Il vous faut les mêmes mods pour le rejoindre.",
     }
 }
 
@@ -167,6 +169,5 @@ pub fn plural(message: P) -> [&'static str; 2] {
             "Ce lien a reçu {count} réponse. Quelqu’un d’autre a peut-être ce lien\u{a0}: comparez les codes de sécurité avant d’accepter.",
             "Ce lien a reçu {count} réponses. Quelqu’un d’autre a peut-être ce lien\u{a0}: comparez les codes de sécurité avant d’accepter.",
         ],
-        P::LanFriendsJoined => ["{count} ami connecté", "{count} amis connectés"],
     }
 }

@@ -11,7 +11,7 @@ use gpui::{
 };
 use launcher_core::cores::image_sync::WithheldReason;
 use launcher_core::cores::{
-    CoreError, CoreProduct, LaunchedBy, ServerInstance, ServerLoader, ServerState,
+    CoreError, CoreProduct, LaunchedBy, ServerInstance, ServerState,
     client::display_address,
     image_sync::{
         display_text,
@@ -25,19 +25,20 @@ use launcher_core::wording;
 
 use super::{
     AdvisoryAnswer, AdvisoryPrompt, CertPrompt, CoreEntry, CoreStatus, NoticeKind, Servers,
-    TrustPrompt, UpdatePrompt, core_error, loader_label, local::FoundCore, power_state,
-    status_label, trust_explanation, withheld_reason,
+    TrustPrompt, UpdatePrompt, core_error, facts, local::FoundCore, power_state, status_label,
+    trust_explanation, withheld_reason,
 };
 use crate::{
     components::{
-        Button, ButtonSize, ButtonVariant, Dialog, DialogSlot, Dropdown, Icon, IconButton,
-        KeyboardFocus, ListRow, LoadingDots, ObjectChip, StatusBadge, Toggle, ValueField,
+        Button, ButtonSize, ButtonVariant, Dialog, DialogSlot, Dropdown, Fact, FactLine, FactValue,
+        Icon, IconButton, KeyboardFocus, ListRow, LoadingDots, ObjectChip, StatusBadge, Toggle,
+        ValueField,
         a11y::{Accessible, Role},
         power_name, power_toggle,
         settings::popover_panel,
         text_tooltip,
     },
-    i18n::{CommonMsg, ServersMsg as M, ServersPlural as P, ShellMsg, format, t, tr, trn},
+    i18n::{CommonMsg, FactMsg, ServersMsg as M, ServersPlural as P, ShellMsg, format, t, tr, trn},
     theme::{self, colors, fonts, leading, radius, text, weights},
 };
 
@@ -57,14 +58,14 @@ fn small(value: impl Into<SharedString>) -> gpui::Div {
         .child(value.into())
 }
 
-/// "1.20.1 · Fabric 0.16.14", or "1.20.1" for vanilla.
+/// The game and loader as plain text, for what is spoken and the control API:
+/// "Minecraft 1.20.1 and Fabric 0.16.14", or "Minecraft 1.20.1" for Vanilla.
 pub(super) fn server_detail(server: &ServerInstance) -> String {
-    let loader = match (&server.loader, &server.loader_version) {
-        (ServerLoader::Vanilla, _) => return server.game_version.clone(),
-        (loader, Some(version)) => format!("{} {version}", loader_label(*loader)),
-        (loader, None) => loader_label(*loader).to_string(),
-    };
-    format!("{} · {loader}", server.game_version)
+    let parts: Vec<String> = facts::versions(server)
+        .iter()
+        .map(|fact| fact.plain().to_string())
+        .collect();
+    format::list(&parts)
 }
 
 /// What an update changes, for "<server> has different mods": "2 added, 1 updated,
@@ -393,11 +394,11 @@ impl Servers {
         let status = status_label(server);
         let element_id = SharedString::from(format!("server-{row_id}"));
         // the row shows the state with its power icon (or dot); screen readers hear it
-        let mut description = format!("{status} · {}", server_detail(server));
+        let mut parts = vec![status, server_detail(server)];
         if shared {
-            description = format!("{description} · {}", t(M::SharedTag));
+            parts.push(t(M::SharedTag).to_string());
         }
-        let description: SharedString = description.into();
+        let description: SharedString = format::list(&parts).into();
         let share_link = self.share_link(&core_uuid, &server.uuid).is_some();
         let name = RichText::minecraft(server.name.clone());
         // the name opens the server's page, which needs a signed-in core
@@ -477,7 +478,10 @@ impl Servers {
                                 ))
                             }),
                     )
-                    .child(small(server_detail(server)).text_color(crate::theme::ink::muted())),
+                    .child(
+                        FactLine::row(SharedString::from(format!("server-facts-{row_id}")))
+                            .facts(facts::versions(server)),
+                    ),
             )
             .child(
                 div()
@@ -580,10 +584,16 @@ impl Servers {
             .filter(|(_, _, needed)| *needed)
             .map(|(found_index, uuid, _)| self.connect_button(found_index, uuid, cx));
         let account = match (&core.saved.username, signed_in) {
-            (Some(username), true) => tr!(M::SignedInAs, username = username),
-            (None, true) => t(M::SignedIn).to_string(),
-            _ => t(M::NotSignedIn).to_string(),
-        };
+            (Some(username), true) => Fact::icon(
+                Icon::User,
+                t(M::SignedInAs),
+                FactValue::text(lodestone_ui::values::truncate::sanitize(username, 64)),
+            ),
+            (None, true) => Fact::bare(t(M::SignedIn)),
+            _ => Fact::bare(t(M::NotSignedIn)),
+        }
+        .priority(1);
+        let address = display_address(&core.url);
         let body: AnyElement = match &core.status {
             CoreStatus::Loading => div()
                 .px_4()
@@ -640,11 +650,11 @@ impl Servers {
                 .into_any_element(),
         };
         let card_id = SharedString::from(format!("core-{}", core.saved.uuid));
-        let card_description: SharedString = format!(
-            "{} · {} · {account}",
-            core.saved.product.label(),
-            display_address(&core.url)
-        )
+        let card_description: SharedString = format::list(&[
+            core.saved.product.label().to_string(),
+            address_fact(address.clone()).label().to_string(),
+            account.label().to_string(),
+        ])
         .into();
         let sign_in_button = (!signed_in && connect_button.is_none()).then(|| {
             Button::new(
@@ -685,19 +695,12 @@ impl Servers {
                                             .child(RichText::new(core.saved.name.clone())),
                                     ),
                             )
-                            .child(
-                                div()
-                                    .text_size(theme::text_size(text::SMALL))
-                                    .child(RichText::new(format!(
-                                        "{} · {account}",
-                                        display_address(&core.url)
-                                    )))
-                                    .truncate()
-                                    .text_color(crate::theme::ink::muted()),
-                            )
-                            .children(started_by(core.saved.launched_by).map(|started| {
-                                small(started).text_color(crate::theme::ink::muted())
-                            })),
+                            .child(host_facts(
+                                SharedString::from(format!("core-facts-{index}")),
+                                address,
+                                Some(account),
+                                started_by(core.saved.launched_by),
+                            )),
                     )
                     .child(
                         div()
@@ -941,20 +944,21 @@ impl Servers {
                                                 .child(RichText::new(found.info.core_name.clone())),
                                         ),
                                     )
-                                    .child(
-                                        small(format!(
-                                            "{} · {}",
-                                            display_address(&found.url),
-                                            started_by(found.info.launched_by).unwrap_or_else(
-                                                || t(match found.info.product {
+                                    .child(host_facts(
+                                        SharedString::from(format!(
+                                            "local-core-facts-{found_index}"
+                                        )),
+                                        display_address(&found.url),
+                                        None,
+                                        Some(started_by(found.info.launched_by).unwrap_or_else(
+                                            || {
+                                                Fact::bare(t(match found.info.product {
                                                     CoreProduct::Host => M::ProductHostHint,
                                                     CoreProduct::Core => M::ProductCoreHint,
-                                                })
-                                                .to_string()
-                                            )
-                                        ))
-                                        .text_color(crate::theme::ink::muted()),
-                                    ),
+                                                }))
+                                            },
+                                        )),
+                                    )),
                             )
                             .child(connect),
                     )
@@ -1245,15 +1249,55 @@ fn shared_from_here(
 const LODESTONE_CLI_RELEASES: &str = "https://github.com/Lodestone-Team/lodestone_cli/releases";
 
 /// "Started by …", or nothing when the core doesn't say.
-fn started_by(launched_by: LaunchedBy) -> Option<String> {
+/// What started a host here, as a fact: "Started by" Lodestone CLI, or "Started
+/// directly".
+fn started_by(launched_by: LaunchedBy) -> Option<Fact> {
     let who = match launched_by {
         LaunchedBy::Host => "Lodestone Host",
         LaunchedBy::LodestoneCli => "Lodestone CLI",
         LaunchedBy::Docker => "Docker",
-        LaunchedBy::Direct => return Some(t(M::StartedDirectly).into()),
+        LaunchedBy::Direct => return Some(Fact::bare(t(M::StartedDirectly)).priority(2)),
         LaunchedBy::Unknown => return None,
     };
-    Some(tr!(M::StartedBy, who = who))
+    Some(Fact::new(t(M::StartedBy), who).priority(2))
+}
+
+/// A host's address as an exact value, with "Address" in its icon's tooltip.
+fn address_fact(address: String) -> Fact {
+    Fact::icon(Icon::Globe, t(FactMsg::Address), FactValue::mono(address)).priority(0)
+}
+
+/// The line under a host's name: its address (with a button that copies it), the
+/// account signed in, and what started it.
+fn host_facts(
+    id: SharedString,
+    address: String,
+    account: Option<Fact>,
+    started: Option<Fact>,
+) -> gpui::Div {
+    let copy = address.clone();
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_1()
+        .min_w_0()
+        .child(
+            div().flex_1().min_w_0().child(
+                FactLine::row(id.clone())
+                    .fact(address_fact(address))
+                    .facts(account)
+                    .facts(started),
+            ),
+        )
+        .child(
+            IconButton::new(SharedString::from(format!("{id}-copy")), Icon::Copy)
+                .small()
+                .label(t(M::CopyAddress))
+                .on_click(move |_, _, cx| {
+                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(copy.clone()))
+                }),
+        )
 }
 
 /// Under a core started directly: Lodestone Core is meant to be run with lodestone_cli,

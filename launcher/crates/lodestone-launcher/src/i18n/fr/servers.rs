@@ -15,8 +15,8 @@ pub fn text(message: M) -> &'static str {
         M::ConnectAsOwner => "Se connecter en tant que propriétaire",
         M::ChooseDataFolder => "Choisir le dossier…",
         M::ChooseDataFolderPrompt => "Choisir",
-        M::ProductHostHint => "l’application de bureau, avec le tableau de bord dans une fenêtre",
-        M::ProductCoreHint => "le programme serveur seul, ou Docker",
+        M::ProductHostHint => "Application de bureau, avec le tableau de bord dans une fenêtre",
+        M::ProductCoreHint => "Programme serveur seul, ou Docker",
         M::ConnectedAsOwner => "Connecté en tant que propriétaire",
         M::ConnectedMadeOwner => {
             "Il n’avait pas encore de propriétaire\u{202F}: Lodestone Launcher vous a créé un compte propriétaire."
@@ -25,7 +25,7 @@ pub fn text(message: M) -> &'static str {
             "Ce lanceur a maintenant une clé de propriétaire pour cet hôte. Vous pouvez la révoquer depuis le tableau de bord de l’hôte."
         }
         M::OwnerAccount => "Compte propriétaire",
-        M::StartedBy => "Démarré par {who}",
+        M::StartedBy => "Démarré par",
         M::StartedDirectly => "Démarré directement",
         M::DirectNote => {
             "Cet hôte a été démarré directement. Il est fait pour être lancé avec lodestone_cli, qui l’installe et le garde à jour."
@@ -71,7 +71,8 @@ pub fn text(message: M) -> &'static str {
             "Gardez-la secrète\u{202F}: toute personne qui l’a peut contrôler cet hôte en tant que propriétaire."
         }
         M::CertificatePinned => "Certificat épinglé",
-        M::SignedInAs => "Connecté en tant que {username}",
+        M::SignedInAs => "Connecté en tant que",
+        M::CopyAddress => "Copier l’adresse",
         M::SignedIn => "Connecté",
         M::NotSignedIn => "Non connecté\u{a0}: serveurs publics uniquement",
         M::TrustedForMods => "Confiance pour les mods",
@@ -558,11 +559,9 @@ pub fn text(message: M) -> &'static str {
         M::LanWorld => "Monde en LAN",
         M::Join => "Rejoindre",
         M::AddInvite => "Ajouter",
+        M::UnnamedServer => "Serveur sans nom",
+        M::WaitingForReply => "En attente de son hôte",
         M::AddAndJoin => "Ajouter et rejoindre",
-        M::ServerFromLink => "Serveur de {link}",
-        M::AddedNotAnswered => {
-            "Ajouté. Son nom et sa version s’afficheront quand son hôte répondra."
-        }
         M::AlreadyAddedTitle => "Déjà ajouté",
         M::AlreadyAddedBody => {
             "Ce lien mène à un serveur de cette page. Sa ligne est mise en évidence."
@@ -580,7 +579,7 @@ pub fn text(message: M) -> &'static str {
             "Les serveurs qu’on vous a partagés par un lien d’invitation Lodestone Connect."
         }
         M::JoinAFriend => "Ajouter un serveur",
-        M::SharedBy => "Partagé par {name}",
+        M::SharedBy => "Partagé par",
         M::SharedWithFriends => "Partagé avec des amis",
         M::SharedWithFriendsHint => "Vous les avez rejoints avec leur lien d’invitation.",
         M::ConnectToJoinDirectly => {
@@ -591,11 +590,11 @@ pub fn text(message: M) -> &'static str {
         M::FriendChecking => "Vérification…",
         M::FriendPlayingNow => "En jeu",
         M::StopTrusting => "Ne plus faire confiance",
-        M::ConnectedVia => "Connexion directe {how}, {ms}\u{a0}ms",
-        M::ViaSameComputer => "sur le même ordinateur",
-        M::ViaLocalNetwork => "par votre réseau local",
-        M::ViaIpv6 => "par IPv6",
-        M::ViaInternet => "par Internet",
+        M::ConnectionSameComputer => "Même ordinateur",
+        M::ConnectionLocalNetwork => "Réseau local",
+        M::ConnectionIpv6 => "IPv6",
+        M::ConnectionInternet => "Internet",
+        M::PingMs => "{ms}\u{a0}ms",
         M::JoinFriendTitle => "Rejoindre un serveur",
         M::AddServerTitle => "Ajouter un serveur",
         M::JoinFriendIntro => {
@@ -606,7 +605,6 @@ pub fn text(message: M) -> &'static str {
             "Ce n’est pas un lien d’invitation Lodestone. Les liens d’invitation commencent par https://connect.lodestone.cc/j/."
         }
         M::PasteInviteFirst => "Collez d’abord un lien d’invitation.",
-        M::ConnectingTo => "Connexion à {name}…",
         M::ConnectingToFriend => "Connexion au serveur de votre ami…",
         M::StageFinding => {
             "Recherche d’un chemin direct entre votre réseau et celui de votre ami. Cela prend quelques secondes."
@@ -615,19 +613,12 @@ pub fn text(message: M) -> &'static str {
             "Toujours en recherche. Certains réseaux demandent jusqu’à une minute."
         }
         M::StageReading => "Connecté. Lecture des informations du serveur…",
-        M::FactVersion => "Version",
-        M::FactMods => "Mods",
-        M::FactStatus => "État",
-        M::FactConnection => "Connexion",
-        M::FactInstance => "Instance",
         M::FriendHasMods => {
             "Ce serveur utilise des mods. Lodestone Launcher installe les mêmes pour vous."
         }
         M::FriendNoMods => "Aucun n’est nécessaire",
-        M::PlaysWithLinked => {
-            "{name}, créée pour ce serveur. Ses mods restent à jour avec ceux du serveur."
-        }
-        M::PlaysWithInstance => "Votre instance {name}, qui a la même version.",
+        M::MadeForThisServer => "Créée pour ce serveur",
+        M::SameVersion => "Même version",
         M::MakesInstance => "Jouer crée une nouvelle instance de la même version.",
         M::MakesInstanceWithMods => {
             "Jouer crée une nouvelle instance avec la version et les mods du serveur."
@@ -677,7 +668,8 @@ pub fn text(message: M) -> &'static str {
         M::InviteLinkKey => "Lien d’invitation",
         M::FriendsReadFailed => "Impossible de lire les serveurs de vos amis",
         M::FriendsSaveFailed => "Impossible d’enregistrer les serveurs de vos amis",
-        M::FriendAddress => "Magic localhost\u{a0}: {address} (une fois connecté)",
+        M::MagicLocalhost => "Magic localhost",
+        M::WhileConnected => "Fonctionne tant que vous êtes connecté.",
         M::FriendPortTaken => "Le port était occupé",
         M::FriendPortTakenBody => {
             "Un autre programme de cet ordinateur utilise le port habituel\u{202F}: cette fois, utilisez cette adresse dans Minecraft. La prochaine fois, Lodestone Launcher essaiera d’abord le port habituel."
