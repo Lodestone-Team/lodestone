@@ -1067,6 +1067,70 @@ names anything by it.
   server's `/login` password among them) and `hotbar.nbt` included, and an image that
   leaves the computer must never carry those either.
 
+## World backups
+
+Snapshots (the core's "backups", the Launcher's snapshots) are images of the whole
+instance or server folder, deduplicated in the image store. A **world backup** is the other
+thing people ask for: a plain, standard `.zip` of one world that opens outside Lodestone,
+made only when asked. It is deliberately not an image: no delta, no object store, no
+content link, so deleting one frees its whole size and copying it anywhere works. The two
+sit side by side in the UI, each in its own section.
+
+### On the Host
+
+The core keeps a server's world backups beside its snapshots (`core/src/backups/world/`),
+and the GPUI Host's Backups page is now called **Snapshots**, with a **World backups**
+section above the snapshots (see "WB1 decisions").
+
+- **What is in the zip.** The server's level (`level-name`) as it is on disk, and on Paper
+  and Spigot its split `<level>_nether` and `<level>_the_end` folders, each under its own
+  folder name, so the zip is a world any server or tool can use. Files are checked against
+  the server's disk layout (`DiskLayout::from_disk`): what images never record
+  (`session.lock`, `.lodestone-*`) is skipped, and links, unreadable files and names the
+  layout can't place (a vanilla `DIM-1` inside a split level, a name that isn't UTF-8) are
+  left out and counted. The level must be one folder name and hold a `level.dat`.
+- **Where it lives.** `<LODESTONE_PATH>/world-backups/<uuid>/<id>.zip` with a sidecar
+  `<id>.json` (name, kind, time, level, the zip's top folders, server name, game version,
+  flavour, size, file and left-out counts, `live`, `quiesced`, and for a safety backup the
+  label of the backup it was taken before restoring). Outside every server folder and the
+  image store, and protected from the file API like `backups/`. The zip is written as
+  `.<id>.zip.part`, flushed, renamed, the folder flushed, then the sidecar written
+  atomically, so a listed backup is always whole. Listing drops a sidecar whose zip is gone
+  and adopts a whole zip with no sidecar (a crash between the two). Deleting removes the
+  zip first, then the sidecar. Deleting a server deletes its folder.
+- **Making one** (manual only: no schedule, no pruning). It holds the server's one job lock,
+  shared with snapshots, so a world backup, a snapshot and a restore never run at once. A
+  running server is quiesced exactly as a live snapshot is (`save-off`, `save-all flush`,
+  wait for the save line, then `save-on` however it ends, the same marker and 15-minute
+  cap); a stopped one can't start meanwhile. The free space for the uncompressed world is
+  reserved among the core's large writes first. Progress events and Cancel; a cancelled or
+  failed backup leaves no file.
+- **Restoring one.** Only into a stopped server. First a safety world backup of the current
+  world ("Before restoring “…”"), then the zip is checked as untrusted (below), extracted
+  into a staging folder in the server and swapped in by renames with the snapshots'
+  journal (`images/<uuid>/restore-journal.json`) and startup recovery, so a crash never
+  leaves half a world. Only the level and its `_nether` and `_the_end` folders change. The
+  zip's paths go through canonical world paths into the server's current level name and
+  split, so a vanilla backup restores into Paper and back.
+- **The zip is untrusted** even though the core wrote it: at most 1,000,000 entries and
+  64 GB declared (in all, and per entry), only Stored and Deflated, no encrypted or
+  symlink entries, local headers that match the central directory, no duplicate names,
+  UTF-8 names without `\`, a leading `/`, empty, `.` or `..` parts, every part a valid
+  canonical component (Windows names, NFC, invisible characters), top folders only the
+  backup's level and its split folders, no two paths that are one on a case-insensitive
+  disk, files written with `create_new` and never more bytes than declared, and the
+  server's disk must have room for the declared total.
+- **Routes** (`core/src/handlers/world_backups.rs`), with the permissions of the matching
+  snapshot routes: `GET` and `POST /instance/{uuid}/world-backups` (ReadInstanceFile; and
+  AccessSetting to make one), `PATCH` and `DELETE …/world-backups/{id}` (AccessSetting to
+  rename, WriteInstanceFile to delete), `POST …/{id}/restore` (WriteInstanceFile, and
+  WriteGlobalFile or the owner with code execution for protected or code files it
+  changes, as a snapshot restore), `POST …/{id}/download` (ReadInstanceFile; a link to the
+  stored zip itself) and `POST …/world-backups/tasks/{task_id}/cancel` (the permission
+  that started the job). Progressions `WorldBackup`/`WorldRestore` and
+  `WorldBackupCompleted`/`WorldRestoreCompleted`. The world zip download
+  (`GET …/world/download`) and the snapshot zip download stay.
+
 ## Milestones
 
 1. Shared crate `crates/lodestone-image`: manifest, identity, paths, views, store, FastCDC,
@@ -4008,3 +4072,57 @@ dialog, and the control API's and CLI's `servers host` and `servers download-wor
 - **Not in scope.** CurseForge downloads in the core (the developer decided they stay
   out, "M6a decisions", Making it; the summary keeps warning). Launcher to Launcher needs nothing new: M5's `.lodeimg`
   export and import already do it, and `LDS2:` codes stay as they are.
+
+### WB1 decisions
+
+Decisions the world backups milestone on the Host made where "World backups" left them
+open. The code is `core/src/backups/world/` (`store.rs`, `writer.rs`, `reader.rs`,
+`service.rs`), `core/src/handlers/world_backups.rs`, `restore::stage_folders`,
+`launcher-core/src/cores/admin/world_backups.rs` and the Host's `pages/backups.rs` with
+`pages/backups/world.rs`.
+
+- **One job lock per server.** World backups and restores take the snapshots' job mutex
+  (`BackupService::take_guards`, `lock_stopped`), so a snapshot (manual or scheduled)
+  waits for a world job and the reverse; a scheduled snapshot skipped meanwhile is tried
+  again by the scheduler. Both lists' `running` report whichever job holds it, with the
+  new `JobKind`s `world_backup` and `world_restore`. Deleting a world backup is refused
+  (409) while a world job of that server runs.
+- **Sidecars, not a list.** Each backup has its own `<id>.json` written after its zip, so a
+  crash leaves at worst a whole zip with no sidecar (adopted as a manual backup named by
+  nothing, its level from its top folder) or a sidecar with no zip (dropped). A sidecar that
+  can't be read is an error, never "no backups". Ids are `YYYYMMDD-HHMMSS-xxxx`, checked
+  exactly, since they name files.
+- **What the zip leaves out.** Links, unreadable files and names the server layout can't
+  place are counted (`left_out`) and the Host shows the count; `session.lock` and
+  `.lodestone-*` are skipped silently, as images do. Region files and other compressed
+  formats (`.mca`, `.mcr`, `.mcc`, `.dat`, `.dat_old`, `.nbt`, `.png`, `.zip`, `.gz`,
+  `.jar`) are Stored, everything else Deflated, which keeps the save-off window short.
+- **Restore mapping.** The zip's paths map through canonical paths
+  (`saves/<level>/…`) into the server's current `level-name` and split, rewriting the level
+  name, so a vanilla backup restores into a Paper server (its `DIM-1` into
+  `<level>_nether/DIM-1`), a Paper backup into a vanilla server (its split folders' own files
+  under `.bukkit_nether/` and `.bukkit_the_end/`), and a backup into a renamed level. The
+  restore owns the current level, and on a split server its `_nether` and `_the_end`; one
+  the zip lacks is moved aside and removed (the safety backup has it).
+- **Safety backup.** Taken whenever the current level folder exists (with or without a
+  `level.dat`, so a damaged world is kept too), as a `before_restore` world backup named
+  "Before restoring “<label>”" cut to 100 characters; its failure refuses the restore.
+  None when the server has no level folder at all.
+- **Free space.** No time limit between world backups. Making one reserves the world's
+  uncompressed size (an upper bound) on the world backups' disk among the core's large
+  writes (`LargeWrites`), with the 1 GB margin; restoring one reserves the zip's declared
+  size on the server's disk for staging.
+- **Download.** The link (`global_fs::register_stored_download`) points at the stored zip
+  with a display name (`<server>-<level>-<id>.zip`), holds no copy and takes no backup-file
+  place; `DELETE /file/{key}` only forgets it, and the zip is never deleted with the link.
+  It re-checks ReadInstanceFile when used, like every link.
+- **Cancel.** `…/tasks/{task_id}/cancel` cancels a world job until its swap begins (409
+  after); snapshot jobs have no cancel. A cancelled backup removes its `.part` file, a
+  cancelled restore its staging folder.
+- **Deleting a server** deletes `world-backups/<uuid>/` beside its snapshots, while the job
+  lock is held.
+- **Snapshot wording.** The core's snapshot messages and the Host's text say "snapshot"
+  ("Taking a snapshot of …", "Restored snapshot “…”"); routes, types and message keys keep
+  their backup names.
+- **Not in scope.** Uploading or importing a world zip from elsewhere, scheduled world
+  backups, pruning, a cancel for snapshot jobs. `crates/lodestone-image` is unchanged.
