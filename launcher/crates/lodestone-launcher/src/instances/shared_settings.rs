@@ -632,7 +632,9 @@ impl Render for InstanceSharedSettings {
         let is_preferred = self.state.profile.preferred.as_deref() == Some(&self.instance_id);
         // Only what this version has: a value in its file, or a key it knows.
         let rows = self.visible_rows();
-        let changed = self.state.sharing.changed.clone();
+        // Only what the next launch will replace: a change to a setting with no shared
+        // value stays as it is.
+        let changed = self.state.sharing.replaced_next_launch(&self.state.profile);
 
         let source = if !enabled {
             t(M::SharingOff).to_string()
