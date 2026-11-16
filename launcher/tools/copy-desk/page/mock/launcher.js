@@ -294,7 +294,7 @@
       h("div.lx-upd",
         upd === "available" ? [h("span.lx-pill", sh("UpdateAvailableBadge")), btn(sh("DownloadUpdate"), { sm: true, kind: "p", on: () => ctx.set("update", "ready") })] :
           upd === "ready" ? [h("span.lx-pill", sh("UpdateReadyBadge")), btn(sh("RestartToUpdate"), { sm: true, kind: "p" })] :
-            upd === "downloading" ? h("span.lx-muted", sh("UpdateDownloading", { build: 1412, percent: "42%" })) : null));
+            upd === "downloading" ? h("span.lx-muted", [sh("BuildNumber", { build: 1412 }), " ", tx("42%")]) : null));
   }
   function accountBox(ctx) {
     const a = ctx.state.account;
@@ -312,7 +312,7 @@
           { label: tx("Lodestoner"), icon: "user", right: h("span.lx-mright", tx("Microsoft"), a !== "offline" ? ic("check") : null), on: () => { ui.menu = null; ctx.set("account", "microsoft") } }, "-"]),
         { label: sh("AddMicrosoftAccount"), icon: "plus", on: () => { ui.menu = null; ctx.open("signin") } },
         { label: sh("AddOfflineAccount"), icon: "plus", on: () => { ui.menu = null; ctx.open("offlineAccount") } },
-        ...(a === "signedOut" ? [] : ["-", { label: sh("RemoveNamed", { name: a === "offline" ? "Dev_Steve" : "Lodestoner" }), icon: "signout", danger: true, on: () => { ui.menu = null; ctx.open("removeAccount") } }]),
+        ...(a === "signedOut" ? [] : ["-", { label: sh("RemoveAccount"), icon: "signout", danger: true, on: () => { ui.menu = null; ctx.open("removeAccount") } }]),
       ], "lx-acctmenu") : null);
   }
   function instRow(ctx, i, sel, opts = {}) {
@@ -351,7 +351,7 @@
       h("div.lx-side-foot",
         h("button.lx-sidelink" + (ctx.route === "host" || ctx.route === "server" ? ".on" : ""), { onclick: () => ctx.go("host") }, logoMark(), sh("Servers")),
         h("button.lx-sidelink", { onclick: () => ctx.open("settings", { page: "general" }) }, ic("gear"), sh("Settings")),
-        h("div.lx-ver", sh("AppVersion", { version: "0.1.0" }))));
+        h("div.lx-ver", [sh("AppName"), " ", tx("0.1.0")])));
   }
   function toastArea(ctx) {
     const k = ctx.state.toast;
@@ -362,12 +362,12 @@
       undo: () => toast(null, sh("Undid", { change: "Language \u2192 System" }), "info", [btn(sh("Redo"), { sm: true })]),
       redo: () => toast(null, sh("Redid", { change: "Zoom \u2192 110%" }), "info"),
       settingsOf: () => toast(null, sh("Undid", { change: "Settings of All the mods" }), "info"),
-      crashed: () => toast(sh("CrashTitle", { name: "All the mods" }), sh("MinecraftExitCode", { code: 1 }), "err", [pbtn(sh("OpenCrashReport"), () => ctx.open("crash"))]),
+      crashed: () => toast(sh("CrashTitle"), sh("MinecraftStopped"), "err", [pbtn(sh("OpenCrashReport"), () => ctx.open("crash"))]),
       signInExpired: () => toast(null, sh("SignInExpired", { name: "Lodestoner" }), "warn", [pbtn(sh("SignInAgain"), () => ctx.open("signin"))]),
       addAccount: () => toast(null, sh("AddAccountFirst"), "warn"),
       ready: () => toast(sv("ReadyTitle", { name: "Survival SMP" }), sv("ReadyBody", { version: "1.20.1", loader: "Fabric 0.16.14" }), "ok"),
-      shareReady: () => toast(im("ShareCodeReady", { name: "Survival 1.20.1" }), imp("ShareCodeInstalled", { count: 14 }), "ok"),
-      copied: () => toast(im("CopyReady", { name: "Survival 1.20.1 (26.3 Fabric)" }), [im("ModpackReadyMessage", { version: "26.3", loader: "Fabric 0.16.14" }), " ", imp("CopyModsLeftBehind", { count: 2, names: "Xaero's Minimap, homemade-tweaks" }), " ", imp("CopyDependenciesMissing", { count: 1, names: "Cloth Config" })], "ok"),
+      shareReady: () => toast(im("InstanceReady"), [tx("Survival 1.20.1"), " ", im("PressPlayToDownload")], "ok"),
+      copied: () => toast(im("CopyReady"), [tx("Survival 1.20.1"), " ", im("PressPlayToDownload"), " ", im("StayedBehind"), " ", tx("Xaero's Minimap"), " ", im("NeededNotInstalled"), " ", tx("Cloth Config")], "ok"),
       verified: () => toast(im("GameFilesVerified"), im("EveryFileIntact", { summary: "Checked 4,091 game files in 45 ms." }), "ok"),
       copiedKey: () => toast(sv("OwnerKeyCopied", { name: "Peter's Lodestone Core" }), sv("OwnerKeyCopiedHint"), "ok"),
       copiedInvite: () => toast(sv("InviteLinkCopied", { name: "Survival SMP" }), sv("InviteLinkCopiedHint"), "ok"),
@@ -407,14 +407,14 @@
   }
   function instHeader(ctx, inst) {
     if (!inst) return [h("h1.lx-h1", sh("NoInstanceSelected")), h("div.lx-sub", sh("NoInstanceSelectedHint"))];
-    const parts = [sh("MinecraftVersion", { version: inst.ver })];
+    const parts = [tx("Minecraft " + inst.ver)];
     if (inst.loader) parts.push(tx(loaderFull(inst)));
     if (inst.played === "on") parts.push(fm("HoursMinutes", { hours: 5, minutes: 0 }));
     if (inst.played === "just") parts.push(fm("Minutes", { minutes: 42 }));
     if (inst.played === "yesterday") parts.push(fm("LessThanAMinute"));
     parts.push(playedText(inst));
     return [h("h1.lx-h1", tx(inst.name)), h("div.lx-sub", join(parts)),
-      inst.linked ? h("div.lx-sub", ctx.state.linkedCore === "removed" ? sh("LinkedToRemoved", { server: "Survival SMP", core: "Peter's Lodestone Core" }) : sh("LinkedTo", { server: "Survival SMP", core: "Peter's Lodestone Core" })) : null,
+      inst.linked ? h("div.lx-sub", [tx("Survival SMP"), " ", tx("Peter's Lodestone Core"), ctx.state.linkedCore === "removed" ? [" ", sh("HostRemoved")] : null]) : null,
       inst.id === "old" ? h("div.lx-muted", { style: { fontSize: "12px" } }, sh("RunsUnderRosetta")) : null];
   }
   function instancePage(ctx) {
@@ -438,10 +438,10 @@
   function playTab(ctx, inst) {
     const g = ctx.state.game;
     return [
-      g === "crashed" ? note([sh("MinecraftExitCode", { code: 1 }), " "], "err", btn(sh("OpenCrashReport"), { sm: true, on: () => ctx.open("crash") })) : null,
+      g === "crashed" ? note([sh("MinecraftStopped"), " "], "err", btn(sh("OpenCrashReport"), { sm: true, on: () => ctx.open("crash") })) : null,
       ctx.state.account === "expired" ? note(sh("SignInExpired", { name: "Lodestoner" }), "warn", btn(sh("SignInAgain"), { sm: true, on: () => ctx.open("signin") })) : null,
       h("div.lx-hero", h("h2.lx-hero-t", tx(inst.name)),
-        h("div.lx-hero-p", inst.played ? sh("HeroPlayed", { game: gameLine(inst), time: "5 h 0 min" }) : sh("HeroNotPlayed", { game: gameLine(inst) }))),
+        h("div.lx-hero-p", inst.played ? [gameLine(inst), " ", tx("5 h 0 min")] : sh("HeroNotPlayed"))),
     ];
   }
   function logsTab(ctx, inst) {
@@ -474,7 +474,7 @@
       st === "empty" ? h("div.lx-console", { style: { height: "380px", whiteSpace: "normal", color: "var(--g500)" } }, im("LogEmpty")) :
         st === "nomatch" ? h("div.lx-console", { style: { height: "380px", whiteSpace: "normal", color: "var(--g500)" } }, im("NoLinesMatch")) :
           h("div.lx-console", { style: { height: "400px" } }, lines, h("div", { style: { position: "absolute", right: "14px", bottom: "10px" } }, btn(im("JumpToLatest"), { sm: true }))),
-      h("div.lx-subh", { style: { fontSize: "12.5px" } }, st === "empty" ? null : imp("LinesShownFollowing", { shown: 16, count: 16 }), st === "nomatch" ? imp("LinesShown", { shown: 0, count: 16 }) : null),
+      h("div.lx-subh", { style: { fontSize: "12.5px" } }, st === "empty" ? null : [im("LogLines"), " ", tx("16 / 16"), " ", im("LogFollowing")], st === "nomatch" ? [im("LogLines"), " ", tx("0 / 16")] : null),
     ];
   }
 
@@ -493,14 +493,14 @@
     const [name, ver, file, bytes, hue, o = {}] = m;
     return h("div.lx-row", modIcon(hue),
       h("div.lx-row-main", h("div.lx-row-t", tx(name), ver ? h("span.lx-row-v", tx(ver)) : null, o.notOn ? badge(ct("NotOnModrinth")) : null, o.cf ? badge(ct("CurseForgeTab"), "yellow") : null),
-        h("div.lx-row-s", o.folder ? ct("ItemFolder", { name: file }) : [tx(file), sep(), fmp("Bytes", { count: bytes })])),
-      h("div.lx-row-a", o.update ? pbtn(ct("UpdateTo", { version: o.update }), null, "ul") : null, o.notOn ? null : iconBtn("ext"), toggle(!o.off), iconBtn("trash")));
+        h("div.lx-row-s", o.folder ? tx(file) : [tx(file), " ", fmp("Bytes", { count: bytes })])),
+      h("div.lx-row-a", o.update ? [tx(o.update), " ", pbtn(cm("Update"), null, "ul")] : null, o.notOn ? null : iconBtn("ext"), toggle(!o.off), iconBtn("trash")));
   }
   function contentTab(ctx, inst) {
     const S = ctx.state, p = ctx.params;
     const kind = p.kind || "mods", view = p.view === "browse" ? "modrinth" : p.view || "installed";
     const goC = (extra) => ctx.go("instance", Object.assign({ id: inst.id, tab: "content", kind, view }, extra));
-    const target = inst.ver + " / " + (inst.loader || "Vanilla");
+    const target = "Minecraft " + inst.ver + " " + (inst.loader || "Vanilla");
     const vanilla = !inst.loader || S.content === "vanilla";
     const head = h("div.lx-tbar",
       seg([["mods", ct("KindMods"), 6], ["rp", ct("KindResourcePacks"), 3], ["shaders", ct("KindShaders"), 2]], kind, (k) => goC({ kind: k, view: "installed" })),
@@ -517,7 +517,7 @@
     // Installed, Modrinth or CurseForge, one at a time; the platforms get their tools beside the tabs.
     out.push(h("div.lx-tbar", seg([["installed", ct("ViewInstalled"), kind === "mods" ? 6 : kind === "rp" ? 3 : 2], ["modrinth", ct("ViewModrinth"), "248"], ["curseforge", ct("ViewCurseForge"), "31"]], view, (v) => goC({ view: v })),
       h("span.lx-grow"),
-      view === "modrinth" ? [btn(S.content === "filtered" ? ct("FiltersCount", { count: 2 }) : ct("Filters"), { sm: true }), h("label.lx-muted", { style: { display: "inline-flex", gap: "6px", alignItems: "center" } }, toggle(true), ct("ShowInstalled")), select(ct("SortRelevance")), h("span.lx-badge.lx-b-blue", { style: { fontSize: "13.5px", padding: "4px 10px", borderRadius: "999px" } }, "\u2713 ", ct("OnlyTarget", { target }))] : null));
+      view === "modrinth" ? [btn(S.content === "filtered" ? ct("FiltersCount", { count: 2 }) : ct("Filters"), { sm: true }), h("label.lx-muted", { style: { display: "inline-flex", gap: "6px", alignItems: "center" } }, toggle(true), ct("ShowInstalled")), select(ct("SortRelevance")), h("span.lx-badge.lx-b-blue", { style: { fontSize: "13.5px", padding: "4px 10px", borderRadius: "999px" } }, "\u2713 ", ct("CompatibleOnly"), " ", tx(target))] : null));
     const backToTop = () => h("div.lx-tbar", { style: { justifyContent: "center", marginTop: "12px" } }, btn(ct("BackToTop"), { sm: true }));
     if (vanilla && kind !== "rp") {
       const m = kind === "mods";
@@ -532,16 +532,16 @@
       h("div.lx-row-t", ct("ShaderModUsingPack", { shader_mod: "Iris", pack: "Complementary Reimagined" })),
       h("div.lx-muted", ct("ShaderModPickPack", { shader_mod: "Iris", file: "config/iris.properties" }))));
     if (S.content === "empty") {
-      out.push(h("div.lx-subh", ct("InstalledCount", { count: 0 })), empty(kind === "mods" ? "cube" : "image", kind === "mods" ? ct("NoModsYet") : kind === "rp" ? ct("NoResourcePacksYet") : ct("NoShaderPacksYet")));
+      out.push(h("div.lx-subh", [ct("ViewInstalled"), " ", tx("0")]), empty(kind === "mods" ? "cube" : "image", kind === "mods" ? ct("NoModsYet") : kind === "rp" ? ct("NoResourcePacksYet") : ct("NoShaderPacksYet")));
     } else if (view !== "installed") {
       // the platform views come below
     } else {
       const list = kind === "mods" ? MODS : kind === "rp" ? PACKS : SHADERS;
       if (kind === "rp") {
-        out.push(h("div.lx-subh", ct("EnabledCount", { count: 2 })), card(list.slice(0, 2).map((m) => contentRow(ctx, m, kind))),
-          h("div.lx-subh", ct("AvailableCount", { count: 1 })), card(list.slice(2).map((m) => contentRow(ctx, m, kind))));
+        out.push(h("div.lx-subh", [ct("Enabled"), " ", tx("2"), " ", ct("TopPackWins")]), card(list.slice(0, 2).map((m) => contentRow(ctx, m, kind))),
+          h("div.lx-subh", [ct("Available"), " ", tx("1")]), card(list.slice(2).map((m) => contentRow(ctx, m, kind))));
       } else {
-        out.push(h("div.lx-subh", ct("InstalledCount", { count: list.length })), card(
+        out.push(h("div.lx-subh", [ct("ViewInstalled"), " ", tx(String(list.length))]), card(
           kind === "shaders" ? h("div.lx-row", h("span.lx-modic", { style: { background: "var(--g700)" } }), h("div.lx-row-main", h("div.lx-row-t", ct("ShadersOff")), h("div.lx-row-s", ct("NormalLook"))), h("span.lx-radio", h("i"))) : null,
           list.map((m) => contentRow(ctx, m, kind))));
       }
@@ -555,7 +555,7 @@
       return out;
     }
     if (view === "curseforge") {
-      out.push(card(h("div.lx-row", modIcon(15), h("div.lx-row-main", h("div.lx-row-t", tx("Sodium Plus"), badge(ct("WebsiteDownload"), "yellow")), h("div.lx-row-s", ct("ByAuthor", { author: "someone" }), sep(), ctp("Downloads", { count: 1 }))), h("div.lx-row-a", btn(ct("GetOnCurseForge"), { icon: "ext" })))), backToTop());
+      out.push(card(h("div.lx-row", modIcon(15), h("div.lx-row-main", h("div.lx-row-t", tx("Sodium Plus"), badge(ct("WebsiteDownload"), "yellow")), h("div.lx-row-s", tx("someone"), " ", tx("1"))), h("div.lx-row-a", btn(ct("GetOnCurseForge"), { icon: "ext" })))), backToTop());
       return out;
     }
     // Modrinth's results
@@ -566,7 +566,7 @@
       const R = [["Sodium", "jellysquid3", "98.4M", 200, true], ["Sodium Extra", "FlashyReese", "21.3M", 210], ["Reese's Sodium Options", "FlashyReese", "18.9M", 30], ["Sodium Dynamic Lights", "Lambda", "1.2M", 50]];
       out.push(card(R.map(([n, a, d, hue, inst2]) => h("div.lx-row", { style: { cursor: "pointer" }, onclick: () => goC({ view: "project" }) }, modIcon(hue),
         h("div.lx-row-main", h("div.lx-row-t", tx(n), n === "Sodium Dynamic Lights" ? badge(ct("OptionalOnServers")) : null),
-          h("div.lx-row-s", ct("ByAuthor", { author: a }), sep(), ct("DownloadsCompact", { count: d }), sep(), ctp("Follows", { count: 3120 }))),
+          h("div.lx-row-s", tx(a), " ", tx(d))),
         h("div.lx-row-a", inst2 ? badge(ct("AlreadyInstalled"), "green") : pbtn(cm("Install"), null, "dl"))))));
       out.push(h("div.lx-tbar", { style: { justifyContent: "center", marginTop: "12px" } }, btn(cm("Previous"), { sm: true }), h("span.lx-muted", ct("PageOf", { page: 1, pages: 13 })), btn(cm("Next"), { sm: true })), backToTop());
     }
@@ -587,7 +587,7 @@
       h("div", { style: { display: "flex", gap: "18px", alignItems: "flex-start" } }, h("span.lx-modic", { style: { width: "84px", height: "84px", background: "hsl(200 70% 62%)", boxShadow: "inset 0 0 0 12px hsl(200 55% 48%)" } }),
         h("div.lx-grow", h("div", { style: { fontFamily: "Chillax", fontWeight: 600, fontSize: "24px" } }, tx("Sodium")),
           h("div", { style: { color: "var(--g300)", fontSize: "15px", margin: "4px 0 6px" } }, tx("The fastest and most compatible rendering optimization mod for Minecraft.")),
-          h("div.lx-muted", ct("DownloadsCompact", { count: "98.4M" }), sep(), ct("FollowersCompact", { count: "65.6k" }), sep(), ct("FollowsCompact", { count: "65.6k" }), " ", badge(tx("optimization"), "blue"), " ", badge(tx("fabric"), "blue"))),
+          h("div.lx-muted", tx("98.4M"), " ", tx("65.6k"), " ", badge(tx("optimization"), "blue"), " ", badge(tx("fabric"), "blue"))),
         btn(ct("ViewOnModrinth"), { icon: "ext" })),
       h("div", { style: { margin: "18px 0 14px" } }, seg([["versions", ct("Versions")], ["description", ct("Description")]], desc ? "description" : "versions", (k) => { ui.ctab = k; rerender() })),
       desc ? h("div", { style: { maxWidth: "760px", color: "var(--g300)", display: "grid", gap: "10px" } }, h("p", tx("Sodium is a powerful rendering engine for Minecraft which greatly improves frame rates and micro-stutter, while fixing many graphical issues.")), h("p.lx-muted", sh("RestOnModrinth")), h("div", btn(ct("ViewOnModrinth"), { icon: "ext" }))) : [
@@ -661,15 +661,15 @@
         srow(is("ChangeVersionOrLoader"), is("ChangeVersionOrLoaderHint"), btn(is("CopyAsButton"), { sm: true, on: () => ctx.open("copyAs") })),
         srow(is("PrereleaseUpdates"), is("PrereleaseUpdatesHint"), toggle(false))),
         note(is("LoaderInstallsNextPlay", { loader: "Fabric 0.16.14" }), "info")],
-      modpack: () => card(srow(tx("Fabulously Optimized 6.1.0"), is("FromModrinth"), [gbtn(is("ViewOnModrinth"), null, "ext"), ctx.state.modpack === "checking" ? h("span.lx-muted", spinner(), " ", is("CheckingModrinth")) : ctx.state.modpack === "upToDate" ? h("span.lx-muted", is("UpToDate")) : ctx.state.modpack === "offline" ? h("span.lx-muted", is("ModrinthUnreachable")) : pbtn(is("UpdateTo", { version: "6.2.0" }), () => ctx.open("modpackUpdate"))]),
+      modpack: () => card(srow(tx("Fabulously Optimized 6.1.0"), is("FromModrinth"), [gbtn(is("ViewOnModrinth"), null, "ext"), ctx.state.modpack === "checking" ? h("span.lx-muted", spinner(), " ", is("CheckingModrinth")) : ctx.state.modpack === "upToDate" ? h("span.lx-muted", is("UpToDate")) : ctx.state.modpack === "offline" ? h("span.lx-muted", is("ModrinthUnreachable")) : pbtn(is("UpdateModpack"), () => ctx.open("modpackUpdate"))]),
         srow(is("CheckForUpdates"), null, btn(is("CheckForUpdates"), { sm: true }))),
       linked: () => card(srow(tx("Survival SMP"), ctx.state.linkedCore === "removed" ? is("LinkedServerCoreRemoved", { core: "Peter's Lodestone Core" }) : is("LinkedServerHint", { core: "Peter's Lodestone Core" }),
         [ctx.state.linkedCore === "removed" ? badge(is("CoreRemoved"), "yellow") : null, ctx.state.instSettings === "unlinked" ? badge(is("Unlinked")) : btn(is("Unlink"), { on: () => ctx.set("instSettings", "unlinked") })],
         { below: ctx.state.instSettings === "unlinked" ? h("div.lx-srow-hint", is("UnlinkNote")) : h("div.lx-srow-hint", is("FromServerMods", { server: "Survival SMP" })) })),
       java: () => [h("div.lx-h3-sub", is("JavaMemoryLead")), card(
         srow(is("Memory"), [is("MemoryChosenAutomatically"), " ", is("TotalMemory", { computer: "This Mac", size: "16 GB" })], [h("span.lx-row-v", is("MemoryRange", { min: "2 GB", max: "6 GB" })), btn(is("ChangeSetting"), { sm: true })]),
-        srow(tx("Java"), is("JavaFound", { major: 17, version: "17.0.12" }), [h("span.lx-row-v", is("MojangJavaVersion", { major: 17 })), btn(cm("Change"), { sm: true }), btn(is("Check"), { sm: true })])),
-        ctx.state.instSettings === "javaOld" ? note(is("JavaTooOld", { major: 8, version: "1.8.0_402", game: "1.20.1", needed: 17 }), "err") : null],
+        srow(tx("Java"), [is("JavaFitsBadge"), " ", is("JavaFoundKey"), " ", is("JavaVersion", { version: "17.0.12" })], [h("span.lx-row-v", is("MojangJavaVersion", { major: 17 })), btn(cm("Change"), { sm: true }), btn(is("Check"), { sm: true })])),
+        ctx.state.instSettings === "javaOld" ? note([is("JavaTooOldBadge"), " ", is("JavaFoundKey"), " ", is("JavaVersion", { version: "1.8.0_402" }), " ", tx("Needed"), " ", is("JavaOrNewer", { major: 17 })], "err") : null],
       launch: () => card(
         srow(is("Window"), null, [h("span.lx-row-v", is("WindowDefaultSize")), btn(is("ChangeSetting"), { sm: true })]),
         srow(is("Fullscreen"), null, toggle(false)),
@@ -681,7 +681,7 @@
         card(srow(is("UseSharedSettings"), is("SharingFrom", { name: "Survival 1.20.1" }), toggle(true)),
           srow(is("MainInstance"), is("MainInstanceHint"), btn(is("MakeMain"), { sm: true, on: () => ctx.open("mainSwitch") })),
           ...[["Controls", 12, 2], ["Video", 9, 0], ["Sound", 14, 0], ["Accessibility", 20, 1], ["Language", 3, 0]].map(([c, s, o]) =>
-            srow(is("Category" + c), [is("Category" + c + "Description"), sep(), isp("SharedCount", { count: s }), o ? [sep(), isp("OverriddenCount", { count: o })] : null], gbtn(is("Show"))))),
+            srow(is("Category" + c), [is("Category" + c + "Description"), sep(), is("SharedKey"), " ", tx(String(s)), o ? [" ", is("OverriddenKey"), " ", tx(String(o))] : null], gbtn(is("Show"))))),
         h("div.lx-scard", { style: { marginTop: "12px" } }, h("div", isp("ChangedInGame", { count: 2, names: "FOV, Brightness" })), h("div", { style: { display: "flex", gap: "8px" } }, btn(is("KeepForInstance"), { sm: true }), gbtn(is("Dismiss"))))],
       snapshots: () => [h("div.lx-h3-sub", is("SnapshotsHint")), card(
         srow(is("SnapshotAfterPlay"), is("SnapshotAfterPlayHint"), toggle(false)),
@@ -914,7 +914,7 @@
       h("div.lx-snav-acct", { onclick: () => set("accounts") }, avatar(acct[0]), h("div", h("div", { style: { fontWeight: 700, fontSize: "16px" } }, S.account === "signedOut" ? sh("NoAccount") : tx(acct[1])), h("div.lx-muted", sh("ManageAccounts")))),
       h("div.lx-snav-g", sh("Instances")), SPAGES.slice(0, 2).map(([k, s, i]) => h("button" + (k === page ? ".on" : ""), { onclick: () => set(k) }, ic(i), sh(s))),
       h("div.lx-snav-g", sh("GroupLauncher")), SPAGES.slice(2).map(([k, s, i]) => h("button" + (k === page ? ".on" : ""), { onclick: () => set(k) }, ic(i), sh(s))),
-      h("div.lx-grow"), h("div.lx-ver", sh("AppVersion", { version: "0.1.0" })));
+      h("div.lx-grow"), h("div.lx-ver", [sh("AppName"), " ", tx("0.1.0")]));
     const pages = { general: settingsGeneral, defaults: settingsDefaults, shared: settingsShared, skin: settingsSkin, storage: settingsStorage, accounts: settingsAccounts, developer: settingsDeveloper };
     return h("div.lx-dlg.lx-sdlg", { onclick: (e) => e.stopPropagation() }, nav,
       h("div.lx-smain", { "data-mk-scroll": "lx-settings-" + page }, h("div.lx-sclose", iconBtn("x", () => ctx.close())),
@@ -925,8 +925,8 @@
     const S = ctx.state, w = ui.wgs;
     const upd = S.update;
     const status = upd === "dev" ? srow(sh("DevelopmentBuild"), sh("UpdatesUnavailable")) :
-      srow(sh("BuildNumberCommit", { build: 1398, commit: "605928a" }),
-        upd === "checking" ? [spinner(), " ", sh("UpdateChecking")] : upd === "available" ? sh("UpdateAvailable", { build: 1412 }) : upd === "downloading" ? sh("UpdateDownloading", { build: 1412, percent: "42%" }) :
+      srow([sh("BuildNumber", { build: 1398 }), " ", tx("605928a")],
+        upd === "checking" ? [spinner(), " ", sh("UpdateChecking")] : upd === "available" ? sh("UpdateAvailable", { build: 1412 }) : upd === "downloading" ? [sh("BuildNumber", { build: 1412 }), " ", tx("42%")] :
           upd === "ready" ? (S.game === "playing" ? sh("UpdateReadyPlaying", { build: 1412 }) : sh("UpdateReady", { build: 1412 })) : upd === "failed" ? sh("UpdateFailed", { error: "GitHub answered 503" }) : upd === "notChecked" ? sh("UpdateNotChecked") : sh("UpToDate"),
         upd === "available" ? pbtn(sh("DownloadUpdate"), () => ctx.set("update", "downloading")) : upd === "ready" ? pbtn(sh("RestartToUpdate")) : btn(sh("CheckForUpdates"), { on: () => ctx.set("update", "checking") }));
     return [
@@ -1071,7 +1071,7 @@
     else if (st === "codeStart") { body = [idNote, h("p", sh("SignInCodeBody")), h("p.lx-muted", sh("KeepsSignIn", { keychain: "macOS Keychain" }))]; acts = [pbtn(sh("GetCode"), () => ctx.set("signin", "code")), back] }
     else if (st === "browser") { body = [waitBox(sh("WaitingForBrowser")), h("p.lx-muted", sh("FinishInBrowser"))]; acts = [btn(sh("OpenBrowserAgain")), gbtn(sh("UseCodeInstead"), () => ctx.set("signin", "codeStart")), back] }
     else if (st === "gettingCode") { body = [waitBox(sh("GettingCode"))]; acts = [back] }
-    else if (st === "code" || st === "copied") { body = [h("p", sh("GoToHost", { host: "microsoft.com/link" })), codeBox("F7K2-9QXM", true), waitBox(st === "copied" ? sh("CodeCopiedWaiting") : sh("WaitingForCode"))]; acts = [pbtn(sh("CopyCodeAndOpen", { host: "microsoft.com/link" }), () => ctx.set("signin", "copied"), "copy"), btn(sh("CopySignInCode")), btn(cm("Back"), { on: () => ctx.open("stopSignIn") })] }
+    else if (st === "code" || st === "copied") { body = [h("p", sh("GoToAddress")), h("p", tx("https://www.microsoft.com/link")), codeBox("F7K2-9QXM", true), waitBox(st === "copied" ? sh("CodeCopiedWaiting") : sh("WaitingForCode"))]; acts = [pbtn(sh("CopyCodeAndOpen"), () => ctx.set("signin", "copied"), "copy"), btn(sh("CopySignInCode")), btn(cm("Back"), { on: () => ctx.open("stopSignIn") })] }
     else if (st === "signing") { body = [waitBox(sh("SigningInToMinecraft"))]; acts = [] }
     else {
       const k = st.replace(/^err:/, "");
@@ -1096,13 +1096,13 @@
   }
   function modFinderDialog(ctx) {
     const st = ctx.state.finder;
-    const prog = h("div.lx-muted", { style: { fontSize: "13.5px" } }, imp("FinderModsLeft", { count: 12 }), sep(), imp("FinderModsOff", { count: 6 }), sep(), imp("FinderTriesLeft", { count: 3 }));
+    const prog = h("div.lx-muted", { style: { fontSize: "13.5px" } }, im("FinderLeftKey"), " 12 ", im("FinderOffKey"), " 6 ", im("FinderTriesLeftKey"), " ", im("About", { count: 3 }));
     const B = {
       intro: () => [[h("p", im("FinderIntro")), h("p.lx-muted", im("FinderAutomatic")), h("p.lx-muted", im("FinderManual"))], [pbtn(im("FinderStart"), () => ctx.set("finder", "try")), btn(cm("Cancel"), { on: () => ctx.close() })]],
       reading: () => [[waitBox(im("FinderReading"))], [btn(im("FinderStop"))]],
-      try: () => [[h("b", im("FinderTry", { number: 2 })), waitBox(im("FinderWaiting")), h("div.lx-muted", im("FinderStarting"), " \u00b7 ", im("FinderSettling"), " \u00b7 ", im("FinderStopping")), prog], [btn(im("FinderStop"), { on: () => ctx.set("finder", "stopped") })]],
-      play: () => [[h("b", im("FinderTry", { number: 3 })), h("p", im("FinderPlay")), prog], [pbtn(im("FinderDidntCrash")), btn(im("FinderStop"))]],
-      ask: () => [[h("b", im("FinderTry", { number: 3 })), h("p", im("FinderAsk")), prog], [btn(im("FinderItCrashed")), btn(im("FinderDidntCrash")), gbtn(im("FinderStop"))]],
+      try: () => [[h("b", [im("FinderTryKey"), " 2"]), waitBox(im("FinderWaiting")), h("div.lx-muted", im("FinderStarting"), " \u00b7 ", im("FinderSettling"), " \u00b7 ", im("FinderStopping")), prog], [btn(im("FinderStop"), { on: () => ctx.set("finder", "stopped") })]],
+      play: () => [[h("b", [im("FinderTryKey"), " 3"]), h("p", im("FinderPlay")), prog], [pbtn(im("FinderDidntCrash")), btn(im("FinderStop"))]],
+      ask: () => [[h("b", [im("FinderTryKey"), " 3"]), h("p", im("FinderAsk")), prog], [btn(im("FinderItCrashed")), btn(im("FinderDidntCrash")), gbtn(im("FinderStop"))]],
       found: () => [[note(h("b", im("FinderFound")), "ok"), h("p", im("FinderFoundOne", { name: "Zenith" })), h("p.lx-muted", im("FinderAlsoOff", { names: "Zenith Attributes" })), h("p.lx-muted", im("FinderFoundGroup", { names: "Create, Flywheel" }))], [pbtn(im("FinderKeepOff")), btn(im("FinderPutBack"))]],
       notFound: () => [[h("p", im("FinderNotFound"))], [btn(cm("Close"), { on: () => ctx.close() })]],
       refused: () => [[h("p", im("FinderRefused"))], [btn(cm("Close"), { on: () => ctx.close() })]],
@@ -1165,7 +1165,7 @@
         h("div", { style: { position: "relative" } }, select(im("SortRelevance"), { on: toggleMenu("mpsort") }), ui.menu === "mpsort" ? menu([{ label: im("SortRelevance") }, { label: im("SortDownloads") }, { label: im("SortFollows") }, { label: im("SortUpdated") }], "lx-rmenu") : null)),
       h("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", minHeight: "300px" } },
         st === "loading" ? empty(null, spinner(), im("SearchingModrinth")) : st === "nothing" ? empty("search", im("NoModpacksMatch")) : st === "notModpack" ? note(im("LinkNotModpack", { kind: "mod" }), "warn") :
-          card(R.map(([n, a, d, hue], i) => h("div.lx-row" + (i === 0 ? ".on" : ""), { style: i === 0 ? { background: "var(--g750)" } : {} }, modIcon(hue), h("div.lx-row-main", h("div.lx-row-t", tx(n)), h("div.lx-row-s", im("ByAuthor", { author: a, downloads: d })))))),
+          card(R.map(([n, a, d, hue], i) => h("div.lx-row" + (i === 0 ? ".on" : ""), { style: i === 0 ? { background: "var(--g750)" } : {} }, modIcon(hue), h("div.lx-row-main", h("div.lx-row-t", tx(n)), h("div.lx-row-s", [tx(a), " ", tx(d)]))))),
         h("div", seg([["v", im("Versions")], ["d", im("Description")]], "v"), h("div", { style: { marginTop: "10px" } }, st === "pick" ? h("div.lx-muted", im("PickModpack")) : st === "loadingPack" ? h("div.lx-muted", spinner(), " ", im("LoadingModpack"), " \u00b7 ", im("LoadingVersions")) : st === "noVersions" ? h("div.lx-muted", im("NoVersions")) :
           card(["6.4.0", "6.3.2", "6.3.1"].map((v, i) => h("div.lx-row", { style: { minHeight: "46px" } }, h("span.lx-radio" + (i === 0 ? ".on" : ""), h("i")), h("div.lx-row-main", tx("Fabulously Optimized " + v), h("div.lx-row-s", tx("1.21.4 \u00b7 Fabric"))))))))),
       h("div.lx-muted", { style: { fontSize: "13px" } }, im("KindMod"), " / ", im("KindResourcePack"), " / ", im("KindShaderPack"), " / ", im("KindDataPack"), " / ", im("KindPlugin"), " \u00b7 ", is("PickModpack"))];
@@ -1263,15 +1263,15 @@
     launcherIdentity: (ctx) => dialog(ctx, sh("SignInAsLauncherTitle"), ["WhatThisDoes", "Risks", "WhyHere", "WhenSignIn", "WhatLauncherGets", "HowToUndo"].map((k) => h("div", h("b", sh(k)), h("p.lx-muted", sh(k + "Body", { add: "Add Microsoft account", keychain: "macOS Keychain", badge: "Launcher identity" })))),
       // uses: sh("WhatThisDoes") sh("WhatThisDoesBody") sh("Risks") sh("RisksBody") sh("WhyHere") sh("WhyHereBody") sh("WhenSignIn") sh("WhenSignInBody") sh("WhatLauncherGets") sh("WhatLauncherGetsBody") sh("HowToUndo") sh("HowToUndoBody")
       [dbtn(sh("TurnItOn"), () => { ctx.close(); ctx.set("account", "launcher") }), btn(cm("Cancel"), { on: () => ctx.close() })]),
-    turnOffLauncher: (ctx) => dialog(ctx, sh("TurnOffLauncherTitle"), [h("p", sh("TurnOffLauncherBody")), h("p", sh("TurnOffLauncherAccounts", { accounts: "Lodestoner is signed in as the Minecraft Launcher." })), h("p.lx-muted", sh("OneLauncherAccount", { name: "Lodestoner" })), h("p.lx-muted", shp("LauncherAccounts", { count: 2, names: "Lodestoner, Alt" }))],
+    turnOffLauncher: (ctx) => dialog(ctx, sh("TurnOffLauncherTitle"), [h("p", sh("TurnOffLauncherBody")), h("p.lx-muted", sh("SignedInAsLauncher")), h("p", tx("Lodestoner, Alt")), h("p", sh("TurnOffLauncherAccounts"))],
       [dbtn(sh("TurnOffAndSignOut"), () => { ctx.close(); ctx.set("account", "microsoft") }), btn(sh("TurnOffOnly"), { on: () => ctx.close() }), btn(cm("Cancel"), { on: () => ctx.close() })]),
     deleteInstance: (ctx) => confirmDlg(ctx, sh("DeleteNamed", { name: "All the mods" }), [h("p", sh("DeleteInstanceBody", { trash: "the Trash" })), ctx.state.game === "playing" ? note(im("StopBeforeDeleting"), "warn") : null], cm("MoveToTrash"), { danger: true }),
     deleteWorld: (ctx) => confirmDlg(ctx, sh("DeleteNamed", { name: "Survival Island" }), [h("p", sh("DeleteWorldBody", { trash: "the Trash" })), h("p.lx-muted", cm("TheTrash"))], cm("MoveToTrash"), { danger: true }),
     replaceWorld: (ctx) => confirmDlg(ctx, sh("ReplaceWorldTitle", { name: "Survival Island" }), h("p", sh("ReplaceWorldBody", { name: "Survival Island", when: "today, 03:04" })), sh("BackUpAndReplace"), { danger: true }),
     mainOffer: (ctx) => dialog(ctx, sh("MainOfferTitle", { name: "Survival 1.20.1" }), [h("p", sh("MainOfferBody")), h("p.lx-muted", sh("MainChangeLater"))], [pbtn(sh("MakeItMain"), () => { ctx.close(); ctx.set("toast", "synced") }), btn(cm("NotNow"), { on: () => ctx.close() })], { narrow: true }),
     mainSwitch: (ctx) => dialog(ctx, sh("MainOfferTitle", { name: "All the mods" }), [h("p", sh("MainSwitchBody", { current: "Survival 1.20.1", name: "All the mods" })), h("p.lx-muted", sh("MainChangeLater")), h("p.lx-muted", is("IsMainInstance"), " \u00b7 ", is("SharingMain"), " \u00b7 ", is("SharingOff"), " \u00b7 ", is("SharingNoMain"))],
-      [pbtn(sh("MakeNameMain", { name: "All the mods" }), () => ctx.close()), btn(cm("Cancel"), { on: () => ctx.close() })], { narrow: true }),
-    unsaved: (ctx) => dialog(ctx, sh("SaveChangesTitle"), [h("p", ctx.state.unsavedWhere === "defaults" ? sh("UnsavedDefaultsBody") : ctx.state.unsavedWhere === "this" ? sh("UnsavedThisInstanceBody") : sh("UnsavedInstanceBody", { name: "All the mods" }))],
+      [pbtn(is("MakeMain"), () => ctx.close()), btn(cm("Cancel"), { on: () => ctx.close() })], { narrow: true }),
+    unsaved: (ctx) => dialog(ctx, sh("SaveChangesTitle"), [h("p", ctx.state.unsavedWhere === "defaults" ? sh("UnsavedDefaultsBody") : ctx.state.unsavedWhere === "this" ? sh("UnsavedThisInstanceBody") : sh("UnsavedThisInstanceBody"))],
       [pbtn(cm("Save"), () => ctx.close()), btn(cm("Discard"), { on: () => ctx.close() }), btn(cm("KeepEditing"), { on: () => ctx.close() })], { narrow: true }),
     trust: (ctx) => dialog(ctx, sv("TrustTitle", { name: "Alex's server box" }), [h("p", sv("CoreAt", { name: "Alex's server box", address: "192.168.1.42:16662" })), h("p", sv("TrustExplanation", { computer: "this Mac" })), h("p.lx-muted", sv("TrustAfterAdd", { setting: "Trusted for mods" })), h("p.lx-muted", sv("TrustLater"))],
       [pbtn(sv("TrustThisCore"), () => ctx.close()), btn(cm("NotNow"), { on: () => ctx.close() })]),
@@ -1305,8 +1305,8 @@
     joinLan: (ctx) => dialog(ctx, sv("JoinWorld", { world: "Steve's world" }), [h("p.lx-muted", sv("PickInstance", { address: "192.168.1.31:51234" })),
       ctx.state.instances === "none" ? h("p", sv("NoInstancesYet")) : card(INST.slice(1, 4).map((i, n) => h("div.lx-row", { style: { minHeight: "48px" } }, h("span.lx-radio" + (n === 0 ? ".on" : ""), h("i")), grass(), h("div.lx-row-main", tx(i.name), h("div.lx-row-s", tx(i.ver))))))],
       [pbtn(sv("Join"), () => ctx.close()), btn(cm("Cancel"), { on: () => ctx.close() })], { narrow: true }),
-    modpackUpdate: (ctx) => dialog(ctx, sh("UpdateTitle", { name: "All the mods" }), [
-      h("p", sh("ModpackSummary", { pack: "Fabulously Optimized", from: "6.1.0", to: "6.2.0", game: "1.21.4", loader: "Fabric 0.16.9", size: "38 MB" })),
+    modpackUpdate: (ctx) => dialog(ctx, sh("UpdateInstanceTitle"), [
+      h("p", tx("All the mods")), h("p", [tx("Fabulously Optimized 6.1.0 \u2192 6.2.0"), " ", tx("Minecraft 1.21.4"), " ", tx("Fabric 0.16.9"), " ", tx("38 MB")]),
       ...[["UpdatedFiles", 12], ["AddedFiles", 3], ["RemovedFiles", 1], ["ReplacedOwnFiles", 1], ["KeptFiles", 2], ["WrittenFiles", 8]].map(([k, n]) => h("div", h("b", sh(k, { count: n })), h("div.lx-muted.lx-mono", tx(k === "RemovedFiles" ? "mods/old-mod.jar" : "mods/sodium-fabric-0.6.0.jar, \u2026")))),
       // uses: sh("UpdatedFiles") sh("AddedFiles") sh("RemovedFiles") sh("ReplacedOwnFiles") sh("KeptFiles") sh("WrittenFiles")
       h("p.lx-muted", sh("NoFilesChange")), h("p.lx-muted", sh("ModpackUpdateSafety"))],
@@ -1330,7 +1330,7 @@
         h("div.lx-row", grass(), h("div.lx-row-main", tx("Done one"), h("div.lx-row-s", im("Imported"))))),
         h("p.lx-muted", im("Cancelled"), " \u00b7 ", imp("ProblemAndMore", { problem: "level.dat is damaged", count: 2 }))], [btn(cm("Close"), { on: () => ctx.open("stopImporting") })]);
       return dialog(ctx, im("ImportTitle"), [h("p.lx-muted", im("CheckToImport")), ...L2.map(([l, is2]) => h("div", h("b", tx(l)), card(is2.map(([n, s, on]) => h("div.lx-row", { style: { minHeight: "44px" } }, check(tx(n), on), h("span.lx-grow"), h("span.lx-muted", tx(s))))))),
-        check(im("LeaveWorldsOutSize", { size: "640 MB" })), h("div.lx-muted", im("LeaveWorldsOut")), h("div.lx-muted", imp("InstancesToCopy", { count: 2, size: "1.4 GB" }))],
+        check([im("LeaveWorldsOut"), " ", tx("640 MB")]), h("div.lx-muted", [tx("2"), " ", im("ToCopy"), " ", tx("1.4 GB")])],
         [pbtn(imp("ImportInstances", { count: 2 }), () => ctx.set("importState", "progress")), btn(im("ChooseFolder")), btn(cm("Cancel"), { on: () => ctx.close() })]) },
     stopImporting: (ctx) => dialog(ctx, im("StopImportingTitle"), h("p", im("StopImportingBody")), [dbtn(im("StopImporting"), () => ctx.close()), btn(im("KeepImporting"), { on: () => ctx.open("import") })], { narrow: true }),
     finderInterrupted: (ctx) => dialog(ctx, im("FinderInterruptedTitle", { name: "All the mods" }), h("p", im("FinderInterrupted", { name: "All the mods" })), [pbtn(im("FinderStart"), () => ctx.open("modFinder")), btn(im("FinderPutBack"), { on: () => ctx.close() })], { narrow: true }),
@@ -1399,9 +1399,9 @@
     shell: ["Messages \u203a Window, accounts, sign-in", () => [
       mgroup(sh("Undo"), null, [tl(sh("Undid", { change: "" })), tl(sh("ChangeTo", { setting: "Language", value: "System" })), tl(sh("SettingsOf", { name: "All the mods" })), tl(shp("CopiedValues", { count: 1, name: "Survival 1.20.1" }), "ok")]),
       mgroup(sh("Instances"), null, [
-        h("div.lx-irow", { style: { maxWidth: "260px", background: "var(--g800)" } }, grass(), h("div", h("div.lx-irow-n", tx("All the mods")), h("div.lx-irow-s", sh("PlayedInTotal", { when: "Played 2 hours ago", time: "5 h 0 min" })))),
-        tl(sh("PlayNamed", { name: "All the mods" })), tl(sh("MinecraftWith", { version: "1.20.1", loader: "Fabric 0.16.14" })), tl(sh("GroupImported")), tl(sh("NoInstances")), tl(sh("GoBack")), tl(sh("GoForward")), tl(sh("LauncherClosing"), "warn"),
-        tl(shp("Values", { count: 1 })), tl(shp("AndMore", { count: 1 })), tl(shp("Subscriptions", { count: 1 })), tl(shp("PerfEntries", { count: 1 })), tl(shp("LauncherAccounts", { count: 1, names: "Lodestoner" }))]),
+        h("div.lx-irow", { style: { maxWidth: "260px", background: "var(--g800)" } }, grass(), h("div", h("div.lx-irow-n", tx("All the mods")), h("div.lx-irow-s", [tx("2 hours ago"), " ", tx("5 h 0 min")]))),
+        tl(sh("PlayNamed", { name: "All the mods" })), tl(sh("GroupImported")), tl(sh("NoInstances")), tl(sh("GoBack")), tl(sh("GoForward")), tl(sh("LauncherClosing"), "warn"),
+        tl(shp("Values", { count: 1 })), tl(shp("AndMore", { count: 1 })), tl(shp("Subscriptions", { count: 1 })), tl(shp("PerfEntries", { count: 1 }))]),
       mgroup(sh("CrashTitle", { name: "All the mods" }), null, L(sh, "EvidenceFailedToPatch EvidenceCrashedInItsCode EvidencePatchedCrashingCode EvidenceInStack", (el) => tl(el))),
       mgroup(sh("Accounts"), null, [te(sh("AuthKeychain"), sh("AuthSignInExpiredBody")), te(null, sh("AccountsCorrupt")), te(null, sh("CouldntReadAccounts", { error: "permission denied" })), te(null, sh("CouldntSaveSettings", { error: "disk full" })),
         te(null, sh("CouldntSaveAccounts", { error: "disk full" })), te(null, sh("CouldntRemoveSignIn", { name: "Lodestoner", error: "item not found" }))]),
@@ -1419,11 +1419,11 @@
         tl(im("FilesBusy"), "warn"), tl(im("StopGameFirst"), "warn"), te(null, im("CouldntSavePlayed", { error: "disk full" })), te(null, im("CouldntSavePlayTime", { error: "disk full" })), te(null, imp("BrokenFolders", { count: 2, path: "instances/old" }))]),
       mgroup(im("ModpackExported"), null, [toast(im("ModpackExported"), [imp("FilesSaved", { count: 1, path: "~/Desktop" }), " ", imp("CurseForgeLeftOut", { count: 2, names: "JourneyMap, Xaero's" }), " ", imp("FilesLeftOut", { count: 2, name: "secret.txt" })], "ok"), te(im("CouldntExportModpack"), tx("\u2026"))]),
       mgroup(im("Modpack"), null, [prog(im("ReadingModpack")), prog(im("DownloadingName", { name: "Fabulously Optimized" }), 60), prog(im("InstallingName", { name: "Fabric 0.16.9" }), 70), prog(im("CopyingConfigs"), 80), prog(im("CopyingWorlds"), 20), prog(im("CopyingPacksAndOptions"), 40), prog(im("InstallingMods"), 60), prog(im("RecordingFiles"), 85), prog(im("SavingSnapshot"), 90), prog(im("BackingUp", { name: "Survival Island" }), 30), prog(im("UpdatingTo", { version: "6.2.0" }), 50),
-        toast(im("ModpackReady", { name: "Fabulously Optimized" }), [im("ModpackReadyMessage", { version: "1.21.4", loader: "Fabric 0.16.9" }), " ", imp("PackFilesToDownload", { count: 2 }), " ", imp("PackFilesLeftOut", { count: 1, path: "overrides/x" })], "ok"),
-        toast(im("ModpackUpdated"), [im("ModpackUpdatedMessage", { name: "Survival", pack: "Fabulously Optimized", version: "6.1.0", path: "backups/" })], "ok"),
+        toast(im("InstanceReady"), [tx("Fabulously Optimized"), " ", im("PressPlayToDownload"), " ", imp("PackFilesToDownload", { count: 2 }), " ", im("LeftOutOfPack"), " ", tx("overrides/x")], "ok"),
+        toast(im("ModpackUpdated"), [tx("Survival"), " ", tx("Fabulously Optimized 6.1.0"), " ", im("ReplacedFiles"), " ", tx("backups/"), " ", im("ReplacedFilesKept")], "ok"),
         te(im("CouldntImportModpack"), tx("\u2026")), te(im("CouldntCopy"), tx("\u2026")), te(im("CouldntUpdateModpack"), im("UpdatedButNotSaved", { error: "disk full" })), te(im("NotAModpack"), im("NotMrpack", { name: "notes.zip" })), te(im("NotAModpack"), im("CurseForgeUnreachable")), te(im("NotAModpack"), im("CurseForgePackOnWebsite"))]),
       mgroup(im("ImportTitle"), null, [tl(im("ImportFromHere")), tl(im("Import")), tl(im("NewestRelease")), tl(im("NewestSnapshot")), tl(im("Vanilla"))]),
-      mgroup(is("ShareCodeRow"), null, [toast(im("ShareCodeReady", { name: "Survival" }), [imp("ShareCodeInstalled", { count: 1 }), " ", im("ShareCodeNotInstalled", { names: "JourneyMap" })], "ok"), te(im("ShareCodeContentFailed"), im("ShareCodeOffline"))]),
+      mgroup(is("ShareCodeRow"), null, [toast(im("InstanceReady"), [tx("Survival"), " ", im("NotInstalled"), " ", tx("JourneyMap")], "ok"), te(im("ShareCodeContentFailed"), im("ShareCodeOffline"))]),
     ]],
     content: ["Messages \u203a Content", () => [
       mgroup(ct("KindMods"), tx("Notices above the list, and install results."), [tl(ct("StopGameFirst"), "warn"), tl(ct("WaitForInstall"), "warn"), te(null, ct("CouldntCheckUpdates", { error: "Modrinth answered 503" })), tl(ct("NothingInstalled")), tl(ct("InstalledOne", { name: "Sodium" }), "ok"),
@@ -1432,7 +1432,7 @@
       mgroup(ct("Versions"), tx("Version tags, sort orders and the file dialog's buttons."), [h("div", L(ct, "Compatible OlderVersion NewerVersion NotOnEitherPlatform Vanilla", (el) => [badge(el), " "])),
         h("div", L(ct, "SortRelevance SortDownloads SortFollows SortNewest SortUpdated SortPopular SortName", (el) => [h("span.lx-keycap", el)])),
         h("div", L(ct, "AddToMods AddToResourcePacks AddToShaders WatchFolderPrompt ViewOnCurseForge", (el) => [btn(el, { sm: true }), " "])),
-        h("div.lx-muted", ctp("Followers", { count: 1 })), empty(null, spinner(), ct("SearchingCurseForge")), empty("search", ct("NothingOnCurseForge")), empty(null, spinner(), [ct("LoadingProject"), " \u00b7 ", ct("LoadingVersions")])]),
+        empty(null, spinner(), ct("SearchingCurseForge")), empty("search", ct("NothingOnCurseForge")), empty(null, spinner(), [ct("LoadingProject"), " \u00b7 ", ct("LoadingVersions")])]),
       mgroup(ct("KindShaders"), null, [h("div.lx-scard", h("b", ct("ShadersNeedShaderMod")), h("div.lx-muted", ct("ShaderModRunsOn", { shader_mod: "Iris", loader: "Fabric" }), " ", ct("ShaderModComesWith", { dependency: "Sodium", shader_mod: "Iris" })), h("div", pbtn(ct("InstallShaderMod", { shader_mod: "Iris", version: "1.7.6" }))), h("div.lx-muted", ct("OptiFineNote", { add_file: "Add file\u2026", mods: "Mods" }))),
         tl(ct("LookingForShaderMod")), te(null, ct("CouldntAskModrinth", { error: "offline" })), tl(ct("ShaderModUnavailable", { reason: "No version for 1.8.9." })), tl(ct("ShaderModUsingBuiltIn", { shader_mod: "Iris" })), tl(ct("ShaderModInstalledOff", { shader_mod: "Iris" }))]),
       mgroup(sh("Vanilla"), null, [tl(ct("VanillaNoLoaderMods", { version: "1.2.5" })), tl(ct("VanillaNoLoaderShaders", { version: "1.2.5" })), tl(ct("VanillaCheckFailedMods", { error: "offline" }), "warn"), tl(ct("VanillaCheckFailedShaders", { error: "offline" }), "warn"), tl(ct("VanillaCheckingMods", { version: "26.3" })), tl(ct("VanillaCheckingShaders", { version: "26.3" }))]),
