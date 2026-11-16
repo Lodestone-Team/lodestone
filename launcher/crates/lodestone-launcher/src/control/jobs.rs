@@ -280,10 +280,15 @@ impl Jobs {
     }
 
     fn finish(&mut self, id: u64, result: ApiResult) {
+        // what the job did and to which instance, so a failure logged from this event
+        // (`trace::is_failure`) says which operation failed
+        let spec = self.list.iter().find(|j| j.id == id).map(|j| &j.spec);
+        let kind = spec.map(|s| s.kind);
+        let instance = spec.and_then(|s| s.instance.as_ref().map(|i| i.id.clone()));
         launcher_core::trace::emit("job.finished", || match &result {
-            Ok(_) => json!({ "job": id, "state": "succeeded" }),
+            Ok(_) => json!({ "job": id, "kind": kind, "instance": instance, "state": "succeeded" }),
             Err(error) => {
-                json!({ "job": id, "state": if error.code == codes::CANCELLED { "cancelled" } else { "failed" }, "error": { "code": error.code, "message": error.message } })
+                json!({ "job": id, "kind": kind, "instance": instance, "state": if error.code == codes::CANCELLED { "cancelled" } else { "failed" }, "error": { "code": error.code, "message": error.message } })
             }
         });
         if let Some(job) = self.list.iter_mut().find(|j| j.id == id) {

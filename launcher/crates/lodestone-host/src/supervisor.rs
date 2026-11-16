@@ -126,9 +126,10 @@ impl Supervisor {
                         break;
                     }
                     // asked only once the port takes connections, so a normal start
-                    // logs no failed requests
+                    // logs no failed requests; the probe can wait, so not on this thread
+                    let port = config.port;
                     if let Ok(client) = &client
-                        && listening(config.port)
+                        && cx.background_spawn(async move { listening(port) }).await
                         && client.info().await.is_ok()
                     {
                         ready = true;
@@ -298,7 +299,8 @@ fn prepare() -> Result<CoreConfig, String> {
     })
 }
 
-/// Whether something takes connections on this computer's `port`.
+/// Whether something takes connections on this computer's `port`. Blocks for up to
+/// 200 ms (a closed port on Windows), so it runs in the background.
 fn listening(port: u16) -> bool {
     let address = std::net::SocketAddr::from((std::net::Ipv4Addr::LOCALHOST, port));
     std::net::TcpStream::connect_timeout(&address, Duration::from_millis(200)).is_ok()

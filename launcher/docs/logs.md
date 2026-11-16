@@ -38,12 +38,15 @@ A message's later lines are indented two spaces. What goes in:
   out, never the frame), stream drops and reconnects, update checks, downloads and
   installs, downloads that failed for good (host and path), game launches that failed
   (`game.failed`), Connect tunnel failures, failed snapshot and world backup work,
-  jobs that failed, the Host's core starting, exiting and restarting, and every error
-  shown in a toast;
+  jobs that failed, the Host's core starting, exiting and restarting, every error
+  shown in a toast, and the Launcher's failure dialogs (a modpack import or update
+  that failed, files a game still has open, a copy that couldn't be made);
 - failures on the debug trace bus (`http.error`, `core_http.error`, `game.failed`,
-  `job.finished` that failed, `game.exit` that crashed, `images.*` warnings,
-  `storage.move` errors, responses with a 5xx status), as `lodestone::trace` records,
-  whether Debug traces are on or not;
+  `job.finished` that failed, with the job's kind and instance, `game.exit` that
+  crashed, `images.*` warnings, `storage.move` errors, responses with a 5xx status), as
+  `lodestone::trace` records, whether Debug traces are on or not; with traces off only
+  topics that can report a failure are looked at (`trace::may_fail`), so clicks and
+  navigation cost nothing;
 - a panic's report (below).
 
 A failure that repeats is written a few times a minute, then summed up ("and N more

@@ -4580,8 +4580,8 @@ Persistent logging for the Launcher and the Host (not an instance-images milesto
   error, and a repeating one is summed up after a few lines a minute. Lines never carry
   a manifest's contents, a frame or a player's file contents.
 - **Untrusted input.** An event frame or stream frame the client can't read logs the
-  serde error with the values it quotes left out (`invalid type: string "…"`), never the
-  frame. Every line is scrubbed of secrets (`lodestone_trace::scrub_line`).
+  serde error with the values it quotes left out (`invalid type: string "…"`, escaped
+  quotes inside a value included), never the frame. Every line is scrubbed of secrets (`lodestone_trace::scrub_line`).
 - **The shared crate** (`crates/lodestone-image`) is unchanged. `crates/lodestone-trace`
   gains `scrub_line`, an additive function.
 

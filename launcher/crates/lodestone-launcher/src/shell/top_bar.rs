@@ -340,6 +340,7 @@ fn crash_notice(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> Optio
     Some(
         div()
             .id("crash-notice")
+            .debug_selector(|| "crash-notice".into())
             .accessible(Role::Status, "crash-notice", label)
             .flex()
             .flex_row()
@@ -451,4 +452,48 @@ fn update_notice(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> Opti
             )
             .into_any_element(),
     )
+}
+
+#[cfg(all(test, feature = "screenshot"))]
+mod tests {
+    use gpui::TestAppContext;
+
+    use super::LauncherShell;
+
+    /// The crash notice is in the top bar only after a crash, and goes once put away.
+    #[test]
+    fn the_crash_notice_shows_only_after_a_crash() {
+        let mut cx = TestAppContext::single();
+        cx.update(crate::components::init);
+        let (shell, cx) = cx.add_window_view(|_, cx| {
+            let accounts = crate::preview::accounts("home", cx);
+            let instances = crate::preview::instances("home", &accounts, cx);
+            LauncherShell::new(accounts, instances, cx)
+        });
+        cx.run_until_parked();
+        assert!(
+            cx.debug_bounds("crash-notice").is_none(),
+            "no crash, no notice"
+        );
+
+        let crash = launcher_core::logging::Crash {
+            at: "2026-11-16T08:30:12Z".into(),
+            summary: "a made-up crash".into(),
+            file: std::env::temp_dir().join("last-crash.txt"),
+        };
+        shell.update(cx, |shell, cx| {
+            shell.crash_notice = Some(crash);
+            cx.notify();
+        });
+        cx.run_until_parked();
+        assert!(cx.debug_bounds("crash-notice").is_some(), "after a crash");
+
+        // as its × and "Open logs" do
+        shell.update(cx, |shell, cx| {
+            shell.crash_notice = None;
+            cx.notify();
+        });
+        cx.run_until_parked();
+        assert!(cx.debug_bounds("crash-notice").is_none(), "put away");
+    }
 }

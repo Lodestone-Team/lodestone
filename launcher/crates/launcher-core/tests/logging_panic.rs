@@ -114,6 +114,20 @@ fn a_panic_on_a_background_thread_is_logged_and_kept() {
         !text.contains("secret-frame-text") && !text.contains("steve"),
         "{text}"
     );
+    // A value of the wrong type is quoted in serde's error; the log leaves it out.
+    let frame = r#"{"event_inner": {"type": "ProgressionEvent", "event_id": 1,
+        "progression_event_inner": {"type": "ProgressionUpdate", "progress_message": "m",
+        "progress": "alex \"said\" hi"}}, "snowflake": 1}"#;
+    let err = launcher_core::cores::admin::events::read(frame).unwrap_err();
+    assert!(err.to_string().contains("alex"), "serde quotes it: {err}");
+    logging::flush();
+    let text = fs::read_to_string(&log_file).unwrap();
+    assert_eq!(
+        text.matches("couldn't read an event from the core").count(),
+        2,
+        "{text}"
+    );
+    assert!(!text.contains("alex") && !text.contains("said"), "{text}");
 
     logging::end_session();
     assert!(!dir.join(logging::SESSION_FILE).exists());

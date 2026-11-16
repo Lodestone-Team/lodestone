@@ -333,8 +333,8 @@ pub fn parse(text: &str) -> Option<ClientEvent> {
 }
 
 /// [`parse`], saying why a frame isn't an event this client can read. The serde error
-/// is logged (a few a minute), never the frame: an event can carry a server's console
-/// line or a player's name.
+/// is logged (a few a minute) without the values it quotes, and never the frame: an
+/// event can carry a server's console line or a player's name.
 pub fn read(text: &str) -> Result<ClientEvent, serde_json::Error> {
     serde_json::from_str(text).inspect_err(|err| {
         UNREADABLE.log(
@@ -342,8 +342,9 @@ pub fn read(text: &str) -> Result<ClientEvent, serde_json::Error> {
             log::Level::Warn,
             module_path!(),
             format_args!(
-                "couldn't read an event from the core ({} bytes): {err}",
-                text.len()
+                "couldn't read an event from the core ({} bytes): {}",
+                text.len(),
+                crate::logging::serde_error(err)
             ),
         );
     })

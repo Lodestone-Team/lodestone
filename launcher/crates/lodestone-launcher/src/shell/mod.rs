@@ -415,6 +415,7 @@ impl LauncherShell {
                 InstancesEvent::LaunchFailed { title, message, .. }
                 | InstancesEvent::PlayFailed { title, message, .. }
                 | InstancesEvent::Notice { title, message, .. } => {
+                    crate::instances::log_shown(event);
                     let focus = cx.focus_handle();
                     this.open_modal(
                         Modal::LaunchFailed {
@@ -3265,6 +3266,17 @@ impl Render for LauncherShell {
     }
 }
 
+/// What "When a game starts" does when a game's window opens. Never quit while the
+/// launcher is `busy` (another instance installing or starting, a modpack import, a
+/// "Find it for me" search whose tries are the games opening): quitting would stop
+/// that half way. The window is minimized instead, and comes back when the game exits.
+fn after_game_opens(after: AfterLaunch, busy: bool) -> AfterLaunch {
+    match after {
+        AfterLaunch::Quit if busy => AfterLaunch::Minimize,
+        after => after,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3300,17 +3312,6 @@ mod tests {
             assert_eq!(after_game_opens(after, true), after);
             assert_eq!(after_game_opens(after, false), after);
         }
-    }
-}
-
-/// What "When a game starts" does when a game's window opens. Never quit while the
-/// launcher is `busy` (another instance installing or starting, a modpack import, a
-/// "Find it for me" search whose tries are the games opening): quitting would stop
-/// that half way. The window is minimized instead, and comes back when the game exits.
-fn after_game_opens(after: AfterLaunch, busy: bool) -> AfterLaunch {
-    match after {
-        AfterLaunch::Quit if busy => AfterLaunch::Minimize,
-        after => after,
     }
 }
 

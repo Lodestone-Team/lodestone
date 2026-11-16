@@ -25,6 +25,8 @@ pub const BACKGROUND_FLAG: &str = "--background";
 
 /// The entry's name. A development build has its own, as it has its own data folder
 /// ([`crate::core_process::host_dir`]), so it never replaces an installed Host's.
+/// The Mac's launch agent goes by its label instead.
+#[cfg(not(target_os = "macos"))]
 const NAME: &str = if cfg!(debug_assertions) {
     "Lodestone Host Dev"
 } else {

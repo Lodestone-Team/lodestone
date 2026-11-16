@@ -50,10 +50,12 @@ pub fn bus() -> &'static TraceBus {
     BUS.get_or_init(|| TraceBus::new(DEFAULT_BACKLOG, LIVE_ONLY))
 }
 
-/// Emits an event; `data` is only made when it goes somewhere. A failure
+/// Emits an event; `data` is only made when it goes somewhere. An event on a topic
+/// that can report a failure ([`may_fail`]) is made to find out, and a failure
 /// ([`is_failure`]) is also logged, scrubbed, as `{topic} {data}` with the target
-/// [`logging::TRACE_TARGET`], which the logger doesn't send back to the bus. Live-only
-/// topics are never logged, so they still cost nothing without a subscriber.
+/// [`logging::TRACE_TARGET`], which the logger doesn't send back to the bus. Other
+/// topics (clicks, the pointer, navigation) and live-only ones cost nothing while
+/// traces are off.
 ///
 /// [`logging::TRACE_TARGET`]: crate::logging::TRACE_TARGET
 pub fn emit(topic: &str, data: impl FnOnce() -> Value) {
@@ -61,7 +63,8 @@ pub fn emit(topic: &str, data: impl FnOnce() -> Value) {
     static THROTTLE: crate::logging::Throttle = crate::logging::Throttle::new();
     let bus = bus();
     // `log.*` events are the logger's own records.
-    let may_log = !topic.starts_with("log.")
+    let may_log = may_fail(topic)
+        && !topic.starts_with("log.")
         && !LIVE
             .get_or_init(|| Filter::new(LIVE_ONLY.iter().copied()))
             .matches(topic)
@@ -70,17 +73,30 @@ pub fn emit(topic: &str, data: impl FnOnce() -> Value) {
         bus.emit(topic, data);
         return;
     }
-    let mut data = data();
-    lodestone_trace::scrub(&mut data);
+    let data = data();
     if is_failure(topic, &data) {
+        let mut scrubbed = data.clone();
+        lodestone_trace::scrub(&mut scrubbed);
         THROTTLE.log(
             topic,
             log::Level::Warn,
             crate::logging::TRACE_TARGET,
-            format_args!("{topic} {data}"),
+            format_args!("{topic} {scrubbed}"),
         );
     }
+    // The bus scrubs what it keeps.
     bus.emit(topic, || data);
+}
+
+/// Whether events on `topic` can be failures ([`is_failure`]): errors, failed things,
+/// responses (a server error), finished jobs, exits (a crash), and the storage,
+/// image, snapshot and world backup topics, which carry an `error` or `warning`.
+pub fn may_fail(topic: &str) -> bool {
+    let last = topic.rsplit('.').next().unwrap_or(topic);
+    matches!(last, "error" | "failed" | "response" | "finished" | "exit")
+        || ["storage.", "images.", "snapshot.", "world_backup"]
+            .iter()
+            .any(|prefix| topic.starts_with(prefix))
 }
 
 /// Whether an event reports a failure: a topic ending in `error` or `failed`
@@ -276,6 +292,7 @@ mod tests {
         ];
         for (topic, data) in failures {
             assert!(is_failure(topic, &data), "{topic} {data}");
+            assert!(may_fail(topic), "{topic}");
         }
         let fine = [
             ("job.finished", json!({ "state": "succeeded" })),
@@ -291,6 +308,10 @@ mod tests {
         ];
         for (topic, data) in fine {
             assert!(!is_failure(topic, &data), "{topic} {data}");
+        }
+        // Busy topics that never fail aren't made while traces are off.
+        for topic in ["ui.click", "ui.pointer", "nav.page", "game.launch"] {
+            assert!(!may_fail(topic), "{topic}");
         }
     }
 

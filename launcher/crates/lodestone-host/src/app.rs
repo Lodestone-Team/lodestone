@@ -202,16 +202,8 @@ impl HostApp {
                 state.friends = Some(cx.new(|cx| crate::friends::FriendSharing::new(weak, cx)));
             });
         }
-        if self.crash_notice.take().is_some() {
-            use crate::i18n::{ShellMsg, t};
-            state.update(cx, |state, cx| {
-                state.toast(
-                    lodestone_ui::components::Toast::info(t(ShellMsg::ClosedUnexpectedly))
-                        .action(t(ShellMsg::OpenLogs), |_, cx| crate::logs::open_folder(cx))
-                        .duration(std::time::Duration::from_secs(30)),
-                    cx,
-                )
-            });
+        if let Some(toast) = crash_toast(&mut self.crash_notice) {
+            state.update(cx, |state, cx| state.toast(toast, cx));
         }
         // after being signed out of another core
         if let Some(notice) = self.notice.take() {
@@ -432,6 +424,20 @@ impl Render for HostApp {
     }
 }
 
+/// The toast that says the last run crashed, with "Open logs", for the first shell
+/// shown after it; `None` for every shell after that (`notice` is taken).
+fn crash_toast(
+    notice: &mut Option<launcher_core::logging::Crash>,
+) -> Option<lodestone_ui::components::Toast> {
+    use crate::i18n::{ShellMsg, t};
+    notice.take()?;
+    Some(
+        lodestone_ui::components::Toast::info(t(ShellMsg::ClosedUnexpectedly))
+            .action(t(ShellMsg::OpenLogs), |_, cx| crate::logs::open_folder(cx))
+            .duration(std::time::Duration::from_secs(30)),
+    )
+}
+
 /// The crash the last run ended with, if it did. `--crash-notice` (the `screenshot`
 /// feature) makes one up, for the development screenshots.
 fn crash_notice() -> Option<launcher_core::logging::Crash> {
@@ -444,4 +450,33 @@ fn crash_notice() -> Option<launcher_core::logging::Crash> {
         });
     }
     launcher_core::logging::started().and_then(|started| started.previous_crash)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The first shell after a crash says so; the next one (another core, signing in
+    /// again) doesn't, and neither does any shell after a clean exit.
+    #[test]
+    fn the_crash_toast_is_shown_once() {
+        let mut notice = Some(launcher_core::logging::Crash {
+            at: "2026-11-16T08:30:12Z".into(),
+            summary: "a made-up crash".into(),
+            file: std::env::temp_dir().join("last-crash.txt"),
+        });
+        let toast = crash_toast(&mut notice).expect("a toast after a crash");
+        let text: &str = toast.text.as_ref();
+        assert_eq!(
+            text,
+            crate::i18n::t(crate::i18n::ShellMsg::ClosedUnexpectedly)
+        );
+        assert_eq!(toast.level, lodestone_ui::components::ToastLevel::Info);
+        assert!(notice.is_none(), "taken");
+        assert!(crash_toast(&mut notice).is_none(), "said once");
+        assert!(
+            crash_toast(&mut None).is_none(),
+            "nothing after a clean exit"
+        );
+    }
 }

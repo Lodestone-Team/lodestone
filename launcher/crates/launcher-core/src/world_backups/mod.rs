@@ -672,7 +672,13 @@ impl WorldBackups {
                 for (done, name) in mine.iter().enumerate() {
                     if let Err(e) = crate::fsx::rename(from.join(name), to.join(name)) {
                         for back in mine[..done].iter().rev() {
-                            let _ = crate::fsx::rename(to.join(back), from.join(back));
+                            if let Err(err) = crate::fsx::rename(to.join(back), from.join(back)) {
+                                log::warn!(
+                                    "moving a world's backups failed ({e}) and backup {back} \
+                                     couldn't be put back from {}: {err}",
+                                    to.display()
+                                );
+                            }
                         }
                         let _ = fs::remove_dir(to);
                         return Err(e);

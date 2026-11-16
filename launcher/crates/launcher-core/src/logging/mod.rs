@@ -269,9 +269,14 @@ pub fn end_session() {
 pub fn serde_error(err: &serde_json::Error) -> String {
     let text = err.to_string();
     let mut out = String::with_capacity(text.len());
+    // serde writes the value with `{:?}`, so a quote inside it is escaped (`\"`): the
+    // character after a backslash never ends the quoted part.
     let mut quoted = false;
+    let mut escaped = false;
     for c in text.chars() {
         match (c, quoted) {
+            (_, true) if escaped => escaped = false,
+            ('\\', true) => escaped = true,
             ('"', false) => {
                 quoted = true;
                 out.push_str("\"…");
@@ -651,6 +656,14 @@ mod tests {
         let text = serde_error(&err);
         assert!(!text.contains("steve"), "{text}");
         assert!(text.contains("invalid type: string \"…\""), "{text}");
+        // A quote inside the value is escaped, and doesn't end the hidden part.
+        let err = serde_json::from_str::<u64>(r#""he said \"secret\" ok""#).unwrap_err();
+        let text = serde_error(&err);
+        assert!(!text.contains("secret") && !text.contains("ok"), "{text}");
+        assert!(
+            text.contains("invalid type: string \"…\", expected"),
+            "{text}"
+        );
         #[derive(Debug, serde::Deserialize)]
         enum Kind {
             Known,

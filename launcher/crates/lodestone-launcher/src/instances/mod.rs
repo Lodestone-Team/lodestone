@@ -464,6 +464,46 @@ pub enum InstancesEvent {
     },
 }
 
+impl InstancesEvent {
+    /// The log line for a failure or notice shown in a dialog: a modpack import that
+    /// failed, files a game still has open, a copy that couldn't be made. The dialog is
+    /// often the only sign of it. [`InstancesEvent::PlayFailed`] is left out: it is
+    /// logged as the trace bus's `game.failed` where it is decided.
+    pub fn log_line(&self) -> Option<(log::Level, String)> {
+        let (level, title, message, about) = match self {
+            InstancesEvent::LaunchFailed {
+                title,
+                message,
+                about,
+            } => (log::Level::Warn, title, message, about),
+            InstancesEvent::Notice {
+                title,
+                message,
+                about,
+            } => (log::Level::Info, title, message, about),
+            _ => return None,
+        };
+        let about = match about {
+            About::Nothing => String::new(),
+            About::Instance(id) => format!(" (instance {id})"),
+            About::Import(job) => format!(" (import job {job})"),
+        };
+        let shown = if level == log::Level::Warn {
+            "shown as an error"
+        } else {
+            "shown"
+        };
+        Some((level, format!("{shown}: {title}: {message}{about}")))
+    }
+}
+
+/// Logs what [`InstancesEvent::log_line`] picks.
+pub fn log_shown(event: &InstancesEvent) {
+    if let Some((level, line)) = event.log_line() {
+        log::log!(level, "{line}");
+    }
+}
+
 /// How long a game runs before it counts as having opened its window when the log
 /// never says so (an unusual version or a mod that changes the log).
 const WINDOW_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
@@ -3180,6 +3220,44 @@ pub(crate) fn game_change(before: &Instance, after: &Instance) -> Option<GameCha
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn failures_shown_in_dialogs_are_logged() {
+        let failed = InstancesEvent::LaunchFailed {
+            title: "Couldn't update the modpack".into(),
+            message: "The download stopped.".into(),
+            about: About::Instance("abc".into()),
+        };
+        assert_eq!(
+            failed.log_line(),
+            Some((
+                log::Level::Warn,
+                "shown as an error: Couldn't update the modpack: The download stopped. \
+                 (instance abc)"
+                    .into()
+            ))
+        );
+        let notice = InstancesEvent::Notice {
+            title: "Game files verified".into(),
+            message: "Nothing was missing.".into(),
+            about: About::Nothing,
+        };
+        assert_eq!(
+            notice.log_line(),
+            Some((
+                log::Level::Info,
+                "shown: Game files verified: Nothing was missing.".into()
+            ))
+        );
+        // Logged where it is decided, as `game.failed`.
+        let play = InstancesEvent::PlayFailed {
+            id: "abc".into(),
+            title: "Couldn't sign in".into(),
+            message: "offline".into(),
+        };
+        assert_eq!(play.log_line(), None);
+        assert_eq!(InstancesEvent::ReachedMenu("abc".into()).log_line(), None);
+    }
 
     #[test]
     fn says_how_long_ago() {
