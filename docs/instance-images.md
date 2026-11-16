@@ -4563,6 +4563,63 @@ developer's brief left them open. The developer decided: world backups are manua
   change. The Host's world backups ("WB1 decisions") added the same module, word for word,
   so the two apps share one.
 
+### LG decisions
+
+Persistent logging for the Launcher and the Host (not an instance-images milestone;
+`launcher/docs/logs.md` describes it) changes what "logged" means in this document.
+
+- **"Logged" now reaches a file.** In the Launcher and the Host a statement above that
+  something "is logged" (a content-image record that failed during an update, a failed
+  record after a restore, a retired folder whose instance is missing, a download whose
+  hash didn't match, a failed import download) means the app's log file
+  (`<default data folder>/logs/launcher.log`, `<Host folder>/logs/host.log`) as well as
+  the debug trace bus. Before, `images::warn` and similar went to the in-memory bus only.
+  The core's own statements are unchanged: it writes `core.log`.
+- **Once per decision, throttled.** Failures of images, snapshots, world backups, image
+  sync and GC are logged once where the error is decided, with the instance id and the
+  error, and a repeating one is summed up after a few lines a minute. Lines never carry
+  a manifest's contents, a frame or a player's file contents.
+- **Untrusted input.** An event frame or stream frame the client can't read logs the
+  serde error with the values it quotes left out (`invalid type: string "…"`, escaped
+  quotes inside a value included, and an unknown variant or field name unless it reads
+  as a name), never the frame. Every line is scrubbed of secrets, once
+  (`lodestone_trace::scrub_line`).
+- **Untrusted replies.** A core reply (an image upload's answer, an image export's key,
+  a server made from an image) the client can't read is logged once where it is decided,
+  with the method, path, host, type and the serde error, never the body. The error the
+  caller gets (`CoreError::Invalid`) carries the same value-free text, so a toast or a
+  second log line can't carry the value either.
+- **Download keys.** An image, backup or world download through a core's
+  `GET /file/{key}` that fails leaves the key out of its error (a transport error names
+  the URL), and the scrubbers blank a `/file/…` key as a backstop. The core client's
+  traces carry a request's path as `file/[redacted]` (a download's release,
+  `DELETE file/{key}`, too), and the scrubbers also blank a relative `file/…` key.
+- **Refusals.** A core's 4xx answer (an image or backup listing refused) is logged where
+  the reply arrives, with the method, path, host, status and the core's message,
+  throttled per request; 404s and 401s on a key are at debug. A 5xx from a host is
+  logged at most twice a minute per request.
+- **Unreachable hosts.** A request that couldn't reach its host (an image sync against
+  a core that is off) is logged once per outage, and again when the host answers; a host
+  that fails and answers by turns is logged once a minute at most. Game file downloads
+  are logged by the downloader, not from the trace bus.
+- **Notices nobody sees are logged.** A problem the Launcher keeps as a notice (an
+  accounts file moved aside as corrupt or too new, an instance folder left out of the
+  list because its `instance.json` doesn't load, a settings file that doesn't load or
+  save (the Host's too), a play time that couldn't be saved) is logged where it is
+  decided, an instance folder once per change of the list. A file that doesn't load is
+  named with serde's error without its values (`storage::load` now builds that text for
+  every launcher file). Images still recording when the Launcher quits (after 6 s) are
+  logged.
+- **The shared crate** (`crates/lodestone-image`) is unchanged. `crates/lodestone-trace`
+  gains `scrub_line`, an additive function; `is_secret_name` ignores case, `-` and `_`
+  (`privateKey`) and knows `passphrase`, `device_code`, `pass`, `pwd` and `session`
+  (the last three as whole names), and `scrub`/`scrub_str` also blank percent-encoded
+  secrets, `invite`/`link` values in query strings and download keys, relative `file/…`
+  ones included (stricter, nothing removed). `scrub_line` also blanks a bare `key`'s
+  value shaped like a generated key (16 or more letters and digits) after `key:` or in
+  JSON, a secret-named tuple's `Secret("…")`, a value inside `Some("…")`, and the whole
+  `XBL3.0 x=…;…` after a secret name, and runs its passes until nothing changes.
+
 ### ML decisions
 
 Magic localhost for every server on the Launcher's Lodestone Host page was built

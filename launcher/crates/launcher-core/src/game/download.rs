@@ -25,6 +25,10 @@ use sha2::Sha256;
 use super::record::{self, InstallRecord};
 use crate::USER_AGENT;
 
+/// Downloads that failed for good, a few lines a minute per host (a launch with
+/// hundreds of files from one host that went down is one line, then a count).
+static FAILED: crate::logging::Throttle = crate::logging::Throttle::new();
+
 /// The number of files downloaded at once.
 pub const DEFAULT_CONCURRENCY: usize = 8;
 /// Attempts per file, including the first.
@@ -507,6 +511,12 @@ impl Downloader {
                 }
                 Err(Attempt::Failed(error)) => {
                     progress.sub_bytes(counted);
+                    let (host, path) = crate::trace::url_parts(&item.url);
+                    log::debug!(
+                        "download attempt {} of {host}{path} failed: {}",
+                        attempt + 1,
+                        error.reason
+                    );
                     last_error = error.reason;
                     answered = error.answered;
                     if !error.retry {
@@ -515,6 +525,13 @@ impl Downloader {
                 }
             }
         }
+        let (host, path) = crate::trace::url_parts(&item.url);
+        FAILED.log(
+            &host,
+            log::Level::Warn,
+            module_path!(),
+            format_args!("couldn't download {host}{path}: {last_error}"),
+        );
         Err(DownloadError::Failed {
             url: item.url.clone(),
             reason: last_error,

@@ -202,6 +202,9 @@ pub const SCENES: &[&str] = &[
     "settings-search-defaults",
     "settings-defaults",
     "settings-search-memory",
+    "settings-developer-logs",
+    "crash-notice",
+    "crash-notice-update",
     "instance-settings-search",
     "instance-settings-search-narrow",
     "instance-settings-search-crash",
@@ -1354,6 +1357,26 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             shell.select_tab(InstanceTab::Settings, cx);
             if let Some(settings) = shell.settings_view().cloned() {
                 settings.update(cx, |settings, cx| settings.preview_change(cx));
+            }
+        }
+        // Settings > Developer > Diagnostics: the logs folder and the log detail.
+        "settings-developer-logs" => {
+            preview_control(cx);
+            shell.open_settings(Some(crate::shell::SettingsPage::Developer), None, cx);
+            shell.preview_settings_search("log", cx);
+        }
+        // The top bar after a crash, and with "Update ready" beside it (try a narrow
+        // window: `--lang fr --zoom 1.6`).
+        "crash-notice" | "crash-notice-update" => {
+            shell.crash_notice = Some(launcher_core::logging::Crash {
+                at: "2026-11-16T08:30:12Z".into(),
+                summary: "a timer made outside a runtime".into(),
+                file: std::env::temp_dir().join("last-crash.txt"),
+            });
+            if scene == "crash-notice-update" {
+                shell
+                    .updater()
+                    .update(cx, |updater, cx| updater.preview_ready(cx));
             }
         }
         // A search typed in Settings: General by "update", nothing found, Instance

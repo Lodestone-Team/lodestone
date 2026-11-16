@@ -363,6 +363,14 @@ pub fn text(message: M) -> &'static str {
         M::ThisCore => "此核心",
         M::NewBuild => "新組建",
         M::ConnectServiceVariable => "變數",
+        M::LogsSection => "日誌",
+        M::LogFiles => "日誌檔案",
+        M::LogsHint => "Host 和它的核心做過的事，保存在這台電腦上，方便排查問題。{path}",
+        M::LogDetail => "日誌詳細程度",
+        M::LogDetailHint => "「偵錯」會寫入更多內容，方便排查問題。立即生效。",
+        M::LogInfo => "資訊",
+        M::LogDebug => "偵錯",
+        M::LogLevelFromEnv => "Host 帶著 LODESTONE_LOG 執行時，由它決定詳細程度。",
     }
 }
 

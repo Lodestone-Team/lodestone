@@ -136,7 +136,11 @@ impl Supervisor {
                     if exited(&shared).is_some() {
                         break;
                     }
+                    // asked only once the port takes connections, so a normal start
+                    // logs no failed requests; the probe can wait, so not on this thread
+                    let port = config.port;
                     if let Ok(client) = &client
+                        && cx.background_spawn(async move { listening(port) }).await
                         && client.info().await.is_ok()
                     {
                         ready = true;
@@ -247,6 +251,22 @@ impl Supervisor {
     }
 
     fn set_status(&mut self, status: CoreStatus, cx: &mut Context<Self>) {
+        match &status {
+            CoreStatus::Starting => log::info!("starting Lodestone Core"),
+            CoreStatus::Running { config } => log::info!(
+                "Lodestone Core is running on port {} ({})",
+                config.port,
+                config.program.display()
+            ),
+            CoreStatus::Restarting { reason, attempt } => {
+                log::warn!("{reason} Starting it again (quick exits in a row: {attempt}).")
+            }
+            CoreStatus::Failed { reason, .. } => {
+                log::error!("{reason} The Host stopped trying; core.log has the core's side.")
+            }
+            CoreStatus::Stopping => log::info!("stopping Lodestone Core"),
+            CoreStatus::Stopped => log::info!("Lodestone Core stopped"),
+        }
         self.status = status;
         cx.emit(SupervisorEvent::Status);
         cx.notify();
@@ -310,6 +330,13 @@ fn prepare() -> Result<CoreConfig, String> {
         log_file: Default::default(),
         connect_service: CoreConfig::connect_service_now(),
     })
+}
+
+/// Whether something takes connections on this computer's `port`. Blocks for up to
+/// 200 ms (a closed port on Windows), so it runs in the background.
+fn listening(port: u16) -> bool {
+    let address = std::net::SocketAddr::from((std::net::Ipv4Addr::LOCALHOST, port));
+    std::net::TcpStream::connect_timeout(&address, Duration::from_millis(200)).is_ok()
 }
 
 /// The core's exit status, once it has exited.

@@ -359,6 +359,14 @@ pub fn text(message: M) -> &'static str {
         M::ThisCore => "此核心",
         M::NewBuild => "新构建",
         M::ConnectServiceVariable => "变量",
+        M::LogsSection => "日志",
+        M::LogFiles => "日志文件",
+        M::LogsHint => "Host 和它的核心做过的事，保存在这台电脑上，便于排查问题。{path}",
+        M::LogDetail => "日志详细程度",
+        M::LogDetailHint => "“调试”会写入更多内容，便于排查问题。立即生效。",
+        M::LogInfo => "信息",
+        M::LogDebug => "调试",
+        M::LogLevelFromEnv => "Host 带着 LODESTONE_LOG 运行时，由它决定详细程度。",
     }
 }
 

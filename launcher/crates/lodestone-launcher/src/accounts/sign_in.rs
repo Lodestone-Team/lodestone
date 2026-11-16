@@ -111,6 +111,12 @@ impl SignInDialog {
     }
 
     fn set_stage(&mut self, stage: Stage, cx: &mut Context<Self>) {
+        // The dialog only shows it, so it is logged here. An AuthError holds no tokens.
+        if let Stage::Failed(err) = &stage
+            && *err != AuthError::Cancelled
+        {
+            log::warn!("signing in with Microsoft failed: {err}");
+        }
         self.stage = stage;
         // The sign-in moved on (it finished, or failed): the question no longer applies.
         if self.stop_prompt.is_open() && !self.code_handed_out() {

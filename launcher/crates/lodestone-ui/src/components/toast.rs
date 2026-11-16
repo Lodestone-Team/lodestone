@@ -54,6 +54,20 @@ pub enum ToastLevel {
     Error,
 }
 
+/// The log line for a toast: an error shown to the person is often the only sign of
+/// a failure, so it goes to the log file too (it is UI text, and scrubbed anyway).
+/// Other toasts aren't logged.
+pub fn log_line(error: bool, text: &str) -> Option<(log::Level, String)> {
+    error.then(|| (log::Level::Warn, format!("shown as an error: {text}")))
+}
+
+/// Logs a toast [`log_line`] picks, with the target `lodestone_ui::toast`.
+pub fn log_shown(error: bool, text: &str) {
+    if let Some((level, line)) = log_line(error, text) {
+        log::log!(target: "lodestone_ui::toast", level, "{line}");
+    }
+}
+
 impl ToastLevel {
     fn icon(self) -> Icon {
         match self {
@@ -223,6 +237,7 @@ impl Toasts {
 
     /// Shows `toast`, and returns its id (for [`Self::dismiss`]).
     pub fn push(&mut self, toast: Toast, cx: &mut Context<Self>) -> u64 {
+        log_shown(toast.level == ToastLevel::Error, &toast.text);
         if let Some(key) = &toast.key {
             self.shown
                 .retain(|shown| shown.toast.key.as_ref() != Some(key));
@@ -467,6 +482,18 @@ mod tests {
     }
 
     #[test]
+    fn only_error_toasts_are_logged() {
+        assert_eq!(
+            log_line(true, "Couldn't save the instance"),
+            Some((
+                log::Level::Warn,
+                "shown as an error: Couldn't save the instance".into()
+            ))
+        );
+        assert_eq!(log_line(false, "Saved"), None);
+    }
+
+    #[test]
     fn toasts_go_away_unless_hovered() {
         let mut toasts = Toasts::new();
         shown(&mut toasts, Toast::info("a"));
@@ -502,5 +529,88 @@ mod tests {
             assert_eq!(toasts.texts().len(), MAX_SHOWN);
             assert_eq!(toasts.texts()[MAX_SHOWN - 1], SharedString::from("9"));
         });
+    }
+
+    /// The log records this test binary makes, for tests that check what is logged.
+    #[cfg(feature = "screenshot")]
+    struct Capture(std::sync::Mutex<Vec<(log::Level, String, String)>>);
+
+    #[cfg(feature = "screenshot")]
+    impl log::Log for Capture {
+        fn enabled(&self, _: &log::Metadata) -> bool {
+            true
+        }
+        fn log(&self, record: &log::Record) {
+            self.0.lock().unwrap().push((
+                record.level(),
+                record.target().to_string(),
+                record.args().to_string(),
+            ));
+        }
+        fn flush(&self) {}
+    }
+
+    #[cfg(feature = "screenshot")]
+    static CAPTURE: Capture = Capture(std::sync::Mutex::new(Vec::new()));
+
+    /// The records whose message has `marker`, once the capture is the logger.
+    #[cfg(feature = "screenshot")]
+    fn captured(marker: &str) -> Vec<(log::Level, String, String)> {
+        let _ = log::set_logger(&CAPTURE);
+        log::set_max_level(log::LevelFilter::Trace);
+        CAPTURE
+            .0
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(_, _, text)| text.contains(marker))
+            .cloned()
+            .collect()
+    }
+
+    /// An error shown in a toast, or in a settings page's toast, is logged once; other
+    /// toasts aren't.
+    #[cfg(feature = "screenshot")]
+    #[gpui::test]
+    fn error_toasts_are_logged_once(cx: &mut gpui::TestAppContext) {
+        use gpui::AppContext as _;
+        captured("");
+        let toasts = cx.new(|_| Toasts::new());
+        toasts.update(cx, |toasts, cx| {
+            toasts.push(Toast::error("toast-log-test: couldn't save"), cx);
+            toasts.push(Toast::success("toast-log-test: saved"), cx);
+        });
+        struct Page(super::super::settings::Toast);
+        let page = cx.new(|_| Page(Default::default()));
+        page.update(cx, |page, cx| {
+            page.0.show(
+                "toast-log-test: page failed",
+                true,
+                |p: &mut Page| &mut p.0,
+                cx,
+            );
+            page.0.show(
+                "toast-log-test: page saved",
+                false,
+                |p: &mut Page| &mut p.0,
+                cx,
+            );
+        });
+        let records = captured("toast-log-test");
+        assert_eq!(
+            records,
+            vec![
+                (
+                    log::Level::Warn,
+                    "lodestone_ui::toast".to_string(),
+                    "shown as an error: toast-log-test: couldn't save".to_string()
+                ),
+                (
+                    log::Level::Warn,
+                    "lodestone_ui::toast".to_string(),
+                    "shown as an error: toast-log-test: page failed".to_string()
+                ),
+            ]
+        );
     }
 }

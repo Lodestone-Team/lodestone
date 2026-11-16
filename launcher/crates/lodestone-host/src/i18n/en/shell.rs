@@ -7,7 +7,7 @@ crate::i18n::messages! {
         RestartingCore = "Lodestone Core stopped. Starting it again…",
         CoreFailed = "Lodestone Core couldn’t start",
         CoreLog = "The end of its log:",
-        OpenLogFolder = "Open the log folder",
+        OpenLogFolder = "Open logs folder",
         /// While quitting: the servers stop first.
         StoppingCore = "Stopping your servers…",
         SigningIn = "Signing in…",
@@ -82,6 +82,10 @@ crate::i18n::messages! {
         CoreStopped = "Lodestone Core stopped",
         /// The core failed screen's title when the core never answered.
         CoreNoAnswer = "Lodestone Core didn’t answer in time",
+        /// A notice at start, after the Host crashed.
+        ClosedUnexpectedly = "Lodestone Host closed unexpectedly last time.",
+        /// Shows the logs folder.
+        OpenLogs = "Open logs",
     }
 
     pub enum ShellPlural {

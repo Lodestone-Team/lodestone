@@ -68,6 +68,8 @@ pub fn text(message: M) -> &'static str {
         M::CoreComputer => "電腦",
         M::CoreStopped => "Lodestone Core 已停止",
         M::CoreNoAnswer => "Lodestone Core 未及時回應",
+        M::ClosedUnexpectedly => "Lodestone Host 上次意外關閉。",
+        M::OpenLogs => "打開日誌",
     }
 }
 

@@ -322,6 +322,10 @@ impl ServerDetail {
                         EulaState::NotAccepted
                     }
                     Err(err) => {
+                        log::warn!(
+                            "accepting the EULA for server {} failed: {err}",
+                            this.server.uuid
+                        );
                         EulaState::Failed(tr!(M::EulaAcceptFailed, error = core_error(&err)).into())
                     }
                 };

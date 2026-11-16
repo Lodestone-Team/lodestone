@@ -423,6 +423,18 @@ pub fn text(message: M) -> &'static str {
         M::ThisCore => "Ce core",
         M::NewBuild => "Nouveau build",
         M::ConnectServiceVariable => "Variable",
+        M::LogsSection => "Journaux",
+        M::LogFiles => "Fichiers journaux",
+        M::LogsHint => {
+            "Ce que le Host et son core ont fait, gardé sur cet ordinateur pour aider à comprendre un problème. {path}"
+        }
+        M::LogDetail => "Détail des journaux",
+        M::LogDetailHint => {
+            "Débogage en écrit plus, pour comprendre un problème. Le changement est immédiat."
+        }
+        M::LogInfo => "Info",
+        M::LogDebug => "Débogage",
+        M::LogLevelFromEnv => "LODESTONE_LOG fixe le détail tant que le Host est lancé avec.",
     }
 }
 

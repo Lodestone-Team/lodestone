@@ -1025,13 +1025,24 @@ pub(crate) fn remove_leftovers(root: &Path) {
             }
         } else if let Some(suffix) = name.strip_prefix(STAGING_PREFIX) {
             let leftovers = root.join(format!("{LEFTOVERS_PREFIX}{suffix}"));
-            let _ = keep_strays_mapped(&path, &leftovers, &|rel| {
+            // a file that couldn't be moved is logged by `keep_strays_mapped`
+            let kept = keep_strays_mapped(&path, &leftovers, &|rel| {
                 let (first, rest) = rel.split_once('/')?;
                 first
                     .strip_prefix(".rollback-")
                     .is_some_and(|n| n.bytes().all(|b| b.is_ascii_digit()))
                     .then(|| rest.to_string())
             });
+            if let Some(kept) = kept {
+                super::warn(
+                    "images.restore",
+                    "",
+                    &format!(
+                        "files a rollback set aside in a restore without a journal are kept in {}",
+                        kept.display()
+                    ),
+                );
+            }
             discard(root, &path);
         }
     }

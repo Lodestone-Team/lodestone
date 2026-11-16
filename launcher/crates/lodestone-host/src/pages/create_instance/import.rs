@@ -218,7 +218,10 @@ impl ImportFlow {
                 this.reading = false;
                 match result {
                     Ok(info) => this.open_settings(info, cx),
-                    Err(err) => this.read_error = Some(tr!(M::ImportReadFailed, error = err)),
+                    Err(err) => {
+                        log::warn!("reading a server folder to import failed: {err}");
+                        this.read_error = Some(tr!(M::ImportReadFailed, error = err));
+                    }
                 }
                 cx.notify();
             })

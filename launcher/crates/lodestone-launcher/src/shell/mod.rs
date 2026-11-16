@@ -371,6 +371,9 @@ pub struct LauncherShell {
     undo_toast: Toast,
     /// The notification that offers "Keep the narrator off", while it's shown.
     narrator_offer: Option<narrator_offer::NarratorOffer>,
+    /// The top bar's "closed unexpectedly last time", until it's dismissed: the last
+    /// run crashed ([`launcher_core::logging::Started::previous_crash`]).
+    pub crash_notice: Option<launcher_core::logging::Crash>,
     /// Shows it shortly after the window opens.
     narrator_offer_pending: Option<Task<()>>,
     _observe: Vec<Subscription>,
@@ -421,6 +424,7 @@ impl LauncherShell {
                 InstancesEvent::LaunchFailed { title, message, .. }
                 | InstancesEvent::PlayFailed { title, message, .. }
                 | InstancesEvent::Notice { title, message, .. } => {
+                    crate::instances::log_shown(event);
                     let focus = cx.focus_handle();
                     this.open_modal(
                         Modal::LaunchFailed {
@@ -690,6 +694,7 @@ impl LauncherShell {
             undo_toast: Toast::default(),
             narrator_offer: None,
             narrator_offer_pending: None,
+            crash_notice: launcher_core::logging::started().and_then(|s| s.previous_crash),
             _observe: observe,
             // Redrawing the whole window takes the main thread about 10 ms, so it only
             // happens when a label changes ("2 hours ago" changes once an hour), not
@@ -3352,6 +3357,17 @@ impl Render for LauncherShell {
     }
 }
 
+/// What "When a game starts" does when a game's window opens. Never quit while the
+/// launcher is `busy` (another instance installing or starting, a modpack import, a
+/// "Find it for me" search whose tries are the games opening): quitting would stop
+/// that half way. The window is minimized instead, and comes back when the game exits.
+fn after_game_opens(after: AfterLaunch, busy: bool) -> AfterLaunch {
+    match after {
+        AfterLaunch::Quit if busy => AfterLaunch::Minimize,
+        after => after,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3387,17 +3403,6 @@ mod tests {
             assert_eq!(after_game_opens(after, true), after);
             assert_eq!(after_game_opens(after, false), after);
         }
-    }
-}
-
-/// What "When a game starts" does when a game's window opens. Never quit while the
-/// launcher is `busy` (another instance installing or starting, a modpack import, a
-/// "Find it for me" search whose tries are the games opening): quitting would stop
-/// that half way. The window is minimized instead, and comes back when the game exits.
-fn after_game_opens(after: AfterLaunch, busy: bool) -> AfterLaunch {
-    match after {
-        AfterLaunch::Quit if busy => AfterLaunch::Minimize,
-        after => after,
     }
 }
 

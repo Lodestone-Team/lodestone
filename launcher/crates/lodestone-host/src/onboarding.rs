@@ -100,10 +100,12 @@ fn input(label: ShellMsg, masked: bool, text_: &str, cx: &mut App) -> Entity<Tex
     })
 }
 
-/// While the core starts, restarts or stops, and when it couldn't start.
+/// While the core starts, restarts or stops, and when it couldn't start. `crashed`:
+/// the last run crashed and no shell has said so yet (a start that never gets to the
+/// shell would lose the notice), so the failure screen says it.
 pub fn core_status(
     status: &CoreStatus,
-    log_folder: std::path::PathBuf,
+    crashed: bool,
     retry: impl Fn(&mut Window, &mut App) + 'static,
 ) -> AnyElement {
     let waiting = |message: SharedString| {
@@ -142,6 +144,7 @@ pub fn core_status(
                     )
                 })
                 .into_any_element(),
+            crash_line(crashed),
             div()
                 .when(!log.is_empty(), |this| {
                     this.child(paragraph(t(ShellMsg::CoreLog)))
@@ -168,12 +171,9 @@ pub fn core_status(
                         .on_click(move |_, window, cx| retry(window, cx)),
                 )
                 .child(
-                    Button::new("open-log", t(ShellMsg::OpenLogFolder)).on_click(
-                        move |_, _, cx| {
-                            let _ = std::fs::create_dir_all(&log_folder);
-                            cx.open_with_system(&log_folder);
-                        },
-                    ),
+                    // the Host's log and the core's are in one folder
+                    Button::new("open-log", t(ShellMsg::OpenLogFolder))
+                        .on_click(|_, _, cx| crate::logs::open_folder(cx)),
                 )
                 .into_any_element(),
         ])
@@ -181,17 +181,43 @@ pub fn core_status(
     }
 }
 
-/// A sign-in or setup error, with a button to try again.
-pub fn sign_in_failed(error: &str, retry: impl Fn(&mut Window, &mut App) + 'static) -> AnyElement {
+/// A sign-in or setup error, with a button to try again. `crashed`: as for
+/// [`core_status`], with a button that opens the logs.
+pub fn sign_in_failed(
+    error: &str,
+    crashed: bool,
+    retry: impl Fn(&mut Window, &mut App) + 'static,
+) -> AnyElement {
     card([
         title(t(ShellMsg::SignInTitle)),
         paragraph(error.to_string()),
-        Button::new("retry-sign-in", t(CommonMsg::TryAgain))
-            .variant(ButtonVariant::Primary)
-            .on_click(move |_, window, cx| retry(window, cx))
+        crash_line(crashed),
+        div()
+            .flex()
+            .gap(px(8.))
+            .child(
+                Button::new("retry-sign-in", t(CommonMsg::TryAgain))
+                    .variant(ButtonVariant::Primary)
+                    .on_click(move |_, window, cx| retry(window, cx)),
+            )
+            .when(crashed, |this| {
+                this.child(
+                    Button::new("open-log", t(ShellMsg::OpenLogFolder))
+                        .on_click(|_, _, cx| crate::logs::open_folder(cx)),
+                )
+            })
             .into_any_element(),
     ])
     .into_any_element()
+}
+
+/// "Lodestone Host closed unexpectedly last time." when it did, or nothing.
+fn crash_line(crashed: bool) -> AnyElement {
+    div()
+        .when(crashed, |this| {
+            this.child(paragraph(t(ShellMsg::ClosedUnexpectedly)))
+        })
+        .into_any_element()
 }
 
 /// A username and password (`UserLogin.tsx`), for a core that refuses the claim.

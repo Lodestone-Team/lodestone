@@ -244,7 +244,10 @@ impl SkinDialog {
                     let token = token.await?;
                     let current = wardrobe::wardrobe(&*http, &endpoints, &token)
                         .await
-                        .map_err(|error| wardrobe_error(&error))?;
+                        .map_err(|error| {
+                            log::warn!("reading the account's skins failed: {error}");
+                            wardrobe_error(&error)
+                        })?;
                     // without the image the dialog still works: only the preview is missing
                     let png = match &current.skin_url {
                         Some(url) => skin::skin_png(&*http, &endpoints.textures, url)
@@ -514,7 +517,10 @@ impl SkinDialog {
                         );
                     }
                     match after {
-                        Some(result) => result.map(Some).map_err(|error| wardrobe_error(&error)),
+                        Some(result) => result.map(Some).map_err(|error| {
+                            log::warn!("changing the skin or cape failed: {error}");
+                            wardrobe_error(&error)
+                        }),
                         None => Ok(None),
                     }
                 })

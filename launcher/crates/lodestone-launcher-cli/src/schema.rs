@@ -291,6 +291,9 @@ pub const COMMANDS: &[(&str, &str, bool, bool)] = &[
     ("trace topics", "trace.topics", false, false),
     ("trace watch", "trace.subscribe", false, false),
     ("trace snapshot", "trace.snapshot", false, false),
+    // read here, without the launcher (`logs.path` is the launcher's own answer)
+    ("logs path", "", false, false),
+    ("logs tail", "logs.tail", false, false),
     ("perf show", "perf.show", false, false),
     ("perf watch", "perf.watch", false, false),
 ];

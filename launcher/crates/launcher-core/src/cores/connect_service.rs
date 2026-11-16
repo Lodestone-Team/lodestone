@@ -75,7 +75,7 @@ pub fn resolve(env: Option<&str>, setting: Option<&str>) -> Active {
         match Service::from_setting(text) {
             Ok(service) => Some(service),
             Err(err) => {
-                eprintln!("{what} ({text}) isn't a Lodestone Connect service: {err}; skipped");
+                log::warn!("{what} ({text}) isn't a Lodestone Connect service: {err}; skipped");
                 None
             }
         }
@@ -135,7 +135,7 @@ pub fn set_setting_text(text: Option<&str>) {
     let service = text.and_then(|text| match parse(text) {
         Ok(service) => service,
         Err(err) => {
-            eprintln!("The saved Connect service ({text}) isn't valid: {err}; using the default");
+            log::warn!("The saved Connect service ({text}) isn't valid: {err}; using the default");
             None
         }
     });

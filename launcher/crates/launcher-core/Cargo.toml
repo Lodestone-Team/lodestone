@@ -23,6 +23,8 @@ lodestone_connect.workspace = true
 lodestone_image.workspace = true
 lodestone_minecraft.workspace = true
 lodestone_trace.workspace = true
+# The log file (`logging`): a logger on the `log` facade the launcher already uses.
+log.workspace = true
 md-5.workspace = true
 pulldown-cmark.workspace = true
 rand.workspace = true

@@ -794,6 +794,17 @@ pub fn text(message: M) -> &'static str {
         }
         M::StorageWorldBackups => "世界備份",
         M::StorageCleanWorldBackupsTitle => "刪除已刪除實例的世界備份？",
+        M::LogsSetting => "日誌",
+        M::LogsHint => "啟動器做過的事，保存在這台電腦上，方便排查問題。{path}",
+        M::OpenLogsFolder => "打開日誌資料夾",
+        M::LogDetail => "日誌詳細程度",
+        M::LogDetailHint => "「偵錯」會寫入更多內容，方便排查問題。立即生效。",
+        M::LogInfo => "資訊",
+        M::LogDebug => "偵錯",
+        M::LogLevelFromEnv => "啟動器帶著 LODESTONE_LOG 執行時，由它決定詳細程度。",
+        M::CrashNotice => "啟動器上次意外關閉。",
+        M::OpenLogs => "打開日誌",
+        M::DismissCrashNotice => "關閉",
     }
 }
 

@@ -335,6 +335,21 @@ crate::i18n::messages! {
         NewBuild = "New build",
         /// A key: the environment variable that sets the relay.
         ConnectServiceVariable = "Variable",
+        /// Settings › Updates: the log files.
+        LogsSection = "Logs",
+        /// Settings › Updates › Logs: the row with the logs folder.
+        LogFiles = "Log files",
+        /// {path} is the logs folder.
+        LogsHint = "What the Host and its core did, kept on this computer to help look into a problem. {path}",
+        /// How much goes into the Host's log.
+        LogDetail = "Log detail",
+        LogDetailHint = "Debug writes more, for looking into a problem. It applies at once.",
+        /// The usual log detail.
+        LogInfo = "Info",
+        /// More log detail.
+        LogDebug = "Debug",
+        /// Shown instead of the hint while the LODESTONE_LOG environment variable sets the detail.
+        LogLevelFromEnv = "LODESTONE_LOG sets the detail while the Host runs with it.",
     }
 
     pub enum CorePlural {
