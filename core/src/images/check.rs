@@ -6,7 +6,7 @@
 //! record left, reading no file, under the excludes the baseline was taken under; when they
 //! differ it records "Changed outside Lodestone". When they don't but the backup policy's
 //! excludes changed since (which changes what an image holds, and its id), it records
-//! "Changed the backup excludes".
+//! "Changed the snapshot excludes".
 //! The check waits at most [`GATE_WAIT`] for an operation or record in progress and never
 //! fails the start: the caller logs what it returns.
 //!
@@ -152,7 +152,7 @@ impl ImageService {
     /// the server wrote while it ran (which otherwise only joins the next operation's image):
     /// a restore must be able to give those files back. The image is labelled by what is
     /// queued; else "Changed outside Lodestone" when the quick check finds content changed
-    /// since the last record or stop; else "Changed the backup excludes" when only the
+    /// since the last record or stop; else "Changed the snapshot excludes" when only the
     /// policy's excludes did (those that can reach content); else `label`, which names the
     /// change about to be made (the difference is then what the server wrote while it ran,
     /// or a file that couldn't be read at the last record); a server without an image gets

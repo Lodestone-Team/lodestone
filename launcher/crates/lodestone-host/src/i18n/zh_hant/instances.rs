@@ -93,7 +93,7 @@ pub fn text(message: M) -> &'static str {
         M::StepImageSummary => "檔案內容",
         M::ImageFileTitle => "選擇 .lodeimg 檔案",
         M::ImageFileSubtitle => {
-            "從 Lodestone Host 匯出的備份，或從 Lodestone Launcher 匯出的快照。在你建立伺服器之前，不會建立任何內容。"
+            "從 Lodestone Host 或 Lodestone Launcher 匯出的快照。在你建立伺服器之前，不會建立任何內容。"
         }
         M::ImageBrowse => "選擇檔案…",
         M::ImageUploading => "正在讀取檔案…",

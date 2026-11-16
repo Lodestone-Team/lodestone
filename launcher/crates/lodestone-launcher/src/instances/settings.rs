@@ -28,6 +28,7 @@ use launcher_core::{
         install::DefaultJava,
         runtime::{self, JavaInfo},
     },
+    images::display_text,
     instances::{BackgroundMode, Instance, Loader, Memory, SlideshowSource, format_env},
     modpack::ModpackRecord,
 };
@@ -52,9 +53,10 @@ use crate::{
         IconButton, LoadingDots, StatusBadge, TextInput, Toggle, VersionTag, VersionTone,
         segmented,
         settings::{
-            FindSetting, SearchRow, SectionNav, SettingRow, SettingsQuery, SettingsSearch,
-            SettingsSearchChanged, Toast, content_width, left_overlay, link, muted_link, nav_width,
-            popover_panel, section_list, section_menu_button, tag, unsaved_bar, value,
+            FindSetting, SearchRow, SearchSection, SectionNav, SettingRow, SettingsQuery,
+            SettingsSearch, SettingsSearchChanged, Toast, content_width, left_overlay, link,
+            muted_link, nav_width, popover_panel, section_list, section_menu_button, tag,
+            unsaved_bar, value,
         },
     },
     file_dialog,
@@ -247,6 +249,7 @@ impl EventEmitter<DeleteRequested> for InstanceSettings {}
 impl EventEmitter<HostRequested> for InstanceSettings {}
 impl EventEmitter<FindModRequested> for InstanceSettings {}
 impl EventEmitter<super::snapshots::SnapshotRequested> for InstanceSettings {}
+impl EventEmitter<super::world_backups::WorldBackupRequested> for InstanceSettings {}
 impl EventEmitter<ShareRequested> for InstanceSettings {}
 impl EventEmitter<AddModpackRequested> for InstanceSettings {}
 impl EventEmitter<CopyAsRequested> for InstanceSettings {}
@@ -2713,7 +2716,7 @@ impl Render for InstanceSettings {
             ));
         }
 
-        // Snapshots.
+        // Snapshots: the world backups, then the snapshots of the whole instance.
         push_section(
             &mut sections,
             t(M::InstanceSnapshots).into(),
@@ -3014,6 +3017,156 @@ fn note(text_: &'static str) -> AnyElement {
 }
 
 impl InstanceSettings {
+    /// The Snapshots section's first group: its heading, a card with the button that
+    /// backs up a world, then each world's backups under the world's name (worlds in the
+    /// order of their newest backup).
+    fn world_backup_group(
+        &mut self,
+        section: SearchSection,
+        cx: &mut Context<Self>,
+    ) -> SearchSection {
+        use super::world_backups::{WorldBackupRequest, WorldBackupRequested};
+        use launcher_core::world_backups::RestoreTo;
+        let id = self.instance_id.clone();
+        let (list, gone, backups) = self.instances.update(cx, |instances, cx| {
+            let list = instances.world_backup_list(&id, cx).map(<[_]>::to_vec);
+            let gone = instances
+                .world_backup_gone(&id)
+                .cloned()
+                .unwrap_or_default();
+            (list, gone, instances.world_backups())
+        });
+        let back_up = Button::new("back-up-world", t(M::BackUpWorldEllipsis))
+            .variant(ButtonVariant::Secondary)
+            .size(ButtonSize::Slim)
+            .on_click(cx.listener(|this, _, _, cx| {
+                cx.emit(WorldBackupRequested(WorldBackupRequest::BackUp {
+                    instance: this.instance_id.clone(),
+                    world: None,
+                }))
+            }));
+        let mut first = vec![SettingRow::new(t(M::BackUpWorldTitle)).child(back_up)];
+        let list = list.unwrap_or_default();
+        if list.is_empty() {
+            first.push(SettingRow::new(t(M::NoWorldBackups)));
+        }
+        let mut section = section
+            .child(group_heading(
+                t(M::WorldBackups),
+                Some(t(M::WorldBackupsHint)),
+            ))
+            .card(first);
+        // Grouped by world folder, each group where its newest backup is.
+        let mut folders: Vec<&str> = Vec::new();
+        for backup in &list {
+            if !folders.contains(&backup.folder.as_str()) {
+                folders.push(&backup.folder);
+            }
+        }
+        let mut index: usize = 0;
+        for folder in folders {
+            let group: Vec<_> = list.iter().filter(|b| b.folder == folder).collect();
+            let world = display_text(group[0].world_name()).into_owned();
+            let mut about = Vec::new();
+            if world != folder {
+                about.push(folder.to_string());
+            }
+            if gone.contains(folder) {
+                about.push(t(M::WorldNotHere).to_string());
+            }
+            let mut rows = Vec::new();
+            for backup in group {
+                index += 1;
+                let request = |make: fn(
+                    String,
+                    launcher_core::world_backups::WorldBackup,
+                ) -> WorldBackupRequest| {
+                    let (instance, backup) = (id.clone(), backup.clone());
+                    cx.listener(move |_, _, _, cx| {
+                        cx.emit(WorldBackupRequested(make(instance.clone(), backup.clone())))
+                    })
+                };
+                let mut details = vec![
+                    super::snapshots::when(backup.created),
+                    format::bytes(backup.bytes),
+                ];
+                if backup.left_out_count > 0 {
+                    details.push(trn!(P::WorldBackupLeftOut, backup.left_out_count as usize));
+                }
+                let zip = backups.zip_path(&id, backup);
+                rows.push(
+                    SettingRow::new(super::world_backups::shown_name(backup))
+                        .key(("world-backup-row", index))
+                        // Found by its world's name too.
+                        .keywords(world.clone())
+                        .hint(details.join(" · "))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .gap_1()
+                                .child(
+                                    Button::new(
+                                        ("world-backup-restore", index),
+                                        t(M::RestoreEllipsis),
+                                    )
+                                    .variant(ButtonVariant::Secondary)
+                                    .size(ButtonSize::Slim)
+                                    .on_click(request(
+                                        |instance, backup| WorldBackupRequest::Restore {
+                                            instance,
+                                            backup,
+                                            to: RestoreTo::InPlace,
+                                        },
+                                    )),
+                                )
+                                .child(
+                                    Button::new(
+                                        ("world-backup-restore-new", index),
+                                        t(M::RestoreAsNewWorld),
+                                    )
+                                    .variant(ButtonVariant::Ghost)
+                                    .size(ButtonSize::Slim)
+                                    .on_click(request(
+                                        |instance, backup| WorldBackupRequest::Restore {
+                                            instance,
+                                            backup,
+                                            to: RestoreTo::NewWorld,
+                                        },
+                                    )),
+                                )
+                                .child(
+                                    Button::new(
+                                        ("world-backup-reveal", index),
+                                        t(CommonMsg::ShowInFileManager),
+                                    )
+                                    .variant(ButtonVariant::Ghost)
+                                    .size(ButtonSize::Slim)
+                                    .on_click(move |_, _, cx| cx.reveal_path(&zip)),
+                                )
+                                .child(
+                                    Button::new(
+                                        ("world-backup-delete", index),
+                                        t(CommonMsg::Delete),
+                                    )
+                                    .variant(ButtonVariant::Ghost)
+                                    .size(ButtonSize::Slim)
+                                    .on_click(request(
+                                        |instance, backup| WorldBackupRequest::Delete {
+                                            instance,
+                                            backup,
+                                        },
+                                    )),
+                                ),
+                        ),
+                );
+            }
+            index += 1;
+            section = section.labelled_card(world_label(index, world, about.join(" · ")), rows);
+        }
+        section
+    }
+
     /// The instance's snapshots, newest first, with a button to take one.
     fn render_snapshots(
         &mut self,
@@ -3214,11 +3367,67 @@ impl InstanceSettings {
             days = policy.keep_daily,
             weeks = policy.keep_weekly
         );
-        query
-            .section(t(M::InstanceSnapshots), Some(keep.into()))
+        let section = query.section(t(M::InstanceSnapshots), None);
+        self.world_backup_group(section, cx)
+            .child(group_heading(t(M::SnapshotsGroup), Some(keep.as_str())))
             .card(items)
             .finish()
     }
+}
+
+/// A heading inside a section, over a group of its cards, with a grey line under it.
+fn group_heading(title: &'static str, lead: Option<&str>) -> AnyElement {
+    div()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .pt_2()
+        .child(
+            div()
+                .text_size(theme::text_size(text::MEDIUM))
+                .font_weight(weights::BOLD.into())
+                .text_color(crate::theme::ink::text())
+                .child(title),
+        )
+        .when_some(lead, |this, lead| {
+            this.child(
+                div()
+                    .whitespace_normal()
+                    .text_size(theme::text_size(text::SMALL))
+                    .text_color(crate::theme::ink::muted())
+                    .child(lead.to_string()),
+            )
+        })
+        .into_any_element()
+}
+
+/// The name of the world whose backups the card below it lists, with its folder and
+/// whether it is gone: small, bold and grey, so it reads as a label of the card rather
+/// than one of its rows.
+fn world_label(index: usize, world: String, about: String) -> AnyElement {
+    div()
+        .id(("world-backup-world", index))
+        .flex()
+        .flex_row()
+        .items_baseline()
+        .gap_2()
+        .px_1()
+        .text_size(theme::text_size(text::SMALL))
+        .child(
+            div()
+                .font_weight(weights::BOLD.into())
+                .text_color(crate::theme::ink::secondary())
+                .child(world),
+        )
+        .when(!about.is_empty(), |this| {
+            this.child(
+                div()
+                    .truncate()
+                    .text_color(crate::theme::ink::muted())
+                    .child(about),
+            )
+        })
+        .into_any_element()
 }
 
 #[cfg(test)]

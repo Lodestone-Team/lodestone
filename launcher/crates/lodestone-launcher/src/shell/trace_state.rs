@@ -23,6 +23,7 @@ impl Modal {
             Modal::NewInstance { .. } => "new_instance",
             Modal::Import { .. } => "import",
             Modal::Snapshot { .. } => "snapshot",
+            Modal::WorldBackup { .. } => "world_backup",
             Modal::Share { .. } => "share",
             Modal::AddModpack { .. } => "add_modpack",
             Modal::Crash { .. } => "crash",

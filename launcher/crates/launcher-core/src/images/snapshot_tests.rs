@@ -108,32 +108,12 @@ fn a_snapshot_is_a_data_image_linked_to_the_current_content() {
 }
 
 #[test]
-fn everything_is_a_full_image_and_so_is_one_without_content() {
-    let s = Setup::new();
-    s.write("mods/a.jar", b"a mod");
-    s.world("World", b"r");
-    s.images.record_now(s.id(), "Created Pack").unwrap();
-    let full = s
-        .images
-        .take_snapshot(
-            s.id(),
-            Take {
-                full: true,
-                ..Take::new(SnapshotKind::Manual, "All of it")
-            },
-        )
-        .unwrap()
-        .unwrap();
-    assert!(full.full);
-    assert_eq!(full.content, None);
-    let image = s.image(&full.image);
-    assert_eq!(image.kind, Kind::Full);
-    assert_eq!(image.base, Some(lodestone_image::Base::Loader {}));
-    assert!(s.paths(&full.image).contains(&"mods/a.jar".to_string()));
-
+fn a_snapshot_without_content_to_link_is_a_full_image() {
+    // There is no option to ask for a full image: every snapshot covers the whole folder.
     // A "Find it for me" search has the mods renamed on purpose, so the current image
     // isn't what is on disk: the snapshot holds everything instead of linking it.
     let finder = Setup::new();
+    finder.world("World", b"r");
     finder.write("mods/a.jar", b"a mod");
     finder.images.record_now(finder.id(), "Created").unwrap();
     std::fs::write(
@@ -147,7 +127,13 @@ fn everything_is_a_full_image_and_so_is_one_without_content() {
     assert!(finder.images.finder_running(finder.id()));
     let record = finder.snapshot("During a search");
     assert!(record.full);
-    assert_eq!(finder.image(&record.image).kind, Kind::Full);
+    assert_eq!(record.content, None);
+    let image = finder.image(&record.image);
+    assert_eq!(image.kind, Kind::Full);
+    assert_eq!(image.base, Some(lodestone_image::Base::Loader {}));
+    let paths = finder.paths(&record.image);
+    assert!(paths.contains(&"mods/a.jar".to_string()));
+    assert!(paths.iter().any(|p| p.starts_with("saves/World/")));
 }
 
 #[test]

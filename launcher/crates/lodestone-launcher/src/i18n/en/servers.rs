@@ -212,7 +212,7 @@ crate::i18n::messages! {
         /// The server is in a card under it.
         DifferentMods = "Mods differ from the server",
         /// Over the files the update writes, grouped by what it does to them.
-        DifferentModsBody = "The server's mods changed since this instance got them. Update first so you can join; your own mods stay as they are, and the files that are replaced are kept in the instance's backups.",
+        DifferentModsBody = "The server's mods changed since this instance got them. Update first so you can join; your own mods stay as they are, and the files that are replaced are kept inside the instance's folder, in backups/.",
         /// Over the mods and files the update adds.
         ChangeNew = "New",
         ChangeChanged = "Changed",

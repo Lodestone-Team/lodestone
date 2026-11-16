@@ -105,9 +105,12 @@ pub enum Command {
     /// a pack's files to an instance (next to a server's mods, say).
     #[command(subcommand)]
     Modpacks(Modpacks),
-    /// Worlds and their backups.
+    /// Worlds, the snapshots that hold them, and their data packs.
     #[command(subcommand)]
     Worlds(Worlds),
+    /// World backups: zips of one world each, made by hand and kept until deleted.
+    #[command(subcommand)]
+    WorldBackups(WorldBackups),
     /// Minecraft accounts. Never prints tokens.
     #[command(subcommand)]
     Accounts(Accounts),
@@ -895,28 +898,24 @@ pub enum Worlds {
     List(InstanceArg),
     /// The snapshots that hold a world, newest first.
     #[command(
-        after_help = "Examples:\n  lodestone-launcher-cli worlds backups Survival \"New World\""
+        after_help = "Examples:\n  lodestone-launcher-cli worlds snapshots Survival \"New World\""
     )]
-    Backups(WorldArgs),
-    /// Backs up a world: a snapshot named after it.
+    Snapshots(WorldArgs),
+    /// Puts a world back from a snapshot that holds it: as a new world beside it (--mode
+    /// new, the default), or in its place (--mode replace, --yes; a safety snapshot is
+    /// taken first).
     #[command(
-        after_help = "Examples:\n  lodestone-launcher-cli worlds backup Survival \"New World\""
+        name = "restore-snapshot",
+        after_help = "Examples:\n  lodestone-launcher-cli worlds restore-snapshot Survival \"New World\"\n  lodestone-launcher-cli worlds restore-snapshot Survival \"New World\" --snapshot \"Before 1.21\" --mode replace --yes"
     )]
-    Backup(WorldArgs),
-    /// Puts a world back from a snapshot that holds it: as a copy beside the world, or in
-    /// its place (--replace, --yes; a safety snapshot is taken first).
-    #[command(
-        after_help = "Examples:\n  lodestone-launcher-cli worlds restore Survival \"New World\"\n  lodestone-launcher-cli worlds restore Survival \"New World\" --snapshot \"Before 1.21\" --replace --yes"
-    )]
-    Restore {
+    RestoreSnapshot {
         #[command(flatten)]
         world: WorldArgs,
         /// The snapshot's id or name (default: the newest that holds the world).
         #[arg(long, default_value = "latest")]
         snapshot: String,
-        /// Put it in the world's place (after a safety snapshot of it).
-        #[arg(long)]
-        replace: bool,
+        #[arg(long, default_value = "new", value_parser = ["new", "replace"])]
+        mode: String,
     },
     /// Moves a world to the Trash. Needs --yes.
     #[command(
@@ -1478,17 +1477,15 @@ pub enum Snapshots {
         #[arg(long)]
         deleted: bool,
     },
-    /// Takes a snapshot: the instance's worlds and other files, linked to the mods they
-    /// run with. --everything takes the mods and configs too.
+    /// Takes a snapshot of the whole instance folder: its worlds and other files, linked
+    /// to the mods and configs they run with.
     #[command(
-        after_help = "Examples:\n  lodestone-launcher-cli snapshots create Survival --name \"Before 1.21\"\n  lodestone-launcher-cli snapshots create Survival --everything"
+        after_help = "Examples:\n  lodestone-launcher-cli snapshots create Survival --name \"Before 1.21\""
     )]
     Create {
         instance: String,
         #[arg(long)]
         name: Option<String>,
-        #[arg(long)]
-        everything: bool,
     },
     /// Restores a snapshot: its worlds (--world, repeatable; default all), the worlds and
     /// their mods, everything, or as a new instance (--name). A safety snapshot is taken
@@ -1587,14 +1584,71 @@ pub enum Storage {
     /// Removes unused game files (versions, libraries, assets) or unused Java runtimes,
     /// clears the cache, removes leftovers of unfinished downloads and imports, or
     /// deletes logs and crash reports, or removes the snapshots the Launcher took on its
-    /// own and those of deleted instances. Game files and runtimes
-    /// download again when needed; logs are gone for good. Needs --yes.
+    /// own and those of deleted instances, or the world backups of deleted instances.
+    /// Game files and runtimes download again when needed; logs are gone for good. Needs
+    /// --yes.
     #[command(
         after_help = "Examples:\n  lodestone-launcher-cli storage clean game-files --yes\n  lodestone-launcher-cli storage clean old-logs --yes"
     )]
     Clean {
-        #[arg(value_parser = ["game-files", "runtimes", "cache", "leftovers", "old-logs", "logs", "snapshots"])]
+        #[arg(value_parser = ["game-files", "runtimes", "cache", "leftovers", "old-logs", "logs", "snapshots", "deleted-world-backups"])]
         what: String,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum WorldBackups {
+    /// An instance's world backups, newest first (--world: one world's), or every deleted
+    /// instance's (--deleted).
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli world-backups list Survival\n  lodestone-launcher-cli world-backups list Survival --world \"New World\"\n  lodestone-launcher-cli world-backups list --deleted"
+    )]
+    List {
+        #[arg(required_unless_present = "deleted")]
+        instance: Option<String>,
+        /// The world's folder or name.
+        #[arg(long)]
+        world: Option<String>,
+        #[arg(long)]
+        deleted: bool,
+    },
+    /// Backs up a world: a zip of it, which opens anywhere.
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli world-backups create Survival \"New World\" --name \"Before the raid\""
+    )]
+    Create {
+        #[command(flatten)]
+        world: WorldArgs,
+        #[arg(long)]
+        name: Option<String>,
+    },
+    /// Puts a world backup back: as a new world beside it (--mode new, the default), or in
+    /// the world's place after a safety world backup of it (--mode replace, --yes). A world
+    /// no longer in the instance is found by its backups' folder or name.
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli world-backups restore Survival latest --world \"New World\" --mode replace --yes\n  lodestone-launcher-cli world-backups restore Survival \"Before the raid\""
+    )]
+    Restore {
+        instance: String,
+        /// The backup's id or name, or latest (with --world).
+        backup: String,
+        /// Only that world's backups: its folder or name.
+        #[arg(long)]
+        world: Option<String>,
+        #[arg(long, default_value = "new", value_parser = ["new", "replace"])]
+        mode: String,
+    },
+    /// Moves a world backup's zip to the Trash. Needs --yes.
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli world-backups delete Survival \"Before the raid\" --yes\n  lodestone-launcher-cli world-backups delete Survival latest --world \"New World\" --yes"
+    )]
+    Delete {
+        instance: String,
+        /// The backup's id or name, or latest (with --world).
+        backup: String,
+        /// Only that world's backups: its folder or name.
+        #[arg(long)]
+        world: Option<String>,
     },
 }
 

@@ -27,6 +27,7 @@ pub mod shared_settings;
 pub mod slideshow;
 pub mod snapshots;
 mod undo;
+pub mod world_backups;
 pub mod worlds;
 pub use files::FileOp;
 pub use undo::InstanceSnapshot;
@@ -61,6 +62,7 @@ use launcher_core::{
     instances::{Instance, InstanceStore},
     paths::DataDir,
     settings::{self as launcher_settings, InstanceDefaults, Settings},
+    world_backups::{WorldBackup, WorldBackups},
 };
 use lodestone_minecraft::versions::mojang::MojangVersion;
 
@@ -591,6 +593,16 @@ pub struct Instances {
     /// The instances' content images: every action that changes an instance's content
     /// begins an operation here ([`Images::begin`]) in its background task.
     images: Arc<Images>,
+    /// Zips of single worlds, beside the snapshots.
+    world_backups: Arc<WorldBackups>,
+    /// Each instance's world backups, newest first, once read (see world_backups.rs).
+    world_backup_rows: HashMap<String, Vec<WorldBackup>>,
+    /// Of each instance's world backups read, the world folders no longer in `saves/`.
+    world_backup_gone: HashMap<String, std::collections::HashSet<String>>,
+    world_backup_tasks: HashMap<String, Task<()>>,
+    /// How many times each instance's world backups changed (`WorldBackups::watch`), so
+    /// the Worlds tab reads them again.
+    world_backup_revisions: HashMap<String, u64>,
     /// Counts changes to the shared game settings made in the launcher's Settings, so
     /// an instance's Settings tab shows the new values.
     shared_revision: u64,
@@ -646,6 +658,7 @@ impl Instances {
         );
         let store = InstanceStore::new(data_dir.instances_dir());
         let images = Images::open(&data_dir);
+        let world_backups = WorldBackups::open(&data_dir, images.clone());
         // A restore a crash interrupted is finished or undone before anything can be
         // played: on this thread, since it only renames folders (back, or to the trash
         // that the task below empties).
@@ -662,8 +675,11 @@ impl Instances {
         // backup zips are the user's files and stay where they are).
         let forgetting = images.clone();
         let old_store = data_dir.clone();
+        let sweeping = world_backups.clone();
         cx.background_spawn(async move {
             forgetting.empty_restore_trash(None);
+            // What a crash left of a world backup being made or deleted.
+            sweeping.sweep();
             if let Err(err) = forgetting.forget_deleted() {
                 log::warn!("Couldn't forget the images of deleted instances: {err}");
             }
@@ -753,9 +769,15 @@ impl Instances {
             content_revisions: HashMap::new(),
             import_ticker: None,
             images,
+            world_backups,
+            world_backup_rows: HashMap::new(),
+            world_backup_gone: HashMap::new(),
+            world_backup_tasks: HashMap::new(),
+            world_backup_revisions: HashMap::new(),
         };
         this.reload(cx);
         this.follow_snapshot_changes(cx);
+        this.follow_world_backup_changes(cx);
         // Files left from an earlier run (snapshot exports, "Host this" uploads, "Download
         // this world" downloads) were made to be shared or read then: the dialog that
         // made them is gone. Renamed away at once (to a name no earlier run used), so one

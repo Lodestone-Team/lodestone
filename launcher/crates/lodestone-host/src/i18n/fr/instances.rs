@@ -117,7 +117,7 @@ pub fn text(message: M) -> &'static str {
         M::StepImageSummary => "Son contenu",
         M::ImageFileTitle => "Choisir un fichier .lodeimg",
         M::ImageFileSubtitle => {
-            "Une sauvegarde exportée depuis Lodestone Host, ou un instantané exporté depuis Lodestone Launcher. Rien n’est créé avant que vous ne créiez le serveur."
+            "Un instantané exporté depuis Lodestone Host ou Lodestone Launcher. Rien n’est créé avant que vous ne créiez le serveur."
         }
         M::ImageBrowse => "Choisir un fichier…",
         M::ImageUploading => "Lecture du fichier…",

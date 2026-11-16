@@ -122,6 +122,20 @@ impl Drop for Reserved {
 /// Free space on the disk holding `path` (or its nearest existing parent): the disk whose
 /// mount point is the longest prefix of the resolved path.
 pub fn free_space(path: &Path) -> Option<u64> {
+    disk_of(path).map(|(_, free)| free)
+}
+
+/// Whether `a` and `b` (or their nearest existing parents) are on one disk. True when that
+/// can't be found out, so a check that adds up what both need errs on the safe side.
+pub fn same_disk(a: &Path, b: &Path) -> bool {
+    match (disk_of(a), disk_of(b)) {
+        (Some((a, _)), Some((b, _))) => a == b,
+        _ => true,
+    }
+}
+
+/// The mount point and free space of the disk holding `path` (see [`free_space`]).
+fn disk_of(path: &Path) -> Option<(PathBuf, u64)> {
     let mut existing = path;
     let resolved = loop {
         match existing.canonicalize() {
@@ -136,7 +150,7 @@ pub fn free_space(path: &Path) -> Option<u64> {
         .iter()
         .filter(|disk| path_starts_with(&resolved, disk.mount_point()))
         .max_by_key(|disk| disk.mount_point().as_os_str().len())
-        .map(|disk| disk.available_space())
+        .map(|disk| (disk.mount_point().to_path_buf(), disk.available_space()))
 }
 
 /// `canonicalize` gives `\\?\C:\...` on Windows; mount points are `C:\`.

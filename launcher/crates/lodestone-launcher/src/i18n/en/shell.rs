@@ -109,12 +109,12 @@ crate::i18n::messages! {
         DeleteNamed = "Delete {name}?",
         /// The title of the dialog that deletes an instance; the instance is in a card under it.
         DeleteInstanceTitle = "Delete instance?",
-        DeleteWorldBody = "The world's folder moves to {trash}, so you can put it back from there. Its backups stay.",
-        DeleteInstanceBody = "The instance's folder, with its worlds, mods and settings, moves to {trash}. You can put it back from there. Its snapshots are kept until you remove them in Settings › Storage, and come back with it.",
-        ReplaceWorldTitle = "Replace {name} with this backup?",
-        /// {when} is when the backup was made: "today, 14:05".
-        ReplaceWorldBody = "{name} goes back to how it was {when}. A snapshot of the world as it is now is taken first and kept for 30 days.",
-        BackUpAndReplace = "Back up and replace",
+        DeleteWorldBody = "The world's folder moves to {trash}, so you can put it back from there. Its world backups stay.",
+        DeleteInstanceBody = "The instance's folder, with its worlds, mods and settings, moves to {trash}. You can put it back from there. Its snapshots and world backups are kept until you remove them in Settings › Storage, and come back with it.",
+        ReplaceWorldTitle = "Restore {name} from this snapshot?",
+        /// {when} is when the snapshot was taken: "today, 14:05".
+        ReplaceWorldBody = "{name} goes back to how it was {when}. A snapshot of the instance as it is now is taken first and kept for 30 days.",
+        BackUpAndReplace = "Snapshot and restore",
         RemoveAccountTitle = "Remove account?",
         RemoveAccountBody = "Lodestone Launcher forgets this account and deletes its saved sign-in from your {keychain}. You can add it again later.",
         RemoveAccount = "Remove account",
@@ -163,7 +163,7 @@ crate::i18n::messages! {
         ReplacedOwnFiles = "Your files the pack now provides",
         KeptFiles = "Kept as you changed them",
         WrittenFiles = "Configs and other files written",
-        ModpackUpdateSafety = "Your own mods, worlds and changed configs aren't touched. A snapshot of the instance is taken first, and every file that is replaced or removed is saved in the instance's backups folder.",
+        ModpackUpdateSafety = "Your own mods, worlds and changed configs aren't touched. A snapshot of the instance is taken first, and every file that is replaced or removed is kept inside the instance's folder, in backups/.",
 
         // Unsaved settings.
         SaveChangesTitle = "Save your changes?",
@@ -881,6 +881,8 @@ crate::i18n::messages! {
         ModpackUpdateNoSnapshot = "No snapshot could be taken first, so nothing has changed. You can update without one, or fix the problem and try again.\n{error}",
         UpdateWithoutSnapshot = "Update without a snapshot",
         ReplaceWorldModsNote = "Only the world goes back; the instance's mods stay as they are. To put back the mods it ran with too, restore the snapshot from Settings › Snapshots.",
+        StorageWorldBackups = "World backups",
+        StorageCleanWorldBackupsTitle = "Remove the world backups of deleted instances?",
     }
 
     pub enum ShellPlural {
@@ -894,5 +896,11 @@ crate::i18n::messages! {
         StorageSnapshotsHint = ("{count} snapshot and each instance's content history · {removable} can be removed", "{count} snapshots and each instance's content history · {removable} can be removed"),
         /// {count} is how many snapshots go.
         StorageCleanSnapshotsBody = ("This removes {count} snapshot: the ones the Launcher took on its own, and every snapshot of deleted instances, pinned ones too. Your instances' own and pinned snapshots stay. Files from the last hour are freed at the next clean-up.", "This removes {count} snapshots: the ones the Launcher took on its own, and every snapshot of deleted instances, pinned ones too. Your instances' own and pinned snapshots stay. Files from the last hour are freed at the next clean-up."),
+        /// {deleted} is how many of them are deleted instances'.
+        StorageWorldBackupsHint = ("{count} world backup · {deleted} of deleted instances", "{count} world backups · {deleted} of deleted instances"),
+        /// The same, when none are deleted instances'.
+        StorageWorldBackupsCount = ("{count} world backup", "{count} world backups"),
+        /// {trash} is the Trash, with its article.
+        StorageCleanWorldBackupsBody = ("This deletes {count} world backup of instances you deleted, also ones still in {trash}, for good. Your instances' world backups stay.", "This deletes {count} world backups of instances you deleted, also ones still in {trash}, for good. Your instances' world backups stay."),
     }
 }

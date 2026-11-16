@@ -71,10 +71,10 @@ pub fn badge(record: &SnapshotRecord) -> Option<M> {
     }
 }
 
-/// "Monday 14:30 · Survival Island, Castle Build · 412 MB, 38 MB new · With mods": a
-/// snapshot's details, its worlds by their own names (as the restore dialog and the Worlds
-/// tab show them), else by their folders, and whether it holds the mods (a full image).
-/// Worlds of one name ("New World", the game's default) are told apart by their folders.
+/// "Monday 14:30 · Survival Island, Castle Build · 412 MB, 38 MB new": a snapshot's
+/// details, its worlds by their own names (as the restore dialog and the Worlds tab show
+/// them), else by their folders. Worlds of one name ("New World", the game's default) are
+/// told apart by their folders.
 pub fn details(record: &SnapshotRecord) -> String {
     let mut parts = vec![when(record.created)];
     if !record.worlds.is_empty() {
@@ -106,9 +106,6 @@ pub fn details(record: &SnapshotRecord) -> String {
             new = format::bytes(record.new_bytes)
         )
     });
-    if record.full {
-        parts.push(t(M::SnapshotWithMods).to_string());
-    }
     parts.join(" · ")
 }
 
@@ -446,8 +443,6 @@ pub struct SnapshotDialog {
     preset: Option<Choice>,
     /// Restore: the worlds chosen.
     worlds: Vec<String>,
-    /// Take: a full image.
-    everything: bool,
     name: Entity<TextInput>,
     state: State,
     progress: Arc<(AtomicU64, AtomicU64)>,
@@ -519,7 +514,6 @@ impl SnapshotDialog {
             choice: Choice::Worlds,
             preset: None,
             worlds: Vec::new(),
-            everything: false,
             name,
             state: State::Ready,
             progress: Arc::new((AtomicU64::new(0), AtomicU64::new(0))),
@@ -788,7 +782,6 @@ impl SnapshotDialog {
         // Play waits until the work is done, even if the dialog is closed meanwhile.
         let busy = instances.mark_files_busy(&id);
         let typed = self.name.read(cx).text().trim().to_string();
-        let everything = self.everything;
         launcher_core::trace::emit("snapshot.create", || serde_json::json!({ "instance": id }));
         let instance = id.clone();
         self.run(
@@ -801,7 +794,6 @@ impl SnapshotDialog {
                         Take {
                             kind: SnapshotKind::Manual,
                             name: Some(typed),
-                            full: everything,
                             progress,
                             cancel: &|| cancel.is_cancelled(),
                         },
@@ -1672,28 +1664,7 @@ impl Render for SnapshotDialog {
                 body = body.child(self.render_file(&report, cx));
             }
             (Mode::Take, _) => {
-                body = body
-                    .child(form_row(t(M::SnapshotName), self.name.clone()))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap_1()
-                            .child(
-                                Checkbox::new(
-                                    "snapshot-everything",
-                                    self.everything,
-                                    t(M::SnapshotIncludeEverything),
-                                )
-                                .on_change(cx.listener(
-                                    |this, value: &bool, _, cx| {
-                                        this.everything = *value;
-                                        cx.notify();
-                                    },
-                                )),
-                            )
-                            .child(muted(t(M::SnapshotIncludeEverythingHint)).pl(px(24.))),
-                    );
+                body = body.child(form_row(t(M::SnapshotName), self.name.clone()));
             }
             (_, State::Done(message)) => body = body.child(message.clone()),
             (Mode::Restore, _) => body = body.child(self.render_restore(cx)),

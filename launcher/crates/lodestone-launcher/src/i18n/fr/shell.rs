@@ -78,14 +78,14 @@ pub fn text(message: M) -> &'static str {
         M::DeleteNamed => "Supprimer {name}\u{202F}?",
         M::DeleteInstanceTitle => "Supprimer l’instance\u{202F}?",
         M::DeleteWorldBody => {
-            "Le dossier du monde est placé dans {trash}, d’où vous pouvez le récupérer. Ses sauvegardes sont conservées."
+            "Le dossier du monde est placé dans {trash}, d’où vous pouvez le récupérer. Ses sauvegardes de monde restent."
         }
         M::DeleteInstanceBody => {
-            "Le dossier de l’instance, avec ses mondes, ses mods et ses paramètres, est placé dans {trash}. Vous pouvez le récupérer depuis cet endroit. Ses instantanés sont conservés jusqu’à ce que vous les supprimiez dans Paramètres › Stockage, et reviennent avec elle."
+            "Le dossier de l’instance, avec ses mondes, ses mods et ses paramètres, est placé dans {trash}. Vous pouvez le récupérer depuis cet endroit. Ses instantanés et ses sauvegardes de mondes sont conservés jusqu’à ce que vous les supprimiez dans Paramètres › Stockage, et reviennent avec elle."
         }
-        M::ReplaceWorldTitle => "Remplacer {name} par cette sauvegarde\u{202F}?",
+        M::ReplaceWorldTitle => "Restaurer {name} depuis cet instantané\u{202F}?",
         M::ReplaceWorldBody => {
-            "{name} revient à son état de la sauvegarde ({when}). Un instantané du monde tel qu’il est maintenant est pris d’abord et gardé 30\u{a0}jours."
+            "{name} revient à son état du moment ({when}). Un instantané de l’instance telle qu’elle est maintenant est pris d’abord et gardé 30\u{a0}jours."
         }
         M::BackUpAndReplace => "Sauvegarder et remplacer",
         M::RemoveAccountTitle => "Retirer le compte\u{202F}?",
@@ -147,7 +147,7 @@ pub fn text(message: M) -> &'static str {
         M::KeptFiles => "Gardés tels que vous les avez modifiés",
         M::WrittenFiles => "Configurations et autres fichiers écrits",
         M::ModpackUpdateSafety => {
-            "Vos propres mods, mondes et configurations modifiées ne sont pas touchés. Un instantané de l’instance est pris d’abord, et chaque fichier remplacé ou supprimé est gardé dans le dossier de sauvegardes de l’instance."
+            "Vos propres mods, mondes et configurations modifiées ne sont pas touchés. Un instantané de l’instance est pris d’abord, et chaque fichier remplacé ou supprimé est gardé dans le dossier de l’instance, sous backups/."
         }
 
         M::SaveChangesTitle => "Enregistrer vos modifications\u{202F}?",
@@ -944,6 +944,10 @@ pub fn text(message: M) -> &'static str {
         M::ReplaceWorldModsNote => {
             "Seul le monde revient en arrière\u{a0}; les mods de l’instance restent tels quels. Pour remettre aussi les mods avec lesquels il tournait, restaurez l’instantané depuis Paramètres › Instantanés."
         }
+        M::StorageWorldBackups => "Sauvegardes de mondes",
+        M::StorageCleanWorldBackupsTitle => {
+            "Supprimer les sauvegardes de mondes des instances supprimées\u{a0}?"
+        }
     }
 }
 
@@ -963,6 +967,18 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::StorageCleanSnapshotsBody => [
             "Cela supprime {count}\u{a0}instantané\u{a0}: ceux pris par le Launcher et tous ceux des instances supprimées, épinglés compris. Ceux de vos instances que vous avez pris ou épinglés restent. Les fichiers de la dernière heure sont libérés au prochain nettoyage.",
             "Cela supprime {count}\u{a0}instantanés\u{a0}: ceux pris par le Launcher et tous ceux des instances supprimées, épinglés compris. Ceux de vos instances que vous avez pris ou épinglés restent. Les fichiers de la dernière heure sont libérés au prochain nettoyage.",
+        ],
+        P::StorageWorldBackupsCount => [
+            "{count}\u{a0}sauvegarde de monde",
+            "{count}\u{a0}sauvegardes de mondes",
+        ],
+        P::StorageWorldBackupsHint => [
+            "{count}\u{a0}sauvegarde de monde · {deleted} d’instances supprimées",
+            "{count}\u{a0}sauvegardes de mondes · {deleted} d’instances supprimées",
+        ],
+        P::StorageCleanWorldBackupsBody => [
+            "Cela supprime définitivement {count}\u{a0}sauvegarde de monde d’instances que vous avez supprimées, y compris celles encore dans {trash}. Les sauvegardes de vos instances restent.",
+            "Cela supprime définitivement {count}\u{a0}sauvegardes de mondes d’instances que vous avez supprimées, y compris celles encore dans {trash}. Les sauvegardes de vos instances restent.",
         ],
     }
 }

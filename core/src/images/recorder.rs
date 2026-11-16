@@ -68,7 +68,7 @@ pub const INITIAL_LABEL: &str = "Content when Lodestone began recording";
 pub const OUTSIDE_LABEL: &str = "Changed outside Lodestone";
 /// The label of an image the before-start check records when no content file changed but
 /// the backup policy's excludes did (the image's `excludes` are part of its id).
-pub const EXCLUDES_LABEL: &str = "Changed the backup excludes";
+pub const EXCLUDES_LABEL: &str = "Changed the snapshot excludes";
 
 /// What a record did.
 #[derive(Debug, Clone, PartialEq, Eq)]
