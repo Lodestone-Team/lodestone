@@ -159,7 +159,6 @@ pub fn text(message: M) -> &'static str {
         M::NoSnapshots => "还没有快照。",
         M::SnapshotSizes => "{total}，其中新增 {new}",
         M::SnapshotNothingNew => "{total}，无新增",
-        M::SnapshotWithMods => "含模组",
         M::PreparingFile => "正在准备文件…",
         M::DragToShare => "将文件拖到其他应用中，或：",
         M::SaveAsEllipsis => "另存为…",
@@ -175,11 +174,7 @@ pub fn text(message: M) -> &'static str {
         M::ImportServerTitle => "从服务器的世界新建实例",
         M::CreateInstanceButton => "创建实例",
         M::SnapshotGameRunning => "请先停止游戏。",
-        M::SnapshotsHint => "此实例的世界和文件的副本，可用于恢复或分享。",
-        M::SnapshotIncludeEverything => "包含模组和配置",
-        M::SnapshotIncludeEverythingHint => {
-            "不勾选时，快照保留世界和其他文件，并记住它们运行时使用的模组。"
-        }
+        M::SnapshotsHint => "整个实例文件夹的副本，可用于恢复或分享。",
         M::SnapshotAfterPlay => "每次游戏结束后拍摄快照",
         M::SnapshotAfterPlayHint => {
             "游玩后复制世界。跟随“设置 › 实例默认设置”，默认关闭，除非你开启。"

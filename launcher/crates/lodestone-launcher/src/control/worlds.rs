@@ -257,7 +257,6 @@ pub fn backup(call: Call, cx: &mut App) -> Reply {
                     Take {
                         kind: SnapshotKind::Manual,
                         name: Some(name),
-                        full: false,
                         progress,
                         cancel: &|| cancel.is_cancelled(),
                     },

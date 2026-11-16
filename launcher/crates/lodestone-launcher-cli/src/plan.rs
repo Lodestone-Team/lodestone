@@ -1052,17 +1052,10 @@ pub fn plan(
                         call("snapshots.list", vec![("instance", json!(instance))])
                     }
                 }
-                Snapshots::Create {
-                    instance,
-                    name,
-                    everything,
-                } => {
-                    let mut pairs = vec![("instance", json!(instance)), ("name", json!(name))];
-                    if *everything {
-                        pairs.push(("everything", json!(true)));
-                    }
-                    long("snapshots.create", pairs)
-                }
+                Snapshots::Create { instance, name } => long(
+                    "snapshots.create",
+                    vec![("instance", json!(instance)), ("name", json!(name))],
+                ),
                 Snapshots::Restore {
                     instance,
                     snapshot,
@@ -1355,17 +1348,10 @@ mod tests {
         let (_, params, _) = call_of(&["play", "launch", "Smp", "--skip-update"]);
         assert_eq!(params["update_mods"], json!(false));
         assert_eq!(
-            call_of(&[
-                "snapshots",
-                "create",
-                "S",
-                "--name",
-                "Before",
-                "--everything"
-            ]),
+            call_of(&["snapshots", "create", "S", "--name", "Before"]),
             (
                 "snapshots.create",
-                json!({ "instance": "S", "name": "Before", "everything": true }),
+                json!({ "instance": "S", "name": "Before" }),
                 true
             )
         );

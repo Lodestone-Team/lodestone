@@ -164,7 +164,6 @@ pub fn text(message: M) -> &'static str {
         M::NoSnapshots => "Aucun instantané pour l’instant.",
         M::SnapshotSizes => "{total}, dont {new} nouveaux",
         M::SnapshotNothingNew => "{total}, rien de nouveau",
-        M::SnapshotWithMods => "Avec les mods",
         M::PreparingFile => "Préparation du fichier…",
         M::DragToShare => "Faites glisser le fichier dans une autre app, ou\u{a0}:",
         M::SaveAsEllipsis => "Enregistrer sous…",
@@ -181,11 +180,7 @@ pub fn text(message: M) -> &'static str {
         M::CreateInstanceButton => "Créer l’instance",
         M::SnapshotGameRunning => "Arrêtez d’abord le jeu.",
         M::SnapshotsHint => {
-            "Des copies des mondes et fichiers de cette instance, pour revenir en arrière ou partager."
-        }
-        M::SnapshotIncludeEverything => "Inclure les mods et les configurations",
-        M::SnapshotIncludeEverythingHint => {
-            "Sans cela, l’instantané garde les mondes et les autres fichiers, et retient les mods avec lesquels ils tournaient."
+            "Des copies de tout le dossier de l’instance, pour revenir en arrière ou partager."
         }
         M::SnapshotAfterPlay => "Prendre un instantané après chaque partie",
         M::SnapshotAfterPlayHint => {

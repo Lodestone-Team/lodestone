@@ -369,9 +369,6 @@ pub fn list(call: Call, cx: &mut App) -> Reply {
 struct CreateParams {
     #[serde(default)]
     name: Option<String>,
-    /// A full image: mods and configs too, not only what the content image links.
-    #[serde(default)]
-    everything: bool,
 }
 
 /// `snapshots.create`: takes a snapshot.
@@ -398,7 +395,6 @@ pub fn create(call: Call, cx: &mut App) -> Reply {
                     Take {
                         kind: SnapshotKind::Manual,
                         name: params.name,
-                        full: params.everything,
                         progress,
                         cancel: &|| cancel.is_cancelled(),
                     },

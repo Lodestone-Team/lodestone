@@ -672,7 +672,6 @@ impl WorldsView {
                         Take {
                             kind: SnapshotKind::Manual,
                             name: Some(labels::backed_up(&name)),
-                            full: false,
                             progress: &|done, total| {
                                 progress.set(ProgressSnapshot {
                                     bytes_done: done,

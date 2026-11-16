@@ -518,7 +518,7 @@ pub const METHODS: &[Method] = &[
     ),
     method(
         "snapshots.create",
-        "Takes a snapshot of an instance: its worlds and other files linked to its mods (name; everything: true for mods and configs too).",
+        "Takes a snapshot of an instance: the whole instance folder, its worlds and other files linked to its mods and configs (name).",
         snapshots::create,
     ),
     destructive(

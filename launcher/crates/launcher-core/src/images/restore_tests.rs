@@ -1030,17 +1030,16 @@ fn a_full_snapshot_restores_everything_without_a_link() {
     s.write("mods/a.jar", b"mod v1");
     s.world("World", b"w1");
     s.images.record_now(s.id(), "Created").unwrap();
-    let full = s
-        .images
-        .take_snapshot(
-            s.id(),
-            Take {
-                full: true,
-                ..Take::new(SnapshotKind::Manual, "All")
-            },
-        )
-        .unwrap()
-        .unwrap();
+    // A saved "Find it for me" search makes the snapshot a full image; it is over by the
+    // time of the restore, which refuses to put content back during one.
+    let finder = s
+        .store
+        .dir(s.id())
+        .join(crate::content::mod_finder::FILE_NAME);
+    std::fs::write(&finder, b"{}").unwrap();
+    let full = s.snapshot("All");
+    assert!(full.full);
+    std::fs::remove_file(&finder).unwrap();
     s.write("mods/a.jar", b"mod v2");
     s.write("saves/World/region/r.0.0.mca", b"w2");
     s.restore(

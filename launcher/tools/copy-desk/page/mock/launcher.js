@@ -1334,7 +1334,7 @@
         [pbtn(imp("ImportInstances", { count: 2 }), () => ctx.set("importState", "progress")), btn(im("ChooseFolder")), btn(cm("Cancel"), { on: () => ctx.close() })]) },
     stopImporting: (ctx) => dialog(ctx, im("StopImportingTitle"), h("p", im("StopImportingBody")), [dbtn(im("StopImporting"), () => ctx.close()), btn(im("KeepImporting"), { on: () => ctx.open("import") })], { narrow: true }),
     finderInterrupted: (ctx) => dialog(ctx, im("FinderInterruptedTitle", { name: "All the mods" }), h("p", im("FinderInterrupted", { name: "All the mods" })), [pbtn(im("FinderStart"), () => ctx.open("modFinder")), btn(im("FinderPutBack"), { on: () => ctx.close() })], { narrow: true }),
-    snapshotTake: (ctx) => dialog(ctx, is("TakeSnapshotTitle"), [h("div.lx-flabel", is("SnapshotName")), field("Before 1.21 update"), check(is("SnapshotIncludeEverything"), false), h("div.lx-muted", is("SnapshotIncludeEverythingHint")),
+    snapshotTake: (ctx) => dialog(ctx, is("TakeSnapshotTitle"), [h("div.lx-flabel", is("SnapshotName")), field("Before 1.21 update"),
       ctx.state.game === "playing" ? note(is("SnapshotGameRunning"), "warn") : null, h("div.lx-muted", is("TakingSnapshot"))], [pbtn(is("TakeSnapshot"), () => ctx.close()), btn(cm("Cancel"), { on: () => ctx.close() })], { narrow: true }),
     snapshotRestore: (ctx) => dialog(ctx, is("RestoreTitle", { name: "Before 1.21 update" }), [seg([["w", is("RestoreWorldsOnly")], ["m", is("RestoreWorldsAndMods")], ["e", is("RestoreEverything")], ["n", is("RestoreAsNew")]], "w"),
       card(srow(tx("World"), tx("412 MB"), check(tx("World"), true)), srow(tx("Old Hardcore"), is("WorldGoneNow", { size: "88 MB" }), check(tx("Old Hardcore"), false))),

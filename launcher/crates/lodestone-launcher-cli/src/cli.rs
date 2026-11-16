@@ -1478,17 +1478,15 @@ pub enum Snapshots {
         #[arg(long)]
         deleted: bool,
     },
-    /// Takes a snapshot: the instance's worlds and other files, linked to the mods they
-    /// run with. --everything takes the mods and configs too.
+    /// Takes a snapshot of the whole instance folder: its worlds and other files, linked
+    /// to the mods and configs they run with.
     #[command(
-        after_help = "Examples:\n  lodestone-launcher-cli snapshots create Survival --name \"Before 1.21\"\n  lodestone-launcher-cli snapshots create Survival --everything"
+        after_help = "Examples:\n  lodestone-launcher-cli snapshots create Survival --name \"Before 1.21\""
     )]
     Create {
         instance: String,
         #[arg(long)]
         name: Option<String>,
-        #[arg(long)]
-        everything: bool,
     },
     /// Restores a snapshot: its worlds (--world, repeatable; default all), the worlds and
     /// their mods, everything, or as a new instance (--name). A safety snapshot is taken

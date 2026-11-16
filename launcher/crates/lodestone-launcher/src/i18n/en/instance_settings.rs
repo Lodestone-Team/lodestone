@@ -197,7 +197,6 @@ crate::i18n::messages! {
         SnapshotSizes = "{total}, {new} new",
         SnapshotNothingNew = "{total}, nothing new",
         /// A snapshot's details: it holds the mods and configs, not only the worlds.
-        SnapshotWithMods = "With mods",
         PreparingFile = "Preparing the file…",
         DragToShare = "Drag the file into another app, or:",
         SaveAsEllipsis = "Save as…",
@@ -211,10 +210,7 @@ crate::i18n::messages! {
         ImportServerTitle = "New instance from a server’s world",
         CreateInstanceButton = "Create instance",
         SnapshotGameRunning = "Stop the game first.",
-        SnapshotsHint = "Copies of this instance's worlds and files to go back to or share.",
-        /// Take a snapshot: a full image rather than worlds linked to the mods.
-        SnapshotIncludeEverything = "Include mods and configs",
-        SnapshotIncludeEverythingHint = "Without it, the snapshot keeps the worlds and other files, and remembers the mods they ran with.",
+        SnapshotsHint = "Copies of the whole instance folder to go back to or share.",
         /// The Settings tab's toggle; also Settings › Instance defaults' default.
         SnapshotAfterPlay = "Take a snapshot after each play session",
         SnapshotAfterPlayHint = "Copies the worlds after you play. Follows Settings › Instance defaults, where it is off unless you turn it on.",
