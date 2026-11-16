@@ -40,7 +40,6 @@ pub fn text(message: M) -> &'static str {
         M::Snapshot => "{version}（快照）",
         M::PlayedAt => "上次遊玩：{time}",
         M::BackUp => "建立備份",
-        M::BackupsAndSnapshots => "備份與快照",
         M::Export => "匯出…",
         M::DeleteWorld => "刪除…",
 

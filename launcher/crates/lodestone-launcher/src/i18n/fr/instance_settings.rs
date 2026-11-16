@@ -180,9 +180,6 @@ pub fn text(message: M) -> &'static str {
         M::CreateInstanceButton => "Créer l’instance",
         M::SnapshotGameRunning => "Arrêtez d’abord le jeu.",
         M::SnapshotAfterPlay => "Prendre un instantané après chaque partie",
-        M::SnapshotKeepHint => {
-            "Les instantanés pris par le Launcher sont gardés un temps\u{a0}: les {last} derniers, un par jour pendant {days} jours et un par semaine pendant {weeks} semaines. Les vôtres restent jusqu’à ce que vous les supprimiez."
-        }
         M::BadgeAutomatic => "Automatique",
         M::BadgeAfterPlaying => "Après une partie",
         M::BadgeImported => "Importé",
@@ -490,15 +487,8 @@ pub fn text(message: M) -> &'static str {
             "Ceux-ci ne peuvent pas être téléchargés, donc la personne qui importe le fichier ne les aura pas\u{a0}: {files}."
         }
         M::DeleteUnreadableNote => "Elles sont supprimées définitivement.",
-        M::WorldBackups => "Sauvegardes de mondes",
-        M::SnapshotsGroup => "Instantanés de toute l’instance",
-        M::WorldBackupsHint => {
-            "Des copies d’un monde en .zip, gardées jusqu’à ce que vous les supprimiez. Elles s’ouvrent partout."
-        }
+        M::SnapshotsGroup => "Instantanés enregistrés",
         M::BackUpWorldTitle => "Sauvegarder un monde",
-        M::BackUpWorldEllipsis => "Sauvegarder un monde…",
-        M::NoWorldBackups => "Aucune sauvegarde de monde pour l’instant.",
-        M::WorldNotHere => "N’est plus dans cette instance",
         M::RestoreAsNewWorld => "Restaurer comme nouveau monde",
         M::WorldBackupWorld => "Monde",
         M::WorldBackupDefaultName => "Sauvegarde de monde",
