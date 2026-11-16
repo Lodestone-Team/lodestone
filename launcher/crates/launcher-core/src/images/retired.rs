@@ -200,13 +200,13 @@ impl Images {
             .filter_map(|(_, content)| content.as_ref())
             .collect();
         for header in &listing.content {
-            if !linked.contains(&header.id) {
-                if let Err(err) = self.store().delete_manifest(folder, &header.id) {
-                    log::warn!(
-                        "couldn't delete the unlinked content image {}: {err}",
-                        header.id
-                    );
-                }
+            if !linked.contains(&header.id)
+                && let Err(err) = self.store().delete_manifest(folder, &header.id)
+            {
+                log::warn!(
+                    "couldn't delete the unlinked content image {}: {err}",
+                    header.id
+                );
             }
         }
     }

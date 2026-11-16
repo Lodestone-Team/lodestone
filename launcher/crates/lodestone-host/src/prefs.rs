@@ -256,6 +256,7 @@ mod tests {
             file_list_width: Some(340.),
             editor_wrap: false,
             connect_service: Some("https://connect-dev.lodestone.cc".into()),
+            log_level: launcher_core::logging::LogLevel::Debug,
         };
         save(&path, &data).unwrap();
         assert_eq!(load(&path), data);

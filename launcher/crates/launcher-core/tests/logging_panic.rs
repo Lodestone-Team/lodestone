@@ -101,12 +101,19 @@ fn a_panic_on_a_background_thread_is_logged_and_kept() {
     );
 
     // An event the client can't read: the serde error is logged, never the frame.
-    let frame = r#"{"event_inner": {"type": "secret-frame-text"}, "snowflake": 1, "details": ["steve"]}"#;
+    let frame =
+        r#"{"event_inner": {"type": "secret-frame-text"}, "snowflake": 1, "details": ["steve"]}"#;
     assert!(launcher_core::cores::admin::events::read(frame).is_err());
     logging::flush();
     let text = fs::read_to_string(&log_file).unwrap();
-    assert!(text.contains("couldn't read an event from the core"), "{text}");
-    assert!(!text.contains("secret-frame-text") && !text.contains("steve"), "{text}");
+    assert!(
+        text.contains("couldn't read an event from the core"),
+        "{text}"
+    );
+    assert!(
+        !text.contains("secret-frame-text") && !text.contains("steve"),
+        "{text}"
+    );
 
     logging::end_session();
     assert!(!dir.join(logging::SESSION_FILE).exists());
