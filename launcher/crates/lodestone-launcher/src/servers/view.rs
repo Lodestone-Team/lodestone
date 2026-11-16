@@ -29,8 +29,8 @@ use crate::{
     components::{
         Button, ButtonSize, ButtonVariant, CountBadge, Dialog, DialogSlot, Dropdown, Fact,
         FactLine, FactList, FactValue, Icon, IconButton, ItemIcon, KeyboardFocus, Kind, ListRow,
-        LoadingDots, NameGroup, NameItem, NameList, NameStyle, Num, ObjectChip, PathText,
-        StatusBadge, Toggle, ValueField, VersionTag,
+        LoadingDots, MonoValue, NameGroup, NameItem, NameList, NameStyle, Num, ObjectChip,
+        PathText, StatusBadge, Toggle, ValueField, VersionTag,
         a11y::{Accessible, Role},
         power_name, power_toggle,
         readable::object_name,
@@ -1250,29 +1250,21 @@ fn address_fact(address: String) -> Fact {
     Fact::icon(Icon::Globe, t(FactMsg::Address), FactValue::mono(address)).priority(0)
 }
 
-/// The line under a host's name: its address (with a button that copies it), the
-/// account signed in, and what started it.
+/// The line under a host's name: its address (with a button after it that copies
+/// it), the account signed in, and what started it.
 fn host_facts(
     id: SharedString,
     address: String,
     account: Option<Fact>,
     started: Option<Fact>,
-) -> gpui::Div {
+) -> FactLine {
     let copy = address.clone();
-    div()
+    let value = div()
         .flex()
         .flex_row()
         .items_center()
         .gap_1()
-        .min_w_0()
-        .child(
-            div().flex_1().min_w_0().child(
-                FactLine::row(id.clone())
-                    .fact(address_fact(address))
-                    .facts(account)
-                    .facts(started),
-            ),
-        )
+        .child(MonoValue::new(address.clone()))
         .child(
             IconButton::new(SharedString::from(format!("{id}-copy")), Icon::Copy)
                 .small()
@@ -1280,7 +1272,18 @@ fn host_facts(
                 .on_click(move |_, _, cx| {
                     cx.write_to_clipboard(gpui::ClipboardItem::new_string(copy.clone()))
                 }),
+        );
+    FactLine::row(id)
+        .fact(
+            Fact::icon(
+                Icon::Globe,
+                t(FactMsg::Address),
+                FactValue::element(value, address),
+            )
+            .priority(0),
         )
+        .facts(account)
+        .facts(started)
 }
 
 /// Under a core started directly: Lodestone Core is meant to be run with lodestone_cli,

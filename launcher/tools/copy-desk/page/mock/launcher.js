@@ -793,23 +793,23 @@
       { label: fl("CompareCodes"), icon: "shield", on: () => { ui.menu = null; ctx.open("verify") } }, { label: cm("Rename"), icon: "pencil", on: () => { ui.menu = null; ctx.open("renameFriend") } },
       { label: n === "Jo" ? fl("StopHiding") : fl("HideFromThem"), icon: "eye" }, "-", { label: fl("RemoveFriend"), icon: "trash", danger: true, on: () => { ui.menu = null; ctx.open("removeFriend") } }], "lx-rmenu") : null);
     return [
-      h("div.lx-srvrow", dot("on"), h("div.lx-grow", h("div.lx-srvrow-n", tx("Alex"), badge(fl("Verified"), "green")), h("div.lx-row-s", fl("OnlineOn", { cores: "Alex's PC, Alex's laptop" }))), gbtn(fl("ShowServers")), fmenu("Alex")),
+      h("div.lx-srvrow", dot("on"), h("div.lx-grow", h("div.lx-srvrow-n", tx("Alex"), badge(fl("Verified"), "green")), h("div.lx-row-s", fl("CoreOnline"), " ", tx("Alex's PC"), " ", tx("Alex's laptop"))), gbtn(fl("ShowServers")), fmenu("Alex")),
       h("div", { style: { padding: "6px 18px 12px 46px", background: "var(--g875)" } }, h("div.lx-caps", { style: { margin: "4px 0" } }, fl("Servers")),
         h("div.lx-srvrow", { style: { padding: "6px 0" } }, h("span.lx-grow", tx("Alex's PC"), " ", badge(fl("CoreOnline"), "green")), null),
         h("div.lx-srvrow", { style: { padding: "6px 0" } }, dot("on"), h("div.lx-grow", h("div", tx("Creative build")), h("div.lx-row-s", tx("1.21.4"), sep(), svp("Players", { count: 3 }))), pbtn(sv("Play"), () => ctx.open("joinFriend"))),
         h("div.lx-srvrow", { style: { padding: "6px 0" } }, h("span.lx-grow", tx("Alex's laptop"), " ", badge(fl("CoreOffline")))),
         h("div.lx-muted", { style: { fontSize: "13px" } }, fl("LoadingServers")), h("div.lx-muted", { style: { fontSize: "13px" } }, fl("NoServersShared")), h("div.lx-muted", { style: { fontSize: "13px", color: "#ff8a8a" } }, fl("ServersFailed", { error: "connection reset" }))),
       h("div.lx-srvrow", dot("off"), h("div.lx-grow", h("div.lx-srvrow-n", tx("Sammy"), badge(fl("NotVerified"))), h("div.lx-row-s", fl("TheirName", { name: "Sam" }), sep(), fl("NotSharingNow"))), btn(fl("CompareCodes"), { sm: true, on: () => ctx.open("verify") }), fmenu("Sam")),
-      h("div.lx-srvrow", dot("off"), h("div.lx-grow", h("div.lx-srvrow-n", tx("Robin")), h("div.lx-row-s", fl("WaitingFor", { name: "Robin" }))), fmenu("Robin")),
+      h("div.lx-srvrow", dot("off"), h("div.lx-grow", h("div.lx-srvrow-n", tx("Robin")), h("div.lx-row-s", fl("WaitingToConfirm"))), fmenu("Robin")),
       h("div.lx-srvrow", dot("off"), h("div.lx-grow", h("div.lx-srvrow-n", tx("Jo"), badge(fl("Hidden"))), h("div.lx-row-s", fl("SharesNothing"))), fmenu("Jo")),
-      h("div.lx-srvrow", dot("off"), h("div.lx-grow", h("div.lx-srvrow-n", tx("Alex"), badge(fl("NotVerified"))), h("div.lx-row-s", { style: { color: "var(--yellow)" } }, fl("NameLike", { names: "Alex" }))), fmenu("Alex2")),
+      h("div.lx-srvrow", dot("off"), h("div.lx-grow", h("div.lx-srvrow-n", tx("Alex"), badge(fl("NotVerified"))), h("div.lx-row-s", { style: { color: "var(--yellow)" } }, fl("SameNameTag"), " ", tx("Alex"), " ", fl("NameLikeBody"))), fmenu("Alex2")),
       h("div.lx-srvrow", dot("off"), h("div.lx-grow", h("div.lx-srvrow-n", tx("Kim"), badge(fl("Retired"), "red"))), fmenu("Kim")),
     ];
   }
   function hostPage(ctx) {
     const S = ctx.state;
     const banners = {
-      signedOut: () => note([h("b", sv("SignedOutOf", { name: "Alex's server box" })), h("div", sv("KeyStillValid", { id: "a1b2c3" }))], "info", gbtn(sv("Dismiss"))),
+      signedOut: () => note([h("b", tx("Alex's server box")), h("b", sv("SignedOut")), h("div", sv("KeyStillValid")), h("div", tx("Key"), " ", h("span.lx-mono", tx("lsk_a1b2c3_\u2026")))], "info", gbtn(sv("Dismiss"))),
       untrusted: () => note([h("b", sv("NoLongerTrusted", { name: "Alex's server box" })), h("div", sv("NoLongerTrustedCertificateChanged"))], "warn", gbtn(sv("Dismiss"))),
       readFailed: () => note([h("b", sv("ReadFailed")), h("div", tx("servers.json: expected value at line 1"))], "err", gbtn(sv("Dismiss"))),
       joinFailed: () => note([h("b", sv("JoinFailed", { name: "Skyblock" })), h("div", sv("ServerNotShown"))], "err", gbtn(sv("Dismiss"))),
@@ -827,7 +827,7 @@
       h("div.lx-hostsec", h("div.lx-hostsec-h", ic("user"), h("div.lx-grow", h("div.lx-hostsec-t", sv("FriendsTitle"), S.relay === "dev" ? h("span", { style: { color: "var(--yellow)", fontFamily: "Satoshi", fontSize: "13px", marginLeft: "10px" } }, sh("ConnectServiceInUse", { service: "connect-dev.lodestone.cc" })) : null), h("div.lx-hostsec-s", sv("FriendsHint"))),
         btn(sv("JoinAFriend"), { icon: "plus", on: () => ctx.open("joinFriend") })),
         S.friendServers === "some" ? [
-          h("div.lx-srvrow", dot("on"), h("div.lx-grow", h("div.lx-srvrow-n", tx("Creative build"), badge(sv("FriendPlayingNow"), "green")), h("div.lx-row-s", sv("SharedBy", { name: "Alex's Lodestone" }), sep(), sv("FriendAddress", { address: "127.0.0.1:36017" }))), pbtn(sv("Play"), () => ctx.open("joinFriend"))),
+          h("div.lx-srvrow", dot("on"), h("div.lx-grow", h("div.lx-srvrow-n", tx("Creative build"), badge(sv("FriendPlayingNow"), "green")), h("div.lx-row-s", sv("SharedBy"), " ", tx("Alex's Lodestone")), h("div.lx-row-s", sv("MagicLocalhost"), " ", h("span.lx-mono", tx("127.0.0.1:36017")), " ", sv("WhileConnected"))), pbtn(sv("Play"), () => ctx.open("joinFriend"))),
           h("div.lx-srvrow", dot("off"), h("div.lx-grow", h("div.lx-srvrow-n", tx("Sam's survival")), h("div.lx-row-s", sv("SharedBy", { name: "Sam's Core" }))), btn(sv("FriendCheck"), { sm: true }), h("span.lx-muted", sv("FriendChecking")), gbtn(sv("StopTrusting"))),
           h("div.lx-srvrow", dot("on"), h("div.lx-grow", h("div.lx-srvrow-n", tx("Survival SMP")), h("div.lx-row-s", sv("SharedBy", { name: "Peter's Lodestone Core" }), sep(), sv("DirectConnection"))), pbtn(sv("Play")))]
           : null),
@@ -841,7 +841,7 @@
             other === "certChanged" ? h("div", { style: { padding: "4px 18px" } }, note(sv("CertChangedWarning"), "err", btn(sv("ReviewNewCertificate"), { sm: true, on: () => ctx.open("certificate", { changed: true }) }))) :
               other === "notListed" ? h("div.lx-srvrow.lx-muted", sv("NotListedPublicly")) : other === "noPublic" ? h("div.lx-srvrow.lx-muted", sv("NoPublicServers")) : other === "noVisible" ? h("div.lx-srvrow.lx-muted", sv("NoVisibleServers")) :
                 [serverRow(ctx, { name: "Skyblock", ver: "1.21.1", loader: "Fabric 0.16.14", state: "running", players: [1, 10] }, {}),
-                  serverRow(ctx, { name: "Minigames", ver: "1.21.1", loader: "Paper", state: other === "signedIn" ? "stopped" : "hidden", hiddenAddr: true, busy: other === "busy" ? "BusyCreatingFiles" : null, busyVars: { done: 12, total: 48 } }, { signedIn: other === "signedIn" })]),
+                  serverRow(ctx, { name: "Minigames", ver: "1.21.1", loader: "Paper", state: other === "signedIn" ? "stopped" : "hidden", hiddenAddr: true, busy: other === "busy" ? "BusyCreating" : null, busyVars: {} }, { signedIn: other === "signedIn" })]),
         h("div.lx-corebox", h("div.lx-core", h("span.lx-ibtn", { style: { width: "38px", height: "38px", border: 0, background: "var(--g700)" } }, ic("server")),
           h("div.lx-grow", h("div.lx-core-n", tx("Old laptop")), h("div.lx-core-s", tx("https://old-laptop.local:16662"), sep(), sv("NotSignedIn"))), h("span.lx-muted", sv("TrustedForMods")), toggle(false), btn(cm("SignIn"), { icon: "user" }), iconBtn("dots")),
           h("div", { style: { padding: "4px 18px" } }, note(sv("Offline"), "warn")))],
@@ -865,7 +865,7 @@
       h("div", { style: { display: "flex", gap: "8px" } }, pbtn(sv("AcceptEula")), btn(sv("ReadEula"), { icon: "ext" }))), note(sv("EulaAccepted"), "ok"), note(sv("EulaAcceptFailed", { error: "403 Forbidden" }), "err"));
     else consoleBody = h("div.lx-console", lines.map(([tm, l, c]) => h("div", { class: c ? "lx-c-" + c : "" }, tx(`[${tm}] ${l}`))), h("div", { style: { position: "absolute", right: "12px", bottom: "10px" } }, btn(sv("JumpToLatest"), { sm: true })));
     const acct = S.account === "offline" ? h("div.lx-muted", sv("OfflineCantLink")) : S.account === "signedOut" ? h("div.lx-muted", sv("SignInMicrosoftToLink")) :
-      st === "linked" ? [h("div", sv("LinkedTo", { account: "Lodestoner", user: "peter" })), btn(sv("Unlink"), { sm: true })] :
+      st === "linked" ? [h("div", sv("LinkedTo")), btn(sv("Unlink"), { sm: true })] :
         st === "tooOld" ? h("div.lx-muted", sv("CoreTooOldToLink")) :
           [pbtn(sv("LinkAccount", { account: "Lodestoner", user: "peter" })), h("div.lx-muted", { style: { fontSize: "13.5px" } }, sv("LinkCheckHint")), h("div.lx-muted", { style: { fontSize: "13px" } }, sv("YourLodestoneUser"))];
     return h("div.lx-main", h("div.lx-page", { style: { display: "flex", flexDirection: "column" } },
@@ -1039,8 +1039,8 @@
         srow(sh("CliGameLogs"), sh("CliGameLogsHint"), toggle(true)),
         srow(sh("SocketPath"), ctx.state.cli === "closed" ? sh("SocketClosed") : ctx.state.cli === "error" ? h("span", { style: { color: "#ff8a8a" } }, sh("SocketError", { error: "Address already in use" })) : tx("/Users/you/Library/Application Support/Lodestone Launcher/control.sock"), [btn(sh("CopyPath"), { sm: true }), btn(sh("OpenDataFolder"), { sm: true })]),
         h("div", { style: { padding: "12px 18px" } }, h("div.lx-srow-label", sh("ConnectedClients")),
-          ctx.state.cli === "clients" ? [h("div.lx-row", { style: { padding: "8px 0" } }, h("div.lx-row-main", h("div", tx("lodestone-launcher-cli")), h("div.lx-row-s", sh("ClientSince", { time: "Today, 14:30" }), sep(), sh("ClientPid", { pid: 48213 }), sep(), shp("Subscriptions", { count: 2 }))), btn(sh("Disconnect"), { sm: true })),
-            h("div.lx-row", { style: { padding: "8px 0" } }, h("div.lx-row-main", h("div", sh("UnnamedClient")), h("div.lx-row-s", sh("ClientSince", { time: "Today, 14:41" }), sep(), sh("ClientPid", { pid: 48990 }), sep(), shp("Subscriptions", { count: 1 }))), btn(sh("Disconnect"), { sm: true }))] :
+          ctx.state.cli === "clients" ? [h("div.lx-row", { style: { padding: "8px 0" } }, h("div.lx-row-main", h("div", tx("lodestone-launcher-cli")), h("div.lx-row-s", sh("ClientSince"), " ", tx("Today, 14:30"), sep(), sh("ClientPid"), " ", tx("48213"), sep(), sh("ClientSubscriptions"), " ", tx("2"))), btn(sh("Disconnect"), { sm: true })),
+            h("div.lx-row", { style: { padding: "8px 0" } }, h("div.lx-row-main", h("div", sh("UnnamedClient")), h("div.lx-row-s", sh("ClientSince"), " ", tx("Today, 14:41"), sep(), sh("ClientPid"), " ", tx("48990"), sep(), sh("ClientSubscriptions"), " ", tx("1"))), btn(sh("Disconnect"), { sm: true }))] :
             h("div.lx-srow-hint", sh("NoClients"))))),
       section(sh("CodingAgentsSection"), h("div.lx-h3-sub", sh("CodingAgentsLead")), card(srow(sh("AgentSkills"), tx("launcher-instances, launcher-content, launcher-trace")), srow(sh("AgentPrompt"), sh("AgentPromptHint"), btn(sh("CopyPrompt"), { icon: "copy" })))),
       section(sh("ConnectSection"), card(srow(sh("ConnectService"), sh("ConnectServiceHint"), [field(relay === "default" ? null : relay === "error" ? "http://relay.example.com/x" : "https://connect-dev.lodestone.cc", tx("https://connect.lodestone.cc"), { err: relay === "error" }), btn(cm("Save"), { sm: true, kind: "p" }), gbtn(cm("Reset"))],
@@ -1217,7 +1217,7 @@
     const st = ctx.state.join;
     if (st === "paste" || st === "invalid" || st === "empty") return dialog(ctx, sv("JoinFriendTitle"), [h("p.lx-muted", sv("JoinFriendIntro")), field(st === "invalid" ? "https://example.com/abc" : null, sv("InvitePlaceholder"), { err: st !== "paste" }),
       st === "invalid" ? h("div", { style: { color: "#ff8a8a" } }, sv("NotAnInvite")) : st === "empty" ? h("div", { style: { color: "#ff8a8a" } }, sv("PasteInviteFirst")) : null], [pbtn(cm("Continue"), () => ctx.set("join", "connecting")), btn(cm("Cancel"), { on: () => ctx.close() })]);
-    if (st === "connecting" || st === "slow" || st === "reading") return dialog(ctx, sv("JoinFriendTitle"), [h("b", st === "reading" ? sv("ConnectingTo", { name: "Creative build" }) : sv("ConnectingToFriend")), waitBox(st === "slow" ? sv("StageFindingSlow") : st === "reading" ? sv("StageReading") : sv("StageFinding"))], [btn(cm("Cancel"), { on: () => ctx.close() })]);
+    if (st === "connecting" || st === "slow" || st === "reading") return dialog(ctx, sv("JoinFriendTitle"), [h("b", st === "reading" ? sv("Connecting") : sv("ConnectingToFriend")), waitBox(st === "slow" ? sv("StageFindingSlow") : st === "reading" ? sv("StageReading") : sv("StageFinding"))], [btn(cm("Cancel"), { on: () => ctx.close() })]);
     const F = { failed: ["FriendJoinFailed", "FriendJoinFailedBody"], noPath: ["FriendNoPath", "FriendNoPathBody"], stopped: ["FriendServerStopped", "FriendServerStoppedBody"], ended: ["FriendLinkEnded", "FriendLinkEndedBody"], notSharing: ["FriendNotSharing", "FriendNotSharingBody"],
       wrongHost: ["FriendWrongHost", "FriendWrongHostBody"], offline: ["FriendOffline", "FriendOfflineBody"], service: ["FriendServiceUnreachable", "FriendServiceUnreachableBody"], tunnel: ["FriendTunnelEnded", "FriendTunnelEndedBody"] };
     // uses: sv("FriendJoinFailed") sv("FriendJoinFailedBody") sv("FriendNoPath") sv("FriendNoPathBody") sv("FriendServerStopped") sv("FriendServerStoppedBody") sv("FriendLinkEnded") sv("FriendLinkEndedBody") sv("FriendNotSharing") sv("FriendNotSharingBody") sv("FriendWrongHost") sv("FriendWrongHostBody") sv("FriendOffline") sv("FriendOfflineBody") sv("FriendServiceUnreachable") sv("FriendServiceUnreachableBody") sv("FriendTunnelEnded") sv("FriendTunnelEndedBody")
@@ -1225,13 +1225,13 @@
     const mods = st === "readyMods" || st === "readyLinked";
     return dialog(ctx, sv("JoinFriendTitle"), [
       h("div.lx-scard", h("div", { style: { display: "flex", alignItems: "center", gap: "8px", fontFamily: "Chillax", fontWeight: 600, fontSize: "19px" } }, dot("on"), tx("Creative build")), h("div.lx-muted", sv("SharedBy", { name: "Alex's Lodestone" })),
-        h("div.lx-facts", sv("FactVersion"), tx("1.21.4"), sv("FactMods"), mods ? sv("FriendHasMods") : sv("FriendNoMods"), sv("FactStatus"), h("span", sv("StateRunning"), " \u00b7 ", sv("PlayersOfMax", { count: 3, max: 20 })),
-          sv("FactConnection"), st === "readyLocal" ? sv("DirectConnection") : sv("ConnectedVia", { how: "over your local network", ms: 18 }),
+        h("div.lx-facts", tx("Host"), tx("Alex's Lodestone"), tx("Game"), tx("Minecraft 1.21.4"), tx("Mods"), mods ? sv("FriendHasMods") : sv("FriendNoMods"), tx("Status"), h("span", sv("StateRunning")), tx("Players"), tx("3 / 20"),
+          tx("Connection"), st === "readyLocal" ? sv("DirectConnection") : sv("ConnectionLocalNetwork"), tx("Ping"), sv("PingMs", { ms: 18 }),
           sv("Address"), h("span", tx("127.0.0.1:36017 "), btn(cm("Copy"), { sm: true, icon: "copy" })),
-          sv("FactInstance"), st === "readyLinked" ? sv("PlaysWithLinked", { name: "Creative build" }) : mods ? sv("MakesInstanceWithMods") : st === "readyInstance" ? sv("PlaysWithInstance", { name: "Latest release" }) : sv("MakesInstance"))),
-      st === "portTaken" ? note([h("b", sv("FriendPortTaken", { port: 25565 })), h("div", sv("FriendPortTakenBody", { address: "127.0.0.1:36018", port: 25565 }))], "warn") : null,
+          tx("Instance"), st === "readyLinked" ? h("span", tx("Creative build "), sv("MadeForThisServer")) : mods ? sv("MakesInstanceWithMods") : st === "readyInstance" ? h("span", tx("Latest release "), sv("SameVersion")) : sv("MakesInstance"))),
+      st === "portTaken" ? note([h("b", sv("FriendPortTaken")), h("div", sv("FriendPortTakenBody")), h("div", sv("AddressNow"), " ", h("span.lx-mono", tx("127.0.0.1:36018"))), h("div", sv("UsualPort"), " ", h("span.lx-mono", tx("25565")))], "warn") : null,
       st === "starting" ? waitBox(sv("FriendStarting")) : null, st === "busy" ? note(sv("FriendInstanceBusy"), "warn") : null,
-      h("div.lx-muted", { style: { fontSize: "13px" } }, sv("ViaSameComputer"), " \u00b7 ", sv("ViaLocalNetwork"), " \u00b7 ", sv("ViaIpv6"), " \u00b7 ", sv("ViaInternet")),
+      h("div.lx-muted", { style: { fontSize: "13px" } }, sv("ConnectionSameComputer"), " ", sv("ConnectionLocalNetwork"), " ", sv("ConnectionIpv6"), " ", sv("ConnectionInternet")),
     ], [pbtn(sv("Play"), () => ctx.close()), btn(cm("Cancel"), { on: () => ctx.close() })]);
   }
   function addFriendDialog(ctx) {
@@ -1273,7 +1273,7 @@
       [pbtn(is("MakeMain"), () => ctx.close()), btn(cm("Cancel"), { on: () => ctx.close() })], { narrow: true }),
     unsaved: (ctx) => dialog(ctx, sh("SaveChangesTitle"), [h("p", ctx.state.unsavedWhere === "defaults" ? sh("UnsavedDefaultsBody") : ctx.state.unsavedWhere === "this" ? sh("UnsavedThisInstanceBody") : sh("UnsavedThisInstanceBody"))],
       [pbtn(cm("Save"), () => ctx.close()), btn(cm("Discard"), { on: () => ctx.close() }), btn(cm("KeepEditing"), { on: () => ctx.close() })], { narrow: true }),
-    trust: (ctx) => dialog(ctx, sv("TrustTitle", { name: "Alex's server box" }), [h("p", sv("CoreAt", { name: "Alex's server box", address: "192.168.1.42:16662" })), h("p", sv("TrustExplanation", { computer: "this Mac" })), h("p.lx-muted", sv("TrustAfterAdd", { setting: "Trusted for mods" })), h("p.lx-muted", sv("TrustLater"))],
+    trust: (ctx) => dialog(ctx, sv("TrustTitle"), [card([h("b", tx("Alex's server box")), h("div", tx("Address"), " ", h("span.lx-mono", tx("192.168.1.42:16662")))]), h("p", sv("TrustExplanation", { computer: "this Mac" })), h("p.lx-muted", sv("TrustAfterAdd", { setting: "Trusted for mods" })), h("p.lx-muted", sv("TrustLater"))],
       [pbtn(sv("TrustThisCore"), () => ctx.close()), btn(cm("NotNow"), { on: () => ctx.close() })]),
     certificate: (ctx) => { const ch = ctx.dparams.changed; return dialog(ctx, ch ? sv("CertChangedTitle", { name: "Alex's server box" }) : sv("CertTrustTitle"), [
       h("p", ch ? sv("CertChangedIntro", { address: "192.168.1.42:16662" }) : sv("CertUntrustedIntro", { os: "macOS", name: "Alex's server box", address: "192.168.1.42:16662" })),
@@ -1283,14 +1283,15 @@
     advisory: (ctx) => dialog(ctx, sv("AdvisoryTitle", { computer: "this Mac" }), [
       h("p", ctx.state.advisory === "update" ? sv("AdvisoryUpdate", { server: "Skyblock", core: "Alex's server box" }) : sv("AdvisoryNew", { server: "Skyblock", core: "Alex's server box" })),
       ctx.state.advisory === "offline" ? note(sv("ModrinthUnreachable"), "warn") : null,
-      h("b", sv("UploadedNotChecked", { count: 2 })), card(h("div.lx-row", { style: { minHeight: "40px" } }, h("span.lx-mono", tx("skyblock-core-1.4.jar"))), h("div.lx-row", { style: { minHeight: "40px" } }, h("span.lx-mono", tx("alex-utils.jar")))),
-      h("b", sv("AlsoOnModrinth", { count: 12 })), h("div.lx-muted", tx("Fabric API, Sodium, Lithium, \u2026"), " ", svp("AndMore", { count: 9 })),
-      h("p.lx-muted", sv("AlsoFilesScripts", { files: "14 config files, 2 script files" }), " ", sv("AlsoFiles", { files: "" }), svp("ConfigFiles", { count: 14 }), ", ", svp("ScriptFiles", { count: 2 }), ", ", svp("OtherFiles", { count: 1 })),
-      h("b", sv("OnlyIfYouTrust", { core: "Alex's server box" })), h("p.lx-muted", sv("AdvisoryTrustNote", { button: "Trust Alex's server box and install", explanation: "" }))],
-      [btn(sv("InstallThisTime"), { on: () => ctx.close() }), pbtn(sv("TrustAndInstall", { core: "Alex's server box" }), () => ctx.close()), btn(cm("Cancel"), { on: () => ctx.close() })]),
-    differentMods: (ctx) => dialog(ctx, sv("DifferentMods", { name: "Survival SMP" }), [
-      h("p", sv("DifferentModsBody", { changes: "" }), svp("ModsAdded", { count: 2 }), ", ", svp("ModsUpdated", { count: 1 }), ", ", svp("ModsRemoved", { count: 1 }), ", ", svp("OtherFiles", { count: 3 })),
-      card([sv("ChangeNew", { name: "Create 0.5.1" }), sv("ChangeChanged", { name: "Sodium 0.5.13" }), sv("ChangeRemoved", { name: "OptiFabric" }), sv("ChangeConfig", { name: "config/create.toml" })].map((x) => h("div.lx-row", { style: { minHeight: "40px" } }, x))), h("div.lx-muted", sv("NoChanges"))],
+      h("b", sv("UploadedNotChecked")), card(h("div.lx-row", { style: { minHeight: "40px" } }, h("span.lx-mono", tx("skyblock-core-1.4.jar"))), h("div.lx-row", { style: { minHeight: "40px" } }, h("span.lx-mono", tx("alex-utils.jar")))),
+      h("b", sv("AlsoOnModrinth")), h("div.lx-muted", tx("Fabric API, Sodium, Lithium, \u2026"), " ", svp("AndMore", { count: 9 })),
+      h("p.lx-muted", sv("ConfigFilesKey"), " 14 ", sv("ScriptFilesKey"), " 2 ", sv("OtherFilesKey"), " 1"), h("p.lx-muted", sv("CanRunCode"), " ", sv("ScriptsNote")),
+      h("b", sv("OnlyIfYouTrust")), h("p.lx-muted", sv("AdvisoryTrustNote", { button: "Trust and install", explanation: "" }))],
+      [btn(sv("InstallThisTime"), { on: () => ctx.close() }), pbtn(sv("TrustAndInstall"), () => ctx.close()), btn(cm("Cancel"), { on: () => ctx.close() })]),
+    differentMods: (ctx) => dialog(ctx, sv("DifferentMods"), [
+      card([h("b", tx("Survival SMP")), h("div.lx-muted", tx("Minecraft 1.21.1  Fabric 0.16.14"))]),
+      h("p", sv("DifferentModsBody")),
+      card([[sv("ChangeNew"), "create-fabric-0.5.1.jar"], [sv("ChangeChanged"), "sodium-fabric-0.5.13.jar"], [sv("ChangeRemoved"), "optifabric.jar"], [sv("ChangeConfig"), "config/create.toml"]].map(([k, f]) => h("div.lx-row", { style: { minHeight: "40px" } }, k, " ", h("span.lx-mono", tx(f)))))],
       [pbtn(sv("UpdateAndPlay"), () => ctx.close()), btn(sv("PlayAnyway"), { on: () => ctx.close() }), btn(cm("Cancel"), { on: () => ctx.close() })]),
     hostOnCore: (ctx) => { const st = ctx.state.host; const eula = h("div", { style: { display: "flex", alignItems: "center", gap: "10px" } }, check(sv("EulaAgree", { url: "https://aka.ms/MinecraftEULA" })), gbtn(sv("ReadEula"), null, "ext"));
       return dialog(ctx, sv("HostTitle"), st === "done" ? [note(sv("HostCreated", { name: "All the mods", core: "Peter's Lodestone Core", port: 25566 }), "ok"), h("p.lx-muted", sv("HostCreatedRelinked", { server: "Old SMP" })), h("span.lx-muted", sv("HostLeftOut"))] :
@@ -1401,7 +1402,7 @@
       mgroup(sh("Instances"), null, [
         h("div.lx-irow", { style: { maxWidth: "260px", background: "var(--g800)" } }, grass(), h("div", h("div.lx-irow-n", tx("All the mods")), h("div.lx-irow-s", [tx("2 hours ago"), " ", tx("5 h 0 min")]))),
         tl(sh("PlayNamed", { name: "All the mods" })), tl(sh("GroupImported")), tl(sh("NoInstances")), tl(sh("GoBack")), tl(sh("GoForward")), tl(sh("LauncherClosing"), "warn"),
-        tl(shp("Values", { count: 1 })), tl(shp("AndMore", { count: 1 })), tl(shp("Subscriptions", { count: 1 })), tl(shp("PerfEntries", { count: 1 }))]),
+        tl(shp("Values", { count: 1 })), tl(shp("AndMore", { count: 1 })), tl(shp("PerfEntries", { count: 1 }))]),
       mgroup(sh("CrashTitle", { name: "All the mods" }), null, L(sh, "EvidenceFailedToPatch EvidenceCrashedInItsCode EvidencePatchedCrashingCode EvidenceInStack", (el) => tl(el))),
       mgroup(sh("Accounts"), null, [te(sh("AuthKeychain"), sh("AuthSignInExpiredBody")), te(null, sh("AccountsCorrupt")), te(null, sh("CouldntReadAccounts", { error: "permission denied" })), te(null, sh("CouldntSaveSettings", { error: "disk full" })),
         te(null, sh("CouldntSaveAccounts", { error: "disk full" })), te(null, sh("CouldntRemoveSignIn", { name: "Lodestoner", error: "item not found" }))]),
@@ -1453,7 +1454,7 @@
       mgroup(sv("ConnectAsOwner"), null, [h("div.lx-scard", { style: { maxWidth: "640px" } }, note(sv("ClaimFolderNotFound"), "err"), h("div", btn(sv("ChooseDataFolder")), " ", h("span.lx-muted", sv("ChooseDataFolderPrompt"))), h("div.lx-muted", tx("Lodestone Host \u2014 "), sv("ProductHostHint")), h("div.lx-muted", tx("Lodestone Core \u2014 "), sv("ProductCoreHint"))),
         ...L(sv, "ClaimNoCore ClaimNotThisCore ClaimNoResult ClaimNoCertificate", (el) => te(null, el)), te(null, sv("ClaimFiles", { error: "permission denied" })), te(null, sv("ClaimInvalid", { error: "missing field" })), te(sv("CredentialsReadFailed"), tx("\u2026")), te(sv("CredentialsSaveFailed"), tx("\u2026"))]),
       mgroup(sv("CoreMoreActions", { name: "Peter's Lodestone Core" }), null, [h("div", badge(sv("SignedIn"), "green"), " ", badge(sv("LoaderOther"))),
-        ...L(sv, "BusyFetching BusyCreating BusyChecking BusyUpdating BusyStopping", (el) => h("div.lx-muted", spinner(), " ", el)), h("div.lx-muted", spinner(), " ", sv("BusyUpdatingFiles", { done: 3, total: 9 }))]),
+        ...L(sv, "BusyFetching BusyCreating BusyChecking BusyUpdating BusyStopping", (el) => h("div.lx-muted", spinner(), " ", el)), h("div.lx-muted", spinner(), " ", sv("BusyCaption", { stage: "Updating mods\u2026", progress: "3 / 9" }))]),
       mgroup(sv("ServersTitle"), tx("Messages at the top of the page."), [te(sv("SaveFailed"), tx("\u2026")), toast(sv("NoLongerTrusted", { name: "Alex's server box" }), sv("NoLongerTrustedIdChanged", { address: "192.168.1.42:16662" }), "warn"),
         toast(sv("NoLongerTrusted", { name: "Alex's server box" }), sv("NoLongerTrustedOtherCore", { address: "192.168.1.42:16662" }), "warn"), toast(sv("NoLongerTrusted", { name: "Alex's server box" }), sv("NoLongerTrustedNewCertificate"), "warn"),
         te(sv("KeySaveFailed", { keychain: "Keychain" }), sv("KeySaveFailedError", { keychain: "Keychain", error: "denied" })), tl(sv("CheckCertificate"), "warn"), tl(sv("CertificateNotTrusted"), "warn"), te(sv("CreateFailed"), tx("\u2026")), te(sv("LinkFailed"), tx("\u2026")),
@@ -1534,7 +1535,7 @@
   // ---------- registration ----------
   // uses (data-driven keys): sh("Play") sh("TabContent") sh("TabWorlds") sh("Settings") sh("TabLogs") is("General") is("GameAndLoader") is("Modpack") is("LinkedServer") is("JavaAndMemory") is("LaunchOptions") is("SharedGameSettings") is("InstanceSnapshots") is("Maintenance")
   // uses: is("AboutVanilla") is("AboutFabric") is("AboutQuilt") is("AboutForge") is("AboutNeoForge") is("KindRelease") is("KindSnapshot") is("KindBeta") is("KindAlpha") is("KindOther")
-  // uses: wd("Survival") wd("Creative") wd("Adventure") wd("Spectator") sv("StateRunning") sv("StateStarting") sv("StateStopping") sv("StateStopped") sv("StateCrashed") sv("StateUnknown") sv("StateHidden") sv("BusyStarting") sv("BusyCreatingFiles")
+  // uses: wd("Survival") wd("Creative") wd("Adventure") wd("Spectator") sv("StateRunning") sv("StateStarting") sv("StateStopping") sv("StateStopped") sv("StateCrashed") sv("StateUnknown") sv("StateHidden") sv("BusyStarting") sv("BusyCreating")
   // uses: sh("InstanceDefaults") sh("SharedGameSettings") sh("General") sh("Skin") sh("Storage") sh("Accounts") sh("Developer")
   const opts = (s) => keysOf(s).map((v) => [v, v.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (c) => c.toUpperCase())]);
   const ST = (label, s, def) => ({ label, options: opts(s), default: def || keysOf(s)[0] });

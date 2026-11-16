@@ -307,7 +307,7 @@ impl Servers {
                         )
                         .when(!list.snapshot.safety_code.is_empty(), |this| {
                             this.child(
-                                div().pt_1().child(
+                                div().pt_1().w(px(320.)).max_w_full().child(
                                     ValueField::new(
                                         "friend-list-safety-code",
                                         list.snapshot.safety_code.clone(),
@@ -1292,12 +1292,14 @@ impl Servers {
                             .gap_2()
                             .pt_1()
                             .child(
-                                ValueField::new(
-                                    SharedString::from(format!("magic-localhost-{id}")),
-                                    address,
-                                )
-                                .label(t(ServersMsg::MagicLocalhost))
-                                .kind(ValueKind::Code),
+                                div().flex_none().w(px(240.)).child(
+                                    ValueField::new(
+                                        SharedString::from(format!("magic-localhost-{id}")),
+                                        address,
+                                    )
+                                    .label(t(ServersMsg::MagicLocalhost))
+                                    .kind(ValueKind::Code),
+                                ),
                             )
                             .child(note(t(ServersMsg::WhileConnected)))
                     })),

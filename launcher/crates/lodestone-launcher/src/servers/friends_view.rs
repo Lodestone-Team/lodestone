@@ -284,12 +284,14 @@ impl Servers {
                             .gap_2()
                             .pt_1()
                             .child(
-                                ValueField::new(
-                                    SharedString::from(format!("magic-localhost-{row_id}")),
-                                    address,
-                                )
-                                .label(t(M::MagicLocalhost))
-                                .kind(ValueKind::Code),
+                                div().flex_none().w(px(240.)).child(
+                                    ValueField::new(
+                                        SharedString::from(format!("magic-localhost-{row_id}")),
+                                        address,
+                                    )
+                                    .label(t(M::MagicLocalhost))
+                                    .kind(ValueKind::Code),
+                                ),
                             )
                             .child(note(t(M::WhileConnected)))
                     }))

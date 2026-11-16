@@ -3793,7 +3793,15 @@ impl Servers {
         self.notice = Some(Notice::new(move || (title.clone(), message.clone())));
     }
 
-    /// Shows "{name} is ready", for the offscreen screenshots.
+    /// Shows "Signed out" for host `name`, for the offscreen screenshots.
+    pub fn preview_signed_out(&mut self, name: &str) {
+        self.notice = Some(
+            Notice::new(|| (t(M::SignedOut).into(), core_error(&CoreError::SignedOut)))
+                .object(name.to_string(), Kind::Computer),
+        );
+    }
+
+    /// Shows "Instance ready" for instance `name`, for the offscreen screenshots.
     pub fn preview_ready(&mut self, name: &str) {
         self.notice = Some(
             Notice::success(|| (t(M::ReadyTitle).into(), t(M::ReadyBody).into()))
