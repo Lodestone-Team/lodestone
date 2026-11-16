@@ -549,8 +549,10 @@ impl Toast {
         get: fn(&mut V) -> &mut Toast,
         cx: &mut Context<V>,
     ) {
+        let message = message.into();
+        super::toast::log_shown(error, &message);
         self.action = action;
-        self.message = Some((message.into(), error));
+        self.message = Some((message, error));
         self.serial += 1;
         self.leaving = false;
         let shown = Duration::from_millis(if error { 6000 } else { 2500 });

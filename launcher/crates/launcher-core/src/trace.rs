@@ -90,12 +90,17 @@ pub fn emit(topic: &str, data: impl FnOnce() -> Value) {
 pub fn is_failure(topic: &str, data: &Value) -> bool {
     let last = topic.rsplit('.').next().unwrap_or(topic);
     let present = |key: &str| data.get(key).is_some_and(|v| !v.is_null() && v != false);
-    matches!(last, "error" | "failed")
-        || present("error")
-        || present("warning")
-        || (topic == "job.finished" && data["state"] == "failed")
-        || (topic == "game.exit" && data["crashed"] == true)
-        || (last == "response" && data["status"].as_u64().is_some_and(|s| s >= 500))
+    match topic {
+        // a cancelled job has an error too, but isn't a failure
+        "job.finished" => data["state"] == "failed",
+        "game.exit" => data["crashed"] == true,
+        _ => {
+            matches!(last, "error" | "failed")
+                || present("error")
+                || present("warning")
+                || (last == "response" && data["status"].as_u64().is_some_and(|s| s >= 500))
+        }
+    }
 }
 
 /// Records what the launcher shows now, for `trace.snapshot`.
@@ -274,6 +279,7 @@ mod tests {
         }
         let fine = [
             ("job.finished", json!({ "state": "succeeded" })),
+            ("job.finished", json!({ "state": "cancelled", "error": { "code": -32800 } })),
             ("storage.move", json!({ "error": null, "done": 3 })),
             ("http.response", json!({ "status": 404 })),
             ("game.exit", json!({ "crashed": false, "code": 0 })),

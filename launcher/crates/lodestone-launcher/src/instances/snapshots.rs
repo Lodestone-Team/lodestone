@@ -479,6 +479,16 @@ impl Focusable for SnapshotDialog {
 }
 
 impl SnapshotDialog {
+    /// Shows why the work failed, and logs it: the dialog may be closed unread.
+    fn failed(&mut self, error: String) {
+        log::warn!(
+            "snapshot work ({:?}) for instance {:?} failed: {error}",
+            self.mode,
+            self.instance_id
+        );
+        self.state = State::Failed(error.into());
+    }
+
     pub fn new(
         instances: Entity<Instances>,
         request: SnapshotRequest,
@@ -558,7 +568,7 @@ impl SnapshotDialog {
                     this.update(cx, |this, cx| {
                         match result {
                             Ok((record, preview)) => this.loaded(record, preview, cx),
-                            Err(err) => this.state = State::Failed(err.to_string().into()),
+                            Err(err) => this.failed(err.to_string()),
                         }
                         cx.notify();
                     })
@@ -609,7 +619,7 @@ impl SnapshotDialog {
                                 this.import_free = free;
                                 this.state = State::Ready;
                             }
-                            Err(err) => this.state = State::Failed(err.to_string().into()),
+                            Err(err) => this.failed(err.to_string()),
                         }
                         cx.notify();
                     })
@@ -723,7 +733,7 @@ impl SnapshotDialog {
                         this.state = State::Ready;
                         done(this, value, cx);
                     }
-                    Err(err) => this.state = State::Failed(err.into()),
+                    Err(err) => this.failed(err),
                 }
                 cx.notify();
             })
@@ -957,7 +967,7 @@ impl SnapshotDialog {
             this.update(cx, |this, cx| {
                 match copied {
                     Ok(()) => cx.emit(SnapshotDismissed),
-                    Err(err) => this.state = State::Failed(err.to_string().into()),
+                    Err(err) => this.failed(err.to_string()),
                 }
                 cx.notify();
             })

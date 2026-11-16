@@ -484,7 +484,13 @@ impl WorldBackupDialog {
                         log::info!("World backup work stopped: {err}");
                         this.state = State::Failed(t(crate::i18n::WorldsMsg::Cancelled).into())
                     }
-                    Err(err) => this.state = State::Failed(err.into()),
+                    Err(err) => {
+                        log::warn!(
+                            "world backup work for instance {} failed: {err}",
+                            this.request.instance()
+                        );
+                        this.state = State::Failed(err.into());
+                    }
                 }
                 cx.notify();
             })

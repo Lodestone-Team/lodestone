@@ -54,6 +54,20 @@ pub enum ToastLevel {
     Error,
 }
 
+/// The log line for a toast: an error shown to the person is often the only sign of
+/// a failure, so it goes to the log file too (it is UI text, and scrubbed anyway).
+/// Other toasts aren't logged.
+pub fn log_line(error: bool, text: &str) -> Option<(log::Level, String)> {
+    error.then(|| (log::Level::Warn, format!("shown as an error: {text}")))
+}
+
+/// Logs a toast [`log_line`] picks, with the target `lodestone_ui::toast`.
+pub fn log_shown(error: bool, text: &str) {
+    if let Some((level, line)) = log_line(error, text) {
+        log::log!(target: "lodestone_ui::toast", level, "{line}");
+    }
+}
+
 impl ToastLevel {
     fn icon(self) -> Icon {
         match self {
@@ -194,6 +208,7 @@ impl Toasts {
 
     /// Shows `toast`, and returns its id (for [`Self::dismiss`]).
     pub fn push(&mut self, toast: Toast, cx: &mut Context<Self>) -> u64 {
+        log_shown(toast.level == ToastLevel::Error, &toast.text);
         if let Some(key) = &toast.key {
             self.shown
                 .retain(|shown| shown.toast.key.as_ref() != Some(key));
@@ -410,6 +425,15 @@ mod tests {
             toast,
             hovered: false,
         });
+    }
+
+    #[test]
+    fn only_error_toasts_are_logged() {
+        assert_eq!(
+            log_line(true, "Couldn't save the instance"),
+            Some((log::Level::Warn, "shown as an error: Couldn't save the instance".into()))
+        );
+        assert_eq!(log_line(false, "Saved"), None);
     }
 
     #[test]
