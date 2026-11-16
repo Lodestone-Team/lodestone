@@ -108,8 +108,8 @@ export const en = {
   'common.input.mustBeGreaterThan': 'Must be greater than {min}',
   /** {max} is the largest allowed value */
   'common.input.mustBeLessThan': 'Must be less than {max}',
-  /** a combo box option that adds what the user typed, {query} */
-  'common.combo.addCustom': 'Add “{query}”',
+  /** {query}: what the person typed, shown in mono */
+  'common.combo.addCustom': 'Add {query}',
   /** a combo box search that matches no option */
   'common.combo.nothingFound': 'Nothing found.',
   // Table
@@ -1125,8 +1125,8 @@ export const en = {
   'create.validation.oneOf': '{name} must be one of the available options',
 
   // FormComboField: the options list of a field
-  /** an option that adds what the user typed; {query} is that text */
-  'create.combo.add': 'Add “{query}”',
+  /** {query}: what the person typed, shown in mono */
+  'create.combo.add': 'Add {query}',
   'create.combo.nothingFound': 'Nothing found.',
 
   // GameTypeSelectForm: the first step, picking a game
@@ -1174,9 +1174,6 @@ export const en = {
   'create.modpack.versionUploaded': 'The uploaded modpack.',
   'create.modpack.versionDescription': 'Pick the modpack version to install.',
   'create.modpack.downloading': 'Downloading the modpack file to read it…',
-  /** {size}: the file's size, e.g. "12.3 MB" */
-  'create.modpack.downloadingSize':
-    'Downloading the modpack file ({size}) to read it…',
   /** "Create Server" is the label of the last step's button (create.createServer) */
   'create.modpack.versionHint':
     'Select a version to see what it contains. Lodestone downloads its modpack file to read it; nothing is installed until you click Create Server.',
@@ -1188,22 +1185,13 @@ export const en = {
   'create.modpack.noVersions': 'This modpack has no versions.',
   'create.modpack.select': 'Select',
   'create.modpack.selected': 'Selected',
-  'create.modpack.showMore': {
-    one: 'Show more ({count} left)',
-    other: 'Show more ({count} left)',
-  },
   // the summary of the picked version
-  'create.modpack.summary.modpack': 'Modpack',
-  'create.modpack.summary.loader': 'Loader',
-  'create.modpack.summary.serverFiles': 'Server files',
-  /** {count}: the number of files; {size}: their total size, e.g. "120 MB" */
-  'create.modpack.summary.serverFilesValue': '{count} ({size} to download)',
   /** {reason}: the core's explanation */
   'create.modpack.unsupported': 'This modpack can’t be used: {reason}',
   // toasts and errors
   /** {error}: the core's error message */
   'create.modpack.inspectFailed': 'Failed to read the modpack: {error}',
-  /** {type}: the Modrinth project type as Modrinth names it (mod, resourcepack, shader...) */
+  /** {type}: a project type word (mods.projectType.*) */
   'create.modpack.notAModpack': 'That is a {type}, not a modpack',
   'create.modpack.chooseMrpack': 'Choose a .mrpack file',
   'create.modpack.noUploadId': 'The core returned no upload id',

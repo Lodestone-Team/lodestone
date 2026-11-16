@@ -96,7 +96,7 @@ export const zhHant: Messages = {
   'common.input.mustBeNumber': '必須是數字',
   'common.input.mustBeGreaterThan': '必須大於 {min}',
   'common.input.mustBeLessThan': '必須小於 {max}',
-  'common.combo.addCustom': '新增「{query}」',
+  'common.combo.addCustom': '新增 {query}',
   'common.combo.nothingFound': '找不到結果。',
   // Table
   'common.table.noData': '目前沒有資料',
@@ -887,7 +887,7 @@ export const zhHant: Messages = {
   'create.validation.oneOf': '「{name}」必須是可用的選項之一',
 
   // FormComboField: the options list of a field
-  'create.combo.add': '新增「{query}」',
+  'create.combo.add': '新增 {query}',
   'create.combo.nothingFound': '找不到任何結果',
 
   // GameTypeSelectForm: the first step, picking a game
@@ -928,7 +928,6 @@ export const zhHant: Messages = {
   'create.modpack.versionUploaded': '已上傳的模組包。',
   'create.modpack.versionDescription': '選擇要安裝的模組包版本。',
   'create.modpack.downloading': '正在下載模組包檔案以讀取其內容…',
-  'create.modpack.downloadingSize': '正在下載模組包檔案（{size}）以讀取其內容…',
   'create.modpack.versionHint':
     '選擇一個版本以查看其內容。Lodestone 會下載該版本的模組包檔案來讀取；在你點擊「建立伺服器」之前，不會安裝任何內容。',
   'create.modpack.settingsTitle': '伺服器設定',
@@ -938,18 +937,11 @@ export const zhHant: Messages = {
   'create.modpack.noVersions': '此模組包沒有任何版本。',
   'create.modpack.select': '選擇',
   'create.modpack.selected': '已選擇',
-  'create.modpack.showMore': {
-    other: '顯示更多（還有 {count} 個）',
-  },
   // the summary of the picked version
-  'create.modpack.summary.modpack': '模組包',
-  'create.modpack.summary.loader': '載入器',
-  'create.modpack.summary.serverFiles': '伺服器檔案',
-  'create.modpack.summary.serverFilesValue': '{count} 個（需下載 {size}）',
   'create.modpack.unsupported': '無法使用此模組包：{reason}',
   // toasts and errors
   'create.modpack.inspectFailed': '無法讀取模組包：{error}',
-  'create.modpack.notAModpack': '這是 {type}，不是模組包',
+  'create.modpack.notAModpack': '這是{type}，不是模組包',
   'create.modpack.chooseMrpack': '請選擇 .mrpack 檔案',
   'create.modpack.noUploadId': '核心未傳回上傳 ID',
   'create.modpack.uploadFailed': '無法上傳模組包：{error}',

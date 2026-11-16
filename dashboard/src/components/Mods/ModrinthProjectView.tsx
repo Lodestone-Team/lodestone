@@ -28,7 +28,6 @@ import {
 } from 'data/Mods';
 import { formatCompact, t as translate, useI18n, useT } from 'i18n';
 import {
-  CountBadge,
   KindIcon,
   Num,
   type ObjectKind,
@@ -61,6 +60,7 @@ import {
   ClientSideLabel,
   DisabledTooltip,
   InstallResult,
+  GameVersions,
   ModIcon,
   VersionTypeLabel,
   WithTooltip,
@@ -232,22 +232,6 @@ const Gallery = ({ project }: { project: ModrinthProject }) => {
         </a>
       ))}
     </div>
-  );
-};
-
-/** Up to 3 Minecraft versions as tags, then "+N" with the rest in its title */
-const GameVersions = ({ versions }: { versions: string[] }) => {
-  const shown = versions.slice(0, 3);
-  const rest = versions.slice(3);
-  return (
-    <span className="inline-flex min-w-0 items-center gap-1">
-      {shown.map((version) => (
-        <VersionTag key={version} version={version} max={12} />
-      ))}
-      {rest.length > 0 && (
-        <CountBadge count={rest.length} plus title={rest.join('\n')} />
-      )}
-    </span>
   );
 };
 

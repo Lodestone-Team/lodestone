@@ -7,7 +7,7 @@ import { ModrinthSearchHit } from 'bindings/ModrinthSearchHit';
 import { ModrinthVersionType } from 'bindings/ModrinthVersionType';
 import Label, { LabelColor } from 'components/Atoms/Label';
 import { formatCompact, useT } from 'i18n';
-import { MonoText, Num, VersionTag } from 'components/Atoms/Values';
+import { CountBadge, MonoText, Num, VersionTag } from 'components/Atoms/Values';
 import { Fact, FactLine, NameList } from 'components/Values';
 import Tooltip from 'rc-tooltip';
 import { ReactNode, useState } from 'react';
@@ -216,6 +216,22 @@ export const VersionTypeLabel = ({ type }: { type: ModrinthVersionType }) => {
     >
       {labelKey ? t(labelKey) : type}
     </Label>
+  );
+};
+
+export /** Up to 3 Minecraft versions as tags, then "+N" with the rest in its title */
+const GameVersions = ({ versions }: { versions: string[] }) => {
+  const shown = versions.slice(0, 3);
+  const rest = versions.slice(3);
+  return (
+    <span className="inline-flex min-w-0 items-center gap-1">
+      {shown.map((version) => (
+        <VersionTag key={version} version={version} max={12} />
+      ))}
+      {rest.length > 0 && (
+        <CountBadge count={rest.length} plus title={rest.join('\n')} />
+      )}
+    </span>
   );
 };
 

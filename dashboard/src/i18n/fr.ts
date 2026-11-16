@@ -98,7 +98,7 @@ export const fr: Messages = {
   'common.input.mustBeNumber': 'Doit être un nombre',
   'common.input.mustBeGreaterThan': 'Doit être supérieur à {min}',
   'common.input.mustBeLessThan': 'Doit être inférieur à {max}',
-  'common.combo.addCustom': 'Ajouter « {query} »',
+  'common.combo.addCustom': 'Ajouter {query}',
   'common.combo.nothingFound': 'Aucun résultat.',
   // Table
   'common.table.noData': 'Aucune donnée disponible pour le moment',
@@ -999,7 +999,7 @@ export const fr: Messages = {
     'Le champ {name} doit correspondre à l’une des options proposées',
 
   // FormComboField: the options list of a field
-  'create.combo.add': 'Ajouter « {query} »',
+  'create.combo.add': 'Ajouter {query}',
   'create.combo.nothingFound': 'Aucun résultat.',
 
   // GameTypeSelectForm: the first step, picking a game
@@ -1045,8 +1045,6 @@ export const fr: Messages = {
     'Choisissez la version du modpack à installer.',
   'create.modpack.downloading':
     'Téléchargement du fichier du modpack pour le lire…',
-  'create.modpack.downloadingSize':
-    'Téléchargement du fichier du modpack ({size}) pour le lire…',
   'create.modpack.versionHint':
     'Choisissez une version pour voir son contenu. Lodestone télécharge le fichier du modpack pour le lire ; rien n’est installé tant que vous n’avez pas cliqué sur Créer le serveur.',
   'create.modpack.settingsTitle': 'Paramètres du serveur',
@@ -1057,15 +1055,7 @@ export const fr: Messages = {
   'create.modpack.noVersions': 'Ce modpack n’a aucune version.',
   'create.modpack.select': 'Choisir',
   'create.modpack.selected': 'Choisie',
-  'create.modpack.showMore': {
-    one: 'Afficher plus ({count} restante)',
-    other: 'Afficher plus ({count} restantes)',
-  },
   // the summary of the picked version
-  'create.modpack.summary.modpack': 'Modpack',
-  'create.modpack.summary.loader': 'Chargeur',
-  'create.modpack.summary.serverFiles': 'Fichiers du serveur',
-  'create.modpack.summary.serverFilesValue': '{count} ({size} à télécharger)',
   'create.modpack.unsupported':
     'Ce modpack ne peut pas être utilisé : {reason}',
   // toasts and errors

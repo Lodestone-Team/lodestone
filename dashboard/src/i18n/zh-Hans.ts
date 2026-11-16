@@ -96,7 +96,7 @@ export const zhHans: Messages = {
   'common.input.mustBeNumber': '必须是数字',
   'common.input.mustBeGreaterThan': '必须大于 {min}',
   'common.input.mustBeLessThan': '必须小于 {max}',
-  'common.combo.addCustom': '添加“{query}”',
+  'common.combo.addCustom': '添加 {query}',
   'common.combo.nothingFound': '未找到结果。',
   // Table
   'common.table.noData': '暂无数据',
@@ -883,7 +883,7 @@ export const zhHans: Messages = {
   'create.validation.oneOf': '“{name}”必须是可用选项之一',
 
   // FormComboField: the options list of a field
-  'create.combo.add': '添加“{query}”',
+  'create.combo.add': '添加 {query}',
   'create.combo.nothingFound': '未找到任何结果',
 
   // GameTypeSelectForm: the first step, picking a game
@@ -924,7 +924,6 @@ export const zhHans: Messages = {
   'create.modpack.versionUploaded': '已上传的整合包。',
   'create.modpack.versionDescription': '选择要安装的整合包版本。',
   'create.modpack.downloading': '正在下载整合包文件以读取其内容…',
-  'create.modpack.downloadingSize': '正在下载整合包文件（{size}）以读取其内容…',
   'create.modpack.versionHint':
     '选择一个版本以查看其内容。Lodestone 会下载该版本的整合包文件进行读取；在你点击“创建服务器”之前，不会安装任何内容。',
   'create.modpack.settingsTitle': '服务器设置',
@@ -934,18 +933,11 @@ export const zhHans: Messages = {
   'create.modpack.noVersions': '此整合包没有任何版本。',
   'create.modpack.select': '选择',
   'create.modpack.selected': '已选择',
-  'create.modpack.showMore': {
-    other: '显示更多（还剩 {count} 个）',
-  },
   // the summary of the picked version
-  'create.modpack.summary.modpack': '整合包',
-  'create.modpack.summary.loader': '加载器',
-  'create.modpack.summary.serverFiles': '服务器文件',
-  'create.modpack.summary.serverFilesValue': '{count} 个（需下载 {size}）',
   'create.modpack.unsupported': '无法使用此整合包：{reason}',
   // toasts and errors
   'create.modpack.inspectFailed': '读取整合包失败：{error}',
-  'create.modpack.notAModpack': '这是 {type}，不是整合包',
+  'create.modpack.notAModpack': '这是{type}，不是整合包',
   'create.modpack.chooseMrpack': '请选择 .mrpack 文件',
   'create.modpack.noUploadId': '核心未返回上传 ID',
   'create.modpack.uploadFailed': '上传整合包失败：{error}',
