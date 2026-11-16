@@ -56,7 +56,7 @@ import {
   installedModVersion,
   modrinthProjectUrl,
 } from 'utils/mods';
-import { ApiError, errorToString } from 'utils/util';
+import { ApiError, cn, errorToString } from 'utils/util';
 import {
   ClientRequirementLabel,
   DisabledTooltip,
@@ -217,25 +217,27 @@ const ModRow = ({
     <div className="flex flex-row items-center gap-3 bg-gray-800 px-4 py-3">
       <ModIcon url={mod.modrinth?.icon_url} />
       <div className="flex min-w-0 grow flex-col">
-        <div className="flex min-w-0 flex-row items-center gap-1.5">
+        {/* clipped across only, so the link's focus ring still shows */}
+        <div className="flex min-w-0 flex-row items-center gap-1.5 overflow-x-clip">
           <span
-            className={
-              mod.enabled
-                ? 'truncate text-medium font-bold text-gray-300'
-                : 'truncate text-medium font-bold text-white/50'
-            }
+            className={cn(
+              // the name keeps some room next to an update's two tags
+              'min-w-20 truncate text-medium font-bold',
+              mod.enabled ? 'text-gray-300' : 'text-white/50'
+            )}
           >
             {name}
           </span>
           {version &&
             (update ? (
               <DiffValue
-                from={<VersionTag version={version} tone="from" max={18} />}
+                className="shrink-0"
+                from={<VersionTag version={version} tone="from" max={14} />}
                 to={
                   <VersionTag
                     version={update.version_number}
                     tone="to"
-                    max={18}
+                    max={14}
                   />
                 }
               />
@@ -273,7 +275,7 @@ const ModRow = ({
           <MonoText
             text={mod.file_name}
             max={44}
-            className="max-w-[50%] text-white/50"
+            className="max-w-[60%] text-white/50 @2xl:max-w-full"
           />
           <Fact label={t('values.key.size')} className="@2xl:hidden">
             <Bytes bytes={mod.size} />

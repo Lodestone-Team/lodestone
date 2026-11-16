@@ -72,7 +72,8 @@ export function FactLine({
   return (
     <div
       className={cn(
-        'flex h-lh min-w-0 flex-wrap items-center gap-x-3 overflow-hidden text-small text-gray-400',
+        // nowrap: a long value never breaks at its hyphens onto the hidden line
+        'flex h-lh min-w-0 flex-wrap items-center gap-x-3 overflow-hidden text-small whitespace-nowrap text-gray-400',
         className
       )}
       title={title}

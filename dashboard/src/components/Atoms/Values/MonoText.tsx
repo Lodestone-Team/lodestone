@@ -29,7 +29,10 @@ export function MonoText({
     <span
       className={cn(
         'font-mono',
-        truncate === 'end' && 'inline-block max-w-full truncate align-bottom',
+        truncate === 'end'
+          ? 'inline-block max-w-full truncate align-bottom'
+          : // a backstop where the characters kept are still too wide (a flex item)
+            'min-w-0 truncate',
         className
       )}
       title={text}
