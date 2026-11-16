@@ -1126,8 +1126,10 @@ Snapshots' "World backups" group and its dialog) and the Worlds tab.
   Worlds tab's "Back up", `world_backups.create`): under the instance's record lock in a
   counted write of the image store, refused while a game session of the instance runs or
   the game has that world open (its `session.lock`, `worlds::open_in_game`), for a folder
-  without `level.dat` (no restore could take it), and without room for the world's size
-  and 1 GiB on the backups' disk. Cancel, a session that begins or the game opening the
+  without `level.dat` (no restore could take it), for a world over the limits a restore's
+  zip check reads (more than 500,000 entries, folders and the top folder counted, or 64
+  GiB of files: `ZipPlan::within`), and without room for the world's size and 1 GiB on
+  the backups' disk. Cancel, a session that begins or the game opening the
   world stops it at the next file or 8 MiB of a large one, and leaves nothing.
 - **Restoring one in place** (`RestoreTo::InPlace`, "Restore…" after a confirmation,
   `world_backups.restore` mode `replace` with confirm): as a snapshot's restore, under the
@@ -1138,7 +1140,9 @@ Snapshots' "World backups" group and its dialog) and the Worlds tab.
   written (`worlds::zip::check`, shape `OneWorldFolder`), then what the swap would refuse
   (from the list of what the safety backup will zip, `worlds::zip::plan`), then room: the
   zip's unpacked size plus the world's size plus 1 GiB when the instance and the backups
-  share a disk (the usual case), else each with 1 GiB on its own disk. Then a **safety
+  share a disk (the usual case), else each with 1 GiB on its own disk; before the room, a
+  world grown past the limits a backup is made within is refused (its safety backup could
+  never be restored; restoring as a new world needs none). Then a **safety
   world backup** of the world as it is ("Before restoring “<name>”", the restored name cut
   so the whole fits 200 characters; none when the world isn't there any more), refused
   when it fails or is cancelled. The zip is unpacked into
@@ -1179,7 +1183,7 @@ Snapshots' "World backups" group and its dialog) and the Worlds tab.
   size plus one byte (a larger one refuses the zip), asks Cancel before each entry and
   every 8 MiB of a large one, and
   removes what it unpacked on any failure. What it unpacks is made durable as one batch
-  (`lodestone_image::store::durable`: each file and folder handed to the drive, then one
+  (`lodestone_image::store::flush`: each file and folder handed to the drive, then one
   flush of the drive's cache), not with a cache flush per file.
 - **The window.** Settings › Snapshots is one section (one entry in the list beside the
   page) with two groups, each under its own heading: "World backups" ("Back up a world…";
@@ -4261,7 +4265,7 @@ developer's brief left them open. The developer decided: world backups are manua
   whose safety backup runs first. Cancel is asked
   between 8 MiB chunks of a large file too. Files are opened without following links and
   must be plain files. Unpacking makes its files durable as one batch
-  (`lodestone_image::store::durable`) rather than with a drive cache flush per file
+  (`lodestone_image::store::flush`) rather than with a drive cache flush per file
   (`F_FULLFSYNC` on macOS, about 6 ms each), which also speeds up world imports.
 - **Crashes.** Every `.part` and every temp file of a `.json` being written
   (`storage::TEMP_PREFIX`) is deleted by the startup sweep (it runs under the record
@@ -4351,6 +4355,17 @@ developer's brief left them open. The developer decided: world backups are manua
   `deleted`, `deleted_bytes`), and the world backups folder isn't "other".
 - **Test hook.** `WorldBackups::before_swap` (tests only) runs just before an in-place
   restore's swap, to write into the world meanwhile and check what is kept aside.
-- **The shared crate** gains only `lodestone_image::store::durable` (`write_out`,
+- **Only within the limits a restore reads.** A world backup is made only when the zip it
+  would write passes the zip check a restore runs first: at most 500,000 entries (the top
+  folder, every folder and every file) and 64 GiB of files, compared with what
+  `worlds::zip::plan` lists (`ZipPlan::within`) before anything is written. Otherwise the
+  backup would be listed like any other and refused the day it is needed. A larger world
+  is refused with a message suggesting a snapshot. An in-place restore over a world past
+  those limits is refused before anything changes (its safety backup is checked the same
+  way and could never be restored), naming restore as a new world, which needs no safety
+  backup. Restores check zips against the same limits (`WorldBackups::limits`, smaller in
+  tests through `fake_limits`).
+- **The shared crate** gains only `lodestone_image::store::flush` (`write_out`,
   `write_out_dir`, `full_flush`: public wrappers of the store's batch flush), an additive
-  change.
+  change. The Host's world backups add the same module, word for word, so both branches
+  share one.

@@ -200,6 +200,25 @@ impl ZipPlan {
             .map(|e| e.size)
             .fold(0, u64::saturating_add)
     }
+
+    /// Whether the zip [`write_planned`] makes of it passes [`check`] with `limits`, which
+    /// counts every entry (the top folder, each folder and each file) and adds up the
+    /// files' sizes. A world backup is only made within the limits its restore reads, or
+    /// it would be listed like any other and refused the day it is needed. `Err` says
+    /// which limit the world is over, in words that follow "it has" or "its files are".
+    pub fn within(&self, limits: Limits) -> Result<(), String> {
+        // `+ 1`: the top folder's own entry.
+        if self.entries.len().saturating_add(1) > limits.max_entries {
+            return Err(format!(
+                "more than {} files and folders",
+                limits.max_entries
+            ));
+        }
+        if self.bytes() > limits.max_bytes {
+            return Err(format!("more than {} GiB of files", limits.max_bytes >> 30));
+        }
+        Ok(())
+    }
 }
 
 /// What a zip of the world folder `dir`, its files under `prefix/`, takes. Links are never
@@ -885,7 +904,7 @@ fn check_with<R: io::Read + io::Seek>(
 /// Unpacks the world of the checked zip at `path` into `dest`, a new folder (it must not
 /// exist; its parent must). Each file is created new (never over another) and copied up
 /// to its stated size plus one byte (one that is larger refuses the zip). Everything is
-/// made durable as one batch ([`lodestone_image::store::durable`]): each file and folder
+/// made durable as one batch ([`lodestone_image::store::flush`]): each file and folder
 /// handed to the drive as it is written, then one flush of the drive's cache at the end,
 /// rather than a flush of the cache per file. Cancel is asked before each entry and every
 /// 8 MiB of a large one. On any failure `dest` is removed. Returns the files placed, relative to `dest` with `/`.
@@ -985,7 +1004,7 @@ pub fn extract_into(
                     planned.relative
                 )));
             }
-            lodestone_image::store::durable::write_out(&out).map_err(io_error(&target))?;
+            lodestone_image::store::flush::write_out(&out).map_err(io_error(&target))?;
             budget -= copied;
             done.files_done += 1;
             done.bytes_done += copied;
@@ -999,12 +1018,12 @@ pub fn extract_into(
         }
         // A folder made inside another is listed in it: the deepest first.
         for folder in folders.iter().rev() {
-            lodestone_image::store::durable::write_out_dir(folder).map_err(io_error(folder))?;
+            lodestone_image::store::flush::write_out_dir(folder).map_err(io_error(folder))?;
         }
         if let Some(parent) = dest.parent() {
-            lodestone_image::store::durable::write_out_dir(parent).map_err(io_error(parent))?;
+            lodestone_image::store::flush::write_out_dir(parent).map_err(io_error(parent))?;
         }
-        lodestone_image::store::durable::full_flush(dest).map_err(io_error(dest))?;
+        lodestone_image::store::flush::full_flush(dest).map_err(io_error(dest))?;
         Ok(placed)
     })();
     if result.is_err() {
@@ -1388,6 +1407,53 @@ mod tests {
         let err = check(&path, Shape::OneWorldFolder, small).unwrap_err();
         assert!(err.to_string().contains("larger than"), "{err}");
         assert!(check(&path, Shape::OneWorldFolder, Limits::default()).is_ok());
+    }
+
+    /// A plan is within limits exactly when the zip written from it passes the check with
+    /// them: a world backup refused for its size is never one a restore would take, and
+    /// one made is never refused by its restore.
+    #[test]
+    fn a_plan_within_limits_is_a_zip_the_check_takes() {
+        let temp = tempfile::tempdir().unwrap();
+        let src = temp.path().join("World");
+        world(&src);
+        fs::create_dir_all(src.join("data/empty")).unwrap();
+        fs::write(src.join("data/a.dat"), vec![1u8; 3000]).unwrap();
+        let planned = plan(&src, "World").unwrap();
+        let out = temp.path().join("w.zip");
+        write_planned(
+            &src,
+            "World",
+            planned.clone(),
+            &out,
+            &Progress::default(),
+            &|| Ok(()),
+        )
+        .unwrap();
+        let entries = zip::ZipArchive::new(File::open(&out).unwrap())
+            .unwrap()
+            .len();
+        let bytes = planned.bytes();
+        let exact = Limits {
+            max_entries: entries,
+            max_bytes: bytes,
+        };
+        let one_entry_short = Limits {
+            max_entries: entries - 1,
+            ..exact
+        };
+        let one_byte_short = Limits {
+            max_bytes: bytes - 1,
+            ..exact
+        };
+        assert_eq!(planned.within(exact), Ok(()));
+        check(&out, Shape::OneWorldFolder, exact).unwrap();
+        let err = planned.within(one_entry_short).unwrap_err();
+        assert!(err.contains("files and folders"), "{err}");
+        assert!(check(&out, Shape::OneWorldFolder, one_entry_short).is_err());
+        let err = planned.within(one_byte_short).unwrap_err();
+        assert!(err.contains("GiB of files"), "{err}");
+        assert!(check(&out, Shape::OneWorldFolder, one_byte_short).is_err());
     }
 
     /// Rewrites the stated unpacked size of the entry `name` in both its headers.

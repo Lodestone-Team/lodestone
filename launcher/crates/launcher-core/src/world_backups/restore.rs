@@ -39,7 +39,7 @@ use crate::content::InstanceDirs;
 use crate::game::download::Progress;
 use crate::images::swap::{self, STAGING_PREFIX, Staged, SwapError};
 use crate::images::{Cancel, labels};
-use crate::worlds::{self, Limits, Shape};
+use crate::worlds::{self, Shape};
 
 /// Where a restore puts the world.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -110,7 +110,7 @@ impl WorldBackups {
             if worlds::open_in_game(&saves, None).is_some() {
                 return Err(WorldBackupError::Running);
             }
-            let checked = worlds::zip::check(&found.zip, Shape::OneWorldFolder, Limits::default())?;
+            let checked = worlds::zip::check(&found.zip, Shape::OneWorldFolder, self.limits())?;
             let world = saves.join(&folder);
 
             let owned_path = format!("{CLIENT_GAME_FOLDER}/saves/{folder}");
@@ -134,6 +134,14 @@ impl WorldBackups {
             } else {
                 None
             };
+            // A world too large for a world backup can't have its safety backup made (its
+            // zip would be one no restore takes), so it isn't restored over: nothing has
+            // changed yet, and restoring as a new world needs no safety backup.
+            if let Some(over) = plan.as_ref().and_then(|p| p.within(self.limits()).err()) {
+                return Err(WorldBackupError::Invalid(format!(
+                    "The world as it is now is too large for the world backup Lodestone makes before restoring over it: it has {over}. Restore as a new world instead."
+                )));
+            }
             let planned: HashSet<String> =
                 plan.iter().flat_map(|p| p.files()).map(in_world).collect();
             // What the swap refuses, before the safety backup is made or anything unpacked;
@@ -293,7 +301,7 @@ impl WorldBackups {
             let found = self.find(instance, id)?;
             let record = &found.backup;
             worlds::zip::check_world_folder(&record.folder)?;
-            let checked = worlds::zip::check(&found.zip, Shape::OneWorldFolder, Limits::default())?;
+            let checked = worlds::zip::check(&found.zip, Shape::OneWorldFolder, self.limits())?;
             let saves = worlds::saves_dir(&InstanceDirs::new(&locked.dir));
             fs::create_dir_all(&saves)
                 .map_err(WorldBackupError::io("Failed to create the saves folder"))?;

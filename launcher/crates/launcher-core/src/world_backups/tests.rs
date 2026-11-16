@@ -280,6 +280,68 @@ fn a_backup_is_refused_while_the_game_runs_without_room_or_during_a_data_move() 
     s.back_up("World", None);
 }
 
+/// A world over the limits a restore reads gets no backup, which would be listed like
+/// any other and refused the day it's needed; one exactly at them is made and restores.
+#[test]
+fn a_backup_is_only_made_within_the_limits_its_restore_reads() {
+    let s = Setup::new();
+    let planned = worlds::zip::plan(&s.game("saves/World"), "World").unwrap();
+    // The top folder, `level.dat`, `region/` and its file.
+    let exact = worlds::zip::Limits {
+        max_entries: 4,
+        max_bytes: planned.bytes(),
+    };
+    for over in [
+        worlds::zip::Limits {
+            max_entries: 3,
+            ..exact
+        },
+        worlds::zip::Limits {
+            max_bytes: planned.bytes() - 1,
+            ..exact
+        },
+    ] {
+        *s.backups.fake_limits.lock().unwrap() = Some(over);
+        let err = s
+            .backups
+            .create(&s.id, "World", None, &Progress::default(), NEVER)
+            .unwrap_err();
+        assert!(
+            matches!(&err, WorldBackupError::Invalid(why) if why.contains("too large")),
+            "{err:?}"
+        );
+        assert!(s.list().is_empty());
+        assert!(files(&s.backup_dir()).is_empty(), "nothing is left behind");
+    }
+    *s.backups.fake_limits.lock().unwrap() = Some(exact);
+    let backup = s.back_up("World", None);
+    s.restore(&backup.id, RestoreTo::NewWorld).unwrap();
+}
+
+/// A world grown past the limits since its backup isn't restored over: its safety backup
+/// would be one no restore takes. Nothing changes; restoring as a new world still works.
+#[test]
+fn a_world_too_large_for_its_safety_backup_is_not_restored_over() {
+    let s = Setup::new();
+    let backup = s.back_up("World", Some("Base"));
+    let planned = worlds::zip::plan(&s.game("saves/World"), "World").unwrap();
+    *s.backups.fake_limits.lock().unwrap() = Some(worlds::zip::Limits {
+        max_entries: 4,
+        max_bytes: planned.bytes(),
+    });
+    s.write("saves/World/region/r.1.0.mca", b"grown since");
+    let before = s.world_files("World");
+    let err = s.restore(&backup.id, RestoreTo::InPlace).unwrap_err();
+    assert!(
+        matches!(&err, WorldBackupError::Invalid(why) if why.contains("as a new world")),
+        "{err:?}"
+    );
+    assert_eq!(s.world_files("World"), before);
+    assert_eq!(s.list().len(), 1, "no safety backup was made");
+    let restored = s.restore(&backup.id, RestoreTo::NewWorld).unwrap();
+    assert!(restored.safety.is_none());
+}
+
 /// Holds `lock` locked as the game does, from another process, until dropped.
 #[cfg(unix)]
 struct HeldLock(

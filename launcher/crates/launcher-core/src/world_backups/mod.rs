@@ -218,6 +218,9 @@ pub struct WorldBackups {
     /// The free space tests pretend the disks have.
     #[cfg(test)]
     pub(crate) fake_free: Mutex<Option<u64>>,
+    /// The zip limits tests use in place of [`worlds::zip::Limits::default`].
+    #[cfg(test)]
+    pub(crate) fake_limits: Mutex<Option<worlds::zip::Limits>>,
     /// Failures the tests make the next in-place restore's swap simulate.
     #[cfg(test)]
     pub(crate) faults: Mutex<Option<crate::images::swap::Faults>>,
@@ -316,6 +319,8 @@ impl WorldBackups {
             #[cfg(test)]
             fake_free: Mutex::default(),
             #[cfg(test)]
+            fake_limits: Mutex::default(),
+            #[cfg(test)]
             faults: Mutex::default(),
             #[cfg(test)]
             before_swap: Mutex::default(),
@@ -358,6 +363,16 @@ impl WorldBackups {
 
     fn check_room(&self, dir: &Path, bytes: u64) -> Result<(), WorldBackupError> {
         Ok(worlds::check_room(dir, bytes, self.free(dir))?)
+    }
+
+    /// The limits a restore checks a zip against, and so the limits a backup is made
+    /// within ([`worlds::zip::ZipPlan::within`]); smaller in tests.
+    pub(crate) fn limits(&self) -> worlds::zip::Limits {
+        #[cfg(test)]
+        if let Some(limits) = *self.fake_limits.lock().unwrap_or_else(|e| e.into_inner()) {
+            return limits;
+        }
+        worlds::zip::Limits::default()
     }
 
     /// `<root>/<instance>/<folder>/`, for an id the store can name and a plain folder.
@@ -509,6 +524,14 @@ impl WorldBackups {
             Some(plan) => plan,
             None => worlds::zip::plan(&world, folder)?,
         };
+        // Within what a restore reads, or the backup would be listed like any other and
+        // refused the day it's needed. The safety backup before a restore is checked
+        // before that restore starts, with words of its own.
+        plan.within(self.limits()).map_err(|over| {
+            WorldBackupError::Invalid(format!(
+                "That world is too large for a world backup Lodestone can restore: it has {over}. Take a snapshot instead."
+            ))
+        })?;
         self.check_room(&dir, plan.bytes())?;
         fs::create_dir_all(&dir).map_err(WorldBackupError::io(format!(
             "Failed to create {}",
