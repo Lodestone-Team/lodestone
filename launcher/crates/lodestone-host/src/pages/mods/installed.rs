@@ -798,15 +798,10 @@ impl ModsPage {
                                     &modrinth.slug,
                                 );
                                 this.child(
-                                    // the button is taller than the line: don't push it apart
-                                    div().flex_none().my(px(-6.)).child(
-                                        IconButton::new(
-                                            id("modrinth"),
-                                            Icon::ArrowUpRightFromSquare,
-                                        )
+                                    IconButton::new(id("modrinth"), Icon::ArrowUpRightFromSquare)
+                                        .small()
                                         .label(t(M::ModsViewOnModrinth))
                                         .on_click(move |_, _, cx| cx.open_url(&url)),
-                                    ),
                                 )
                             }),
                     )
