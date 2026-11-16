@@ -16,10 +16,10 @@ pub fn text(message: M) -> &'static str {
         M::DangerZoneLead => "這些設定可能對你的伺服器造成無法復原的損害。",
         M::DeleteServer => "刪除伺服器",
         M::DeleteServerHint => "永久刪除此伺服器及其資料",
-        M::DeleteTitle => "刪除「{name}」",
+        M::DeleteTitle => "刪除伺服器？",
         M::DeleteConfirm => "我了解，刪除此伺服器",
         M::DeleteCannotUndo => "此動作無法復原。",
-        M::DeleteWarning => "此實例的設定和世界將被永久刪除。繼續之前，請備份所有重要資料。",
+        M::DeleteWarning => "它的設定和世界將被永久刪除。繼續之前請備份重要資料。",
         M::DeleteBackupsToo => "它的備份也會被刪除。",
         M::Deleting => "正在刪除 {name}…",
         M::CommandLineReadOnly => "此核心已停用程式碼執行，此設定為唯讀。",
@@ -39,7 +39,7 @@ pub fn text(message: M) -> &'static str {
         M::PackSha1Hint => "讓玩家可以驗證下載內容並快取資源包。",
         M::PackSha1Error => "SHA-1 應為 40 個十六進位字元。",
         M::PackCompute => "計算",
-        M::PackDownloaded => "已下載 {size}。",
+        M::PackDownloaded => "已下載",
         M::PackRequired => "強制使用資源包",
         M::PackRequiredHint => "拒絕資源包的玩家會被中斷連線。",
         M::PackPrompt => "提示訊息",
@@ -61,7 +61,7 @@ pub fn text(message: M) -> &'static str {
         M::EulaAcceptFailed => "無法接受 Minecraft EULA：{error}",
         M::EulaNoPermission => "你需要啟動此伺服器的權限才能接受。",
         M::EulaDialogTitle => "接受 Minecraft EULA",
-        M::EulaDialogBody => "你同意 Minecraft EULA 後，{name} 才能啟動。你同意嗎？",
+        M::EulaDialogBody => "你同意 Minecraft 終端使用者授權合約後，此伺服器才會啟動。你同意嗎？",
         M::EulaAcceptAndStart => "我同意，啟動伺服器",
         M::EventLogsLead => "此伺服器發生的事件，最新的在前。核心會保留最近的事件。",
         M::EventLogsEmpty => "還沒有任何事件",
@@ -229,13 +229,11 @@ pub fn text(message: M) -> &'static str {
             "你的好友名單由這台電腦上的 Lodestone Launcher 保存。在那裡加入好友後，即可在這裡與他們分享此伺服器。"
         }
         M::FriendsLoading => "正在載入好友…",
-        M::FriendsShareWith => "與 {name} 分享此伺服器",
+        M::FriendsShareWith => "分享此伺服器",
         M::FriendsNotVerified => "未驗證",
-        M::FriendsMinecraft => {
-            "Minecraft：{names}。如果伺服器開啟了白名單，分享時會把他們加入白名單。"
-        }
-        M::FriendsWhitelisted => "已將 {names} 加入伺服器白名單",
-        M::FriendsWhitelistFailed => "已與 {name} 分享，但無法把對方加入伺服器白名單：{error}",
+        M::FriendsMinecraft => "分享時會加入白名單（如果伺服器開啟了白名單）。",
+        M::FriendsWhitelisted => "已加入伺服器白名單",
+        M::FriendsWhitelistFailed => "無法將其加入伺服器白名單：{error}",
         M::FriendsConnected => "已連線",
         M::FriendsSyncFailed => "無法將好友名單同步到此核心：{error}",
         M::FriendsOpenFailed => "無法開啟你的好友名單：{error}",
@@ -253,7 +251,7 @@ pub fn text(message: M) -> &'static str {
             "它的核心或好友名單在測試資料夾中，而另一個不在，因此你真正的好友永遠不會進入測試核心。要測試共享，請將 LODESTONE_PATH 和 LODESTONE_LAUNCHER_DATA_DIR 都設為測試資料夾。"
         }
         M::FriendsConfirmUnverified => {
-            "你還沒有和 {name} 核對安全碼，所以無法確定真的是對方：別人也可能回應了你的好友連結。請先在 Lodestone Launcher 中核對安全碼，或仍然共享。"
+            "你還沒有和這位好友核對安全碼，所以無法確定真的是對方：其他人也可能回應了你的好友連結。請先在 Lodestone Launcher 中核對安全碼，或者仍然分享。"
         }
         M::FriendsShareAnyway => "仍然共享",
         M::FriendsCertificate => "此核心的好友憑證",
@@ -271,7 +269,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::FriendsCertificateNew => "取得新憑證",
         M::FriendsCertificateManual => {
-            "好友現在看不到此核心。此核心無法自行產生新憑證：請結束 Lodestone Host，刪除 {path}，然後重新開啟。"
+            "好友現在看不到此核心。此核心無法自行產生新憑證：請結束 Lodestone Host，刪除此檔案，然後重新開啟。"
         }
         M::FriendsCancel => "取消",
         M::MemoryKeywords => "記憶體 RAM",
@@ -285,6 +283,8 @@ pub fn text(message: M) -> &'static str {
         M::ModpackRecorded => "記錄於",
         M::ModsThisVersion => "此版本",
         M::ModsThisServer => "此伺服器",
+        M::FriendsMinecraftKey => "Minecraft 帳號",
+        M::FriendsShared => "已分享",
     }
 }
 

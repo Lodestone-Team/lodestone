@@ -34,7 +34,7 @@ use url::Url;
 
 use super::parts;
 use crate::{
-    i18n::{CommonMsg, CoreMsg, t, tr},
+    i18n::{CommonMsg, CoreMsg, t},
     prefs::{Prefs, SavedCore},
     session,
     state::{HostEvent, HostState},
@@ -385,10 +385,16 @@ impl CoresDialog {
                         .text_color(ink::text())
                         .child(t(CoreMsg::TrustTitle)),
                 )
-                .child(parts::paragraph(tr!(
-                    CoreMsg::TrustBody,
-                    host = url.host_str().unwrap_or_default()
-                )))
+                .child(
+                    div()
+                        .text_size(text::MEDIUM)
+                        .text_color(ink::secondary())
+                        .child(lodestone_ui::tr_spans!(
+                            CoreMsg::TrustBody,
+                            host =
+                                lodestone_ui::i18n::spans::Mono(url.host_str().unwrap_or_default())
+                        )),
+                )
                 .child(
                     div()
                         .text_size(text::SMALL)
@@ -416,7 +422,23 @@ impl CoresDialog {
                     div()
                         .text_size(text::H3)
                         .text_color(ink::text())
-                        .child(tr!(CoreMsg::SignInTo, name = name)),
+                        .child(t(CoreMsg::SignInTo)),
+                )
+                .child(
+                    lodestone_ui::components::ObjectCard::new(name.clone())
+                        .thumbnail(
+                            div()
+                                .size_full()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .bg(colors::GRAY_750)
+                                .child(
+                                    lodestone_ui::components::Icon::HardDrive
+                                        .render(px(16.), colors::GRAY_500),
+                                ),
+                        )
+                        .compact(true),
                 )
                 .when(*gap != VersionGap::Same, |this| {
                     let ours = LOCAL_VERSION
@@ -424,19 +446,31 @@ impl CoresDialog {
                         .ok()
                         .and_then(|v| v.clone())
                         .unwrap_or_default();
+                    // the two cores' versions side by side, the other's in yellow
                     let incompatible = *gap == VersionGap::Incompatible;
-                    let color = if incompatible {
-                        colors::YELLOW
-                    } else {
-                        ink::muted()
-                    };
-                    this.child(div().text_size(text::SMALL).text_color(color).child(
-                        if incompatible {
-                            tr!(CoreMsg::VersionIncompatible, theirs = version, ours = ours)
-                        } else {
-                            tr!(CoreMsg::VersionPatch, theirs = version, ours = ours)
-                        },
-                    ))
+                    this.child(
+                        lodestone_ui::components::CompareTable::new(
+                            "core-versions",
+                            [
+                                t(CoreMsg::ThisCore).into(),
+                                t(CoreMsg::ThisComputerCore).into(),
+                            ],
+                        )
+                        .row(
+                            "Lodestone Core",
+                            lodestone_ui::components::FactValue::mono(version.clone()),
+                            lodestone_ui::components::FactValue::mono(ours),
+                            true,
+                        ),
+                    )
+                    .when(incompatible, |this| {
+                        this.child(
+                            div()
+                                .text_size(text::SMALL)
+                                .text_color(colors::YELLOW)
+                                .child(t(CoreMsg::VersionIncompatible)),
+                        )
+                    })
                 })
                 .child(parts::field(t(CoreMsg::Username), &self.username))
                 .child(parts::field(t(CoreMsg::Password), &self.password))

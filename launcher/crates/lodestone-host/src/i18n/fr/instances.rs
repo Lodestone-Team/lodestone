@@ -287,19 +287,21 @@ pub fn text(message: M) -> &'static str {
         }
         M::ShareRemovedFriendsDismiss => "Ignorer",
         M::ShareRemovedFriendsToast => {
-            "{names} peuvent encore rejoindre {servers} s'ils ont le lien d'invitation. Créez de nouveaux liens pour les en empêcher."
+            "Ils peuvent encore rejoindre ces serveurs s’ils ont le lien d’invitation. Créez de nouveaux liens pour les en empêcher."
         }
         M::ShareNewLinks => "Créer de nouveaux liens",
         M::ShareNewLinksMade => {
             "Nouveaux liens d'invitation créés. Envoyez-les aux personnes qui doivent encore pouvoir rejoindre."
         }
-        M::ShareNewLinkFailed => "Impossible de créer un nouveau lien pour {name} : {error}",
+        M::ShareNewLinkFailed => "Impossible de créer un nouveau lien : {error}",
         M::ShareShort => "Partager",
         M::ShareShortHint => "Partager ce serveur",
         M::DetailsMinRam => "RAM min.",
         M::DetailsMaxRam => "RAM max.",
         M::ShareConnected => "Personnes connectées",
         M::ShareJoins => "Connexions jusqu’ici",
+        M::ShareRemovedFriendsHeading => "Amis retirés",
+        M::ShareRemovedServersHeading => "Serveurs partagés",
     }
 }
 

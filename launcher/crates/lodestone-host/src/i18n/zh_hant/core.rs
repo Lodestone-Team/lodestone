@@ -57,7 +57,7 @@ pub fn text(message: M) -> &'static str {
         M::PortNotNumber => "連接埠必須是數字",
         M::PortRequired => "請輸入連接埠",
         M::PortRange => "連接埠必須介於 1 到 65535 之間",
-        M::PortOpened => "已開放連接埠 {port}",
+        M::PortOpened => "連接埠已開啟",
         M::InfoCoreVersion => "核心版本",
         M::InfoHostVersion => "Lodestone Host 版本",
         M::InfoOs => "作業系統",
@@ -80,13 +80,13 @@ pub fn text(message: M) -> &'static str {
         M::FlagStatus => "狀態和玩家",
         M::FlagAddress => "加入位址",
         M::FlagClientPack => "用戶端模組下載",
-        M::ShownText => "任何能存取此核心的人無需登入即可看到此伺服器的{list}。",
-        M::ShownNameVersion => "名稱和版本",
-        M::ShownStatus => "狀態和玩家數",
+        M::ShownText => "任何能存取此核心的人無需登入即可看到這些內容。",
+        M::ShownNameVersion => "名稱",
+        M::ShownStatus => "狀態",
         M::ShownAddress => "位址",
         M::ShownClientPack => "用戶端模組",
         M::TurnOnFirst => "請先開啟「公開列出伺服器」。",
-        M::HiddenWhileOff => "{shown}「公開列出伺服器」關閉時會隱藏。",
+        M::HiddenWhileOff => "「公開列出伺服器」關閉時隱藏。",
         M::NotShown => "未登入時不會顯示。",
         M::NoJavaServers => "還沒有 Minecraft Java Edition 伺服器。",
         M::UsersDescription => "此核心上的帳戶及其權限。",
@@ -98,7 +98,7 @@ pub fn text(message: M) -> &'static str {
         M::CreateUserLead => "新使用者初始沒有任何權限。",
         M::LoadingUsers => "正在載入使用者",
         M::Permissions => "權限",
-        M::PermissionsLead => "{username} 在此核心上可以執行的操作。",
+        M::PermissionsLead => "此使用者在此核心上可以做什麼。",
         M::UnsafePermissions => "不安全的權限",
         M::UnsafePermissionsLead => "關閉安全模式後才能授予非擁有者。",
         M::UsersOwnerOnly => "只有擁有者可以管理使用者。",
@@ -107,8 +107,8 @@ pub fn text(message: M) -> &'static str {
         M::Owner => "擁有者",
         M::ChangePasswordMenu => "變更密碼",
         M::CantDeleteSelf => "你無法刪除自己。",
-        M::DeleteUserTitle => "刪除使用者",
-        M::DeleteUserConfirm => "確定要刪除 {name} 嗎？此動作無法復原。",
+        M::DeleteUserTitle => "刪除使用者？",
+        M::DeleteUserConfirm => "此使用者的帳號將被刪除。此操作無法復原。",
         M::DeleteUser => "刪除使用者",
         M::NoServersYet => "還沒有伺服器。",
         M::PermCreateInstance => "建立伺服器",
@@ -192,29 +192,22 @@ pub fn text(message: M) -> &'static str {
         M::ApiKeys => "API 金鑰",
         M::ApiKeysOwnLead => "讓 CLI、指令碼和代理程式無須密碼即可以你的身分操作。",
         M::ApiKeysOwnEmpty => "你還沒有 API 金鑰。",
-        M::ApiKeysUserLead => "{username} 建立的金鑰。撤銷後，使用它的程式會立即失去存取權。",
-        M::ApiKeysUserEmpty => "{username} 沒有 API 金鑰。",
+        M::ApiKeysUserLead => "此使用者建立的金鑰。撤銷後，使用它的程式會立即失去存取權。",
+        M::ApiKeysUserEmpty => "此使用者沒有 API 金鑰。",
         M::CreateApiKey => "建立 API 金鑰",
-        M::ApiKeyCreated => "已建立 API 金鑰「{name}」",
+        M::ApiKeyCreated => "已建立 API 金鑰",
         M::LoadingApiKeys => "正在載入 API 金鑰",
         M::Revoke => "撤銷",
-        M::RevokeTitle => "撤銷 API 金鑰",
-        M::RevokeBody => {
-            "要撤銷「{name}」（{display}）嗎？使用此金鑰的所有程式將立即失去存取權。此操作無法復原。"
-        }
-        M::ApiKeyRevoked => "已撤銷 API 金鑰「{name}」",
-        M::CreatedOn => "建立於 {date}",
-        M::ExpiresOn => "{date} 到期",
-        M::ExpiredOn => "已於 {date} 到期",
-        M::ExpiresNever => "到期時間：永不",
-        M::LastUsed => "上次使用：{time}",
-        M::LastUsedNever => "上次使用：從未",
+        M::RevokeTitle => "撤銷 API 金鑰？",
+        M::RevokeBody => "使用此金鑰的一切將立即失去存取權。此操作無法復原。",
+        M::ApiKeyRevoked => "已撤銷 API 金鑰",
+        M::LastUsed => "上次使用",
         M::ScopeFull => "完整存取",
         M::ScopeLauncher => "Launcher：檢視、啟動和停止伺服器",
         M::ScopeLauncherConsole => "Launcher：檢視、啟動和停止伺服器，讀取和使用主控台",
         M::ScopeLauncherConsoleRead => "Launcher：檢視、啟動和停止伺服器，讀取主控台",
         M::ScopeLauncherConsoleWrite => "Launcher：檢視、啟動和停止伺服器，傳送主控台指令",
-        M::ScopeCustom => "自訂：{servers}，{permissions}",
+        M::ScopeCustom => "自訂",
         M::PasswordSessionOnly => {
             "只有使用密碼登入時才能管理 API 金鑰，使用 API 金鑰登入時無法管理。"
         }
@@ -242,7 +235,7 @@ pub fn text(message: M) -> &'static str {
         M::KeyUnsafeSafeMode => {
             "安全模式已開啟，因此在核心設定中關閉安全模式之前，核心會拒絕將這些權限授予自訂存取的金鑰。"
         }
-        M::NewKeyTitle => "已建立 API 金鑰「{name}」",
+        M::NewKeyTitle => "已建立 API 金鑰",
         M::NewKeyCopyNow => "請立即複製此金鑰。之後將無法再次檢視。",
         M::NewKeyUseWithCli => "在 Lodestone CLI 中使用：",
         M::NewKeyStore => {
@@ -255,14 +248,12 @@ pub fn text(message: M) -> &'static str {
         M::MinecraftOwnEmpty => {
             "尚未連結 Minecraft 帳戶。在 Lodestone Launcher 中登入此核心即可連結。"
         }
-        M::MinecraftUserLead => "{username} 從 Lodestone Launcher 連結的 Minecraft 帳戶。",
-        M::MinecraftUserEmpty => "{username} 沒有連結的 Minecraft 帳戶。",
+        M::MinecraftUserLead => "此使用者從 Lodestone Launcher 連結的 Minecraft 帳號。",
+        M::MinecraftUserEmpty => "此使用者沒有連結的 Minecraft 帳號。",
         M::MinecraftTooOld => "此核心版本太舊，無法連結 Minecraft 帳戶。",
-        M::MinecraftRemoveTitle => "移除 Minecraft 帳戶",
-        M::MinecraftRemoveBody => {
-            "要移除與 {name} 的連結嗎？之後可以從 Lodestone Launcher 重新連結。"
-        }
-        M::MinecraftRemoved => "已移除 {name}",
+        M::MinecraftRemoveTitle => "移除帳號連結？",
+        M::MinecraftRemoveBody => "之後可以從 Lodestone Launcher 重新連結。",
+        M::MinecraftRemoved => "已移除連結",
         M::Notifications => "通知",
         M::InProgress => "進行中",
         M::AllNotifications => "所有通知",
@@ -359,14 +350,11 @@ pub fn text(message: M) -> &'static str {
             "請將它與該核心「設定 › 一般 › 資訊」中的指紋，或它啟動時日誌中的指紋比對。"
         }
         M::TrustCertificate => "信任憑證",
-        M::SignInTo => "登入到 {name}",
-        M::VersionIncompatible => {
-            "此 Core 執行 Lodestone Core {theirs}，本機執行 {ours}。在兩者都更新之前，某些頁面可能無法使用。"
-        }
-        M::VersionPatch => "此 Core 執行 Lodestone Core {theirs}（本機：{ours}）。",
+        M::SignInTo => "登入",
+        M::VersionIncompatible => "在兩者都更新之前，部分頁面可能無法使用。",
         M::SignIn => "登入",
         M::RemoveCore => "移除",
-        M::RemoteSignedOut => "你已從 {name} 登出。Lodestone Host 已回到這台電腦的核心。",
+        M::RemoteSignedOut => "你已從此核心登出。Lodestone Host 已切回本機的核心。",
         M::RemoteAccess => "允許其他裝置存取",
         M::RemoteAccessHintOff => {
             "關閉：只有這台電腦上的應用程式可以使用這個核心（Lodestone Host、Lodestone Launcher 和 Lodestone CLI）。開啟後可以在其他裝置上使用網頁控制台、新增使用者或建立 API 金鑰。無論開關如何，都可以分享伺服器。"
@@ -395,13 +383,16 @@ pub fn text(message: M) -> &'static str {
         M::DomainKeywords => "位址 主機名稱 網址",
         M::OpenPortKeywords => "連接埠轉送 路由器 UPnP 防火牆",
         M::ThemeKeywords => "深色 淺色 模式 外觀 顏色",
+        M::KeyServers => "伺服器",
+        M::Never => "從不",
+        M::ShownVersion => "版本",
+        M::ShownPlayers => "玩家人數",
+        M::ThisCore => "此核心",
     }
 }
 
 pub fn plural(message: P) -> [&'static str; 2] {
     match message {
-        P::ScopeServers => ["{count} 個伺服器", "{count} 個伺服器"],
-        P::ScopePermissions => ["{count} 項權限", "{count} 項權限"],
         P::ServersRunning => ["{count} 個伺服器正在執行。", "{count} 個伺服器正在執行。"],
     }
 }

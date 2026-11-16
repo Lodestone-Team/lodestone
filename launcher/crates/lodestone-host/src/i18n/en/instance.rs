@@ -19,10 +19,10 @@ crate::i18n::messages! {
         DeleteServer = "Delete server",
         DeleteServerHint = "Permanently deletes this server and its data",
         /// The title of the confirmation dialog; {name} is the server's name.
-        DeleteTitle = "Delete “{name}”",
+        DeleteTitle = "Delete server?",
         DeleteConfirm = "I understand, delete this server",
         DeleteCannotUndo = "This action cannot be undone.",
-        DeleteWarning = "This instance’s settings and worlds will be permanently deleted. Please backup any important data before proceeding.",
+        DeleteWarning = "Its settings and worlds will be permanently deleted. Please back up any important data before proceeding.",
         /// After DeleteWarning: Lodestone's own backups of the server go with it.
         DeleteBackupsToo = "Its backups are deleted too.",
         Deleting = "Deleting {name}…",
@@ -48,7 +48,7 @@ crate::i18n::messages! {
         /// Computes the SHA-1 of the pack.
         PackCompute = "Compute",
         /// {size} is the size of the pack, such as "1.5 MB".
-        PackDownloaded = "Downloaded {size}.",
+        PackDownloaded = "Downloaded",
         PackRequired = "Require the pack",
         PackRequiredHint = "Players who decline it are disconnected.",
         PackPrompt = "Prompt",
@@ -75,7 +75,7 @@ crate::i18n::messages! {
         /// The dialog when a server doesn't start because its EULA isn't accepted.
         EulaDialogTitle = "Accept the Minecraft EULA",
         /// {name} is the server's name.
-        EulaDialogBody = "{name} only starts after you agree to the Minecraft EULA. Do you agree to it?",
+        EulaDialogBody = "This server only starts after you agree to the Minecraft EULA. Do you agree to it?",
         /// Accepts the EULA and starts the server.
         EulaAcceptAndStart = "I agree, start the server",
         /// The Event logs tab: what happened to this server.
@@ -245,15 +245,15 @@ crate::i18n::messages! {
         FriendsAddInLauncherHint = "Your friend list is kept by Lodestone Launcher on this computer. Once you have friends there, you can share this server with them here.",
         FriendsLoading = "Loading your friends…",
         /// A checkbox; {name} is the friend's name.
-        FriendsShareWith = "Share this server with {name}",
+        FriendsShareWith = "Share this server",
         /// The two haven't compared safety codes in Lodestone Launcher.
         FriendsNotVerified = "Not verified",
         /// Under a friend to share with: {names} are their Minecraft accounts.
-        FriendsMinecraft = "Minecraft: {names}. Added to the whitelist when you share, if the server has it on.",
+        FriendsMinecraft = "Added to the whitelist when you share, if the server has it on.",
         /// A toast after sharing: {names} are Minecraft player names.
-        FriendsWhitelisted = "Added {names} to the server's whitelist",
+        FriendsWhitelisted = "Added to the server’s whitelist",
         /// {name} is a friend's name, {error} what went wrong.
-        FriendsWhitelistFailed = "Shared with {name}, but couldn't add them to the server's whitelist: {error}",
+        FriendsWhitelistFailed = "Couldn’t add them to the server’s whitelist: {error}",
         FriendsConnected = "Connected now",
         FriendsSyncFailed = "Couldn’t sync your friend list to this core: {error}",
         FriendsOpenFailed = "Couldn’t open your friend list: {error}",
@@ -271,7 +271,7 @@ crate::i18n::messages! {
         FriendsOff = "Sharing with friends is off in this test copy",
         FriendsOffHint = "Its core or its friend list is in a test folder, and the other isn't, so your real friends never reach a test core. To test sharing, set both LODESTONE_PATH and LODESTONE_LAUNCHER_DATA_DIR to test folders.",
         /// Before the first share with a friend whose safety code wasn't compared; {name} is their name.
-        FriendsConfirmUnverified = "You haven’t compared safety codes with {name} yet, so you can’t be sure it’s really them: someone else could have answered your friend link. Compare codes in Lodestone Launcher first, or share anyway.",
+        FriendsConfirmUnverified = "You haven’t compared safety codes with this friend yet, so you can’t be sure it’s really them: someone else could have answered your friend link. Compare codes in Lodestone Launcher first, or share anyway.",
         FriendsShareAnyway = "Share anyway",
         /// The core's friend certificate: what friends know this core by.
         FriendsCertificate = "This core’s friend certificate",
@@ -284,7 +284,7 @@ crate::i18n::messages! {
         FriendsCertificateRetiredHint = "Friends don’t see this core now. Get it a new certificate to share from this computer again.",
         FriendsCertificateNew = "Get a new certificate",
         /// For a core too old to make a new certificate; {path} is the certificate's file.
-        FriendsCertificateManual = "Friends don’t see this core now. This core can’t make a new certificate itself: quit Lodestone Host, delete {path}, and open it again.",
+        FriendsCertificateManual = "Friends don’t see this core now. This core can’t make a new certificate itself: quit Lodestone Host, delete this file, and open it again.",
         FriendsCancel = "Cancel",
         /// More words a Settings search finds the row by (never shown).
         MemoryKeywords = "memory RAM heap",
@@ -308,6 +308,10 @@ crate::i18n::messages! {
         ModsThisVersion = "This version",
         /// A column: what the server runs.
         ModsThisServer = "This server",
+        /// A key before a friend's Minecraft accounts.
+        FriendsMinecraftKey = "Minecraft accounts",
+        /// A badge: the server is shared with the friend.
+        FriendsShared = "Shared",
     }
 
     pub enum InstancePlural {

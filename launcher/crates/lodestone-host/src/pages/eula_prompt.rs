@@ -154,7 +154,12 @@ impl EulaPrompt {
                     .text_size(text::MEDIUM)
                     .line_height(line_height(text::MEDIUM, leading::NORMAL))
                     .text_color(ink::secondary())
-                    .child(tr!(M::EulaDialogBody, name = prompt.name))
+                    .child(
+                        lodestone_ui::components::ObjectCard::new(prompt.name.clone())
+                            .kind(lodestone_ui::components::Kind::Server)
+                            .compact(true),
+                    )
+                    .child(t(M::EulaDialogBody))
                     .child(
                         div()
                             .flex()

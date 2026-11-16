@@ -23,11 +23,12 @@ use launcher_core::cores::{
 };
 use lodestone_ui::{
     components::{
-        Button, ButtonVariant, Dialog, DialogSlot, Icon, TextInput, segmented,
+        Button, ButtonVariant, Dialog, DialogSlot, Fact, FactLine, FactValue, Icon, Num,
+        ObjectCard, ObjectChip, PathText, ReasonTag, StatusBadge, TextInput, Toast, segmented,
         settings::{self, SettingRow, SettingsQuery, SettingsSearch},
         window_layer,
     },
-    theme::{colors, fonts, ink, px, radius, text, weights},
+    theme::{Tone, colors, fonts, ink, px, radius, text, weights},
 };
 
 use super::{
@@ -36,36 +37,74 @@ use super::{
     permissions,
 };
 use crate::{
-    i18n::{CommonMsg, CoreMsg, CorePlural, t, tr, trn},
+    i18n::{CommonMsg, CoreMsg, FactMsg, t, tr},
     state::{HostEvent, HostState},
 };
 
 /// The longest name a key may have.
 const NAME_MAX: usize = 64;
 
-/// "Full access", "Custom: 3 servers, 5 permissions", or a launcher device's scope.
-pub fn scope_summary(scope: &ApiKeyScope) -> String {
+/// What a key may do: its kind ("Full access", "Custom", or a launcher device's), and
+/// for a custom one how many servers and permissions it has.
+pub fn scope_parts(scope: &ApiKeyScope) -> (String, Option<(usize, usize)>) {
     match scope {
-        ApiKeyScope::Full | ApiKeyScope::Unknown => t(CoreMsg::ScopeFull).to_string(),
+        ApiKeyScope::Full | ApiKeyScope::Unknown => (t(CoreMsg::ScopeFull).to_string(), None),
         ApiKeyScope::Launcher {
             console_read,
             console_write,
-        } => t(match (console_read, console_write) {
-            (true, true) => CoreMsg::ScopeLauncherConsole,
-            (true, false) => CoreMsg::ScopeLauncherConsoleRead,
-            (false, true) => CoreMsg::ScopeLauncherConsoleWrite,
-            (false, false) => CoreMsg::ScopeLauncher,
-        })
-        .to_string(),
+        } => (
+            t(match (console_read, console_write) {
+                (true, true) => CoreMsg::ScopeLauncherConsole,
+                (true, false) => CoreMsg::ScopeLauncherConsoleRead,
+                (false, true) => CoreMsg::ScopeLauncherConsoleWrite,
+                (false, false) => CoreMsg::ScopeLauncher,
+            })
+            .to_string(),
+            None,
+        ),
         ApiKeyScope::Custom { permissions } => {
             let (granted, instances) = count_permissions(permissions);
-            tr!(
-                CoreMsg::ScopeCustom,
-                servers = trn!(CorePlural::ScopeServers, instances),
-                permissions = trn!(CorePlural::ScopePermissions, granted)
+            (
+                t(CoreMsg::ScopeCustom).to_string(),
+                Some((instances, granted)),
             )
         }
     }
+}
+
+/// A key's name as the row shows it: a key a Lodestone Launcher made ("Lodestone
+/// Launcher on Peters-MacBook") is named by its device, with the app as its reason.
+pub fn key_name(name: &str) -> (String, Option<&'static str>) {
+    match name.strip_prefix("Lodestone Launcher on ") {
+        Some(device) if !device.trim().is_empty() => {
+            (device.to_string(), Some("Lodestone Launcher"))
+        }
+        _ => (name.to_string(), None),
+    }
+}
+
+/// The card of the key a dialog is about: its name, and its prefix, exact.
+fn key_card(key: &ApiKeyInfo) -> ObjectCard {
+    let (name, _) = key_name(&key.name);
+    ObjectCard::new(name)
+        .thumbnail(
+            div()
+                .size_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .bg(colors::GRAY_750)
+                .child(Icon::Key.render(px(16.), colors::GRAY_500)),
+        )
+        .fact(Fact::bare_named(
+            t(FactMsg::Key),
+            PathText::exact(key.display.clone()),
+        ))
+}
+
+/// A toast about a key: its name leads.
+fn key_toast(text: &str, name: &str) -> Toast {
+    Toast::success(text.to_string()).object(ObjectChip::new(key_name(name).0).icon(Icon::Key))
 }
 
 /// An API key error, for people: the core refuses key management to key sessions.
@@ -222,12 +261,8 @@ impl ApiKeysSection {
                     if let Some(Ok(keys)) = this.keys.as_mut() {
                         keys.retain(|k| k.id != key.id);
                     }
-                    parts::toast(
-                        &this.state,
-                        parts::Level::Success,
-                        tr!(CoreMsg::ApiKeyRevoked, name = key.name),
-                        cx,
-                    );
+                    let toast = key_toast(t(CoreMsg::ApiKeyRevoked), &key.name);
+                    this.state.update(cx, |state, cx| state.toast(toast, cx));
                 }
                 Err(err) => {
                     if let Some(revoking) = this.revoking.current_mut() {
@@ -277,12 +312,8 @@ impl ApiKeysSection {
                             keys.retain(|k| k.id != created.info.id);
                             keys.insert(0, created.info.clone());
                         }
-                        parts::toast(
-                            &this.state,
-                            parts::Level::Success,
-                            tr!(CoreMsg::ApiKeyCreated, name = created.info.name),
-                            cx,
-                        );
+                        let toast = key_toast(t(CoreMsg::ApiKeyCreated), &created.info.name);
+                        this.state.update(cx, |state, cx| state.toast(toast, cx));
                         let focus = cx.focus_handle();
                         this.created.open(
                             Created {
@@ -301,17 +332,40 @@ impl ApiKeysSection {
     fn key_row(&self, key: &ApiKeyInfo, cx: &mut Context<Self>) -> AnyElement {
         let now = chrono::Local::now().timestamp();
         let expired = key.expired(now);
-        let expiry = match key.expires_at {
-            None => t(CoreMsg::ExpiresNever).to_string(),
-            Some(at) if expired => tr!(CoreMsg::ExpiredOn, date = parts::date(at)),
-            Some(at) => tr!(CoreMsg::ExpiresOn, date = parts::date(at)),
+        // created, expires (yellow when it's close, red once past) and last used, each
+        // keyed, in one style
+        let expiry: FactValue = match key.expires_at {
+            None => t(CoreMsg::Never).into(),
+            Some(at) if expired => StatusBadge::new(parts::date(at), Tone::Danger).into(),
+            Some(at) if at - now < 7 * 86_400 => {
+                StatusBadge::new(parts::date(at), Tone::Warning).into()
+            }
+            Some(at) => FactValue::time(parts::date(at)),
         };
-        let last_used = match key.last_used_at {
-            None => t(CoreMsg::LastUsedNever).to_string(),
-            Some(at) => tr!(CoreMsg::LastUsed, time = parts::ago(at)),
+        let last_used: FactValue = match key.last_used_at {
+            None => t(CoreMsg::Never).into(),
+            Some(at) => FactValue::time(parts::ago(at)),
         };
+        let (scope, counts) = scope_parts(&key.scope);
+        let (name, made_by) = key_name(&key.name);
+        let facts = FactLine::row(SharedString::from(format!("api-key-facts-{}", key.id)))
+            .fact(
+                Fact::bare_named(t(FactMsg::Key), PathText::exact(key.display.clone())).priority(3),
+            )
+            .facts(counts.into_iter().flat_map(|(servers, permissions)| {
+                [
+                    Fact::new(t(CoreMsg::KeyServers), Num::count(servers as u64)).priority(2),
+                    Fact::new(t(CoreMsg::Permissions), Num::count(permissions as u64)).priority(2),
+                ]
+            }))
+            .fact(Fact::new(
+                t(FactMsg::Created),
+                FactValue::time(parts::date(key.created_at)),
+            ))
+            .fact(Fact::new(t(FactMsg::Expires), expiry))
+            .fact(Fact::new(t(CoreMsg::LastUsed), last_used).priority(1));
         let revoke_key = key.clone();
-        SettingRow::new(key.name.clone())
+        SettingRow::new(name)
             .key(SharedString::from(format!("api-key-{}", key.id)))
             .leading(div())
             .child(
@@ -336,34 +390,17 @@ impl ApiKeysSection {
                 div()
                     .flex()
                     .flex_col()
-                    .gap_0p5()
-                    .text_size(text::SMALL)
-                    .child(
-                        div()
-                            .font_family(fonts::mono())
-                            .text_color(ink::muted())
-                            .child(key.display.clone()),
-                    )
-                    .child(
-                        div()
-                            .text_color(ink::secondary())
-                            .child(scope_summary(&key.scope)),
-                    )
+                    .gap(px(6.))
                     .child(
                         div()
                             .flex()
                             .flex_row()
                             .flex_wrap()
-                            .gap_x_3()
-                            .text_color(ink::muted())
-                            .child(tr!(CoreMsg::CreatedOn, date = parts::date(key.created_at)))
-                            .child(
-                                div()
-                                    .when(expired, |this| this.text_color(colors::RED_200))
-                                    .child(expiry),
-                            )
-                            .child(last_used),
-                    ),
+                            .gap(px(6.))
+                            .children(made_by.map(|app| ReasonTag::new(app).icon(Icon::Desktop)))
+                            .child(StatusBadge::new(scope, Tone::Neutral)),
+                    )
+                    .child(facts),
             )
             .into_any_element()
     }
@@ -374,17 +411,13 @@ impl ApiKeysSection {
         Confirm {
             id: "revoke-key",
             title: t(CoreMsg::RevokeTitle).into(),
-            body: tr!(
-                CoreMsg::RevokeBody,
-                name = revoking.key.name,
-                display = revoking.key.display
-            )
-            .into(),
+            body: t(CoreMsg::RevokeBody).into(),
             action: t(CoreMsg::Revoke).into(),
             danger: true,
             busy: revoking.busy,
         }
-        .render(
+        .render_about(
+            key_card(&revoking.key),
             revoking.focus.clone(),
             move |_, cx| {
                 this.update(cx, |this, cx| this.revoke(cx)).ok();
@@ -445,7 +478,7 @@ impl ApiKeysSection {
         // only Done closes it: the key would be lost
         Dialog::new(
             "new-api-key",
-            tr!(CoreMsg::NewKeyTitle, name = created.key.info.name),
+            t(CoreMsg::NewKeyTitle),
             created.focus.clone(),
         )
         .width(px(600.))
@@ -455,6 +488,7 @@ impl ApiKeysSection {
                 .flex()
                 .flex_col()
                 .gap_3()
+                .child(key_card(&created.key.info))
                 .child(
                     div()
                         .text_size(text::H3)
@@ -485,9 +519,9 @@ impl Render for ApiKeysSection {
                 t(CoreMsg::ApiKeysOwnLead).to_string(),
                 t(CoreMsg::ApiKeysOwnEmpty).to_string(),
             ),
-            Owner::User(_, username) => (
-                tr!(CoreMsg::ApiKeysUserLead, username = username),
-                tr!(CoreMsg::ApiKeysUserEmpty, username = username),
+            Owner::User(..) => (
+                t(CoreMsg::ApiKeysUserLead).to_string(),
+                t(CoreMsg::ApiKeysUserEmpty).to_string(),
             ),
         };
         let query = self
@@ -863,16 +897,24 @@ mod tests {
     #[test]
     fn scopes_are_summed_up() {
         lodestone_ui::i18n::force(lodestone_ui::i18n::Locale::En);
-        assert_eq!(scope_summary(&ApiKeyScope::Full), "Full access");
+        assert_eq!(
+            scope_parts(&ApiKeyScope::Full),
+            ("Full access".into(), None)
+        );
         let mut permissions = UserPermission::default();
         Permission::ViewInstance.set_instance(&mut permissions, "a", true);
         Permission::StartInstance.set_instance(&mut permissions, "b", true);
         Permission::CreateInstance.set_flag(&mut permissions, true);
-        let summary = scope_summary(&ApiKeyScope::Custom { permissions });
-        assert!(
-            summary.contains("2 servers") && summary.contains("3 permissions"),
-            "{summary}"
+        assert_eq!(
+            scope_parts(&ApiKeyScope::Custom { permissions }),
+            ("Custom".into(), Some((2, 3)))
         );
+        // a key a Launcher made is named by its device
+        assert_eq!(
+            key_name("Lodestone Launcher on Peters-MacBook"),
+            ("Peters-MacBook".into(), Some("Lodestone Launcher"))
+        );
+        assert_eq!(key_name("ci-deploy"), ("ci-deploy".into(), None));
     }
 
     #[test]

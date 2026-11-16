@@ -18,11 +18,11 @@ pub fn text(message: M) -> &'static str {
         }
         M::DeleteServer => "Supprimer le serveur",
         M::DeleteServerHint => "Supprime définitivement ce serveur et ses données",
-        M::DeleteTitle => "Supprimer « {name} »",
+        M::DeleteTitle => "Supprimer le serveur ?",
         M::DeleteConfirm => "Je comprends, supprimer ce serveur",
         M::DeleteCannotUndo => "Cette action est irréversible.",
         M::DeleteWarning => {
-            "Les paramètres et mondes de cette instance seront définitivement supprimés. Sauvegardez vos données importantes avant de continuer."
+            "Ses paramètres et ses mondes seront définitivement supprimés. Sauvegardez vos données importantes avant de continuer."
         }
         M::DeleteBackupsToo => "Ses sauvegardes sont supprimées aussi.",
         M::Deleting => "Suppression de {name}…",
@@ -49,7 +49,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::PackSha1Error => "Le SHA-1 comporte 40 caractères hexadécimaux.",
         M::PackCompute => "Calculer",
-        M::PackDownloaded => "{size} téléchargés.",
+        M::PackDownloaded => "Téléchargé",
         M::PackRequired => "Exiger le pack",
         M::PackRequiredHint => "Les joueurs qui le refusent sont déconnectés.",
         M::PackPrompt => "Message",
@@ -80,7 +80,7 @@ pub fn text(message: M) -> &'static str {
         M::EulaNoPermission => "Il faut l’autorisation de démarrer ce serveur pour l’accepter.",
         M::EulaDialogTitle => "Accepter le CLUF de Minecraft",
         M::EulaDialogBody => {
-            "{name} ne démarre qu’après votre accord avec le CLUF de Minecraft. L’acceptez-vous ?"
+            "Ce serveur ne démarre qu’après votre acceptation du CLUF de Minecraft. L’acceptez-vous ?"
         }
         M::EulaAcceptAndStart => "J’accepte, démarrer le serveur",
         M::EventLogsLead => {
@@ -271,14 +271,14 @@ pub fn text(message: M) -> &'static str {
             "Votre liste d’amis est gérée par Lodestone Launcher sur cet ordinateur. Une fois que vous y avez des amis, vous pouvez partager ce serveur avec eux ici."
         }
         M::FriendsLoading => "Chargement de vos amis…",
-        M::FriendsShareWith => "Partager ce serveur avec {name}",
+        M::FriendsShareWith => "Partager ce serveur",
         M::FriendsNotVerified => "Non vérifié",
         M::FriendsMinecraft => {
-            "Minecraft\u{a0}: {names}. Ajoutés à la liste blanche quand vous partagez, si le serveur l’a activée."
+            "Ajoutés à la liste blanche quand vous partagez, si le serveur l’a activée."
         }
-        M::FriendsWhitelisted => "{names} ajouté(s) à la liste blanche du serveur",
+        M::FriendsWhitelisted => "Ajouté à la liste blanche du serveur",
         M::FriendsWhitelistFailed => {
-            "Partagé avec {name}, mais impossible de l’ajouter à la liste blanche du serveur\u{a0}: {error}"
+            "Impossible de les ajouter à la liste blanche du serveur : {error}"
         }
         M::FriendsConnected => "Connecté",
         M::FriendsSyncFailed => {
@@ -299,7 +299,7 @@ pub fn text(message: M) -> &'static str {
             "Son core ou sa liste d’amis est dans un dossier de test, et l’autre non : vos vrais amis n’atteignent donc jamais un core de test. Pour tester le partage, définissez LODESTONE_PATH et LODESTONE_LAUNCHER_DATA_DIR sur des dossiers de test."
         }
         M::FriendsConfirmUnverified => {
-            "Vous n’avez pas encore comparé les codes de sécurité avec {name} : vous ne pouvez pas être sûr que c’est bien cette personne, quelqu’un d’autre a pu répondre à votre lien d’ami. Comparez d’abord les codes dans Lodestone Launcher, ou partagez quand même."
+            "Vous n’avez pas encore comparé les codes de sécurité avec cet ami, vous ne pouvez donc pas être sûr que c’est bien lui : quelqu’un d’autre a pu répondre à votre lien d’ami. Comparez d’abord les codes dans Lodestone Launcher, ou partagez quand même."
         }
         M::FriendsShareAnyway => "Partager quand même",
         M::FriendsCertificate => "Certificat d’ami de ce core",
@@ -317,7 +317,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::FriendsCertificateNew => "Obtenir un nouveau certificat",
         M::FriendsCertificateManual => {
-            "Vos amis ne voient plus ce core. Ce core ne peut pas créer lui-même un nouveau certificat : quittez Lodestone Host, supprimez {path}, puis rouvrez-le."
+            "Vos amis ne voient plus ce core. Il ne peut pas créer lui-même un nouveau certificat : quittez Lodestone Host, supprimez ce fichier, puis rouvrez-le."
         }
         M::FriendsCancel => "Annuler",
         M::MemoryKeywords => "mémoire RAM",
@@ -331,6 +331,8 @@ pub fn text(message: M) -> &'static str {
         M::ModpackRecorded => "Enregistré",
         M::ModsThisVersion => "Cette version",
         M::ModsThisServer => "Ce serveur",
+        M::FriendsMinecraftKey => "Comptes Minecraft",
+        M::FriendsShared => "Partagé",
     }
 }
 

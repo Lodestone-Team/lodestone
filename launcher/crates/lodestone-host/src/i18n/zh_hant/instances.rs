@@ -255,17 +255,19 @@ pub fn text(message: M) -> &'static str {
         }
         M::ShareRemovedFriendsDismiss => "忽略",
         M::ShareRemovedFriendsToast => {
-            "如果 {names} 有邀請連結，仍可加入 {servers}。產生新連結即可阻止。"
+            "如果他們有邀請連結，仍可加入這些伺服器。建立新連結即可阻止他們。"
         }
         M::ShareNewLinks => "產生新連結",
         M::ShareNewLinksMade => "已產生新的邀請連結。請傳給仍可加入的人。",
-        M::ShareNewLinkFailed => "無法為 {name} 產生新連結：{error}",
+        M::ShareNewLinkFailed => "無法建立新連結：{error}",
         M::ShareShort => "分享",
         M::ShareShortHint => "分享此伺服器",
         M::DetailsMinRam => "最小記憶體",
         M::DetailsMaxRam => "最大記憶體",
         M::ShareConnected => "已連線的人",
         M::ShareJoins => "累計加入",
+        M::ShareRemovedFriendsHeading => "已移除的好友",
+        M::ShareRemovedServersHeading => "分享的伺服器",
     }
 }
 

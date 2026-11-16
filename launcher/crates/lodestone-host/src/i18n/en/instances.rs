@@ -247,10 +247,10 @@ crate::i18n::messages! {
         ShareRemovedFriendsNote = "You removed these friends. If they have this invite link, they can still join until you make a new one.",
         ShareRemovedFriendsDismiss = "Dismiss",
         /// A toast after a sync took removed friends off the core.
-        ShareRemovedFriendsToast = "{names} can still join {servers} if they have the invite link. Make new links to stop them.",
+        ShareRemovedFriendsToast = "They can still join these servers if they have the invite link. Make new links to stop them.",
         ShareNewLinks = "Make new links",
         ShareNewLinksMade = "Made new invite links. Send them to the people who should still join.",
-        ShareNewLinkFailed = "Couldn't make a new link for {name}: {error}",
+        ShareNewLinkFailed = "Couldn't make a new link: {error}",
         /// The sidebar card's Share: opens the Overview's Share section.
         ShareShort = "Share",
         ShareShortHint = "Share this server",
@@ -260,6 +260,10 @@ crate::i18n::messages! {
         ShareConnected = "People connected",
         /// A key: how many times people joined through the link.
         ShareJoins = "Joins so far",
+        /// A toast's heading over removed friends' names.
+        ShareRemovedFriendsHeading = "Removed friends",
+        /// A toast's heading over the servers they can still join.
+        ShareRemovedServersHeading = "Shared servers",
     }
 
     pub enum InstancesPlural {
