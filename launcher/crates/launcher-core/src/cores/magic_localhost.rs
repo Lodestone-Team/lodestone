@@ -205,11 +205,18 @@ pub fn update_ports(
     taken: &[u16],
 ) -> bool {
     let mut changed = sanitize(saved);
+    // A core's list can hold tens of thousands of servers (only the 4 MB answer limit
+    // bounds it), so look ids up in a set: comparing every saved entry against every
+    // listed server, for each listed server, freezes the window on a hostile core.
+    let listed: HashSet<&str> = servers.iter().map(|s| s.uuid.as_str()).collect();
     if authoritative {
         let before = saved.len();
-        saved.retain(|entry| servers.iter().any(|s| s.uuid == entry.instance));
+        saved.retain(|entry| listed.contains(entry.instance.as_str()));
         changed |= saved.len() != before;
     }
+    // Set once a full core has no port of an unlisted server left to give up. Everything
+    // kept or added since is in this list, so none will turn up for later servers.
+    let mut no_room = false;
     for server in servers {
         let Some(target) = game_port(server) else {
             continue;
@@ -221,7 +228,7 @@ pub fn update_ports(
             }
             continue;
         }
-        if !valid_instance(&server.uuid) {
+        if no_room || !valid_instance(&server.uuid) {
             continue;
         }
         if saved.len() >= MAX_PER_CORE {
@@ -230,8 +237,9 @@ pub fn update_ports(
             // doesn't keep deleted servers' ports for good and leave its new ones none.
             let Some(stale) = saved
                 .iter()
-                .position(|e| !servers.iter().any(|s| s.uuid == e.instance))
+                .position(|e| !listed.contains(e.instance.as_str()))
             else {
+                no_room = true;
                 continue;
             };
             saved.remove(stale);
@@ -1134,6 +1142,31 @@ mod tests {
         full.push(server("another", Some(25565)));
         assert!(!update_ports(&mut saved, CORE, &full, false, &[]));
         assert!(saved.iter().all(|e| e.instance != "another"));
+    }
+
+    /// A hostile core can list tens of thousands of servers, its saved ones last. Each
+    /// new server used to search the saved ports against the whole list again (64 × N
+    /// for each of N servers): 20 000 servers took minutes in a debug build, with the
+    /// window frozen on every refresh. Now it is a set lookup, and the search stops
+    /// once a full core has no unlisted port to give up.
+    #[test]
+    fn a_huge_list_with_the_saved_servers_last_is_quick() {
+        let first = servers("s", MAX_PER_CORE);
+        let mut saved = saved_for(CORE, &first, &[]);
+        let before = saved.clone();
+        let mut list = servers("new", 20_000);
+        list.extend(first);
+        let started = Instant::now();
+        for authoritative in [false, true] {
+            assert!(!update_ports(&mut saved, CORE, &list, authoritative, &[]));
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "took {:?}",
+            started.elapsed()
+        );
+        // every saved server is listed, so there is nothing to make room with
+        assert_eq!(saved, before);
     }
 
     #[test]
