@@ -336,6 +336,19 @@ crate::i18n::messages! {
         OpenPortKeywords = "port forwarding router UPnP firewall",
         /// More words a Settings search finds the row by (never shown).
         ThemeKeywords = "dark light mode appearance colors",
+        /// Settings › Updates: the log files.
+        LogsSection = "Logs",
+        /// {path} is the logs folder.
+        LogsHint = "What the Host and its core did, kept on this computer to help look into a problem. {path}",
+        /// How much goes into the Host's log.
+        LogDetail = "Log detail",
+        LogDetailHint = "Debug writes more, for looking into a problem. It applies at once.",
+        /// The usual log detail.
+        LogInfo = "Info",
+        /// More log detail.
+        LogDebug = "Debug",
+        /// Shown instead of the hint while the LODESTONE_LOG environment variable sets the detail.
+        LogLevelFromEnv = "LODESTONE_LOG sets the detail while the Host runs with it.",
     }
 
     pub enum CorePlural {

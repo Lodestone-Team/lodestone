@@ -98,7 +98,8 @@ fn main() {
 }
 
 /// `--screenshot <file.png> [--wait <seconds>] [--select-first] [--tab <tab>] [--toasts] [--demo]`
-/// `[--power-menu]` (the selected instance's power menu open)
+/// `[--power-menu]` (the selected instance's power menu open) `[--crash-notice]` (the
+/// notice after a crash)
 /// `[--friends <scene>] [--mods <scene>] [--backup-export <scene>] [--world-backup <scene>]`
 /// `[--settings-search <text>]`,
 /// with the `screenshot` feature: renders the window offscreen after the wait (10 s by

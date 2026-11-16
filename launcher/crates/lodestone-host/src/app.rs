@@ -52,6 +52,9 @@ pub struct HostApp {
     task: Option<Task<()>>,
     /// A warning for the next shell: why it is back on this computer's core.
     notice: Option<String>,
+    /// The last run crashed: said once, when the shell first shows
+    /// ([`launcher_core::logging::Started::previous_crash`]).
+    crash_notice: Option<launcher_core::logging::Crash>,
 }
 
 /// GPUI's timer, for the claim's wait on the core's answer file.
@@ -105,6 +108,7 @@ impl HostApp {
             _subscriptions: vec![subscription, appearance],
             task: None,
             notice: None,
+            crash_notice: crash_notice(),
         }
     }
 
@@ -196,6 +200,17 @@ impl HostApp {
             state.update(cx, |state, cx| {
                 let weak = cx.entity().downgrade();
                 state.friends = Some(cx.new(|cx| crate::friends::FriendSharing::new(weak, cx)));
+            });
+        }
+        if self.crash_notice.take().is_some() {
+            use crate::i18n::{ShellMsg, t};
+            state.update(cx, |state, cx| {
+                state.toast(
+                    lodestone_ui::components::Toast::info(t(ShellMsg::ClosedUnexpectedly))
+                        .action(t(ShellMsg::OpenLogs), |_, cx| crate::logs::open_folder(cx))
+                        .duration(std::time::Duration::from_secs(30)),
+                    cx,
+                )
             });
         }
         // after being signed out of another core
@@ -415,4 +430,18 @@ impl Render for HostApp {
             // Windows: the caption buttons, last, above everything
             .children(crate::shell::top_bar::window_controls(window))
     }
+}
+
+/// The crash the last run ended with, if it did. `--crash-notice` (the `screenshot`
+/// feature) makes one up, for the development screenshots.
+fn crash_notice() -> Option<launcher_core::logging::Crash> {
+    #[cfg(feature = "screenshot")]
+    if std::env::args().any(|arg| arg == "--crash-notice") {
+        return Some(launcher_core::logging::Crash {
+            at: "2026-11-16T08:30:12Z".into(),
+            summary: "a made-up crash".into(),
+            file: std::env::temp_dir().join("last-crash.txt"),
+        });
+    }
+    launcher_core::logging::started().and_then(|started| started.previous_crash)
 }

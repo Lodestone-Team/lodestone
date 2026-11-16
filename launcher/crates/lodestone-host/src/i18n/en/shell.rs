@@ -83,6 +83,10 @@ crate::i18n::messages! {
         CoreHost = "Computer: {host}",
         CoreSystem = "System: {system}",
         CoreUptime = "Running for {uptime}",
+        /// A notice at start, after the Host crashed.
+        ClosedUnexpectedly = "Lodestone Host closed unexpectedly last time.",
+        /// Shows the logs folder.
+        OpenLogs = "Open logs",
     }
 
     pub enum ShellPlural {

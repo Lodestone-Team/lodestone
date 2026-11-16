@@ -12,7 +12,7 @@ use gpui::{
 };
 use lodestone_ui::{
     components::{
-        Button, ButtonVariant, Dialog, DialogSlot, Toggle,
+        Button, ButtonVariant, Dialog, DialogSlot, Toggle, segmented,
         settings::{SearchRow, SettingRow, SettingsSearch},
         window_layer,
     },
@@ -328,9 +328,19 @@ impl Render for UpdatesPage {
             )
             .finish()
             .map(IntoElement::into_any_element);
+        let logs = query
+            .section(t(CoreMsg::LogsSection), None)
+            .card(logs_rows(&prefs))
+            .finish()
+            .map(IntoElement::into_any_element);
         let page = parts::page(
             // the sections are built: the status counts what they show
-            query.status().into_iter().chain(updates).chain(developer),
+            query
+                .status()
+                .into_iter()
+                .chain(updates)
+                .chain(logs)
+                .chain(developer),
         )
         .text_color(colors::GRAY_300);
         let dialogs = self
@@ -342,6 +352,44 @@ impl Render for UpdatesPage {
             .child(page)
             .children(window_layer(window, dialogs))
     }
+}
+
+/// Logs: the folder (the Host's log and the core's), and how much the Host logs.
+fn logs_rows(prefs: &crate::prefs::PrefsData) -> [SettingRow; 2] {
+    use launcher_core::logging::LogLevel;
+    let from_env = launcher_core::logging::env_override();
+    let path = launcher_core::logging::logs_dir()
+        .unwrap_or_else(crate::logs::dir)
+        .display()
+        .to_string();
+    [
+        SettingRow::new(t(CoreMsg::LogsSection))
+            .hint(tr!(CoreMsg::LogsHint, path = path))
+            .child(
+                Button::new(
+                    "open-logs-folder",
+                    crate::i18n::t(crate::i18n::ShellMsg::OpenLogFolder),
+                )
+                .variant(ButtonVariant::Secondary)
+                .on_click(|_, _, cx| crate::logs::open_folder(cx)),
+            ),
+        SettingRow::new(t(CoreMsg::LogDetail))
+            .hint(if from_env {
+                t(CoreMsg::LogLevelFromEnv)
+            } else {
+                t(CoreMsg::LogDetailHint)
+            })
+            .child(segmented(
+                "log-detail",
+                vec![
+                    (LogLevel::Info, t(CoreMsg::LogInfo).into()),
+                    (LogLevel::Debug, t(CoreMsg::LogDebug).into()),
+                ],
+                Some(&prefs.log_level),
+                from_env,
+                |level, _, cx| Prefs::update(cx, |p| p.log_level = level),
+            )),
+    ]
 }
 
 /// `SettingRow::child` for an optional control.

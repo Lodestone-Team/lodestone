@@ -70,6 +70,8 @@ pub fn text(message: M) -> &'static str {
         M::CoreHost => "Ordinateur : {host}",
         M::CoreSystem => "Système : {system}",
         M::CoreUptime => "En marche depuis {uptime}",
+        M::ClosedUnexpectedly => "Lodestone Host s’est fermé de façon inattendue la dernière fois.",
+        M::OpenLogs => "Ouvrir les journaux",
     }
 }
 
