@@ -633,6 +633,7 @@ pub fn requested_scene() -> Option<String> {
     args.next()?;
     let scene = args.next()?;
     if !SCENES.contains(&scene.as_str())
+        && !components::is_scene(&scene)
         && !groups::is_scene(&scene)
         && !servers::SCENES.contains(&scene.as_str())
         && !server_detail::is_scene(&scene)
@@ -1030,6 +1031,7 @@ fn long_log() -> Vec<LogLine> {
     lines
 }
 
+pub mod components;
 mod content;
 mod friend_list;
 mod groups;
