@@ -4562,3 +4562,26 @@ developer's brief left them open. The developer decided: world backups are manua
   `write_out_dir`, `full_flush`: public wrappers of the store's batch flush), an additive
   change. The Host's world backups ("WB1 decisions") added the same module, word for word,
   so the two apps share one.
+
+### LG decisions
+
+Persistent logging for the Launcher and the Host (not an instance-images milestone;
+`launcher/docs/logs.md` describes it) changes what "logged" means in this document.
+
+- **"Logged" now reaches a file.** In the Launcher and the Host a statement above that
+  something "is logged" (a content-image record that failed during an update, a failed
+  record after a restore, a retired folder whose instance is missing, a download whose
+  hash didn't match, a failed import download) means the app's log file
+  (`<default data folder>/logs/launcher.log`, `<Host folder>/logs/host.log`) as well as
+  the debug trace bus. Before, `images::warn` and similar went to the in-memory bus only.
+  The core's own statements are unchanged: it writes `core.log`.
+- **Once per decision, throttled.** Failures of images, snapshots, world backups, image
+  sync and GC are logged once where the error is decided, with the instance id and the
+  error, and a repeating one is summed up after a few lines a minute. Lines never carry
+  a manifest's contents, a frame or a player's file contents.
+- **Untrusted input.** An event frame or stream frame the client can't read logs the
+  serde error with the values it quotes left out (`invalid type: string "…"`), never the
+  frame. Every line is scrubbed of secrets (`lodestone_trace::scrub_line`).
+- **The shared crate** (`crates/lodestone-image`) is unchanged. `crates/lodestone-trace`
+  gains `scrub_line`, an additive function.
+

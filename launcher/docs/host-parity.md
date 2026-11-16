@@ -24,7 +24,8 @@ be built in parallel with little file overlap. Tick items (`[x]`) as you build t
   restarts a core that exits (giving up after 4 quick exits, showing the end of its
   log), and on Quit closes the core's stdin: the core stops its servers and exits
   (killed after 60 s, longer than the core's 45 s for its servers). If the Host dies, the system closes the pipe and the core stops
-  too. The core's output goes to `<host folder>/logs/core.log`.
+  too. The core's output goes to `<host folder>/logs/core.log`, beside the Host's own
+  `host.log` ([logs.md](logs.md)).
 - **The Host signs in as the owner without a password**, through the core's local
   claim (`core/src/local_claim.rs`), with `"session": true`: the Host proves it can
   write the core's data folder (only the same OS user can), and the core writes an
