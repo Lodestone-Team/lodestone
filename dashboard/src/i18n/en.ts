@@ -118,8 +118,6 @@ export const en = {
   // ClipboardTextfield: text that copies itself when clicked
   /** tooltip */
   'common.clipboard.copyToClipboard': 'Copy to clipboard',
-  /** a toast; {text} is what was copied, e.g. an address */
-  'common.clipboard.copiedText': 'Copied “{text}”',
   // The server resource pack URL check (utils/resourcePack.ts)
   'common.resourcePack.urlSpaces': 'The URL cannot contain spaces.',
   'common.resourcePack.notAUrl': 'That is not a URL.',
@@ -171,33 +169,31 @@ export const en = {
     'Thanks for using Lodestone beta! If you find any issues please let us know on our Discord server or on Github.',
   'shell.versionMismatch.title': 'Update Required!',
   'shell.versionMismatch.continue': 'I understand, continue without updating',
-  'shell.versionMismatch.coreVersion': 'Core Version:',
-  'shell.versionMismatch.dashboardVersion': 'Dashboard Version:',
   'shell.versionMismatch.incompatible':
     'Your dashboard and core is incompatible!',
   /** {link} is a link whose text is shell.versionMismatch.wiki */
   'shell.versionMismatch.body':
     'This can cause unexpected behavior. Please update your core to the latest version. Visit {link} for more information.',
   'shell.versionMismatch.wiki': 'the wiki',
-  /** {core} and {dashboard} are version numbers */
-  'shell.versionMismatch.toast':
-    'Version mismatch! Is your core out of date? Core: {core}, Dashboard: {dashboard}',
+  /** a toast; the core’s and the dashboard’s versions follow */
+  'shell.versionMismatch.toastTitle': 'Versions differ',
+  'shell.versionMismatch.question': 'Is your core out of date?',
   'shell.localCore.title': 'New Local Core Detected',
-  /** {name} is the core's name */
+  /** the core is shown above */
   'shell.localCore.body':
-    'Detected a local core that is not setup yet. Would you like to setup {name}?',
+    'Detected a local core that isn’t set up yet. Would you like to set it up?',
   /** button: set up the core */
   'shell.localCore.setup': 'Setup',
   'shell.localCore.skip': 'Skip',
   'shell.setupRequired.title': 'Setup Required',
-  /** {name} is the core's name */
+  /** the core is shown above */
   'shell.setupRequired.body':
-    '{name} is not setup yet. Please complete the setup process.',
+    'This core isn’t set up yet. Please complete the setup process.',
   'shell.setupRequired.changeCore': 'Change Core',
   'shell.coreError.title': 'Core Connection Error',
-  /** {address} is the core's address and port, e.g. 192.168.0.2:16662 */
+  /** the core’s address is shown below */
   'shell.coreError.body':
-    'There was an error connecting to {address}. Please select a different core, refresh the page, or simply wait for the core to come back online.',
+    'There was an error connecting to the core. Please select a different core, refresh the page, or simply wait for the core to come back online.',
   'shell.coreError.back': 'Back to Core selection',
   'shell.coreError.continue': 'Continue with current Core',
 
@@ -258,27 +254,25 @@ export const en = {
   'shell.notifications.empty': 'No notifications at the moment!',
 
   // EventStream: notifications built from the core's events
-  /** {name} is a server's name */
-  'shell.event.state.Starting': 'Server {name} is starting!',
-  'shell.event.state.Running': 'Server {name} started!',
-  'shell.event.state.Stopping': 'Server {name} is stopping!',
-  'shell.event.state.Stopped': 'Server {name} stopped!',
-  'shell.event.state.Error': 'Server {name} encountered an error!',
   'shell.event.warningToast':
     'Warning: A server has encountered a warning. This shouldn’t happen, please report this to the developers.',
-  'shell.event.warning': 'Server {name} encountered a warning',
-  'shell.event.error': 'Server {name} encountered an error',
-  /** {players} is a list of player names, {name} a server's name */
-  'shell.event.playersJoined': '{players} Joined {name}',
-  'shell.event.playersLeft': '{players} Left {name}',
-  'shell.event.playersJoinedAndLeft':
-    '{joined} Joined {name} and {left} Left {name}',
-  /** {player} said {message} (a chat message) on the server {name} */
-  'shell.event.modpackUpdate': '{pack} {version} is out for {name}',
-  'shell.event.playerMessage': '{player} said {message} on {name}',
-  /** {name} is the name of an API key */
-  'shell.event.apiKeyCreated': 'API key “{name}” created',
-  'shell.event.apiKeyRevoked': 'API key “{name}” revoked',
+  /** notification outcomes, under the server’s name (no name inside) */
+  'shell.event.outcome.Starting': 'Server is starting',
+  'shell.event.outcome.Running': 'Server started',
+  'shell.event.outcome.Stopping': 'Server is stopping',
+  'shell.event.outcome.Stopped': 'Server stopped',
+  'shell.event.outcome.Error': 'Server ran into an error',
+  'shell.event.outcome.warning': 'Server ran into a warning',
+  'shell.event.outcome.error': 'Server ran into an error',
+  /** a key before the players who joined */
+  'shell.event.outcome.joined': 'Joined',
+  /** a key before the players who left */
+  'shell.event.outcome.left': 'Left',
+  /** read by screen readers between a player and their chat message */
+  'shell.event.outcome.said': 'said',
+  'shell.event.outcome.modpackOut': 'Update available',
+  'shell.event.outcome.apiKeyCreated': 'API key created',
+  'shell.event.outcome.apiKeyRevoked': 'API key revoked',
   /** {error} is an error message */
   'shell.event.loadFailed': 'Failed to load notifications: {error}',
 
@@ -287,8 +281,6 @@ export const en = {
   'shell.userMenu.guest': 'Guest',
   /** screen reader label of the account button, {name} is a user name */
   'shell.userMenu.account': 'Account: {name}',
-  /** {name} is the user name */
-  'shell.userMenu.signedInAs': 'Signed in as {name}',
   'shell.userMenu.notSignedIn': 'Not signed in',
   'shell.userMenu.signOut': 'Sign out',
   'shell.userMenu.signIn': 'Sign in',
@@ -299,10 +291,9 @@ export const en = {
   'shell.userBox.changePassword': 'Change password',
   'shell.userBox.cantDeleteSelfTitle': 'You can’t delete yourself',
   'shell.userBox.cantDeleteSelf': 'You can’t delete yourself.',
-  'shell.userBox.deleteTitle': 'Delete User',
-  /** {name} is a user name */
-  'shell.userBox.deleteConfirm':
-    'Are you sure you want to delete {name}? This action cannot be undone.',
+  /** the user is shown under it */
+  'shell.userBox.deleteTitle': 'Delete user?',
+  'shell.userBox.deleteConfirm': 'This can’t be undone.',
   'shell.userBox.deleteUser': 'Delete user',
   /** a tag next to a user name */
   'shell.userBox.admin': 'Admin',
@@ -1022,11 +1013,8 @@ export const en = {
   /** a screen reader label for the placeholder shown while the console loads */
   'console.loading': 'Loading console',
   'console.empty': 'No console messages yet',
-  /** above the console lines; {max} is the number of lines shown */
-  'console.hiddenLines': {
-    one: '{count} older line hidden (showing the newest {max})',
-    other: '{count} older lines hidden (showing the newest {max})',
-  },
+  /** above the console lines; how many is a badge after it */
+  'console.hiddenLines': 'Older lines hidden',
   /** {error} is the core's error message */
   'console.sendFailed': 'Failed to send command: {error}',
 

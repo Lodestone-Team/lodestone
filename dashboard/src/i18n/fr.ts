@@ -104,7 +104,6 @@ export const fr: Messages = {
   'common.table.noData': 'Aucune donnée disponible pour le moment',
   // ClipboardTextfield: text that copies itself when clicked
   'common.clipboard.copyToClipboard': 'Copier dans le presse-papiers',
-  'common.clipboard.copiedText': '« {text} » copié',
   // The server resource pack URL check (utils/resourcePack.ts)
   'common.resourcePack.urlSpaces': 'L’URL ne peut pas contenir d’espaces.',
   'common.resourcePack.notAUrl': 'Ce n’est pas une URL.',
@@ -144,27 +143,25 @@ export const fr: Messages = {
   'shell.versionMismatch.title': 'Mise à jour requise !',
   'shell.versionMismatch.continue':
     'J’ai compris, continuer sans mettre à jour',
-  'shell.versionMismatch.coreVersion': 'Version du core :',
-  'shell.versionMismatch.dashboardVersion': 'Version du tableau de bord :',
   'shell.versionMismatch.incompatible':
     'Votre tableau de bord et votre core sont incompatibles !',
   'shell.versionMismatch.body':
     'Cela peut provoquer un comportement inattendu. Veuillez mettre à jour votre core vers la dernière version. Consultez {link} pour en savoir plus.',
   'shell.versionMismatch.wiki': 'le wiki',
-  'shell.versionMismatch.toast':
-    'Versions différentes ! Votre core est-il à jour ? Core : {core}, tableau de bord : {dashboard}',
+  'shell.versionMismatch.toastTitle': 'Les versions diffèrent',
+  'shell.versionMismatch.question': 'Votre core est-il obsolète ?',
   'shell.localCore.title': 'Nouveau core local détecté',
   'shell.localCore.body':
-    'Un core local qui n’est pas encore configuré a été détecté. Voulez-vous configurer {name} ?',
+    'Un core local qui n’est pas encore configuré a été détecté. Voulez-vous le configurer ?',
   'shell.localCore.setup': 'Configurer',
   'shell.localCore.skip': 'Ignorer',
   'shell.setupRequired.title': 'Configuration requise',
   'shell.setupRequired.body':
-    '{name} n’est pas encore configuré. Veuillez terminer la configuration.',
+    'Ce core n’est pas encore configuré. Veuillez terminer la configuration.',
   'shell.setupRequired.changeCore': 'Changer de core',
   'shell.coreError.title': 'Erreur de connexion au core',
   'shell.coreError.body':
-    'Une erreur s’est produite lors de la connexion à {address}. Veuillez choisir un autre core, actualiser la page ou simplement attendre que le core soit de nouveau en ligne.',
+    'Une erreur s’est produite lors de la connexion au core. Sélectionnez un autre core, actualisez la page ou attendez que le core soit de nouveau en ligne.',
   'shell.coreError.back': 'Retour au choix du core',
   'shell.coreError.continue': 'Continuer avec ce core',
 
@@ -208,28 +205,25 @@ export const fr: Messages = {
   'shell.notifications.loading': 'Chargement des notifications',
   'shell.notifications.empty': 'Aucune notification pour le moment !',
 
-  'shell.event.state.Starting': 'Le serveur {name} démarre !',
-  'shell.event.state.Running': 'Le serveur {name} a démarré !',
-  'shell.event.state.Stopping': 'Le serveur {name} s’arrête !',
-  'shell.event.state.Stopped': 'Le serveur {name} s’est arrêté !',
-  'shell.event.state.Error': 'Le serveur {name} a rencontré une erreur !',
   'shell.event.warningToast':
     'Avertissement : un serveur a émis un avertissement. Cela ne devrait pas arriver, veuillez le signaler aux développeurs.',
-  'shell.event.warning': 'Le serveur {name} a émis un avertissement',
-  'shell.event.error': 'Le serveur {name} a rencontré une erreur',
-  'shell.event.playersJoined': '{players} a rejoint {name}',
-  'shell.event.playersLeft': '{players} a quitté {name}',
-  'shell.event.playersJoinedAndLeft':
-    '{joined} a rejoint {name} et {left} a quitté {name}',
-  'shell.event.modpackUpdate': '{pack} {version} est disponible pour {name}',
-  'shell.event.playerMessage': '{player} a dit {message} sur {name}',
-  'shell.event.apiKeyCreated': 'Clé d’API « {name} » créée',
-  'shell.event.apiKeyRevoked': 'Clé d’API « {name} » révoquée',
+  'shell.event.outcome.Starting': 'Le serveur démarre',
+  'shell.event.outcome.Running': 'Serveur démarré',
+  'shell.event.outcome.Stopping': 'Le serveur s’arrête',
+  'shell.event.outcome.Stopped': 'Serveur arrêté',
+  'shell.event.outcome.Error': 'Le serveur a rencontré une erreur',
+  'shell.event.outcome.warning': 'Le serveur a émis un avertissement',
+  'shell.event.outcome.error': 'Le serveur a rencontré une erreur',
+  'shell.event.outcome.joined': 'Connectés',
+  'shell.event.outcome.left': 'Partis',
+  'shell.event.outcome.said': 'a dit',
+  'shell.event.outcome.modpackOut': 'Mise à jour disponible',
+  'shell.event.outcome.apiKeyCreated': 'Clé d’API créée',
+  'shell.event.outcome.apiKeyRevoked': 'Clé d’API révoquée',
   'shell.event.loadFailed': 'Impossible de charger les notifications : {error}',
 
   'shell.userMenu.guest': 'Invité',
   'shell.userMenu.account': 'Compte : {name}',
-  'shell.userMenu.signedInAs': 'Connecté en tant que {name}',
   'shell.userMenu.notSignedIn': 'Non connecté',
   'shell.userMenu.signOut': 'Se déconnecter',
   'shell.userMenu.signIn': 'Se connecter',
@@ -241,9 +235,8 @@ export const fr: Messages = {
     'Vous ne pouvez pas vous supprimer vous-même',
   'shell.userBox.cantDeleteSelf':
     'Vous ne pouvez pas vous supprimer vous-même.',
-  'shell.userBox.deleteTitle': 'Supprimer l’utilisateur',
-  'shell.userBox.deleteConfirm':
-    'Voulez-vous vraiment supprimer {name} ? Cette action est irréversible.',
+  'shell.userBox.deleteTitle': 'Supprimer l’utilisateur ?',
+  'shell.userBox.deleteConfirm': 'Cette action est irréversible.',
   'shell.userBox.deleteUser': 'Supprimer l’utilisateur',
   'shell.userBox.admin': 'Admin',
   'shell.userBox.owner': 'Propriétaire',
@@ -904,11 +897,7 @@ export const fr: Messages = {
     'Vous n’avez pas l’autorisation d’accéder à cette console',
   'console.loading': 'Chargement de la console',
   'console.empty': 'Aucun message dans la console pour l’instant',
-  'console.hiddenLines': {
-    one: '{count} ligne plus ancienne masquée (affichage des {max} plus récentes)',
-    other:
-      '{count} lignes plus anciennes masquées (affichage des {max} plus récentes)',
-  },
+  'console.hiddenLines': 'Lignes plus anciennes masquées',
   'console.sendFailed': 'Impossible d’envoyer la commande : {error}',
 
   // ConsoleLine: one line of console output

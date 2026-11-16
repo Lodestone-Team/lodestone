@@ -19,6 +19,7 @@ import ChangeSelfPasswordForm from './Settings/ChangeSelfPasswordForm';
 import ChangeUserPasswordForm from './Settings/ChangeUserPasswordForm';
 import { SettingsTag } from './Settings/SettingsBlocks';
 import { useT } from 'i18n';
+import { ObjectCard } from './Values';
 
 export default function UserBox({
   className,
@@ -108,9 +109,26 @@ export default function UserBox({
         isOpen={showDeleteUser}
         onClose={() => setShowDeleteUser(false)}
         closeButtonText={!isSelf ? t('common.cancel') : t('common.ok')}
+        object={
+          !isSelf && (
+            <ObjectCard
+              icon={<Avatar size={32} name={user.uid} />}
+              name={user.username}
+              facts={
+                userTags.length > 0 && (
+                  <div className="flex flex-row flex-wrap gap-1">
+                    {userTags.map((tag) => (
+                      <SettingsTag key={tag}>{tag}</SettingsTag>
+                    ))}
+                  </div>
+                )
+              }
+            />
+          )
+        }
       >
         {!isSelf
-          ? t('shell.userBox.deleteConfirm', { name: user.username })
+          ? t('shell.userBox.deleteConfirm')
           : t('shell.userBox.cantDeleteSelf')}
       </ConfirmDialog>
       <div className="flex min-w-0 flex-row items-center gap-3">
