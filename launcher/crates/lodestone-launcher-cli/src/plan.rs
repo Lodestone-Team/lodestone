@@ -648,17 +648,16 @@ pub fn plan(
         },
         Command::Worlds(c) => match c {
             Worlds::List(i) => call("worlds.list", vec![("instance", json!(i.instance))]),
-            Worlds::Backups(w) => call("worlds.backups", world(w)),
-            Worlds::Backup(w) => long("worlds.backup", world(w)),
-            Worlds::Restore {
+            Worlds::Snapshots(w) => call("worlds.snapshots", world(w)),
+            Worlds::RestoreSnapshot {
                 world: w,
                 snapshot,
-                replace,
+                mode,
             } => {
                 let mut pairs = world(w);
                 pairs.push(("snapshot", json!(snapshot)));
-                pairs.push(("mode", json!(if *replace { "replace" } else { "copy" })));
-                long("worlds.restore", pairs)
+                pairs.push(("mode", json!(mode)));
+                long("worlds.restore_snapshot", pairs)
             }
             Worlds::Delete(w) => call("worlds.delete", world(w)),
             Worlds::Datapacks(w) => call("worlds.datapacks", world(w)),
@@ -1032,6 +1031,45 @@ pub fn plan(
                 vec![("path", json!(absolute(path)?)), ("id", json!(id))],
             ),
         },
+        Command::WorldBackups(c) => match c {
+            WorldBackups::List {
+                instance,
+                world,
+                deleted,
+            } => {
+                if *deleted {
+                    call("world_backups.list", vec![("deleted", json!(true))])
+                } else {
+                    call(
+                        "world_backups.list",
+                        vec![("instance", json!(instance)), ("world", json!(world))],
+                    )
+                }
+            }
+            WorldBackups::Create { world: w, name } => {
+                let mut pairs = world(w);
+                pairs.push(("name", json!(name)));
+                long("world_backups.create", pairs)
+            }
+            WorldBackups::Restore {
+                instance,
+                backup,
+                world,
+                new,
+            } => long(
+                "world_backups.restore",
+                vec![
+                    ("instance", json!(instance)),
+                    ("backup", json!(backup)),
+                    ("world", json!(world)),
+                    ("mode", json!(if *new { "new" } else { "replace" })),
+                ],
+            ),
+            WorldBackups::Delete { instance, backup } => call(
+                "world_backups.delete",
+                vec![("instance", json!(instance)), ("backup", json!(backup))],
+            ),
+        },
         Command::Snapshots(c) => {
             // "default" goes as it is: back to the Launcher's (a null would be left out).
             let count = |value: &Option<String>| -> Result<Option<Value>, ErrorObject> {
@@ -1398,10 +1436,84 @@ mod tests {
             call_of(&["snapshots", "list", "--deleted"]).1,
             json!({ "deleted": true })
         );
-        let (_, params, _) = call_of(&["worlds", "restore", "S", "World", "--replace"]);
         assert_eq!(
-            params,
-            json!({ "instance": "S", "world": "World", "snapshot": "latest", "mode": "replace" })
+            call_of(&[
+                "worlds",
+                "restore-snapshot",
+                "S",
+                "World",
+                "--mode",
+                "replace"
+            ]),
+            (
+                "worlds.restore_snapshot",
+                json!({ "instance": "S", "world": "World", "snapshot": "latest", "mode": "replace" }),
+                true
+            )
+        );
+        assert_eq!(
+            call_of(&["worlds", "snapshots", "S", "World"]),
+            (
+                "worlds.snapshots",
+                json!({ "instance": "S", "world": "World" }),
+                false
+            )
+        );
+        for gone in [
+            ["worlds", "backup"],
+            ["worlds", "backups"],
+            ["worlds", "restore"],
+        ] {
+            let argv = ["lodestone-launcher-cli", gone[0], gone[1], "S", "World"];
+            assert!(Cli::try_parse_from(argv).is_err(), "{gone:?}");
+        }
+        assert_eq!(
+            call_of(&["world-backups", "list", "S", "--world", "World"]),
+            (
+                "world_backups.list",
+                json!({ "instance": "S", "world": "World" }),
+                false
+            )
+        );
+        assert_eq!(
+            call_of(&["world-backups", "list", "--deleted"]).1,
+            json!({ "deleted": true })
+        );
+        assert_eq!(
+            call_of(&["world-backups", "create", "S", "World", "--name", "Before"]),
+            (
+                "world_backups.create",
+                json!({ "instance": "S", "world": "World", "name": "Before" }),
+                true
+            )
+        );
+        assert_eq!(
+            call_of(&[
+                "world-backups",
+                "restore",
+                "S",
+                "latest",
+                "--world",
+                "World"
+            ])
+            .1,
+            json!({ "instance": "S", "backup": "latest", "world": "World", "mode": "replace" })
+        );
+        assert_eq!(
+            call_of(&["world-backups", "restore", "S", "Before", "--new"]).1,
+            json!({ "instance": "S", "backup": "Before", "mode": "new" })
+        );
+        assert_eq!(
+            call_of(&["world-backups", "delete", "S", "Before"]),
+            (
+                "world_backups.delete",
+                json!({ "instance": "S", "backup": "Before" }),
+                false
+            )
+        );
+        assert_eq!(
+            call_of(&["storage", "clean", "deleted-world-backups"]).1,
+            json!({ "what": "deleted-world-backups" })
         );
         let (_, params, _) = call_of(&[
             "shared",

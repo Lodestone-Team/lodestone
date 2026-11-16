@@ -11,8 +11,6 @@ pub fn text(message: M) -> &'static str {
         M::GameRunning => "游戏正在运行：可以打开世界、查看备份，但更改要等游戏停止后才能进行。",
 
         M::BackingUp => "正在备份 {name}",
-        M::RestoringBackup => "正在恢复备份",
-        M::ReplacingWorld => "正在用备份替换世界",
         M::MovingToTrash => "正在将 {name} 移到{trash}",
         M::Renaming => "正在重命名",
         M::Exporting => "正在导出 {name}",
@@ -45,9 +43,6 @@ pub fn text(message: M) -> &'static str {
         M::Backups => "备份",
         M::Export => "导出…",
         M::DeleteWorld => "删除…",
-        M::NoBackupsYet => "这个世界还没有快照。点击“备份”拍摄一个；设置 › 快照中列出了全部快照。",
-        M::RestoreAsCopy => "恢复为副本",
-        M::ReplaceWorld => "替换世界…",
 
         M::DataPacks => "数据包",
         M::ReadingDataPacks => "正在读取数据包",
@@ -88,6 +83,14 @@ pub fn text(message: M) -> &'static str {
         M::NoScreenshotsHint => "在游戏中按 F2 即可截图，截图会显示在这里。",
         M::Position => "第 {index} 张，共 {count} 张",
         M::CopyImage => "复制图片",
+        M::RestoringFromSnapshot => "正在从快照恢复世界",
+        M::WorldBackupsHeading => "世界备份",
+        M::NoWorldBackupsYet => "这个世界还没有世界备份。点击“备份”创建一个。",
+        M::InSnapshots => "快照中",
+        M::NoSnapshotsOfWorld => "还没有快照包含这个世界。可以在设置 › 快照中拍摄。",
+        M::RestoreEllipsis => "恢复…",
+        M::RestoreAsNewWorld => "恢复为新世界",
+        M::RestoreThisWorld => "恢复这个世界…",
     }
 }
 

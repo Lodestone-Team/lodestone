@@ -11,8 +11,6 @@ pub fn text(message: M) -> &'static str {
         M::GameRunning => "遊戲正在執行：可以開啟世界、檢視備份，但變更要等遊戲停止後才能進行。",
 
         M::BackingUp => "正在備份 {name}",
-        M::RestoringBackup => "正在還原備份",
-        M::ReplacingWorld => "正在以備份取代世界",
         M::MovingToTrash => "正在將 {name} 移到{trash}",
         M::Renaming => "正在重新命名",
         M::Exporting => "正在匯出 {name}",
@@ -45,11 +43,6 @@ pub fn text(message: M) -> &'static str {
         M::Backups => "備份",
         M::Export => "匯出…",
         M::DeleteWorld => "刪除…",
-        M::NoBackupsYet => {
-            "這個世界還沒有快照。點選「備份」拍攝一個；設定 › 快照中列出了全部快照。"
-        }
-        M::RestoreAsCopy => "還原為副本",
-        M::ReplaceWorld => "取代世界…",
 
         M::DataPacks => "資料包",
         M::ReadingDataPacks => "正在讀取資料包",
@@ -90,6 +83,14 @@ pub fn text(message: M) -> &'static str {
         M::NoScreenshotsHint => "在遊戲中按 F2 即可截圖，截圖會顯示在這裡。",
         M::Position => "第 {index} 張，共 {count} 張",
         M::CopyImage => "複製圖片",
+        M::RestoringFromSnapshot => "正在從快照還原世界",
+        M::WorldBackupsHeading => "世界備份",
+        M::NoWorldBackupsYet => "這個世界還沒有世界備份。點選「備份」建立一個。",
+        M::InSnapshots => "快照中",
+        M::NoSnapshotsOfWorld => "還沒有快照包含這個世界。可以在設定 › 快照中拍攝。",
+        M::RestoreEllipsis => "還原…",
+        M::RestoreAsNewWorld => "還原為新世界",
+        M::RestoreThisWorld => "還原這個世界…",
     }
 }
 

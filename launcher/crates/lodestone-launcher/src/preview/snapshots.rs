@@ -74,16 +74,6 @@ pub fn fill(data_dir: &DataDir, store: &InstanceStore, instance: &Instance) {
     );
 }
 
-/// Two backups of the worlds scene's first world.
-pub fn fill_worlds(data_dir: &DataDir, instance: &Instance) {
-    let images = Images::open(data_dir);
-    let id = &instance.id;
-    let _ = images.record_now(id, "Created Survival 1.20.1");
-    let name = launcher_core::images::labels::backed_up("New World");
-    let _ = images.take_snapshot(id, Take::new(SnapshotKind::Manual, name.clone()));
-    let _ = images.take_snapshot(id, Take::new(SnapshotKind::Manual, name));
-}
-
 pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherShell>) {
     let instances = shell.instances().clone();
     let (id, data_dir, images) = {

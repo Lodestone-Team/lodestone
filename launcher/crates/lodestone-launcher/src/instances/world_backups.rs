@@ -1,0 +1,657 @@
+//! World backups in the Launcher: zips of one world each (`launcher_core::world_backups`),
+//! listed in an instance's Settings tab beside its snapshots and in the Worlds tab, and the
+//! dialog that makes one, restores one (in place after a safety backup, or as a new
+//! world) or deletes one.
+//!
+//! The work runs on background threads; the dialog shows its progress.
+
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicU8, Ordering},
+    },
+    time::Duration,
+};
+
+use futures::StreamExt as _;
+use gpui::{
+    AnyElement, App, AppContext as _, Context, Entity, EventEmitter, FocusHandle, Focusable,
+    IntoElement, Render, SharedString, Task, Window, div, prelude::*,
+};
+use launcher_core::{
+    game::download::{CancelToken, Progress},
+    images::display_text,
+    world_backups::{RestoreTo, WorldBackup, WorldBackups, WorldStep},
+    worlds::{self, World},
+};
+
+use super::{Instances, new_instance::form_row};
+use crate::{
+    components::{Button, ButtonVariant, Dialog, LoadingDots, TextInput, segmented},
+    i18n::{CommonMsg, InstanceSettingsMsg as M, t, tr},
+    theme::{self, colors, px, text},
+};
+
+impl Instances {
+    /// The instances' world backups.
+    pub fn world_backups(&self) -> Arc<WorldBackups> {
+        self.world_backups.clone()
+    }
+
+    /// Follows changes to every instance's world backups, reading a list it has again.
+    pub(super) fn follow_world_backup_changes(&mut self, cx: &mut Context<Self>) {
+        let mut changes = self.world_backups.watch();
+        cx.spawn(async move |this, cx| {
+            while let Some(id) = changes.next().await {
+                let alive = this.update(cx, |this, cx| {
+                    *this.world_backup_revisions.entry(id.clone()).or_default() += 1;
+                    if this.world_backup_rows.contains_key(&id)
+                        || this.world_backup_tasks.contains_key(&id)
+                    {
+                        this.load_world_backups(&id, cx);
+                    }
+                    cx.notify();
+                });
+                if alive.is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
+    /// How many times the instance's world backups changed since the Launcher started.
+    pub fn world_backup_revision(&self, id: &str) -> u64 {
+        self.world_backup_revisions.get(id).copied().unwrap_or(0)
+    }
+
+    /// The instance's world backups, newest first, once read; reads them when not yet.
+    pub fn world_backup_list(
+        &mut self,
+        id: &str,
+        cx: &mut Context<Self>,
+    ) -> Option<&[WorldBackup]> {
+        if !self.world_backup_rows.contains_key(id) && !self.world_backup_tasks.contains_key(id) {
+            self.load_world_backups(id, cx);
+        }
+        self.world_backup_rows.get(id).map(Vec::as_slice)
+    }
+
+    /// Reads the instance's world backups again, in the background.
+    pub fn load_world_backups(&mut self, id: &str, cx: &mut Context<Self>) {
+        let backups = self.world_backups();
+        let key = id.to_string();
+        let read = cx.background_spawn({
+            let key = key.clone();
+            async move { backups.list(&key).unwrap_or_default() }
+        });
+        let task = cx.spawn(async move |this, cx| {
+            let list = read.await;
+            this.update(cx, |this, cx| {
+                this.world_backup_tasks.remove(&key);
+                this.world_backup_rows.insert(key, list);
+                cx.notify();
+            })
+            .ok();
+        });
+        self.world_backup_tasks.insert(id.to_string(), task);
+    }
+
+    /// After a world backup was made, restored or deleted here: the lists read again, and
+    /// the Worlds tab follows (a restore as a new world adds a world).
+    pub fn world_backups_changed(&mut self, id: &str, cx: &mut Context<Self>) {
+        *self
+            .world_backup_revisions
+            .entry(id.to_string())
+            .or_default() += 1;
+        self.load_world_backups(id, cx);
+        cx.notify();
+    }
+}
+
+/// What the world backup dialog opens for.
+#[derive(Clone, Debug)]
+pub enum WorldBackupRequest {
+    /// Back up a world of the instance: `world` chosen first, else the most recently
+    /// played.
+    BackUp {
+        instance: String,
+        world: Option<String>,
+    },
+    /// Put a backup back, in place (asking first) or as a new world (at once).
+    Restore {
+        instance: String,
+        backup: WorldBackup,
+        to: RestoreTo,
+    },
+    /// Move a backup's zip to the Trash, asking first.
+    Delete {
+        instance: String,
+        backup: WorldBackup,
+    },
+}
+
+impl WorldBackupRequest {
+    fn instance(&self) -> &str {
+        match self {
+            WorldBackupRequest::BackUp { instance, .. }
+            | WorldBackupRequest::Restore { instance, .. }
+            | WorldBackupRequest::Delete { instance, .. } => instance,
+        }
+    }
+}
+
+pub struct WorldBackupRequested(pub WorldBackupRequest);
+
+/// The dialog is done and can close.
+pub struct WorldBackupDismissed;
+
+/// What the dialog is doing.
+enum State {
+    Ready,
+    /// Making, restoring or deleting.
+    Working,
+    Done(SharedString),
+    Failed(SharedString),
+}
+
+/// What a restore is doing now, for the label over its bar.
+const STEP_NONE: u8 = 0;
+const STEP_SAVING: u8 = 1;
+const STEP_UNPACKING: u8 = 2;
+
+pub struct WorldBackupDialog {
+    instances: Entity<Instances>,
+    request: WorldBackupRequest,
+    /// Back up: the instance's worlds, once read.
+    worlds: Option<Vec<World>>,
+    chosen: Option<String>,
+    name: Entity<TextInput>,
+    /// Restore in place: whether the world is in the instance now (else nothing is saved
+    /// first).
+    world_exists: bool,
+    state: State,
+    step: Arc<AtomicU8>,
+    progress: Arc<Progress>,
+    cancel: CancelToken,
+    /// Cancel was pressed: the work stops at its next check (a swap, once started,
+    /// finishes).
+    stopping: bool,
+    focus: FocusHandle,
+    _work: Option<Task<()>>,
+    _ticker: Option<Task<()>>,
+}
+
+impl EventEmitter<WorldBackupDismissed> for WorldBackupDialog {}
+
+impl Focusable for WorldBackupDialog {
+    fn focus_handle(&self, _: &App) -> FocusHandle {
+        self.focus.clone()
+    }
+}
+
+impl WorldBackupDialog {
+    pub fn new(
+        instances: Entity<Instances>,
+        request: WorldBackupRequest,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let name = cx.new(|cx| {
+            TextInput::new(cx)
+                .with_placeholder(M::WorldBackupDefaultName)
+                .with_automation_id("world-backup-name")
+        });
+        let dirs = instances.read(cx).content_dirs(request.instance());
+        let world_exists = match &request {
+            WorldBackupRequest::Restore { backup, .. } => {
+                worlds::saves_dir(&dirs).join(&backup.folder).exists()
+            }
+            _ => false,
+        };
+        let mut this = Self {
+            instances,
+            chosen: match &request {
+                WorldBackupRequest::BackUp { world, .. } => world.clone(),
+                _ => None,
+            },
+            request,
+            worlds: None,
+            name,
+            world_exists,
+            state: State::Ready,
+            step: Arc::new(AtomicU8::new(STEP_NONE)),
+            progress: Arc::new(Progress::default()),
+            cancel: CancelToken::new(),
+            stopping: false,
+            focus: cx.focus_handle(),
+            _work: None,
+            _ticker: None,
+        };
+        match &this.request {
+            WorldBackupRequest::BackUp { .. } => {
+                let read = cx.background_spawn(async move { worlds::list(&dirs) });
+                this._work = Some(cx.spawn(async move |this, cx| {
+                    let list = read.await;
+                    this.update(cx, |this, cx| {
+                        if this.chosen.is_none() {
+                            this.chosen = list.first().map(|w| w.folder.clone());
+                        }
+                        this.worlds = Some(list);
+                        cx.notify();
+                    })
+                    .ok();
+                }));
+            }
+            WorldBackupRequest::Restore {
+                to: RestoreTo::NewWorld,
+                ..
+            } => this.go(cx),
+            _ => {}
+        }
+        this
+    }
+
+    /// Whether closing now would cut work short: making or restoring goes on until it ends
+    /// or Cancel stops it; deleting is short. The shell queues a dialog that would replace
+    /// this one meanwhile.
+    pub(crate) fn busy(&self) -> bool {
+        matches!(self.state, State::Working)
+            && !matches!(self.request, WorldBackupRequest::Delete { .. })
+    }
+
+    /// Puts the dialog in the middle of work, or out of it, for the shell's tests.
+    #[cfg(all(test, feature = "screenshot"))]
+    pub(crate) fn test_set_working(&mut self, working: bool) {
+        self.state = if working {
+            State::Working
+        } else {
+            State::Ready
+        };
+    }
+
+    /// Ends the dialog on `message`, for the offscreen screenshots.
+    #[cfg(feature = "screenshot")]
+    pub fn preview_done(&mut self, message: impl Into<SharedString>) {
+        self.state = State::Done(message.into());
+    }
+
+    fn game_running(&self, cx: &App) -> bool {
+        self.instances.read(cx).is_active(self.request.instance())
+    }
+
+    /// The world chosen to back up, for the shell's tests.
+    #[cfg(all(test, feature = "screenshot"))]
+    pub(crate) fn test_chosen(&self) -> (Option<usize>, Option<String>) {
+        (self.worlds.as_ref().map(Vec::len), self.chosen.clone())
+    }
+
+    /// Does what the dialog is for.
+    fn go(&mut self, cx: &mut Context<Self>) {
+        if self.busy() {
+            return;
+        }
+        let id = self.request.instance().to_string();
+        if self.game_running(cx) && !matches!(self.request, WorldBackupRequest::Delete { .. }) {
+            self.state = State::Failed(t(M::SnapshotGameRunning).into());
+            return cx.notify();
+        }
+        let in_place = matches!(
+            self.request,
+            WorldBackupRequest::Restore {
+                to: RestoreTo::InPlace,
+                ..
+            }
+        );
+        let instances = self.instances.read(cx);
+        // An install or a modpack update writing the files meanwhile: a restore's swap
+        // would lose what it writes.
+        if in_place && instances.files_or_pack_busy(&id) {
+            self.state = State::Failed(t(crate::i18n::InstancesMsg::FilesBusy).into());
+            return cx.notify();
+        }
+        let backups = instances.world_backups();
+        let busy = instances.mark_files_busy(&id);
+        let progress = Arc::new(Progress::default());
+        self.progress = progress.clone();
+        self.cancel = CancelToken::new();
+        self.stopping = false;
+        self.step.store(STEP_NONE, Ordering::Relaxed);
+        let (cancel, step) = (self.cancel.clone(), self.step.clone());
+        let work: Box<dyn FnOnce() -> Result<SharedString, String> + Send> = match &self.request {
+            WorldBackupRequest::BackUp { .. } => {
+                let Some(folder) = self.chosen.clone() else {
+                    return;
+                };
+                let name = self.name.read(cx).text().trim().to_string();
+                let shown = self
+                    .worlds
+                    .iter()
+                    .flatten()
+                    .find(|w| w.folder == folder)
+                    .map_or(folder.clone(), |w| w.name());
+                launcher_core::trace::emit(
+                    "world_backup.create",
+                    || serde_json::json!({ "instance": id }),
+                );
+                let id = id.clone();
+                Box::new(move || {
+                    let _busy = busy;
+                    backups
+                        .create(&id, &folder, Some(&name), &progress, &|| {
+                            cancel.is_cancelled()
+                        })
+                        .map(|_| tr!(M::WorldBackedUp, name = shown).into())
+                        .map_err(|e| e.to_string())
+                })
+            }
+            WorldBackupRequest::Restore { backup, to, .. } => {
+                let (backup, to, id) = (backup.clone(), *to, id.clone());
+                launcher_core::trace::emit(
+                    "world_backup.restore",
+                    || serde_json::json!({ "instance": id, "new_world": to == RestoreTo::NewWorld }),
+                );
+                Box::new(move || {
+                    let _busy = busy;
+                    let set_step = |s: WorldStep| {
+                        step.store(
+                            match s {
+                                WorldStep::SavingCurrent => STEP_SAVING,
+                                WorldStep::Unpacking => STEP_UNPACKING,
+                            },
+                            Ordering::Relaxed,
+                        )
+                    };
+                    let restored = backups
+                        .restore(&id, &backup.id, to, &set_step, &progress, &|| {
+                            cancel.is_cancelled()
+                        })
+                        .map_err(|e| e.to_string())?;
+                    Ok(match to {
+                        RestoreTo::InPlace => {
+                            tr!(M::WorldRestored, world = display_text(backup.world_name())).into()
+                        }
+                        RestoreTo::NewWorld => {
+                            tr!(M::WorldRestoredAsNew, folder = restored.folder).into()
+                        }
+                    })
+                })
+            }
+            WorldBackupRequest::Delete { backup, .. } => {
+                let (backup, id) = (backup.clone(), id.clone());
+                Box::new(move || {
+                    let _busy = busy;
+                    backups
+                        .delete(&id, &backup.id)
+                        .map(|()| SharedString::default())
+                        .map_err(|e| e.to_string())
+                })
+            }
+        };
+        self.state = State::Working;
+        let job = cx.background_spawn(async move { work() });
+        let instances = self.instances.clone();
+        let deleting = matches!(self.request, WorldBackupRequest::Delete { .. });
+        self._work = Some(cx.spawn(async move |this, cx| {
+            let result = job.await;
+            if result.is_ok() {
+                instances.update(cx, |instances, cx| instances.world_backups_changed(&id, cx));
+            }
+            this.update(cx, |this, cx| {
+                this.stopping = false;
+                match result {
+                    Ok(_) if deleting => cx.emit(WorldBackupDismissed),
+                    Ok(message) => this.state = State::Done(message),
+                    Err(err) if this.cancel.is_cancelled() => {
+                        log::info!("World backup work stopped: {err}");
+                        this.state = State::Failed(t(crate::i18n::WorldsMsg::Cancelled).into())
+                    }
+                    Err(err) => this.state = State::Failed(err.into()),
+                }
+                cx.notify();
+            })
+            .ok();
+        }));
+        // Redraws the bar while it runs.
+        self._ticker = Some(cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_millis(150))
+                    .await;
+                let working = this
+                    .update(cx, |this, cx| {
+                        cx.notify();
+                        matches!(this.state, State::Working)
+                    })
+                    .unwrap_or(false);
+                if !working {
+                    break;
+                }
+            }
+        }));
+        cx.notify();
+    }
+
+    /// Cancel: closes the dialog, or, while work runs, stops it.
+    fn cancel_or_close(&mut self, cx: &mut Context<Self>) {
+        if !self.busy() {
+            return cx.emit(WorldBackupDismissed);
+        }
+        self.stopping = true;
+        self.cancel.cancel();
+        cx.notify();
+    }
+
+    fn title(&self) -> SharedString {
+        match &self.request {
+            WorldBackupRequest::BackUp { .. } => t(M::BackUpWorldTitle).into(),
+            WorldBackupRequest::Restore {
+                backup,
+                to: RestoreTo::InPlace,
+                ..
+            } => tr!(
+                M::RestoreWorldTitle,
+                world = display_text(backup.world_name())
+            )
+            .into(),
+            WorldBackupRequest::Restore { .. } => t(M::RestoreAsNewWorld).into(),
+            WorldBackupRequest::Delete { .. } => t(M::DeleteWorldBackupTitle).into(),
+        }
+    }
+
+    fn render_progress(&self) -> AnyElement {
+        let label = if self.stopping {
+            t(crate::i18n::InstancesMsg::CancellingNote).to_string()
+        } else {
+            match (&self.request, self.step.load(Ordering::Relaxed)) {
+                (WorldBackupRequest::BackUp { .. }, _) => {
+                    let name = self
+                        .worlds
+                        .iter()
+                        .flatten()
+                        .find(|w| Some(&w.folder) == self.chosen.as_ref())
+                        .map(World::name)
+                        .unwrap_or_default();
+                    tr!(M::BackingUpWorld, name = name)
+                }
+                (_, STEP_SAVING) => t(M::SavingWorld).to_string(),
+                _ => t(M::UnpackingWorldBackup).to_string(),
+            }
+        };
+        let now = self.progress.snapshot();
+        let fraction = (now.bytes_total > 0)
+            .then(|| (now.bytes_done as f32 / now.bytes_total as f32).clamp(0.0, 1.0));
+        div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .gap_2()
+                    .items_center()
+                    .text_color(colors::GRAY_400)
+                    .child(LoadingDots)
+                    .child(label),
+            )
+            .when_some(fraction, |this, fraction| {
+                this.child(
+                    div()
+                        .h(px(6.))
+                        .w_full()
+                        .rounded_full()
+                        .bg(colors::GRAY_700)
+                        .child(
+                            div()
+                                .h_full()
+                                .rounded_full()
+                                .bg(colors::GREEN_400)
+                                .w(gpui::relative(fraction)),
+                        ),
+                )
+            })
+            .into_any_element()
+    }
+
+    fn render_back_up(&self, cx: &mut Context<Self>) -> AnyElement {
+        let Some(list) = &self.worlds else {
+            return div().child(LoadingDots).into_any_element();
+        };
+        if list.is_empty() {
+            return muted(t(M::NoWorldsToBackUp)).into_any_element();
+        }
+        let mut body = div().flex().flex_col().gap_3();
+        if list.len() > 1 {
+            let choices: Vec<(String, SharedString)> = list
+                .iter()
+                .map(|w| (w.folder.clone(), SharedString::from(w.name())))
+                .collect();
+            let entity = cx.entity();
+            body = body.child(form_row(
+                t(M::WorldBackupWorld),
+                segmented(
+                    "world-backup-world",
+                    choices,
+                    self.chosen.as_ref(),
+                    false,
+                    move |folder, _, cx| {
+                        entity.update(cx, |this, cx| {
+                            this.chosen = Some(folder);
+                            cx.notify();
+                        })
+                    },
+                ),
+            ));
+        }
+        body.child(form_row(t(M::SnapshotName), self.name.clone()))
+            .into_any_element()
+    }
+}
+
+/// A small grey line.
+fn muted(text_: impl Into<SharedString>) -> gpui::Div {
+    div()
+        .whitespace_normal()
+        .text_size(theme::text_size(text::SMALL))
+        .text_color(colors::GRAY_400)
+        .child(text_.into())
+}
+
+impl Render for WorldBackupDialog {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let entity = cx.entity();
+        let mut body = div()
+            .flex()
+            .flex_col()
+            .gap_4()
+            .text_size(theme::text_size(text::MEDIUM));
+        let mut primary: Option<(SharedString, ButtonVariant, bool)> = None;
+        match (&self.state, &self.request) {
+            (State::Working, _) => body = body.child(self.render_progress()),
+            (State::Done(message), _) => body = body.child(message.clone()),
+            (State::Failed(message), _) => {
+                body = body.child(
+                    div()
+                        .whitespace_normal()
+                        .text_color(colors::RED_300)
+                        .child(message.clone()),
+                )
+            }
+            (State::Ready, WorldBackupRequest::BackUp { .. }) => {
+                body = body.child(self.render_back_up(cx));
+                primary = Some((
+                    t(M::BackUpButton).into(),
+                    ButtonVariant::Primary,
+                    self.chosen.is_some(),
+                ));
+            }
+            (State::Ready, WorldBackupRequest::Restore { backup, to, .. }) => {
+                let when = super::snapshots::when(backup.created).to_lowercase();
+                let world = display_text(backup.world_name()).into_owned();
+                if *to == RestoreTo::InPlace {
+                    body = body.child(div().whitespace_normal().child(if self.world_exists {
+                        tr!(M::RestoreWorldBody, world = world, when = when)
+                    } else {
+                        tr!(M::RestoreWorldGoneBody, world = world, when = when)
+                    }));
+                    primary = Some((
+                        t(if self.world_exists {
+                            M::SaveAndRestore
+                        } else {
+                            M::RestoreButton
+                        })
+                        .into(),
+                        ButtonVariant::Danger,
+                        true,
+                    ));
+                }
+            }
+            (State::Ready, WorldBackupRequest::Delete { backup, .. }) => {
+                body = body.child(div().whitespace_normal().child(tr!(
+                    M::DeleteWorldBackupBody,
+                    name = display_text(&backup.name),
+                    trash = t(CommonMsg::TheTrash)
+                )));
+                primary = Some((
+                    t(CommonMsg::MoveToTrash).into(),
+                    ButtonVariant::Danger,
+                    true,
+                ));
+            }
+        }
+        let finished = matches!(self.state, State::Done(_) | State::Failed(_));
+        // While work runs, there is no way to close: no ×, Escape or click outside. Cancel
+        // stops the work, and the dialog says how it ended.
+        let busy = self.busy();
+        Dialog::new("world-backup-dialog", self.title(), self.focus.clone())
+            .width(px(560.))
+            .when(!busy, |dialog| {
+                dialog.on_close({
+                    let entity = entity.clone();
+                    move |_, cx| entity.update(cx, |_, cx| cx.emit(WorldBackupDismissed))
+                })
+            })
+            .child(body)
+            .footer(
+                Button::new(
+                    "world-backup-cancel",
+                    t(if finished {
+                        CommonMsg::Close
+                    } else {
+                        CommonMsg::Cancel
+                    }),
+                )
+                .variant(ButtonVariant::Ghost)
+                .disabled(self.stopping)
+                .on_click(cx.listener(|this, _, _, cx| this.cancel_or_close(cx))),
+            )
+            .when_some(primary, |dialog, (label, variant, enabled)| {
+                dialog.footer(
+                    Button::new("world-backup-go", label)
+                        .variant(variant)
+                        .disabled(!enabled)
+                        .on_click(cx.listener(|this, _, _, cx| this.go(cx))),
+                )
+            })
+    }
+}

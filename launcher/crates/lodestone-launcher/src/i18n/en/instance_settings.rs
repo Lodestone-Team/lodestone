@@ -532,6 +532,39 @@ crate::i18n::messages! {
         ExportNotDownloadable = "These can't be downloaded, so whoever imports the file won't get them: {files}.",
         SnapshotAfterPlayOwnHint = "Copies the worlds after you play. Set for this instance.",
         DeleteUnreadableNote = "They are deleted for good.",
+        /// Settings › Snapshots: the section of zips of single worlds.
+        WorldBackups = "World backups",
+        WorldBackupsHint = "Zip copies of one world, kept until you delete them. They open anywhere.",
+        /// The row, and the dialog's title.
+        BackUpWorldTitle = "Back up a world",
+        BackUpWorldEllipsis = "Back up a world…",
+        NoWorldBackups = "No world backups yet.",
+        /// Beside a world's name: its backups are kept, but the world was deleted or renamed.
+        WorldNotHere = "Not in this instance any more",
+        RestoreAsNewWorld = "Restore as a new world",
+        /// Back up a world: the label over the worlds to pick from.
+        WorldBackupWorld = "World",
+        /// The name field's placeholder: the name a world backup gets when none is given.
+        WorldBackupDefaultName = "World backup",
+        BackUpButton = "Back up",
+        /// {name} is the world's name.
+        BackingUpWorld = "Backing up {name}…",
+        WorldBackedUp = "Backed up {name}.",
+        NoWorldsToBackUp = "This instance has no worlds yet.",
+        /// {world} is the world's name.
+        RestoreWorldTitle = "Restore {world}?",
+        /// {when} is when the world backup was made: "today, 14:05".
+        RestoreWorldBody = "{world} goes back to how it was {when}. The world as it is now is saved first, as another world backup.",
+        RestoreWorldGoneBody = "{world} isn't in this instance any more. It comes back as it was {when}.",
+        SaveAndRestore = "Save and restore",
+        SavingWorld = "Saving the world as it is now…",
+        UnpackingWorldBackup = "Unpacking the world backup…",
+        WorldRestored = "Restored {world}.",
+        /// {folder} is the new world's folder.
+        WorldRestoredAsNew = "Restored as a new world, {folder}.",
+        DeleteWorldBackupTitle = "Delete this world backup?",
+        /// {name} is the backup's name; {trash} is the Trash, with its article.
+        DeleteWorldBackupBody = "“{name}” moves to {trash}.",
     }
 
     pub enum InstanceSettingsPlural {
@@ -605,5 +638,7 @@ crate::i18n::messages! {
         ImportCarriedMods = ("{count} of them is in the file itself, not downloaded from Modrinth or CurseForge: {names}", "{count} of them are in the file itself, not downloaded from Modrinth or CurseForge: {names}"),
         /// A server's backup (Lodestone Host's export) opened as an instance.
         ImportFromServer = ("A server’s backup from {server}: its world, with the mods its players get. {count} server file isn’t taken (the server’s settings, operators and plugins).", "A server’s backup from {server}: its world, with the mods its players get. {count} server files aren’t taken (the server’s settings, operators and plugins)."),
+        /// Files of the world the zip couldn't hold: links, or names some disks can't keep.
+        WorldBackupLeftOut = ("{count} file left out", "{count} files left out"),
     }
 }

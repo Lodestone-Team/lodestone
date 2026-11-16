@@ -1,0 +1,347 @@
+//! World backups, as Settings › Snapshots and the Worlds tab have them: list, make,
+//! restore (in place after a safety world backup, or as a new world) and delete. A world
+//! backup is a zip of one world (`launcher_core::world_backups`); making and restoring one
+//! are jobs of kind `world_backups`, which `jobs.cancel` stops.
+
+use std::sync::Arc;
+
+use gpui::{App, AppContext as _};
+use launcher_control::{ErrorObject, codes};
+use launcher_core::{
+    game::download::{CancelToken, Progress as Downloads},
+    instances::Instance,
+    world_backups::{RestoreTo, WorldBackup, WorldBackupError, WorldBackupKind, WorldBackups},
+};
+use serde::Deserialize;
+use serde_json::{Value, json};
+
+use super::{
+    Call, Control, Reply, api_error,
+    instances::{params, tri},
+    jobs::{Cancel, JobSpec, Progress},
+    ready,
+};
+
+fn backup_error(err: WorldBackupError) -> ErrorObject {
+    let code = match &err {
+        WorldBackupError::NotFound(_) => codes::NOT_FOUND,
+        WorldBackupError::Running | WorldBackupError::Suspended => codes::BUSY,
+        WorldBackupError::Cancelled => codes::CANCELLED,
+        WorldBackupError::Invalid(_) | WorldBackupError::World(_) => codes::INVALID_PARAMS,
+        _ => codes::FAILED,
+    };
+    api_error(code, err.to_string())
+}
+
+fn kind_name(kind: WorldBackupKind) -> &'static str {
+    match kind {
+        WorldBackupKind::Manual => "manual",
+        WorldBackupKind::BeforeRestore => "before_restore",
+    }
+}
+
+fn record_json(backups: &WorldBackups, instance: &str, backup: &WorldBackup) -> Value {
+    json!({
+        "id": backup.id,
+        "name": backup.name,
+        "kind": kind_name(backup.kind),
+        "restored": backup.restored,
+        "world": backup.folder,
+        "level_name": backup.level_name,
+        "game_version": backup.game_version,
+        "created": backup.created,
+        "bytes": backup.bytes,
+        "world_bytes": backup.world_bytes,
+        "files": backup.files,
+        "left_out": backup.left_out,
+        "left_out_count": backup.left_out_count,
+        "path": backups.zip_path(instance, backup),
+    })
+}
+
+/// The backup `reference` names among `list`: its id, its name in any case, or `latest`
+/// (the newest).
+fn find(
+    list: &[WorldBackup],
+    instance: &Instance,
+    reference: &str,
+) -> Result<WorldBackup, ErrorObject> {
+    if reference == "latest" {
+        return list.first().cloned().ok_or_else(|| {
+            api_error(
+                codes::NOT_FOUND,
+                format!("{} has no world backups of that world.", instance.name),
+            )
+        });
+    }
+    if let Some(found) = list.iter().find(|b| b.id == reference) {
+        return Ok(found.clone());
+    }
+    let named: Vec<&WorldBackup> = list
+        .iter()
+        .filter(|b| b.name.eq_ignore_ascii_case(reference))
+        .collect();
+    match named.as_slice() {
+        [one] => Ok((*one).clone()),
+        [] => Err(api_error(
+            codes::NOT_FOUND,
+            format!("{} has no world backup \"{reference}\".", instance.name),
+        )),
+        _ => Err(api_error(
+            codes::AMBIGUOUS,
+            format!("Several world backups are named \"{reference}\": use an id."),
+        )),
+    }
+}
+
+/// Runs `work` in the background as a `world_backups` job of `instance`, with the bytes
+/// it counts as the job's progress and `jobs.cancel` stopping it; then `after` on the
+/// window's thread when it succeeded.
+fn job(
+    call: &Call,
+    label: String,
+    instance: &Instance,
+    work: impl FnOnce(&Downloads, &CancelToken) -> Result<Value, ErrorObject> + Send + 'static,
+    after: impl FnOnce(&Control, &mut App) + 'static,
+    cx: &mut App,
+) -> Reply {
+    let progress = Arc::new(Downloads::default());
+    let cancel = CancelToken::new();
+    let (report, job_cancel) = (progress.clone(), cancel.clone());
+    let background = cx.background_spawn(async move { work(&report, &cancel) });
+    let control = call.control.clone();
+    let task = cx.spawn(async move |cx| {
+        let result = background.await;
+        cx.update(|cx| after(&control, cx));
+        result
+    });
+    let spec = JobSpec::new("world_backups", label)
+        .instance(instance)
+        .progress(Progress::Files(progress))
+        .cancel(Cancel::Token(job_cancel));
+    let control = call.control.clone();
+    let id = control.start_job(spec, task, cx);
+    control.reply_job(call, id, cx)
+}
+
+/// Shows the change in the window: the lists read again, the Worlds tab too.
+fn refresh(control: &Control, instance: &str, cx: &mut App) {
+    control.instances.update(cx, |instances, cx| {
+        instances.load_world_backups(instance, cx);
+        cx.notify();
+    });
+    super::worlds::refresh_view(control, instance, cx);
+}
+
+#[derive(Deserialize)]
+struct ListParams {
+    #[serde(default)]
+    deleted: bool,
+    /// Only this world's: its folder or name.
+    #[serde(default)]
+    world: Option<String>,
+}
+
+/// `world_backups.list`: an instance's world backups, newest first (one world's, given
+/// `world`); or, with `deleted`, every deleted instance's.
+pub fn list(call: Call, cx: &mut App) -> Reply {
+    let params: ListParams = params!(call);
+    let backups = call.control.instances.read(cx).world_backups();
+    if params.deleted {
+        return cx.background_spawn(async move {
+            let deleted = backups.list_deleted();
+            Ok(json!({
+                "deleted": deleted.iter().map(|d| json!({
+                    "instance": d.instance_id,
+                    "name": d.instance_name,
+                    "backups": d.backups.iter().map(|b| record_json(&backups, &d.instance_id, b)).collect::<Vec<_>>(),
+                })).collect::<Vec<_>>(),
+            }))
+        });
+    }
+    let instance = tri!(call.control.instance_param(&call, cx));
+    let folder = match &params.world {
+        Some(reference) => {
+            let dirs = call.control.instances.read(cx).content_dirs(&instance.id);
+            Some(tri!(super::worlds::find_world(&dirs, reference)).folder)
+        }
+        None => None,
+    };
+    cx.background_spawn(async move {
+        let list = backups.list(&instance.id).map_err(backup_error)?;
+        Ok(json!({
+            "instance": instance.id,
+            "world_backups": list
+                .iter()
+                .filter(|b| folder.as_ref().is_none_or(|f| *f == b.folder))
+                .map(|b| record_json(&backups, &instance.id, b))
+                .collect::<Vec<_>>(),
+        }))
+    })
+}
+
+#[derive(Deserialize)]
+struct CreateParams {
+    #[serde(default)]
+    name: Option<String>,
+}
+
+/// `world_backups.create`: zips a world.
+pub fn create(call: Call, cx: &mut App) -> Reply {
+    let params: CreateParams = params!(call);
+    let target = tri!(super::worlds::target(&call, cx));
+    tri!(super::snapshots::idle(
+        &target.control,
+        &target.instance,
+        cx
+    ));
+    let instances = target.control.instances.read(cx);
+    let backups = instances.world_backups();
+    // Play waits until it is done.
+    let busy = instances.mark_files_busy(&target.instance.id);
+    let label = format!("Backing up {}", target.world.name());
+    let (instance, folder) = (target.instance.id.clone(), target.world.folder.clone());
+    let id = instance.clone();
+    job(
+        &call,
+        label,
+        &target.instance,
+        move |progress, cancel| {
+            let _busy = busy;
+            let made = backups
+                .create(
+                    &instance,
+                    &folder,
+                    params.name.as_deref(),
+                    progress,
+                    &|| cancel.is_cancelled(),
+                )
+                .map_err(backup_error)?;
+            Ok(record_json(&backups, &instance, &made))
+        },
+        move |control, cx| refresh(control, &id, cx),
+        cx,
+    )
+}
+
+#[derive(Deserialize)]
+struct RestoreParams {
+    /// The backup: its id, its name, or `latest` (with `world`: the newest of that world).
+    backup: String,
+    /// Only this world's backups are looked at: its folder or name.
+    #[serde(default)]
+    world: Option<String>,
+    /// `replace` (in place, after a safety world backup) or `new` (a new world).
+    #[serde(default = "replace")]
+    mode: String,
+}
+
+fn replace() -> String {
+    "replace".into()
+}
+
+/// `world_backups.restore`: puts a world backup back in place (with confirm) or as a new
+/// world.
+pub fn restore(call: Call, cx: &mut App) -> Reply {
+    let params: RestoreParams = params!(call);
+    let instance = tri!(call.control.instance_param(&call, cx));
+    let to = match params.mode.as_str() {
+        "replace" => RestoreTo::InPlace,
+        "new" => RestoreTo::NewWorld,
+        other => {
+            return ready(Err(api_error(
+                codes::INVALID_PARAMS,
+                format!("No restore mode \"{other}\": replace or new."),
+            )));
+        }
+    };
+    let folder = match &params.world {
+        Some(reference) => {
+            let dirs = call.control.instances.read(cx).content_dirs(&instance.id);
+            Some(tri!(super::worlds::find_world(&dirs, reference)).folder)
+        }
+        None if params.backup == "latest" => {
+            return ready(Err(api_error(
+                codes::INVALID_PARAMS,
+                "latest needs the world (world: its folder or name).",
+            )));
+        }
+        None => None,
+    };
+    let backups = call.control.instances.read(cx).world_backups();
+    let list: Vec<WorldBackup> = tri!(backups.list(&instance.id).map_err(backup_error))
+        .into_iter()
+        .filter(|b| folder.as_ref().is_none_or(|f| *f == b.folder))
+        .collect();
+    let backup = tri!(find(&list, &instance, &params.backup));
+    if to == RestoreTo::InPlace {
+        tri!(call.confirm(format!(
+            "puts the world \"{}\" back as it was in the world backup \"{}\" (the world as it is now is saved first as a world backup)",
+            backup.world_name(),
+            backup.name
+        )));
+    }
+    tri!(super::snapshots::idle(&call.control, &instance, cx));
+    let instances = call.control.instances.read(cx);
+    // An install or a modpack update writing the instance's files meanwhile.
+    if to == RestoreTo::InPlace && instances.files_or_pack_busy(&instance.id) {
+        return ready(Err(api_error(
+            codes::BUSY,
+            "Another job is changing the instance's files; try again when it is done.",
+        )));
+    }
+    let busy = instances.mark_files_busy(&instance.id);
+    let label = format!("Restoring {} from {}", backup.world_name(), backup.name);
+    let id = instance.id.clone();
+    let instance_id = instance.id.clone();
+    job(
+        &call,
+        label,
+        &instance,
+        move |progress, cancel| {
+            let _busy = busy;
+            let restored = backups
+                .restore(&instance_id, &backup.id, to, &|_| {}, progress, &|| {
+                    cancel.is_cancelled()
+                })
+                .map_err(backup_error)?;
+            Ok(json!({
+                "world": restored.folder,
+                "from": backup.id,
+                "safety_world_backup": restored.safety.as_ref().map(|b| record_json(&backups, &instance_id, b)),
+                "kept_aside": restored.kept_aside,
+            }))
+        },
+        move |control, cx| refresh(control, &id, cx),
+        cx,
+    )
+}
+
+#[derive(Deserialize)]
+struct DeleteParams {
+    backup: String,
+}
+
+/// `world_backups.delete`: moves a world backup's zip to the Trash.
+pub fn delete(call: Call, cx: &mut App) -> Reply {
+    let params: DeleteParams = params!(call);
+    let instance = tri!(call.control.instance_param(&call, cx));
+    let backups = call.control.instances.read(cx).world_backups();
+    let list = tri!(backups.list(&instance.id).map_err(backup_error));
+    let backup = tri!(find(&list, &instance, &params.backup));
+    tri!(call.confirm(format!(
+        "moves the world backup \"{}\" of \"{}\" to the Trash",
+        backup.name,
+        backup.world_name()
+    )));
+    tri!(super::snapshots::idle(&call.control, &instance, cx));
+    let control = call.control.clone();
+    let id = instance.id.clone();
+    let work =
+        cx.background_spawn(async move { backups.delete(&id, &backup.id).map(|()| backup.id) });
+    cx.spawn(async move |cx| {
+        let deleted = work.await.map_err(backup_error)?;
+        cx.update(|cx| refresh(&control, &instance.id, cx));
+        Ok(json!({ "deleted": deleted, "trash": true }))
+    })
+}

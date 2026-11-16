@@ -77,15 +77,15 @@ pub fn text(message: M) -> &'static str {
         M::PlayNamed => "啟動「{name}」",
 
         M::DeleteNamed => "刪除「{name}」？",
-        M::DeleteWorldBody => "這個世界的資料夾會移到{trash}，你可以從那裡還原。它的備份會保留。",
+        M::DeleteWorldBody => "世界的資料夾會移到{trash}，你可以從那裡還原。它的世界備份會保留。",
         M::DeleteInstanceBody => {
-            "這個實例的資料夾（包括其中的世界、模組和設定）會移到{trash}。你可以從那裡還原。它的快照會一直保留，直到你在「設定 › 儲存空間」中移除；還原實例時快照也會一起回來。"
+            "這個實例的資料夾（包括其中的世界、模組和設定）會移到{trash}。你可以從那裡還原。它的快照和世界備份會一直保留，直到你在「設定 › 儲存空間」中移除；還原實例時它們也會一起回來。"
         }
-        M::ReplaceWorldTitle => "用這個備份取代「{name}」？",
+        M::ReplaceWorldTitle => "從這個快照還原「{name}」？",
         M::ReplaceWorldBody => {
-            "「{name}」會回到{when} 時的狀態。會先為現在的世界拍攝快照，並保留 30 天。"
+            "{name} 將回到 {when} 時的狀態。會先為世界現在的樣子拍攝快照，並保留 30 天。"
         }
-        M::BackUpAndReplace => "備份並取代",
+        M::BackUpAndReplace => "拍攝快照並還原",
         M::RemoveAccountTitle => "移除「{name}」？",
         M::RemoveAccountBody => {
             "Lodestone Launcher 會忘記這個帳號，並從你的{keychain}中刪除它儲存的登入資訊。之後你可以再次新增。"
@@ -817,6 +817,8 @@ pub fn text(message: M) -> &'static str {
         M::ReplaceWorldModsNote => {
             "只有世界會還原；實例的模組保持不變。要同時還原它當時使用的模組，請在「設定 › 快照」中還原該快照。"
         }
+        M::StorageWorldBackups => "世界備份",
+        M::StorageCleanWorldBackupsTitle => "刪除已刪除實例的世界備份？",
     }
 }
 
@@ -833,6 +835,11 @@ pub fn plural(message: P) -> [&'static str; 2] {
         }
         P::StorageCleanSnapshotsBody => {
             ["將刪除 {count} 個快照：啟動器自動拍攝的快照，以及已刪除實例的所有快照（包括已釘選的）。你的實例中你自己拍攝的和已釘選的快照會保留。最近一小時內的檔案會在下次清理時釋放。";
+                2]
+        }
+        P::StorageWorldBackupsHint => ["{count} 個世界備份 · 其中 {deleted} 個屬於已刪除的實例"; 2],
+        P::StorageCleanWorldBackupsBody => {
+            ["將永久刪除 {count} 個屬於已刪除實例的世界備份，包括仍在{trash}中的實例。你現有實例的世界備份會保留。";
                 2]
         }
     }

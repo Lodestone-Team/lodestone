@@ -49,7 +49,7 @@ use crate::{
     content::{InstanceDirs, is_plain_name},
     game::download::Progress,
     images::{Cancel, ImageError, Images, labels, snapshots},
-    instances::InstanceStore,
+    instances::{Instance, InstanceStore},
     paths::DataDir,
     storage,
     worlds::{self, Limits, Shape, WorldError},
@@ -240,15 +240,19 @@ struct Owners {
 
 impl Owners {
     fn of(instances: &InstanceStore) -> Owners {
-        let blind = !instances.root().is_dir();
-        let (list, _) = instances.list();
+        Owners::listed(instances.root(), &instances.list().0)
+    }
+
+    /// The owners given the instances folder `root` and the instances read from it.
+    fn listed(root: &Path, list: &[Instance]) -> Owners {
+        let blind = !root.is_dir();
         let live: HashMap<String, (u64, String)> = list
-            .into_iter()
-            .map(|i| (i.id, (i.created, i.name)))
+            .iter()
+            .map(|i| (i.id.clone(), (i.created, i.name.clone())))
             .collect();
         // Any entry in the instances folder that isn't a live instance: broken, a link to
         // a drive that isn't there, half made. Never taken for a deleted instance.
-        let unknown = fs::read_dir(instances.root())
+        let unknown = fs::read_dir(root)
             .into_iter()
             .flatten()
             .flatten()
@@ -354,7 +358,7 @@ impl WorldBackups {
             .filter(move |f| f.backup.instance_created == created)
     }
 
-    fn instance(&self, instance: &str) -> Result<crate::instances::Instance, WorldBackupError> {
+    fn instance(&self, instance: &str) -> Result<Instance, WorldBackupError> {
         self.instances()
             .get(instance)
             .map_err(|_| WorldBackupError::NotFound(format!("There is no instance {instance:?}.")))
@@ -644,12 +648,11 @@ impl WorldBackups {
         kept
     }
 
-    /// The world backups' share of the data folder `data` (Settings › Storage), read
-    /// without locks.
-    pub fn usage(data: &DataDir) -> WorldBackupsUsage {
+    /// The world backups' share of the data folder `data` (Settings › Storage), whose
+    /// instances are `instances`, read without locks.
+    pub fn usage(data: &DataDir, instances: &[Instance]) -> WorldBackupsUsage {
         let root = data.world_backups_dir();
-        let instances = InstanceStore::new(data.instances_dir());
-        let owners = Owners::of(&instances);
+        let owners = Owners::listed(&data.instances_dir(), instances);
         let mut usage = WorldBackupsUsage {
             bytes: worlds::folder_size(&root),
             ..WorldBackupsUsage::default()

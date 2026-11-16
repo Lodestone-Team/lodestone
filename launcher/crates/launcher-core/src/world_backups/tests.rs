@@ -361,7 +361,7 @@ fn backups_follow_the_instance_by_id_and_created_time() {
     let aside = s._temp.path().join("trash-copy");
     std::fs::rename(s.store.dir(&s.id), &aside).unwrap();
     assert_eq!(s.backups.list_deleted().len(), 1);
-    assert_eq!(WorldBackups::usage(&s.data).deleted, 1);
+    assert_eq!(WorldBackups::usage(&s.data, &s.store.list().0).deleted, 1);
     std::fs::rename(&aside, s.store.dir(&s.id)).unwrap();
     assert!(s.backups.list_deleted().is_empty());
     assert_eq!(s.list(), [backup.clone()]);
@@ -394,7 +394,7 @@ fn cleaning_deleted_instances_backups_leaves_live_and_broken_ones() {
     assert_eq!(deleted.len(), 1);
     assert_eq!(deleted[0].instance_id, other.id);
     assert_eq!(deleted[0].instance_name, "Gone");
-    let usage = WorldBackups::usage(&s.data);
+    let usage = WorldBackups::usage(&s.data, &s.store.list().0);
     assert_eq!((usage.backups, usage.deleted), (1, 1));
     assert!(usage.deleted_bytes > 0 && usage.bytes > usage.deleted_bytes);
 

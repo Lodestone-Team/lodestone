@@ -213,7 +213,7 @@ impl StorageSettings {
         if let Some((_, cancel)) = self.work.take() {
             cancel.cancel();
         }
-        let (data, list, running, images) = {
+        let (data, list, running, images, backups) = {
             let instances = self.instances.read(cx);
             let running: Vec<String> = instances
                 .list()
@@ -226,6 +226,7 @@ impl StorageSettings {
                 instances.list().to_vec(),
                 running,
                 instances.images(),
+                instances.world_backups(),
             )
         };
         let cancel = Cancel::new();
@@ -236,6 +237,7 @@ impl StorageSettings {
                     let live: Vec<String> = list.iter().map(|i| i.id.clone()).collect();
                     disk::clean_snapshots(&data, &images, &live)
                 }
+                Clean::DeletedWorldBackups => disk::clean_deleted_world_backups(&backups),
                 _ => disk::clean(&data, &list, &running, what, &stop),
             }
         });
@@ -850,6 +852,29 @@ impl Render for StorageSettings {
             );
         }
 
+        // World backups: zips of single worlds, outside the store.
+        let world_backups = report.world_backups;
+        if world_backups.backups + world_backups.deleted > 0 || world_backups.bytes > 0 {
+            instance_rows.push(
+                SettingRow::new(t(M::StorageWorldBackups))
+                    .hint(trn!(
+                        P::StorageWorldBackupsHint,
+                        world_backups.backups + world_backups.deleted,
+                        deleted = world_backups.deleted
+                    ))
+                    .child(size(world_backups.bytes))
+                    .child(remove_button(
+                        "storage-clean-world-backups",
+                        t(M::StorageRemoveEllipsis),
+                        world_backups.deleted > 0 && !busy,
+                        cx,
+                        Clean::DeletedWorldBackups,
+                        world_backups.deleted as u64,
+                    ))
+                    .into(),
+            );
+        }
+
         // Java runtimes.
         let unused_runtimes = report.unused_runtimes();
         let mut runtime_rows: Vec<SearchRow> = report
@@ -1035,6 +1060,16 @@ impl super::LauncherShell {
                 trn!(P::StorageCleanSnapshotsBody, bytes as usize),
                 M::StorageRemove,
             ),
+            // and of world backups here.
+            Clean::DeletedWorldBackups => (
+                M::StorageCleanWorldBackupsTitle,
+                trn!(
+                    P::StorageCleanWorldBackupsBody,
+                    bytes as usize,
+                    trash = t(crate::i18n::CommonMsg::TheTrash)
+                ),
+                M::StorageRemove,
+            ),
         };
         let entity = cx.entity();
         crate::components::Dialog::new("storage-clean", t(title), focus)
@@ -1076,6 +1111,7 @@ impl super::LauncherShell {
                 Clean::AllLogs => report.logs.bytes,
                 // A count, not bytes: what a clean-up of snapshots frees is known after.
                 Clean::Snapshots => report.images.removable as u64,
+                Clean::DeletedWorldBackups => report.world_backups.deleted as u64,
             };
             let focus = cx.focus_handle();
             self.modal

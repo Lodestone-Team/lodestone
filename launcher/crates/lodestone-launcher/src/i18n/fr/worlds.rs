@@ -15,8 +15,6 @@ pub fn text(message: M) -> &'static str {
         }
 
         M::BackingUp => "Sauvegarde de {name}",
-        M::RestoringBackup => "Restauration de la sauvegarde",
-        M::ReplacingWorld => "Remplacement du monde par la sauvegarde",
         M::MovingToTrash => "Déplacement de {name} dans {trash}",
         M::Renaming => "Renommage",
         M::Exporting => "Exportation de {name}",
@@ -51,11 +49,6 @@ pub fn text(message: M) -> &'static str {
         M::Backups => "Sauvegardes",
         M::Export => "Exporter…",
         M::DeleteWorld => "Supprimer…",
-        M::NoBackupsYet => {
-            "Aucun instantané de ce monde pour l’instant. «\u{a0}Sauvegarder\u{a0}» en prend un\u{a0}; Paramètres › Instantanés les liste tous."
-        }
-        M::RestoreAsCopy => "Restaurer une copie",
-        M::ReplaceWorld => "Remplacer le monde…",
 
         M::DataPacks => "Packs de données",
         M::ReadingDataPacks => "Lecture des packs de données",
@@ -104,6 +97,18 @@ pub fn text(message: M) -> &'static str {
         }
         M::Position => "{index} sur {count}",
         M::CopyImage => "Copier l’image",
+        M::RestoringFromSnapshot => "Restauration du monde depuis l’instantané",
+        M::WorldBackupsHeading => "Sauvegardes de monde",
+        M::NoWorldBackupsYet => {
+            "Aucune sauvegarde de ce monde pour l’instant. Sauvegarder en crée une."
+        }
+        M::InSnapshots => "Dans les instantanés",
+        M::NoSnapshotsOfWorld => {
+            "Aucun instantané ne contient ce monde pour l’instant. Paramètres › Instantanés en prend."
+        }
+        M::RestoreEllipsis => "Restaurer…",
+        M::RestoreAsNewWorld => "Restaurer comme nouveau monde",
+        M::RestoreThisWorld => "Restaurer ce monde…",
     }
 }
 

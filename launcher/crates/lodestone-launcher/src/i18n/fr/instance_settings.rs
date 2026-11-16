@@ -502,6 +502,35 @@ pub fn text(message: M) -> &'static str {
             "Copie les mondes après chaque partie. Réglé pour cette instance."
         }
         M::DeleteUnreadableNote => "Elles sont supprimées définitivement.",
+        M::WorldBackups => "Sauvegardes de mondes",
+        M::WorldBackupsHint => {
+            "Des copies d’un monde en .zip, gardées jusqu’à ce que vous les supprimiez. Elles s’ouvrent partout."
+        }
+        M::BackUpWorldTitle => "Sauvegarder un monde",
+        M::BackUpWorldEllipsis => "Sauvegarder un monde…",
+        M::NoWorldBackups => "Aucune sauvegarde de monde pour l’instant.",
+        M::WorldNotHere => "N’est plus dans cette instance",
+        M::RestoreAsNewWorld => "Restaurer comme nouveau monde",
+        M::WorldBackupWorld => "Monde",
+        M::WorldBackupDefaultName => "Sauvegarde de monde",
+        M::BackUpButton => "Sauvegarder",
+        M::BackingUpWorld => "Sauvegarde de {name}…",
+        M::WorldBackedUp => "{name} est sauvegardé.",
+        M::NoWorldsToBackUp => "Cette instance n’a pas encore de monde.",
+        M::RestoreWorldTitle => "Restaurer {world}\u{a0}?",
+        M::RestoreWorldBody => {
+            "{world} revient à son état de {when}. Le monde tel qu’il est maintenant est d’abord enregistré dans une autre sauvegarde de monde."
+        }
+        M::RestoreWorldGoneBody => {
+            "{world} n’est plus dans cette instance. Il revient tel qu’il était {when}."
+        }
+        M::SaveAndRestore => "Enregistrer et restaurer",
+        M::SavingWorld => "Enregistrement du monde tel qu’il est…",
+        M::UnpackingWorldBackup => "Décompression de la sauvegarde de monde…",
+        M::WorldRestored => "{world} est restauré.",
+        M::WorldRestoredAsNew => "Restauré comme nouveau monde, {folder}.",
+        M::DeleteWorldBackupTitle => "Supprimer cette sauvegarde de monde\u{a0}?",
+        M::DeleteWorldBackupBody => "«\u{a0}{name}\u{a0}» est placé dans {trash}.",
     }
 }
 
@@ -588,6 +617,10 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::ImportFromServer => [
             "Une sauvegarde du serveur {server}\u{a0}: son monde, avec les mods que reçoivent ses joueurs. {count} fichier du serveur n’est pas repris (paramètres, opérateurs et plugins du serveur).",
             "Une sauvegarde du serveur {server}\u{a0}: son monde, avec les mods que reçoivent ses joueurs. {count} fichiers du serveur ne sont pas repris (paramètres, opérateurs et plugins du serveur).",
+        ],
+        P::WorldBackupLeftOut => [
+            "{count}\u{a0}fichier laissé de côté",
+            "{count}\u{a0}fichiers laissés de côté",
         ],
     }
 }

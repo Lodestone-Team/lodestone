@@ -438,6 +438,31 @@ pub fn text(message: M) -> &'static str {
         M::ExportNotDownloadable => "这些无法下载，因此导入该文件的人不会得到它们：{files}。",
         M::SnapshotAfterPlayOwnHint => "游玩后复制世界。仅为此实例设置。",
         M::DeleteUnreadableNote => "它们将被永久删除。",
+        M::WorldBackups => "世界备份",
+        M::WorldBackupsHint => "单个世界的 zip 副本，会一直保留到你删除为止。在任何地方都能打开。",
+        M::BackUpWorldTitle => "备份世界",
+        M::BackUpWorldEllipsis => "备份世界…",
+        M::NoWorldBackups => "还没有世界备份。",
+        M::WorldNotHere => "已不在此实例中",
+        M::RestoreAsNewWorld => "恢复为新世界",
+        M::WorldBackupWorld => "世界",
+        M::WorldBackupDefaultName => "世界备份",
+        M::BackUpButton => "备份",
+        M::BackingUpWorld => "正在备份 {name}…",
+        M::WorldBackedUp => "已备份 {name}。",
+        M::NoWorldsToBackUp => "此实例还没有世界。",
+        M::RestoreWorldTitle => "恢复 {world}？",
+        M::RestoreWorldBody => {
+            "{world} 将回到 {when} 时的状态。会先把世界现在的样子另存为一个世界备份。"
+        }
+        M::RestoreWorldGoneBody => "{world} 已不在此实例中。它会以 {when} 时的状态回来。",
+        M::SaveAndRestore => "保存并恢复",
+        M::SavingWorld => "正在保存世界现在的样子…",
+        M::UnpackingWorldBackup => "正在解压世界备份…",
+        M::WorldRestored => "已恢复 {world}。",
+        M::WorldRestoredAsNew => "已恢复为新世界 {folder}。",
+        M::DeleteWorldBackupTitle => "删除这个世界备份？",
+        M::DeleteWorldBackupBody => "“{name}”会移到{trash}。",
     }
 }
 
@@ -482,5 +507,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
             "来自 {server} 的服务器备份：包括它的世界和玩家会获得的模组。{count} 个服务器文件不会被带入（服务器的设置、管理员和插件）。",
             "来自 {server} 的服务器备份：包括它的世界和玩家会获得的模组。{count} 个服务器文件不会被带入（服务器的设置、管理员和插件）。",
         ],
+        P::WorldBackupLeftOut => ["{count} 个文件未包含"; 2],
     }
 }
