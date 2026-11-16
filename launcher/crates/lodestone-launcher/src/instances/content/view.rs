@@ -3260,7 +3260,7 @@ fn filter_chip(
     on: bool,
 ) -> gpui::Stateful<gpui::Div> {
     let icon_color = if on {
-        colors::WHITE.into()
+        colors::WHITE
     } else {
         crate::theme::ink::secondary()
     };

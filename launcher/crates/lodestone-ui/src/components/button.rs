@@ -523,6 +523,8 @@ pub struct IconButton {
     color: Option<Color>,
     /// A smaller button, for one inside a line of text (a link beside a name).
     small: bool,
+    /// Round and borderless, for one inside a pill (a notice's dismiss button).
+    round: bool,
     on_click: Option<ClickHandler>,
 }
 
@@ -535,8 +537,15 @@ impl IconButton {
             label: None,
             color: None,
             small: false,
+            round: false,
             on_click: None,
         }
+    }
+
+    /// Round and borderless, its background only on hover: for one inside a pill.
+    pub fn round(mut self) -> Self {
+        self.round = true;
+        self
     }
 
     /// A smaller button that fits a line of text: a 10px icon with less padding.
@@ -600,10 +609,16 @@ impl RenderOnce for IconButton {
             .justify_center()
             // p-1.5 around a 1em-high icon, at text-medium (less for a small one).
             .p(px(if self.small { 3. } else { 6. }))
-            .rounded(radius::DEFAULT)
-            .bg(colors::GRAY_800)
-            .border_1()
-            .border_color(colors::GRAY_FADED.opacity(30))
+            .map(|this| {
+                if self.round {
+                    this.rounded_full()
+                } else {
+                    this.rounded(radius::DEFAULT)
+                        .bg(colors::GRAY_800)
+                        .border_1()
+                        .border_color(colors::GRAY_FADED.opacity(30))
+                }
+            })
             .when(self.disabled, |this| this.opacity(0.4))
             .when(!self.disabled, |this| {
                 this.cursor_pointer()

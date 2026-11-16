@@ -90,7 +90,10 @@ impl ShareDialog {
                                     code,
                                 }
                             }
-                            Err(err) => State::Failed(err.to_string().into()),
+                            Err(err) => {
+                                log::warn!("listing what to share failed: {err}");
+                                State::Failed(err.to_string().into())
+                            }
                         };
                         cx.notify();
                     })

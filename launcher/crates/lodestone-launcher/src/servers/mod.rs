@@ -865,6 +865,7 @@ impl Servers {
             Ok(file) => file,
             Err(err) => {
                 let err = err.to_string();
+                log::warn!("couldn't read {}: {err}", self.file.display());
                 self.notice = Some(Notice::new(move || (t(M::ReadFailed).into(), err.clone())));
                 ServersFile::default()
             }
@@ -926,6 +927,7 @@ impl Servers {
         };
         if let Err(err) = store::save(&self.file, &file) {
             let err = err.to_string();
+            log::warn!("couldn't save {}: {err}", self.file.display());
             self.notice = Some(Notice::new(move || (t(M::SaveFailed).into(), err.clone())));
         }
     }
@@ -1115,7 +1117,20 @@ impl Servers {
                         this.fetch_share_links(&uuid, cx);
                     }
                     Err(CoreError::SignedOut) => this.signed_out(index, cx),
-                    Err(err) => this.cores[index].status = CoreStatus::Failed(err),
+                    Err(err) => {
+                        let core = &mut this.cores[index];
+                        // once per change, not on every poll
+                        let same = matches!(&core.status,
+                            CoreStatus::Failed(last) if last.to_string() == err.to_string());
+                        if !same {
+                            log::warn!(
+                                "listing the servers of {} ({}) failed: {err}",
+                                core.saved.name,
+                                core.saved.uuid
+                            );
+                        }
+                        core.status = CoreStatus::Failed(err);
+                    }
                 }
                 cx.notify();
             })
@@ -1145,6 +1160,7 @@ impl Servers {
             changed = true;
             if *trust_ended {
                 let (name, address) = (core.saved.name.clone(), display_address(&core.url));
+                log::warn!("{name} is no longer trusted: its id changed");
                 self.notice = Some(Notice::new(move || {
                     (
                         tr!(M::NoLongerTrusted, name = name),
@@ -1189,6 +1205,7 @@ impl Servers {
         core.saved.key_expires_at = None;
         let uuid = core.saved.uuid.clone();
         let name = core.saved.name.clone();
+        log::info!("signed out of {name} ({uuid}): the core refused its key");
         self.save();
         self.notice = Some(Notice::new(move || {
             (
@@ -1235,6 +1252,7 @@ impl Servers {
             if let Err(err) = store::write_key(&*store, &uuid, &key).await {
                 this.update(cx, |this, cx| {
                     let err = format!("{err:#}");
+                    log::warn!("couldn't save the key for core {uuid}: {err}");
                     this.notice = Some(Notice::new(move || {
                         (
                             tr!(M::KeySaveFailed, keychain = t(CommonMsg::Keychain)),
@@ -1408,6 +1426,9 @@ impl Servers {
                         && core.saved.check_identity(&info.uuid)
                     {
                         let (name, address) = (core.saved.name.clone(), address.clone());
+                        log::warn!(
+                            "{name} is no longer trusted: another core answers at its address"
+                        );
                         this.notice = Some(Notice::new(move || {
                             (
                                 tr!(M::NoLongerTrusted, name = name),
@@ -1447,6 +1468,7 @@ impl Servers {
                     && saved.pin_certificate(pin)
                 {
                     let name = saved.name.clone();
+                    log::warn!("{name} is no longer trusted: it presents a new certificate");
                     this.notice = Some(Notice::new(move || {
                         (
                             tr!(M::NoLongerTrusted, name = name),
@@ -1564,6 +1586,7 @@ impl Servers {
                 let core = &mut self.cores[index];
                 if core.saved.pin_certificate(pin) {
                     let name = core.saved.name.clone();
+                    log::warn!("{name} is no longer trusted: its certificate changed");
                     self.notice = Some(Notice::new(move || {
                         (
                             tr!(M::NoLongerTrusted, name = name),
@@ -1795,6 +1818,7 @@ impl Servers {
     /// page isn't shown. `text` makes the title and the message.
     fn fail(&mut self, text: impl Fn() -> (String, String) + 'static, cx: &mut Context<Self>) {
         let (title, message) = text();
+        log::warn!("{}", failure_line(&title, &message));
         if self.friend_failure(&title, &message, cx) {
             return;
         }
@@ -2145,8 +2169,8 @@ impl Servers {
                                 ServerLoader::Vanilla | ServerLoader::Paper | ServerLoader::Spigot
                             ) =>
                     {
-                        eprintln!(
-                            "Couldn't ask {} for its files ({err}); making a plain instance",
+                        log::warn!(
+                            "couldn't ask {} for its files ({err}); making a plain instance",
                             server.name
                         );
                         this.create_plain(&core_uuid, &server, cx)
@@ -2652,7 +2676,7 @@ impl Servers {
             let prepared = match prepared {
                 Ok(prepared) => prepared,
                 Err(err) if joins_anyway(&err, &instance, &dirs, link.view.is_some()) => {
-                    eprintln!("Couldn't ask {name} for its files ({err}); joining as it is");
+                    log::warn!("couldn't ask {name} for its files ({err}); joining as it is");
                     return Ok(ImageCheck::InStep);
                 }
                 Err(err) => return Err(err),
@@ -4095,9 +4119,22 @@ pub fn create(
     cx.new(|cx| Servers::new(accounts, instances, cx))
 }
 
+/// The log's line for a failure the page shows (`title` and `message` as shown).
+fn failure_line(title: &str, message: &str) -> String {
+    format!("shown as an error: {title}: {message}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shown_failures_are_logged_as_shown() {
+        assert_eq!(
+            failure_line("Couldn't join Survival", "The core refused: 403"),
+            "shown as an error: Couldn't join Survival: The core refused: 403"
+        );
+    }
 
     fn server(uuid: &str) -> ServerInstance {
         ServerInstance {

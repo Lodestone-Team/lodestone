@@ -30,6 +30,8 @@ pub enum Plan {
     Trace { params: Value, count: Option<usize> },
     /// Performance readings as JSON lines.
     PerfWatch { count: Option<usize> },
+    /// The launcher's logs folder, read without the launcher.
+    LogsPath,
 }
 
 #[derive(Debug, PartialEq, Default)]
@@ -1225,6 +1227,13 @@ pub fn plan(
                 count: w.count,
             },
         },
+        Command::AppLogs(l) => match l {
+            AppLogs::Path => Plan::LogsPath,
+            AppLogs::Tail { lines, level } => call(
+                "logs.tail",
+                vec![("lines", json!(lines)), ("level", json!(level))],
+            ),
+        },
         Command::Perf(p) => match p.command {
             None | Some(Perf::Show) => call("perf.show", vec![]),
             Some(Perf::Watch { count }) => Plan::PerfWatch { count },
@@ -1896,6 +1905,15 @@ mod tests {
             }
         );
         assert_eq!(call_of(&["trace", "snapshot"]).0, "trace.snapshot");
+        assert_eq!(plan_of(&["logs", "path"]).unwrap(), Plan::LogsPath);
+        assert_eq!(
+            call_of(&["logs", "tail", "-n", "50", "--level", "warn"]),
+            ("logs.tail", json!({ "lines": 50, "level": "warn" }), false)
+        );
+        assert_eq!(
+            call_of(&["logs", "tail"]),
+            ("logs.tail", json!({ "lines": 200 }), false)
+        );
         assert_eq!(call_of(&["trace", "topics"]).0, "trace.topics");
         assert!(
             Cli::try_parse_from([

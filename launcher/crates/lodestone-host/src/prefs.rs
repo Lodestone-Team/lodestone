@@ -77,6 +77,9 @@ pub struct PrefsData {
     /// ([`launcher_core::cores::connect_service`]).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub connect_service: Option<String>,
+    /// Settings › Updates › Logs › "Log detail": how much the Host writes to its log
+    /// file ([`launcher_core::logging`]). `LODESTONE_LOG` wins over it.
+    pub log_level: launcher_core::logging::LogLevel,
 }
 
 impl PrefsData {
@@ -120,6 +123,7 @@ impl Default for PrefsData {
             file_list_width: None,
             editor_wrap: true,
             connect_service: None,
+            log_level: launcher_core::logging::LogLevel::Info,
         }
     }
 }
@@ -164,16 +168,22 @@ impl Prefs {
     /// Changes the settings, saves them, applies the language, zoom and theme, and
     /// redraws the windows.
     pub fn update(cx: &mut App, change: impl FnOnce(&mut PrefsData)) {
-        let language_before = cx.global::<Prefs>().data.language;
+        let (language_before, log_level_before) = {
+            let data = &cx.global::<Prefs>().data;
+            (data.language, data.log_level)
+        };
         let prefs = cx.global_mut::<Prefs>();
         change(&mut prefs.data);
         prefs.data.zoom = lodestone_ui::theme::zoom::clamp(prefs.data.zoom);
         if let Some(path) = &prefs.path
             && let Err(err) = save(path, &prefs.data)
         {
-            eprintln!("could not save {}: {err}", path.display());
+            log::warn!("couldn't save {}: {err}", path.display());
         }
         let data = prefs.data.clone();
+        if data.log_level != log_level_before {
+            launcher_core::logging::set_level(data.log_level);
+        }
         if data.language != language_before {
             lodestone_ui::i18n::apply(data.language);
             crate::set_menus(cx);
@@ -196,11 +206,34 @@ impl Prefs {
     }
 }
 
+/// The settings as saved, for before [`Prefs::init`] (the log level at start).
+pub fn load_saved() -> PrefsData {
+    load(&crate::core_process::host_dir().join("settings.json"))
+}
+
+/// The saved settings, or the defaults when there are none or they don't read. That
+/// is logged (at the start before the logger's, nothing is: [`Prefs::init`] reads
+/// them again once it is set), without the file's values.
 fn load(path: &Path) -> PrefsData {
-    std::fs::read(path)
-        .ok()
-        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-        .unwrap_or_default()
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return PrefsData::default(),
+        Err(err) => {
+            log::warn!(
+                "couldn't read {}: {err}; using the default settings",
+                path.display()
+            );
+            return PrefsData::default();
+        }
+    };
+    serde_json::from_slice(&bytes).unwrap_or_else(|err| {
+        log::warn!(
+            "{} doesn't read ({}); using the default settings",
+            path.display(),
+            launcher_core::logging::serde_error(&err)
+        );
+        PrefsData::default()
+    })
 }
 
 fn save(path: &Path, data: &PrefsData) -> std::io::Result<()> {
@@ -241,6 +274,7 @@ mod tests {
             file_list_width: Some(340.),
             editor_wrap: false,
             connect_service: Some("https://connect-dev.lodestone.cc".into()),
+            log_level: launcher_core::logging::LogLevel::Debug,
         };
         save(&path, &data).unwrap();
         assert_eq!(load(&path), data);

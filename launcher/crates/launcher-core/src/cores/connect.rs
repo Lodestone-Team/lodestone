@@ -463,6 +463,7 @@ async fn run(
     let joined = match AnyJoined::open(target).await {
         Ok(joined) => joined,
         Err(err) => {
+            log::warn!("couldn't open the Connect tunnel: {err}");
             let _ = ready.send(Err(err.into()));
             return;
         }
@@ -479,6 +480,7 @@ async fn run(
     let (server, game, info) = match opened {
         Ok(opened) => opened,
         Err(err) => {
+            log::warn!("the Connect tunnel opened, but couldn't forward the game: {err}");
             let _ = ready.send(Err(err.into()));
             joined.close().await;
             return;
@@ -517,6 +519,7 @@ async fn run(
     drop((game, info));
     let _ = tokio::time::timeout(CLOSE_TIMEOUT, joined.close()).await;
     if let Some(why) = why {
+        log::info!("the host closed the Connect tunnel: {why}");
         let _ = ended.send(why);
     }
 }

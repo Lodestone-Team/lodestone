@@ -96,6 +96,26 @@ impl CoreError {
             CoreError::Untrusted { .. } | CoreError::CertificateChanged { .. }
         )
     }
+
+    /// The error with `secret` blanked wherever its text has it: a transport error
+    /// names the URL it failed on, and a download link's key is in its path. The
+    /// error is shown, and logged, after the request is over.
+    pub(crate) fn without(self, secret: &str) -> Self {
+        let clean = |text: String| text.replace(secret, lodestone_trace::REDACTED);
+        match self {
+            CoreError::InvalidAddress(text) => CoreError::InvalidAddress(clean(text)),
+            CoreError::Unreachable(text) => CoreError::Unreachable(clean(text)),
+            CoreError::Forbidden(text) => CoreError::Forbidden(clean(text)),
+            CoreError::NotFound(text) => CoreError::NotFound(clean(text)),
+            CoreError::TooManyRequests(text) => CoreError::TooManyRequests(clean(text)),
+            CoreError::Server { status, message } => CoreError::Server {
+                status,
+                message: clean(message),
+            },
+            CoreError::Invalid(text) => CoreError::Invalid(clean(text)),
+            other => other,
+        }
+    }
 }
 
 /// What a 404 with an empty body is called: what a core answers for a route it doesn't
@@ -373,7 +393,7 @@ impl CoreClient {
             .map_err(|err| CoreError::InvalidAddress(err.to_string()))
         };
         let started = std::time::Instant::now();
-        let traced_path = path.split('?').next().unwrap_or_default().to_string();
+        let traced_path = traced_path(path);
         let response = match self.send_checked(request).await {
             Ok(response) => response,
             Err(err) => {
@@ -419,7 +439,34 @@ impl CoreClient {
                 limit / (1024 * 1024)
             )));
         }
-        Ok(RawResponse { status, etag, body })
+        let response = RawResponse { status, etag, body };
+        if (400..500).contains(&status) {
+            self.log_refusal(&method, &traced_path, auth, &response);
+        }
+        Ok(response)
+    }
+
+    /// Logs a core's refusal (a 4xx), here where every request's reply arrives: many
+    /// callers only show the error inline (a page's list, a background sync), and the
+    /// trace bus only counts 5xx answers as failures. A few lines a minute per request,
+    /// at [`refusal_level`].
+    fn log_refusal(&self, method: &Method, path: &str, auth: Auth<'_>, response: &RawResponse) {
+        static THROTTLE: crate::logging::Throttle = crate::logging::Throttle::new();
+        let level = refusal_level(response.status, auth);
+        if !log::log_enabled!(target: module_path!(), level) {
+            return;
+        }
+        THROTTLE.log(
+            &format!("{method} {path}"),
+            level,
+            module_path!(),
+            format_args!(
+                "{method} {path} on {}: {} {}",
+                self.host(),
+                response.status,
+                message(response)
+            ),
+        );
     }
 
     /// Sends a request (made by `request`, which may be called more than once) the way
@@ -537,7 +584,7 @@ impl CoreClient {
     ) -> Result<T, CoreError> {
         let response = self
             .send(
-                method,
+                method.clone(),
                 path,
                 auth,
                 body,
@@ -547,7 +594,36 @@ impl CoreClient {
             )
             .await?;
         check(&response, auth)?;
-        serde_json::from_slice(&response.body).map_err(|err| CoreError::Invalid(err.to_string()))
+        self.decode(&method, path, &response.body)
+    }
+
+    /// A reply read as `T`. One that doesn't read (a newer core's field or value this
+    /// client doesn't know) is logged here, where it is decided, with the request and
+    /// the serde error but never the body; the caller only shows the error.
+    pub(super) fn decode<T: serde::de::DeserializeOwned>(
+        &self,
+        method: &Method,
+        path: &str,
+        body: &[u8],
+    ) -> Result<T, CoreError> {
+        static THROTTLE: crate::logging::Throttle = crate::logging::Throttle::new();
+        serde_json::from_slice(body).map_err(|err| {
+            let path = path.split('?').next().unwrap_or_default();
+            THROTTLE.log(
+                &format!("{method} {path}"),
+                log::Level::Warn,
+                module_path!(),
+                format_args!(
+                    "{method} {path} on {}: the reply doesn't read as {}: {}",
+                    self.host(),
+                    short_type_name(std::any::type_name::<T>()),
+                    crate::logging::serde_error(&err)
+                ),
+            );
+            // serde's own text quotes the value it choked on, which the caller may log
+            // or show: the same value-free text as the line above
+            CoreError::Invalid(crate::logging::serde_error(&err))
+        })
     }
 
     /// `GET /info`: the core's name, id and version. Needs no sign-in.
@@ -877,6 +953,16 @@ pub(super) enum Auth<'a> {
     Basic(&'a str, &'a Secret),
 }
 
+/// `path` as a request is traced: without its query, and with a download key (the
+/// `<key>` of `file/<key>`, all a download needs) blanked.
+fn traced_path(path: &str) -> String {
+    let path = path.split('?').next().unwrap_or_default();
+    match path.strip_prefix('/').unwrap_or(path).strip_prefix("file/") {
+        Some(key) if !key.is_empty() => format!("file/{}", lodestone_trace::REDACTED),
+        _ => path.to_string(),
+    }
+}
+
 /// An instance UUID as one path segment.
 pub(crate) fn segment(uuid: &str) -> Result<&str, CoreError> {
     if !uuid.is_empty()
@@ -934,11 +1020,41 @@ pub(super) fn check(response: &RawResponse, auth: Auth<'_>) -> Result<(), CoreEr
     })
 }
 
+/// How loudly a core's refusal is logged: a 404 is usually a probe (an older core
+/// without the route, which callers turn into "too old") and a 401 on a key or session
+/// is a sign-out the app handles, so both are debug; any other refusal is info.
+fn refusal_level(status: u16, auth: Auth<'_>) -> log::Level {
+    match (status, auth) {
+        (404, _) | (401, Auth::Bearer(_)) => log::Level::Debug,
+        _ => log::Level::Info,
+    }
+}
+
 /// Whether a request failed on the server's certificate (rustls' and reqwest's
 /// messages say so).
 fn is_certificate_error(err: &anyhow::Error) -> bool {
     let lower = format!("{err:#}").to_ascii_lowercase();
     lower.contains("certificate") || lower.contains("unknownissuer")
+}
+
+/// A type's name without its modules: `Vec<ModrinthVersion>`.
+fn short_type_name(name: &str) -> String {
+    let mut out = String::new();
+    let mut word = String::new();
+    let mut chars = name.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == ':' && chars.peek() == Some(&':') {
+            chars.next();
+            word.clear();
+        } else if c.is_alphanumeric() || c == '_' {
+            word.push(c);
+        } else {
+            out.push_str(&word);
+            word.clear();
+            out.push(c);
+        }
+    }
+    out + &word
 }
 
 #[cfg(test)]
@@ -976,6 +1092,32 @@ mod tests {
             display_address(&parse_address("localhost").unwrap()),
             "http://localhost:16662"
         );
+    }
+
+    #[test]
+    fn traced_paths_leave_download_keys_and_queries_out() {
+        let key = "Ab3dE5gH7jK9mN1pQ3sT5vW7yZ9bC1dE";
+        assert_eq!(traced_path(&format!("file/{key}")), "file/[redacted]");
+        assert_eq!(traced_path(&format!("/file/{key}?x=1")), "file/[redacted]");
+        assert_eq!(
+            traced_path("instance/abc/console?since=5"),
+            "instance/abc/console"
+        );
+        assert_eq!(traced_path("profile/abc"), "profile/abc");
+        assert_eq!(traced_path("file/"), "file/");
+    }
+
+    #[test]
+    fn refusals_that_callers_handle_are_quiet() {
+        let key = Secret::new("k");
+        assert_eq!(refusal_level(404, Auth::None), log::Level::Debug);
+        assert_eq!(refusal_level(401, Auth::Bearer(&key)), log::Level::Debug);
+        assert_eq!(
+            refusal_level(401, Auth::Basic("steve", &key)),
+            log::Level::Info
+        );
+        assert_eq!(refusal_level(403, Auth::Bearer(&key)), log::Level::Info);
+        assert_eq!(refusal_level(400, Auth::None), log::Level::Info);
     }
 
     #[test]

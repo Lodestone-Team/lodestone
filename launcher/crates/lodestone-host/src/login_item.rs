@@ -25,6 +25,8 @@ pub const BACKGROUND_FLAG: &str = "--background";
 
 /// The entry's name. A development build has its own, as it has its own data folder
 /// ([`crate::core_process::host_dir`]), so it never replaces an installed Host's.
+/// The Mac's launch agent goes by its label instead.
+#[cfg(not(target_os = "macos"))]
 const NAME: &str = if cfg!(debug_assertions) {
     "Lodestone Host Dev"
 } else {
@@ -228,7 +230,7 @@ mod platform {
         };
         let outdated = [launch_agent_before_abandon(LABEL, exe)];
         if let Err(error) = entry_file::refresh(&path, &launch_agent(LABEL, exe), &outdated) {
-            eprintln!("could not update the launch agent: {error}");
+            log::warn!("couldn't update the launch agent: {error}");
         }
     }
 

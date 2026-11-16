@@ -27,7 +27,7 @@ gpui::actions!(launcher, [Undo, Redo]);
 pub fn init(cx: &mut gpui::App) {
     if let Err(err) = assets::load_fonts(cx) {
         // GPUI falls back to the system font for families that did not load.
-        eprintln!("lodestone-ui: could not load the bundled fonts: {err:#}");
+        log::error!("couldn't load the bundled fonts: {err:#}");
     }
     components::init(cx);
 }
