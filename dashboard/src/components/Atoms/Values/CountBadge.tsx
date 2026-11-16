@@ -9,15 +9,22 @@ import { cn } from 'utils/util';
 export function CountBadge({
   count,
   active = false,
+  plus = false,
+  title,
   className,
 }: {
   count: number;
   active?: boolean;
+  /** "+3": how many more there are than shown */
+  plus?: boolean;
+  /** replaces the exact count as the title (e.g. the names not shown) */
+  title?: string;
   className?: string;
 }) {
   const { formatCompact, formatNumber } = useI18n();
-  const compact = formatCompact(count);
-  const exact = formatNumber(count);
+  const sign = plus ? '+' : '';
+  const compact = sign + formatCompact(count);
+  const exact = sign + formatNumber(count);
   return (
     <span
       className={cn(
@@ -25,7 +32,7 @@ export function CountBadge({
         active ? 'bg-pill-blue text-blue-200' : 'bg-gray-700 text-gray-400',
         className
       )}
-      title={compact === exact ? undefined : exact}
+      title={title ?? (compact === exact ? undefined : exact)}
     >
       {compact === exact ? (
         exact

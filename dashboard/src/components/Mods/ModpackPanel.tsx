@@ -1,10 +1,18 @@
 import {
+  faArrowUp,
+  faBoxOpen,
   faChevronDown,
   faChevronRight,
   faCircleUp,
+  faClock,
   faCodeCompare,
+  faFile,
+  faMinus,
+  faPlus,
+  faRightLeft,
   faRotate,
   faUpload,
+  IconDefinition,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { useQueryClient } from '@tanstack/react-query';
@@ -14,6 +22,7 @@ import { ChangeKind } from 'bindings/ChangeKind';
 import { HistoryEntryInfo } from 'bindings/HistoryEntryInfo';
 import { InstanceInfo } from 'bindings/InstanceInfo';
 import { ModpackHistory } from 'bindings/ModpackHistory';
+import { ModpackOrigin } from 'bindings/ModpackOrigin';
 import { ModpackUpdatePlan } from 'bindings/ModpackUpdatePlan';
 import { UpdateSource } from 'bindings/UpdateSource';
 import Button from 'components/Atoms/Button';
@@ -27,11 +36,32 @@ import {
   updateModpack,
   uploadModpack,
 } from 'data/Mods';
-import { formatDate, t as translate, useI18n } from 'i18n';
-import { useRef, useState } from 'react';
+import { t as translate, useI18n } from 'i18n';
+import {
+  CountBadge,
+  MonoText,
+  Num,
+  ObjectChip,
+  StatusBadge,
+  VersionTag,
+} from 'components/Atoms/Values';
+import {
+  DiffValue,
+  Fact,
+  FactLine,
+  FactList,
+  FactRow,
+  FactStrip,
+  factsTitle,
+  NameList,
+  ObjectCard,
+  ObjectToast,
+} from 'components/Values';
+import { ReactNode, useRef, useState } from 'react';
 import { toast } from 'react-toastify';
 import { cn, errorToString } from 'utils/util';
-import { loaderName } from 'utils/values';
+import { gamePhrase, loaderPhrase } from 'utils/values';
+import { modpackIconUrl } from 'utils/mods';
 
 /*
  * The modpack of a server made from one (Mods tab, above the mods): which
@@ -46,27 +76,37 @@ import { loaderName } from 'utils/values';
 /** How many changes an entry lists before "and N more". */
 const CHANGES_SHOWN = 40;
 
-/** The sign and color of a change: + added, ↑ updated, ~ replaced, − removed. */
-const CHANGE_MARKS: Record<ChangeKind, [string, string]> = {
-  added: ['+', 'text-green'],
-  updated: ['↑', 'text-blue-200'],
-  replaced: ['~', 'text-yellow'],
-  removed: ['−', 'text-red-200'],
+/** The icon, colour and key of each kind of change. */
+const CHANGE_MARKS: Record<
+  ChangeKind,
+  [IconDefinition, string, `mods.modpack.count.${ChangeKind}`]
+> = {
+  added: [faPlus, 'text-green', 'mods.modpack.count.added'],
+  updated: [faArrowUp, 'text-blue-200', 'mods.modpack.count.updated'],
+  replaced: [faRightLeft, 'text-yellow', 'mods.modpack.count.replaced'],
+  removed: [faMinus, 'text-red-200', 'mods.modpack.count.removed'],
 };
 
 const CHANGE_ORDER: ChangeKind[] = ['added', 'updated', 'replaced', 'removed'];
 
 const fileName = (path: string) => path.split('/').pop() ?? path;
 
-const shortList = (paths: string[], shown = 8) =>
-  paths.slice(0, shown).join(', ') + (paths.length > shown ? ', …' : '');
+/** The modpack's icon (a Modrinth CDN URL), or the modpack kind's icon. */
+const PackIcon = ({ url, size }: { url: string | null; size: string }) => {
+  const src = modpackIconUrl(url);
+  return src ? (
+    <img src={src} alt="" className={cn(size, 'rounded-md object-cover')} />
+  ) : (
+    <FontAwesomeIcon icon={faBoxOpen} className="w-4 text-gray-500" />
+  );
+};
 
-/** "since 3 Mar 2026" for a file of the mods folder: the entry it came with. */
-export const blameLabel = (
+/** When a file of the mods folder came, and with which history entry. */
+export const blameOf = (
   history: ModpackHistory | undefined,
   directory: string,
   file: string
-): { label: string; tooltip: string } | null => {
+): { date: number; change: string } | null => {
   // a server that never changed its pack has nothing to tell apart
   if (!history || history.entries.length < 2) return null;
   const enabled = file.toLowerCase().endsWith('.jar.disabled')
@@ -75,10 +115,7 @@ export const blameLabel = (
   const id = history.blame[`${directory}/${enabled}`];
   const entry = history.entries.find((e) => e.id === id);
   if (!entry) return null;
-  return {
-    label: translate('mods.modpack.since', { date: formatDate(entry.time) }),
-    tooltip: translate('mods.modpack.sinceTooltip', { change: entry.label }),
-  };
+  return { date: entry.time, change: entry.label };
 };
 
 /** "What's new": a quiet link that shows a changelog only when asked. */
@@ -113,39 +150,55 @@ const ChangelogBox = ({ changelog }: { changelog: string }) => (
   </div>
 );
 
-const CountChips = ({ entry }: { entry: HistoryEntryInfo }) => (
-  <>
-    {CHANGE_ORDER.map((kind) => {
-      const count = entry.changes.filter((c) => c.kind === kind).length;
-      if (count === 0) return null;
-      const [sign, color] = CHANGE_MARKS[kind];
-      return (
-        <span
-          key={kind}
-          className={cn(
-            'rounded-xs border border-current/40 px-1.5 text-caption font-bold',
-            color
-          )}
-        >
-          {sign}
-          {count}
-        </span>
-      );
-    })}
-  </>
-);
+/** How many files of each kind an entry changed, as icon facts */
+const CountChips = ({ entry }: { entry: HistoryEntryInfo }) => {
+  const { t, formatNumber } = useI18n();
+  return (
+    <>
+      {CHANGE_ORDER.map((kind) => {
+        const count = entry.changes.filter((c) => c.kind === kind).length;
+        if (count === 0) return null;
+        const [icon, color, key] = CHANGE_MARKS[kind];
+        const label = t(key);
+        return (
+          <Fact
+            key={kind}
+            label={label}
+            icon={icon}
+            title={`${label}: ${formatNumber(count)}`}
+            className={cn('text-small [&_svg]:text-current', color)}
+          >
+            <span className="font-bold tabular-nums">
+              {formatNumber(count)}
+            </span>
+          </Fact>
+        );
+      })}
+    </>
+  );
+};
 
 const ChangeList = ({ entry }: { entry: HistoryEntryInfo }) => {
   const { t } = useI18n();
   const line = (change: ChangeInfo, index: number) => {
-    const [sign, color] = CHANGE_MARKS[change.kind];
+    const [icon, color, key] = CHANGE_MARKS[change.kind];
     return (
-      <div key={index} className="flex flex-row gap-2">
-        <span className={cn('w-3 shrink-0 font-bold', color)}>{sign}</span>
-        <span className="truncate text-white/75">
-          {change.old_path
-            ? `${fileName(change.old_path)} → ${fileName(change.path)}`
-            : fileName(change.path)}
+      <div key={index} className="flex min-w-0 flex-row items-center gap-2">
+        <FontAwesomeIcon
+          icon={icon}
+          className={cn('w-2.5 shrink-0', color)}
+          aria-hidden="true"
+        />
+        <span className="sr-only">{t(key)}: </span>
+        <span className="min-w-0 truncate text-white/75">
+          {change.old_path ? (
+            <DiffValue
+              from={<MonoText text={fileName(change.old_path)} max={36} />}
+              to={<MonoText text={fileName(change.path)} max={36} />}
+            />
+          ) : (
+            <MonoText text={fileName(change.path)} max={60} />
+          )}
         </span>
       </div>
     );
@@ -208,21 +261,35 @@ const HistoryRow = ({
                   className="w-2.5 text-white/50"
                 />
               )}
+              {/* the entry's label comes from the core */}
               <span className="font-bold text-gray-300">{entry.label}</span>
               {entry.current && (
-                <span className="rounded-xs border border-green/40 px-1.5 text-caption font-bold text-green">
+                <StatusBadge tone="success">
                   {t('mods.modpack.current')}
-                </span>
+                </StatusBadge>
               )}
               <CountChips entry={entry} />
             </button>
-            <div className="flex flex-row flex-wrap gap-2 text-small text-white/30">
-              <span>{formatDateTime(entry.time)}</span>
-              <span>
-                Minecraft {entry.game_version} · {loaderName(entry.loader)}{' '}
-                {entry.loader_version ?? ''}
+            <FactLine
+              title={factsTitle([
+                {
+                  label: t('values.key.game'),
+                  value: gamePhrase(entry.game_version),
+                },
+                {
+                  label: t('values.key.loader'),
+                  value: loaderPhrase(entry.loader, entry.loader_version),
+                },
+              ])}
+            >
+              <span className="text-ink-muted">
+                {formatDateTime(entry.time)}
               </span>
-            </div>
+              <span>{gamePhrase(entry.game_version)}</span>
+              {entry.loader !== 'vanilla' && (
+                <span>{loaderPhrase(entry.loader, entry.loader_version)}</span>
+              )}
+            </FactLine>
           </div>
           {!entry.current && (
             <span
@@ -243,74 +310,171 @@ const HistoryRow = ({
   );
 };
 
+/** A value that may change: the old and new as a DiffValue, or the one value */
+const changed = (from: string, to: string): ReactNode =>
+  from === to ? to : <DiffValue from={from} to={to} />;
+
+/** The file counts of an update or restore, as fact rows (only non-zero ones) */
+const countRows = (
+  t: ReturnType<typeof useI18n>['t'],
+  counts: [ChangeKind, number][]
+): FactRow[] =>
+  counts
+    .filter(([, count]) => count > 0)
+    .map(([kind, count]) => ({
+      label: t(CHANGE_MARKS[kind][2]),
+      value: <Num value={count} />,
+    }));
+
 const PlanBody = ({
   plan,
-  current,
+  origin,
+  entry,
   restoring,
   stopped,
 }: {
   plan: ModpackUpdatePlan;
-  current: string;
-  /** a restore names the entry it goes back to (the target's name) */
+  origin: ModpackOrigin;
+  /** the history entry a restore goes back to */
+  entry: HistoryEntryInfo | null;
   restoring: boolean;
   stopped: boolean;
 }) => {
-  const { t } = useI18n();
+  const { t, formatDateTime } = useI18n();
   const target = plan.target;
-  const counts = (
-    [
-      ['mods.modpack.added', plan.added.length],
-      ['mods.modpack.replaced', plan.replaced.length],
-      ['mods.modpack.removed', plan.removed.length],
-    ] as const
-  )
-    .filter(([, count]) => count > 0)
-    .map(([key, count]) => t(key, { count }));
+  const counts = countRows(t, [
+    ['added', plan.added.length],
+    ['replaced', plan.replaced.length],
+    ['removed', plan.removed.length],
+  ]);
+  const fromLoader = loaderPhrase(
+    plan.current_loader,
+    plan.current_loader_version
+  );
+  const toLoader = loaderPhrase(target.loader, target.loader_version);
+  const rows: FactRow[] = restoring
+    ? counts
+    : [
+        {
+          label: target.name,
+          value:
+            origin.version_number && target.version_number ? (
+              <DiffValue
+                from={
+                  <VersionTag version={origin.version_number} tone="from" />
+                }
+                to={<VersionTag version={target.version_number} tone="to" />}
+              />
+            ) : target.version_number ? (
+              <VersionTag version={target.version_number} tone="to" />
+            ) : null,
+        },
+        {
+          label: t('values.key.game'),
+          value: changed(
+            gamePhrase(plan.current_game_version),
+            gamePhrase(target.game_version)
+          ),
+        },
+        { label: t('values.key.loader'), value: changed(fromLoader, toLoader) },
+        ...counts,
+      ];
   return (
-    <span className="flex flex-col gap-2 text-medium text-white/75">
-      <span>
-        {restoring
-          ? t('mods.modpack.dialog.restoreIntro', { change: target.name })
-          : t('mods.modpack.dialog.intro', {
-              pack: target.name,
-              from: current,
-              to: target.version_number ?? t('mods.modpack.unknownVersion'),
-            })}
-      </span>
+    <span className="flex flex-col gap-3 text-medium text-white/75">
+      {restoring ? (
+        <>
+          <ObjectCard
+            compact
+            icon={<FontAwesomeIcon icon={faClock} className="w-4" />}
+            // the entry's label comes from the core
+            name={entry?.label ?? target.name}
+            facts={
+              entry && (
+                <FactLine>
+                  <span className="text-ink-muted">
+                    {formatDateTime(entry.time)}
+                  </span>
+                  <Fact label={t('mods.modpack.files')} icon={faFile}>
+                    <Num value={entry.file_count} />
+                  </Fact>
+                </FactLine>
+              )
+            }
+          />
+          <span>{t('mods.modpack.dialog.restoreBody')}</span>
+        </>
+      ) : (
+        <ObjectCard
+          compact
+          icon={<PackIcon url={origin.icon_url} size="size-6" />}
+          name={origin.name}
+        />
+      )}
+      {rows.length > 0 ? (
+        <FactList rows={rows} framed />
+      ) : (
+        <span>{t('mods.modpack.dialog.nothing')}</span>
+      )}
       {target.unsupported_reason && (
-        <span className="text-red-200">
-          {t('mods.modpack.dialog.unsupported', {
-            reason: target.unsupported_reason,
-          })}
+        <span className="flex flex-col text-red-200">
+          {t('mods.modpack.unsupported')}
+          {/* the reason comes from the core */}
+          <span className="text-small text-red-200/75">
+            {target.unsupported_reason}
+          </span>
         </span>
       )}
       {plan.reinstalls_server && (
-        <span>
-          {t('mods.modpack.dialog.reinstall', {
-            software: `${loaderName(target.loader)} ${
-              target.loader_version ?? ''
-            } · Minecraft ${target.game_version}`,
-          })}
-        </span>
+        <span>{t('mods.modpack.dialog.reinstall')}</span>
       )}
-      <span>
-        {counts.length > 0
-          ? counts.join(', ')
-          : t('mods.modpack.dialog.nothing')}
-      </span>
-      {plan.removed.length > 0 && (
-        <span className="text-white/50">{shortList(plan.removed)}</span>
-      )}
-      {plan.kept.length > 0 && (
-        <span className="text-white/50">
-          {t('mods.modpack.dialog.kept', { files: shortList(plan.kept) })}
-        </span>
-      )}
+      <NameList
+        groups={[
+          {
+            heading: t('mods.modpack.group.removed'),
+            items: plan.removed.map((path) => ({
+              id: path,
+              name: <MonoText text={path} max={44} className="text-small" />,
+            })),
+          },
+          {
+            heading: t('mods.modpack.group.kept'),
+            items: plan.kept.map((path) => ({
+              id: path,
+              name: <MonoText text={path} max={44} className="text-small" />,
+            })),
+          },
+        ]}
+      />
+      {/* the note comes from the core */}
       {plan.note && <span className="text-white/50">{plan.note}</span>}
       {!stopped && (
         <span className="text-yellow">{t('mods.modpack.dialog.stop')}</span>
       )}
     </span>
+  );
+};
+
+/** The file counts of a finished update, as icon facts in its toast */
+const ToastCounts = ({ counts }: { counts: [ChangeKind, number][] }) => {
+  const { t, formatNumber } = useI18n();
+  const shown = counts.filter(([, count]) => count > 0);
+  if (shown.length === 0) return null;
+  return (
+    <FactLine className="h-auto">
+      {shown.map(([kind, count]) => {
+        const [icon, , key] = CHANGE_MARKS[kind];
+        return (
+          <Fact
+            key={kind}
+            label={t(key)}
+            icon={icon}
+            title={`${t(key)}: ${formatNumber(count)}`}
+          >
+            <Num value={count} />
+          </Fact>
+        );
+      })}
+    </FactLine>
   );
 };
 
@@ -381,7 +545,12 @@ export default function ModpackPanel({
 
   const uploadFile = async (file: File) => {
     if (!file.name.toLowerCase().endsWith('.mrpack')) {
-      toast.error(translate('mods.modpack.notMrpack', { name: file.name }));
+      toast.error(
+        <ObjectToast
+          object={<ObjectChip kind="file" name={file.name} mono />}
+          outcome={translate('mods.modpack.notMrpack')}
+        />
+      );
       return;
     }
     setBusy(true);
@@ -389,9 +558,11 @@ export default function ModpackPanel({
       const info = await uploadModpack(file);
       if (info.unsupported_reason) {
         toast.error(
-          translate('mods.modpack.dialog.unsupported', {
-            reason: info.unsupported_reason,
-          })
+          <ObjectToast
+            object={<ObjectChip kind="modpack" name={info.name} />}
+            outcome={translate('mods.modpack.unsupported')}
+            reason={info.unsupported_reason}
+          />
         );
       } else if (info.upload_id) {
         setBusy(false);
@@ -410,29 +581,34 @@ export default function ModpackPanel({
     if (!pending) return;
     const restore = pending.source.type === 'history';
     const target = pending.plan.target;
-    const version =
-      target.version_number ?? translate('mods.modpack.unknownVersion');
     try {
       const done = await updateModpack(uuid, pending.source);
-      const counts = (
-        [
-          ['mods.modpack.added', done.added],
-          ['mods.modpack.replaced', done.replaced],
-          ['mods.modpack.removed', done.removed],
-        ] as const
-      )
-        .filter(([, count]) => count > 0)
-        .map(([key, count]) => translate(key, { count }));
       toast.success(
-        [
-          restore
-            ? translate('mods.modpack.restored', { change: target.name })
-            : translate('mods.modpack.updated', { pack: target.name, version }),
-          counts.join(', '),
-          done.skipped ?? '',
-        ]
-          .filter(Boolean)
-          .join('\n')
+        <ObjectToast
+          object={
+            <>
+              <ObjectChip kind="modpack" name={target.name} />
+              {!restore && target.version_number && (
+                <VersionTag version={target.version_number} tone="to" />
+              )}
+            </>
+          }
+          outcome={
+            restore
+              ? translate('mods.modpack.toast.restored')
+              : translate('mods.modpack.toast.updated')
+          }
+          // what the core skipped, in its words
+          reason={done.skipped}
+        >
+          <ToastCounts
+            counts={[
+              ['added', done.added],
+              ['replaced', done.replaced],
+              ['removed', done.removed],
+            ]}
+          />
+        </ObjectToast>
       );
       setChecked(null);
       setPending(null);
@@ -457,9 +633,14 @@ export default function ModpackPanel({
     canWrite &&
     !pending.plan.target.unsupported_reason;
   const restoring = pending?.source.type === 'history';
-  const label = origin.version_number
-    ? `${origin.name} ${origin.version_number}`
-    : origin.name;
+  const restoreEntry =
+    pending?.source.type === 'history'
+      ? (history?.entries.find(
+          (e) =>
+            pending.source.type === 'history' &&
+            e.id === pending.source.entry_id
+        ) ?? null)
+      : null;
 
   return (
     <div className="flex flex-col gap-4 rounded-lg border border-gray-faded/30 bg-gray-800 p-4">
@@ -480,7 +661,8 @@ export default function ModpackPanel({
         {pending && (
           <PlanBody
             plan={pending.plan}
-            current={origin.version_number ?? t('mods.modpack.unknownVersion')}
+            origin={origin}
+            entry={restoreEntry}
             restoring={restoring}
             stopped={stopped}
           />
@@ -499,22 +681,52 @@ export default function ModpackPanel({
       />
 
       <div className="flex flex-row flex-wrap items-center justify-between gap-3">
-        <div className="flex min-w-0 flex-col gap-1">
-          <div className="text-h3 font-bold text-gray-300">{label}</div>
-          <div className="text-medium text-white/50">
-            {t('mods.modpack.from', { pack: origin.name })}
-          </div>
-          {update ? (
-            <div className="flex flex-row items-center gap-1.5 text-medium text-green">
-              <span className="size-1.5 rounded-full bg-green" />
-              {t('mods.modpack.out', { version: update.version_number })}
-              {update.changelog && (
-                <WhatsNewToggle
-                  open={updateChangelogOpen}
-                  onToggle={() => setUpdateChangelogOpen(!updateChangelogOpen)}
-                />
-              )}
+        <div className="flex min-w-0 flex-col gap-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <PackIcon url={origin.icon_url} size="size-6" />
+            <div className="truncate text-h3 font-bold text-gray-300">
+              {origin.name}
             </div>
+          </div>
+          {(origin.version_number || update) && (
+            <FactStrip
+              items={[
+                ...(origin.version_number
+                  ? [
+                      {
+                        label: t('values.key.installed'),
+                        value: <VersionTag version={origin.version_number} />,
+                      },
+                    ]
+                  : []),
+                ...(update
+                  ? [
+                      {
+                        label: t('values.key.available'),
+                        value: (
+                          <>
+                            <VersionTag
+                              version={update.version_number}
+                              tone="to"
+                            />
+                            <StatusBadge tone="success">
+                              {t('mods.modpack.updateAvailable')}
+                            </StatusBadge>
+                          </>
+                        ),
+                      },
+                    ]
+                  : []),
+              ]}
+            />
+          )}
+          {update ? (
+            update.changelog && (
+              <WhatsNewToggle
+                open={updateChangelogOpen}
+                onToggle={() => setUpdateChangelogOpen(!updateChangelogOpen)}
+              />
+            )
           ) : checked && 'error' in checked ? (
             <div className="text-medium text-red-200">
               {t('mods.modpack.checkFailed', { error: checked.error })}
@@ -531,9 +743,7 @@ export default function ModpackPanel({
           {onModrinth &&
             (update ? (
               <Button
-                label={t('mods.modpack.updateTo', {
-                  version: update.version_number,
-                })}
+                label={t('mods.modpack.update')}
                 icon={faCircleUp}
                 intention="primary"
                 loading={busy}
@@ -556,10 +766,11 @@ export default function ModpackPanel({
             onClick={() => fileInput.current?.click()}
           />
           <Button
-            label={
-              history && history.entries.length > 0
-                ? `${t('mods.modpack.history')} (${history.entries.length})`
-                : t('mods.modpack.history')
+            label={t('mods.modpack.history')}
+            badge={
+              history && history.entries.length > 0 ? (
+                <CountBadge count={history.entries.length} />
+              ) : undefined
             }
             icon={faCodeCompare}
             onClick={() => setHistoryOpen(!historyOpen)}

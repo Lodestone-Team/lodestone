@@ -56,6 +56,24 @@ export const isVersionCompatible = (
 export const looksLikeModrinthLink = (text: string) =>
   text.toLowerCase().includes('modrinth.com/');
 
+const PROJECT_TYPES = {
+  mod: 'mods.projectType.mod',
+  plugin: 'mods.projectType.plugin',
+  modpack: 'mods.projectType.modpack',
+  resourcepack: 'mods.projectType.resourcepack',
+  shader: 'mods.projectType.shader',
+  datapack: 'mods.projectType.datapack',
+} as const;
+
+/**
+ * A Modrinth project type ("resourcepack") as a word in the current language
+ * ("resource pack"); a type Modrinth adds later is shown as it is.
+ */
+export const projectTypeName = (type: string) =>
+  type in PROJECT_TYPES
+    ? t(PROJECT_TYPES[type as keyof typeof PROJECT_TYPES])
+    : type;
+
 /** The project's page on modrinth.com. */
 export const modrinthProjectUrl = (projectType: string, slug: string) =>
   `https://modrinth.com/${encodeURIComponent(projectType)}/${encodeURIComponent(slug)}`;

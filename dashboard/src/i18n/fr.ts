@@ -1209,8 +1209,7 @@ export const fr: Messages = {
     'Rechercher des mods sur Modrinth, ou coller un lien Modrinth',
   'mods.browse.placeholder.plugin':
     'Rechercher des plugins sur Modrinth, ou coller un lien Modrinth',
-  'mods.browse.onlyCompatible':
-    'N’afficher que les versions pour {gameVersion} / {loader}',
+  'mods.browse.onlyCompatible': 'Seulement les versions compatibles',
 
   // common
   'mods.noWritePermission':
@@ -1218,7 +1217,7 @@ export const fr: Messages = {
   'mods.clientSide.playersNeedToo': 'Requis aussi pour les joueurs',
   'mods.clientSide.serverOnly': 'Serveur uniquement',
   'mods.clientRequirement.required': 'Requis pour les joueurs',
-  'mods.clientRequirement.neededBy': 'Requis par {mods}',
+  'mods.clientRequirement.neededBy': 'Requis par',
   'mods.clientRequirement.unknownModrinth':
     'Modrinth n’indique pas si les joueurs en ont besoin ; consultez la page du mod',
   'mods.clientRequirement.unknownNotOnModrinth':
@@ -1234,19 +1233,35 @@ export const fr: Messages = {
     'Les joueurs reçoivent déjà ce mod : Modrinth ou le mod indique qu’ils en ont besoin.',
   'mods.forPlayers.optional':
     'Modrinth indique que les joueurs peuvent rejoindre sans ce mod, mais sur Fabric, les mods de ce genre les en empêchent souvent : les joueurs le reçoivent donc. Décochez-le pour le retirer.',
-  'mods.forPlayers.marked':
-    'Les joueurs recevront {name} la prochaine fois qu’ils rejoindront',
-  'mods.forPlayers.unmarked':
-    'Les joueurs ne reçoivent plus {name} en rejoignant',
-  'mods.forPlayers.failed': 'Impossible de modifier {name} : {error}',
+  'mods.toast.marked': 'Les joueurs le reçoivent en se connectant',
+  'mods.toast.unmarked': 'Les joueurs ne le reçoivent plus',
+  'mods.toast.markFailed': 'Impossible de le modifier',
+  'mods.toast.enableFailed': 'Impossible de l’activer',
+  'mods.toast.disableFailed': 'Impossible de le désactiver',
+  'mods.toast.updated': 'Mis à jour',
+  'mods.toast.updateFailed': 'Impossible de mettre à jour',
+  'mods.toast.installed': 'Installé',
+  'mods.toast.installFailed': 'Impossible d’installer',
+  'mods.toast.deleted': 'Supprimé',
+  'mods.toast.deleteFailed': 'Impossible de supprimer',
+  'mods.toast.uploaded': 'Importés',
+  'mods.toast.notUploaded': 'Seuls les fichiers .jar peuvent être importés',
+  'mods.toast.notUploadedGroup': 'Non importés',
+  'mods.toast.someFailed': 'Certaines mises à jour ont échoué',
+  'mods.toast.failedGroup': 'Non mis à jour',
   'mods.versionType.release': 'stable',
   'mods.versionType.beta': 'bêta',
   'mods.versionType.alpha': 'alpha',
-  'mods.installResult.installed': 'Installé : {mods}',
-  'mods.installResult.removed': 'Retiré : {files}',
-  'mods.installResult.skipped': 'Ignoré : {projects}',
-  'mods.installResult.playersNeed': 'Les joueurs auront aussi besoin de {mods}',
-  'mods.byAuthor': 'par {author}',
+  'mods.installResult.group.installed': 'Installés',
+  'mods.installResult.group.removed': 'Supprimés',
+  'mods.installResult.group.skipped': 'Ignorés',
+  'mods.installResult.group.playersNeed': 'Les joueurs en ont aussi besoin',
+  'mods.projectType.mod': 'mod',
+  'mods.projectType.plugin': 'plugin',
+  'mods.projectType.modpack': 'modpack',
+  'mods.projectType.resourcepack': 'pack de ressources',
+  'mods.projectType.shader': 'shader',
+  'mods.projectType.datapack': 'pack de données',
   'mods.installedLabel': 'Installé',
   'mods.downloads': {
     one: '{count} téléchargement',
@@ -1273,41 +1288,22 @@ export const fr: Messages = {
   'mods.search.nextPage': 'Page suivante',
 
   // InstalledMods
-  'mods.installed.enableFailed': 'Impossible d’activer {name} : {error}',
-  'mods.installed.disableFailed': 'Impossible de désactiver {name} : {error}',
-  'mods.installed.updated': '{name} mis à jour vers {version}',
-  'mods.installed.updateFailed': 'Impossible de mettre à jour {name} : {error}',
-  'mods.installed.updateTo': 'Passer à {version}',
   'mods.installed.viewOnModrinth': 'Voir sur Modrinth',
   'mods.installed.deleteLabel': 'Supprimer {name}',
-  'mods.installed.uploaded': 'Importé : {names}',
+  'mods.installed.update': 'Mettre à jour',
   'mods.installed.uploadFailed': 'Échec de l’importation : {error}',
-  'mods.installed.onlyJars':
-    'Seuls les fichiers .jar peuvent être importés : {names}',
   'mods.installed.updatesInstalled': 'Mises à jour installées',
-  'mods.installed.someUpdatesFailed':
-    'Certaines mises à jour ont échoué : {failures}',
-  'mods.installed.deleted': '{name} supprimé',
-  'mods.installed.deleteFailed': 'Échec de la suppression : {error}',
   'mods.installed.deleteTitle.mod': 'Supprimer le mod ?',
   'mods.installed.deleteTitle.plugin': 'Supprimer le plugin ?',
   'mods.installed.deleteBody':
-    '{name} ({fileName}) sera supprimé du serveur. Cette action est irréversible.',
+    'Il est supprimé du serveur. Cette action est irréversible.',
   'mods.installed.overwriteTitle': 'Remplacer les fichiers existants ?',
   'mods.installed.overwrite': 'Remplacer',
   'mods.installed.overwriteBody':
-    '{message} Le remplacer par le fichier importé ?',
+    'Remplacer le fichier du serveur par celui importé ?',
   'mods.installed.overwriteDefault':
     'Un fichier du même nom est déjà installé.',
-  'mods.installed.count.mod': {
-    one: '{count} mod dans {directory}/',
-    other: '{count} mods dans {directory}/',
-  },
-  'mods.installed.count.plugin': {
-    one: '{count} plugin dans {directory}/',
-    other: '{count} plugins dans {directory}/',
-  },
-  'mods.installed.updateAll': 'Tout mettre à jour ({count})',
+  'mods.installed.updateAll': 'Tout mettre à jour',
   'mods.installed.checkUpdates': 'Rechercher des mises à jour',
   'mods.installed.upload': 'Importer',
   'mods.installed.loadFailed.mod': 'Impossible de charger les mods : {error}',
@@ -1319,16 +1315,13 @@ export const fr: Messages = {
   'mods.installed.empty.plugin':
     'Aucun plugin installé pour l’instant. Parcourez Modrinth ou importez un fichier .jar.',
 
-  'mods.modpack.from': 'Ce serveur utilise le modpack {pack}.',
   'mods.modpack.check': 'Rechercher une mise à jour',
   'mods.modpack.checkFailed':
     'Impossible de rechercher une mise à jour : {error}',
   'mods.modpack.upToDate': 'C’est la version la plus récente.',
+  'mods.modpack.updateAvailable': 'Mise à jour disponible',
   'mods.modpack.whatsNew': 'Nouveautés',
-  'mods.modpack.out': '{version} est disponible',
-  'mods.modpack.updateTo': 'Mettre à jour vers {version}',
   'mods.modpack.fromFile': 'Mettre à jour depuis un fichier',
-  'mods.modpack.notMrpack': '{name} n’est pas un fichier .mrpack.',
   'mods.modpack.planFailed': 'Impossible de préparer la mise à jour : {error}',
   'mods.modpack.history': 'Historique',
   'mods.modpack.historyFailed':
@@ -1342,59 +1335,38 @@ export const fr: Messages = {
   'mods.modpack.restoreTitle': 'Restaurer cette version ?',
   'mods.modpack.updateTitle': 'Mettre à jour le modpack ?',
   'mods.modpack.update': 'Mettre à jour',
-  'mods.modpack.restored': '« {change} » restauré.',
-  'mods.modpack.updated': '{pack} mis à jour vers {version}.',
+  'mods.modpack.notMrpack': 'Ce n’est pas un fichier .mrpack',
+  'mods.modpack.unsupported': 'Cette version ne peut pas être utilisée',
+  'mods.modpack.toast.updated': 'Mis à jour',
+  'mods.modpack.toast.restored': 'Restaurée',
+  'mods.modpack.count.added': 'Ajoutés',
+  'mods.modpack.count.updated': 'Mis à jour',
+  'mods.modpack.count.replaced': 'Remplacés',
+  'mods.modpack.count.removed': 'Supprimés',
+  'mods.modpack.files': 'Fichiers',
+  'mods.modpack.dialog.restoreBody':
+    'Les mods et les configurations reviennent à leur état d’alors.',
+  'mods.modpack.dialog.reinstall': 'Le logiciel du serveur est réinstallé.',
+  'mods.modpack.group.removed': 'Supprimés',
+  'mods.modpack.group.kept': 'Restent tels que vous les avez modifiés',
   'mods.modpack.restoreFailed':
     'Impossible de restaurer cette version : {error}',
   'mods.modpack.updateFailed':
     'Impossible de mettre à jour le modpack : {error}',
-  'mods.modpack.since': 'depuis le {date}',
-  'mods.modpack.sinceTooltip':
-    'Ce fichier est tel qu’il était après « {change} ».',
-  'mods.modpack.unknownVersion': 'version inconnue',
-  'mods.modpack.dialog.intro': '{pack} passe de {from} à {to}.',
-  'mods.modpack.dialog.restoreIntro':
-    'Les mods et les configurations reviennent à leur état après « {change} ».',
-  'mods.modpack.dialog.reinstall':
-    'Le serveur passe à {software}, qui est réinstallé.',
-  'mods.modpack.dialog.kept':
-    'Les fichiers que vous avez modifiés restent tels quels : {files}',
   'mods.modpack.dialog.nothing': 'Aucun fichier ne change.',
   'mods.modpack.dialog.stop':
     'Arrêtez d’abord le serveur : il ne peut pas être mis à jour pendant qu’il tourne.',
-  'mods.modpack.dialog.unsupported':
-    'Cette version ne peut pas être utilisée : {reason}',
-  'mods.modpack.added': {
-    one: '{count} fichier ajouté',
-    other: '{count} fichiers ajoutés',
-  },
-  'mods.modpack.replaced': {
-    one: '{count} fichier remplacé',
-    other: '{count} fichiers remplacés',
-  },
-  'mods.modpack.removed': {
-    one: '{count} fichier supprimé',
-    other: '{count} fichiers supprimés',
-  },
   'mods.modpack.moreChanges': {
     one: 'et {count} autre',
     other: 'et {count} autres',
   },
 
   // ClientPackPanel
-  'mods.clientPack.loader': 'Fabric Loader {version}',
-  'mods.clientPack.loaderNoVersion': 'Fabric Loader',
   'mods.clientPack.plainFabric':
-    'Les joueurs peuvent se connecter avec Fabric seul (Minecraft {gameVersion}, {loader}).',
-  'mods.clientPack.title': {
-    one: 'Les joueurs ont besoin de {count} mod pour se connecter',
-    other: 'Les joueurs ont besoin de {count} mods pour se connecter',
-  },
+    'Les joueurs peuvent se connecter avec Fabric seul.',
+  'mods.clientPack.title':
+    'Les joueurs ont besoin de ces mods pour se connecter',
   'mods.clientPack.download': 'Télécharger le modpack client (.mrpack)',
-  'mods.clientPack.showAll': {
-    one: 'Afficher {count} mod',
-    other: 'Afficher les {count} mods',
-  },
   'mods.clientPack.showFewer': 'Afficher moins',
   'mods.clientPack.downloadFailed':
     'Impossible de télécharger le modpack client : {error}',
@@ -1412,11 +1384,10 @@ export const fr: Messages = {
   'mods.project.link.source': 'Code source',
   'mods.project.link.issues': 'Tickets',
   'mods.project.link.wiki': 'Wiki',
-  'mods.project.serverSide': 'serveur : {value}',
-  'mods.project.side.required': 'requis',
-  'mods.project.side.optional': 'facultatif',
-  'mods.project.side.unsupported': 'non pris en charge',
-  'mods.project.side.unknown': 'inconnu',
+  'mods.project.side.required': 'Requis',
+  'mods.project.side.optional': 'Facultatif',
+  'mods.project.side.unsupported': 'Non pris en charge',
+  'mods.project.side.unknown': 'Inconnu',
   'mods.project.createFromModpack': 'Créer un serveur à partir de ce modpack',
   'mods.project.modpackNoPermission':
     'Ceci est un modpack. Vous n’avez pas l’autorisation de créer des serveurs.',
@@ -1432,25 +1403,14 @@ export const fr: Messages = {
   'mods.versions.showAll': 'Afficher toutes les versions',
   'mods.versions.loadFailed': 'Impossible de charger les versions : {error}',
   'mods.versions.loading': 'Chargement des versions',
-  'mods.versions.none': 'Aucune version pour {loader} {gameVersion}.',
-  'mods.versions.noneShowAll':
-    'Aucune version pour {loader} {gameVersion}. Activez « Afficher toutes les versions » pour voir les autres.',
-  'mods.versions.showMore': {
-    one: 'Afficher plus ({count} restante)',
-    other: 'Afficher plus ({count} restantes)',
-  },
-  'mods.version.moreGameVersions': {
-    one: '+{count} autre',
-    other: '+{count} autres',
-  },
-  'mods.version.notFor': 'Pas pour {loader} {gameVersion}',
+  'mods.versions.none': 'Aucune version pour ce serveur.',
+  'mods.versions.showAllHint':
+    'Activez « Afficher toutes les versions » pour voir les autres.',
+  'mods.version.notFor': 'Pas pour ce serveur',
   'mods.version.install': 'Installer',
-  'mods.version.installed': '{title} {version} installé',
-  'mods.version.installFailed': 'Impossible d’installer {title} : {error}',
   'mods.version.incompatibleTitle': 'Installer une version incompatible ?',
   'mods.version.installAnyway': 'Installer quand même',
-  'mods.version.incompatibleBody':
-    '{title} {version} est conçu pour {loaders} {gameVersions}, pas pour {loader} {gameVersion}. Le serveur risque de planter.',
+  'mods.version.incompatibleBody': 'Le serveur risque de planter.',
   'values.kind.server': 'Serveur',
   'values.kind.mod': 'Mod',
   'values.kind.plugin': 'Plugin',

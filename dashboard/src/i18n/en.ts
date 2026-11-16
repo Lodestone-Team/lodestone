@@ -1379,9 +1379,8 @@ export const en = {
     'Search mods on Modrinth, or paste a Modrinth link',
   'mods.browse.placeholder.plugin':
     'Search plugins on Modrinth, or paste a Modrinth link',
-  /** a checkbox; e.g. "Only show versions for 1.21.1 / fabric" (loader as Modrinth names it) */
-  'mods.browse.onlyCompatible':
-    'Only show versions for {gameVersion} / {loader}',
+  /** a checkbox; the server’s Minecraft version and loader follow it */
+  'mods.browse.onlyCompatible': 'Only compatible versions',
 
   // common: labels, tooltips and the install toast shared by the views
   /** when the user can't change the server's files (a tooltip on disabled buttons) */
@@ -1393,8 +1392,8 @@ export const en = {
   'mods.clientSide.serverOnly': 'Server only',
   /** on an installed mod that players need to join */
   'mods.clientRequirement.required': 'Players need this',
-  /** {mods}: a list of mod names */
-  'mods.clientRequirement.neededBy': 'Needed by {mods}',
+  /** the heading of a tooltip listing the mods that need this one */
+  'mods.clientRequirement.neededBy': 'Needed by',
   'mods.clientRequirement.unknownModrinth':
     'Modrinth doesn’t say whether players need it; check the mod’s page',
   'mods.clientRequirement.unknownNotOnModrinth':
@@ -1412,21 +1411,39 @@ export const en = {
     'Players get this mod already: Modrinth or the mod says they need it.',
   'mods.forPlayers.optional':
     'Modrinth says players can join without this mod, but on Fabric mods like it often stop them joining, so players get it. Untick it to leave it out.',
-  /** toasts after ticking or unticking the box; {name}: the mod's name */
-  'mods.forPlayers.marked': 'Players get {name} the next time they join',
-  'mods.forPlayers.unmarked': 'Players no longer get {name} when they join',
-  'mods.forPlayers.failed': 'Couldn’t change {name}: {error}',
+  /** toast outcomes, under the mod’s name: short and without the name */
+  'mods.toast.marked': 'Players get it when they join',
+  'mods.toast.unmarked': 'Players no longer get it',
+  'mods.toast.markFailed': 'Couldn’t change it',
+  'mods.toast.enableFailed': 'Couldn’t turn it on',
+  'mods.toast.disableFailed': 'Couldn’t turn it off',
+  'mods.toast.updated': 'Updated',
+  'mods.toast.updateFailed': 'Couldn’t update',
+  'mods.toast.installed': 'Installed',
+  'mods.toast.installFailed': 'Couldn’t install',
+  'mods.toast.deleted': 'Deleted',
+  'mods.toast.deleteFailed': 'Couldn’t delete',
+  'mods.toast.uploaded': 'Uploaded',
+  'mods.toast.notUploaded': 'Only .jar files can be uploaded',
+  'mods.toast.notUploadedGroup': 'Not uploaded',
+  'mods.toast.someFailed': 'Some updates failed',
+  'mods.toast.failedGroup': 'Not updated',
   /** a Modrinth version's type, on a small label */
   'mods.versionType.release': 'release',
   'mods.versionType.beta': 'beta',
   'mods.versionType.alpha': 'alpha',
-  /** in the toast after an install; the lists are mod names and versions */
-  'mods.installResult.installed': 'Installed: {mods}',
-  'mods.installResult.removed': 'Removed: {files}',
-  'mods.installResult.skipped': 'Skipped: {projects}',
-  'mods.installResult.playersNeed': 'Players will need {mods} too',
-  /** a project's author on a search result and the project page */
-  'mods.byAuthor': 'by {author}',
+  /** group headings in the list after an install */
+  'mods.installResult.group.installed': 'Installed',
+  'mods.installResult.group.removed': 'Removed',
+  'mods.installResult.group.skipped': 'Skipped',
+  'mods.installResult.group.playersNeed': 'Players need these too',
+  /** a Modrinth project type, inside a sentence */
+  'mods.projectType.mod': 'mod',
+  'mods.projectType.plugin': 'plugin',
+  'mods.projectType.modpack': 'modpack',
+  'mods.projectType.resourcepack': 'resource pack',
+  'mods.projectType.shader': 'shader',
+  'mods.projectType.datapack': 'data pack',
   /** on a search result or version that is installed on the server */
   'mods.installedLabel': 'Installed',
   /** a tooltip on a project's download count */
@@ -1454,45 +1471,27 @@ export const en = {
   'mods.search.nextPage': 'Next page',
 
   // InstalledMods
-  'mods.installed.enableFailed': 'Failed to enable {name}: {error}',
-  'mods.installed.disableFailed': 'Failed to disable {name}: {error}',
-  'mods.installed.updated': 'Updated {name} to {version}',
-  'mods.installed.updateFailed': 'Failed to update {name}: {error}',
-  /** a button; {version}: the new version's name */
-  'mods.installed.updateTo': 'Update to {version}',
   'mods.installed.viewOnModrinth': 'View on Modrinth',
   /** the aria-label of a mod's delete button */
   'mods.installed.deleteLabel': 'Delete {name}',
-  'mods.installed.uploaded': 'Uploaded {names}',
+  /** a button on a mod row; the new version is shown by the name */
+  'mods.installed.update': 'Update',
   'mods.installed.uploadFailed': 'Upload failed: {error}',
-  'mods.installed.onlyJars': 'Only .jar files can be uploaded: {names}',
   'mods.installed.updatesInstalled': 'Updates installed',
-  /** {failures}: "name: error" for each failed update */
-  'mods.installed.someUpdatesFailed': 'Some updates failed: {failures}',
-  'mods.installed.deleted': 'Deleted {name}',
-  'mods.installed.deleteFailed': 'Failed to delete: {error}',
   'mods.installed.deleteTitle.mod': 'Delete mod?',
   'mods.installed.deleteTitle.plugin': 'Delete plugin?',
-  /** {name}: the mod's name, {fileName}: its jar file */
+  /** under the mod’s card in the delete dialog */
   'mods.installed.deleteBody':
-    '{name} ({fileName}) will be deleted from the server. This can’t be undone.',
+    'It’s deleted from the server. This can’t be undone.',
   'mods.installed.overwriteTitle': 'Overwrite existing files?',
   'mods.installed.overwrite': 'Overwrite',
-  /** {message}: the core's message naming the file, or mods.installed.overwriteDefault */
+  /** the core’s message naming the file follows on its own line */
   'mods.installed.overwriteBody':
-    '{message} Replace it with the uploaded file?',
+    'Replace the file on the server with the uploaded one?',
   'mods.installed.overwriteDefault':
     'A file with the same name is already installed.',
-  /** above the list; {directory}: the folder, e.g. "mods" */
-  'mods.installed.count.mod': {
-    one: '{count} mod in {directory}/',
-    other: '{count} mods in {directory}/',
-  },
-  'mods.installed.count.plugin': {
-    one: '{count} plugin in {directory}/',
-    other: '{count} plugins in {directory}/',
-  },
-  'mods.installed.updateAll': 'Update all ({count})',
+  /** a button; the number of updates is a badge after it */
+  'mods.installed.updateAll': 'Update all',
   'mods.installed.checkUpdates': 'Check for updates',
   'mods.installed.upload': 'Upload',
   'mods.installed.loadFailed.mod': 'Failed to load mods: {error}',
@@ -1504,15 +1503,13 @@ export const en = {
     'No plugins installed yet. Browse Modrinth or upload a .jar file.',
 
   // ModpackPanel: a server's modpack, its updates and history
-  'mods.modpack.from': 'This server runs the modpack {pack}.',
   'mods.modpack.check': 'Check for an update',
   'mods.modpack.checkFailed': 'Couldn’t check for an update: {error}',
   'mods.modpack.upToDate': 'It’s the newest version.',
+  /** a badge after the newer version */
+  'mods.modpack.updateAvailable': 'Update available',
   'mods.modpack.whatsNew': 'What’s new',
-  'mods.modpack.out': '{version} is out',
-  'mods.modpack.updateTo': 'Update to {version}',
   'mods.modpack.fromFile': 'Update from a file',
-  'mods.modpack.notMrpack': '{name} isn’t a .mrpack file.',
   'mods.modpack.planFailed': 'Couldn’t prepare the update: {error}',
   'mods.modpack.history': 'History',
   'mods.modpack.historyFailed': 'Couldn’t load the modpack’s history: {error}',
@@ -1525,57 +1522,41 @@ export const en = {
   'mods.modpack.restoreTitle': 'Restore this version?',
   'mods.modpack.updateTitle': 'Update the modpack?',
   'mods.modpack.update': 'Update',
-  'mods.modpack.restored': 'Restored “{change}”.',
-  'mods.modpack.updated': 'Updated {pack} to {version}.',
+  'mods.modpack.notMrpack': 'Not a .mrpack file',
+  /** the reason from the core follows on its own line */
+  'mods.modpack.unsupported': 'This version can’t be used',
+  /** toast outcomes, under the modpack’s name */
+  'mods.modpack.toast.updated': 'Updated',
+  'mods.modpack.toast.restored': 'Restored',
+  /** keys of file counts: Added 3 */
+  'mods.modpack.count.added': 'Added',
+  'mods.modpack.count.updated': 'Updated',
+  'mods.modpack.count.replaced': 'Replaced',
+  'mods.modpack.count.removed': 'Removed',
+  /** how many files a version puts back */
+  'mods.modpack.files': 'Files',
+  'mods.modpack.dialog.restoreBody':
+    'The mods and configs go back to how they were then.',
+  'mods.modpack.dialog.reinstall': 'The server software is installed again.',
+  /** group headings of file lists in the update dialog */
+  'mods.modpack.group.removed': 'Removed',
+  'mods.modpack.group.kept': 'Stay as you changed them',
   'mods.modpack.restoreFailed': 'Couldn’t restore that version: {error}',
   'mods.modpack.updateFailed': 'Couldn’t update the modpack: {error}',
-  'mods.modpack.since': 'since {date}',
-  'mods.modpack.sinceTooltip': 'This file is as it was after “{change}”.',
-  'mods.modpack.unknownVersion': 'unknown version',
-  'mods.modpack.dialog.intro': '{pack} goes from {from} to {to}.',
-  'mods.modpack.dialog.restoreIntro':
-    'The mods and configs go back to how they were after “{change}”.',
-  'mods.modpack.dialog.reinstall':
-    'The server moves to {software} and installs it again.',
-  'mods.modpack.dialog.kept': 'Files you changed stay as they are: {files}',
   'mods.modpack.dialog.nothing': 'No files change.',
   'mods.modpack.dialog.stop':
     'Stop the server first: it can’t be updated while it runs.',
-  'mods.modpack.dialog.unsupported': 'This version can’t be used: {reason}',
-  'mods.modpack.added': {
-    one: '{count} file added',
-    other: '{count} files added',
-  },
-  'mods.modpack.replaced': {
-    one: '{count} file replaced',
-    other: '{count} files replaced',
-  },
-  'mods.modpack.removed': {
-    one: '{count} file removed',
-    other: '{count} files removed',
-  },
   'mods.modpack.moreChanges': {
     one: 'and {count} more',
     other: 'and {count} more',
   },
 
   // ClientPackPanel: the mods players need on a Fabric server
-  /** {version}: the Fabric loader version, e.g. 0.16.5 */
-  'mods.clientPack.loader': 'Fabric loader {version}',
-  'mods.clientPack.loaderNoVersion': 'Fabric loader',
-  /** {loader}: mods.clientPack.loader */
-  'mods.clientPack.plainFabric':
-    'Players can join with plain Fabric (Minecraft {gameVersion}, {loader}).',
-  'mods.clientPack.title': {
-    one: 'Players need {count} mod to join',
-    other: 'Players need {count} mods to join',
-  },
+  /** the Minecraft and Fabric versions follow it */
+  'mods.clientPack.plainFabric': 'Players can join with plain Fabric.',
+  /** the number of mods is a badge after it */
+  'mods.clientPack.title': 'Players need these mods to join',
   'mods.clientPack.download': 'Download client modpack (.mrpack)',
-  /** Under the first few of a big client pack's mods: shows them all */
-  'mods.clientPack.showAll': {
-    one: 'Show all {count} mod',
-    other: 'Show all {count} mods',
-  },
   /** Folds the client pack's mods again, after mods.clientPack.showAll */
   'mods.clientPack.showFewer': 'Show fewer',
   'mods.clientPack.downloadFailed':
@@ -1596,12 +1577,11 @@ export const en = {
   'mods.project.link.source': 'Source',
   'mods.project.link.issues': 'Issues',
   'mods.project.link.wiki': 'Wiki',
-  /** whether the project runs on servers; {value}: mods.project.side.* */
-  'mods.project.serverSide': 'server: {value}',
-  'mods.project.side.required': 'required',
-  'mods.project.side.optional': 'optional',
-  'mods.project.side.unsupported': 'unsupported',
-  'mods.project.side.unknown': 'unknown',
+  /** whether a project runs on servers, under the key Server side */
+  'mods.project.side.required': 'Required',
+  'mods.project.side.optional': 'Optional',
+  'mods.project.side.unsupported': 'Unsupported',
+  'mods.project.side.unknown': 'Unknown',
   'mods.project.createFromModpack': 'Create a server from this modpack',
   'mods.project.modpackNoPermission':
     'This is a modpack. You don’t have permission to create servers.',
@@ -1618,30 +1598,16 @@ export const en = {
   'mods.versions.showAll': 'Show all versions',
   'mods.versions.loadFailed': 'Failed to load versions: {error}',
   'mods.versions.loading': 'Loading versions',
-  /** {loader}: e.g. fabric, {gameVersion}: e.g. 1.21.1 */
-  'mods.versions.none': 'No versions for {loader} {gameVersion}.',
-  'mods.versions.noneShowAll':
-    'No versions for {loader} {gameVersion}. Turn on “Show all versions” to see the others.',
-  'mods.versions.showMore': {
-    one: 'Show more ({count} left)',
-    other: 'Show more ({count} left)',
-  },
-  /** after the first 3 game versions of a version, e.g. "1.20, 1.20.1, 1.20.2 +5 more" */
-  'mods.version.moreGameVersions': {
-    one: '+{count} more',
-    other: '+{count} more',
-  },
-  /** on a version for another loader or Minecraft version, e.g. "Not for fabric 1.21.1" */
-  'mods.version.notFor': 'Not for {loader} {gameVersion}',
+  'mods.versions.showAllHint': 'Turn on “Show all versions” to see the others.',
+  /** the server’s Minecraft version and loader follow it */
+  'mods.versions.none': 'No versions for this server.',
+  /** a badge on a version for another loader or Minecraft version */
+  'mods.version.notFor': 'Not for this server',
   'mods.version.install': 'Install',
-  /** a toast title; {title}: the project, {version}: the version's name */
-  'mods.version.installed': 'Installed {title} {version}',
-  'mods.version.installFailed': 'Failed to install {title}: {error}',
   'mods.version.incompatibleTitle': 'Install an incompatible version?',
   'mods.version.installAnyway': 'Install anyway',
-  /** {loaders} and {gameVersions}: lists from Modrinth; {loader} {gameVersion}: the server's */
-  'mods.version.incompatibleBody':
-    '{title} {version} is made for {loaders} {gameVersions}, not {loader} {gameVersion}. It may crash the server.',
+  /** under the table comparing the version with the server */
+  'mods.version.incompatibleBody': 'It may crash the server.',
   /** the kind of an object, read by screen readers before its name */
   'values.kind.server': 'Server',
   'values.kind.mod': 'Mod',

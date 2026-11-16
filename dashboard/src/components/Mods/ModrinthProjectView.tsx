@@ -2,8 +2,8 @@ import {
   faArrowLeft,
   faArrowUpRightFromSquare,
   faDownload,
-  faHeart,
-  faServer,
+  faTriangleExclamation,
+  faUser,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { useQueryClient } from '@tanstack/react-query';
@@ -26,7 +26,25 @@ import {
   useModrinthVersion,
   useModrinthVersions,
 } from 'data/Mods';
-import { formatCompact, t as translate, useT } from 'i18n';
+import { formatCompact, t as translate, useI18n, useT } from 'i18n';
+import {
+  CountBadge,
+  KindIcon,
+  Num,
+  type ObjectKind,
+  ObjectChip,
+  StatusBadge,
+  VersionTag,
+} from 'components/Atoms/Values';
+import {
+  CompareTable,
+  FactLine,
+  FactStrip,
+  factsTitle,
+  ListCell,
+  ObjectCard,
+  ObjectToast,
+} from 'components/Values';
 import { useMemo, useState } from 'react';
 import { toast } from 'react-toastify';
 import { safeImageUrl, safeLinkUrl } from 'utils/markdown';
@@ -35,14 +53,17 @@ import {
   formatDate,
   isVersionCompatible,
   modrinthProjectUrl,
+  projectTypeName,
 } from 'utils/mods';
+import { gamePhrase, loaderName, loaderPhrase } from 'utils/values';
 import { errorToString } from 'utils/util';
 import {
   ClientSideLabel,
   DisabledTooltip,
-  InstallResultMessage,
+  InstallResult,
   ModIcon,
   VersionTypeLabel,
+  WithTooltip,
 } from './common';
 import {
   Skeleton,
@@ -110,6 +131,16 @@ const PAGE_SIZE = 20;
 
 // Modrinth's client_side / server_side values
 type Side = 'required' | 'optional' | 'unsupported' | 'unknown';
+/** The kind icon of a Modrinth project type */
+const KIND_OF: Partial<Record<string, ObjectKind>> = {
+  mod: 'mod',
+  plugin: 'plugin',
+  modpack: 'modpack',
+  resourcepack: 'resourcepack',
+  shader: 'shader',
+  datapack: 'datapack',
+};
+
 const SIDE_LABELS: Partial<Record<string, `mods.project.side.${Side}`>> = {
   required: 'mods.project.side.required',
   optional: 'mods.project.side.optional',
@@ -204,16 +235,43 @@ const Gallery = ({ project }: { project: ModrinthProject }) => {
   );
 };
 
+/** Up to 3 Minecraft versions as tags, then "+N" with the rest in its title */
 const GameVersions = ({ versions }: { versions: string[] }) => {
-  const t = useT();
   const shown = versions.slice(0, 3);
-  const rest = versions.length - shown.length;
+  const rest = versions.slice(3);
   return (
-    <span title={versions.join(', ')}>
-      {shown.join(', ')}
-      {rest > 0 && ` ${t('mods.version.moreGameVersions', { count: rest })}`}
+    <span className="inline-flex min-w-0 items-center gap-1">
+      {shown.map((version) => (
+        <VersionTag key={version} version={version} max={12} />
+      ))}
+      {rest.length > 0 && (
+        <CountBadge count={rest.length} plus title={rest.join('\n')} />
+      )}
     </span>
   );
+};
+
+/** The server a version is installed on, next to the version's own targets */
+const compareRows = (
+  t: ReturnType<typeof useT>,
+  version: ModrinthVersion,
+  target: InstallTarget
+) => {
+  const loaders = compatibleLoaders(target.loader);
+  return [
+    {
+      label: t('values.key.loader'),
+      a: version.loaders.map(loaderName).join(' / '),
+      b: loaderName(target.loader),
+      mismatch: !version.loaders.some((l) => loaders.includes(l)),
+    },
+    {
+      label: 'Minecraft',
+      a: <GameVersions versions={version.game_versions} />,
+      b: <VersionTag version={target.gameVersion} max={12} />,
+      mismatch: !version.game_versions.includes(target.gameVersion),
+    },
+  ];
 };
 
 const VersionRow = ({
@@ -235,13 +293,17 @@ const VersionRow = ({
     target.loader,
     target.gameVersion
   );
+  const published = formatDate(version.date_published);
+  const loaders = version.loaders.map(loaderName);
   return (
     <div className="flex flex-row items-center gap-3 bg-gray-800 px-4 py-2">
-      <div className="flex min-w-0 grow flex-col">
+      <div className="flex min-w-0 grow flex-col gap-0.5">
         <div className="flex min-w-0 flex-row items-center gap-2">
-          <span className="truncate text-medium font-bold text-gray-300">
-            {version.version_number}
-          </span>
+          <VersionTag
+            version={version.version_number}
+            max={32}
+            className="text-small text-gray-300"
+          />
           <VersionTypeLabel type={version.version_type} />
           {installedHere && (
             <Label
@@ -253,23 +315,38 @@ const VersionRow = ({
             </Label>
           )}
           {!compatible && (
-            <Label
-              size="small"
-              color="gray"
-              className="shrink-0 whitespace-nowrap"
+            <WithTooltip
+              message={
+                <CompareTable
+                  columns={[
+                    t('values.key.thisVersion'),
+                    t('values.key.thisServer'),
+                  ]}
+                  rows={compareRows(t, version, target)}
+                />
+              }
             >
-              {t('mods.version.notFor', {
-                loader: target.loader,
-                gameVersion: target.gameVersion,
-              })}
-            </Label>
+              <StatusBadge tone="warning" icon={faTriangleExclamation}>
+                {t('mods.version.notFor')}
+              </StatusBadge>
+            </WithTooltip>
           )}
         </div>
-        <div className="truncate text-small text-white/50">
-          <GameVersions versions={version.game_versions} /> ·{' '}
-          {version.loaders.join(', ')} · {formatDate(version.date_published)}
-        </div>
+        <FactLine
+          title={factsTitle([
+            { label: 'Minecraft', value: version.game_versions.join(', ') },
+            { label: t('values.key.loader'), value: loaders.join(', ') },
+            { label: t('values.key.published'), value: published },
+          ])}
+        >
+          <GameVersions versions={version.game_versions} />
+          {loaders.map((loader) => (
+            <span key={loader}>{loader}</span>
+          ))}
+          <span className="text-ink-muted @2xl:hidden">{published}</span>
+        </FactLine>
       </div>
+      <ListCell width="date">{published}</ListCell>
       {/* this exact version is installed already: nothing to install */}
       {!installedHere && (
         <DisabledTooltip
@@ -357,20 +434,25 @@ const ProjectVersions = ({
         force,
       });
       toast.success(
-        <InstallResultMessage
-          title={translate('mods.version.installed', {
-            title: project.title,
-            version: version.version_number,
-          })}
-          result={result}
-        />
+        <ObjectToast
+          object={
+            <>
+              <ObjectChip kind={target.kind} name={project.title} />
+              <VersionTag version={version.version_number} />
+            </>
+          }
+          outcome={translate('mods.toast.installed')}
+        >
+          <InstallResult result={result} />
+        </ObjectToast>
       );
     } catch (error) {
       toast.error(
-        translate('mods.version.installFailed', {
-          title: project.title,
-          error: errorToString(error),
-        })
+        <ObjectToast
+          object={<ObjectChip kind={target.kind} name={project.title} />}
+          outcome={translate('mods.toast.installFailed')}
+          reason={errorToString(error)}
+        />
       );
     } finally {
       await invalidateInstalledMods(queryClient, target.uuid);
@@ -397,16 +479,28 @@ const ProjectVersions = ({
           setConfirmVersion(null);
           if (version) await install(version, true);
         }}
+        object={
+          confirmVersion && (
+            <ObjectCard
+              icon={<ModIcon url={project.icon_url} className="size-8" />}
+              name={project.title}
+              version={confirmVersion.version_number}
+            />
+          )
+        }
       >
-        {confirmVersion &&
-          t('mods.version.incompatibleBody', {
-            title: project.title,
-            version: confirmVersion.version_number,
-            loaders: confirmVersion.loaders.join(', '),
-            gameVersions: confirmVersion.game_versions.join(', '),
-            loader: target.loader,
-            gameVersion: target.gameVersion,
-          })}
+        <div className="flex flex-col gap-3">
+          {confirmVersion && (
+            <CompareTable
+              columns={[
+                t('values.key.thisVersion'),
+                t('values.key.thisServer'),
+              ]}
+              rows={compareRows(t, confirmVersion, target)}
+            />
+          )}
+          {t('mods.version.incompatibleBody')}
+        </div>
       </ConfirmDialog>
       <div className="flex flex-row flex-wrap items-center justify-between gap-2">
         <h2 className="text-h2 font-bold text-gray-300">
@@ -440,19 +534,18 @@ const ProjectVersions = ({
           <VersionRowsSkeleton />
         </SkeletonGroup>
       ) : versions.length === 0 ? (
-        <div className="text-medium text-white/50">
-          {showAll
-            ? t('mods.versions.none', {
-                loader: target.loader,
-                gameVersion: target.gameVersion,
-              })
-            : t('mods.versions.noneShowAll', {
-                loader: target.loader,
-                gameVersion: target.gameVersion,
-              })}
+        <div className="flex flex-col gap-1 text-medium text-white/50">
+          <div className="flex flex-row flex-wrap items-center gap-x-3">
+            {t('mods.versions.none')}
+            <FactLine className="text-medium text-gray-400">
+              <span>{loaderPhrase(target.loader)}</span>
+              <span>{gamePhrase(target.gameVersion)}</span>
+            </FactLine>
+          </div>
+          {!showAll && <span>{t('mods.versions.showAllHint')}</span>}
         </div>
       ) : (
-        <div className="flex flex-col overflow-hidden rounded-lg border border-gray-faded/30 child:border-b child:border-gray-faded/30 child:last:border-b-0">
+        <div className="@container flex flex-col overflow-hidden rounded-lg border border-gray-faded/30 child:border-b child:border-gray-faded/30 child:last:border-b-0">
           {versions.slice(0, shown).map((version) => (
             <VersionRow
               key={version.id}
@@ -467,7 +560,7 @@ const ProjectVersions = ({
       )}
       {versions.length > shown && (
         <Button
-          label={t('mods.versions.showMore', {
+          label={t('values.showMore', {
             count: versions.length - shown,
           })}
           className="self-center"
@@ -500,7 +593,7 @@ export default function ModrinthProjectView({
   onCreateFromModpack:
     ((projectId: string, versionId: string | null) => void) | null;
 }) {
-  const t = useT();
+  const { t, rich, formatNumber } = useI18n();
   const { data: project, error, isPending } = useModrinthProject(projectId);
 
   const backButton = (
@@ -546,32 +639,65 @@ export default function ModrinthProjectView({
           <h2 className="truncate text-h1 font-bold text-gray-300">
             {project.title}
           </h2>
-          <div className="text-medium text-white/50">
-            {author ? t('mods.byAuthor', { author }) : project.slug} ·{' '}
-            {project.project_type}
-          </div>
           <div className="text-medium text-gray-300">{project.description}</div>
-          <div className="flex flex-row flex-wrap items-center gap-3 text-small text-white/50">
-            <span
-              className="flex items-center gap-1"
-              title={t('mods.downloads', { count: project.downloads })}
-            >
-              <FontAwesomeIcon icon={faDownload} />
-              {formatCompact(project.downloads)}
-            </span>
-            <span
-              className="flex items-center gap-1"
-              title={t('mods.followers', { count: project.followers })}
-            >
-              <FontAwesomeIcon icon={faHeart} />
-              {formatCompact(project.followers)}
-            </span>
-            <span className="flex items-center gap-1">
-              <FontAwesomeIcon icon={faServer} />
-              {t('mods.project.serverSide', {
+          <FactStrip
+            className="my-1"
+            items={[
+              {
+                label: t('values.key.author'),
+                value: (
+                  <ObjectChip
+                    icon={
+                      <FontAwesomeIcon
+                        icon={faUser}
+                        className="w-3 text-gray-500"
+                        aria-hidden="true"
+                      />
+                    }
+                    name={author ?? project.slug}
+                  />
+                ),
+              },
+              {
+                label: t('values.key.type'),
+                value: (
+                  <span className="inline-flex items-center gap-1">
+                    {KIND_OF[project.project_type] && (
+                      <KindIcon kind={KIND_OF[project.project_type]!} />
+                    )}
+                    {projectTypeName(project.project_type)}
+                  </span>
+                ),
+              },
+              {
+                label: t('values.key.downloads'),
+                value: (
+                  <span title={formatNumber(project.downloads)}>
+                    <Num
+                      value={formatCompact(project.downloads)}
+                      className="text-gray-300"
+                    />
+                  </span>
+                ),
+              },
+              {
+                label: t('values.key.followers'),
+                value: (
+                  <span title={formatNumber(project.followers)}>
+                    <Num
+                      value={formatCompact(project.followers)}
+                      className="text-gray-300"
+                    />
+                  </span>
+                ),
+              },
+              {
+                label: t('values.key.serverSide'),
                 value: serverSideKey ? t(serverSideKey) : project.server_side,
-              })}
-            </span>
+              },
+            ]}
+          />
+          <div className="flex flex-row flex-wrap items-center gap-3 text-small text-white/50">
             {installable && target.kind === 'mod' && (
               <ClientSideLabel clientSide={project.client_side} />
             )}
@@ -615,8 +741,12 @@ export default function ModrinthProjectView({
       ) : (
         <WarningAlert>
           {target.kind === 'plugin'
-            ? t('mods.project.wrongType.plugin', { type: project.project_type })
-            : t('mods.project.wrongType.mod', { type: project.project_type })}
+            ? rich('mods.project.wrongType.plugin', {
+                type: <b>{projectTypeName(project.project_type)}</b>,
+              })
+            : rich('mods.project.wrongType.mod', {
+                type: <b>{projectTypeName(project.project_type)}</b>,
+              })}
         </WarningAlert>
       )}
 

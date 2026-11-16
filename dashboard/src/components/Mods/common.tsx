@@ -1,4 +1,4 @@
-import { faCube, faDownload } from '@fortawesome/free-solid-svg-icons';
+import { faCube, faDownload, faUser } from '@fortawesome/free-solid-svg-icons';
 import RemoteIcon from 'components/Atoms/RemoteIcon';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { InstalledMod } from 'bindings/InstalledMod';
@@ -6,12 +6,13 @@ import { ModInstallResult } from 'bindings/ModInstallResult';
 import { ModrinthSearchHit } from 'bindings/ModrinthSearchHit';
 import { ModrinthVersionType } from 'bindings/ModrinthVersionType';
 import Label, { LabelColor } from 'components/Atoms/Label';
-import { t as translate, useI18n, useT } from 'i18n';
+import { formatCompact, useT } from 'i18n';
+import { MonoText, Num, VersionTag } from 'components/Atoms/Values';
+import { Fact, FactLine, NameList } from 'components/Values';
 import Tooltip from 'rc-tooltip';
 import { ReactNode, useState } from 'react';
 import { safeImageUrl } from 'utils/markdown';
 import { installedModName, installedModVersion } from 'utils/mods';
-import { formatCompact } from 'i18n';
 import { cn } from 'utils/util';
 
 /** A project icon from Modrinth (https only), or a placeholder cube. */
@@ -64,12 +65,12 @@ export const DisabledTooltip = ({
   return <WithTooltip message={message}>{children}</WithTooltip>;
 };
 
-/** Shows `message` in a tooltip when the children are hovered. */
+/** Shows `message` (text, or a list) in a tooltip when the children are hovered. */
 export const WithTooltip = ({
   message,
   children,
 }: {
-  message: string;
+  message: ReactNode;
   children: ReactNode;
 }) => (
   <Tooltip
@@ -108,6 +109,21 @@ export const ClientSideLabel = ({ clientSide }: { clientSide: string }) => {
   return null;
 };
 
+/** The mods that need this one, for a tooltip: a heading with a count, one a line. */
+export const NeededBy = ({ mods }: { mods: string[] }) => {
+  const t = useT();
+  return (
+    <NameList
+      groups={[
+        {
+          heading: t('mods.clientRequirement.neededBy'),
+          items: mods.map((name) => ({ id: name, name })),
+        },
+      ]}
+    />
+  );
+};
+
 /**
  * Whether players need an installed mod to join (CLIENT_MODS_SPEC 2.1).
  * Optional mods show nothing; unknown ones a quiet note.
@@ -120,7 +136,7 @@ export const ClientRequirementLabel = ({
   /** the row has a "For players" box, which shows "required" itself */
   marks?: boolean;
 }) => {
-  const { t, formatList } = useI18n();
+  const t = useT();
   switch (mod.client_requirement) {
     case 'required': {
       if (marks) return null;
@@ -130,11 +146,7 @@ export const ClientRequirementLabel = ({
         </Label>
       );
       return mod.required_by.length > 0 ? (
-        <WithTooltip
-          message={t('mods.clientRequirement.neededBy', {
-            mods: formatList(mod.required_by),
-          })}
-        >
+        <WithTooltip message={<NeededBy mods={mod.required_by} />}>
           {label}
         </WithTooltip>
       ) : (
@@ -219,62 +231,66 @@ export const pickFiles = (accept: string, multiple: boolean) =>
     input.click();
   });
 
-const modLabel = (mod: InstalledMod) => {
-  const version = installedModVersion(mod);
-  return version
-    ? `${installedModName(mod)} ${version}`
-    : installedModName(mod);
-};
-
 /**
- * The body of the toast after an install: installed, removed, skipped.
- * Shown in a toast, so it reads the current language when it renders.
+ * What an install did, as a list for its toast: the mods installed (name and
+ * version), the files removed, the projects skipped with the core's reason,
+ * and the mods players need too. Shown in a toast, so it reads the current
+ * language when it renders.
  */
-export const InstallResultMessage = ({
-  title,
-  result,
-}: {
-  title: string;
-  result: ModInstallResult;
-}) => (
-  <div className="flex flex-col gap-1">
-    <div className="font-bold">{title}</div>
-    {result.installed.length > 0 && (
-      <div>
-        {translate('mods.installResult.installed', {
-          mods: result.installed.map(modLabel).join(', '),
-        })}
-      </div>
-    )}
-    {result.removed.length > 0 && (
-      <div>
-        {translate('mods.installResult.removed', {
-          files: result.removed.join(', '),
-        })}
-      </div>
-    )}
-    {result.skipped.length > 0 && (
-      <div>
-        {/* the reasons come from the core */}
-        {translate('mods.installResult.skipped', {
-          projects: result.skipped
-            .map((skip) => `${skip.project_id} (${skip.reason})`)
-            .join(', '),
-        })}
-      </div>
-    )}
-    {result.installed.some(playersNeed) && (
-      <div>
-        {translate('mods.installResult.playersNeed', {
-          mods: result.installed
-            .filter(playersNeed)
-            .map(installedModName)
-            .join(', '),
-        })}
-      </div>
-    )}
-  </div>
-);
+export const InstallResult = ({ result }: { result: ModInstallResult }) => {
+  const t = useT();
+  return (
+    <NameList
+      groups={[
+        {
+          heading: t('mods.installResult.group.installed'),
+          tone: 'success',
+          items: result.installed.map((mod) => {
+            const version = installedModVersion(mod);
+            return {
+              id: mod.file_name,
+              name: (
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <span className="truncate">{installedModName(mod)}</span>
+                  {version && <VersionTag version={version} max={18} />}
+                </span>
+              ),
+            };
+          }),
+        },
+        {
+          heading: t('mods.installResult.group.removed'),
+          items: result.removed.map((file) => ({
+            id: file,
+            name: <MonoText text={file} max={32} className="text-small" />,
+          })),
+        },
+        {
+          heading: t('mods.installResult.group.skipped'),
+          // the reasons come from the core
+          items: result.skipped.map((skip) => ({
+            id: skip.project_id,
+            name: (
+              <MonoText
+                text={skip.project_id}
+                max={24}
+                className="text-small"
+              />
+            ),
+            reason: skip.reason,
+          })),
+        },
+        {
+          heading: t('mods.installResult.group.playersNeed'),
+          items: result.installed.filter(playersNeed).map((mod) => ({
+            id: mod.file_name,
+            name: installedModName(mod),
+          })),
+        },
+      ]}
+    />
+  );
+};
 
 /** A Modrinth search result. */
 export const ModrinthHitCard = ({
@@ -306,9 +322,6 @@ export const ModrinthHitCard = ({
           <span className="truncate text-h3 font-bold text-gray-300">
             {hit.title}
           </span>
-          <span className="shrink-0 truncate text-small text-white/50">
-            {t('mods.byAuthor', { author: hit.author })}
-          </span>
           {installed && (
             <Label
               size="small"
@@ -320,16 +333,21 @@ export const ModrinthHitCard = ({
           )}
           {showClientSide && <ClientSideLabel clientSide={hit.client_side} />}
         </div>
+        <FactLine>
+          <Fact label={t('values.key.author')} icon={faUser}>
+            {hit.author}
+          </Fact>
+          <Fact
+            label={t('values.key.downloads')}
+            icon={faDownload}
+            title={t('mods.downloads', { count: hit.downloads })}
+          >
+            <Num value={formatCompact(hit.downloads)} />
+          </Fact>
+        </FactLine>
         <div className="line-clamp-2 text-medium text-white/50">
           {hit.description}
         </div>
-      </div>
-      <div
-        className="flex shrink-0 flex-row items-center gap-1 text-small text-white/50"
-        title={t('mods.downloads', { count: hit.downloads })}
-      >
-        <FontAwesomeIcon icon={faDownload} />
-        {formatCompact(hit.downloads)}
       </div>
     </button>
   );
