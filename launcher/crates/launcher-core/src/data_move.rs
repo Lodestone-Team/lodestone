@@ -212,8 +212,8 @@ fn point_at(request: &MoveRequest) -> Result<(), MoveError> {
         into: to.clone(),
     };
     if let Err(err) = write_cleanup(default, &cleanup) {
-        eprintln!(
-            "lodestone-launcher: moved the data, but couldn't note {} for removal: {err}",
+        log::warn!(
+            "moved the data, but couldn't note {} for removal: {err}",
             from.display()
         );
     }
@@ -510,8 +510,8 @@ fn undo_copy(to: &Path, created: bool, is_default: bool) {
         remove_contents(to, |name| IGNORABLE.contains(&name))
     };
     if let Err(err) = result {
-        eprintln!(
-            "lodestone-launcher: couldn't remove the unfinished copy in {}: {err}",
+        log::warn!(
+            "couldn't remove the unfinished copy in {}: {err}",
             to.display()
         );
     }

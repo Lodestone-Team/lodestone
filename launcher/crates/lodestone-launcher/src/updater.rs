@@ -166,7 +166,10 @@ impl Updater {
     fn checked(&mut self, result: Result<Option<Found>, UpdateError>, cx: &mut Context<Self>) {
         self.work = None;
         match result {
-            Err(err) => self.state = UpdateState::Failed(err.to_string().into()),
+            Err(err) => {
+                log::warn!("checking for updates failed: {err}");
+                self.state = UpdateState::Failed(err.to_string().into());
+            }
             Ok(found) => {
                 let running = self.build.map_or(0, |build| build.number);
                 let have = running.max(self.installed.unwrap_or(0));
@@ -238,6 +241,7 @@ impl Updater {
         let url = match update::Manifest::asset_url(&found.url, &asset) {
             Ok(url) => url,
             Err(err) => {
+                log::warn!("the update's manifest names a bad file: {err}");
                 self.state = UpdateState::Failed(err.to_string().into());
                 cx.notify();
                 return;
@@ -286,7 +290,10 @@ impl Updater {
                 self.installed = Some(build);
                 UpdateState::Ready { build }
             }
-            Err(err) => UpdateState::Failed(err.to_string().into()),
+            Err(err) => {
+                log::warn!("downloading build {build} failed: {err}");
+                UpdateState::Failed(err.to_string().into())
+            }
         };
         cx.notify();
     }
@@ -309,6 +316,7 @@ impl Updater {
         match update::restart(&exe) {
             Ok(()) => cx.quit(),
             Err(err) => {
+                log::error!("restarting into the update failed: {err}");
                 self.state = UpdateState::Failed(err.to_string().into());
                 cx.notify();
             }

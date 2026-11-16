@@ -622,7 +622,9 @@ impl Images {
             let made = (|| -> Result<Instance, ImageError> {
                 stage(self, &target, &entries, &staging, cancel)?;
                 if let Some(record) = &source.record {
-                    let _ = crate::storage::save(&ModpackRecord::path(&staging), record);
+                    if let Err(err) = crate::storage::save(&ModpackRecord::path(&staging), record) {
+                        log::warn!("the copy made from a snapshot lost its modpack record: {err}");
+                    }
                 }
                 let dirs = InstanceDirs::new(&staging);
                 learn_sources(&dirs, &entries).map_err(ImageError::Invalid)?;

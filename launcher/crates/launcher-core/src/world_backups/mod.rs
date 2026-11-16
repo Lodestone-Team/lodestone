@@ -689,7 +689,12 @@ impl WorldBackups {
                     // Forward: the world, then its backups; the world back if they can't.
                     crate::fsx::rename(from, to)?;
                     if let Err(e) = move_backups(&from_backups, &backups.join(&to_name)) {
-                        let _ = crate::fsx::rename(to, from);
+                        if let Err(back) = crate::fsx::rename(to, from) {
+                            log::error!(
+                                "a world rename failed ({e}) and the world couldn't be put back from {}: {back}",
+                                to.display()
+                            );
+                        }
                         return Err(e);
                     }
                     Ok(())

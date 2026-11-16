@@ -561,8 +561,8 @@ impl Installer {
             record.insert(relative, &sha1, stat);
         }
         if let Err(err) = record.save(&record_path) {
-            eprintln!(
-                "lodestone-launcher: saving {}: {err}",
+            log::warn!(
+                "saving {}: {err}",
                 record_path.display()
             );
         }

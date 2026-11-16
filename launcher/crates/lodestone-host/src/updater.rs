@@ -220,6 +220,9 @@ impl Updater {
             let result = work.await;
             this.update(cx, |this, cx| {
                 this.work = None;
+                if let Err(err) = &result {
+                    log::warn!("checking for updates failed: {err}");
+                }
                 this.state = match result {
                     Err(err) => match downloaded {
                         // a failed check doesn't lose the download
@@ -293,7 +296,10 @@ impl Updater {
                             this.work = None;
                             this.state = match result {
                                 Ok(()) => UpdateState::Ready { build },
-                                Err(err) => UpdateState::Failed(err),
+                                Err(err) => {
+                                    log::warn!("downloading build {build} failed: {err}");
+                                    UpdateState::Failed(err)
+                                }
                             };
                             cx.notify();
                         })
