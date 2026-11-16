@@ -1283,23 +1283,11 @@ impl Servers {
                     // the tunnel's address on this computer, the same every time
                     .children(magic_port.map(|port| {
                         let address = launcher_core::cores::friends::game_address(port);
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap_2()
-                            .pt_1()
-                            .child(
-                                div().flex_none().w(px(240.)).child(
-                                    ValueField::new(
-                                        SharedString::from(format!("magic-localhost-{id}")),
-                                        address,
-                                    )
-                                    .label(t(ServersMsg::MagicLocalhost))
-                                    .kind(ValueKind::Code),
-                                ),
-                            )
-                            .child(note(t(ServersMsg::WhileConnected)))
+                        super::friends_view::magic_field(
+                            format!("magic-localhost-{id}"),
+                            address,
+                            t(ServersMsg::WhileConnected),
+                        )
                     })),
             )
             .child(

@@ -578,12 +578,21 @@ crate::i18n::messages! {
         InviteLinkKey = "Invite link",
         FriendsReadFailed = "Couldn't read your friends' servers",
         FriendsSaveFailed = "Couldn't save your friends' servers",
-        /// The key of a friend's server's address on this computer, 127.0.0.1:<port>, the same every time.
-        /// "Magic localhost" names the feature: a tunnelled server always answers at the same
-        /// address on this computer.
+        /// The key of a server's address on this computer, 127.0.0.1:<port>, the same every time.
+        /// "Magic localhost" names the feature: any Minecraft client on this computer joins the
+        /// server at that address.
         MagicLocalhost = "Magic localhost",
-        /// Beside that address.
+        /// Beside a friend's server's address.
         WhileConnected = "Works while you're connected.",
+        /// Beside the address of a server on a host on this computer: the server's own port.
+        WhileServerRuns = "Works while the server runs.",
+        /// Beside the address of a server on another host: the launcher passes connections
+        /// there on to the server.
+        WhileServerRunsAndOpen = "Works while the server runs and Lodestone Launcher is open.",
+        /// Under a server's Magic localhost address when another program had its usual
+        /// port, so the address shown works only until the launcher closes. {port} is the
+        /// usual port, which the launcher tries again next time.
+        MagicPortTakenRow = "Port {port} was in use, so this address works only until Lodestone Launcher closes",
         /// The address to use this time and the usual port are in fields under it.
         FriendPortTaken = "Port was in use",
         /// {address} is this session's 127.0.0.1:<port>; {port} the usual one.

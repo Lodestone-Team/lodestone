@@ -43,6 +43,31 @@ fn short_link(link: &str) -> &str {
         .unwrap_or(link)
 }
 
+/// A server's Magic localhost: `address` (127.0.0.1:<port>) in a field keyed "Magic
+/// localhost", with its Copy button, and `when` beside it, which says when it works.
+/// `id` names the field; its Copy button takes its name from the key.
+pub(super) fn magic_field(
+    id: impl Into<SharedString>,
+    address: String,
+    when: impl Into<SharedString>,
+) -> gpui::Div {
+    div()
+        .flex()
+        .flex_row()
+        .flex_wrap()
+        .items_center()
+        .gap_2()
+        .pt_1()
+        .child(
+            div().flex_none().w(px(240.)).child(
+                ValueField::new(id.into(), address)
+                    .label(t(M::MagicLocalhost))
+                    .kind(ValueKind::Code),
+            ),
+        )
+        .child(note(when.into()))
+}
+
 fn paragraph(value: impl Into<SharedString>) -> gpui::Div {
     div()
         .text_size(theme::text_size(text::MEDIUM))
@@ -268,26 +293,17 @@ impl Servers {
                         this.child(note(t(M::ConnectToJoinDirectly)))
                     })
                     .children(problem.map(|line| note(line).text_color(colors::YELLOW)))
-                    // the same every session: for Minecraft's server list
+                    // the same every session: for Minecraft's server list. Under a core
+                    // on this computer too: a row there is one the core's card doesn't
+                    // list, so Play never joins it directly and its tunnel listens here
+                    // (`FriendServer::direct_join`; a listed one is the card's own row,
+                    // at the server's own port)
                     .children(saved.game_port.map(|port| {
-                        let address = game_address(port);
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap_2()
-                            .pt_1()
-                            .child(
-                                div().flex_none().w(px(240.)).child(
-                                    ValueField::new(
-                                        SharedString::from(format!("magic-localhost-{row_id}")),
-                                        address,
-                                    )
-                                    .label(t(M::MagicLocalhost))
-                                    .kind(ValueKind::Code),
-                                ),
-                            )
-                            .child(note(t(M::WhileConnected)))
+                        magic_field(
+                            format!("magic-localhost-{row_id}"),
+                            game_address(port),
+                            t(M::WhileConnected),
+                        )
                     }))
                     .when(saved.is_trusted(), |this| {
                         this.child(

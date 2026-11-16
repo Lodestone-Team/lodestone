@@ -264,6 +264,8 @@ impl Servers {
                     .into_iter()
                     .map(|(url, info)| FoundCore { url, info })
                     .collect();
+                // a card that moved to "On this computer" needs no forwarders
+                this.sync_magic(cx);
                 cx.notify();
             })
             .ok();

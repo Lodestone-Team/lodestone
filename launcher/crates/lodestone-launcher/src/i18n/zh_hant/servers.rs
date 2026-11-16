@@ -541,6 +541,11 @@ pub fn text(message: M) -> &'static str {
         M::FriendsSaveFailed => "無法儲存好友的伺服器",
         M::MagicLocalhost => "Magic localhost 位址",
         M::WhileConnected => "連線期間有效。",
+        M::WhileServerRuns => "伺服器執行期間有效。",
+        M::WhileServerRunsAndOpen => "伺服器執行且 Lodestone Launcher 開啟期間有效。",
+        M::MagicPortTakenRow => {
+            "連接埠 {port} 已被占用，所以這次的位址只能用到 Lodestone Launcher 關閉為止"
+        }
         M::FriendPortTaken => "連接埠已被占用",
         M::FriendPortTakenBody => {
             "這台電腦上的其他程式正在使用常用連接埠，所以這次請在 Minecraft 中使用這個位址。下次 Lodestone Launcher 會先嘗試常用連接埠。"

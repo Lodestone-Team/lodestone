@@ -94,7 +94,9 @@ pub fn window_height(scene: &str) -> Option<f32> {
         | "servers-local-none"
         | "servers-local-unclaimed"
         | "servers-shared-local"
-        | "servers-shared-local-gone" => Some(2000.),
+        | "servers-shared-local-gone"
+        | "servers-magic-localhost"
+        | "servers-magic-port-taken" => Some(2000.),
         _ => None,
     }
 }

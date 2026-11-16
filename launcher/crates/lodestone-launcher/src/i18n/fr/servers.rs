@@ -663,6 +663,13 @@ pub fn text(message: M) -> &'static str {
         M::FriendsSaveFailed => "Impossible d’enregistrer les serveurs de vos amis",
         M::MagicLocalhost => "Magic localhost",
         M::WhileConnected => "Fonctionne tant que vous êtes connecté.",
+        M::WhileServerRuns => "Fonctionne tant que le serveur tourne.",
+        M::WhileServerRunsAndOpen => {
+            "Fonctionne tant que le serveur tourne et que Lodestone Launcher est ouvert."
+        }
+        M::MagicPortTakenRow => {
+            "Le port {port} était occupé, donc cette adresse ne marche que jusqu’à la fermeture de Lodestone Launcher"
+        }
         M::FriendPortTaken => "Le port était occupé",
         M::FriendPortTakenBody => {
             "Un autre programme de cet ordinateur utilise le port habituel\u{202F}: cette fois, utilisez cette adresse dans Minecraft. La prochaine fois, Lodestone Launcher essaiera d’abord le port habituel."

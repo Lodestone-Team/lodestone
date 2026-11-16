@@ -161,8 +161,9 @@ fn send_syn_once(socket: &tokio::net::TcpSocket) {
 }
 
 /// Binds the game port with `bind`: the first port of `wanted` nothing listens on and
-/// that binds, else any free port (port 0).
-async fn bind_game<T, E, F, Fut>(wanted: &GamePort, mut bind: F) -> Result<T, E>
+/// that binds, else any free port (port 0). Magic localhost's forwarders bind the same
+/// way (`super::magic_localhost`).
+pub(crate) async fn bind_game<T, E, F, Fut>(wanted: &GamePort, mut bind: F) -> Result<T, E>
 where
     F: FnMut(SocketAddr) -> Fut,
     Fut: Future<Output = Result<T, E>>,

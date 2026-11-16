@@ -604,7 +604,7 @@ impl Servers {
         let mut file = FriendsFile {
             friends: self.friends.list.iter().map(|f| f.saved.clone()).collect(),
         };
-        let (index, new) = file.add(&invite, now());
+        let (index, new) = file.add(&invite, now(), &self.host_magic_ports());
         let saved = file.friends[index].clone();
         let id = saved.id.clone();
         if new {
@@ -790,7 +790,7 @@ impl Servers {
         let file = FriendsFile {
             friends: self.friends.list.iter().map(|f| f.saved.clone()).collect(),
         };
-        let game_port = file.game_port(&id);
+        let game_port = file.game_port(&id, &self.host_magic_ports());
         let opening = self.open_source(&source, game_port.clone(), progress, cx);
         self.friends.connecting = Some(cx.spawn(async move |this, cx| {
             let result = opening.await;

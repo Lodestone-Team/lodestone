@@ -15,6 +15,7 @@ use launcher_core::cores::{
     client::display_address,
     image_sync::{display_text, plan::Summary},
     local_claim::ClaimError,
+    magic_localhost::MagicAddress,
     trust::Advisory,
 };
 use launcher_core::ui_skin::SurfaceId;
@@ -376,10 +377,29 @@ impl Servers {
 
         let status = status_label(server);
         let element_id = SharedString::from(format!("server-{row_id}"));
+        // any Minecraft client joins it at this address on this computer
+        let magic = self.magic_address(core, server).map(|magic| {
+            let address = magic.address();
+            let (when, taken) = match magic {
+                MagicAddress::ThisComputer { .. } => (t(M::WhileServerRuns).to_string(), None),
+                // something else had the saved port: this address is for this session
+                // only, which the row says while the person copies it
+                MagicAddress::Forwarded { taken, .. } => (
+                    t(M::WhileServerRunsAndOpen).to_string(),
+                    taken.map(|saved| tr!(M::MagicPortTakenRow, port = saved.to_string())),
+                ),
+            };
+            (when, address, taken)
+        });
         // the row shows the state with its power icon (or dot); screen readers hear it
         let mut parts = vec![status, server_detail(server)];
         if shared {
             parts.push(t(M::SharedTag).to_string());
+        }
+        if let Some((when, address, taken)) = &magic {
+            parts.push(format!("{} {address}", t(M::MagicLocalhost)));
+            parts.push(when.clone());
+            parts.extend(taken.clone());
         }
         let description: SharedString = format::list(&parts).into();
         let share_link = self.share_link(&core_uuid, &server.uuid).is_some();
@@ -464,7 +484,18 @@ impl Servers {
                     .child(
                         FactLine::row(SharedString::from(format!("server-facts-{row_id}")))
                             .facts(facts::versions(server)),
-                    ),
+                    )
+                    .children(magic.map(|(when, address, taken)| {
+                        div()
+                            .flex()
+                            .flex_col()
+                            .child(super::friends_view::magic_field(
+                                format!("magic-localhost-{row_id}"),
+                                address,
+                                when,
+                            ))
+                            .children(taken.map(|taken| small(taken).text_color(colors::YELLOW)))
+                    })),
             )
             .child(
                 div()
