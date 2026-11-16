@@ -11,7 +11,8 @@ use crate::{
 };
 use crate::{
     components::{
-        Button, ButtonSize, ButtonVariant, Dialog, Icon, StatusBadge, Toggle, ValueField,
+        Button, ButtonSize, ButtonVariant, Dialog, Icon, ItemIcon, Kind, NameGroup, NameItem,
+        NameList, StatusBadge, Toggle, ValueField,
         settings::{SearchRow, SettingRow, SettingsQuery},
     },
     i18n::{CommonMsg, ShellMsg as M, ShellPlural as P, format, t, tr, trn},
@@ -427,10 +428,15 @@ impl LauncherShell {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let entity = cx.entity();
-        let accounts = match usernames {
-            [one] => tr!(M::OneLauncherAccount, name = one),
-            many => trn!(P::LauncherAccounts, many.len(), names = format::list(many)),
-        };
+        // the accounts concerned as a counted list, out of the paragraph
+        let accounts =
+            NameList::new("launcher-identity-accounts")
+                .collapsed_after(5)
+                .group(
+                    NameGroup::new(t(M::SignedInAsLauncher)).items(usernames.iter().map(|name| {
+                        NameItem::new(name.clone()).icon(ItemIcon::Kind(Kind::Friend))
+                    })),
+                );
         Dialog::new(
             "disable-launcher-identity",
             t(M::TurnOffLauncherTitle),
@@ -443,9 +449,9 @@ impl LauncherShell {
                 .flex_col()
                 .gap_2()
                 .child(paragraph(t(M::TurnOffLauncherBody)))
+                .child(accounts)
                 .child(paragraph(tr!(
                     M::TurnOffLauncherAccounts,
-                    accounts = accounts,
                     keychain = t(CommonMsg::Keychain),
                 ))),
         )

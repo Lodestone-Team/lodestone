@@ -12,10 +12,11 @@ use std::time::Duration;
 use super::{Accounts, auth_errors};
 use crate::{
     components::{
-        Button, ButtonVariant, Dialog, DialogSlot, Icon, IconButton, RichText,
+        Button, ButtonVariant, Dialog, DialogSlot, Icon, IconButton, RichText, ValueField,
+        ValueKind,
         a11y::{Accessible, Role},
     },
-    i18n::{CommonMsg, ShellMsg as M, t, tr},
+    i18n::{CommonMsg, FactMsg, ShellMsg as M, t, tr},
     theme::{self, colors, fonts, leading, radius, text, weights},
 };
 use futures::FutureExt as _;
@@ -489,21 +490,19 @@ impl Render for SignInDialog {
                 verification_uri,
                 opened,
             } => {
-                let host = url::Url::parse(verification_uri)
-                    .ok()
-                    .and_then(|url| {
-                        url.host_str().map(|host| {
-                            format!("{}{}", host.trim_start_matches("www."), url.path())
-                        })
-                    })
-                    .unwrap_or_else(|| verification_uri.to_string());
                 dialog = dialog
                     .child(
                         div()
                             .flex()
                             .flex_col()
                             .gap_3()
-                            .child(muted(tr!(M::GoToHost, host = host)))
+                            .child(muted(t(M::GoToAddress)))
+                            // the address in a field to open or copy
+                            .child(
+                                ValueField::new("device-code-address", verification_uri.clone())
+                                    .label(t(FactMsg::Address))
+                                    .kind(ValueKind::Url),
+                            )
                             .child(
                                 // The code, centred and selectable, with a copy button
                                 // at the box's right edge.
@@ -562,7 +561,7 @@ impl Render for SignInDialog {
                             })),
                     )
                     .footer(
-                        Button::new("copy-and-open", tr!(M::CopyCodeAndOpen, host = host))
+                        Button::new("copy-and-open", t(M::CopyCodeAndOpen))
                             .variant(ButtonVariant::Primary)
                             .icon(Icon::Copy)
                             .on_click(cx.listener(|this, _, _, cx| this.copy_code_and_open(cx))),

@@ -361,9 +361,10 @@ crate::i18n::messages! {
         TurnItOn = "I understand, turn it on",
         TurnOffLauncherTitle = "Turn off the Minecraft Launcher sign-in?",
         TurnOffLauncherBody = "New Microsoft sign-ins will use Lodestone's own app again.",
-        OneLauncherAccount = "{name} is signed in as the Minecraft Launcher.",
-        /// {accounts} is the sentence that says which accounts.
-        TurnOffLauncherAccounts = "{accounts} Kept accounts go on working until Microsoft blocks this. Signing out removes them from Lodestone Launcher and deletes their saved sign-ins from your {keychain}.",
+        /// Over the accounts signed in as the Minecraft Launcher, with their count as a badge.
+        SignedInAsLauncher = "Signed in as the Minecraft Launcher",
+        /// Under the list of those accounts.
+        TurnOffLauncherAccounts = "Kept accounts go on working until Microsoft blocks this. Signing out removes them from Lodestone Launcher and deletes their saved sign-ins from your {keychain}.",
         TurnOffAndSignOut = "Turn off and sign out",
         TurnOffOnly = "Turn off only",
         /// Settings > Developer: the section of "Sign in as the Minecraft Launcher".
@@ -496,11 +497,11 @@ crate::i18n::messages! {
         FinishInBrowser = "Finish signing in in the browser window that opened, then come back here.",
         OpenBrowserAgain = "Open the browser again",
         GettingCode = "Getting a code…",
-        /// {host} is "microsoft.com/link".
-        GoToHost = "Go to {host} on any device and enter this code:",
+        /// Over Microsoft's sign-in address (in a field to open or copy) and the code.
+        GoToAddress = "On any device, open this address and enter the code below.",
         CodeCopiedWaiting = "Code copied. Waiting for you to enter it…",
         WaitingForCode = "Waiting for you to enter the code…",
-        CopyCodeAndOpen = "Copy code and open {host}",
+        CopyCodeAndOpen = "Copy code and open",
         /// The button beside the sign-in code.
         CopySignInCode = "Copy code",
         /// Asked on Back or closing once the sign-in code has been copied.
@@ -830,7 +831,7 @@ crate::i18n::messages! {
         StorageMoveRestartFailed = "Your data moved. Quit the launcher and open it again to use the new folder.",
         /// At start, when the moved data folder isn't there.
         DataFolderMissingTitle = "Can't find your data folder",
-        DataFolderMissingBody = "Your instances and worlds are in {path}, which isn't there. If it's on a drive that isn't connected, connect it and try again. The default folder starts with nothing in it, and your data stays where it is.",
+        DataFolderMissingBody = "Your instances and worlds are in this folder, which isn't there. If it's on a drive that isn't connected, connect it and try again. The default folder starts with nothing in it, and your data stays where it is.",
         DataFolderUseDefault = "Use the default folder",
         DataFolderQuit = "Quit",
         StorageLogs = "Logs and crash reports",
@@ -888,11 +889,6 @@ crate::i18n::messages! {
         /// How many shared values a category has.
         Values = ("{count} value", "{count} values"),
         CopiedValues = ("Copied {count} value from {name}.", "Copied {count} values from {name}."),
-        /// {names} is the list of accounts.
-        LauncherAccounts = (
-            "{count} account is signed in as the Minecraft Launcher: {names}.",
-            "{count} accounts are signed in as the Minecraft Launcher: {names}."
-        ),
         /// Event and trace subscriptions a connected program has.
         Subscriptions = ("{count} subscription", "{count} subscriptions"),
         PerfEntries = ("{count} entry", "{count} entries"),

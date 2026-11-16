@@ -372,9 +372,9 @@ pub fn text(message: M) -> &'static str {
         M::TurnOffLauncherBody => {
             "Les nouvelles connexions Microsoft utiliseront de nouveau l’application de Lodestone."
         }
-        M::OneLauncherAccount => "{name} est connecté en tant que Minecraft Launcher.",
+        M::SignedInAsLauncher => "Connectés en tant que Minecraft Launcher",
         M::TurnOffLauncherAccounts => {
-            "{accounts} Les comptes gardés continuent de fonctionner jusqu’à ce que Microsoft bloque cela. Les déconnecter les retire de Lodestone Launcher et supprime leurs connexions enregistrées de votre {keychain}."
+            "Les comptes gardés continuent de fonctionner jusqu’à ce que Microsoft bloque cela. Les déconnecter les retire de Lodestone Launcher et supprime leurs connexions enregistrées de votre {keychain}."
         }
         M::TurnOffAndSignOut => "Désactiver et déconnecter",
         M::TurnOffOnly => "Désactiver seulement",
@@ -508,12 +508,12 @@ pub fn text(message: M) -> &'static str {
         }
         M::OpenBrowserAgain => "Rouvrir le navigateur",
         M::GettingCode => "Obtention d’un code…",
-        M::GoToHost => {
-            "Allez sur {host} depuis n’importe quel appareil et saisissez ce code\u{a0}:"
+        M::GoToAddress => {
+            "Sur n’importe quel appareil, ouvrez cette adresse et saisissez le code ci-dessous."
         }
         M::CodeCopiedWaiting => "Code copié. En attente de sa saisie…",
         M::WaitingForCode => "En attente de la saisie du code…",
-        M::CopyCodeAndOpen => "Copier le code et ouvrir {host}",
+        M::CopyCodeAndOpen => "Copier le code et ouvrir",
         M::CopySignInCode => "Copier le code",
         M::StopSigningInTitle => "Arrêter la connexion\u{202F}?",
         M::StopSigningInBody => {
@@ -881,7 +881,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::DataFolderMissingTitle => "Dossier de données introuvable",
         M::DataFolderMissingBody => {
-            "Vos instances et mondes sont dans {path}, qui est introuvable. S'il est sur un disque non connecté, connectez-le et réessayez. Le dossier par défaut démarre vide, et vos données restent où elles sont."
+            "Vos instances et mondes sont dans ce dossier, qui est introuvable. S'il est sur un disque non connecté, connectez-le et réessayez. Le dossier par défaut démarre vide, et vos données restent où elles sont."
         }
         M::DataFolderUseDefault => "Utiliser le dossier par défaut",
         M::DataFolderQuit => "Quitter",
@@ -954,10 +954,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::CopiedValues => [
             "{count} valeur copiée depuis {name}.",
             "{count} valeurs copiées depuis {name}.",
-        ],
-        P::LauncherAccounts => [
-            "{count} compte est connecté en tant que Minecraft Launcher\u{a0}: {names}.",
-            "{count} comptes sont connectés en tant que Minecraft Launcher\u{a0}: {names}.",
         ],
         P::Subscriptions => ["{count} abonnement", "{count} abonnements"],
         P::PerfEntries => ["{count} entrée", "{count} entrées"],

@@ -314,9 +314,9 @@ pub fn text(message: M) -> &'static str {
         M::TurnItOn => "我了解，開啟",
         M::TurnOffLauncherTitle => "關閉以 Minecraft Launcher 身分登入？",
         M::TurnOffLauncherBody => "新的 Microsoft 登入會重新使用 Lodestone 自己的應用程式。",
-        M::OneLauncherAccount => "「{name}」正以 Minecraft Launcher 身分登入。",
+        M::SignedInAsLauncher => "以 Minecraft Launcher 身分登入",
         M::TurnOffLauncherAccounts => {
-            "{accounts}保留的帳號會繼續可用，直到 Microsoft 封鎖這種做法。登出會將它們從 Lodestone Launcher 移除，並從你的{keychain}中刪除它們儲存的登入資訊。"
+            "保留的帳號會繼續可用，直到 Microsoft 封鎖這種做法。登出會將它們從 Lodestone Launcher 移除，並從你的{keychain}中刪除它們儲存的登入資訊。"
         }
         M::TurnOffAndSignOut => "關閉並登出",
         M::TurnOffOnly => "只關閉",
@@ -432,10 +432,10 @@ pub fn text(message: M) -> &'static str {
         M::FinishInBrowser => "請在開啟的瀏覽器視窗中完成登入，然後回到這裡。",
         M::OpenBrowserAgain => "重新開啟瀏覽器",
         M::GettingCode => "正在取得代碼…",
-        M::GoToHost => "在任何裝置上前往 {host} 並輸入這組代碼：",
+        M::GoToAddress => "在任何裝置上開啟此網址，然後輸入下方的代碼。",
         M::CodeCopiedWaiting => "已複製代碼。正在等待你輸入…",
         M::WaitingForCode => "正在等待你輸入代碼…",
-        M::CopyCodeAndOpen => "複製代碼並開啟 {host}",
+        M::CopyCodeAndOpen => "複製代碼並開啟",
         M::CopySignInCode => "複製代碼",
         M::StopSigningInTitle => "停止登入？",
         M::StopSigningInBody => "Microsoft 仍在等待你複製的代碼。如果現在停止，輸入它將無法登入。",
@@ -749,7 +749,7 @@ pub fn text(message: M) -> &'static str {
         M::StorageMoveRestartFailed => "資料已移動。請結束啟動器並重新開啟，以使用新資料夾。",
         M::DataFolderMissingTitle => "找不到你的資料夾",
         M::DataFolderMissingBody => {
-            "你的實例和世界在 {path}，但它不存在。如果它在未連接的磁碟上，請連接後重試。預設資料夾是空的，你的資料會留在原處。"
+            "你的實例和世界在這個資料夾中，但它不存在。如果它在未連接的磁碟上，請連接後重試。預設資料夾是空的，你的資料會留在原處。"
         }
         M::DataFolderUseDefault => "使用預設資料夾",
         M::DataFolderQuit => "結束",
@@ -812,7 +812,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::AndMore => ["還有 {count} 個"; 2],
         P::Values => ["{count} 個值"; 2],
         P::CopiedValues => ["已從「{name}」複製 {count} 個值。"; 2],
-        P::LauncherAccounts => ["有 {count} 個帳號正以 Minecraft Launcher 身分登入：{names}。"; 2],
         P::Subscriptions => ["{count} 個訂閱"; 2],
         P::PerfEntries => ["{count} 個項目"; 2],
         P::StorageSnapshotsHint => {
