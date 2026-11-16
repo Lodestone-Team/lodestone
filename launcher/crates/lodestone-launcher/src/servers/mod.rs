@@ -29,6 +29,7 @@ mod host_offer;
 pub mod lan;
 pub mod lan_share;
 pub mod local;
+mod magic;
 pub mod view;
 // What the control API (`crate::control`) does with cores and servers.
 pub(crate) mod control;
@@ -778,6 +779,8 @@ pub struct Servers {
     _instances_changed: Option<Subscription>,
     /// "Share LAN worlds with friends": the person's own open worlds.
     pub lan_share: lan_share::LanShare,
+    /// Magic localhost: every server's address on this computer.
+    magic: magic::MagicState,
     /// Games opening worlds to LAN, and exiting, for [`lan_share`].
     _instances_events: Option<Subscription>,
 }
@@ -829,6 +832,7 @@ impl Servers {
             host_download: None,
             _instances_changed: None,
             lan_share: lan_share::LanShare::default(),
+            magic: Default::default(),
             _instances_events: None,
         };
         this._instances_changed = Some(cx.observe(&this.instances, |this, _, cx| {
@@ -843,8 +847,11 @@ impl Servers {
             cx.background_executor()
                 .timer(std::time::Duration::from_millis(500))
                 .await;
-            this.update(cx, |this, cx| this.lan_share_apply_setting(cx))
-                .ok();
+            this.update(cx, |this, cx| {
+                this.lan_share_apply_setting(cx);
+                this.sync_magic(cx);
+            })
+            .ok();
         }));
         this.load(cx);
         this.load_friends();
@@ -1103,8 +1110,8 @@ impl Servers {
                 };
                 this.cores[index].refreshing = false;
                 match result {
-                    Ok(list) => {
-                        let uuid = this.listed(index, list, cx);
+                    Ok((list, complete)) => {
+                        let uuid = this.listed(index, list, complete, cx);
                         this.fetch_share_links(&uuid, cx);
                     }
                     Err(CoreError::SignedOut) => this.signed_out(index, cx),
@@ -1118,7 +1125,14 @@ impl Servers {
 
     /// A list arrived: keep the name, and when another id answers, end trust and move
     /// the card (with its key and linked instances) to that id. Returns the core's id.
-    fn listed(&mut self, index: usize, list: ServerList, cx: &mut Context<Self>) -> String {
+    /// `complete`: see [`fetch_list`].
+    fn listed(
+        &mut self,
+        index: usize,
+        list: ServerList,
+        complete: bool,
+        cx: &mut Context<Self>,
+    ) -> String {
         let core = &mut self.cores[index];
         let mut changed = false;
         if core.saved.name != list.core_name {
@@ -1159,6 +1173,9 @@ impl Servers {
         }
         if changed {
             self.save();
+        }
+        if let Some(index) = self.core_index(&uuid) {
+            self.magic_listed(index, complete, cx);
         }
         uuid
     }
@@ -1761,6 +1778,7 @@ impl Servers {
         self.revoke_local_key(&uuid, cx);
         let core = self.cores.remove(index);
         self.save();
+        self.sync_magic(cx);
         if core.signed_in() {
             self.forget_local_key(&core.saved.uuid, cx);
             self.forget_key(core.saved.uuid, cx);
@@ -2872,8 +2890,8 @@ impl Servers {
                 let Some(index) = this.core_index(&link.core_uuid) else {
                     return;
                 };
-                let list = match result {
-                    Ok(list) => list,
+                let (list, complete) = match result {
+                    Ok(fetched) => fetched,
                     Err(err) => {
                         this.cores[index].status = CoreStatus::Failed(err.clone());
                         let name = link.server_name.clone();
@@ -2892,7 +2910,7 @@ impl Servers {
                     .cloned();
                 let signed_in = this.cores[index].signed_in();
                 // the core may have a new id now
-                let core_uuid = this.listed(index, list, cx);
+                let core_uuid = this.listed(index, list, complete, cx);
                 let Some(server) = server else {
                     let name = link.server_name.clone();
                     return this.fail(
@@ -4032,14 +4050,20 @@ fn create_failed() -> String {
 }
 
 /// The list a core shows this device: the public one, plus (signed in) every server
-/// the key can view.
-async fn fetch_list(client: &CoreClient, key: Option<&Secret>) -> Result<ServerList, CoreError> {
+/// the key can view. With whether it is complete: signed in, its public half arrived
+/// too (a failed public half leaves the servers only it lists out), so a server
+/// missing from it is really gone ([`Servers::magic_listed`]).
+async fn fetch_list(
+    client: &CoreClient,
+    key: Option<&Secret>,
+) -> Result<(ServerList, bool), CoreError> {
     let public = client.public_servers().await;
     let Some(key) = key else {
-        return public;
+        return public.map(|list| (list, false));
     };
     let list = client.servers(key).await?;
-    Ok(merge_lists(list, public.ok()))
+    let complete = public.is_ok();
+    Ok((merge_lists(list, public.ok()), complete))
 }
 
 /// The signed-in list `signed_in` with the publicly listed servers it lacks from

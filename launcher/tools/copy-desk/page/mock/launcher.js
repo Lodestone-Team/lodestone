@@ -713,12 +713,12 @@
 
   // ---------- Lodestone Host page ----------
   const SERVERS = [
-    { name: "Survival SMP", ver: "1.20.1", loader: "Fabric 0.16.14", state: "running", players: [3, 20], shared: true, linked: true },
-    { name: "Creative world", ver: "1.21.1", loader: null, state: "stopped" },
-    { name: "All the Mods", ver: "1.20.1", loader: "Forge 1.20.1-47.4.28", state: "starting", busy: "BusyStarting" },
-    { name: "Old hub", ver: "1.8.9", loader: null, state: "crashed" },
-    { name: "Lobby", ver: "1.21.1", loader: "Paper", state: "stopping", busy: "BusyStopping" },
-    { name: "Test", ver: "1.21.1", loader: "Other", state: "unknown" },
+    { name: "Survival SMP", ver: "1.20.1", loader: "Fabric 0.16.14", state: "running", players: [3, 20], shared: true, linked: true, port: 25565 },
+    { name: "Creative world", ver: "1.21.1", loader: null, state: "stopped", port: 25566 },
+    { name: "All the Mods", ver: "1.20.1", loader: "Forge 1.20.1-47.4.28", state: "starting", busy: "BusyStarting", port: 25567 },
+    { name: "Old hub", ver: "1.8.9", loader: null, state: "crashed", port: 25568 },
+    { name: "Lobby", ver: "1.21.1", loader: "Paper", state: "stopping", busy: "BusyStopping", port: 25569 },
+    { name: "Test", ver: "1.21.1", loader: "Other", state: "unknown", port: 25570 },
   ];
   const stateLabel = (s) => sv({ running: "StateRunning", starting: "StateStarting", stopping: "StateStopping", stopped: "StateStopped", crashed: "StateCrashed", unknown: "StateUnknown", hidden: "StateHidden" }[s]);
   function serverRow(ctx, s, opts = {}) {
@@ -732,7 +732,11 @@
     return h("div.lx-srvrow", dot(s.state === "running" ? "on" : s.state === "crashed" ? "err" : s.state === "starting" ? "warn" : "off"),
       h("div.lx-grow", h("div.lx-srvrow-n", h("a", { style: { cursor: "pointer" }, onclick: () => ctx.go("server", { name: s.name }) }, tx(s.name)),
         s.shared ? h("span.lx-pill-tag", sv("SharedTag"), h("button", { onclick: () => ctx.set("toast", "copiedInvite") }, ic("copy"), sv("CopyInviteLink"))) : null),
-      h("div.lx-row-s", join(tx(s.ver), s.loader === "Other" ? sv("LoaderOther") : s.loader ? tx(s.loader) : null, s.players ? sv("PlayersOfMax", { count: s.players[0], max: s.players[1] }) : null, s.state !== "running" ? stateLabel(s.state) : null, s.hiddenAddr ? sv("AddressHidden") : null))),
+      h("div.lx-row-s", join(tx(s.ver), s.loader === "Other" ? sv("LoaderOther") : s.loader ? tx(s.loader) : null, s.players ? sv("PlayersOfMax", { count: s.players[0], max: s.players[1] }) : null, s.state !== "running" ? stateLabel(s.state) : null, s.hiddenAddr ? sv("AddressHidden") : null)),
+      // Magic localhost: the server's own port on this computer, or a forwarder's port for another host's
+      opts.magic && !s.hiddenAddr && (opts.magic !== "here" || s.port) ? h("div.lx-row-s", opts.magic === "here" ? sv("MagicAddressHere", { address: "127.0.0.1:" + s.port }) : opts.magic === "tunnel" ? sv("FriendAddress", { address: "127.0.0.1:36017" }) : sv("MagicAddressForwarded", { address: "127.0.0.1:" + (s.portTaken ? 40123 : 34121) }), " ", btn(cm("Copy"), { sm: true, kind: "g", icon: "copy" })) : null,
+      // another program had the saved port: this session's address, said on the row
+      opts.magic === "forwarded" && s.portTaken && !s.hiddenAddr ? h("div.lx-row-s", { style: { color: "var(--yellow)" } }, sv("MagicPortTakenRow", { port: 34121 })) : null),
       h("div.lx-row-a", actions));
   }
   function coreMenu(ctx, owner) {
@@ -760,10 +764,10 @@
     if (st === "direct") parts.push(h("div.lx-core", h("div.lx-grow.lx-muted", sv("DirectNote")), btn(sv("GetLodestoneCli"), { icon: "ext" })));
     if (st === "claimFailed") parts.push(h("div", { style: { padding: "0 18px" } }, note(sv("ClaimRefused"), "err")));
     if (claimed) {
-      parts.push(...SERVERS.map((s) => serverRow(ctx, s, { owner: true })));
+      parts.push(...SERVERS.map((s) => serverRow(ctx, s, { owner: true, magic: "here" })));
       parts.push(h("div", { style: { padding: "12px 18px" } }, h("div.lx-caps", sv("SharedWithFriends")), h("div.lx-muted", { style: { fontSize: "13px" } }, sv("SharedWithFriendsHint"))));
     } else if (st !== "direct") {
-      parts.push(serverRow(ctx, { name: "Survival SMP", ver: "1.20.1", loader: "Fabric 0.16.14", state: "running", players: [3, 20], shared: true }, {}),
+      parts.push(serverRow(ctx, { name: "Survival SMP", ver: "1.20.1", loader: "Fabric 0.16.14", state: "running", players: [3, 20], shared: true }, { magic: "tunnel" }),
         h("div", { style: { padding: "8px 18px 12px" } }, h("div.lx-muted", { style: { fontSize: "13px" } }, sv("ConnectToJoinDirectly"))));
     }
     return h("div.lx-corebox.lx-local", parts);
@@ -845,8 +849,8 @@
           other === "certificate" ? h("div", { style: { padding: "4px 18px" } }, note(sv("CertUntrustedWarning", { computer: "this Mac" }), "warn", btn(sv("ReviewCertificate"), { sm: true, on: () => ctx.open("certificate") }))) :
             other === "certChanged" ? h("div", { style: { padding: "4px 18px" } }, note(sv("CertChangedWarning"), "err", btn(sv("ReviewNewCertificate"), { sm: true, on: () => ctx.open("certificate", { changed: true }) }))) :
               other === "notListed" ? h("div.lx-srvrow.lx-muted", sv("NotListedPublicly")) : other === "noPublic" ? h("div.lx-srvrow.lx-muted", sv("NoPublicServers")) : other === "noVisible" ? h("div.lx-srvrow.lx-muted", sv("NoVisibleServers")) :
-                [serverRow(ctx, { name: "Skyblock", ver: "1.21.1", loader: "Fabric 0.16.14", state: "running", players: [1, 10] }, {}),
-                  serverRow(ctx, { name: "Minigames", ver: "1.21.1", loader: "Paper", state: other === "signedIn" ? "stopped" : "hidden", hiddenAddr: true, busy: other === "busy" ? "BusyCreatingFiles" : null, busyVars: { done: 12, total: 48 } }, { signedIn: other === "signedIn" })]),
+                [serverRow(ctx, { name: "Skyblock", ver: "1.21.1", loader: "Fabric 0.16.14", state: "running", players: [1, 10], portTaken: other === "portTaken" }, { magic: "forwarded" }),
+                  serverRow(ctx, { name: "Minigames", ver: "1.21.1", loader: "Paper", state: other === "signedIn" ? "stopped" : "hidden", hiddenAddr: true, busy: other === "busy" ? "BusyCreatingFiles" : null, busyVars: { done: 12, total: 48 } }, { signedIn: other === "signedIn", magic: "forwarded" })]),
         h("div.lx-corebox", h("div.lx-core", h("span.lx-ibtn", { style: { width: "38px", height: "38px", border: 0, background: "var(--g700)" } }, ic("server")),
           h("div.lx-grow", h("div.lx-core-n", tx("Old laptop")), h("div.lx-core-s", tx("https://old-laptop.local:16662"), sep(), sv("NotSignedIn"))), h("span.lx-muted", sv("TrustedForMods")), toggle(false), btn(cm("SignIn"), { icon: "user" }), iconBtn("dots")),
           h("div", { style: { padding: "4px 18px" } }, note(sv("Offline"), "warn")))],
@@ -1567,7 +1571,7 @@
     localCore: ST("Local core", "claimed unclaimed direct claimFailed scanning none"),
     friends: ST("Friend list", "noName linkWaiting reply pending compare share play list empty refreshing error"),
     friendServers: ST("Friends' servers", "none some"),
-    otherCores: ST("Other cores", "some signedIn certificate certChanged notListed noPublic noVisible busy none"),
+    otherCores: ST("Other cores", "some signedIn certificate certChanged notListed noPublic noVisible busy portTaken none"),
     lan: ST("On your network", "found looking none failed"),
     hostMsg: ST("Host page message", "none signedOut untrusted readFailed joinFailed notRunning createdWithoutMods connected"),
     relay: ST("Connect service (relay)", "default dev error env"),
