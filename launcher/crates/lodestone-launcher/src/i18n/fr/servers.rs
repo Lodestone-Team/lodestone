@@ -17,13 +17,14 @@ pub fn text(message: M) -> &'static str {
         M::ChooseDataFolderPrompt => "Choisir",
         M::ProductHostHint => "l’application de bureau, avec le tableau de bord dans une fenêtre",
         M::ProductCoreHint => "le programme serveur seul, ou Docker",
-        M::ConnectedAsOwner => "Connecté à {name} en tant que propriétaire",
+        M::ConnectedAsOwner => "Connecté en tant que propriétaire",
         M::ConnectedMadeOwner => {
-            "Il n’avait pas encore de propriétaire\u{202F}: Lodestone Launcher a créé le compte propriétaire {username}."
+            "Il n’avait pas encore de propriétaire\u{202F}: Lodestone Launcher vous a créé un compte propriétaire."
         }
         M::ConnectedOwnerKey => {
             "Ce lanceur a maintenant une clé de propriétaire pour cet hôte. Vous pouvez la révoquer depuis le tableau de bord de l’hôte."
         }
+        M::OwnerAccount => "Compte propriétaire",
         M::StartedBy => "Démarré par {who}",
         M::StartedDirectly => "Démarré directement",
         M::DirectNote => {
@@ -65,7 +66,7 @@ pub fn text(message: M) -> &'static str {
 
         M::CoreMoreActions => "Plus d’actions pour {name}",
         M::CopyOwnerApiKey => "Copier la clé d’API de propriétaire",
-        M::OwnerKeyCopied => "Clé d’API de propriétaire de {name} copiée",
+        M::OwnerKeyCopied => "Clé d’API de propriétaire copiée",
         M::OwnerKeyCopiedHint => {
             "Gardez-la secrète\u{202F}: toute personne qui l’a peut contrôler cet hôte en tant que propriétaire."
         }
@@ -98,7 +99,7 @@ pub fn text(message: M) -> &'static str {
         M::Play => "Jouer et rejoindre",
         M::SharedTag => "Partagé",
         M::CopyInviteLink => "Copier le lien d’invitation",
-        M::InviteLinkCopied => "Lien d’invitation de {name} copié",
+        M::InviteLinkCopied => "Lien d’invitation copié",
         M::InviteLinkCopiedHint => {
             "Toute personne qui l’a peut rejoindre tant que le serveur est partagé."
         }
@@ -127,20 +128,21 @@ pub fn text(message: M) -> &'static str {
 
         M::ReadFailed => "Impossible de lire vos serveurs",
         M::SaveFailed => "Impossible d’enregistrer vos serveurs",
-        M::NoLongerTrusted => "Vous ne faites plus confiance à {name} pour les mods",
+        M::NoLongerTrusted => "N’est plus fiable pour les mods",
         M::NoLongerTrustedIdChanged => {
-            "Un autre hôte répond désormais à l’adresse {address} (son identifiant a changé). Ne lui refaites confiance sur sa carte que si vous faites confiance à son propriétaire."
+            "Un autre hôte répond désormais à cette adresse (son identifiant a changé). Ne lui refaites confiance sur sa carte que si vous faites confiance à son propriétaire."
         }
-        M::NoLongerTrustedOtherCore => "Un autre hôte répond désormais à l’adresse {address}.",
+        M::NoLongerTrustedOtherCore => "Un autre hôte répond désormais à cette adresse.",
         M::NoLongerTrustedNewCertificate => {
             "Vous avez approuvé un nouveau certificat pour cet hôte. Refaites-lui confiance pour les mods sur sa carte si vous êtes sûr qu’il s’agit du même hôte."
         }
         M::NoLongerTrustedCertificateChanged => {
             "Son certificat a changé. Refaites-lui confiance pour les mods sur sa carte si vous êtes sûr qu’il s’agit du même hôte."
         }
-        M::SignedOutOf => "Déconnecté de {name}",
+        M::NotTrusted => "Non fiable",
+        M::SignedOut => "Déconnecté",
         M::KeyStillValid => {
-            "La clé de cet appareil (lsk_{id}_…) reste valide jusqu’à son expiration. Révoquez-la dans Paramètres → Clés d’API du tableau de bord pour y mettre fin dès maintenant."
+            "La clé de cet appareil reste valide jusqu’à son expiration. Pour y mettre fin dès maintenant, révoquez-la dans Paramètres → Clés d’API du tableau de bord."
         }
         M::KeySaveFailed => "Impossible d’enregistrer la clé dans le {keychain}",
         M::KeySaveFailedError => {
@@ -151,24 +153,25 @@ pub fn text(message: M) -> &'static str {
             "Le certificat n’a pas été approuvé, vos identifiants n’ont donc pas été envoyés à l’hôte."
         }
         M::CreateFailed => "Impossible de créer l’instance",
-        M::CreatedWithoutMods => "{name} a été créée sans les mods du serveur",
+        M::CreatedWithoutMods => "Créée sans les mods du serveur",
         M::CreatedWithoutModsBody => {
             "Le propriétaire n’a pas partagé les mods client de ce serveur\u{202F}; l’instance n’a donc que sa version de Minecraft et son chargeur. Ajoutez vous-même les mods dont elle a besoin."
         }
+        M::NoServerMods => "Sans mods du serveur",
         M::LinkFailed => "Impossible de lier l’instance au serveur",
-        M::ReadyTitle => "{name} est prête",
+        M::ReadyTitle => "Instance prête",
         M::ReadyBody => {
-            "Minecraft {version} avec {loader}, et les mods et configurations du serveur. Appuyez sur Jouer pour le rejoindre."
+            "Elle a les mods et configurations du serveur. Appuyez sur Jouer pour le rejoindre."
         }
         M::CheckModsFailed => "Impossible de vérifier les mods du serveur",
-        M::JoinFailed => "Impossible de rejoindre {name}",
+        M::JoinFailed => "Impossible de rejoindre",
         M::CoreRemoved => {
-            "L’hôte pour lequel cette instance a été créée ({address}) n’est plus dans Lodestone Launcher. Ajoutez-le sur la page Lodestone Host, ou appuyez sur Jouer sans rejoindre."
+            "L’hôte pour lequel cette instance a été créée n’est plus dans Lodestone Launcher. Ajoutez-le sur la page Lodestone Host, ou appuyez sur Jouer sans rejoindre."
         }
         M::ServerNotShown => {
             "L’hôte ne vous montre plus ce serveur\u{a0}: il a été supprimé, ou il n’est pas listé publiquement et vous n’êtes pas connecté."
         }
-        M::NotRunning => "{name} n’est pas en marche",
+        M::NotRunning => "N’est pas lancé",
         M::AskOwnerToStart => {
             "Demandez à son propriétaire de le démarrer, ou connectez-vous à l’hôte sur la page Lodestone Host pour le démarrer vous-même."
         }
@@ -193,8 +196,8 @@ pub fn text(message: M) -> &'static str {
         }
         M::ServerGone => "Le serveur n’existe plus.",
         M::StartTimedOut => "Le serveur n’a pas fini de démarrer en 5\u{a0}minutes.",
-        M::StartFailed => "Impossible de démarrer {name}",
-        M::StopFailed => "Impossible d’arrêter {name}",
+        M::StartFailed => "Impossible de démarrer",
+        M::StopFailed => "Impossible d’arrêter",
         M::UnlinkFailed => "Impossible de délier l’instance\u{a0}: {error}",
         M::Cancelled => "Annulé",
         M::TrustExplanation => {
@@ -561,7 +564,6 @@ pub fn text(message: M) -> &'static str {
             "Ajouté. Son nom et sa version s’afficheront quand son hôte répondra."
         }
         M::AlreadyAddedTitle => "Déjà ajouté",
-        M::AlreadyAddedNamed => "{name} est déjà ajouté",
         M::AlreadyAddedBody => {
             "Ce lien mène à un serveur de cette page. Sa ligne est mise en évidence."
         }
@@ -662,7 +664,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::FriendJoinFailed => "Impossible de rejoindre le serveur",
         M::FriendJoinFailedBody => "Un problème est survenu\u{a0}: {detail}",
-        M::FriendTunnelEnded => "La connexion à {name} a pris fin",
+        M::FriendTunnelEnded => "Connexion terminée",
         M::FriendTunnelEndedBody => {
             "Votre ami a arrêté le partage, ou son ordinateur s’est déconnecté. Minecraft indique que la connexion a été perdue. Rejouez quand il sera de retour."
         }
@@ -670,15 +672,18 @@ pub fn text(message: M) -> &'static str {
             "Lodestone Launcher n’a pas pu lire le lien d’invitation de ce serveur. Ouvrez de nouveau le lien reçu de votre ami."
         }
         M::FriendRemoved => {
-            "Cette instance a été créée pour le serveur d’un ami ({link}) qui n’est plus dans Lodestone Launcher. Ouvrez de nouveau son lien d’invitation pour le rejoindre."
+            "Cette instance a été créée pour le serveur d’un ami qui n’est plus dans Lodestone Launcher. Ouvrez de nouveau son lien d’invitation pour le rejoindre."
         }
+        M::InviteLinkKey => "Lien d’invitation",
         M::FriendsReadFailed => "Impossible de lire les serveurs de vos amis",
         M::FriendsSaveFailed => "Impossible d’enregistrer les serveurs de vos amis",
         M::FriendAddress => "Magic localhost\u{a0}: {address} (une fois connecté)",
-        M::FriendPortTaken => "Le port {port} était occupé",
+        M::FriendPortTaken => "Le port était occupé",
         M::FriendPortTakenBody => {
-            "Un autre programme de cet ordinateur l’utilise, donc cette fois l’adresse est {address}. La prochaine fois, Lodestone Launcher essaiera de nouveau le port {port}."
+            "Un autre programme de cet ordinateur utilise le port habituel\u{202F}: cette fois, utilisez cette adresse dans Minecraft. La prochaine fois, Lodestone Launcher essaiera d’abord le port habituel."
         }
+        M::AddressNow => "Adresse actuelle",
+        M::UsualPort => "Port habituel",
         M::EulaNotAccepted => "Le CLUF de Minecraft n’est pas accepté pour ce serveur",
         M::EulaNotAcceptedBody => {
             "Le serveur ne peut pas démarrer tant que quelqu’un n’a pas accepté le CLUF de Minecraft de Mojang ({url}). Lisez-le, et ne l’acceptez que si vous êtes d’accord."
@@ -695,12 +700,12 @@ pub fn plural(message: P) -> [&'static str; 2] {
     match message {
         P::Players => ["{count} joueur", "{count} joueurs"],
         P::ReadyBodySkipped => [
-            "Minecraft {version} avec {loader}, et les mods et configurations du serveur. {count} fichier du pack a été laissé de côté. Appuyez sur Jouer pour le rejoindre.",
-            "Minecraft {version} avec {loader}, et les mods et configurations du serveur. {count} fichiers du pack ont été laissés de côté. Appuyez sur Jouer pour le rejoindre.",
+            "Elle a les mods et configurations du serveur. {count} fichier du pack a été laissé de côté. Appuyez sur Jouer pour le rejoindre.",
+            "Elle a les mods et configurations du serveur. {count} fichiers du pack ont été laissés de côté. Appuyez sur Jouer pour le rejoindre.",
         ],
         P::ReadyBodyMissing => [
-            "Minecraft {version} avec {loader}, et les fichiers du serveur. {count} fichier que le serveur n’a pas pu partager manque. Appuyez sur Jouer pour rejoindre.",
-            "Minecraft {version} avec {loader}, et les fichiers du serveur. {count} fichiers que le serveur n’a pas pu partager manquent. Appuyez sur Jouer pour rejoindre.",
+            "Elle a les fichiers du serveur. {count} fichier que le serveur n’a pas pu partager manque. Appuyez sur Jouer pour le rejoindre.",
+            "Elle a les fichiers du serveur. {count} fichiers que le serveur n’a pas pu partager manquent. Appuyez sur Jouer pour le rejoindre.",
         ],
         P::ModsAdded => ["{count} ajouté", "{count} ajoutés"],
         P::ModsUpdated => ["{count} mis à jour", "{count} mis à jour"],

@@ -19,7 +19,7 @@ use super::{
     extras::note,
     friends::{
         FriendEntry, FriendStatus, JoinPrompt, JoinStage, Liveness, connection_label, game_address,
-        join_error_text, port_taken_text,
+        join_error_text, port_taken_text, port_taken_values,
     },
     status_label,
     view::server_detail,
@@ -631,8 +631,27 @@ pub fn join_dialog(servers: &Entity<Servers>, prompt: &JoinPrompt, cx: &App) -> 
                         .gap_3()
                         .child(card)
                         .children(session.port_taken.map(|saved| {
-                            let (title, body) = port_taken_text(saved, &session.address);
-                            problem(title, body, colors::YELLOW)
+                            let (title, body) = port_taken_text();
+                            div()
+                                .flex()
+                                .flex_col()
+                                .gap_1()
+                                .child(problem(title, body, colors::YELLOW))
+                                .children(
+                                    port_taken_values(saved, &session.address)
+                                        .into_iter()
+                                        .enumerate()
+                                        .map(|(i, (key, value))| {
+                                            div().pt_1().child(
+                                                crate::components::ValueField::new(
+                                                    ("join-port-taken", i),
+                                                    value,
+                                                )
+                                                .label(key)
+                                                .kind(crate::components::ValueKind::Code),
+                                            )
+                                        }),
+                                )
                         }))
                         .when(stopped, |this| {
                             let (title, body) = if liveness == Liveness::Starting {

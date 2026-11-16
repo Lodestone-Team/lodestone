@@ -92,8 +92,13 @@ use url::Url;
 use crate::{
     accounts::Accounts,
     components::DialogSlot,
-    i18n::{CommonMsg, ServersMsg as M, ServersPlural as P, ShellMsg, format, t, tr, trn},
+    components::{Kind, ValueKind},
+    i18n::{
+        CommonMsg, FactMsg, ServersMsg as M, ServersPlural as P, ShellMsg, ValueMsg, format, t, tr,
+        trn,
+    },
     instances::{Instances, InstancesEvent},
+    theme::Tone,
 };
 use add_dialog::{AddRequest, AddServerDialog, AddServerEvent};
 
@@ -212,6 +217,23 @@ pub enum NoticeKind {
     Info,
 }
 
+/// A value a notice shows apart from its text, to copy: an address, a key's prefix.
+#[derive(Clone)]
+pub struct NoticeValue {
+    /// Its key, in the current language.
+    pub key: Rc<dyn Fn() -> String>,
+    pub value: String,
+    pub kind: crate::components::ValueKind,
+}
+
+/// What a notice is about: the server, host or instance, shown as a chip before its
+/// title, never inside it.
+#[derive(Clone)]
+pub struct NoticeObject {
+    pub name: SharedString,
+    pub kind: crate::components::Kind,
+}
+
 /// A message at the top of the page: its title and text, made each time it is shown so
 /// it follows the language.
 #[derive(Clone)]
@@ -222,6 +244,12 @@ pub struct Notice {
     /// (`launcher_control::protocol::codes`), such as a server that needs a newer
     /// Lodestone.
     pub code: Option<&'static str>,
+    /// What it is about, in a chip on its first line.
+    pub object: Option<NoticeObject>,
+    /// A state beside the chip ("Failed", "Ready"), in the current language.
+    pub status: Option<(Rc<dyn Fn() -> String>, crate::theme::Tone)>,
+    /// Values to copy under its text.
+    pub values: Vec<NoticeValue>,
 }
 
 impl Notice {
@@ -231,7 +259,68 @@ impl Notice {
             text: Rc::new(text),
             kind: NoticeKind::Warning,
             code: None,
+            object: None,
+            status: None,
+            values: Vec::new(),
         }
+    }
+
+    /// What the notice is about: its name goes in a chip, out of the title.
+    pub fn object(mut self, name: impl Into<SharedString>, kind: crate::components::Kind) -> Self {
+        self.object = Some(NoticeObject {
+            name: lodestone_ui::values::truncate::sanitize(&name.into(), 120).into(),
+            kind,
+        });
+        self
+    }
+
+    /// A state beside the object's chip.
+    pub fn status(
+        mut self,
+        label: impl Fn() -> String + 'static,
+        tone: crate::theme::Tone,
+    ) -> Self {
+        self.status = Some((Rc::new(label), tone));
+        self
+    }
+
+    /// A value to copy, with its key.
+    pub fn value(
+        mut self,
+        key: impl Fn() -> String + 'static,
+        value: impl Into<String>,
+        kind: crate::components::ValueKind,
+    ) -> Self {
+        self.values.push(NoticeValue {
+            key: Rc::new(key),
+            value: value.into(),
+            kind,
+        });
+        self
+    }
+
+    /// The title for logs and the control API, which see no chip: "Survival SMP:
+    /// Couldn't start".
+    pub fn plain_title(&self) -> String {
+        let (title, _) = self.text();
+        match &self.object {
+            Some(object) => crate::components::readable::key_value(&object.name, &title).into(),
+            None => title,
+        }
+    }
+
+    /// The text for logs and the control API, with the values after it.
+    pub fn plain_message(&self) -> String {
+        let (_, message) = self.text();
+        let mut parts = vec![message];
+        if let Some((label, _)) = &self.status {
+            parts.insert(0, label());
+        }
+        parts.extend(self.values.iter().map(|value| {
+            crate::components::readable::key_value(&(value.key)(), &value.value).into()
+        }));
+        parts.retain(|part: &String| !part.is_empty());
+        parts.join(" ")
     }
 
     /// Something that worked, such as an instance that is ready.
@@ -254,6 +343,13 @@ impl Notice {
     pub fn text(&self) -> (String, String) {
         (self.text)()
     }
+}
+
+/// A failure about server `name`: its chip, with a Failed badge, leads the notice.
+pub fn server_failed(notice: Notice, name: String) -> Notice {
+    notice
+        .object(name, Kind::Server)
+        .status(|| t(ValueMsg::Failed).into(), Tone::Danger)
 }
 
 /// A core's list, as last fetched.
@@ -1131,12 +1227,21 @@ impl Servers {
             changed = true;
             if *trust_ended {
                 let (name, address) = (core.saved.name.clone(), display_address(&core.url));
-                self.notice = Some(Notice::new(move || {
-                    (
-                        tr!(M::NoLongerTrusted, name = name),
-                        tr!(M::NoLongerTrustedIdChanged, address = address),
-                    )
-                }));
+                self.notice = Some(
+                    Notice::new(|| {
+                        (
+                            t(M::NoLongerTrusted).into(),
+                            t(M::NoLongerTrustedIdChanged).into(),
+                        )
+                    })
+                    .object(name, Kind::Computer)
+                    .status(|| t(M::NotTrusted).into(), Tone::Danger)
+                    .value(
+                        || t(FactMsg::Address).into(),
+                        address,
+                        ValueKind::Code,
+                    ),
+                );
             }
         }
         self.cores[index].status = CoreStatus::Online(list);
@@ -1173,12 +1278,10 @@ impl Servers {
         let uuid = core.saved.uuid.clone();
         let name = core.saved.name.clone();
         self.save();
-        self.notice = Some(Notice::new(move || {
-            (
-                tr!(M::SignedOutOf, name = name),
-                core_error(&CoreError::SignedOut),
-            )
-        }));
+        self.notice = Some(
+            Notice::new(|| (t(M::SignedOut).into(), core_error(&CoreError::SignedOut)))
+                .object(name, Kind::Computer),
+        );
         self.forget_key(uuid, cx);
         self.refresh(index, cx);
     }
@@ -1391,12 +1494,21 @@ impl Servers {
                         && core.saved.check_identity(&info.uuid)
                     {
                         let (name, address) = (core.saved.name.clone(), address.clone());
-                        this.notice = Some(Notice::new(move || {
-                            (
-                                tr!(M::NoLongerTrusted, name = name),
-                                tr!(M::NoLongerTrustedOtherCore, address = address),
-                            )
-                        }));
+                        this.notice = Some(
+                            Notice::new(|| {
+                                (
+                                    t(M::NoLongerTrusted).into(),
+                                    t(M::NoLongerTrustedOtherCore).into(),
+                                )
+                            })
+                            .object(name, Kind::Computer)
+                            .status(|| t(M::NotTrusted).into(), Tone::Danger)
+                            .value(
+                                || t(FactMsg::Address).into(),
+                                address,
+                                ValueKind::Code,
+                            ),
+                        );
                     }
                 }
                 let mut saved = match existing {
@@ -1430,12 +1542,16 @@ impl Servers {
                     && saved.pin_certificate(pin)
                 {
                     let name = saved.name.clone();
-                    this.notice = Some(Notice::new(move || {
-                        (
-                            tr!(M::NoLongerTrusted, name = name),
-                            t(M::NoLongerTrustedNewCertificate).into(),
-                        )
-                    }));
+                    this.notice = Some(
+                        Notice::new(|| {
+                            (
+                                t(M::NoLongerTrusted).into(),
+                                t(M::NoLongerTrustedNewCertificate).into(),
+                            )
+                        })
+                        .object(name, Kind::Computer)
+                        .status(|| t(M::NotTrusted).into(), Tone::Danger),
+                    );
                 }
                 let signed_in_now = key.is_some();
                 let entry = CoreEntry::new(
@@ -1547,12 +1663,16 @@ impl Servers {
                 let core = &mut self.cores[index];
                 if core.saved.pin_certificate(pin) {
                     let name = core.saved.name.clone();
-                    self.notice = Some(Notice::new(move || {
-                        (
-                            tr!(M::NoLongerTrusted, name = name),
-                            t(M::NoLongerTrustedCertificateChanged).into(),
-                        )
-                    }));
+                    self.notice = Some(
+                        Notice::new(|| {
+                            (
+                                t(M::NoLongerTrusted).into(),
+                                t(M::NoLongerTrustedCertificateChanged).into(),
+                            )
+                        })
+                        .object(name, Kind::Computer)
+                        .status(|| t(M::NotTrusted).into(), Tone::Danger),
+                    );
                 }
                 core.pinned = pinned_http(core.saved.certificate.as_ref());
                 core.status = CoreStatus::Loading;
@@ -1620,12 +1740,15 @@ impl Servers {
         self.forget_local_key(&uuid, cx);
         self.forget_key(uuid, cx);
         if let Some(id) = key_id {
-            self.notice = Some(Notice::info(move || {
-                (
-                    tr!(M::SignedOutOf, name = name),
-                    tr!(M::KeyStillValid, id = id),
-                )
-            }));
+            self.notice = Some(
+                Notice::info(|| (t(M::SignedOut).into(), t(M::KeyStillValid).into()))
+                    .object(name, Kind::Computer)
+                    .value(
+                        || t(FactMsg::Key).into(),
+                        format!("lsk_{id}_…"),
+                        ValueKind::Code,
+                    ),
+            );
         }
         self.refresh(index, cx);
         cx.notify();
@@ -1665,12 +1788,10 @@ impl Servers {
             return;
         };
         cx.write_to_clipboard(gpui::ClipboardItem::new_string(key));
-        self.notice = Some(Notice::success(move || {
-            (
-                tr!(M::OwnerKeyCopied, name = name),
-                t(M::OwnerKeyCopiedHint).into(),
-            )
-        }));
+        self.notice = Some(
+            Notice::success(|| (t(M::OwnerKeyCopied).into(), t(M::OwnerKeyCopiedHint).into()))
+                .object(name, Kind::Computer),
+        );
         cx.notify();
     }
 
@@ -1744,12 +1865,15 @@ impl Servers {
         };
         cx.write_to_clipboard(gpui::ClipboardItem::new_string(link.to_string()));
         let name = server.name.clone();
-        self.notice = Some(Notice::success(move || {
-            (
-                tr!(M::InviteLinkCopied, name = name),
-                t(M::InviteLinkCopiedHint).into(),
-            )
-        }));
+        self.notice = Some(
+            Notice::success(|| {
+                (
+                    t(M::InviteLinkCopied).into(),
+                    t(M::InviteLinkCopiedHint).into(),
+                )
+            })
+            .object(name, Kind::Server),
+        );
         cx.notify();
     }
 
@@ -1776,16 +1900,20 @@ impl Servers {
     /// Says that something failed: at the top of the page, and to the shell when the
     /// page isn't shown. `text` makes the title and the message.
     fn fail(&mut self, text: impl Fn() -> (String, String) + 'static, cx: &mut Context<Self>) {
-        let (title, message) = text();
+        self.fail_with(Notice::new(text), cx);
+    }
+
+    /// Says that something failed, with a notice that can name what it is about in a
+    /// chip.
+    fn fail_with(&mut self, notice: Notice, cx: &mut Context<Self>) {
+        let (title, message) = notice.text();
         if self.friend_failure(&title, &message, cx) {
             return;
         }
-        let notice = Notice::new(text);
         if !self.visible {
-            let (title, message) = notice.text();
             cx.emit(ServersEvent::Failed {
-                title: title.into(),
-                message: message.into(),
+                title: notice.plain_title().into(),
+                message: notice.plain_message().into(),
             });
         }
         self.notice = Some(notice);
@@ -1801,6 +1929,23 @@ impl Servers {
         err: impl Into<PullError>,
         cx: &mut Context<Self>,
     ) {
+        self.fail_core_about(core, None, title, err, cx);
+    }
+
+    /// [`Self::fail_core`] for a request about server `server` (its name), which the
+    /// notice shows in a chip with a Failed badge.
+    fn fail_core_about(
+        &mut self,
+        core: &str,
+        server: Option<String>,
+        title: impl Fn() -> String + 'static,
+        err: impl Into<PullError>,
+        cx: &mut Context<Self>,
+    ) {
+        let about = move |notice: Notice| match server {
+            Some(name) => server_failed(notice, name),
+            None => notice,
+        };
         match err.into() {
             PullError::Core(CoreError::SignedOut) => {
                 if let Some(index) = self.core_index(core) {
@@ -1809,12 +1954,12 @@ impl Servers {
             }
             PullError::Cancelled => {}
             err if needs_update(&err) => {
-                self.fail(move || (title(), err.to_string()), cx);
+                self.fail_with(about(Notice::new(move || (title(), err.to_string()))), cx);
                 if let Some(notice) = &mut self.notice {
                     notice.code = Some(launcher_control::protocol::codes::UPDATE_REQUIRED);
                 }
             }
-            err => self.fail(move || (title(), err.to_string()), cx),
+            err => self.fail_with(about(Notice::new(move || (title(), err.to_string()))), cx),
         }
     }
 
@@ -2225,12 +2370,16 @@ impl Servers {
                 self.link_instance(core_uuid, server, &instance.id, None, cx);
                 if server.mods_hidden() {
                     let name = server.name.clone();
-                    self.notice = Some(Notice::new(move || {
-                        (
-                            tr!(M::CreatedWithoutMods, name = name),
-                            t(M::CreatedWithoutModsBody).into(),
-                        )
-                    }));
+                    self.notice = Some(
+                        Notice::new(|| {
+                            (
+                                t(M::CreatedWithoutMods).into(),
+                                t(M::CreatedWithoutModsBody).into(),
+                            )
+                        })
+                        .object(name, Kind::Instance)
+                        .status(|| t(M::NoServerMods).into(), Tone::Warning),
+                    );
                 }
             }
             Err(message) => self.fail(move || (create_failed(), message.clone()), cx),
@@ -2464,17 +2613,16 @@ impl Servers {
                         let missing = pending.ready.plan.summary.missing.len()
                             + pending.ready.plan.summary.curseforge_listed.len();
                         let name = instance.name.clone();
-                        let version = instance.game_version.clone();
-                        let loader = instance.loader_label();
-                        this.notice = Some(Notice::success(move || {
-                            let body = match missing {
-                                0 => tr!(M::ReadyBody, version = version, loader = loader),
-                                n => {
-                                    trn!(P::ReadyBodyMissing, n, version = version, loader = loader)
-                                }
-                            };
-                            (tr!(M::ReadyTitle, name = name), body)
-                        }));
+                        this.notice = Some(
+                            Notice::success(move || {
+                                let body = match missing {
+                                    0 => t(M::ReadyBody).into(),
+                                    n => trn!(P::ReadyBodyMissing, n),
+                                };
+                                (t(M::ReadyTitle).into(), body)
+                            })
+                            .object(name, Kind::Instance),
+                        );
                         // after the notice: a friend's server's Play goes on from here
                         let dir = this.instances.read(cx).content_dirs(&instance.id).instance;
                         if let Some(link) = link::load_link(&dir) {
@@ -2543,17 +2691,16 @@ impl Servers {
                         });
                         let skipped = pending.pack.skipped.len();
                         let name = instance.name.clone();
-                        let version = instance.game_version.clone();
-                        let loader = instance.loader_label();
-                        this.notice = Some(Notice::success(move || {
-                            let body = match skipped {
-                                0 => tr!(M::ReadyBody, version = version, loader = loader),
-                                n => {
-                                    trn!(P::ReadyBodySkipped, n, version = version, loader = loader)
-                                }
-                            };
-                            (tr!(M::ReadyTitle, name = name), body)
-                        }));
+                        this.notice = Some(
+                            Notice::success(move || {
+                                let body = match skipped {
+                                    0 => t(M::ReadyBody).into(),
+                                    n => trn!(P::ReadyBodySkipped, n),
+                                };
+                                (t(M::ReadyTitle).into(), body)
+                            })
+                            .object(name, Kind::Instance),
+                        );
                         // after the notice: a friend's server's Play goes on from here
                         this.link_instance(
                             &pending.core,
@@ -2832,29 +2979,20 @@ impl Servers {
         if cores::friends::is_friend_id(&link.core_uuid) {
             if self.friends.get(&link.core_uuid).is_none() {
                 let (name, address) = (link.server_name.clone(), link.core_url.clone());
-                return self.fail(
-                    move || {
-                        (
-                            tr!(M::JoinFailed, name = name),
-                            tr!(M::FriendRemoved, link = address),
-                        )
-                    },
-                    cx,
-                );
+                let notice = Notice::new(|| (t(M::JoinFailed).into(), t(M::FriendRemoved).into()))
+                    .value(|| t(M::InviteLinkKey).into(), address, ValueKind::Code);
+                return self.fail_with(server_failed(notice, name), cx);
             }
             return self.play_friend(&link.core_uuid, cx);
         }
         let Some(index) = self.core_index(&link.core_uuid) else {
             let (name, address) = (link.server_name.clone(), link.core_url.clone());
-            return self.fail(
-                move || {
-                    (
-                        tr!(M::JoinFailed, name = name),
-                        tr!(M::CoreRemoved, address = address),
-                    )
-                },
-                cx,
+            let notice = Notice::new(|| (t(M::JoinFailed).into(), t(M::CoreRemoved).into())).value(
+                || t(FactMsg::Address).into(),
+                address,
+                ValueKind::Code,
             );
+            return self.fail_with(server_failed(notice, name), cx);
         };
         let row: RowKey = (link.core_uuid.clone(), link.server_uuid.clone());
         if self.busy.contains_key(&row) {
@@ -2877,9 +3015,10 @@ impl Servers {
                     Err(err) => {
                         this.cores[index].status = CoreStatus::Failed(err.clone());
                         let name = link.server_name.clone();
-                        return this.fail_core(
+                        return this.fail_core_about(
                             &link.core_uuid,
-                            move || tr!(M::JoinFailed, name = name),
+                            Some(name),
+                            || t(M::JoinFailed).into(),
                             err,
                             cx,
                         );
@@ -2895,26 +3034,20 @@ impl Servers {
                 let core_uuid = this.listed(index, list, cx);
                 let Some(server) = server else {
                     let name = link.server_name.clone();
-                    return this.fail(
-                        move || (tr!(M::JoinFailed, name = name), t(M::ServerNotShown).into()),
-                        cx,
-                    );
+                    let notice =
+                        Notice::new(|| (t(M::JoinFailed).into(), t(M::ServerNotShown).into()));
+                    return this.fail_with(server_failed(notice, name), cx);
                 };
                 match server.state {
                     ServerState::Stopped | ServerState::Error if signed_in => {
                         this.start(&core_uuid, server, true, cx)
                     }
                     ServerState::Stopped | ServerState::Error => {
-                        let name = server.name.clone();
-                        this.fail(
-                            move || {
-                                (
-                                    tr!(M::NotRunning, name = name),
-                                    t(M::AskOwnerToStart).into(),
-                                )
-                            },
-                            cx,
-                        )
+                        let notice =
+                            Notice::new(|| (t(M::NotRunning).into(), t(M::AskOwnerToStart).into()))
+                                .object(server.name.clone(), Kind::Server)
+                                .status(|| t(ValueMsg::Stopped).into(), Tone::Neutral);
+                        this.fail_with(notice, cx)
                     }
                     _ => this.play(&core_uuid, server, cx),
                 }
@@ -3362,20 +3495,18 @@ impl Servers {
         };
         let Some(target) = join_target(&core.url, server) else {
             let (name, shown) = (server.name.clone(), server.address_shown());
-            return self.fail(
-                move || {
-                    (
-                        tr!(M::JoinFailed, name = name),
-                        t(if shown {
-                            M::BadJoinAddress
-                        } else {
-                            M::AddressHidden
-                        })
-                        .into(),
-                    )
-                },
-                cx,
-            );
+            let notice = Notice::new(move || {
+                (
+                    t(M::JoinFailed).into(),
+                    t(if shown {
+                        M::BadJoinAddress
+                    } else {
+                        M::AddressHidden
+                    })
+                    .into(),
+                )
+            });
+            return self.fail_with(server_failed(notice, name), cx);
         };
         let id = instance_id.to_string();
         self.instances.update(cx, |instances, cx| {
@@ -3446,15 +3577,13 @@ impl Servers {
                             this.play(&core_uuid, running, cx);
                         }
                     }
-                    Err(err) => {
-                        let name = server.name.clone();
-                        this.fail_core(
-                            &core_uuid,
-                            move || tr!(M::StartFailed, name = name),
-                            err,
-                            cx,
-                        )
-                    }
+                    Err(err) => this.fail_core_about(
+                        &core_uuid,
+                        Some(server.name.clone()),
+                        || t(M::StartFailed).into(),
+                        err,
+                        cx,
+                    ),
                 }
                 if let Some(index) = this.core_index(&core_uuid) {
                     this.refresh(index, cx);
@@ -3513,13 +3642,18 @@ impl Servers {
             this.update(cx, |this, cx| {
                 this.busy.remove(&row);
                 if let Err(err) = result {
-                    let name = server.name.clone();
                     let message = if restart {
                         M::StartFailed
                     } else {
                         M::StopFailed
                     };
-                    this.fail_core(&core_uuid, move || tr!(message, name = name), err, cx);
+                    this.fail_core_about(
+                        &core_uuid,
+                        Some(server.name.clone()),
+                        move || t(message).into(),
+                        err,
+                        cx,
+                    );
                 }
                 if let Some(index) = this.core_index(&core_uuid) {
                     this.refresh(index, cx);
@@ -3621,13 +3755,10 @@ impl Servers {
 
     /// Shows "{name} is ready", for the offscreen screenshots.
     pub fn preview_ready(&mut self, name: &str) {
-        let name = name.to_string();
-        self.notice = Some(Notice::success(move || {
-            (
-                tr!(M::ReadyTitle, name = name),
-                tr!(M::ReadyBody, version = "1.21.1", loader = "Fabric 0.16.14"),
-            )
-        }));
+        self.notice = Some(
+            Notice::success(|| (t(M::ReadyTitle).into(), t(M::ReadyBody).into()))
+                .object(name.to_string(), Kind::Instance),
+        );
     }
 
     pub fn preview_prompt(

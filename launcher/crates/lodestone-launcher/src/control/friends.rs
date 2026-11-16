@@ -222,8 +222,11 @@ fn card_json(servers: &Servers, id: &str, cx: &App) -> Option<Value> {
         // this session's; another than the usual one when that port was taken
         "address": session.address,
         "port_taken": session.port_taken.map(|saved| {
-            let (title, body) = port_taken_text(saved, &session.address);
-            json!({ "port": saved, "message": format!("{title}. {body}") })
+            let (title, body) = port_taken_text();
+            json!({
+                "port": saved,
+                "message": format!("{title}. {body} ({})", session.address),
+            })
         }),
         "instance": instance,
     }))

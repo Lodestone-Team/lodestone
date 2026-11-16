@@ -26,9 +26,13 @@ crate::i18n::messages! {
         ChooseDataFolderPrompt = "Choose",
         ProductHostHint = "the desktop app, with the dashboard in a window",
         ProductCoreHint = "the server program on its own, or Docker",
-        ConnectedAsOwner = "Connected to {name} as its owner",
-        ConnectedMadeOwner = "It had no owner yet, so Lodestone Launcher made the owner account {username}.",
+        /// After Connect as owner; the host is in a chip over it.
+        ConnectedAsOwner = "Connected as owner",
+        /// Its user name is in a field to copy under it, keyed OwnerAccount.
+        ConnectedMadeOwner = "It had no owner yet, so Lodestone Launcher made an owner account for you.",
         ConnectedOwnerKey = "This launcher has an owner key for it now. You can revoke it from the host's dashboard.",
+        /// The key of the user name of the owner account the launcher made.
+        OwnerAccount = "Owner account",
         StartedBy = "Started by {who}",
         StartedDirectly = "Started directly",
         DirectNote = "This host was started directly. It is meant to be run with lodestone_cli, which installs it and keeps it updated.",
@@ -58,7 +62,8 @@ crate::i18n::messages! {
         CoreMoreActions = "More actions for {name}",
         /// In a host's "…" menu: copies the owner key that claiming the host here gave.
         CopyOwnerApiKey = "Copy owner API key",
-        OwnerKeyCopied = "Copied the owner API key of {name}",
+        /// The host is in a chip over it.
+        OwnerKeyCopied = "Owner API key copied",
         OwnerKeyCopiedHint = "Keep it private: anyone who has it can control this host as its owner.",
         /// At the bottom of a host's "…" menu: the launcher only accepts the host's own
         /// HTTPS certificate, the one the user trusted.
@@ -90,7 +95,8 @@ crate::i18n::messages! {
         SharedTag = "Shared",
         /// The copy button in the Shared tag, and what it says once pressed.
         CopyInviteLink = "Copy invite link",
-        InviteLinkCopied = "Copied the invite link of {name}",
+        /// The server is in a chip over it.
+        InviteLinkCopied = "Invite link copied",
         InviteLinkCopiedHint = "Anyone who has it can join while the server is shared.",
         AddressHidden = "The owner hasn't shared this server's address.",
 
@@ -121,31 +127,43 @@ crate::i18n::messages! {
         // ===== Messages at the top of the page =====
         ReadFailed = "Couldn't read your servers",
         SaveFailed = "Couldn't save your servers",
-        NoLongerTrusted = "{name} is no longer trusted for mods",
-        NoLongerTrustedIdChanged = "Another host answers at {address} now (its id changed). Trust it again on its card only if you trust its owner.",
-        NoLongerTrustedOtherCore = "Another host answers at {address} now.",
+        /// The host is in a chip over it, with a NotTrusted badge.
+        NoLongerTrusted = "No longer trusted for mods",
+        /// The address is in a field under it.
+        NoLongerTrustedIdChanged = "Another host answers at this address now (its id changed). Trust it again on its card only if you trust its owner.",
+        NoLongerTrustedOtherCore = "Another host answers at this address now.",
         NoLongerTrustedNewCertificate = "You trusted a new certificate for it. Trust it for mods again on its card if you're sure it is the same host.",
         NoLongerTrustedCertificateChanged = "Its certificate changed. Trust it for mods again on its card if you're sure it is the same host.",
-        SignedOutOf = "Signed out of {name}",
-        /// "Settings → API keys" is where the dashboard lists keys. {id} is the key's id.
-        KeyStillValid = "The key for this device (lsk_{id}_…) is still valid until it expires. Revoke it under Settings → API keys in the dashboard to end it now.",
+        /// The badge beside a host that is no longer trusted for mods.
+        NotTrusted = "Not trusted",
+        /// The host is in a chip over it.
+        SignedOut = "Signed out",
+        /// "Settings → API keys" is where the dashboard lists keys. The key's prefix is in a field under it, to find it there.
+        KeyStillValid = "This device's key still works until it expires. To end it now, revoke it in the dashboard under Settings → API keys.",
         /// {keychain} is "Keychain", "Credential Manager" or "keyring".
         KeySaveFailed = "Couldn't save the key in the {keychain}",
         KeySaveFailedError = "Couldn't save the key in the {keychain}: {error}",
         CheckCertificate = "Check the host's certificate to continue.",
         CertificateNotTrusted = "The certificate wasn't trusted, so your sign-in wasn't sent to the host.",
         CreateFailed = "Couldn't create the instance",
-        CreatedWithoutMods = "Created {name} without the server's mods",
+        /// The new instance is in a chip over it, with a NoServerMods badge.
+        CreatedWithoutMods = "Created without the server's mods",
         CreatedWithoutModsBody = "The owner hasn't shared this server's client mods, so the instance has only its Minecraft version and loader. Add any mods it needs yourself.",
+        /// The badge beside an instance made without the server's mods.
+        NoServerMods = "No server mods",
         LinkFailed = "Couldn't link the instance to the server",
-        ReadyTitle = "{name} is ready",
-        /// {loader} is the instance's loader and its version: "Fabric 0.16.14".
-        ReadyBody = "Minecraft {version} with {loader}, and the server's mods and configs. Press Play to join.",
+        /// An instance made for a server is ready; it is in a chip over it.
+        ReadyTitle = "Instance ready",
+        /// Under ReadyTitle.
+        ReadyBody = "It has the server's mods and configs. Press Play to join.",
         CheckModsFailed = "Couldn't check the server's mods",
-        JoinFailed = "Couldn't join {name}",
-        CoreRemoved = "The host this instance was made for ({address}) isn't in Lodestone Launcher any more. Add it on the Lodestone Host page, or press Play without joining.",
+        /// The server is in a chip over it, with a Failed badge.
+        JoinFailed = "Couldn't join",
+        /// Its address is in a field under it.
+        CoreRemoved = "The host this instance was made for isn't in Lodestone Launcher any more. Add it on the Lodestone Host page, or press Play without joining.",
         ServerNotShown = "The host doesn't show this server to you any more: it was deleted, or it isn't listed publicly and you aren't signed in.",
-        NotRunning = "{name} isn't running",
+        /// The server is in a chip over it.
+        NotRunning = "Not running",
         AskOwnerToStart = "Ask its owner to start it, or sign in to the host on the Lodestone Host page to start it yourself.",
         UpdateModsFailed = "Couldn't update the mods",
         StopGameFirst = "Stop the game first.",
@@ -159,8 +177,9 @@ crate::i18n::messages! {
         StartStopped = "The server stopped while starting. Check its console in the dashboard.",
         ServerGone = "The server is gone.",
         StartTimedOut = "The server didn't finish starting within 5 minutes.",
-        StartFailed = "Couldn't start {name}",
-        StopFailed = "Couldn't stop {name}",
+        /// The server is in a chip over it, with a Failed badge.
+        StartFailed = "Couldn't start",
+        StopFailed = "Couldn't stop",
         UnlinkFailed = "Couldn't unlink the instance: {error}",
         Cancelled = "Cancelled",
         /// {computer} is "this Mac", "this PC" or "this computer".
@@ -448,7 +467,6 @@ crate::i18n::messages! {
         AddedNotAnswered = "Added. Its name and version show once its host answers.",
         /// "Add" with a link to a server that is saved already (its row is highlighted).
         AlreadyAddedTitle = "Already added",
-        AlreadyAddedNamed = "{name} is already added",
         AlreadyAddedBody = "This link is for a server on this page. Its row is highlighted.",
         OnYourNetwork = "On your network",
         OnYourNetworkHint = "Worlds opened to LAN on this network.",
@@ -527,10 +545,14 @@ crate::i18n::messages! {
         FriendServiceUnreachableBody = "connect.lodestone.cc didn't answer ({detail}). Check your internet connection, then try again.",
         FriendJoinFailed = "Couldn't join",
         FriendJoinFailedBody = "Something went wrong: {detail}",
-        FriendTunnelEnded = "The connection to {name} ended",
+        /// The server is in a chip over it.
+        FriendTunnelEnded = "Connection ended",
         FriendTunnelEndedBody = "Your friend stopped sharing, or their computer went offline. Minecraft says it lost the connection. Play again when they're back.",
         FriendLinkMissing = "Lodestone Launcher couldn't read this server's invite link. Open the link from your friend again.",
-        FriendRemoved = "This instance was made for a friend's server ({link}) that isn't in Lodestone Launcher any more. Open its invite link again to join it.",
+        /// Its invite link (without its secret part) is in a field under it, keyed InviteLinkKey.
+        FriendRemoved = "This instance was made for a friend's server that isn't in Lodestone Launcher any more. Open its invite link again to join it.",
+        /// The key of a server's invite link.
+        InviteLinkKey = "Invite link",
         FriendsReadFailed = "Couldn't read your friends' servers",
         FriendsSaveFailed = "Couldn't save your friends' servers",
         /// On a friend's server's row. {address} is 127.0.0.1:<port>, the same every
@@ -538,10 +560,14 @@ crate::i18n::messages! {
         /// "Magic localhost" names the feature: a tunnelled server always answers at the
         /// same address on this computer.
         FriendAddress = "Magic localhost: {address} (while connected)",
-        /// {port} is the server's usual local port.
-        FriendPortTaken = "Port {port} was in use",
+        /// The address to use this time and the usual port are in fields under it.
+        FriendPortTaken = "Port was in use",
         /// {address} is this session's 127.0.0.1:<port>; {port} the usual one.
-        FriendPortTakenBody = "Something else on this computer is using it, so this time the address is {address}. Next time, Lodestone Launcher tries port {port} again.",
+        FriendPortTakenBody = "Something else on this computer is using the usual port, so use this address in Minecraft this time. Next time, Lodestone Launcher tries the usual port first.",
+        /// The key of the address a friend's server has this time, its usual port being taken.
+        AddressNow = "Address now",
+        /// The key of the port a friend's server usually has here.
+        UsualPort = "Usual port",
 
         // ===== The Minecraft EULA of a server =====
         EulaNotAccepted = "The Minecraft EULA isn't accepted for this server",
@@ -555,13 +581,13 @@ crate::i18n::messages! {
         /// Players online, when the server doesn't say how many it takes.
         Players = ("{count} player", "{count} players"),
         ReadyBodySkipped = (
-            "Minecraft {version} with {loader}, and the server's mods and configs. {count} file of the pack was left out. Press Play to join.",
-            "Minecraft {version} with {loader}, and the server's mods and configs. {count} files of the pack were left out. Press Play to join."
+            "It has the server's mods and configs. {count} file of the pack was left out. Press Play to join.",
+            "It has the server's mods and configs. {count} files of the pack were left out. Press Play to join."
         ),
         /// A new instance from a server's files, some of which the server couldn't share.
         ReadyBodyMissing = (
-            "Minecraft {version} with {loader}, and the server's files. {count} file the server couldn't share is missing. Press Play to join.",
-            "Minecraft {version} with {loader}, and the server's files. {count} files the server couldn't share are missing. Press Play to join."
+            "It has the server's files. {count} file the server couldn't share is missing. Press Play to join.",
+            "It has the server's files. {count} files the server couldn't share are missing. Press Play to join."
         ),
         /// Parts of DifferentModsBody's {changes}: mods added to the instance.
         ModsAdded = ("{count} added", "{count} added"),

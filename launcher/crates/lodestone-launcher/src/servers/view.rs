@@ -31,7 +31,7 @@ use super::{
 use crate::{
     components::{
         Button, ButtonSize, ButtonVariant, Dialog, DialogSlot, Dropdown, Icon, IconButton,
-        KeyboardFocus, ListRow, LoadingDots, Toggle,
+        KeyboardFocus, ListRow, LoadingDots, ObjectChip, StatusBadge, Toggle, ValueField,
         a11y::{Accessible, Role},
         power_name, power_toggle,
         settings::popover_panel,
@@ -1363,7 +1363,35 @@ impl Render for Servers {
                     NoticeKind::Success => (colors::GREEN_300, Some(Icon::Check)),
                     NoticeKind::Info => (crate::theme::accent::light(), None),
                 };
-                let notice_label: SharedString = format!("{title}: {message}").into();
+                let notice_label: SharedString =
+                    format!("{}: {}", notice.plain_title(), notice.plain_message()).into();
+                let head = notice.object.as_ref().map(|object| {
+                    div()
+                        .flex()
+                        .flex_row()
+                        .flex_wrap()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            ObjectChip::new(object.name.clone())
+                                .kind(object.kind)
+                                .max_w(px(320.)),
+                        )
+                        .children(
+                            notice
+                                .status
+                                .as_ref()
+                                .map(|(label, tone)| StatusBadge::new(label(), *tone)),
+                        )
+                });
+                let values = notice.values.iter().enumerate().map(|(i, value)| {
+                    ValueField::new(
+                        SharedString::from(format!("servers-notice-value-{i}")),
+                        value.value.clone(),
+                    )
+                    .label((value.key)())
+                    .kind(value.kind)
+                });
                 div()
                     .id("servers-notice")
                     .accessible(Role::Status, "servers-notice", notice_label)
@@ -1384,13 +1412,20 @@ impl Render for Servers {
                             .flex_col()
                             .flex_1()
                             .min_w_0()
+                            .gap_0p5()
+                            .children(head)
                             .child(
                                 div()
                                     .font_weight(weights::BOLD.into())
                                     .text_color(crate::theme::ink::text())
                                     .child(title),
                             )
-                            .child(small(message).text_color(crate::theme::ink::secondary())),
+                            .when(!message.is_empty(), |this| {
+                                this.child(
+                                    small(message).text_color(crate::theme::ink::secondary()),
+                                )
+                            })
+                            .children(values.map(|field| div().pt_1().child(field))),
                     )
                     .child(
                         Button::new("dismiss-notice", t(M::Dismiss))

@@ -17,11 +17,12 @@ pub fn text(message: M) -> &'static str {
         M::ChooseDataFolderPrompt => "選擇",
         M::ProductHostHint => "桌面應用程式，控制面板在視窗中",
         M::ProductCoreHint => "獨立的伺服器程式，或 Docker",
-        M::ConnectedAsOwner => "已以擁有者身分連線到 {name}",
+        M::ConnectedAsOwner => "已以擁有者身分連線",
         M::ConnectedMadeOwner => {
-            "它還沒有擁有者，因此 Lodestone Launcher 建立了擁有者帳號 {username}。"
+            "它還沒有擁有者，所以 Lodestone Launcher 為你建立了一個擁有者帳號。"
         }
         M::ConnectedOwnerKey => "此啟動器現在擁有它的擁有者金鑰。你可以在主機的控制面板中撤銷它。",
+        M::OwnerAccount => "擁有者帳號",
         M::StartedBy => "由 {who} 啟動",
         M::StartedDirectly => "直接啟動",
         M::DirectNote => "此主機是直接啟動的。它應透過 lodestone_cli 執行，由其安裝並保持更新。",
@@ -51,7 +52,7 @@ pub fn text(message: M) -> &'static str {
 
         M::CoreMoreActions => "{name} 的更多動作",
         M::CopyOwnerApiKey => "複製擁有者 API 金鑰",
-        M::OwnerKeyCopied => "已複製 {name} 的擁有者 API 金鑰",
+        M::OwnerKeyCopied => "已複製擁有者 API 金鑰",
         M::OwnerKeyCopiedHint => "請妥善保管：拿到它的人都能以擁有者身分控制這個主機。",
         M::CertificatePinned => "憑證已釘選",
         M::SignedInAs => "已用 {username} 登入",
@@ -78,7 +79,7 @@ pub fn text(message: M) -> &'static str {
         M::Play => "開始遊戲並加入",
         M::SharedTag => "已分享",
         M::CopyInviteLink => "複製邀請連結",
-        M::InviteLinkCopied => "已複製 {name} 的邀請連結",
+        M::InviteLinkCopied => "已複製邀請連結",
         M::InviteLinkCopiedHint => "在伺服器分享期間，拿到連結的人都能加入。",
         M::AddressHidden => "擁有者未分享此伺服器的位址。",
 
@@ -103,42 +104,42 @@ pub fn text(message: M) -> &'static str {
 
         M::ReadFailed => "無法讀取你的伺服器",
         M::SaveFailed => "無法儲存你的伺服器",
-        M::NoLongerTrusted => "已不再信任 {name} 的模組",
+        M::NoLongerTrusted => "不再信任其模組",
         M::NoLongerTrustedIdChanged => {
-            "現在由另一個主機在 {address} 回應（它的 ID 已變更）。只有在你信任其擁有者時，才在它的卡片上重新信任它。"
+            "現在由另一個主機在這個位址回應（它的 ID 已變更）。只有在你信任其擁有者時，才在它的卡片上重新信任它。"
         }
-        M::NoLongerTrustedOtherCore => "現在由另一個主機在 {address} 回應。",
+        M::NoLongerTrustedOtherCore => "現在由另一個主機在這個位址回應。",
         M::NoLongerTrustedNewCertificate => {
             "你為它信任了新的憑證。如果確定它是同一個主機，請在它的卡片上重新信任其模組。"
         }
         M::NoLongerTrustedCertificateChanged => {
             "它的憑證已變更。如果確定它是同一個主機，請在它的卡片上重新信任其模組。"
         }
-        M::SignedOutOf => "已登出 {name}",
+        M::NotTrusted => "不受信任",
+        M::SignedOut => "已登出",
         M::KeyStillValid => {
-            "此裝置的金鑰（lsk_{id}_…）在到期前仍然有效。若要立即讓它失效，請在控制面板的「設定 → API 金鑰」中撤銷它。"
+            "此裝置的金鑰在到期前仍然有效。若要立即讓它失效，請在控制面板的「設定 → API 金鑰」中撤銷它。"
         }
         M::KeySaveFailed => "無法將金鑰儲存到{keychain}",
         M::KeySaveFailedError => "無法將金鑰儲存到{keychain}：{error}",
         M::CheckCertificate => "請核對主機的憑證以繼續。",
         M::CertificateNotTrusted => "憑證未獲信任，因此你的登入資訊沒有傳送給主機。",
         M::CreateFailed => "無法建立實例",
-        M::CreatedWithoutMods => "已建立 {name}，但不含伺服器的模組",
+        M::CreatedWithoutMods => "已建立，但沒有伺服器的模組",
         M::CreatedWithoutModsBody => {
             "擁有者未分享此伺服器的用戶端模組，因此這個實例只有它的 Minecraft 版本和載入器。請自行加入它需要的模組。"
         }
+        M::NoServerMods => "無伺服器模組",
         M::LinkFailed => "無法將實例連結到伺服器",
-        M::ReadyTitle => "{name} 已就緒",
-        M::ReadyBody => {
-            "Minecraft {version}，使用 {loader}，並包含伺服器的模組和設定檔。按下「開始遊戲」即可加入。"
-        }
+        M::ReadyTitle => "實例已就緒",
+        M::ReadyBody => "它包含伺服器的模組和設定檔。按下「開始遊戲」即可加入。",
         M::CheckModsFailed => "無法檢查伺服器的模組",
-        M::JoinFailed => "無法加入 {name}",
+        M::JoinFailed => "無法加入",
         M::CoreRemoved => {
-            "建立此實例時所用的主機（{address}）已不在 Lodestone Launcher 中。請在「Lodestone Host」頁面重新新增它，或直接按「開始遊戲」而不加入伺服器。"
+            "建立此實例時所用的主機已不在 Lodestone Launcher 中。請在「Lodestone Host」頁面重新新增它，或直接按「開始遊戲」而不加入伺服器。"
         }
         M::ServerNotShown => "主機不再向你顯示此伺服器：它已被刪除，或者它沒有公開列出而你未登入。",
-        M::NotRunning => "{name} 未在執行",
+        M::NotRunning => "未執行",
         M::AskOwnerToStart => "請它的擁有者啟動它，或在「Lodestone Host」頁面登入主機後自行啟動。",
         M::UpdateModsFailed => "無法更新模組",
         M::StopGameFirst => "請先結束遊戲。",
@@ -151,8 +152,8 @@ pub fn text(message: M) -> &'static str {
         M::StartStopped => "伺服器在啟動時停止了。請在控制面板中查看它的主控台。",
         M::ServerGone => "此伺服器已不存在。",
         M::StartTimedOut => "伺服器未能在 5 分鐘內完成啟動。",
-        M::StartFailed => "無法啟動 {name}",
-        M::StopFailed => "無法停止 {name}",
+        M::StartFailed => "無法啟動",
+        M::StopFailed => "無法停止",
         M::UnlinkFailed => "無法取消連結實例：{error}",
         M::Cancelled => "已取消",
         M::TrustExplanation => {
@@ -457,7 +458,6 @@ pub fn text(message: M) -> &'static str {
         M::ServerFromLink => "來自 {link} 的伺服器",
         M::AddedNotAnswered => "已新增。主機回應後會顯示名稱和版本。",
         M::AlreadyAddedTitle => "已新增",
-        M::AlreadyAddedNamed => "{name} 已新增",
         M::AlreadyAddedBody => "此連結指向本頁上的一個伺服器，它的那一列已醒目顯示。",
         M::OnYourNetwork => "你的網路",
         M::OnYourNetworkHint => "此網路上已在區域網路上公開的世界。",
@@ -538,7 +538,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::FriendJoinFailed => "無法加入",
         M::FriendJoinFailedBody => "發生問題：{detail}",
-        M::FriendTunnelEnded => "與 {name} 的連線已中斷",
+        M::FriendTunnelEnded => "連線已中斷",
         M::FriendTunnelEndedBody => {
             "好友已停止共享，或者其電腦已斷線。Minecraft 會提示連線已中斷。等好友回來後再開始遊戲。"
         }
@@ -546,15 +546,18 @@ pub fn text(message: M) -> &'static str {
             "Lodestone Launcher 無法讀取此伺服器的邀請連結。請再次開啟好友傳來的連結。"
         }
         M::FriendRemoved => {
-            "此實例是為好友的伺服器（{link}）建立的，但該伺服器已不在 Lodestone Launcher 中。請再次開啟其邀請連結以加入。"
+            "此實例是為好友的伺服器建立的，但該伺服器已不在 Lodestone Launcher 中。請再次開啟其邀請連結以加入。"
         }
+        M::InviteLinkKey => "邀請連結",
         M::FriendsReadFailed => "無法讀取好友的伺服器",
         M::FriendsSaveFailed => "無法儲存好友的伺服器",
         M::FriendAddress => "Magic localhost：{address}（連線時可用）",
-        M::FriendPortTaken => "連接埠 {port} 已被占用",
+        M::FriendPortTaken => "連接埠已被占用",
         M::FriendPortTakenBody => {
-            "這台電腦上的其他程式正在使用它，所以這次的位址是 {address}。下次 Lodestone Launcher 會再試一次連接埠 {port}。"
+            "這台電腦上的其他程式正在使用常用連接埠，所以這次請在 Minecraft 中使用這個位址。下次 Lodestone Launcher 會先嘗試常用連接埠。"
         }
+        M::AddressNow => "本次位址",
+        M::UsualPort => "常用連接埠",
         M::EulaNotAccepted => "此伺服器尚未接受 Minecraft EULA",
         M::EulaNotAcceptedBody => {
             "在有人接受 Mojang 的 Minecraft EULA（{url}）之前，伺服器無法啟動。請先閱讀，只有在你同意時才接受。"
@@ -569,11 +572,11 @@ pub fn plural(message: P) -> [&'static str; 2] {
     match message {
         P::Players => ["{count} 位玩家"; 2],
         P::ReadyBodySkipped => {
-            ["Minecraft {version}，使用 {loader}，並包含伺服器的模組和設定檔。模組包中有 {count} 個檔案被略過。按下「開始遊戲」即可加入。";
+            ["它包含伺服器的模組和設定檔。整合包中有 {count} 個檔案被略過。按下「開始遊戲」即可加入。";
                 2]
         }
         P::ReadyBodyMissing => {
-            ["Minecraft {version}（{loader}），以及伺服器的檔案。缺少 {count} 個伺服器無法分享的檔案。按「開始遊戲」即可加入。";
+            ["它包含伺服器的檔案。缺少 {count} 個伺服器無法分享的檔案。按下「開始遊戲」即可加入。";
                 2]
         }
         P::ModsAdded => ["新增 {count} 個"; 2],
