@@ -941,13 +941,43 @@
     return pageWrap(heading(S("TabEventLogs")), h("div.hx-muted", { style: { marginBottom: "14px" } }, I("EventLogsLead")), h("div", { style: { maxWidth: "866px" } }, body));
   }
 
+  function worldBackupsSection(running) {
+    const mode = st().worldBackups;
+    const wjob = mode === "running";
+    const busy = running || wjob;
+    const head = h("div.hx-flex", { style: { justifyContent: "space-between", alignItems: "flex-end", gap: "16px", marginBottom: "8px" } },
+      ssec(B("WorldSection"), B("WorldLead")),
+      tip(btn(B("WorldBackUp"), { v: "primary", icon: "save", dis: busy }), busy ? B("JobRunning") : null));
+    const job = wjob ? h("div.hx-card.hx-pad.hx-col", { style: { gap: "6px", marginBottom: "22px" } },
+      h("div.hx-flex", { style: { justifyContent: "space-between", alignItems: "center", gap: "8px" } }, h("span", { style: { flex: "1" } }, B("WorldBackingUp")), h("span.hx-muted.hx-small", FM("Percent", { value: 37 })), btn(M("Cancel"), { sm: true })),
+      h("div.hx-muted.hx-small", tx("Copying the world")),
+      h("div", { style: { height: "4px", borderRadius: "2px", background: "var(--g700)" } }, h("div", { style: { width: "37%", height: "4px", borderRadius: "2px", background: "var(--blue)" } }))) : null;
+    const world = (title, size, version, kindTag, extra, downloading) => srow(title, B("WorldSizeVersion", { size: FM("Megabytes", { size: size }), version: version }),
+      h("div.hx-flex", { style: { gap: "6px", alignItems: "center" } }, tip(btn(B("RestoreAction"), { sm: true, dis: busy }), busy ? B("JobRunning") : null),
+        downloading ? h("span.hx-flex", { style: { gap: "6px", alignItems: "center" } },
+          h("span", { style: { width: "72px", height: "4px", borderRadius: "2px", background: "var(--g700)", display: "inline-block" } }, h("span", { style: { width: "55%", height: "4px", borderRadius: "2px", background: "var(--blue)", display: "block" } })),
+          h("span.hx-muted.hx-small", FM("Percent", { value: 55 })), tip(btn(icon("x", 14), { sm: true }), M("Cancel")))
+          : tip(btn(icon("download", 14), { sm: true }), B("WorldDownloadLabel")),
+        tip(btn(icon("trash", 14, "var(--red2)"), { sm: true }), B("WorldDeleteLabel"))),
+      { below: h("div.hx-flex", { style: { gap: "6px", marginTop: "6px" } }, kindTag, extra) });
+    const list = mode === "empty" ? h("div.hx-card.hx-pad.hx-muted", B("WorldEmpty")) : rows(
+      world(tx("Before the raid"), 182, "1.21.4", tag(B("TagManual")), [tip(tag(B("TagLive"), "green"), B("TagLiveHint"))], mode === "download"),
+      world(tx("Before restoring “Spawn built”"), 176, "1.21.4", tip(tag(B("TagBeforeRestore")), B("WorldBeforeRestoreHint", { name: "Spawn built" })), []),
+      world(B("DateAt", { date: FM("ShortDate", { month: FM("November"), day: 8 }), time: "20:00" }), 171, "1.21.3", tag(B("TagManual")),
+        [tip(tag(B("TagLive"), "green"), B("TagLiveHint")), tip(tag(B("TagInconsistent"), "yellow"), B("WorldTagInconsistentHint")), tip(tag(BP("WorldLeftOut", { count: 2 }), "yellow"), B("WorldLeftOutHint"))]));
+    const usage = mode === "empty" ? null : h("div.hx-muted.hx-small", { style: { margin: "4px 0 8px" } },
+      BP("WorldCount", { count: 3 }), tx(" · "), FM("Megabytes", { size: 529 }), tx(" · "), B("StorageFree", { size: FM("Gigabytes", { size: "182" }) }));
+    const toasts = h("div.hx-muted.hx-small", { style: { marginTop: "12px" } }, B("WorldBackupDone"), tx(" · "), B("WorldBackupFailed"), tx(" · "), B("WorldDeleted"), tx(" · "), B("WorldDownloadFailed", { error: "timed out" }), tx(" · "), B("WorldDownloadCancelled"), tx(" · "), B("WorldCancelFailed", { error: "The world is being put in place and can't be cancelled now" }), tx(" · "), B("WorldRestoring"), tx(" · "), B("WorldLoadFailed", { error: "connection reset" }));
+    return h("div", { style: { marginBottom: "30px" } }, job, head, usage, list, toasts);
+  }
+
   function backupsPage() {
     const s = st(); const mode = s.backups;
     const running = mode === "list";
-    const head = h("div.hx-flex", { style: { justifyContent: "space-between", alignItems: "center", gap: "16px", marginBottom: "18px" } },
-      h("div.hx-muted.hx-small", B("Lead")),
+    const head = h("div.hx-flex", { style: { justifyContent: "space-between", alignItems: "flex-end", gap: "16px", marginBottom: "18px" } },
+      ssec(B("SnapshotsSection"), B("Lead")),
       tip(btn(B("BackUpNow"), { v: "primary", icon: "history", dis: running }), running ? B("JobRunning") : null));
-    if (mode === "failed") return pageWrap(heading(S("TabBackups")), head, h("div.hx-inlineerr", B("LoadFailed", { error: "connection reset" })));
+    if (mode === "failed") return pageWrap(heading(S("TabBackups")), worldBackupsSection(false), head, h("div.hx-inlineerr", B("LoadFailed", { error: "connection reset" })));
     const job = running ? h("div.hx-card.hx-pad.hx-col", { style: { gap: "6px", marginBottom: "22px" } },
       h("div.hx-flex", { style: { justifyContent: "space-between" } }, B("BackingUp"), h("span.hx-muted.hx-small", FM("Percent", { value: 42 }))),
       h("div.hx-muted.hx-small", tx("Storing files (1,204 of 2,880)")),
@@ -974,7 +1004,7 @@
     const storage = mode === "empty" ? null : h("div.hx-muted.hx-small", { style: { margin: "22px 0 8px" } },
       BP("Count", { count: 4 }), tx(" · "), B("StorageFiles", { size: FM("Gigabytes", { size: "4.8" }) }), tx(" · "), B("StorageStored", { size: FM("Gigabytes", { size: "1.3" }) }), tx(" · "), B("StorageFree", { size: FM("Gigabytes", { size: "182" }) }));
     const toasts = h("div.hx-muted.hx-small", { style: { marginTop: "18px" } }, B("BackupDone"), tx(" · "), B("BackupFailed"), tx(" · "), B("Deleted"), tx(" · "), B("Zipping"), tx(" · "), B("Downloaded", { name: "Survival SMP 20261112-120000-c3d4.zip" }), tx(" · "), B("DownloadFailed", { error: "timed out" }), tx(" · "), B("ScheduleSaveFailed", { error: "timed out" }), tx(" · "), B("NextBackupSoon"), tx(" · "), B("NextBackupWhenPlayerJoins"), tx(" · "), B("Restoring"), tx(" · "), B("NoSettingsPermission"), tx(" · "), B("NoWritePermission"), tx(" · "), B("NoSchedulePermission"));
-    return pageWrap(heading(S("TabBackups")), h("div", { style: { maxWidth: "680px" } }, head, job, schedule, storage, h("div", { style: { marginTop: mode === "empty" ? "22px" : "0" } }, list), toasts));
+    return pageWrap(heading(S("TabBackups")), h("div", { style: { maxWidth: "680px" } }, job, worldBackupsSection(running), head, schedule, storage, h("div", { style: { marginTop: mode === "empty" ? "22px" : "0" } }, list), toasts));
   }
   function backupRestoreDlg() {
     return dlg({ title: B("RestoreTitle", { name: FM("TodayAt", { time: "12:00" }) }) },
@@ -987,6 +1017,20 @@
       h("div", B("SafetyNote")),
       foot(btn(B("Restore"), { v: "dangerfill", lg: true }), btn(M("Cancel"), { lg: true, on: close })),
       h("div.hx-muted.hx-small", B("RestoreStarted", { name: FM("TodayAt", { time: "12:00" }) }), tx(" · "), B("RestoreDone"), tx(" · "), B("RestoreFailed")));
+  }
+  function worldBackupCreateDlg() {
+    return dlg({ title: B("WorldCreateTitle") },
+      h("div", B("WorldCreateBody")),
+      field(B("WorldName"), input(null)),
+      foot(btn(B("WorldCreate"), { v: "primary", lg: true }), btn(M("Cancel"), { lg: true, on: close })));
+  }
+  function worldBackupRestoreDlg(running) {
+    return dlg({ title: B("WorldRestoreTitle", { name: "Before the raid" }) },
+      h("div.hx-muted.hx-small", B("WorldRestoreBody")),
+      running ? h("div.hx-note.hx-yellow", B("WorldMustStop")) : null,
+      h("div", B("WorldSafetyNote")),
+      foot(btn(B("Restore"), { v: "dangerfill", lg: true, dis: running }), btn(M("Cancel"), { lg: true, on: close })),
+      h("div.hx-muted.hx-small", B("WorldRestoreStarted", { name: "Before the raid" }), tx(" · "), B("WorldRestoreDone"), tx(" · "), B("WorldRestoreFailed")));
   }
   function backupNewDlg() {
     return dlg({ title: B("NewTitle") },
@@ -1464,7 +1508,7 @@
     "settings": { title: "Settings", group: "Instance", render: settingsPage },
     "console": { title: "Console", group: "Instance", render: consolePage },
     "files": { title: "Files", group: "Instance", render: filesPage },
-    "backups": { title: "Backups", group: "Instance", render: backupsPage },
+    "backups": { title: "Snapshots", group: "Instance", render: backupsPage },
     "mods": { title: "Mods: Installed", group: "Instance", render: modsPage },
     "mods-browse": { title: "Mods: Browse", group: "Instance", render: modsBrowsePage },
     "mods-project": { title: "Mods: project page", group: "Instance", render: modsProjectPage },
@@ -1515,9 +1559,13 @@
     "files-rename": { title: "Files: rename", group: "Dialogs", dialog: true, render: () => filesNameDlg("rename") },
     "files-delete": { title: "Files: delete", group: "Dialogs", dialog: true, render: filesDeleteDlg },
     "files-unsaved": { title: "Files: unsaved changes", group: "Dialogs", dialog: true, render: filesUnsavedDlg },
-    "backup-restore": { title: "Backups: restore", group: "Dialogs", dialog: true, render: backupRestoreDlg },
-    "backup-new": { title: "Backups: restore as a new server", group: "Dialogs", dialog: true, render: backupNewDlg },
-    "backup-delete": { title: "Backups: delete", group: "Dialogs", dialog: true, render: () => confirm(B("DeleteTitle"), B("DeleteBody", { name: "Before updating to 1.21.4" }), M("Delete"), "dangerfill") },
+    "backup-restore": { title: "Snapshots: restore", group: "Dialogs", dialog: true, render: backupRestoreDlg },
+    "backup-new": { title: "Snapshots: restore as a new server", group: "Dialogs", dialog: true, render: backupNewDlg },
+    "backup-delete": { title: "Snapshots: delete", group: "Dialogs", dialog: true, render: () => confirm(B("DeleteTitle"), B("DeleteBody", { name: "Before updating to 1.21.4" }), M("Delete"), "dangerfill") },
+    "world-backup-create": { title: "World backups: back up the world", group: "Dialogs", dialog: true, render: worldBackupCreateDlg },
+    "world-backup-restore": { title: "World backups: restore (server stopped)", group: "Dialogs", dialog: true, render: () => worldBackupRestoreDlg(false) },
+    "world-backup-restore-running": { title: "World backups: restore (server running)", group: "Dialogs", dialog: true, render: () => worldBackupRestoreDlg(true) },
+    "world-backup-delete": { title: "World backups: delete", group: "Dialogs", dialog: true, render: () => confirm(B("WorldDeleteTitle"), B("WorldDeleteBody", { name: "Before the raid" }), M("Delete"), "dangerfill") },
     "mods-delete": { title: "Mods: delete", group: "Dialogs", dialog: true, render: modsDeleteDlg },
     "mods-overwrite": { title: "Mods: replace files", group: "Dialogs", dialog: true, render: modsOverwriteDlg },
     "mods-incompatible": { title: "Mods: incompatible version", group: "Dialogs", dialog: true, render: modsIncompatibleDlg },
@@ -1557,7 +1605,8 @@
       browse: { label: "Mods browse", options: opt(["results", "Results"], ["none", "No results"], ["failed", "Search failed"], ["link", "Opening a link"]), default: "results" },
       project: { label: "Mod project page", options: opt(["mod", "A mod"], ["modpack", "A modpack"], ["clientonly", "Client only"], ["wrongtype", "Wrong type"], ["failed", "Couldn't load"]), default: "mod" },
       versions: { label: "Project versions", options: opt(["list", "List"], ["none", "None (show all off)"], ["noneall", "None at all"], ["failed", "Failed"]), default: "list" },
-      backups: { label: "Backups", options: opt(["list", "List, backing up"], ["idle", "List, nothing running"], ["off", "Schedule off"], ["empty", "None yet"], ["failed", "Couldn't load"]), default: "list" },
+      backups: { label: "Snapshots", options: opt(["list", "List, taking a snapshot"], ["idle", "List, nothing running"], ["off", "Schedule off"], ["empty", "None yet"], ["failed", "Couldn't load"]), default: "list" },
+      worldBackups: { label: "World backups", options: opt(["list", "List"], ["running", "Backing up the world"], ["download", "A download running"], ["empty", "None yet"]), default: "list" },
       eventlogs: { label: "Event logs", options: opt(["some", "Some events"], ["empty", "Empty"], ["failed", "Failed"]), default: "some" },
       createLoad: { label: "Create form", options: opt(["ok", "Loaded"], ["loading", "Loading"], ["failed", "Failed"]), default: "ok" },
       search: { label: "Modpack search", options: opt(["results", "Results"], ["loading", "Loading"], ["none", "No results"], ["failed", "Errors"], ["link", "Opening a link"], ["uploaded", "Uploaded .mrpack"]), default: "results" },

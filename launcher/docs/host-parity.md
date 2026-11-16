@@ -689,8 +689,8 @@ Conventions in the code that every area relies on:
   undone) → `DELETE /instance/{uuid}`; refetch list, deselect; error toast.
 - [x] Permission: `can_delete_instance` (global) and, for atom instances, owner (atom rule removed).
 - [x] No clone, rename-folder, import-existing, backup or export features exist in the dashboard.
-  - *Host:* The Host has backups (its Backups tab, §6.5); deleting a server deletes
-    its backups too, and the delete dialog says so.
+  - *Host:* The Host has snapshots and world backups (its Snapshots tab, §6.5); deleting
+    a server deletes them too, and the delete dialog says so.
 
 ---
 
@@ -1132,7 +1132,7 @@ Conventions in the code that every area relies on:
 
 - [x] No system-stats page (`/system/ram|disk|cpu` hooks and `SystemStat.tsx` exist but are unused
   **(dead)**), no core updater UI, no global event-log page, no extension management (extensions are removed), no backup UI (the Host has a
-  Backups tab, §6.5).
+  Snapshots tab, §6.5).
   Version/info appears only in Core › General › Information and the connection tooltip.
   - *Host:* Not applicable: not in the dashboard.
 
@@ -1436,9 +1436,10 @@ Event variants the dashboard handles (everything else must at least be tolerated
   {progress_message, progress}`, `ProgressionEnd {success, message, inner: ProgressionEndValue
   (InstanceCreation & InstanceInfo | InstanceDelete {instance_uuid} | FSOperationCompleted {instance_uuid,
   success, message})}`.
-  - *Host:* As above, plus the backups' `Backup`/`Restore {instance_uuid}` starts and
+  - *Host:* As above, plus the snapshots' `Backup`/`Restore {instance_uuid}` starts and
     `BackupCompleted`/`RestoreCompleted {instance_uuid, backup_id, success, message}` ends,
-    which the Backups tab follows.
+    and the world backups' `WorldBackup`/`WorldRestore` starts and
+    `WorldBackupCompleted`/`WorldRestoreCompleted` ends, which the Snapshots tab follows.
 - [x] `FSEvent {operation, target}` (ignored).
   - *Host:* Tolerated and ignored.
 - [x] `GlobalSettingsChanged` (no payload).
