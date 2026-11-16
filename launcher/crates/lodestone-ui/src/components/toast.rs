@@ -98,6 +98,8 @@ pub struct Toast {
     /// the outcome under it.
     object: Option<super::ObjectChip>,
     status: Option<super::StatusBadge>,
+    /// The object's version, after its name (a mod's or a modpack's).
+    version: Option<super::VersionTag>,
 }
 
 impl std::fmt::Debug for Toast {
@@ -124,6 +126,7 @@ impl Toast {
             action: None,
             object: None,
             status: None,
+            version: None,
         }
     }
 
@@ -132,6 +135,12 @@ impl Toast {
     /// sentence.
     pub fn object(mut self, object: super::ObjectChip) -> Self {
         self.object = Some(object);
+        self
+    }
+
+    /// The object's version, a tag after its name ("Sodium" `0.6.1`).
+    pub fn version(mut self, version: super::VersionTag) -> Self {
+        self.version = Some(version);
         self
     }
 
@@ -398,6 +407,7 @@ impl Render for Toasts {
                                     .gap(px(8.))
                                     .min_w_0()
                                     .child(object)
+                                    .children(toast.version.clone())
                                     .child(div().flex_1())
                                     .children(toast.status.clone()),
                             )

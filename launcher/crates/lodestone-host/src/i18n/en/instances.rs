@@ -4,7 +4,7 @@ crate::i18n::messages! {
     pub enum InstancesMsg {
         /// The sidebar and the instance card.
         CopyAddress = "Copy the address",
-        CopiedText = "Copied {text}",
+        CopiedText = "Copied",
         SettingUpPercent = "Setting up… {percent}",
         /// The "New server" dialog: its steps.
         StepSelectGame = "Select Game",
@@ -166,7 +166,6 @@ crate::i18n::messages! {
         SearchPage = "Page {page} of {total}",
         PreviousPage = "Previous page",
         NextPage = "Next page",
-        ByAuthor = "by {author}",
         VersionRelease = "release",
         VersionBeta = "beta",
         VersionAlpha = "alpha",
@@ -174,8 +173,6 @@ crate::i18n::messages! {
         NotFound = "Server not found",
         NoName = "No name",
         NoDescription = "No description",
-        VersionLabel = "Version {version}",
-        PlayerCount = "Player Count {players}/{max}",
         EditName = "Rename",
         EditDescription = "Edit the description",
         NameEmpty = "Enter a name.",
@@ -193,21 +190,18 @@ crate::i18n::messages! {
         DetailsCreated = "Created",
         DetailsAutoStart = "Auto start",
         DetailsRestartOnCrash = "Restart on crash",
-        DetailsRam = "Min / Max RAM",
-        DetailsRamValue = "{min} MB / {max} MB",
         DetailsFolder = "Folder",
-        DetailsModpack = "Created from modpack",
         PerformanceTitle = "Server Monitors",
         PerformanceLead = "Instance’s usage of your Lodestone Core",
-        CpuLoad = "CPU LOAD: {value}%",
-        MemoryUsed = "MEMORY USED: {value} GiB",
+        CpuLoad = "CPU load",
+        MemoryUsed = "Memory used",
         LoadingGraph = "Loading the graph",
         CpuUsage = "CPU Usage",
         MemoryUsage = "Memory Usage",
         UnitPercent = "%",
         UnitGiB = "GiB",
         GraphSeconds = "{seconds}s",
-        GraphSecondsAgo = "{seconds}s ago: {value}",
+        GraphSecondsAgo = "{seconds} s ago",
         PlayersTitle = "Player List",
         PlayersLead = "All players that are currently online",
         PlayersSortByName = "NAME",
@@ -236,11 +230,10 @@ crate::i18n::messages! {
         SharePreparing = "Getting the link…",
         ShareHowToJoin = "Anyone with the link can join this server while it runs. People without Lodestone Launcher get a download link.",
         ShareHardNetwork = "This network's router makes direct connections hard. Some people may not be able to join.",
-        SharePeerLine = "over {connection}, {ms} ms",
-        ShareSameComputer = "this computer",
-        ShareLocalNetwork = "the local network",
+        ShareSameComputer = "This computer",
+        ShareLocalNetwork = "Local network",
         ShareIpv6 = "IPv6",
-        ShareInternet = "the internet",
+        ShareInternet = "Internet",
         ShareStop = "Stop sharing",
         ShareStopTitle = "Stop sharing?",
         ShareStopBody = "Everyone playing through the link is disconnected, and the link stops working. Sharing again makes a new link.",
@@ -251,7 +244,7 @@ crate::i18n::messages! {
         ShareNewLinkConfirm = "Make new link",
         ShareNewLinkMade = "Made a new invite link",
         /// In the Share section after friends were removed since this link was made.
-        ShareRemovedFriendsNote = "You removed {names} as a friend. If they have this invite link, they can still join until you make a new one.",
+        ShareRemovedFriendsNote = "You removed these friends. If they have this invite link, they can still join until you make a new one.",
         ShareRemovedFriendsDismiss = "Dismiss",
         /// A toast after a sync took removed friends off the core.
         ShareRemovedFriendsToast = "{names} can still join {servers} if they have the invite link. Make new links to stop them.",
@@ -261,12 +254,16 @@ crate::i18n::messages! {
         /// The sidebar card's Share: opens the Overview's Share section.
         ShareShort = "Share",
         ShareShortHint = "Share this server",
+        DetailsMinRam = "Min RAM",
+        DetailsMaxRam = "Max RAM",
+        /// Over the people connected through the invite link, before their count.
+        ShareConnected = "People connected",
+        /// A key: how many times people joined through the link.
+        ShareJoins = "Joins so far",
     }
 
     pub enum InstancesPlural {
         ModpackShowMore = ("Show more ({count} left)", "Show more ({count} left)"),
         ImportFiles = ("{count} file", "{count} files"),
-        ShareConnected = ("{count} person connected", "{count} people connected"),
-        ShareJoins = ("({count} join so far)", "({count} joins so far)"),
     }
 }

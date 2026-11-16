@@ -65,6 +65,12 @@ pub(super) fn needed_by(mods: &[String]) -> String {
     text
 }
 
+/// A mod a toast is about.
+fn mod_chip(name: &str) -> lodestone_ui::components::ObjectChip {
+    lodestone_ui::components::ObjectChip::new(name.to_string())
+        .kind(lodestone_ui::components::Kind::Mod)
+}
+
 /// A project's icon from Modrinth's CDN, or a cube.
 pub(super) fn mod_icon(url: Option<&str>, size: f32, cx: &mut Context<ModsPage>) -> AnyElement {
     let image = url.and_then(|url| crate::instance_icons::modrinth_image(url, cx));
@@ -165,11 +171,11 @@ impl ModsPage {
                 this.busy_files.remove(&file);
                 if let Err(err) = result {
                     let message = if enabled {
-                        tr!(M::ModsEnableFailed, name = name, error = err)
+                        tr!(M::ModsEnableFailed, error = err)
                     } else {
-                        tr!(M::ModsDisableFailed, name = name, error = err)
+                        tr!(M::ModsDisableFailed, error = err)
                     };
-                    this.toast(Toast::error(message), cx);
+                    this.toast(Toast::error(message).object(mod_chip(&name)), cx);
                 }
                 this.reload(cx);
             })
@@ -200,11 +206,11 @@ impl ModsPage {
             this.update(cx, |this, cx| {
                 this.busy_files.remove(&file);
                 let toast = match result {
-                    Ok(()) if required => Toast::success(tr!(M::ModsMarkedForPlayers, name = name)),
-                    Ok(()) => Toast::success(tr!(M::ModsUnmarkedForPlayers, name = name)),
-                    Err(err) => Toast::error(tr!(M::ModsMarkFailed, name = name, error = err)),
+                    Ok(()) if required => Toast::success(t(M::ModsMarkedForPlayers)),
+                    Ok(()) => Toast::success(t(M::ModsUnmarkedForPlayers)),
+                    Err(err) => Toast::error(tr!(M::ModsMarkFailed, error = err)),
                 };
-                this.toast(toast.key("mods-client-mark"), cx);
+                this.toast(toast.object(mod_chip(&name)).key("mods-client-mark"), cx);
                 this.reload(cx);
             })
             .ok();
@@ -241,14 +247,15 @@ impl ModsPage {
                 this.busy_files.remove(&file);
                 let toast = match result {
                     Ok(result) => Self::result_toast(
-                        tr!(M::ModsUpdated, name = name, version = update.version_number),
+                        Some((name, update.version_number.clone())),
+                        t(M::ModsUpdated).to_string(),
                         &result,
                     ),
                     Err(err) => {
                         // the core may not have sent an event to take the claim
                         this.state
                             .update(cx, |state, _| state.release_own_file_toast(claim));
-                        Toast::error(tr!(M::ModsUpdateFailed, name = name, error = err))
+                        Toast::error(tr!(M::ModsUpdateFailed, error = err)).object(mod_chip(&name))
                     }
                 };
                 this.toast(toast, cx);
@@ -320,7 +327,10 @@ impl ModsPage {
                                 .update(cx, |state, _| state.release_own_file_toast(claim))
                                 .ok();
                         }
-                        failures.push(format!("{name}: {err}"));
+                        failures.push(
+                            lodestone_ui::components::readable::key_value(&name, &err.to_string())
+                                .to_string(),
+                        );
                     }
                 }
             }
@@ -329,15 +339,20 @@ impl ModsPage {
                     state.set_updating_mods(&uuid, false);
                     if !total.installed.is_empty() || !total.removed.is_empty() {
                         state.toast(
-                            Self::result_toast(t(M::ModsUpdatesInstalled).to_string(), &total),
+                            Self::result_toast(
+                                None,
+                                t(M::ModsUpdatesInstalled).to_string(),
+                                &total,
+                            ),
                             cx,
                         );
                     }
                     if !failures.is_empty() {
                         state.toast(
-                            Toast::error(tr!(
-                                M::ModsSomeUpdatesFailed,
-                                failures = failures.join("; ")
+                            Toast::error(format!(
+                                "{}\n{}",
+                                trn!(P::ModsSomeUpdatesFailed, failures.len()),
+                                failures.join("\n")
                             )),
                             cx,
                         );
@@ -409,7 +424,7 @@ impl ModsPage {
             if !not_jars.is_empty() {
                 this.update(cx, |this, cx| {
                     this.toast(
-                        Toast::error(tr!(M::ModsOnlyJars, names = not_jars.join(", "))),
+                        Toast::error(format!("{}\n{}", t(M::ModsOnlyJars), not_jars.join("\n"))),
                         cx,
                     )
                 })
@@ -461,10 +476,15 @@ impl ModsPage {
                 match result {
                     Ok(uploaded) => {
                         let names: Vec<&str> = uploaded.iter().map(|m| m.name()).collect();
-                        this.toast(
-                            Toast::success(tr!(M::ModsUploaded, names = names.join(", "))),
-                            cx,
-                        );
+                        let toast = match names.as_slice() {
+                            [name] => Toast::success(t(M::ModsUploaded)).object(mod_chip(name)),
+                            _ => Toast::success(format!(
+                                "{}\n{}",
+                                trn!(P::ModsUploadedCount, names.len()),
+                                names.join("\n")
+                            )),
+                        };
+                        this.toast(toast, cx);
                     }
                     // a file of the same name: ask before replacing it
                     Err(launcher_core::cores::CoreError::Server {
@@ -491,7 +511,11 @@ impl ModsPage {
             };
             this.update(cx, |this, cx| {
                 let toast = match result {
-                    Ok(()) => Toast::success(tr!(M::ModsDeleted, name = file_name)),
+                    Ok(()) => Toast::success(t(M::ModsDeleted)).object(
+                        lodestone_ui::components::ObjectChip::new(file_name.clone())
+                            .kind(lodestone_ui::components::Kind::File)
+                            .mono(),
+                    ),
                     Err(err) => Toast::error(tr!(M::ModsDeleteFailed, error = err)),
                 };
                 this.toast(toast, cx);
@@ -994,7 +1018,8 @@ impl ModsPage {
                         this.child(why_not(
                             "update-all-why",
                             can_write,
-                            Button::new("update-all", tr!(M::ModsUpdateAll, count = updates))
+                            Button::new("update-all", t(M::ModsUpdateAll))
+                                .count(updates as u64)
                                 .variant(ButtonVariant::Primary)
                                 .icon(Icon::CircleUp)
                                 .loading(updating_all)

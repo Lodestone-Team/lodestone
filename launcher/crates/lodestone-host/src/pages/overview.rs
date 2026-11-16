@@ -26,17 +26,22 @@ use launcher_core::cores::{
 };
 use lodestone_ui::{
     components::{
-        Button, ButtonSize, ButtonVariant, Dialog, DialogSlot, Icon, IconButton, LineChart,
-        LoadingDots, TextInput, Toast, text_tooltip, window_layer,
+        Button, ButtonSize, ButtonVariant, CountBadge, Dialog, DialogSlot, Fact, FactLine,
+        FactValue, Icon, IconButton, Kind, LineChart, LoadingDots, Num, ObjectChip, ProductPhrase,
+        StatusBadge, TextInput, Toast, VersionTag,
+        readable::{key_text, key_value},
+        text_tooltip, window_layer,
     },
-    theme::{Color, colors, fonts, ink, px, radius, text, weights},
+    i18n::format::Measure,
+    theme::{Color, Tone, colors, fonts, ink, px, radius, text, weights},
+    values::Product,
 };
 
 use crate::{
     friends::Phase,
-    i18n::{CommonMsg, InstancesMsg as M, InstancesPlural as P, t, tr, trn},
+    i18n::{CommonMsg, FactMsg, InstancesMsg as M, t, tr},
     instance_icons,
-    shell::sidebar::{instance_address, state_color, state_name},
+    shell::sidebar::{instance_address, state_name},
     state::{HostEvent, HostState},
 };
 
@@ -418,9 +423,9 @@ impl OverviewPage {
         cx.notify();
     }
 
-    fn copy(&self, text: String, message: String, cx: &mut Context<Self>) {
+    fn copy(&self, text: String, toast: Toast, cx: &mut Context<Self>) {
         cx.write_to_clipboard(ClipboardItem::new_string(text));
-        self.toast(Toast::success(message).key("copied"), cx);
+        self.toast(toast, cx);
     }
 
     // ---- Linked players ----
@@ -657,6 +662,31 @@ fn heading(title: &'static str, lead: &'static str) -> AnyElement {
         .into_any_element()
 }
 
+/// "3 / 20" players, the count alone without a maximum, or a dash while unknown.
+pub(crate) fn players_value(players: Option<u32>, max: Option<u32>) -> FactValue {
+    match (players, max) {
+        (Some(n), Some(max)) => Num::fraction(n.into(), max.into()).into(),
+        (Some(n), None) => Num::count(n.into()).into(),
+        _ => FactValue::text("–"),
+    }
+}
+
+/// Friends' names as a wrapping row of chips, so names with spaces or commas stay
+/// whole.
+pub(crate) fn friend_chips(id: &str, names: &[String]) -> AnyElement {
+    div()
+        .flex()
+        .flex_row()
+        .flex_wrap()
+        .gap(px(8.))
+        .children(names.iter().enumerate().map(|(index, name)| {
+            ObjectChip::new(name.clone())
+                .kind(Kind::Friend)
+                .id(SharedString::from(format!("{id}-{index}")))
+        }))
+        .into_any_element()
+}
+
 /// A coloured label (`Label size="large"`).
 fn label(text_: impl Into<SharedString>, color: Color) -> gpui::Div {
     div()
@@ -809,17 +839,15 @@ impl OverviewPage {
         };
         let name = editable(EditField::Name, self, cx);
         let description = editable(EditField::Description, self, cx);
-        let players = tr!(
-            M::PlayerCount,
-            players = instance
-                .player_count
-                .map(|n| n.to_string())
-                .unwrap_or_default(),
-            max = instance
-                .max_player_count
-                .map(|n| n.to_string())
-                .unwrap_or_default()
-        );
+        // the state, then the game and the players as key-over-value cells (a dash while
+        // the count is unknown)
+        let players = players_value(instance.player_count, instance.max_player_count);
+        let facts = FactLine::strip("overview-facts")
+            .facts((!instance.version.is_empty()).then(|| {
+                let game = ProductPhrase::new(Product::Minecraft, instance.version.clone());
+                Fact::new(game.key(), game)
+            }))
+            .fact(Fact::new(t(FactMsg::Players), players));
         let copy_address = address.clone();
         div()
             .flex()
@@ -840,15 +868,8 @@ impl OverviewPage {
                         px(24.),
                         cx,
                     ))
-                    .child(label(
-                        state_name(instance.state),
-                        state_color(instance.state),
-                    ))
-                    .child(label(
-                        tr!(M::VersionLabel, version = instance.version),
-                        colors::BLUE_200,
-                    ))
-                    .child(label(players, colors::BLUE_200))
+                    .child(crate::shell::sidebar::state_badge(instance.state))
+                    .child(facts)
                     .child(
                         label(address, colors::BLUE_200)
                             .id("overview-address")
@@ -929,7 +950,11 @@ impl OverviewPage {
                                 .variant(ButtonVariant::Primary)
                                 .icon(Icon::Copy)
                                 .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.copy(copy.clone(), t(M::ShareCopied).into(), cx)
+                                    this.copy(
+                                        copy.clone(),
+                                        Toast::success(t(M::ShareCopied)).key("copied"),
+                                        cx,
+                                    )
                                 })),
                         )
                         .into_any_element()
@@ -969,13 +994,16 @@ impl OverviewPage {
                         .flex_wrap()
                         .items_center()
                         .gap(px(8.))
-                        .child(div().flex_1().min_w(px(240.)).child(note(
-                            tr!(
-                                M::ShareRemovedFriendsNote,
-                                names = lodestone_ui::i18n::format::list(&names)
-                            ),
-                            colors::YELLOW,
-                        )))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w(px(240.))
+                                .flex()
+                                .flex_col()
+                                .gap(px(6.))
+                                .child(note(t(M::ShareRemovedFriendsNote).into(), colors::YELLOW))
+                                .child(friend_chips("share-removed-friend", &names)),
+                        )
                         .child(
                             Button::new(
                                 "share-removed-friends-dismiss",
@@ -1008,17 +1036,32 @@ impl OverviewPage {
                         .px(px(12.))
                         .py(px(8.))
                         .text_size(text::SMALL)
+                        .items_center()
                         .child(
                             div()
+                                .flex_1()
                                 .font_family(fonts::mono())
                                 .text_color(ink::text())
                                 .child(friend.address.clone()),
                         )
-                        .child(div().text_color(ink::muted()).child(tr!(
-                            M::SharePeerLine,
-                            connection = connection,
-                            ms = friend.rtt_ms
-                        )))
+                        .child(StatusBadge::new(connection, Tone::Neutral))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .gap(px(4.))
+                                .child(key_text(t(FactMsg::Ping)))
+                                .child(
+                                    Num::measure(Measure {
+                                        value: friend.rtt_ms.to_string(),
+                                        before: "",
+                                        after: " ms",
+                                    })
+                                    .min_w(px(48.))
+                                    .align_right(),
+                                ),
+                        )
                         .into_any_element()
                 })
                 .collect();
@@ -1069,12 +1112,17 @@ impl OverviewPage {
                         .font_weight(weights::MEDIUM.face())
                         .text_color(ink::text())
                         .child(Icon::UserGroup.render(px(14.), colors::GRAY_500))
-                        .child(trn!(P::ShareConnected, friend_count))
+                        .child(t(M::ShareConnected))
+                        .child(CountBadge::new(friend_count as u64))
                         .child(
                             div()
-                                .text_size(text::SMALL)
-                                .text_color(lodestone_ui::theme::ink::muted())
-                                .child(trn!(P::ShareJoins, share.joins)),
+                                .ml(px(12.))
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .gap(px(4.))
+                                .child(key_text(t(M::ShareJoins)))
+                                .child(Num::count(share.joins.into())),
                         ),
                 )
                 .when(friend_count > 0, |this| {
@@ -1310,6 +1358,7 @@ impl OverviewPage {
         };
         let graph = |id: &'static str,
                      title: String,
+                     now: String,
                      samples: Vec<Option<f32>>,
                      max: f32,
                      unit: &'static str,
@@ -1335,15 +1384,13 @@ impl OverviewPage {
                     .x_labels(tr!(M::GraphSeconds, seconds = SAMPLES - 1), "0")
                     .y_labels(max_label, "0")
                     .hover_label(move |ago, value| {
-                        tr!(
-                            M::GraphSecondsAgo,
-                            seconds = ago,
-                            value = format!(
+                        key_value(
+                            &tr!(M::GraphSecondsAgo, seconds = ago),
+                            &format!(
                                 "{}{unit}",
                                 lodestone_ui::i18n::format::decimal(value as f64, 1)
-                            )
+                            ),
                         )
-                        .into()
                     })
                     .accessible_label(title.clone())
                     .into_any_element()
@@ -1354,12 +1401,29 @@ impl OverviewPage {
                 .flex()
                 .flex_col()
                 .gap(px(8.))
+                // the graph's key, then its live value in tabular figures at a fixed
+                // width, so it doesn't jitter
                 .child(
                     div()
-                        .text_size(text::SMALL)
-                        .font_weight(weights::MEDIUMBOLD.face())
-                        .text_color(lodestone_ui::theme::ink::muted())
-                        .child(title),
+                        .flex()
+                        .flex_row()
+                        .items_baseline()
+                        .gap(px(8.))
+                        .child(
+                            div()
+                                .text_size(text::SMALL)
+                                .font_weight(weights::MEDIUMBOLD.face())
+                                .text_color(lodestone_ui::theme::ink::muted())
+                                .child(title.clone()),
+                        )
+                        .child(
+                            div()
+                                .min_w(px(64.))
+                                .font_features(fonts::tabular())
+                                .font_weight(weights::MEDIUMBOLD.face())
+                                .text_color(ink::secondary())
+                                .child(now),
+                        ),
                 )
                 .child(
                     div()
@@ -1382,7 +1446,8 @@ impl OverviewPage {
                     .gap(px(24.))
                     .child(graph(
                         "cpu-graph",
-                        tr!(M::CpuLoad, value = cpu_now),
+                        t(M::CpuLoad).into(),
+                        format!("{cpu_now}{}", t(M::UnitPercent)),
                         cpu,
                         100.0,
                         t(M::UnitPercent),
@@ -1390,7 +1455,8 @@ impl OverviewPage {
                     ))
                     .child(graph(
                         "memory-graph",
-                        tr!(M::MemoryUsed, value = memory_now),
+                        t(M::MemoryUsed).into(),
+                        format!("{memory_now} {}", t(M::UnitGiB)),
                         memory,
                         max_gib.max(0.1) as f32,
                         t(M::UnitGiB),
@@ -1542,18 +1608,17 @@ impl OverviewPage {
                 let local = time.with_timezone(&chrono::Local);
                 lodestone_ui::i18n::format::day_and_time(local, chrono::Local::now().date_naive())
             });
-        let ram_value = |mb: Option<u32>| {
-            mb.map_or("?".to_string(), |mb| {
-                lodestone_ui::i18n::format::number(mb.into())
+        // memory in megabytes: tabular figures, a lighter unit
+        let ram = |mb: Option<u32>| {
+            mb.map(|mb| {
+                Num::measure(Measure {
+                    value: lodestone_ui::i18n::format::number(mb.into()),
+                    before: "",
+                    after: " MB",
+                })
+                .into_any_element()
             })
         };
-        let ram = (instance.min_ram.is_some() || instance.max_ram.is_some()).then(|| {
-            tr!(
-                M::DetailsRamValue,
-                min = ram_value(instance.min_ram),
-                max = ram_value(instance.max_ram)
-            )
-        });
         let players = (instance.player_count.is_some() || instance.max_player_count.is_some())
             .then(|| {
                 let n = |v: Option<u32>| v.map_or("?".into(), |v| v.to_string());
@@ -1563,9 +1628,14 @@ impl OverviewPage {
                     n(instance.max_player_count)
                 )
             });
-        let loader = loader_name(instance).map(|loader| match &instance.loader_version {
-            Some(version) => format!("{loader} {version}"),
-            None => loader,
+        // the loader as one plain phrase ("Fabric 0.16.9")
+        let loader = loader_name(instance).map(|loader| {
+            let version = instance.loader_version.clone().unwrap_or_default();
+            match ProductPhrase::from_name(&loader, version.clone()) {
+                Some(phrase) => phrase.plain(),
+                None if version.is_empty() => loader,
+                None => format!("{loader}\u{a0}{version}"),
+            }
         });
         let copyable = |id: &'static str, value: String, cx: &mut Context<Self>| {
             let copy = value.clone();
@@ -1589,30 +1659,27 @@ impl OverviewPage {
                 .into_any_element()
         };
         let plain = |value: String| div().child(value).into_any_element();
+        // the modpack: its name (a link to Modrinth when it's there), then its version
         let modpack = instance.modpack.as_ref().map(|modpack| {
-            let label = match &modpack.version_number {
-                Some(version) => format!("{} {version}", modpack.name),
-                None => modpack.name.clone(),
-            };
-            if modpack.project_id.is_empty() {
-                return plain(label);
+            let mut chip = ObjectChip::new(modpack.name.clone())
+                .kind(Kind::Modpack)
+                .id("details-modpack");
+            if !modpack.project_id.is_empty() {
+                let url = format!(
+                    "https://modrinth.com/modpack/{}",
+                    launcher_core::cores::admin::segment(&modpack.project_id)
+                );
+                chip = chip.on_click(move |_, _, cx| cx.open_url(&url));
             }
-            let url = format!(
-                "https://modrinth.com/modpack/{}",
-                launcher_core::cores::admin::segment(&modpack.project_id)
-            );
             div()
-                .id("details-modpack")
                 .flex()
                 .flex_row()
                 .items_center()
-                .gap(px(4.))
-                .cursor_pointer()
-                .text_color(colors::BLUE_200)
-                .hover(|style| style.underline())
-                .child(label)
-                .child(Icon::ArrowUpRightFromSquare.render(px(10.), colors::BLUE_200))
-                .on_click(move |_, _, cx| cx.open_url(&url))
+                .gap(px(6.))
+                .child(chip)
+                .when_some(modpack.version_number.clone(), |this, version| {
+                    this.child(VersionTag::new(version).id("details-modpack-version"))
+                })
                 .into_any_element()
         });
         let rows: Vec<(&'static str, Option<AnyElement>)> = vec![
@@ -1653,13 +1720,14 @@ impl OverviewPage {
                 t(M::DetailsRestartOnCrash),
                 Some(plain(yes_no(instance.restart_on_crash))),
             ),
-            (t(M::DetailsRam), ram.map(plain)),
+            (t(M::DetailsMinRam), ram(instance.min_ram)),
+            (t(M::DetailsMaxRam), ram(instance.max_ram)),
             (
                 t(M::DetailsFolder),
                 (!instance.path.is_empty())
                     .then(|| copyable("details-folder", instance.path.clone(), cx)),
             ),
-            (t(M::DetailsModpack), modpack),
+            (t(FactMsg::Modpack), modpack),
         ];
         div()
             .flex()

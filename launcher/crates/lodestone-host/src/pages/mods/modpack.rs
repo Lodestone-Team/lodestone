@@ -275,7 +275,11 @@ impl ModsPage {
                 .unwrap_or_default();
             if !name.to_lowercase().ends_with(".mrpack") {
                 this.update(cx, |this, cx| {
-                    this.toast(Toast::error(tr!(M::ModpackNotMrpack, name = name)), cx)
+                    this.toast(
+                        Toast::error(t(M::ModpackNotMrpack))
+                            .object(ObjectChip::new(name).kind(Kind::File).mono()),
+                        cx,
+                    )
                 })
                 .ok();
                 return;
@@ -350,7 +354,7 @@ impl ModsPage {
                         let mut lines = vec![if restore {
                             t(M::ModpackRestored).to_string()
                         } else {
-                            tr!(M::ModpackUpdated, version = version)
+                            t(M::ModpackUpdated).to_string()
                         }];
                         let counts: Vec<String> = [
                             (done.added, P::ModpackAdded),
@@ -364,12 +368,15 @@ impl ModsPage {
                         lines.extend(counts);
                         lines.extend(done.skipped);
                         this.modpack_check = ModpackCheck::Idle;
-                        let chip = if restore {
-                            ObjectChip::new(pack).icon(Icon::CodeCompare)
+                        let toast = if restore {
+                            Toast::success(lines.join("\n"))
+                                .object(ObjectChip::new(pack).icon(Icon::CodeCompare))
                         } else {
-                            ObjectChip::new(pack).kind(Kind::Modpack)
+                            Toast::success(lines.join("\n"))
+                                .object(ObjectChip::new(pack).kind(Kind::Modpack))
+                                .version(VersionTag::new(version))
                         };
-                        Toast::success(lines.join("\n")).object(chip)
+                        toast
                     }
                     Err(err) if restore => Toast::error(tr!(M::ModpackRestoreFailed, error = err)),
                     Err(err) => Toast::error(tr!(M::ModpackUpdateFailed, error = err)),

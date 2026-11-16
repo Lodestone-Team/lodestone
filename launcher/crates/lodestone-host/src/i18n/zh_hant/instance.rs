@@ -82,7 +82,7 @@ pub fn text(message: M) -> &'static str {
         M::ModsSearchMod => "在 Modrinth 上搜尋模組，或貼上 Modrinth 連結",
         M::ModsSearchPlugin => "在 Modrinth 上搜尋外掛，或貼上 Modrinth 連結",
         M::ModsSearchLabel => "搜尋 Modrinth",
-        M::ModsOnlyCompatible => "僅顯示適用於 {gameVersion} / {loader} 的版本",
+        M::ModsOnlyCompatible => "僅顯示相容版本",
         M::ModsPlayersNeedToo => "玩家也需要安裝",
         M::ModsServerOnly => "僅限伺服器",
         M::ModsPlayersNeed => "玩家需要安裝",
@@ -98,20 +98,15 @@ pub fn text(message: M) -> &'static str {
             "玩家加入時會取得這個模組及其相依的模組。對於 Lodestone 無法判斷但玩家需要的模組（例如你上傳的），請勾選此項。"
         }
         M::ModsForPlayersAlready => "玩家已會取得這個模組：Modrinth 或模組本身表明玩家需要它。",
-        M::ModsMarkedForPlayers => "玩家下次加入時會取得 {name}",
+        M::ModsMarkedForPlayers => "玩家下次加入時會取得它",
         M::ModsForPlayersOptional => {
             "Modrinth 表示玩家沒有這個模組也能加入，但在 Fabric 上，這類模組常常會讓玩家無法加入，所以玩家會取得它。取消勾選即可不給玩家。"
         }
-        M::ModsUnmarkedForPlayers => "玩家加入時不再取得 {name}",
-        M::ModsMarkFailed => "無法變更 {name}：{error}",
+        M::ModsUnmarkedForPlayers => "玩家加入時不再取得它",
+        M::ModsMarkFailed => "無法變更：{error}",
         M::ModsRelease => "正式版",
         M::ModsBeta => "測試版",
         M::ModsAlpha => "早期測試版",
-        M::ModsResultInstalled => "已安裝：{mods}",
-        M::ModsResultRemoved => "已移除：{files}",
-        M::ModsResultSkipped => "已略過：{projects}",
-        M::ModsResultPlayersNeed => "玩家也需要安裝 {mods}",
-        M::ModsByAuthor => "作者：{author}",
         M::ModsInstalledTag => "已安裝",
         M::ModsSortBy => "排序方式",
         M::ModsSortRelevance => "關聯性",
@@ -127,28 +122,27 @@ pub fn text(message: M) -> &'static str {
         M::ModsPage => "第 {page} 頁，共 {total} 頁",
         M::ModsPreviousPage => "上一頁",
         M::ModsNextPage => "下一頁",
-        M::ModsEnableFailed => "無法啟用 {name}：{error}",
-        M::ModsDisableFailed => "無法停用 {name}：{error}",
-        M::ModsUpdated => "已將 {name} 更新至 {version}",
-        M::ModsUpdateFailed => "無法更新 {name}：{error}",
+        M::ModsEnableFailed => "無法啟用：{error}",
+        M::ModsDisableFailed => "無法停用：{error}",
+        M::ModsUpdated => "已更新",
+        M::ModsUpdateFailed => "無法更新：{error}",
         M::ModsUpdateTo => "更新至 {version}",
         M::ModsViewOnModrinth => "在 Modrinth 上檢視",
         M::ModsDeleteLabel => "刪除 {name}",
-        M::ModsUploaded => "已上傳 {names}",
+        M::ModsUploaded => "已上傳",
         M::ModsUploadFailed => "上傳失敗：{error}",
-        M::ModsOnlyJars => "只能上傳 .jar 檔案：{names}",
+        M::ModsOnlyJars => "只能上傳 .jar 檔案。未上傳：",
         M::ModsUpdatesInstalled => "已安裝更新",
-        M::ModsSomeUpdatesFailed => "部分更新失敗：{failures}",
-        M::ModsDeleted => "已刪除 {name}",
+        M::ModsDeleted => "已刪除",
         M::ModsDeleteFailed => "刪除失敗：{error}",
         M::ModsDeleteTitleMod => "刪除模組？",
         M::ModsDeleteTitlePlugin => "刪除外掛？",
-        M::ModsDeleteBody => "{name}（{fileName}）將從伺服器中刪除。此動作無法復原。",
+        M::ModsDeleteBody => "它的檔案將從伺服器刪除。此操作無法復原。",
         M::ModsOverwriteTitle => "覆寫現有檔案？",
         M::ModsOverwrite => "覆寫",
         M::ModsOverwriteBody => "{message}要以上傳的檔案取代它嗎？",
         M::ModsOverwriteDefault => "已安裝同名檔案。",
-        M::ModsUpdateAll => "全部更新（{count}）",
+        M::ModsUpdateAll => "全部更新",
         M::ModsCheckUpdates => "檢查更新",
         M::ModsUpload => "上傳",
         M::ModsUploadPrompt => "上傳",
@@ -172,7 +166,7 @@ pub fn text(message: M) -> &'static str {
         M::ModpackUpdateTo => "更新到 {version}",
         M::ModpackFromFile => "從檔案更新",
         M::ModpackFilePrompt => "更新",
-        M::ModpackNotMrpack => "{name} 不是 .mrpack 檔案。",
+        M::ModpackNotMrpack => "不是 .mrpack 檔案",
         M::ModpackPlanFailed => "無法準備更新：{error}",
         M::ModpackDialogTitle => "更新模組包？",
         M::ModpackDialogRestoreIntro => "模組和設定將還原到此變更之後的狀態。",
@@ -200,7 +194,7 @@ pub fn text(message: M) -> &'static str {
         M::ModsSource => "原始碼",
         M::ModsIssues => "問題回報",
         M::ModsWiki => "Wiki",
-        M::ModsServerSide => "伺服器：{value}",
+        M::ModsServerSide => "伺服器端",
         M::ModsSideRequired => "必要",
         M::ModsSideOptional => "選用",
         M::ModsSideUnsupported => "不支援",
@@ -216,18 +210,16 @@ pub fn text(message: M) -> &'static str {
         M::ModsWithDependencies => "同時安裝必要的相依項目",
         M::ModsShowAll => "顯示所有版本",
         M::ModsVersionsFailed => "無法載入版本：{error}",
-        M::ModsNoVersions => "沒有適用於 {loader} {gameVersion} 的版本。",
+        M::ModsNoVersions => "沒有適用於此伺服器遊戲版本和載入器的版本。",
         M::ModsNoVersionsShowAll => {
-            "沒有適用於 {loader} {gameVersion} 的版本。開啟「顯示所有版本」以查看其他版本。"
+            "沒有適用於此伺服器遊戲版本和載入器的版本。開啟「顯示所有版本」以查看其他版本。"
         }
-        M::ModsNotFor => "不適用於 {loader} {gameVersion}",
-        M::ModsInstalledVersion => "已安裝 {title} {version}",
-        M::ModsInstallFailed => "無法安裝 {title}：{error}",
+        M::ModsNotFor => "不適用於此伺服器",
+        M::ModsInstalledVersion => "已安裝",
+        M::ModsInstallFailed => "無法安裝：{error}",
         M::ModsIncompatibleTitle => "安裝不相容的版本？",
         M::ModsInstallAnyway => "仍要安裝",
-        M::ModsIncompatibleBody => {
-            "{title} {version} 適用於 {loaders} {gameVersions}，而非 {loader} {gameVersion}。它可能導致伺服器當機。"
-        }
+        M::ModsIncompatibleBody => "它可能會導致伺服器當機。",
         M::FriendsTitle => "好友",
         M::FriendsLead => {
             "你在 Lodestone Launcher 中加入的好友可以看到你與他們分享的伺服器，不需要連結即可加入。在你勾選好友之前，不會分享任何內容。"
@@ -291,13 +283,13 @@ pub fn text(message: M) -> &'static str {
         M::ModpackUpdateAvailable => "有可用更新",
         M::ModpackReplacedKey => "已取代",
         M::ModpackRecorded => "記錄於",
+        M::ModsThisVersion => "此版本",
+        M::ModsThisServer => "此伺服器",
     }
 }
 
 pub fn plural(message: P) -> [&'static str; 2] {
     match message {
-        P::ModsDownloads => ["{count} 次下載", "{count} 次下載"],
-        P::ModsFollowers => ["{count} 位追蹤者", "{count} 位追蹤者"],
         P::ModsPackTitle => [
             "玩家需要 {count} 個模組才能加入",
             "玩家需要 {count} 個模組才能加入",
@@ -308,12 +300,17 @@ pub fn plural(message: P) -> [&'static str; 2] {
         ],
         P::ModsPackShowAll => ["顯示全部 {count} 個模組", "顯示全部 {count} 個模組"],
         P::ModsShowMore => ["顯示更多（還有 {count} 個）", "顯示更多（還有 {count} 個）"],
-        P::ModsMoreGameVersions => ["還有 {count} 個", "還有 {count} 個"],
         P::ModpackAdded => ["已新增 {count} 個檔案", "已新增 {count} 個檔案"],
         P::ModpackReplaced => ["已取代 {count} 個檔案", "已取代 {count} 個檔案"],
         P::ModpackRemoved => ["已刪除 {count} 個檔案", "已刪除 {count} 個檔案"],
         P::ModpackMoreChanges => ["還有 {count} 個", "還有 {count} 個"],
         P::FriendsConnectedCount => ["{count} 位好友已連線", "{count} 位好友已連線"],
         P::ModsNeededBy => ["{count} 個模組需要它", "{count} 個模組需要它"],
+        P::ModsResultInstalled => ["已安裝 {count} 個模組", "已安裝 {count} 個模組"],
+        P::ModsResultRemoved => ["已移除 {count} 個檔案", "已移除 {count} 個檔案"],
+        P::ModsResultSkipped => ["已略過 {count} 個專案", "已略過 {count} 個專案"],
+        P::ModsResultPlayersNeed => ["玩家也需要其中 {count} 個", "玩家也需要其中 {count} 個"],
+        P::ModsSomeUpdatesFailed => ["{count} 個更新失敗", "{count} 個更新失敗"],
+        P::ModsUploadedCount => ["已上傳 {count} 個模組", "已上傳 {count} 個模組"],
     }
 }

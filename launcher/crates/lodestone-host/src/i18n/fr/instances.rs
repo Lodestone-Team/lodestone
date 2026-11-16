@@ -3,7 +3,7 @@ use crate::i18n::{InstancesMsg as M, InstancesPlural as P};
 pub fn text(message: M) -> &'static str {
     match message {
         M::CopyAddress => "Copier l’adresse",
-        M::CopiedText => "{text} copié",
+        M::CopiedText => "Copié",
         M::SettingUpPercent => "Configuration… {percent}",
         M::StepSelectGame => "Choisir un jeu",
         M::StepBasicSettings => "Paramètres de base",
@@ -196,15 +196,12 @@ pub fn text(message: M) -> &'static str {
         M::SearchPage => "Page {page} sur {total}",
         M::PreviousPage => "Page précédente",
         M::NextPage => "Page suivante",
-        M::ByAuthor => "par {author}",
         M::VersionRelease => "stable",
         M::VersionBeta => "bêta",
         M::VersionAlpha => "alpha",
         M::NotFound => "Serveur introuvable",
         M::NoName => "Sans nom",
         M::NoDescription => "Aucune description",
-        M::VersionLabel => "Version {version}",
-        M::PlayerCount => "Joueurs {players}/{max}",
         M::EditName => "Renommer",
         M::EditDescription => "Modifier la description",
         M::NameEmpty => "Saisissez un nom.",
@@ -222,21 +219,18 @@ pub fn text(message: M) -> &'static str {
         M::DetailsCreated => "Créé le",
         M::DetailsAutoStart => "Démarrage automatique",
         M::DetailsRestartOnCrash => "Redémarrer après un plantage",
-        M::DetailsRam => "Mémoire min. / max.",
-        M::DetailsRamValue => "{min} Mo / {max} Mo",
         M::DetailsFolder => "Dossier",
-        M::DetailsModpack => "Créé à partir du modpack",
         M::PerformanceTitle => "Surveillance du serveur",
         M::PerformanceLead => "Utilisation de votre Lodestone Core par l’instance",
-        M::CpuLoad => "CHARGE CPU : {value} %",
-        M::MemoryUsed => "MÉMOIRE UTILISÉE : {value} Gio",
+        M::CpuLoad => "Charge CPU",
+        M::MemoryUsed => "Mémoire utilisée",
         M::LoadingGraph => "Chargement du graphique",
         M::CpuUsage => "Utilisation du CPU",
         M::MemoryUsage => "Utilisation de la mémoire",
         M::UnitPercent => " %",
         M::UnitGiB => " Gio",
         M::GraphSeconds => "{seconds} s",
-        M::GraphSecondsAgo => "il y a {seconds} s : {value}",
+        M::GraphSecondsAgo => "il y a {seconds} s",
         M::PlayersTitle => "Liste des joueurs",
         M::PlayersLead => "Tous les joueurs actuellement en ligne",
         M::PlayersSortByName => "NOM",
@@ -272,9 +266,8 @@ pub fn text(message: M) -> &'static str {
         M::ShareHardNetwork => {
             "Le routeur de ce réseau rend les connexions directes difficiles. Certaines personnes ne pourront peut-être pas rejoindre."
         }
-        M::SharePeerLine => "via {connection}, {ms} ms",
-        M::ShareSameComputer => "cet ordinateur",
-        M::ShareLocalNetwork => "le réseau local",
+        M::ShareSameComputer => "Cet ordinateur",
+        M::ShareLocalNetwork => "Réseau local",
         M::ShareIpv6 => "IPv6",
         M::ShareInternet => "Internet",
         M::ShareStop => "Arrêter le partage",
@@ -290,7 +283,7 @@ pub fn text(message: M) -> &'static str {
         M::ShareNewLinkConfirm => "Créer un nouveau lien",
         M::ShareNewLinkMade => "Nouveau lien d'invitation créé",
         M::ShareRemovedFriendsNote => {
-            "Vous avez retiré {names} de vos amis. S'ils ont ce lien d'invitation, ils peuvent encore rejoindre tant que vous n'en créez pas un nouveau."
+            "Vous avez retiré ces amis. S’ils ont ce lien d’invitation, ils peuvent encore rejoindre jusqu’à ce que vous en créiez un nouveau."
         }
         M::ShareRemovedFriendsDismiss => "Ignorer",
         M::ShareRemovedFriendsToast => {
@@ -303,6 +296,10 @@ pub fn text(message: M) -> &'static str {
         M::ShareNewLinkFailed => "Impossible de créer un nouveau lien pour {name} : {error}",
         M::ShareShort => "Partager",
         M::ShareShortHint => "Partager ce serveur",
+        M::DetailsMinRam => "RAM min.",
+        M::DetailsMaxRam => "RAM max.",
+        M::ShareConnected => "Personnes connectées",
+        M::ShareJoins => "Connexions jusqu’ici",
     }
 }
 
@@ -313,10 +310,5 @@ pub fn plural(message: P) -> [&'static str; 2] {
             "Afficher plus ({count} restantes)",
         ],
         P::ImportFiles => ["{count} fichier", "{count} fichiers"],
-        P::ShareConnected => ["{count} personne connectée", "{count} personnes connectées"],
-        P::ShareJoins => [
-            "({count} connexion jusqu’ici)",
-            "({count} connexions jusqu’ici)",
-        ],
     }
 }

@@ -3,7 +3,7 @@ use crate::i18n::{InstancesMsg as M, InstancesPlural as P};
 pub fn text(message: M) -> &'static str {
     match message {
         M::CopyAddress => "複製位址",
-        M::CopiedText => "已複製 {text}",
+        M::CopiedText => "已複製",
         M::SettingUpPercent => "正在設定… {percent}",
         M::StepSelectGame => "選擇遊戲",
         M::StepBasicSettings => "基本設定",
@@ -170,15 +170,12 @@ pub fn text(message: M) -> &'static str {
         M::SearchPage => "第 {page} 頁，共 {total} 頁",
         M::PreviousPage => "上一頁",
         M::NextPage => "下一頁",
-        M::ByAuthor => "作者：{author}",
         M::VersionRelease => "正式版",
         M::VersionBeta => "測試版",
         M::VersionAlpha => "早期測試版",
         M::NotFound => "找不到伺服器",
         M::NoName => "無名稱",
         M::NoDescription => "無說明",
-        M::VersionLabel => "版本 {version}",
-        M::PlayerCount => "玩家數 {players}/{max}",
         M::EditName => "重新命名",
         M::EditDescription => "編輯描述",
         M::NameEmpty => "請輸入名稱。",
@@ -196,21 +193,18 @@ pub fn text(message: M) -> &'static str {
         M::DetailsCreated => "建立時間",
         M::DetailsAutoStart => "自動啟動",
         M::DetailsRestartOnCrash => "當機後重新啟動",
-        M::DetailsRam => "最小 / 最大記憶體",
-        M::DetailsRamValue => "{min} MB / {max} MB",
         M::DetailsFolder => "資料夾",
-        M::DetailsModpack => "建立自模組包",
         M::PerformanceTitle => "伺服器監控",
         M::PerformanceLead => "此實例對你的 Lodestone Core 的資源使用量",
-        M::CpuLoad => "CPU 負載：{value}%",
-        M::MemoryUsed => "已用記憶體：{value} GiB",
+        M::CpuLoad => "CPU 負載",
+        M::MemoryUsed => "已用記憶體",
         M::LoadingGraph => "正在載入圖表",
         M::CpuUsage => "CPU 使用率",
         M::MemoryUsage => "記憶體使用量",
         M::UnitPercent => "%",
         M::UnitGiB => " GiB",
         M::GraphSeconds => "{seconds} 秒",
-        M::GraphSecondsAgo => "{seconds} 秒前：{value}",
+        M::GraphSecondsAgo => "{seconds} 秒前",
         M::PlayersTitle => "玩家清單",
         M::PlayersLead => "目前在線上的所有玩家",
         M::PlayersSortByName => "名稱",
@@ -242,8 +236,7 @@ pub fn text(message: M) -> &'static str {
             "伺服器執行期間，任何擁有此連結的人都能加入。沒有 Lodestone Launcher 的人會看到下載連結。"
         }
         M::ShareHardNetwork => "此網路的路由器難以建立直接連線，部分玩家可能無法加入。",
-        M::SharePeerLine => "透過{connection}，{ms} 毫秒",
-        M::ShareSameComputer => "這台電腦",
+        M::ShareSameComputer => "本機",
         M::ShareLocalNetwork => "區域網路",
         M::ShareIpv6 => "IPv6",
         M::ShareInternet => "網際網路",
@@ -258,7 +251,7 @@ pub fn text(message: M) -> &'static str {
         M::ShareNewLinkConfirm => "產生新連結",
         M::ShareNewLinkMade => "已產生新的邀請連結",
         M::ShareRemovedFriendsNote => {
-            "你已移除好友 {names}。如果對方有這個邀請連結，在你產生新連結之前仍可加入。"
+            "你已移除這些好友。如果他們有此邀請連結，在你建立新連結之前他們仍可加入。"
         }
         M::ShareRemovedFriendsDismiss => "忽略",
         M::ShareRemovedFriendsToast => {
@@ -269,6 +262,10 @@ pub fn text(message: M) -> &'static str {
         M::ShareNewLinkFailed => "無法為 {name} 產生新連結：{error}",
         M::ShareShort => "分享",
         M::ShareShortHint => "分享此伺服器",
+        M::DetailsMinRam => "最小記憶體",
+        M::DetailsMaxRam => "最大記憶體",
+        M::ShareConnected => "已連線的人",
+        M::ShareJoins => "累計加入",
     }
 }
 
@@ -276,7 +273,5 @@ pub fn plural(message: P) -> [&'static str; 2] {
     match message {
         P::ModpackShowMore => ["顯示更多（還有 {count} 個）", "顯示更多（還有 {count} 個）"],
         P::ImportFiles => ["{count} 個檔案", "{count} 個檔案"],
-        P::ShareConnected => ["{count} 人已連線", "{count} 人已連線"],
-        P::ShareJoins => ["（目前共加入 {count} 次）", "（目前共加入 {count} 次）"],
     }
 }

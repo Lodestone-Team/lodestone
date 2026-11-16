@@ -127,7 +127,7 @@ fn typed_spans_resolve_through_the_hosts_messages() {
         i18n::spans::{Mono, Num},
         values::Role,
     };
-    let spans = lodestone_ui::tr_spans!(ShellMsg::CoreHost, host = Mono("mini.local"));
+    let spans = lodestone_ui::tr_spans!(ShellMsg::PowerMenu, state = Mono("mini.local"));
     let (range, role) = spans.runs()[0].clone();
     assert_eq!((&spans.plain()[range], role), ("mini.local", Role::Exact));
     let spans = lodestone_ui::tr_spans!(ValueMsg::KeyValue, key = "Size", value = Num(4));

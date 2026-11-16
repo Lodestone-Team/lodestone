@@ -106,7 +106,7 @@ pub fn text(message: M) -> &'static str {
         M::ModsSearchMod => "Rechercher des mods sur Modrinth, ou coller un lien Modrinth",
         M::ModsSearchPlugin => "Rechercher des plugins sur Modrinth, ou coller un lien Modrinth",
         M::ModsSearchLabel => "Rechercher sur Modrinth",
-        M::ModsOnlyCompatible => "N’afficher que les versions pour {gameVersion} / {loader}",
+        M::ModsOnlyCompatible => "Versions compatibles uniquement",
         M::ModsPlayersNeedToo => "Requis aussi pour les joueurs",
         M::ModsServerOnly => "Serveur uniquement",
         M::ModsPlayersNeed => "Requis pour les joueurs",
@@ -127,19 +127,12 @@ pub fn text(message: M) -> &'static str {
         M::ModsForPlayersOptional => {
             "Modrinth indique que les joueurs peuvent rejoindre sans ce mod, mais sur Fabric, les mods de ce genre les en empêchent souvent : les joueurs le reçoivent donc. Décochez-le pour le retirer."
         }
-        M::ModsMarkedForPlayers => {
-            "Les joueurs recevront {name} la prochaine fois qu'ils rejoindront"
-        }
-        M::ModsUnmarkedForPlayers => "Les joueurs ne reçoivent plus {name} en rejoignant",
-        M::ModsMarkFailed => "Impossible de modifier {name} : {error}",
-        M::ModsRelease => "stable",
-        M::ModsBeta => "bêta",
-        M::ModsAlpha => "alpha",
-        M::ModsResultInstalled => "Installé : {mods}",
-        M::ModsResultRemoved => "Retiré : {files}",
-        M::ModsResultSkipped => "Ignoré : {projects}",
-        M::ModsResultPlayersNeed => "Les joueurs auront aussi besoin de {mods}",
-        M::ModsByAuthor => "par {author}",
+        M::ModsMarkedForPlayers => "Les joueurs le recevront à leur prochaine connexion",
+        M::ModsUnmarkedForPlayers => "Les joueurs ne le recevront plus à leur connexion",
+        M::ModsMarkFailed => "Impossible de le modifier : {error}",
+        M::ModsRelease => "Stable",
+        M::ModsBeta => "Bêta",
+        M::ModsAlpha => "Alpha",
         M::ModsInstalledTag => "Installé",
         M::ModsSortBy => "Trier par",
         M::ModsSortRelevance => "Pertinence",
@@ -155,30 +148,27 @@ pub fn text(message: M) -> &'static str {
         M::ModsPage => "Page {page} sur {total}",
         M::ModsPreviousPage => "Page précédente",
         M::ModsNextPage => "Page suivante",
-        M::ModsEnableFailed => "Impossible d’activer {name} : {error}",
-        M::ModsDisableFailed => "Impossible de désactiver {name} : {error}",
-        M::ModsUpdated => "{name} mis à jour vers {version}",
-        M::ModsUpdateFailed => "Impossible de mettre à jour {name} : {error}",
+        M::ModsEnableFailed => "Impossible de l’activer : {error}",
+        M::ModsDisableFailed => "Impossible de le désactiver : {error}",
+        M::ModsUpdated => "Mis à jour",
+        M::ModsUpdateFailed => "Impossible de le mettre à jour : {error}",
         M::ModsUpdateTo => "Passer à {version}",
         M::ModsViewOnModrinth => "Voir sur Modrinth",
         M::ModsDeleteLabel => "Supprimer {name}",
-        M::ModsUploaded => "Importé : {names}",
+        M::ModsUploaded => "Importé",
         M::ModsUploadFailed => "Échec de l’importation : {error}",
-        M::ModsOnlyJars => "Seuls les fichiers .jar peuvent être importés : {names}",
+        M::ModsOnlyJars => "Seuls les fichiers .jar peuvent être importés. Non importés :",
         M::ModsUpdatesInstalled => "Mises à jour installées",
-        M::ModsSomeUpdatesFailed => "Certaines mises à jour ont échoué : {failures}",
-        M::ModsDeleted => "{name} supprimé",
+        M::ModsDeleted => "Supprimé",
         M::ModsDeleteFailed => "Échec de la suppression : {error}",
         M::ModsDeleteTitleMod => "Supprimer le mod ?",
         M::ModsDeleteTitlePlugin => "Supprimer le plugin ?",
-        M::ModsDeleteBody => {
-            "{name} ({fileName}) sera supprimé du serveur. Cette action est irréversible."
-        }
+        M::ModsDeleteBody => "Son fichier sera supprimé du serveur. Cette action est irréversible.",
         M::ModsOverwriteTitle => "Remplacer les fichiers existants ?",
         M::ModsOverwrite => "Remplacer",
         M::ModsOverwriteBody => "{message} Le remplacer par le fichier importé ?",
         M::ModsOverwriteDefault => "Un fichier du même nom est déjà installé.",
-        M::ModsUpdateAll => "Tout mettre à jour ({count})",
+        M::ModsUpdateAll => "Tout mettre à jour",
         M::ModsCheckUpdates => "Rechercher des mises à jour",
         M::ModsUpload => "Importer",
         M::ModsUploadPrompt => "Importer",
@@ -206,7 +196,7 @@ pub fn text(message: M) -> &'static str {
         M::ModpackUpdateTo => "Mettre à jour vers {version}",
         M::ModpackFromFile => "Mettre à jour depuis un fichier",
         M::ModpackFilePrompt => "Mettre à jour",
-        M::ModpackNotMrpack => "{name} n’est pas un fichier .mrpack.",
+        M::ModpackNotMrpack => "Ce n’est pas un fichier .mrpack",
         M::ModpackPlanFailed => "Impossible de préparer la mise à jour : {error}",
         M::ModpackDialogTitle => "Mettre à jour le modpack ?",
         M::ModpackDialogRestoreIntro => {
@@ -240,11 +230,11 @@ pub fn text(message: M) -> &'static str {
         M::ModsSource => "Code source",
         M::ModsIssues => "Tickets",
         M::ModsWiki => "Wiki",
-        M::ModsServerSide => "serveur : {value}",
-        M::ModsSideRequired => "requis",
-        M::ModsSideOptional => "facultatif",
-        M::ModsSideUnsupported => "non pris en charge",
-        M::ModsSideUnknown => "inconnu",
+        M::ModsServerSide => "Côté serveur",
+        M::ModsSideRequired => "Requis",
+        M::ModsSideOptional => "Facultatif",
+        M::ModsSideUnsupported => "Non pris en charge",
+        M::ModsSideUnknown => "Inconnu",
         M::ModsCreateFromModpack => "Créer un serveur à partir de ce modpack",
         M::ModsModpackNoPermission => {
             "Ceci est un modpack. Vous n’avez pas l’autorisation de créer des serveurs."
@@ -262,18 +252,16 @@ pub fn text(message: M) -> &'static str {
         M::ModsWithDependencies => "Installer aussi les dépendances requises",
         M::ModsShowAll => "Afficher toutes les versions",
         M::ModsVersionsFailed => "Impossible de charger les versions : {error}",
-        M::ModsNoVersions => "Aucune version pour {loader} {gameVersion}.",
+        M::ModsNoVersions => "Aucune version pour le jeu et le chargeur de ce serveur.",
         M::ModsNoVersionsShowAll => {
-            "Aucune version pour {loader} {gameVersion}. Activez « Afficher toutes les versions » pour voir les autres."
+            "Aucune version pour le jeu et le chargeur de ce serveur. Activez « Afficher toutes les versions » pour voir les autres."
         }
-        M::ModsNotFor => "Pas pour {loader} {gameVersion}",
-        M::ModsInstalledVersion => "{title} {version} installé",
-        M::ModsInstallFailed => "Impossible d’installer {title} : {error}",
+        M::ModsNotFor => "Pas pour ce serveur",
+        M::ModsInstalledVersion => "Installé",
+        M::ModsInstallFailed => "Impossible de l’installer : {error}",
         M::ModsIncompatibleTitle => "Installer une version incompatible ?",
         M::ModsInstallAnyway => "Installer quand même",
-        M::ModsIncompatibleBody => {
-            "{title} {version} est conçu pour {loaders} {gameVersions}, pas pour {loader} {gameVersion}. Le serveur risque de planter."
-        }
+        M::ModsIncompatibleBody => "Il risque de faire planter le serveur.",
         M::FriendsTitle => "Amis",
         M::FriendsLead => {
             "Les amis ajoutés dans Lodestone Launcher voient les serveurs que vous partagez avec eux et les rejoignent sans lien. Rien n’est partagé tant que vous ne cochez pas un ami."
@@ -341,13 +329,13 @@ pub fn text(message: M) -> &'static str {
         M::ModpackUpdateAvailable => "Mise à jour disponible",
         M::ModpackReplacedKey => "Remplacés",
         M::ModpackRecorded => "Enregistré",
+        M::ModsThisVersion => "Cette version",
+        M::ModsThisServer => "Ce serveur",
     }
 }
 
 pub fn plural(message: P) -> [&'static str; 2] {
     match message {
-        P::ModsDownloads => ["{count} téléchargement", "{count} téléchargements"],
-        P::ModsFollowers => ["{count} abonné", "{count} abonnés"],
         P::ModsPackTitle => [
             "Les joueurs ont besoin de {count} mod pour se connecter",
             "Les joueurs ont besoin de {count} mods pour se connecter",
@@ -361,12 +349,23 @@ pub fn plural(message: P) -> [&'static str; 2] {
             "Afficher plus ({count} restante)",
             "Afficher plus ({count} restantes)",
         ],
-        P::ModsMoreGameVersions => ["+{count} autre", "+{count} autres"],
         P::ModpackAdded => ["{count} fichier ajouté", "{count} fichiers ajoutés"],
         P::ModpackReplaced => ["{count} fichier remplacé", "{count} fichiers remplacés"],
         P::ModpackRemoved => ["{count} fichier supprimé", "{count} fichiers supprimés"],
         P::ModpackMoreChanges => ["et {count} autre", "et {count} autres"],
         P::FriendsConnectedCount => ["{count} ami connecté", "{count} amis connectés"],
         P::ModsNeededBy => ["Requis par {count} mod", "Requis par {count} mods"],
+        P::ModsResultInstalled => ["{count} mod installé", "{count} mods installés"],
+        P::ModsResultRemoved => ["{count} fichier supprimé", "{count} fichiers supprimés"],
+        P::ModsResultSkipped => ["{count} projet ignoré", "{count} projets ignorés"],
+        P::ModsResultPlayersNeed => [
+            "Les joueurs en auront aussi besoin ({count})",
+            "Les joueurs en auront aussi besoin ({count})",
+        ],
+        P::ModsSomeUpdatesFailed => [
+            "{count} mise à jour a échoué",
+            "{count} mises à jour ont échoué",
+        ],
+        P::ModsUploadedCount => ["{count} mod importé", "{count} mods importés"],
     }
 }
