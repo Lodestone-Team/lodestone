@@ -5,7 +5,10 @@ import Button from './Button';
 import { useT } from 'i18n';
 
 export interface DialogProps {
+  /** the action and kind only ("Delete server?"); the object goes in `object` */
   title: string;
+  /** the object acted on, usually an ObjectCard, shown under the title */
+  object?: ReactNode;
   children: ReactNode;
   type: 'info' | 'danger';
   confirmButtonText?: string;
@@ -18,6 +21,7 @@ export interface DialogProps {
 
 export default function ConfirmDialog({
   title,
+  object,
   children,
   type,
   confirmButtonText,
@@ -53,8 +57,10 @@ export default function ConfirmDialog({
               >
                 {title}
               </Dialog.Title>
+              {object && <div className="-mt-2 min-w-0">{object}</div>}
+              {/* a div: the body may hold lists and cards, which a <p> can't */}
               <Dialog.Description
-                as="p"
+                as="div"
                 className="overflow-hidden text-h3 tracking-medium text-gray-300"
               >
                 {children}
