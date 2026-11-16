@@ -1,13 +1,16 @@
 //! The Worlds tab: the instance's worlds with their backups and data packs, and its
 //! screenshots.
 //!
-//! The work is `launcher_core::worlds`, `launcher_core::datapacks` and
-//! `launcher_core::screenshots`; this view runs it in the background, one job at a time,
-//! and refuses changes while the game runs. Deleting a world and replacing it with a
-//! backup ask the window for a confirmation ([`WorldsEvent`]).
+//! The work is `launcher_core::worlds`, `launcher_core::world_backups`,
+//! `launcher_core::datapacks` and `launcher_core::screenshots`; this view runs it in the
+//! background, one job at a time, and refuses changes while the game runs. Deleting a world
+//! and restoring it from a snapshot ask the window for a confirmation, and a world backup's
+//! restore and delete open the world backup dialog ([`WorldsEvent`]).
 //!
 //! A world's row opens one panel at a time below it: its backups, or its data packs
 //! (turned on and off in the world's own list, added from files, or found on Modrinth).
+//! The backups panel has two sections: the world's **world backups** (zips of it, which
+//! "Back up" makes) and the **snapshots** of the whole instance that hold it.
 
 use crate::components::RichText;
 use crate::skin::Skinned;
@@ -27,9 +30,10 @@ use gpui::{
 use launcher_core::{
     content::{InstanceDirs, packs::Compatibility},
     datapacks::{self, PackState, WorldDataPacks},
-    game::download::{CancelToken, Progress, ProgressSnapshot},
-    images::{ImageError, Images, RestoreScope, SnapshotKind, SnapshotRecord, Take, labels},
+    game::download::{CancelToken, Progress},
+    images::{ImageError, Images, RestoreScope, SnapshotRecord},
     screenshots::{self, Screenshot},
+    world_backups::{RestoreTo, WorldBackup, WorldBackupError},
     worlds::{self, World, WorldError},
 };
 use lodestone_minecraft::{
@@ -44,6 +48,7 @@ use super::{
         view::{badge, card, list_box, muted, pills, row_base, small, small_rich},
     },
     jobs::{BusyFiles, Parked},
+    world_backups::WorldBackupRequest,
 };
 use crate::components::{
     KeyboardFocus,
@@ -51,7 +56,10 @@ use crate::components::{
 };
 use crate::i18n::{CommonMsg, ContentMsg, WorldsMsg as M, WorldsPlural as P, format, t, tr, trn};
 use crate::{
-    components::{Button, ButtonSize, ButtonVariant, Icon, LoadingDots, TextInput, Toggle},
+    components::{
+        Button, ButtonSize, ButtonVariant, Dropdown, Icon, IconButton, ListRow, LoadingDots,
+        TextInput, Toggle, settings::popover_panel,
+    },
     file_dialog,
     theme::{self, colors, fonts, radius, text, weights},
 };
@@ -117,10 +125,9 @@ pub enum Section {
     Screenshots,
 }
 
-/// What the Worlds tab asks the window to confirm.
-/// A snapshot that holds a world, as its backups panel lists it.
+/// A snapshot that holds a world, as its backups panel lists it under "In snapshots".
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Backup {
+pub struct SnapshotCopy {
     /// The snapshot's id.
     pub snapshot: String,
     /// Its name, written visibly.
@@ -129,18 +136,18 @@ pub struct Backup {
     pub created: i64,
     /// The bytes of this world in the snapshot (the snapshot's whole size when unknown).
     pub bytes: u64,
-    /// How many other worlds the snapshot holds: "Back up" takes all of them.
+    /// How many other worlds the snapshot holds.
     pub others: usize,
 }
 
 /// The snapshots of `records` that hold each world of `list`, by world folder.
-fn backups_of(list: &[World], records: &[SnapshotRecord]) -> HashMap<String, Vec<Backup>> {
+fn copies_of(list: &[World], records: &[SnapshotRecord]) -> HashMap<String, Vec<SnapshotCopy>> {
     list.iter()
         .map(|world| {
             let held = records
                 .iter()
                 .filter(|r| r.worlds.contains(&world.folder))
-                .map(|r| Backup {
+                .map(|r| SnapshotCopy {
                     snapshot: r.id.clone(),
                     name: r.name_shown(),
                     created: r.created,
@@ -161,6 +168,15 @@ fn id_of(dirs: &InstanceDirs) -> String {
         .unwrap_or_default()
 }
 
+/// The instance's world backups by world folder, newest first.
+fn by_folder(backups: Vec<WorldBackup>) -> HashMap<String, Vec<WorldBackup>> {
+    let mut found: HashMap<String, Vec<WorldBackup>> = HashMap::new();
+    for backup in backups {
+        found.entry(backup.folder.clone()).or_default().push(backup);
+    }
+    found
+}
+
 /// A snapshot's failure, as a world job's.
 fn world_error(err: ImageError) -> WorldError {
     match err {
@@ -169,24 +185,33 @@ fn world_error(err: ImageError) -> WorldError {
     }
 }
 
+/// A world backup's failure, as a world job's.
+fn backup_error(err: WorldBackupError) -> WorldError {
+    match err {
+        WorldBackupError::Cancelled => WorldError::Cancelled,
+        other => WorldError::Invalid(other.to_string()),
+    }
+}
+
+/// What the Worlds tab asks the window for.
 pub enum WorldsEvent {
-    Delete {
-        folder: String,
-        name: String,
-    },
+    /// Confirm moving a world to the Trash.
+    Delete { folder: String, name: String },
+    /// Confirm restoring a world from a snapshot that holds it, in place.
     Replace {
         folder: String,
         name: String,
-        backup: Backup,
+        backup: SnapshotCopy,
     },
+    /// Open the world backup dialog: restoring or deleting one of the world's zips.
+    WorldBackup(WorldBackupRequest),
 }
 
 /// What a job is doing, shown over its progress bar in the current language.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum JobLabel {
     BackingUp(String),
-    Restoring,
-    Replacing,
+    FromSnapshot,
     MovingToTrash(String),
     Renaming,
     Exporting(String),
@@ -201,8 +226,7 @@ impl JobLabel {
         let trash = t(CommonMsg::TheTrash);
         match self {
             JobLabel::BackingUp(name) => tr!(M::BackingUp, name = name),
-            JobLabel::Restoring => t(M::RestoringBackup).to_string(),
-            JobLabel::Replacing => t(M::ReplacingWorld).to_string(),
+            JobLabel::FromSnapshot => t(M::RestoringFromSnapshot).to_string(),
             JobLabel::MovingToTrash(name) => tr!(M::MovingToTrash, name = name, trash = trash),
             JobLabel::Renaming => t(M::Renaming).to_string(),
             JobLabel::Exporting(name) => tr!(M::Exporting, name = name),
@@ -242,7 +266,10 @@ pub struct WorldsView {
     /// The world whose panel is open, and which panel.
     pub expanded: Option<String>,
     pub panel: WorldPanel,
-    backups: HashMap<String, Vec<Backup>>,
+    /// Each world's world backups, by folder.
+    world_backups: HashMap<String, Vec<WorldBackup>>,
+    /// The snapshots that hold each world, by folder.
+    copies: HashMap<String, Vec<SnapshotCopy>>,
     /// Data packs, by world folder, read when a world's panel opens.
     pub datapacks: HashMap<String, Load<WorldDataPacks>>,
     /// `pack.png`s, by world folder and pack name.
@@ -256,6 +283,8 @@ pub struct WorldsView {
     datapacks_task: Option<Task<()>>,
     /// The world being renamed, with its name field.
     renaming: Option<(String, Entity<TextInput>)>,
+    /// The world whose "…" menu is open.
+    world_menu: Option<String>,
     /// The shown instance's job.
     pub job: Option<Job>,
     /// The jobs of instances not shown, which go on meanwhile: a backup or restore
@@ -273,12 +302,15 @@ pub struct WorldsView {
     large: Option<(PathBuf, Load<Arc<RenderImage>>)>,
     confirm_delete_shot: Option<String>,
     was_active: bool,
-    /// The instance's snapshot revision the backups were read at
+    /// The instance's snapshot revision the snapshots were read at
     /// ([`Instances::snapshot_revision`]).
     snapshot_revision: u64,
+    /// The instance's world backup revision the world backups were read at
+    /// ([`Instances::world_backup_revision`]).
+    world_backup_revision: u64,
     load_task: Option<Task<()>>,
-    /// Re-reads the backups alone after a snapshot change ([`Self::reload_backups`]).
-    backups_task: Option<Task<()>>,
+    /// Re-reads the snapshots alone after a snapshot change ([`Self::reload_copies`]).
+    copies_task: Option<Task<()>>,
     shots_task: Option<Task<()>>,
     large_task: Option<Task<()>>,
     _prompt: Option<Task<()>>,
@@ -330,7 +362,8 @@ impl WorldsView {
             icons: HashMap::new(),
             expanded: None,
             panel: WorldPanel::Backups,
-            backups: HashMap::new(),
+            world_backups: HashMap::new(),
+            copies: HashMap::new(),
             datapacks: HashMap::new(),
             pack_icons: HashMap::new(),
             pack_search,
@@ -340,6 +373,7 @@ impl WorldsView {
             pack_search_task: None,
             datapacks_task: None,
             renaming: None,
+            world_menu: None,
             job: None,
             parked: Parked::default(),
             finished: HashMap::new(),
@@ -351,8 +385,9 @@ impl WorldsView {
             confirm_delete_shot: None,
             was_active: false,
             snapshot_revision: 0,
+            world_backup_revision: 0,
             load_task: None,
-            backups_task: None,
+            copies_task: None,
             shots_task: None,
             large_task: None,
             _prompt: None,
@@ -364,7 +399,7 @@ impl WorldsView {
 
     /// Follows the selected instance, and reads the lists again when its game stops.
     fn sync(&mut self, cx: &mut Context<Self>) {
-        let (selected, active, snapshots) = {
+        let (selected, active, snapshots, zips) = {
             let instances = self.instances.read(cx);
             // how a job went goes with its instance, not to a new one given its id
             if !self.finished.is_empty() {
@@ -379,7 +414,10 @@ impl WorldsView {
             let snapshots = selected
                 .as_deref()
                 .map_or(0, |id| instances.snapshot_revision(id));
-            (selected, active, snapshots)
+            let zips = selected
+                .as_deref()
+                .map_or(0, |id| instances.world_backup_revision(id));
+            (selected, active, snapshots, zips)
         };
         if selected != self.instance_id {
             let from = std::mem::replace(&mut self.instance_id, selected);
@@ -389,7 +427,8 @@ impl WorldsView {
             self.worlds = Load::NotLoaded;
             self.screenshots = Load::NotLoaded;
             self.icons.clear();
-            self.backups.clear();
+            self.world_backups.clear();
+            self.copies.clear();
             self.datapacks.clear();
             self.pack_icons.clear();
             // Another instance may run another Minecraft version.
@@ -405,15 +444,22 @@ impl WorldsView {
             self.viewing = None;
             self.large = None;
             self.confirm_delete_shot = None;
-        } else if self.was_active && !active {
+        } else if self.was_active && !active
+            || zips != self.world_backup_revision && !matches!(self.worlds, Load::NotLoaded)
+        {
+            // the game stopped, or a world backup was made, restored (a restore as a new
+            // world adds a world) or deleted
             self.reload(cx);
-            self.reload_screenshots(cx);
+            if self.was_active && !active {
+                self.reload_screenshots(cx);
+            }
         } else if snapshots != self.snapshot_revision && !matches!(self.worlds, Load::NotLoaded) {
-            // a snapshot was taken or deleted elsewhere: the backups listed changed, not the
-            // worlds
-            self.reload_backups(cx);
+            // a snapshot was taken or deleted elsewhere: the snapshots listed changed, not
+            // the worlds
+            self.reload_copies(cx);
         }
         self.snapshot_revision = snapshots;
+        self.world_backup_revision = zips;
         self.was_active = active;
         cx.notify();
     }
@@ -439,7 +485,8 @@ impl WorldsView {
             .as_deref()
             .is_some_and(|id| self.instances.read(cx).files_or_pack_busy(id));
         if busy && self.job.is_none() {
-            self.set_message(t(M::WaitForTask), true, cx);
+            // That job isn't shown here, so the message names the files, not a task.
+            self.set_message(t(crate::i18n::InstancesMsg::FilesBusy), true, cx);
         }
         busy && self.job.is_none()
     }
@@ -472,7 +519,7 @@ impl WorldsView {
         cx.notify();
     }
 
-    /// Reads `saves/` and the backups again.
+    /// Reads `saves/`, the world backups and the snapshots again.
     pub fn reload(&mut self, cx: &mut Context<Self>) {
         let Some((id, dirs)) = self.dirs(cx) else {
             return;
@@ -481,6 +528,7 @@ impl WorldsView {
             self.worlds = Load::Loading;
         }
         let images = self.instances.read(cx).images();
+        let zips = self.instances.read(cx).world_backups();
         let work = cx.background_spawn(async move {
             let list = worlds::list(&dirs);
             let icons: Vec<(String, image::RgbaImage)> = list
@@ -494,11 +542,12 @@ impl WorldsView {
                 .snapshots(&id_of(&dirs))
                 .map(|found| found.records)
                 .unwrap_or_default();
-            let backups = backups_of(&list, &records);
-            (list, icons, backups)
+            let copies = copies_of(&list, &records);
+            let backups = by_folder(zips.list(&id_of(&dirs)).unwrap_or_default());
+            (list, icons, copies, backups)
         });
         self.load_task = Some(cx.spawn(async move |this, cx| {
-            let (list, icons, backups) = work.await;
+            let (list, icons, copies, backups) = work.await;
             this.update(cx, |this, cx| {
                 if this.instance_id.as_deref() != Some(id.as_str()) {
                     return;
@@ -507,7 +556,8 @@ impl WorldsView {
                     .into_iter()
                     .map(|(folder, icon)| (folder, crate::images::render_image(icon)))
                     .collect();
-                this.backups = backups;
+                this.copies = copies;
+                this.world_backups = backups;
                 this.worlds = Load::Ready(list);
                 cx.notify();
             })
@@ -519,10 +569,10 @@ impl WorldsView {
         cx.notify();
     }
 
-    /// Reads the snapshots again for the backups each world lists, against the worlds
-    /// already listed: no level.dat or icon is read again. A full [`Self::reload`] when
-    /// the worlds aren't listed yet.
-    fn reload_backups(&mut self, cx: &mut Context<Self>) {
+    /// Reads the snapshots again for those each world lists, against the worlds already
+    /// listed: no level.dat or icon is read again. A full [`Self::reload`] when the worlds
+    /// aren't listed yet.
+    fn reload_copies(&mut self, cx: &mut Context<Self>) {
         let Load::Ready(list) = &self.worlds else {
             return self.reload(cx);
         };
@@ -536,15 +586,15 @@ impl WorldsView {
                 .snapshots(&id_of(&dirs))
                 .map(|found| found.records)
                 .unwrap_or_default();
-            backups_of(&list, &records)
+            copies_of(&list, &records)
         });
-        self.backups_task = Some(cx.spawn(async move |this, cx| {
-            let backups = work.await;
+        self.copies_task = Some(cx.spawn(async move |this, cx| {
+            let copies = work.await;
             this.update(cx, |this, cx| {
                 if this.instance_id.as_deref() != Some(id.as_str()) {
                     return;
                 }
-                this.backups = backups;
+                this.copies = copies;
                 cx.notify();
             })
             .ok();
@@ -560,8 +610,14 @@ impl WorldsView {
         }
     }
 
-    pub fn backups(&self, folder: &str) -> &[Backup] {
-        self.backups.get(folder).map_or(&[], Vec::as_slice)
+    /// The snapshots that hold the world `folder`.
+    pub fn copies(&self, folder: &str) -> &[SnapshotCopy] {
+        self.copies.get(folder).map_or(&[], Vec::as_slice)
+    }
+
+    /// The world backups of the world `folder`, newest first.
+    pub fn world_backups(&self, folder: &str) -> &[WorldBackup] {
+        self.world_backups.get(folder).map_or(&[], Vec::as_slice)
     }
 
     /// Runs `work` in the background as the tab's one job, with progress, and says how it
@@ -610,6 +666,11 @@ impl WorldsView {
                     else {
                         return;
                     };
+                    // A world deleted, renamed or added: Settings' world backups say which
+                    // of their worlds are gone.
+                    this.instances.update(cx, |instances, cx| {
+                        instances.world_backups_read_again(&id, cx)
+                    });
                     // The jobs are all about worlds, whichever section is open now.
                     let message = match result {
                         Ok(message) => (message.into(), false, Section::Worlds),
@@ -658,45 +719,41 @@ impl WorldsView {
         cx.notify();
     }
 
-    /// Backs the world up: a manual snapshot named after it, with the bytes it reads as
-    /// the job's progress, and stopped by its Cancel.
+    /// Backs the world up: a world backup (a zip of it), with the bytes it zips as the
+    /// job's progress, and stopped by its Cancel. The list follows through the world
+    /// backups' watch, also when the job ends while another instance is shown.
     pub fn back_up(&mut self, folder: String, name: String, cx: &mut Context<Self>) {
+        // Settings' world backup dialog, an install or a modpack update: it would wait for
+        // them, its Cancel doing nothing meanwhile.
+        if self.other_job_writes(cx) {
+            return;
+        }
         self.expanded = Some(folder.clone());
-        let (images, instance) = self.images_of(cx);
+        self.panel = WorldPanel::Backups;
+        let backups = self.instances.read(cx).world_backups();
+        let instance = self.instance_id.clone().unwrap_or_default();
         self.run(
             JobLabel::BackingUp(name.clone()),
             move |_, progress, cancel| {
-                images
-                    .take_snapshot(
-                        &instance,
-                        Take {
-                            kind: SnapshotKind::Manual,
-                            name: Some(labels::backed_up(&name)),
-                            full: false,
-                            progress: &|done, total| {
-                                progress.set(ProgressSnapshot {
-                                    bytes_done: done,
-                                    bytes_total: total,
-                                    ..ProgressSnapshot::default()
-                                })
-                            },
-                            cancel: &|| cancel.is_cancelled(),
-                        },
-                    )
-                    .map_err(world_error)?;
+                backups
+                    .create(&instance, &folder, None, progress, &|| {
+                        cancel.is_cancelled()
+                    })
+                    .map_err(backup_error)?;
                 Ok(tr!(M::BackedUp, name = name))
             },
             cx,
         );
     }
 
-    pub fn restore_copy(&mut self, folder: String, backup: Backup, cx: &mut Context<Self>) {
+    /// Puts the world back from a snapshot that holds it, as a new world beside it.
+    pub fn restore_copy(&mut self, folder: String, backup: SnapshotCopy, cx: &mut Context<Self>) {
         if self.other_job_writes(cx) {
             return;
         }
         let (images, instance) = self.images_of(cx);
         self.run(
-            JobLabel::Restoring,
+            JobLabel::FromSnapshot,
             move |_, _, cancel| {
                 let copy = images
                     .restore_world_copy(&instance, &backup.snapshot, &folder, &|| {
@@ -711,13 +768,18 @@ impl WorldsView {
 
     /// Puts the world back from a snapshot, in its place (after the window's
     /// confirmation), after a safety snapshot.
-    pub fn restore_replace(&mut self, folder: String, backup: Backup, cx: &mut Context<Self>) {
+    pub fn restore_replace(
+        &mut self,
+        folder: String,
+        backup: SnapshotCopy,
+        cx: &mut Context<Self>,
+    ) {
         if self.other_job_writes(cx) {
             return;
         }
         let (images, instance) = self.images_of(cx);
         self.run(
-            JobLabel::Replacing,
+            JobLabel::FromSnapshot,
             move |_, _, cancel| {
                 let restored = images
                     .restore(
@@ -750,6 +812,10 @@ impl WorldsView {
 
     /// Moves the world to the Trash (after the window's confirmation).
     pub fn delete_world(&mut self, folder: String, name: String, cx: &mut Context<Self>) {
+        // A restore of it in Settings would put it back.
+        if self.other_job_writes(cx) {
+            return;
+        }
         self.run(
             JobLabel::MovingToTrash(name.clone()),
             move |dirs, _, _| {
@@ -761,7 +827,7 @@ impl WorldsView {
     }
 
     pub fn start_rename(&mut self, folder: String, name: String, cx: &mut Context<Self>) {
-        if !self.can_change(cx) {
+        if !self.can_change(cx) || self.other_job_writes(cx) {
             return;
         }
         let input = cx.new(|cx| {
@@ -779,10 +845,15 @@ impl WorldsView {
             return;
         };
         let name = input.read(cx).text().trim().to_string();
+        let backups = self.instances.read(cx).world_backups();
+        let instance = self.instance_id.clone().unwrap_or_default();
         self.run(
             JobLabel::Renaming,
-            move |dirs, _, _| {
-                let new_folder = worlds::rename(dirs, &folder, &name)?;
+            move |_, _, _| {
+                // Its world backups go with it.
+                let new_folder = backups
+                    .rename_world(&instance, &folder, &name)
+                    .map_err(backup_error)?;
                 Ok(if new_folder == folder {
                     tr!(M::RenamedTo, name = name)
                 } else {
@@ -835,12 +906,15 @@ impl WorldsView {
             self.set_message(t(M::ZipsOnly), true, cx);
             return;
         }
+        let zips = self.instances.read(cx).world_backups();
         self.run(
             JobLabel::Importing,
             move |dirs, progress, cancel| {
+                let backups = zips.folders_of(&id_of(dirs));
+                let taken: Vec<&Path> = backups.as_deref().into_iter().collect();
                 let mut imported = Vec::new();
                 for path in &paths {
-                    let folder = worlds::import_zip(dirs, path, progress, cancel).map_err(
+                    let folder = worlds::import_zip(dirs, path, &taken, progress, cancel).map_err(
                         |err| match err {
                             WorldError::Cancelled => WorldError::Cancelled,
                             other => WorldError::Invalid(tr!(
@@ -1376,6 +1450,12 @@ impl WorldsView {
         cx.notify();
     }
 
+    /// Opens a world's "…" menu, for the offscreen screenshots' `worlds-menu`.
+    pub fn preview_world_menu(&mut self, folder: &str, cx: &mut Context<Self>) {
+        self.world_menu = Some(folder.to_string());
+        cx.notify();
+    }
+
     /// Loads the lists right away, for the offscreen screenshots.
     pub fn preview_load(&mut self, cx: &mut Context<Self>) {
         let Some((_, dirs)) = self.dirs(cx) else {
@@ -1396,7 +1476,9 @@ impl WorldsView {
             .snapshots(&id_of(&dirs))
             .map(|found| found.records)
             .unwrap_or_default();
-        self.backups = backups_of(&list, &records);
+        self.copies = copies_of(&list, &records);
+        let zips = self.instances.read(cx).world_backups();
+        self.world_backups = by_folder(zips.list(&id_of(&dirs)).unwrap_or_default());
         self.worlds = Load::Ready(list);
         let shots = screenshots::list(&dirs);
         for shot in &shots {
@@ -1591,7 +1673,8 @@ impl WorldsView {
             .get(&folder)
             .and_then(Load::ready)
             .map(|p| p.packs.len());
-        let backups = self.backups(&folder).to_vec();
+        let copies = self.copies(&folder).to_vec();
+        let zips = self.world_backups(&folder).to_vec();
         let mut details = world_details(world);
         if let Some(time) = world.last_played() {
             details.insert(0, tr!(M::PlayedAt, time = when(time)));
@@ -1615,6 +1698,7 @@ impl WorldsView {
             .as_ref()
             .filter(|(f, _)| f == &folder)
             .map(|(_, input)| input.clone());
+        let renaming_this = renaming.is_some();
         let hardcore = world.summary.as_ref().is_some_and(|s| s.hardcore);
         let title: AnyElement = match renaming {
             Some(input) => div()
@@ -1669,25 +1753,52 @@ impl WorldsView {
             row_base(("world", index), index == 0)
                 .accessible(Role::Group, format!("world-{folder}"), name.clone())
                 .aria_description(description)
-                .child(icon)
                 .child(
                     div()
+                        .id(("world-open", index))
                         .flex()
-                        .flex_col()
+                        .flex_row()
+                        .items_center()
+                        .gap_3()
                         .flex_1()
                         .min_w_0()
-                        .gap_0p5()
-                        .child(title)
-                        .child(
-                            small_rich(RichText::new(details.join(" · ")))
-                                .truncate()
-                                .text_color(crate::theme::ink::muted()),
-                        )
-                        .when_some(world.problem.clone(), |this, problem| {
-                            this.child(
-                                small_rich(RichText::new(problem)).text_color(colors::YELLOW_300),
+                        .when(!renaming_this, |this| {
+                            let folder = folder.clone();
+                            this.accessible(
+                                Role::Button,
+                                format!("world-open-{folder}"),
+                                name.clone(),
                             )
-                        }),
+                            .aria_expanded(expanded)
+                            .keyboard_focus()
+                            .cursor_pointer()
+                            .on_click(cx.listener(
+                                move |this, _, _, cx| {
+                                    this.toggle_panel(folder.clone(), WorldPanel::Backups, cx)
+                                },
+                            ))
+                        })
+                        .child(icon)
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .flex_1()
+                                .min_w_0()
+                                .gap_0p5()
+                                .child(title)
+                                .child(
+                                    small_rich(RichText::new(details.join(" · ")))
+                                        .truncate()
+                                        .text_color(crate::theme::ink::muted()),
+                                )
+                                .when_some(world.problem.clone(), |this, problem| {
+                                    this.child(
+                                        small_rich(RichText::new(problem))
+                                            .text_color(colors::YELLOW_300),
+                                    )
+                                }),
+                        ),
                 )
                 .child(
                     div()
@@ -1696,113 +1807,11 @@ impl WorldsView {
                         .flex_none()
                         .items_center()
                         .gap_1()
+                        .child(self.render_world_menu(index, &folder, &name, pack_count, busy, cx))
                         .child(
-                            Button::new(("backup", index), t(M::BackUp))
-                                .variant(ButtonVariant::Secondary)
-                                .icon(Icon::Download)
-                                .size(ButtonSize::Slim)
-                                .disabled(busy)
-                                .on_click({
-                                    let (folder, name) = (folder.clone(), name.clone());
-                                    cx.listener(move |this, _, _, cx| {
-                                        this.back_up(folder.clone(), name.clone(), cx)
-                                    })
-                                }),
-                        )
-                        .child(
-                            Button::new(
-                                ("backups", index),
-                                if backups.is_empty() {
-                                    t(M::Backups).to_string()
-                                } else {
-                                    format!(
-                                        "{} {}",
-                                        t(M::Backups),
-                                        format::number(backups.len() as u64)
-                                    )
-                                },
-                            )
-                            .variant(if expanded {
-                                ButtonVariant::Primary
-                            } else {
-                                ButtonVariant::Ghost
-                            })
-                            .size(ButtonSize::Slim)
-                            .on_click({
-                                let folder = folder.clone();
-                                cx.listener(move |this, _, _, cx| {
-                                    this.toggle_panel(folder.clone(), WorldPanel::Backups, cx)
-                                })
-                            }),
-                        )
-                        .child(
-                            Button::new(
-                                ("datapacks", index),
-                                match pack_count {
-                                    Some(count) if count > 0 => format!(
-                                        "{} {}",
-                                        t(M::DataPacks),
-                                        format::number(count as u64)
-                                    ),
-                                    _ => t(M::DataPacks).to_string(),
-                                },
-                            )
-                            .variant(if packs_open {
-                                ButtonVariant::Primary
-                            } else {
-                                ButtonVariant::Ghost
-                            })
-                            .size(ButtonSize::Slim)
-                            .on_click({
-                                let folder = folder.clone();
-                                cx.listener(move |this, _, _, cx| {
-                                    this.toggle_panel(folder.clone(), WorldPanel::DataPacks, cx)
-                                })
-                            }),
-                        )
-                        .child(
-                            Button::new(("rename", index), t(CommonMsg::Rename))
-                                .variant(ButtonVariant::Ghost)
-                                .size(ButtonSize::Slim)
-                                .disabled(busy)
-                                .on_click({
-                                    let (folder, name) = (folder.clone(), name.clone());
-                                    cx.listener(move |this, _, _, cx| {
-                                        this.start_rename(folder.clone(), name.clone(), cx)
-                                    })
-                                }),
-                        )
-                        .child(
-                            Button::new(("export", index), t(M::Export))
-                                .variant(ButtonVariant::Ghost)
-                                .size(ButtonSize::Slim)
-                                .disabled(busy)
-                                .on_click({
-                                    let (folder, name) = (folder.clone(), name.clone());
-                                    cx.listener(move |this, _, _, cx| {
-                                        this.export_world(folder.clone(), name.clone(), cx)
-                                    })
-                                }),
-                        )
-                        .child(
-                            Button::new(("open-world", index), t(CommonMsg::OpenFolder))
-                                .variant(ButtonVariant::Ghost)
-                                .size(ButtonSize::Slim)
-                                .on_click({
-                                    let folder = folder.clone();
-                                    cx.listener(move |this, _, _, cx| {
-                                        if let Some((_, dirs)) = this.dirs(cx) {
-                                            cx.open_with_system(
-                                                &worlds::saves_dir(&dirs).join(&folder),
-                                            );
-                                        }
-                                    })
-                                }),
-                        )
-                        .child(
-                            Button::new(("delete-world", index), t(M::DeleteWorld))
-                                .variant(ButtonVariant::Danger)
-                                .size(ButtonSize::Slim)
+                            IconButton::new(("delete-world", index), Icon::TrashCan)
+                                .label(t(M::DeleteWorld))
+                                .color(colors::RED_200)
                                 .disabled(busy)
                                 .on_click({
                                     let (folder, name) = (folder.clone(), name.clone());
@@ -1819,12 +1828,105 @@ impl WorldsView {
                 ),
         );
         if expanded {
-            row = row.child(self.render_backups(index, &folder, &name, &backups, busy, cx));
+            row = row.child(self.render_backups(index, &folder, &name, &zips, &copies, busy, cx));
         }
         if packs_open {
             row = row.child(self.render_datapacks(&folder, &name, busy, cx));
         }
         row.into_any_element()
+    }
+
+    /// A world's "…": Data packs, Rename, Export… and Open folder.
+    fn render_world_menu(
+        &mut self,
+        index: usize,
+        folder: &str,
+        name: &str,
+        pack_count: Option<usize>,
+        busy: bool,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let open = self.world_menu.as_deref() == Some(folder);
+        let toggle = {
+            let folder = folder.to_string();
+            cx.listener(move |this, _, _, cx| {
+                this.world_menu = if this.world_menu.as_deref() == Some(folder.as_str()) {
+                    None
+                } else {
+                    Some(folder.clone())
+                };
+                cx.notify();
+            })
+        };
+        Dropdown::new(
+            IconButton::new(("world-menu", index), Icon::Ellipsis)
+                .label(format!("{}: {}", t(CommonMsg::Menu), name))
+                .on_click(toggle),
+        )
+        .align_end()
+        .when(open, |this| {
+            let close = cx.listener(|this, _: &(), _, cx| {
+                this.world_menu = None;
+                cx.notify();
+            });
+            let packs = match pack_count {
+                Some(count) if count > 0 => {
+                    format!("{} {}", t(M::DataPacks), format::number(count as u64))
+                }
+                _ => t(M::DataPacks).to_string(),
+            };
+            let (f1, f2, f3, f4) = (
+                folder.to_string(),
+                folder.to_string(),
+                folder.to_string(),
+                folder.to_string(),
+            );
+            let (n2, n3) = (name.to_string(), name.to_string());
+            let panel = popover_panel(("world-menu-list", index))
+                .w(px(220.))
+                .child(
+                    ListRow::new(("world-menu-datapacks", index), packs)
+                        .icon(Icon::PuzzlePiece)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.world_menu = None;
+                            this.toggle_panel(f1.clone(), WorldPanel::DataPacks, cx);
+                        })),
+                )
+                .child(
+                    ListRow::new(("world-menu-rename", index), t(CommonMsg::Rename))
+                        .icon(Icon::Pen)
+                        .disabled(busy)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.world_menu = None;
+                            this.start_rename(f2.clone(), n2.clone(), cx);
+                        })),
+                )
+                .child(
+                    ListRow::new(("world-menu-export", index), t(M::Export))
+                        .icon(Icon::Upload)
+                        .disabled(busy)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.world_menu = None;
+                            this.export_world(f3.clone(), n3.clone(), cx);
+                        })),
+                )
+                .child(
+                    ListRow::new(("world-menu-open", index), t(CommonMsg::OpenFolder))
+                        .icon(Icon::ArrowUpRightFromSquare)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.world_menu = None;
+                            if let Some((_, dirs)) = this.dirs(cx) {
+                                cx.open_with_system(&worlds::saves_dir(&dirs).join(&f4));
+                            }
+                            cx.notify();
+                        })),
+                );
+            this.popover(
+                SharedString::from(format!("world-menu-popover-{index}")),
+                panel,
+                move |window, cx| close(&(), window, cx),
+            )
+        })
     }
 
     /// The panel below a world: its data packs, and a Modrinth search.
@@ -2234,15 +2336,28 @@ impl WorldsView {
         panel.into_any_element()
     }
 
+    /// The panel below a world: its world backups, then the snapshots that hold it.
+    #[allow(clippy::too_many_arguments)]
     fn render_backups(
         &self,
         world_index: usize,
         folder: &str,
         name: &str,
-        backups: &[Backup],
+        zips: &[WorldBackup],
+        copies: &[SnapshotCopy],
         busy: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        let heading = |text_: &'static str| {
+            small(text_)
+                .font_weight(weights::BOLD.into())
+                .text_color(crate::theme::ink::secondary())
+        };
+        let empty = |text_: &'static str| {
+            small(text_)
+                .whitespace_normal()
+                .text_color(crate::theme::ink::muted())
+        };
         let mut list = div()
             .flex()
             .flex_col()
@@ -2252,25 +2367,161 @@ impl WorldsView {
             .py_2()
             .bg(colors::GRAY_850)
             .border_t_1()
-            .border_color(colors::GRAY_FADED.opacity(15));
-        if backups.is_empty() {
-            return list
-                .child(
-                    small(t(M::NoBackupsYet))
-                        .whitespace_normal()
-                        .text_color(crate::theme::ink::muted()),
-                )
-                .into_any_element();
+            .border_color(colors::GRAY_FADED.opacity(15))
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .justify_between()
+                    .gap_2()
+                    .child(heading(t(M::WorldBackupsHeading)))
+                    .child(
+                        Button::new(("backup", world_index), t(M::BackUp))
+                            .variant(ButtonVariant::Secondary)
+                            .icon(Icon::Download)
+                            .size(ButtonSize::Slim)
+                            .disabled(busy)
+                            .on_click({
+                                let (folder, name) = (folder.to_string(), name.to_string());
+                                cx.listener(move |this, _, _, cx| {
+                                    this.back_up(folder.clone(), name.clone(), cx)
+                                })
+                            }),
+                    ),
+            );
+        if zips.is_empty() {
+            list = list.child(empty(t(M::NoWorldBackupsYet)));
         }
-        for (index, backup) in backups.iter().enumerate() {
+        let instance = self.instance_id.clone().unwrap_or_default();
+        let reveal = self.instances.read(cx).world_backups();
+        for (index, backup) in zips.iter().enumerate() {
+            let id = world_index * 1000 + index;
+            let date = super::snapshots::when(backup.created);
+            // A restore changes the world, so the game must be stopped; deleting a zip only
+            // waits for the tab's own job, as in Settings.
+            let request = |make: fn(String, WorldBackup) -> WorldBackupRequest, changes_world| {
+                let (instance, backup) = (instance.clone(), backup.clone());
+                cx.listener(move |this, _, _, cx| {
+                    let ready = if changes_world {
+                        this.can_change(cx)
+                    } else if this.job.is_some() {
+                        this.set_message(t(M::WaitForTask), true, cx);
+                        false
+                    } else {
+                        true
+                    };
+                    if ready {
+                        cx.emit(WorldsEvent::WorldBackup(make(
+                            instance.clone(),
+                            backup.clone(),
+                        )));
+                    }
+                })
+            };
+            let mut about = vec![
+                super::world_backups::shown_name(backup),
+                format::bytes(backup.bytes),
+            ];
+            if backup.left_out_count > 0 {
+                about.push(trn!(
+                    crate::i18n::InstanceSettingsPlural::WorldBackupLeftOut,
+                    backup.left_out_count as usize
+                ));
+            }
+            let zip = reveal.zip_path(&instance, backup);
+            list = list.child(
+                div()
+                    .id(("world-backup-row", id))
+                    .accessible(
+                        Role::Group,
+                        format!("world-backup-{}", backup.id),
+                        date.clone(),
+                    )
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_3()
+                    .py_1()
+                    .child(Icon::Download.render(px(12.), colors::GRAY_500))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .flex_1()
+                            .min_w_0()
+                            .child(
+                                div()
+                                    .truncate()
+                                    .font_weight(weights::BOLD.into())
+                                    .child(date),
+                            )
+                            .child(
+                                small(about.join(" · "))
+                                    .truncate()
+                                    .text_color(crate::theme::ink::muted()),
+                            ),
+                    )
+                    .child(
+                        Button::new(("world-backup-restore", id), t(M::RestoreEllipsis))
+                            .variant(ButtonVariant::Secondary)
+                            .size(ButtonSize::Slim)
+                            .disabled(busy)
+                            .on_click(request(
+                                |instance, backup| WorldBackupRequest::Restore {
+                                    instance,
+                                    backup,
+                                    to: RestoreTo::InPlace,
+                                },
+                                true,
+                            )),
+                    )
+                    .child(
+                        Button::new(("world-backup-restore-new", id), t(M::RestoreAsNewWorld))
+                            .variant(ButtonVariant::Ghost)
+                            .size(ButtonSize::Slim)
+                            .disabled(busy)
+                            .on_click(request(
+                                |instance, backup| WorldBackupRequest::Restore {
+                                    instance,
+                                    backup,
+                                    to: RestoreTo::NewWorld,
+                                },
+                                true,
+                            )),
+                    )
+                    .child(
+                        Button::new(("world-backup-reveal", id), t(CommonMsg::ShowInFileManager))
+                            .variant(ButtonVariant::Ghost)
+                            .size(ButtonSize::Slim)
+                            .on_click(move |_, _, cx| cx.reveal_path(&zip)),
+                    )
+                    .child(
+                        Button::new(("world-backup-delete", id), t(CommonMsg::Delete))
+                            .variant(ButtonVariant::Ghost)
+                            .size(ButtonSize::Slim)
+                            .disabled(self.job.is_some())
+                            .on_click(request(
+                                |instance, backup| WorldBackupRequest::Delete { instance, backup },
+                                false,
+                            )),
+                    ),
+            );
+        }
+
+        list = list.child(div().pt_2().child(heading(t(M::InSnapshots))));
+        if copies.is_empty() {
+            list = list.child(empty(t(M::NoSnapshotsOfWorld)));
+        }
+        for (index, backup) in copies.iter().enumerate() {
             let id = world_index * 1000 + index;
             let date = super::snapshots::when(backup.created);
             list = list.child(
                 div()
-                    .id(("backup-row", id))
+                    .id(("snapshot-copy-row", id))
                     .accessible(
                         Role::Group,
-                        format!("backup-{}", backup.snapshot),
+                        format!("snapshot-copy-{}", backup.snapshot),
                         date.clone(),
                     )
                     .flex()
@@ -2308,21 +2559,11 @@ impl WorldsView {
                                 .text_color(crate::theme::ink::muted()),
                             ),
                     )
+                    // As the world backups above: in place (asking first), then as a new
+                    // world.
                     .child(
-                        Button::new(("restore-copy", id), t(M::RestoreAsCopy))
+                        Button::new(("restore-replace", id), t(M::RestoreEllipsis))
                             .variant(ButtonVariant::Secondary)
-                            .size(ButtonSize::Slim)
-                            .disabled(busy)
-                            .on_click({
-                                let (folder, backup) = (folder.to_string(), backup.clone());
-                                cx.listener(move |this, _, _, cx| {
-                                    this.restore_copy(folder.clone(), backup.clone(), cx)
-                                })
-                            }),
-                    )
-                    .child(
-                        Button::new(("restore-replace", id), t(M::ReplaceWorld))
-                            .variant(ButtonVariant::Ghost)
                             .size(ButtonSize::Slim)
                             .disabled(busy)
                             .on_click({
@@ -2336,6 +2577,18 @@ impl WorldsView {
                                             backup: backup.clone(),
                                         });
                                     }
+                                })
+                            }),
+                    )
+                    .child(
+                        Button::new(("restore-copy", id), t(M::RestoreAsNewWorld))
+                            .variant(ButtonVariant::Ghost)
+                            .size(ButtonSize::Slim)
+                            .disabled(busy)
+                            .on_click({
+                                let (folder, backup) = (folder.to_string(), backup.clone());
+                                cx.listener(move |this, _, _, cx| {
+                                    this.restore_copy(folder.clone(), backup.clone(), cx)
                                 })
                             }),
                     ),
@@ -2929,5 +3182,91 @@ mod job_tests {
         other.send(()).unwrap();
         cx.run_until_parked();
         assert!(!busy(&s, &s.b, &mut cx));
+    }
+
+    /// The tab's Back up that ends while another instance is shown: the world backup
+    /// is listed in its world's panel once its instance is shown again (through the
+    /// world backups' watch, not a reload of the shown instance), and how it went is said
+    /// there, not on the instance shown meanwhile.
+    #[test]
+    fn a_world_backup_that_ends_while_another_instance_is_shown_is_listed_on_return() {
+        let mut cx = TestAppContext::single();
+        let s = setup(&mut cx);
+        let survival = s.instances.read_with(&cx, |instances, _| {
+            instances
+                .list()
+                .iter()
+                .find(|i| i.name == "Survival 1.20.1")
+                .map(|i| i.id.clone())
+                .unwrap()
+        });
+        let other = if survival == s.a {
+            s.b.clone()
+        } else {
+            s.a.clone()
+        };
+        // Selects the instance and reads its lists, as drawing the tab does.
+        let show = |id: &str, cx: &mut TestAppContext| {
+            select(&s, id, cx);
+            s.view.update(cx, |view, cx| view.ensure_loaded(cx));
+            cx.run_until_parked();
+        };
+        show(&survival, &mut cx);
+        let before = s.view.read_with(&cx, |view, _| {
+            assert!(
+                view.worlds
+                    .ready()
+                    .is_some_and(|w| w.iter().any(|w| w.folder == "New World")),
+                "the scene's worlds are read"
+            );
+            view.world_backups("New World").len()
+        });
+        s.view.update(&mut cx, |view, cx| {
+            view.back_up("New World".into(), "Fixture World".into(), cx)
+        });
+        assert!(s.view.read_with(&cx, |view, _| view.job.is_some()));
+        show(&other, &mut cx);
+        let backups = s
+            .instances
+            .read_with(&cx, |instances, _| instances.world_backups());
+        assert_eq!(
+            backups.list(&survival).unwrap().len(),
+            before + 1,
+            "the job finished while the other instance was shown"
+        );
+        s.view.read_with(&cx, |view, _| {
+            assert!(view.job.is_none(), "the other instance has no job");
+            assert!(view.message.is_none(), "said on its own instance");
+            assert!(view.world_backups("New World").is_empty());
+        });
+
+        show(&survival, &mut cx);
+        s.view.read_with(&cx, |view, _| {
+            let (message, error, _) = view.message.clone().expect("how it went");
+            assert!(!error, "{message}");
+            assert_eq!(message.as_ref(), "Backed up Fixture World.");
+            let listed = view.world_backups("New World");
+            assert_eq!(listed.len(), before + 1);
+            assert_eq!(listed[0].folder, "New World");
+        });
+
+        // One made elsewhere (Settings, the CLI) while the instance is shown: the watch's
+        // revision reads the list again.
+        backups
+            .create(
+                &survival,
+                "New World",
+                Some("From the CLI"),
+                &Progress::default(),
+                &|| false,
+            )
+            .unwrap();
+        cx.run_until_parked();
+        s.view.read_with(&cx, |view, _| {
+            let listed = view.world_backups("New World");
+            assert_eq!(listed.len(), before + 2);
+            // Made in the same second as the tab's: the ids' random part orders them.
+            assert!(listed.iter().any(|b| b.name == "From the CLI"));
+        });
     }
 }

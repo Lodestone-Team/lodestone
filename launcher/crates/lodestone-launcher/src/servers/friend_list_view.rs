@@ -1030,11 +1030,9 @@ impl Servers {
                 status_label(&as_server)
             ),
         };
-        // what a friend needs to know before Play: while it's open, the account, the
-        // version, the mods
+        // what a friend needs to know before Play: the account, the version, the mods
         let mut lan_notes: Vec<String> = Vec::new();
-        if let Some(host) = lan_host {
-            lan_notes.push(tr!(M::LanJoinNote, name = host));
+        if lan_host.is_some() {
             if server.online_mode == Some(true) {
                 lan_notes.push(t(M::LanNeedsMicrosoft).into());
             }
@@ -1136,16 +1134,11 @@ impl Servers {
                     // the tunnel's address on this computer, the same every time
                     .children(magic_port.map(|port| {
                         let address = launcher_core::cores::friends::game_address(port);
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap_2()
-                            .child(note(tr!(ServersMsg::FriendAddress, address = address)))
-                            .child(super::friends_view::copy_button(
-                                format!("copy-address-{id}"),
-                                address,
-                            ))
+                        super::friends_view::magic_line(
+                            format!("copy-address-{id}"),
+                            tr!(ServersMsg::FriendAddress, address = address),
+                            address,
+                        )
                     })),
             )
             .child(

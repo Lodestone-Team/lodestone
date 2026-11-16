@@ -129,7 +129,7 @@ pub fn text(message: M) -> &'static str {
         M::UnlinkNote => "“开始游戏”将不再加入该服务器，模组会保留。",
 
         M::ChangeSetting => "更改",
-        M::JavaMemoryLead => "默认值来自启动器设置。",
+        M::JavaMemoryLead => "内存的默认值在“设置 › 实例默认设置”中设定。",
         M::Memory => "内存",
         M::Checking => "正在检查…",
         M::JavaFound => "Java {major}（版本 {version}）",
@@ -159,7 +159,6 @@ pub fn text(message: M) -> &'static str {
         M::NoSnapshots => "还没有快照。",
         M::SnapshotSizes => "{total}，其中新增 {new}",
         M::SnapshotNothingNew => "{total}，无新增",
-        M::SnapshotWithMods => "含模组",
         M::PreparingFile => "正在准备文件…",
         M::DragToShare => "将文件拖到其他应用中，或：",
         M::SaveAsEllipsis => "另存为…",
@@ -172,23 +171,10 @@ pub fn text(message: M) -> &'static str {
         M::ImportingSnapshot => "正在创建实例…",
         M::ReadingSnapshot => "正在读取快照…",
         M::ImportSnapshotTitle => "从快照新建实例",
+        M::ImportServerTitle => "从服务器的世界新建实例",
         M::CreateInstanceButton => "创建实例",
         M::SnapshotGameRunning => "请先停止游戏。",
-        M::SnapshotsHint => "此实例的世界和文件的副本，可用于恢复或分享。",
-        M::SnapshotIncludeEverything => "包含模组和配置",
-        M::SnapshotIncludeEverythingHint => {
-            "不勾选时，快照保留世界和其他文件，并记住它们运行时使用的模组。"
-        }
         M::SnapshotAfterPlay => "每次游戏结束后拍摄快照",
-        M::SnapshotAfterPlayHint => {
-            "游玩后复制世界。跟随“设置 › 实例默认设置”，默认关闭，除非你开启。"
-        }
-        M::SnapshotAfterPlayDefaultHint => {
-            "每次游戏结束后复制世界，适用于未自行设置的实例。默认关闭，除非你开启。"
-        }
-        M::SnapshotKeepHint => {
-            "启动器自动拍摄的快照会保留一段时间：最近 {last} 个、{days} 天内每天一个、{weeks} 周内每周一个。你自己拍摄的快照会一直保留，直到你删除。"
-        }
         M::BadgeAutomatic => "自动",
         M::BadgeAfterPlaying => "游戏后",
         M::BadgeImported => "已导入",
@@ -229,6 +215,15 @@ pub fn text(message: M) -> &'static str {
         M::ImportWorlds => "世界：{worlds}",
         M::ImportDownloads => "需要从 Modrinth 和 CurseForge 下载 {size}。",
         M::ImportNotDownloadable => "作者不允许下载，因此已排除：{files}。",
+        M::ImportServerOnlyMods => "只在服务器上运行的模组，已略过：{names}",
+        M::ImportServerPack => {
+            "只有服务器玩家使用的文件来自它在 Modrinth 上的整合包，可能包含模组：它们是游戏启动时运行的程序。只从你信任的服务器下载世界。"
+        }
+        M::ImportServerPackCurseforge => {
+            "服务器的整合包来自 CurseForge，目前还不能从服务器下载，因此只有其玩家使用的文件不会一起带来。"
+        }
+        M::ImportHostLeftOut => "主机没有把这些放进文件：{files}",
+        M::ImportHostBlanked => "主机清空了这些密钥：{names}",
         M::ImportSpace => "需要 {size} 磁盘空间（含 1 GB 余量）。",
         M::ImportNeedsModrinth => "无法连接 Modrinth，无法下载文件中的模组。",
         M::VerifyGameFiles => "校验游戏文件",
@@ -246,9 +241,7 @@ pub fn text(message: M) -> &'static str {
         M::Duplicate => "创建副本",
         M::Duplicating => "正在创建副本…",
         M::ChangeVersionOrLoader => "其他版本或加载器",
-        M::ChangeVersionOrLoaderHint => {
-            "实例会保留创建时的版本和加载器。副本可以使用其他版本或加载器。"
-        }
+        M::ChangeVersionOrLoaderHint => "会创建一个副本，此实例保持不变。",
         M::CopyAs => "以其他版本或加载器复制",
         M::CopyAsButton => "换版本复制…",
         M::CopyAsKeywords => "更改 切换 更新 升级 降级 版本 加载器 Fabric Forge NeoForge Quilt",
@@ -318,16 +311,13 @@ pub fn text(message: M) -> &'static str {
         M::DeleteInstance => "删除实例",
         M::DeleteHint => "包括其中的世界和模组。",
         M::DeleteButton => "删除…",
-        M::SharedLead => "让各实例的设置保持同步。",
+        M::SharedLead => "按键、视频、声音和其他游戏内选项，在每个共享它们的实例中保持一致。",
         M::UseSharedSettings => "使用共享设置",
-        M::SharingOff => "此实例保留自己的选项。",
         M::SharingFrom => "接收来自 {name} 的游戏内更改。",
         M::SharingMain => "此实例中游戏内的更改会同步到所有实例。",
         M::SharingNoMain => "没有主实例：共享值只能在设置中更改。",
         M::MainInstance => "主实例",
-        M::MainInstanceHint => {
-            "你在主实例游戏中更改的设置，会在其他共享设置的实例下次启动时复制过去。只能有一个主实例。"
-        }
+        M::MainInstanceHint => "它的游戏内更改会在其他共享设置的实例下次启动时同步过去。",
         M::IsMainInstance => "这是你的主实例",
         M::MakeMain => "设为主实例",
         M::StopGameToChange => "请先停止游戏再更改：游戏退出时会重写 options.txt。",
@@ -406,10 +396,8 @@ pub fn text(message: M) -> &'static str {
         M::AddGroupThere => "实例中已有（{count}）",
         M::AddedModpacks => "已添加的整合包",
         M::AddModpackRow => "添加整合包",
-        M::AddModpackHint => "将整合包的模组和配置添加到此实例中，与已有的放在一起。",
-        M::AddModpackServerHint => {
-            "将整合包的模组（例如客户端优化）添加到 {server} 的模组旁边。服务器的模组保持不变。"
-        }
+        M::AddModpackHint => "实例已有的内容都不会被替换。",
+        M::AddModpackServerHint => "用于客户端模组，例如优化模组。{server} 的模组保持不变。",
         M::AddModpackEllipsis => "添加整合包…",
         M::RemoveAddedModpackNote => "移除该整合包添加的文件。你修改过的文件会保留。",
         M::SnapshotsNotChanged => "无法更改快照",
@@ -417,12 +405,44 @@ pub fn text(message: M) -> &'static str {
         M::SnapshotRestored => "已恢复“{name}”。",
         M::ImportLeftOutTitle => "部分文件未导入",
         M::ImportLeftOut => "这些文件无法下载，因此新实例中没有它们：{files}。",
+        M::ImportPackSkippedTitle => "缺少整合包的文件",
+        M::ImportPackSkipped => {
+            "无法下载或放置服务器的整合包（没有网络连接、可用空间不足，或有文件未通过校验），因此新实例中没有只有其玩家使用的文件。"
+        }
+        M::ImportPackSkippedGone => {
+            "服务器的整合包已不在 Modrinth 上，因此新实例中没有只有其玩家使用的文件。请让服务器所有者更新整合包。"
+        }
+        M::ImportPackSkippedCurseforge => {
+            "服务器基于 CurseForge 整合包，目前还无法从服务器安装，因此新实例中没有只有其玩家使用的文件。"
+        }
         M::RestoreKeptAside => "恢复期间写入的文件保存在 {folder}。",
         M::ImportNoRoom => "磁盘空间不足：需要 {size}（含 1 GB 余量），可用 {free}。",
         M::ImportSpaceFree => "需要 {size} 磁盘空间（含 1 GB 余量）；可用 {free}。",
         M::ExportNotDownloadable => "这些无法下载，因此导入该文件的人不会得到它们：{files}。",
-        M::SnapshotAfterPlayOwnHint => "游玩后复制世界。仅为此实例设置。",
         M::DeleteUnreadableNote => "它们将被永久删除。",
+        M::SnapshotsGroup => "已保存的快照",
+        M::BackUpWorldTitle => "备份世界",
+        M::RestoreAsNewWorld => "恢复为新世界",
+        M::WorldBackupWorld => "世界",
+        M::WorldBackupDefaultName => "世界备份",
+        M::WorldBackupBeforeRestoring => "恢复“{name}”之前",
+        M::BackUpButton => "备份",
+        M::BackingUpWorld => "正在备份 {name}…",
+        M::WorldBackedUp => "已备份 {name}。",
+        M::NoWorldsToBackUp => "此实例还没有世界。",
+        M::RestoreWorldTitle => "恢复 {world}",
+        M::RestoreWorldBody => {
+            "{world} 将回到“{name}”（{when}）时的状态。会先把世界现在的样子另存为一个世界备份。"
+        }
+        M::RestoreWorldGoneBody => "{world} 已不在此实例中。它会以“{name}”（{when}）时的状态回来。",
+        M::SaveAndRestore => "保存并恢复",
+        M::SavingWorld => "正在保存世界现在的样子…",
+        M::UnpackingWorldBackup => "正在解压世界备份…",
+        M::WorldRestored => "已恢复 {world}。",
+        M::WorldRestoredSafety => "原来的世界保存在世界备份“{name}”中。",
+        M::WorldRestoredAsNew => "已恢复为新世界 {folder}。",
+        M::DeleteWorldBackupTitle => "删除这个世界备份？",
+        M::DeleteWorldBackupBody => "“{name}”会移到{trash}。",
     }
 }
 
@@ -463,5 +483,10 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::ImportCarriedMods => {
             ["其中 {count} 个包含在文件本身中，而不是从 Modrinth 或 CurseForge 下载的：{names}"; 2]
         }
+        P::ImportFromServer => [
+            "来自 {server} 的服务器备份：包括它的世界和玩家会获得的模组。{count} 个服务器文件不会被带入（服务器的设置、管理员和插件）。",
+            "来自 {server} 的服务器备份：包括它的世界和玩家会获得的模组。{count} 个服务器文件不会被带入（服务器的设置、管理员和插件）。",
+        ],
+        P::WorldBackupLeftOut => ["{count} 个文件未包含"; 2],
     }
 }

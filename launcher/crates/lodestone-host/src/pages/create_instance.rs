@@ -1,7 +1,8 @@
 //! The "New server" dialog: every game the core offers (`GET /games`, then the setup
 //! manifest's form) and the Modrinth modpack flow, after `InstanceCreateForm.tsx` and
 //! `ModpackCreateForm.tsx`. "Existing server" makes one from a server folder the user
-//! already has ([`import`]).
+//! already has ([`import`]), and "From a file" from a `.lodeimg` another Host or a
+//! Launcher exported ([`image`]).
 //!
 //! Steps: Select game → Basic settings (name, description) → Server settings (the
 //! core's manifest) → Auto settings, then "Create Server" with the Minecraft EULA box,
@@ -11,6 +12,7 @@
 
 mod eula;
 mod fields;
+mod image;
 mod import;
 mod modpack;
 mod modrinth_search;
@@ -39,6 +41,7 @@ use lodestone_ui::{
 
 use self::{
     fields::{Field, HasFields},
+    image::{ImageEvent, ImageFlow},
     import::{ImportEvent, ImportFlow},
     modpack::{ModpackEvent, ModpackFlow},
 };
@@ -92,6 +95,7 @@ pub struct CreateInstance {
     submitting: bool,
     modpack: Option<Entity<ModpackFlow>>,
     import: Option<Entity<ImportFlow>>,
+    image: Option<Entity<ImageFlow>>,
     _subscriptions: Vec<Subscription>,
     _tasks: Vec<Task<()>>,
 }
@@ -133,6 +137,7 @@ impl CreateInstance {
             submitting: false,
             modpack: None,
             import: None,
+            image: None,
             _subscriptions: Vec::new(),
             _tasks: Vec::new(),
         };
@@ -430,6 +435,26 @@ impl CreateInstance {
         cx.notify();
     }
 
+    /// Opens the flow for a `.lodeimg` file (the "From a file" card).
+    pub fn open_image(&mut self, cx: &mut Context<Self>) {
+        let state = self.state.clone();
+        let flow = cx.new(|cx| ImageFlow::new(state, cx));
+        self.watch_image(flow, cx);
+    }
+
+    fn watch_image(&mut self, flow: Entity<ImageFlow>, cx: &mut Context<Self>) {
+        self._subscriptions
+            .push(cx.subscribe(&flow, |this, _, event, cx| match event {
+                ImageEvent::Back => {
+                    this.image = None;
+                    cx.notify();
+                }
+                ImageEvent::Done => cx.emit(CreateInstanceEvent::Close),
+            }));
+        self.image = Some(flow);
+        cx.notify();
+    }
+
     /// For screenshots (`--open-menu`): opens the modpack search's sort list, or the
     /// first list field of the step shown.
     #[cfg(feature = "screenshot")]
@@ -456,9 +481,43 @@ impl CreateInstance {
     }
 
     /// For screenshots: moves the dialog on to `step` (`games`, `basic`, `server`,
-    /// `auto`, `modpack`, `import`, or `import:<folder>` to read a folder) as soon as
+    /// `auto`, `modpack`, `import`, `import:<folder>` to read a folder, or a sample
+    /// file's summary, `image`, `image-launcher` or `image-launcher-world`, its world list
+    /// open, or `image-outcome`, the toast a server made from a file ends with) as soon as
     /// what it needs has loaded.
     pub fn advance_for_screenshot(&mut self, step: &str, cx: &mut Context<Self>) {
+        // the toast at the end of a server made from a file, translated from its outcome
+        #[cfg(feature = "screenshot")]
+        if step == "image-outcome" {
+            let outcome = serde_json::from_value(serde_json::json!({
+                "not_downloaded": {"names": ["mods/jade.jar"], "count": 1},
+                "no_source": {"names": ["mods/create.jar", "mods/flywheel.jar"], "count": 2},
+                "client_jars": {"names": ["zoomify.jar"], "count": 1},
+                "settings_removed": {"names": ["spigot.yml"], "count": 1}
+            }))
+            .expect("a sample outcome");
+            if let Some(toast) = crate::state::creation_toast(true, None, Some(&outcome)) {
+                self.state.update(cx, |state, cx| state.toast(toast, cx));
+            }
+            return;
+        }
+        #[cfg(feature = "screenshot")]
+        if let Some((launcher, world_open)) = match step {
+            "image" => Some((false, false)),
+            "image-launcher" => Some((true, false)),
+            "image-launcher-world" => Some((true, true)),
+            _ => None,
+        } {
+            let state = self.state.clone();
+            let flow = cx.new(|cx| {
+                let mut flow = ImageFlow::with_sample(state, launcher, cx);
+                if world_open {
+                    flow.open_world_menu_for_screenshot();
+                }
+                flow
+            });
+            return self.watch_image(flow, cx);
+        }
         if step == "modpack" {
             return self.open_modpack(cx);
         }
@@ -523,47 +582,35 @@ fn basic_settings() -> Vec<launcher_core::cores::admin::instances::SettingManife
     use launcher_core::cores::admin::instances::{
         ConfigurableValue, ConfigurableValueType, SettingManifest,
     };
-    let text_setting =
-        |id: &str, name: M, description: M, default: String, required: bool| SettingManifest {
-            setting_id: id.into(),
-            name: t(name).into(),
-            description: t(description).into(),
-            value: Some(ConfigurableValue::String(String::new())),
-            value_type: ConfigurableValueType::String { regex: None },
-            default_value: Some(ConfigurableValue::String(default)),
-            is_secret: false,
-            is_required: required,
-            is_mutable: true,
-        };
+    let text_setting = |id: &str, name: M, default: String, required: bool| SettingManifest {
+        setting_id: id.into(),
+        name: t(name).into(),
+        description: String::new(),
+        value: Some(ConfigurableValue::String(String::new())),
+        value_type: ConfigurableValueType::String { regex: None },
+        default_value: Some(ConfigurableValue::String(default)),
+        is_secret: false,
+        is_required: required,
+        is_mutable: true,
+    };
     vec![
-        text_setting(
-            "name",
-            M::FieldName,
-            M::FieldNameDescription,
-            t(M::FieldNameDefault).into(),
-            true,
-        ),
-        text_setting(
-            "description",
-            M::FieldDescription,
-            M::FieldDescriptionDescription,
-            String::new(),
-            false,
-        ),
+        text_setting("name", M::FieldName, t(M::FieldNameDefault).into(), true),
+        text_setting("description", M::FieldDescription, String::new(), false),
     ]
 }
 
-/// A game's line on its card (`game_to_description`).
-fn game_description(game: &HandlerGameType) -> &'static str {
-    t(match game {
-        HandlerGameType::MinecraftJavaVanilla => M::GameVanillaDescription,
+/// A game's line on its card, if it needs one (`game_to_description`).
+fn game_description(game: &HandlerGameType) -> Option<&'static str> {
+    let message = match game {
+        HandlerGameType::MinecraftJavaVanilla => return None,
         HandlerGameType::MinecraftFabric => M::GameFabricDescription,
         HandlerGameType::MinecraftForge => M::GameForgeDescription,
         HandlerGameType::MinecraftNeoForge => M::GameNeoForgeDescription,
         HandlerGameType::MinecraftPaper => M::GamePaperDescription,
         HandlerGameType::MinecraftBedrock => M::GameBedrockDescription,
         HandlerGameType::Unknown => M::GameGenericDescription,
-    })
+    };
+    Some(t(message))
 }
 
 /// A card to pick a game, or the modpack flow (`SelectGameCard.tsx`).
@@ -571,7 +618,7 @@ fn game_card(
     id: impl Into<SharedString>,
     game: &launcher_core::cores::admin::models::Game,
     title: SharedString,
-    description: &'static str,
+    description: Option<&'static str>,
     badge: Option<&'static str>,
     selected: bool,
     cx: &mut gpui::App,
@@ -624,13 +671,15 @@ fn game_card(
                     )
                 }),
         )
-        .child(
-            div()
-                .text_size(text::MEDIUM)
-                .italic()
-                .text_color(ink::muted())
-                .child(description),
-        )
+        .when_some(description, |this, description| {
+            this.child(
+                div()
+                    .text_size(text::MEDIUM)
+                    .italic()
+                    .text_color(ink::muted())
+                    .child(description),
+            )
+        })
 }
 
 fn loading_line(label: &'static str) -> AnyElement {
@@ -656,14 +705,14 @@ fn error_line(text_: String) -> AnyElement {
 
 impl CreateInstance {
     fn render_games(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        let mut body = vec![wizard::title(t(M::GameTypeTitle), t(M::GameTypeSubtitle))];
+        let mut body = vec![wizard::title(t(M::GameTypeTitle), None)];
         let modpack_game = HandlerGameType::MinecraftFabric.game();
         body.push(
             game_card(
                 "game-modpack",
                 &modpack_game,
                 t(M::GameTypeModpack).into(),
-                t(M::GameTypeModpackDescription),
+                Some(t(M::GameTypeModpackDescription)),
                 Some(t(M::GameTypeNew)),
                 false,
                 cx,
@@ -676,12 +725,25 @@ impl CreateInstance {
                 "game-import",
                 &HandlerGameType::MinecraftJavaVanilla.game(),
                 t(M::GameTypeImport).into(),
-                t(M::GameTypeImportDescription),
+                Some(t(M::GameTypeImportDescription)),
                 Some(t(M::GameTypeNew)),
                 false,
                 cx,
             )
             .on_press(cx.listener(|this, _, _, cx| this.open_import(cx)))
+            .into_any_element(),
+        );
+        body.push(
+            game_card(
+                "game-image",
+                &HandlerGameType::MinecraftJavaVanilla.game(),
+                t(M::GameTypeImage).into(),
+                Some(t(M::GameTypeImageDescription)),
+                Some(t(M::GameTypeNew)),
+                false,
+                cx,
+            )
+            .on_press(cx.listener(|this, _, _, cx| this.open_image(cx)))
             .into_any_element(),
         );
         match &self.games {
@@ -738,12 +800,12 @@ impl CreateInstance {
     }
 
     fn render_fields(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        let (title, description) = match self.step {
-            BASIC => (t(M::StepBasicSettings), t(M::BasicSettingsDescription)),
-            SERVER => (t(M::StepServerSettings), t(M::ServerSettingsDescription)),
-            _ => (t(M::StepAutoSettings), t(M::AutoSettingsDescription)),
+        let title = match self.step {
+            BASIC => t(M::StepBasicSettings),
+            SERVER => t(M::StepServerSettings),
+            _ => t(M::StepAutoSettings),
         };
-        let mut body = vec![wizard::title(title, description)];
+        let mut body = vec![wizard::title(title, None)];
         match self.step {
             BASIC => {
                 let rows = (0..self.basic.len())
@@ -801,7 +863,7 @@ impl CreateInstance {
                 body.push(fields::section(vec![
                     fields::row(
                         t(M::FieldAutoStart),
-                        t(M::FieldAutoStartDescription),
+                        Some(t(M::FieldAutoStartDescription).into()),
                         false,
                         toggle("auto-start", self.auto_start, M::FieldAutoStart)
                             .on_change(cx.listener(|this, value: &bool, _, cx| {
@@ -813,7 +875,7 @@ impl CreateInstance {
                     ),
                     fields::row(
                         t(M::FieldRestartOnCrash),
-                        t(M::FieldRestartOnCrashDescription),
+                        None,
                         false,
                         toggle(
                             "restart-on-crash",
@@ -843,10 +905,15 @@ impl Render for CreateInstance {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let this = cx.entity().downgrade();
         let height = px(HEIGHT).min(window.viewport_size().height - px(48.));
-        let content = match (self.modpack.clone(), self.import.clone()) {
-            (Some(flow), _) => flow.into_any_element(),
-            (None, Some(flow)) => flow.into_any_element(),
-            (None, None) => self.render_flow(cx),
+        let content = match (
+            self.modpack.clone(),
+            self.import.clone(),
+            self.image.clone(),
+        ) {
+            (Some(flow), _, _) => flow.into_any_element(),
+            (None, Some(flow), _) => flow.into_any_element(),
+            (None, None, Some(flow)) => flow.into_any_element(),
+            (None, None, None) => self.render_flow(cx),
         };
         div().absolute().inset_0().child(
             Dialog::new(

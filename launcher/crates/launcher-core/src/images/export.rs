@@ -24,6 +24,12 @@
 //! `content.json` the files' sources. Its first content image is "Made from a snapshot",
 //! and the imported image is kept as an "imported" snapshot, so the user can go back to
 //! what they were sent.
+//!
+//! A server's backup exported by a Lodestone Core imports the same way, as the instance a
+//! player of that server would have with its worlds (`from_server`): the client view of
+//! its content and the worlds, never the server's settings, operators or plugins. Its
+//! first content image is "Downloaded from <server>", and the instance is named after the
+//! server.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -32,7 +38,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use lodestone_image::container::{self, Limits};
 use lodestone_image::paths::{in_names, same_name};
-use lodestone_image::store::excludes::Excludes;
+use lodestone_image::share::placed_entries;
 use lodestone_image::store::materialize::{MaterializeOptions, Selection, materialize};
 use lodestone_image::store::{Cancel, NEVER};
 use lodestone_image::{CanonicalPath, DiskLayout, Entry, Image, Kind, Source};
@@ -41,7 +47,7 @@ use sha2::Digest as _;
 
 use super::labels;
 use super::recorder::SPARE_BYTES;
-use super::scope::{is_crash_name, is_lodestone_name};
+use super::scope::is_lodestone_name;
 use super::snapshots::{SnapshotKind, SnapshotRecord, new_record_id, newest_first, snapshot_name};
 use super::{ImageError, Images};
 use crate::content::{ContentKind, CurseForge, InstanceDirs, Modrinth, enabled_name};
@@ -51,26 +57,11 @@ use crate::instances::{self, Instance};
 /// An image export's file extension.
 pub const EXTENSION: &str = "lodeimg";
 
-/// Files an export never carries, as image exclude patterns (a name at any depth, a path
-/// with `/` from the game folder): the commands the player typed (passwords given to a
-/// server's `/login` among them), the saved hotbars, the account files of account
-/// switchers that keep sign-ins in the game folder (In-Game Account Switcher's
-/// `ias.json`, Essential's account files), and the official launcher's account files at
-/// the top of the game folder (a `.minecraft` folder pasted into an instance has them;
-/// `strip_private` matches them in any case, as `import::copy` does).
-pub const PRIVATE_FILES: &[&str] = &[
-    "command_history.txt",
-    "hotbar.nbt",
-    "ias.json",
-    "essential/microsoft_accounts.json",
-    "essential/mojang_accounts.json",
-    "/launcher_profiles.json",
-    "/launcher_accounts*.json",
-    "/launcher_msa_credentials*.bin",
-    // The JVM's crash logs and dumps, which snapshots leave out: a crash log holds the
-    // command line, access token included. `strip_private` also takes out every top-level
-    // name `scope::is_crash_name` matches (any case), as an image from elsewhere may hold
-    // one.
+/// The JVM's crash logs and dumps at the top of the game folder, as exclude patterns: no
+/// snapshot takes them, and an image from elsewhere may still hold one. A crash log holds
+/// the command line, access token included. `strip_private` also takes out every
+/// top-level name the shared crate's `is_jvm_crash_name` matches, in any letter case.
+pub const CRASH_FILES: &[&str] = &[
     "/hs_err_pid*",
     "/replay_pid*",
     "/java_pid*.hprof",
@@ -78,6 +69,19 @@ pub const PRIVATE_FILES: &[&str] = &[
     "/core",
     "/core.*",
 ];
+
+/// Files an export never carries, as image exclude patterns (a name at any depth, a path
+/// with `/` from the game folder): a player's own files (`share::PLAYER_PRIVATE`: the
+/// commands they typed, passwords given to a server's `/login` among them, the saved
+/// hotbars, account switchers' and the official launcher's account files) and the JVM's
+/// crash files ([`CRASH_FILES`]). `strip_private` matches them in any letter case too.
+pub fn private_patterns() -> Vec<&'static str> {
+    lodestone_image::share::PLAYER_PRIVATE
+        .iter()
+        .chain(CRASH_FILES)
+        .copied()
+        .collect()
+}
 
 /// What an export wrote.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -92,7 +96,7 @@ pub struct ExportReport {
     /// CurseForge files whose authors don't allow downloads elsewhere, by path: named, not
     /// carried, so whoever imports the file won't get them.
     pub not_downloadable: Vec<String>,
-    /// Files taken out ([`PRIVATE_FILES`]), by path.
+    /// Files taken out ([`private_patterns`]), by path.
     pub left_out: Vec<String>,
 }
 
@@ -134,15 +138,71 @@ pub struct ImportPreview {
     pub not_downloadable: Vec<String>,
     /// A full image (no linked content).
     pub full: bool,
+    /// For a server's backup exported by a Lodestone Core: what the instance won't take
+    /// of it (`from_server`). `None` for a Launcher's file.
+    pub from_server: Option<FromServer>,
+}
+
+/// What an instance made from a server's backup leaves out of it, for the import dialog.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct FromServer {
+    /// The server's name as the file names it, written visibly (invisible characters as
+    /// `\u{…}`), to show.
+    pub server_shown: String,
+    /// The server's name without control or invisible characters ([`shown_name`]): the
+    /// instance's name unless another is chosen.
+    #[serde(skip)]
+    pub name: String,
+    /// Mods only the server runs, written visibly: left out.
+    pub server_only_mods: Vec<String>,
+    /// How many of its files a player's instance never takes (the server's settings,
+    /// operators, plugins, configs not shared with players, server-only mods).
+    pub not_taken: u64,
+    /// Where the modpack the server is built on comes from: a Modrinth pack's client share
+    /// is downloaded too; a CurseForge pack's can't be, so its client-only files won't
+    /// come. `None` when it isn't built on one.
+    pub modpack: Option<super::from_server::PackPlatform>,
+}
+
+/// What [`import_file`] imports.
+#[derive(Debug, Clone, Copy)]
+pub struct ImportRequest<'a> {
+    pub path: &'a Path,
+    /// The new instance's name; else the snapshot's, or for a server's backup the
+    /// server's, made unique.
+    pub name: Option<&'a str>,
+    /// The image id the preview the user approved showed: a file whose image is another
+    /// by now (replaced since) is refused.
+    pub expect_image: Option<&'a str>,
+    /// For a server's backup: the server's name, when known better than the file says
+    /// (the server "Download this world" downloaded it from). Its first content image is
+    /// "Downloaded from <server>".
+    pub server: Option<&'a str>,
+}
+
+impl<'a> ImportRequest<'a> {
+    /// The file at `path`, with nothing else asked.
+    pub fn new(path: &'a Path) -> Self {
+        ImportRequest {
+            path,
+            name: None,
+            expect_image: None,
+            server: None,
+        }
+    }
 }
 
 /// What [`import_file`] made.
 #[derive(Debug, Clone)]
 pub struct Imported {
     pub instance: Instance,
-    /// Files no download confirmed and whose bytes neither the file nor the store had, by
-    /// path: left out of the instance.
+    /// Files no download confirmed and whose bytes the file didn't carry, by path: left
+    /// out of the instance.
     pub left_out: Vec<String>,
+    /// For a server's backup: what the instance didn't take of it.
+    pub from_server: Option<FromServer>,
+    /// For a server built on a modpack: what became of the pack's client share.
+    pub server_pack: Option<super::from_server::PackShare>,
 }
 
 /// Where an import downloads from.
@@ -153,30 +213,15 @@ pub struct Sources<'a> {
     pub curseforge: Option<&'a CurseForge>,
 }
 
-/// Takes the private files out of `image`, naming them in its excludes. Returns their
-/// paths.
+/// Takes the private files out of `image` ([`private_patterns`], and the same names in any
+/// letter case), naming them in its excludes. Returns their paths.
 fn strip_private(image: &mut Image) -> Vec<String> {
-    let patterns: Vec<String> = PRIVATE_FILES.iter().map(|p| p.to_string()).collect();
-    let excludes = Excludes::new(&patterns);
-    let mut left_out = Vec::new();
-    image.entries.retain(|entry| {
-        let top_level = !entry.path.as_str().contains('/');
-        let top_level_secret = top_level
-            && (is_crash_name(entry.path.as_str())
-                || crate::import::copy::is_account_file(entry.path.as_str()));
-        let private = top_level_secret || excludes.excludes(entry.path.as_str(), false);
-        if private {
-            left_out.push(entry.path.to_string());
-        }
-        !private
-    });
-    for pattern in patterns {
-        if !image.excludes.contains(&pattern) {
-            image.excludes.push(pattern);
-        }
-    }
-    image.normalize();
-    left_out
+    use lodestone_image::share::{is_jvm_crash_name, is_launcher_account_file, is_player_private};
+    lodestone_image::share::strip(image, &private_patterns(), &|path| {
+        let top_level = !path.as_str().contains('/');
+        (top_level && (is_jvm_crash_name(path.as_str()) || is_launcher_account_file(path.as_str())))
+            || is_player_private(path)
+    })
 }
 
 impl Images {
@@ -269,6 +314,186 @@ impl Images {
         })
     }
 
+    /// Writes the instance as it is now as an image export at `to`, for another computer
+    /// to make a server from ("Host this", `cores::hosting`): its content as recorded now,
+    /// and of its data only the worlds `worlds` (their folders; none for an empty list),
+    /// never the player's other files (settings, logs, screenshots, server lists); when
+    /// the content can't be recorded, one full image of the content and those worlds; with
+    /// the private files taken out as [`Self::export_snapshot`] takes them out and
+    /// labelled with the instance's name. Nothing is kept: no snapshot, no manifest, and
+    /// the objects only it read are collected once past the collection's grace, which it
+    /// asks for however it ends ([`Self::request_gc_after_grace`]). Refused while the game
+    /// runs (its worlds would be read mid-write). `progress` gets (bytes read, bytes to
+    /// read) while the files are read and then written. Blocking.
+    pub fn export_current(
+        &self,
+        instance: &str,
+        worlds: &[String],
+        to: &Path,
+        progress: &(dyn Fn(u64, u64) + Sync),
+        cancel: Cancel,
+    ) -> Result<ExportReport, ImageError> {
+        let exported = self.export_current_held(instance, worlds, to, progress, cancel);
+        // after the hold on collections is let go of
+        self.request_gc_after_grace();
+        exported
+    }
+
+    /// [`Self::export_current`] but the later collection.
+    fn export_current_held(
+        &self,
+        instance: &str,
+        worlds: &[String],
+        to: &Path,
+        progress: &(dyn Fn(u64, u64) + Sync),
+        cancel: Cancel,
+    ) -> Result<ExportReport, ImageError> {
+        if !self.accepts(instance) {
+            return Err(ImageError::Instance(format!(
+                "{instance} isn't an instance"
+            )));
+        }
+        let slot = self.slot(instance);
+        let _record = slot.lock_record();
+        let _writing = self.enter()?;
+        // Held to the end: the image's data objects are named by no manifest.
+        let _hold = self.store().hold_off_collection()?;
+        if slot.in_session() {
+            return Err(ImageError::Running);
+        }
+        let ctx = super::context::InstanceContext::load(self.instances(), instance)?;
+        let saves = ctx
+            .dir
+            .join(lodestone_image::layout::CLIENT_GAME_FOLDER)
+            .join("saves");
+        if crate::worlds::open_in_game(&saves, None).is_some() {
+            return Err(ImageError::Running);
+        }
+        let loaded = self.guarded(&ctx)?;
+        if !loaded.present {
+            let mut first = loaded.state;
+            first.instance_created = Some(ctx.instance.created);
+            super::state::save(self.store(), instance, &first)?;
+        }
+        let content_ok = match self.content_step_locked(&slot, instance, None) {
+            Ok(ok) => ok,
+            Err(e) => {
+                super::warn(
+                    "images.export",
+                    instance,
+                    &format!(
+                        "the content couldn't be recorded first, so the export is one full image: {e}"
+                    ),
+                );
+                false
+            }
+        };
+        let content_id = super::state::load_present(self.store(), instance)?
+            .state
+            .current
+            .filter(|_| content_ok)
+            .filter(|id| {
+                self.store()
+                    .manifest_path(instance, id)
+                    .is_ok_and(|path| path.is_file())
+            });
+        let mut content = match &content_id {
+            Some(id) => Some(self.store().load_manifest(instance, id)?),
+            None => None,
+        };
+        let name = ctx.instance.name.clone();
+        // A session that begins meanwhile (Play pressed while a big world is read: Play
+        // waits only so long for the record lock, then launches) stops the export at the
+        // next file, so a world the game is writing is never sent half old, half new. A
+        // session can't end while this holds the record lock, so one seen later began
+        // during the export. The read is the first half of `progress`, the write the second.
+        let stop = || cancel() || slot.in_session();
+        let take = super::snapshots::Take {
+            progress: &|read, total| progress(read / 2, total),
+            cancel: &stop,
+            ..super::snapshots::Take::new(SnapshotKind::Manual, name.clone())
+        };
+        let built = self.build_snapshot(&ctx, &take, content_id, &[], &name, Some(worlds));
+        if slot.in_session() {
+            return Err(ImageError::Running);
+        }
+        let (mut image, _) = built?;
+        let mut left_out = strip_private(&mut image);
+        if let Some(content) = &mut content {
+            left_out.extend(strip_private(content));
+            content.label = Some(name.clone());
+            content.parent = None;
+            content.seal();
+            content.validate().map_err(|e| {
+                ImageError::Invalid(format!("The exported content image isn't valid: {e}"))
+            })?;
+            image.content = Some(content.id.clone());
+        }
+        image.parent = None;
+        image.seal();
+        image
+            .validate()
+            .map_err(|e| ImageError::Invalid(format!("The exported image isn't valid: {e}")))?;
+        let linked: Vec<Image> = content.into_iter().collect();
+        let images: Vec<&Image> = std::iter::once(&image).chain(linked.iter()).collect();
+        let carried_bytes = container::carried_objects(&images)
+            .map_err(ImageError::Invalid)?
+            .values()
+            .fold(0u64, |sum, size| sum.saturating_add(*size));
+        if let Some(dir) = to.parent() {
+            std::fs::create_dir_all(dir).map_err(ImageError::io(format!(
+                "Failed to create {}",
+                dir.display()
+            )))?;
+            room_on(dir.to_path_buf())(carried_bytes.saturating_add(SPARE_BYTES))?;
+        }
+        let report = container::export_with_progress(
+            self.store(),
+            &image,
+            &linked,
+            to,
+            &stop,
+            &mut |read, total| progress(total / 2 + read / 2, total),
+        )
+        .map_err(container_error);
+        if slot.in_session() {
+            let _ = std::fs::remove_file(to);
+            return Err(ImageError::Running);
+        }
+        let report = report?;
+        let references = images
+            .iter()
+            .flat_map(|i| i.entries.iter())
+            .filter(|e| !matches!(e.source, Source::Object {}))
+            .count();
+        let mut not_downloadable: Vec<String> = images
+            .iter()
+            .flat_map(|i| i.entries.iter())
+            .filter(|e| {
+                matches!(
+                    e.source,
+                    Source::Curseforge {
+                        downloadable: false,
+                        ..
+                    }
+                )
+            })
+            .map(|e| e.path.to_string())
+            .collect();
+        not_downloadable.sort();
+        not_downloadable.dedup();
+        left_out.sort();
+        left_out.dedup();
+        Ok(ExportReport {
+            file: to.to_path_buf(),
+            bytes: std::fs::metadata(to).map_or(0, |m| m.len()),
+            objects: report.objects,
+            references,
+            not_downloadable,
+            left_out,
+        })
+    }
+
     /// Keeps an imported image (and the content it links to) as a snapshot of the new
     /// instance `instance` ([`SnapshotKind::Imported`]), so the user can go back to what
     /// they were sent. The content first, then the image, then the record.
@@ -322,19 +547,6 @@ fn container_error(e: container::ContainerError) -> ImageError {
     }
 }
 
-/// Every file an export places: its image's and its content link's (the image wins at a
-/// path both have).
-fn placed_entries(image: &Image, linked: &[Image]) -> Vec<Entry> {
-    let mut by_path = std::collections::BTreeMap::new();
-    for entry in linked.iter().flat_map(|c| c.entries.iter()) {
-        by_path.insert(entry.path.to_string(), entry.clone());
-    }
-    for entry in &image.entries {
-        by_path.insert(entry.path.to_string(), entry.clone());
-    }
-    by_path.into_values().collect()
-}
-
 /// Top-level folders an import only takes spelled with ASCII letters: on a disk that
 /// ignores letter case, `modſ/` (a long s) is `mods/`, and a loader loads from it, while
 /// a check comparing letters would miss it. Nothing the Launcher writes spells them
@@ -363,7 +575,7 @@ fn check_entries(entries: &[Entry]) -> Result<(), ImageError> {
             )));
         }
         let first = entry.path.components().next().unwrap_or_default();
-        if !first.is_ascii() && in_names(first, &FOLDERS_SPELLED_PLAINLY) {
+        if lodestone_image::share::spelled_like(first, &FOLDERS_SPELLED_PLAINLY) {
             return Err(ImageError::Invalid(format!(
                 "the export has {}, a folder name a disk would take for another",
                 lodestone_image::display_text(entry.path.as_str())
@@ -379,20 +591,13 @@ fn check_entries(entries: &[Entry]) -> Result<(), ImageError> {
     Ok(())
 }
 
-/// Refuses an export whose Minecraft or loader version isn't a plausible version id: the
-/// sender wrote them, the import dialog shows them and the new instance keeps them, so
-/// they mustn't hold prose or invisible characters (`1.21.1 (checked by Lodestone)`).
-/// Letters, digits and ` .-_+`, as every Minecraft and loader version has them.
+/// Refuses an export whose Minecraft or loader version isn't a plausible version id
+/// (`share::plausible_version`): the sender wrote them, the import dialog shows them and
+/// the new instance keeps them, so they mustn't hold prose or invisible characters.
 fn check_game(game: &lodestone_image::Game) -> Result<(), ImageError> {
-    let plausible = |text: &str| {
-        (1..=64).contains(&text.len())
-            && text
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b" .-_+".contains(&b))
-    };
     let versions = std::iter::once(game.minecraft.as_str()).chain(game.loader_version.as_deref());
     for version in versions {
-        if !plausible(version) {
+        if !lodestone_image::share::plausible_version(version) {
             return Err(ImageError::Invalid(format!(
                 "the export names the version {}, which isn't one",
                 lodestone_image::display_text(version)
@@ -556,7 +761,7 @@ fn space_needed(unpacked: u64, entries: &[Entry]) -> u64 {
 }
 
 /// The distinct downloads an import of `entries` may make (each file and claimed source
-/// once), refused past [`MAX_DOWNLOADS`]: checked when the file is opened, before anything
+/// once), refused past `share::MAX_DOWNLOADS`: checked when the file is opened, before anything
 /// is unpacked or asked of Modrinth or CurseForge.
 fn wanted_downloads(entries: &[Entry], curseforge: bool) -> Result<Vec<&Entry>, ImageError> {
     let mut seen = HashSet::new();
@@ -565,7 +770,7 @@ fn wanted_downloads(entries: &[Entry], curseforge: bool) -> Result<Vec<&Entry>, 
         .filter(|e| downloadable(e, curseforge))
         .filter(|e| seen.insert(download_key(e)))
         .collect();
-    if wanted.len() > MAX_DOWNLOADS {
+    if wanted.len() > lodestone_image::share::MAX_DOWNLOADS {
         return Err(ImageError::Invalid(format!(
             "the export names {} files to download, more than an instance has",
             wanted.len()
@@ -574,15 +779,121 @@ fn wanted_downloads(entries: &[Entry], curseforge: bool) -> Result<Vec<&Entry>, 
     Ok(wanted)
 }
 
-/// What the export at `path` holds (see [`ImportPreview`]), after the container's checks
-/// and [`check_entries`]. Blocking.
-pub fn inspect(path: &Path) -> Result<ImportPreview, ImageError> {
+/// An export opened for importing: its container, and the images the import places
+/// (for a server's backup, its client side: [`super::from_server`]).
+struct Opened {
+    container: container::Container,
+    /// The file's own image id, which a preview showed.
+    file_image: String,
+    image: Image,
+    linked: Vec<Image>,
+    /// For a server's backup: the server's name and what the instance doesn't take.
+    from_server: Option<(String, super::from_server::ServerFiles)>,
+    /// For a server's backup: the modpack the server is built on.
+    pack: Option<super::from_server::ServerPack>,
+}
+
+/// The server a core's export was taken of, from its label ("<server> – <backup>", the
+/// core's `share::export`): what a file opened without "Download this world" names the
+/// instance after.
+fn server_of_label(label: Option<&str>) -> String {
+    let label = shown_name(label.unwrap_or_default());
+    let server = label.split(" – ").next().unwrap_or_default().trim();
+    if server.is_empty() {
+        labels::SERVER.to_string()
+    } else {
+        server.to_string()
+    }
+}
+
+/// Opens the export at `path` and checks it (the container's checks, then
+/// [`check_entries`], the game's versions and the downloads' count). A core's export is
+/// taken as its client side, whose first content image says it came from `server`
+/// (else the server its label names). Blocking.
+fn open_export(path: &Path, server: Option<&str>) -> Result<Opened, ImageError> {
     let container = container::open(path, &Limits::default()).map_err(container_error)?;
-    let image = container.image();
-    let linked = container.linked();
-    let entries = placed_entries(image, linked);
+    let file_image = container.image().id.clone();
+    let from_core = super::from_server::is_from_core(container.image());
+    // A file a core's export route sent ("Download this world") must say it is a server's:
+    // labelled otherwise, a hostile core would have it imported as a Launcher's own, with
+    // none of a server's files taken out.
+    if server.is_some() && !from_core {
+        return Err(ImageError::Invalid(
+            "The host sent a file that isn't a server's backup".into(),
+        ));
+    }
+    let (image, linked, from_server, pack) = if from_core
+        || super::from_server::holds_server_files(container.image(), container.linked())
+    {
+        let server = server
+            .map(shown_name)
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| server_of_label(container.image().label.as_deref()));
+        let side = super::from_server::client_side(
+            container.image(),
+            container.linked(),
+            &labels::downloaded_from(&server),
+        )?;
+        (
+            side.image,
+            side.linked,
+            Some((server, side.server)),
+            side.pack,
+        )
+    } else {
+        (
+            container.image().clone(),
+            container.linked().to_vec(),
+            None,
+            None,
+        )
+    };
+    let entries = placed_entries(&image, &linked);
     check_entries(&entries)?;
     check_game(&image.game)?;
+    Ok(Opened {
+        container,
+        file_image,
+        image,
+        linked,
+        from_server,
+        pack,
+    })
+}
+
+impl Opened {
+    fn server_files(&self) -> Option<FromServer> {
+        self.from_server.as_ref().map(|(server, files)| FromServer {
+            server_shown: lodestone_image::display_text(server).into_owned(),
+            name: shown_name(server),
+            server_only_mods: files.server_only_mods.clone(),
+            not_taken: files.not_taken,
+            modpack: self
+                .pack
+                .as_ref()
+                .map(super::from_server::ServerPack::platform),
+        })
+    }
+}
+
+/// What the export at `path` holds (see [`ImportPreview`]), after the checks an import
+/// makes. A server's backup exported by a Lodestone Core is described as the instance it
+/// makes (its client side, [`super::from_server`]). Blocking.
+pub fn inspect(path: &Path) -> Result<ImportPreview, ImageError> {
+    inspect_as(path, None)
+}
+
+/// [`inspect`] of a file a core's export route sent for the server `server` ("Download
+/// this world"): refused as the import refuses it when it doesn't say a core made it, so
+/// the preview never shows a hostile core's file as a Launcher's.
+pub fn inspect_from_host(path: &Path, server: &str) -> Result<ImportPreview, ImageError> {
+    inspect_as(path, Some(server))
+}
+
+fn inspect_as(path: &Path, server: Option<&str>) -> Result<ImportPreview, ImageError> {
+    let opened = open_export(path, server)?;
+    let (image, linked) = (&opened.image, opened.linked.as_slice());
+    let entries = placed_entries(image, linked);
     wanted_downloads(&entries, true)?;
     let shown = |text: &str| lodestone_image::display_text(text).into_owned();
     let mods = entries
@@ -590,7 +901,8 @@ pub fn inspect(path: &Path) -> Result<ImportPreview, ImageError> {
         .filter(|e| is_mod_path(&e.path))
         .map(|e| shown(&mod_name(&e.path)))
         .collect();
-    let carried_mods = carried_mod_names(image, linked, &carried(image, linked)?);
+    let carried = carried(image, linked)?;
+    let carried_mods = carried_mod_names(image, linked, &carried);
     let download_bytes = entries
         .iter()
         .filter(|e| downloadable(e, true))
@@ -609,14 +921,22 @@ pub fn inspect(path: &Path) -> Result<ImportPreview, ImageError> {
         })
         .map(|e| shown(e.path.as_str()))
         .collect();
+    let unpacked = opened
+        .container
+        .unpacked_bytes_of(&|sha256| carried.contains(sha256));
+    let from_server = opened.server_files();
+    let name_shown = match &from_server {
+        Some(server) => server.server_shown.clone(),
+        None => shown(image.label.as_deref().unwrap_or(labels::SNAPSHOT)),
+    };
     Ok(ImportPreview {
-        image: image.id.clone(),
-        name_shown: shown(image.label.as_deref().unwrap_or(labels::SNAPSHOT)),
+        image: opened.file_image.clone(),
+        name_shown,
         minecraft: image.game.minecraft.clone(),
         loader: image.game.loader.as_str().to_string(),
         loader_version: image.game.loader_version.clone(),
-        created: image.created,
-        producer_shown: shown(&image.producer.version),
+        created: opened.container.image().created,
+        producer_shown: shown(&opened.container.image().producer.version),
         worlds: image
             .worlds
             .iter()
@@ -625,12 +945,13 @@ pub fn inspect(path: &Path) -> Result<ImportPreview, ImageError> {
         mods,
         carried_mods,
         files: entries.len(),
-        unpacked_bytes: container.unpacked_bytes(),
+        unpacked_bytes: unpacked,
         files_bytes: entries.iter().map(|e| e.size).fold(0, u64::saturating_add),
         download_bytes,
-        needed_bytes: space_needed(container.unpacked_bytes(), &entries),
+        needed_bytes: space_needed(unpacked, &entries),
         not_downloadable,
         full: image.kind == Kind::Full,
+        from_server,
     })
 }
 
@@ -646,57 +967,115 @@ pub fn room_on(dir: PathBuf) -> impl Fn(u64) -> Result<(), ImageError> + Send + 
     }
 }
 
-/// Makes a new instance from the export at `path`, named `name` (else the snapshot's
-/// name, made unique), see the module. With `expect_image`, the image id the preview the
-/// user approved showed: a file whose image is another by now (replaced since) is
-/// refused. `check_room` is asked once, before anything is unpacked, for everything the
-/// import will write and 1 GiB to spare ([`ImportPreview::needed_bytes`]). Blocks while
-/// it reads, unpacks and places files: run it on a background thread.
-#[allow(clippy::too_many_arguments)]
+/// Makes a new instance from the export `request` names (see the module and
+/// [`ImportRequest`]). `check_room` is asked once, before anything is unpacked, for
+/// everything the import will write and 1 GiB to spare ([`ImportPreview::needed_bytes`]).
+/// Only the objects the placed files name are unpacked, each read from the file and
+/// checked even when the store has it, so a file can't name the store's other files by
+/// hash. An import that fails or is cancelled once it began unpacking asks for a
+/// collection past the grace ([`Images::request_gc_after_grace`]): the objects it put in
+/// the store (a whole server's world, for "Download this world") are named by no manifest,
+/// and nothing else would ask for one. Blocks while it reads, unpacks and places files:
+/// run it on a background thread.
 pub async fn import_file(
     images: &Arc<Images>,
     sources: Sources<'_>,
-    path: &Path,
-    name: Option<&str>,
-    expect_image: Option<&str>,
+    request: ImportRequest<'_>,
     check_room: &(dyn Fn(u64) -> Result<(), ImageError> + Sync),
     progress: &Progress,
     cancel: &CancelToken,
 ) -> Result<Imported, ImageError> {
-    let mut opened = container::open(path, &Limits::default()).map_err(container_error)?;
-    let image = opened.image().clone();
-    if expect_image.is_some_and(|expected| expected != image.id) {
+    let mut unpacking = false;
+    let imported = import_file_unpacking(
+        images,
+        sources,
+        request,
+        check_room,
+        progress,
+        cancel,
+        &mut unpacking,
+    )
+    .await;
+    if imported.is_err() && unpacking {
+        images.request_gc_after_grace();
+    }
+    imported
+}
+
+/// [`import_file`] but the later collection; `unpacking` is set once objects may have
+/// gone into the store.
+async fn import_file_unpacking(
+    images: &Arc<Images>,
+    sources: Sources<'_>,
+    request: ImportRequest<'_>,
+    check_room: &(dyn Fn(u64) -> Result<(), ImageError> + Sync),
+    progress: &Progress,
+    cancel: &CancelToken,
+    unpacking: &mut bool,
+) -> Result<Imported, ImageError> {
+    let mut opened = open_export(request.path, request.server)?;
+    if request
+        .expect_image
+        .is_some_and(|expected| expected != opened.file_image)
+    {
         return Err(ImageError::Invalid(
             "The file changed since it was opened; open it again to see what it holds".into(),
         ));
     }
-    let linked = opened.linked().to_vec();
+    let from_server = opened.server_files();
+    let pack = opened.pack.clone();
+    let image = opened.image.clone();
+    let linked = opened.linked.clone();
     let entries = placed_entries(&image, &linked);
-    check_entries(&entries)?;
-    check_game(&image.game)?;
     wanted_downloads(&entries, sources.curseforge.is_some())?;
+    let carried = carried(&image, &linked)?;
     let store = images.store().clone();
-    check_room(space_needed(opened.unpacked_bytes(), &entries))?;
+    let unpacked = opened
+        .container
+        .unpacked_bytes_of(&|sha256| carried.contains(sha256));
+    check_room(space_needed(unpacked, &entries))?;
 
     let writing = images.enter()?;
     let hold = store.hold_off_collection()?;
     let stop = || cancel.is_cancelled();
+    *unpacking = true;
     opened
-        .import_objects(&store, &|_| Ok(()), &stop)
+        .container
+        .import_objects_where_verified(
+            &store,
+            &|sha256| carried.contains(sha256),
+            &|_| Ok(()),
+            &stop,
+        )
         .map_err(container_error)?;
     drop(opened);
     let staging = images
         .instances()
         .new_staging()
         .map_err(|e| ImageError::Instance(e.to_string()))?;
+    let name = request
+        .name
+        .map(str::to_string)
+        .or_else(|| from_server.as_ref().map(|server| server.name.clone()));
     let built = build(
-        images, &sources, &store, &image, &entries, &staging, name, progress, cancel,
+        images,
+        &sources,
+        &store,
+        &image,
+        &entries,
+        &carried,
+        &staging,
+        name.as_deref(),
+        pack.as_ref(),
+        progress,
+        cancel,
     )
     .await;
     let Built {
         instance,
         left_out,
         verified,
+        server_pack,
     } = match built {
         Ok(made) => made,
         Err(e) => {
@@ -707,12 +1086,25 @@ pub async fn import_file(
     // Collections stay held off until the imported snapshot's manifests are saved: until
     // then nothing names the objects only it uses (its worlds), and a long import may have
     // unpacked them longer ago than the collection's grace.
-    if let Err(e) = images.record_now(&instance.id, labels::FROM_SNAPSHOT) {
-        super::warn("images.record", &instance.id, &e.to_string());
-    }
+    let label = match &from_server {
+        Some(_) => linked
+            .first()
+            .and_then(|c| c.label.clone())
+            .unwrap_or_else(|| labels::FROM_SNAPSHOT.to_string()),
+        None => labels::FROM_SNAPSHOT.to_string(),
+    };
+    let recorded = match images.record_now(&instance.id, &label) {
+        Ok(recorded) => recorded,
+        Err(e) => {
+            super::warn("images.record", &instance.id, &e.to_string());
+            None
+        }
+    };
     // The snapshot kept of what they were sent claims no source this import didn't confirm,
     // so a later restore of it can't record the sender's file as a project's either.
-    let has_object = |entry: &Entry| store.has_object(&entry.sha256, entry.size);
+    let has_object = |entry: &Entry| {
+        carried.contains(&entry.sha256) && store.has_object(&entry.sha256, entry.size)
+    };
     let mut kept_linked: Vec<Image> = linked
         .iter()
         .map(|content| without_unconfirmed_sources(content, &verified, &has_object))
@@ -723,23 +1115,36 @@ pub async fn import_file(
     }
     if kept.kind == Kind::Data {
         kept.content = kept_linked.first().map(|c| c.id.clone());
+        // The pack's share was placed beside the images: the content recorded just now
+        // holds it, so the snapshot of what they were sent links to that (a restore of it
+        // must not take the pack's files back out).
+        if matches!(
+            server_pack,
+            Some(super::from_server::PackShare::Placed { files }) if files > 0
+        ) && let Some(recorded) = &recorded
+        {
+            kept.content = Some(recorded.id.clone());
+            kept_linked.clear();
+        }
     }
     kept.seal();
     if let Err(e) = images.adopt_imported(&instance.id, &kept, &kept_linked) {
         super::warn("images.import", &instance.id, &e.to_string());
+        // the instance is made, but no manifest may name what was unpacked for it
+        images.request_gc_after_grace();
     }
     drop(hold);
     drop(writing);
-    Ok(Imported { instance, left_out })
+    Ok(Imported {
+        instance,
+        left_out,
+        from_server,
+        server_pack,
+    })
 }
 
 /// How many downloads an import runs at once.
 const IMPORT_DOWNLOADS: usize = 8;
-
-/// The most downloads an import makes: far more files than any real instance has, so a
-/// file listing a million references is refused before anything is asked of Modrinth or
-/// CurseForge.
-const MAX_DOWNLOADS: usize = 20_000;
 
 /// How many CurseForge files one lookup asks for (CurseForge's own limit).
 const CURSEFORGE_LOOKUP: usize = 500;
@@ -974,6 +1379,8 @@ struct Built {
     left_out: Vec<String>,
     /// The downloads it made, by [`download_key`]: the sources this import confirmed.
     verified: HashSet<(String, String)>,
+    /// For a server built on a modpack: what became of the pack's client share.
+    server_pack: Option<super::from_server::PackShare>,
 }
 
 /// The import's downloads, files and `instance.json` in `staging`, committed as a new
@@ -984,10 +1391,12 @@ struct Built {
 /// sources, so only a download says that a project's file has those bytes. Each distinct
 /// file and claimed source is downloaded once. A file that wasn't downloaded (no URL, a
 /// download that failed, or bytes that aren't the ones named) is still placed when the
-/// store has its bytes (the export carries them, or the store had them before), but as a
+/// export carries its bytes (never from the store's other files by hash), but as a
 /// plain file: `content.json` learns no source for it. The rest are left out. Once the
 /// downloads get no answer at all, the rest aren't tried ([`Breaker`]). Only cancelling,
-/// or a failure of the store or the disk, stops the import.
+/// or a failure of the store or the disk, stops the import. For a server built on a
+/// modpack `pack`, the pack's client share is placed under the files
+/// ([`super::from_server::place_pack_share`]).
 #[allow(clippy::too_many_arguments)]
 async fn build(
     images: &Arc<Images>,
@@ -995,8 +1404,10 @@ async fn build(
     store: &Arc<lodestone_image::store::Store>,
     image: &Image,
     entries: &[Entry],
+    carried: &HashSet<String>,
     staging: &Path,
     name: Option<&str>,
+    pack: Option<&super::from_server::ServerPack>,
     progress: &Progress,
     cancel: &CancelToken,
 ) -> Result<Built, ImageError> {
@@ -1099,7 +1510,10 @@ async fn build(
     );
     let mut left_out = Vec::new();
     placed.entries.retain(|e| {
-        let there = store.object_complete(&e.sha256, e.size);
+        // a confirmed download (its source kept), or bytes this file carries: never the
+        // store's other files, which a file could name by their hash alone
+        let there = (verified.contains(&download_key(e)) || carried.contains(&e.sha256))
+            && store.object_complete(&e.sha256, e.size);
         if !there {
             left_out.push(e.path.to_string());
         }
@@ -1111,10 +1525,29 @@ async fn build(
         durable: true,
         cancel: &stop,
     };
-    materialize(store, &placed, &DiskLayout::Client, staging, &options)
-        .map_err(|e| ImageError::Invalid(format!("The export's files couldn't be placed: {e}")))?;
-    super::restore::learn_sources(&InstanceDirs::new(staging), &placed.entries)
-        .map_err(ImageError::Invalid)?;
+    // a Cancel while placing is a stop, not a failure, so the dialog says it stopped
+    materialize(store, &placed, &DiskLayout::Client, staging, &options).map_err(|e| match e {
+        lodestone_image::store::materialize::MaterializeError::Cancelled => ImageError::Cancelled,
+        e => ImageError::Invalid(format!("The export's files couldn't be placed: {e}")),
+    })?;
+    let dirs = InstanceDirs::new(staging);
+    super::restore::learn_sources(&dirs, &placed.entries).map_err(ImageError::Invalid)?;
+    let server_pack = match pack {
+        Some(pack) => Some(
+            super::from_server::place_pack_share(
+                pack,
+                entries,
+                crate::content::Platforms::new(Some(sources.modrinth), sources.curseforge),
+                sources.downloader,
+                &crate::paths::DataDir::at(images.data_root.clone()).server_pack_cache_dir(),
+                staging,
+                &dirs.game,
+                cancel,
+            )
+            .await?,
+        ),
+        None => None,
+    };
     let game = &image.game;
     let loader = super::restore::loader_of(&game.loader).ok_or_else(|| {
         ImageError::Invalid(format!(
@@ -1123,10 +1556,11 @@ async fn build(
         ))
     })?;
     let label = image.label.as_deref().unwrap_or(labels::SNAPSHOT);
+    // a name given may be a core's (a server's), so it is cleaned like a label
     let wanted_name = name
-        .map(str::trim)
+        .map(|n| shown_name(n).trim().to_string())
         .filter(|n| !n.is_empty())
-        .map_or_else(|| snapshot_name(Some(&shown_name(label))), str::to_string);
+        .unwrap_or_else(|| snapshot_name(Some(&shown_name(label))));
     let instance = Instance {
         name: wanted_name.chars().take(64).collect(),
         game_version: game.minecraft.clone(),
@@ -1148,6 +1582,7 @@ async fn build(
         instance: made,
         left_out,
         verified,
+        server_pack,
     })
 }
 

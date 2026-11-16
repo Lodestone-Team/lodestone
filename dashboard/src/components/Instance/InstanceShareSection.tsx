@@ -117,9 +117,6 @@ export default function InstanceShareSection({
       >
         {t('server.share.title')}
       </h2>
-      <h3 className="text-h3 font-medium tracking-medium text-white/50 italic">
-        {t('server.share.lead')}
-      </h3>
       <DashboardCard className="mt-4 gap-4">
         {!share.sharing ? (
           <div className="flex flex-row flex-wrap items-center justify-between gap-4">

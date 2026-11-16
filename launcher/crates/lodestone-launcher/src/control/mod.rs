@@ -36,6 +36,7 @@ mod skins;
 mod snapshots;
 mod storage;
 mod trace;
+mod world_backups;
 mod worlds;
 
 use std::{
@@ -518,7 +519,7 @@ pub const METHODS: &[Method] = &[
     ),
     method(
         "snapshots.create",
-        "Takes a snapshot of an instance: its worlds and other files linked to its mods (name; everything: true for mods and configs too).",
+        "Takes a snapshot of an instance: the whole instance folder, its worlds and other files linked to its mods and configs (name).",
         snapshots::create,
     ),
     destructive(
@@ -554,19 +555,35 @@ pub const METHODS: &[Method] = &[
     // worlds
     method("worlds.list", "An instance's worlds.", worlds::list),
     method(
-        "worlds.backups",
+        "worlds.snapshots",
         "The snapshots that hold a world.",
-        worlds::backups,
+        worlds::snapshots,
+    ),
+    destructive(
+        "worlds.restore_snapshot",
+        "Restores a world from a snapshot that holds it (snapshot: id, name or latest) as a new world beside it (mode: new, the default), or in its place after a safety snapshot (mode: replace, needs confirm).",
+        worlds::restore_snapshot,
+    ),
+    // world backups
+    method(
+        "world_backups.list",
+        "An instance's world backups (zips of one world each), newest first (world: only that world's, also one no longer in the instance); deleted: true lists deleted instances' world backups.",
+        world_backups::list,
     ),
     method(
-        "worlds.backup",
-        "Backs up a world: a snapshot named after it.",
-        worlds::backup,
+        "world_backups.create",
+        "Backs up a world as a zip (world: its folder or name; name). A job; jobs.cancel stops it.",
+        world_backups::create,
     ),
-    method(
-        "worlds.restore",
-        "Restores a world from a snapshot (snapshot: id, name or latest) as a copy, or in its place after a safety snapshot (mode: replace).",
-        worlds::restore,
+    destructive(
+        "world_backups.restore",
+        "Restores a world backup (backup: id, name, or latest with world): mode new (the default) as a new world beside it, mode replace in place after a safety world backup (needs confirm). A job; jobs.cancel stops it.",
+        world_backups::restore,
+    ),
+    destructive(
+        "world_backups.delete",
+        "Moves a world backup's zip to the Trash (backup: id, name, or latest with world).",
+        world_backups::delete,
     ),
     destructive(
         "worlds.delete",
@@ -715,8 +732,13 @@ pub const METHODS: &[Method] = &[
     ),
     method(
         "servers.host",
-        "Hosts an instance's modpack as a new server on a core.",
+        "Hosts an instance as a new server on a core, with the worlds it sends.",
         servers::host,
+    ),
+    method(
+        "servers.download_world",
+        "Downloads a server's world as a new instance, with the mods its players get.",
+        servers::download_world,
     ),
     method(
         "prompts.list",
@@ -1672,7 +1694,8 @@ pub const READ_METHODS: &[&str] = &[
     "modpacks.added",
     "snapshots.list",
     "worlds.list",
-    "worlds.backups",
+    "worlds.snapshots",
+    "world_backups.list",
     "worlds.datapacks",
     "worlds.datapack_search",
     "accounts.list",
@@ -1806,6 +1829,9 @@ mod tests {
             "shared.clear",
             "snapshots.restore",
             "snapshots.delete",
+            "world_backups.delete",
+            "world_backups.restore",
+            "worlds.restore_snapshot",
             // only the user can say they compared safety codes
             "friend_list.verify",
             "friend_list.answer_link",
@@ -1870,8 +1896,10 @@ mod tests {
         "snapshots.delete",
         "snapshots.pin",
         "snapshots.policy",
-        "worlds.backup",
-        "worlds.restore",
+        "worlds.restore_snapshot",
+        "world_backups.create",
+        "world_backups.restore",
+        "world_backups.delete",
         "worlds.delete",
         "worlds.datapack_add",
         "worlds.datapack_install",
@@ -1897,6 +1925,7 @@ mod tests {
         "servers.link",
         "servers.unlink",
         "servers.host",
+        "servers.download_world",
         "prompts.answer",
         "friends.open",
         "friends.join",

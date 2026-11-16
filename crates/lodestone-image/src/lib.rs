@@ -30,6 +30,8 @@
 //!   collecting what no image names.
 //! - [`container`]: export files, one zip carrying an image to another computer, and the
 //!   strict reader that takes one in.
+//! - [`share`]: rules both programs follow for images that move between computers: what
+//!   an export places, plausible versions, taking files out, JVM crash names.
 //! - [`lineage`]: the order content images are kept and listed in, and merged labels.
 //! - [`hex`]: hex digests.
 //!
@@ -50,6 +52,7 @@ pub mod manifest;
 pub mod paths;
 pub mod settings;
 mod sha256;
+pub mod share;
 pub mod store;
 mod strings;
 pub mod view;

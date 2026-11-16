@@ -40,8 +40,11 @@ pub const CLIENT_GAME_FOLDER: &str = "minecraft";
 
 const NETHER: &str = "DIM-1";
 const END: &str = "DIM1";
-const BUKKIT_NETHER: &str = ".bukkit_nether";
-const BUKKIT_END: &str = ".bukkit_the_end";
+/// Where a Paper or Bukkit server's split Nether folder (`<level>_nether/`) keeps its own
+/// files other than `DIM-1` inside the level's world: `saves/<level>/.bukkit_nether/…`.
+pub const BUKKIT_NETHER: &str = ".bukkit_nether";
+/// The same for the split End folder (`<level>_the_end/`): `saves/<level>/.bukkit_the_end/…`.
+pub const BUKKIT_END: &str = ".bukkit_the_end";
 
 /// Top-level server folders that can't be world names: they hold other content, and a
 /// world there would make its files and theirs one folder. The folders that are always

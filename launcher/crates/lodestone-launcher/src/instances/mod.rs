@@ -25,6 +25,7 @@ pub mod shared_settings;
 pub mod slideshow;
 pub mod snapshots;
 mod undo;
+pub mod world_backups;
 pub mod worlds;
 pub use files::FileOp;
 pub use undo::InstanceSnapshot;
@@ -59,6 +60,7 @@ use launcher_core::{
     instances::{Instance, InstanceStore},
     paths::DataDir,
     settings::{self as launcher_settings, InstanceDefaults, Settings},
+    world_backups::{WorldBackup, WorldBackups},
 };
 use lodestone_minecraft::versions::mojang::MojangVersion;
 
@@ -586,6 +588,16 @@ pub struct Instances {
     /// The instances' content images: every action that changes an instance's content
     /// begins an operation here ([`Images::begin`]) in its background task.
     images: Arc<Images>,
+    /// Zips of single worlds, beside the snapshots.
+    world_backups: Arc<WorldBackups>,
+    /// Each instance's world backups, newest first, once read (see world_backups.rs).
+    world_backup_rows: HashMap<String, Vec<WorldBackup>>,
+    /// Of each instance's world backups read, the world folders no longer in `saves/`.
+    world_backup_gone: HashMap<String, std::collections::HashSet<String>>,
+    world_backup_tasks: HashMap<String, Task<()>>,
+    /// How many times each instance's world backups changed (`WorldBackups::watch`), so
+    /// the Worlds tab reads them again.
+    world_backup_revisions: HashMap<String, u64>,
     /// Counts changes to the shared game settings made in the launcher's Settings, so
     /// an instance's Settings tab shows the new values.
     shared_revision: u64,
@@ -641,6 +653,7 @@ impl Instances {
         );
         let store = InstanceStore::new(data_dir.instances_dir());
         let images = Images::open(&data_dir);
+        let world_backups = WorldBackups::open(&data_dir, images.clone());
         // A restore a crash interrupted is finished or undone before anything can be
         // played: on this thread, since it only renames folders (back, or to the trash
         // that the task below empties).
@@ -657,8 +670,11 @@ impl Instances {
         // backup zips are the user's files and stay where they are).
         let forgetting = images.clone();
         let old_store = data_dir.clone();
+        let sweeping = world_backups.clone();
         cx.background_spawn(async move {
             forgetting.empty_restore_trash(None);
+            // What a crash left of a world backup being made or deleted.
+            sweeping.sweep();
             if let Err(err) = forgetting.forget_deleted() {
                 log::warn!("Couldn't forget the images of deleted instances: {err}");
             }
@@ -748,17 +764,51 @@ impl Instances {
             content_revisions: HashMap::new(),
             import_ticker: None,
             images,
+            world_backups,
+            world_backup_rows: HashMap::new(),
+            world_backup_gone: HashMap::new(),
+            world_backup_tasks: HashMap::new(),
+            world_backup_revisions: HashMap::new(),
         };
         this.reload(cx);
         this.follow_snapshot_changes(cx);
-        // Exports left from an earlier run were made to be shared then: the dialog that
-        // offered them is gone. Renamed away at once, so an export started now never
-        // writes into a folder being deleted, then deleted in the background.
-        let exports = this.snapshot_exports_dir();
-        let old = exports.with_file_name(format!("snapshot-exports-old-{}", std::process::id()));
-        if std::fs::rename(&exports, &old).is_ok() {
+        this.follow_world_backup_changes(cx);
+        // Files left from an earlier run (snapshot exports, "Host this" uploads, "Download
+        // this world" downloads) were made to be shared or read then: the dialog that
+        // made them is gone. Renamed away at once (to a name no earlier run used), so one
+        // started now never writes into a folder being deleted, then deleted in the
+        // background with any such folder an earlier run quit before deleting.
+        let mut doomed = Vec::new();
+        for dir in this.data_dir.temporary_dirs() {
+            let Some(name) = dir.file_name().map(|n| n.to_string_lossy().into_owned()) else {
+                continue;
+            };
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_nanos());
+            let old = dir.with_file_name(format!("{name}-old-{}-{now}", std::process::id()));
+            if std::fs::rename(&dir, &old).is_ok() {
+                doomed.push(old);
+            }
+            let prefix = format!("{name}-old-");
+            if let Some(parent) = dir.parent() {
+                doomed.extend(
+                    std::fs::read_dir(parent)
+                        .into_iter()
+                        .flatten()
+                        .flatten()
+                        .filter(|e| e.file_name().to_string_lossy().starts_with(&prefix))
+                        .map(|e| e.path()),
+                );
+            }
+        }
+        doomed.sort();
+        doomed.dedup();
+        if !doomed.is_empty() {
             cx.background_spawn(async move {
-                let _ = std::fs::remove_dir_all(old);
+                for old in doomed {
+                    let _ = std::fs::remove_dir_all(old);
+                }
             })
             .detach();
         }
@@ -1796,7 +1846,7 @@ impl Instances {
 
     /// Has the Content tab offer Modrinth's projects while staying off the network:
     /// every request to it fails (the list says Modrinth couldn't be reached), for
-    /// the offscreen screenshots of "Looking for something new?".
+    /// the offscreen screenshots of the buttons below the installed list.
     pub fn preview_modrinth_unreachable(&mut self) {
         self.modrinth = Some(Arc::new(Modrinth::with_urls(
             Arc::new(http_client::BlockedHttpClient::new()),

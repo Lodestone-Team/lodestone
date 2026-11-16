@@ -421,6 +421,19 @@ impl ServerDetail {
             .when(!power.is_empty(), |this| {
                 this.child(div().flex_none().child(power))
             })
+            // signed in: the world can come as an instance (the core checks that this
+            // user may read the server's files)
+            .when(self.access.is_some(), |this| {
+                this.child(
+                    div().flex_none().child(
+                        Button::new("server-download-world", t(M::DownloadWorldAction))
+                            .size(ButtonSize::Slim)
+                            .on_click(
+                                cx.listener(|_, _, _, cx| cx.emit(DetailEvent::DownloadWorld)),
+                            ),
+                    ),
+                )
+            })
             .into_any_element()
     }
 

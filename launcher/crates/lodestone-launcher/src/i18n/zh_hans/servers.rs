@@ -15,8 +15,8 @@ pub fn text(message: M) -> &'static str {
         M::ConnectAsOwner => "以所有者身份连接",
         M::ChooseDataFolder => "选择文件夹…",
         M::ChooseDataFolderPrompt => "选择",
-        M::ProductHostHint => "桌面应用，控制面板在窗口中",
-        M::ProductCoreHint => "独立的服务器程序，或 Docker",
+        M::ProductHostHint => "Lodestone Host",
+        M::ProductCoreHint => "Lodestone Core",
         M::ConnectedAsOwner => "已以所有者身份连接到 {name}",
         M::ConnectedMadeOwner => {
             "它还没有所有者，因此 Lodestone Launcher 创建了所有者账户 {username}。"
@@ -45,7 +45,6 @@ pub fn text(message: M) -> &'static str {
         M::AddServer => "添加主机",
         M::Dismiss => "关闭",
         M::OtherCoresTitle => "其他主机和服务器",
-        M::OtherCoresHint => "你通过地址添加的其他电脑上的主机，以及你通过邀请链接加入的服务器。",
         M::NoOtherCores => "还没有其他主机或服务器",
         M::NoServersHint => "通过地址添加主机，或用别人发给你的邀请链接添加服务器。",
 
@@ -182,7 +181,7 @@ pub fn text(message: M) -> &'static str {
 
         M::DifferentMods => "{name} 的模组有所不同",
         M::DifferentModsBody => {
-            "自此实例获取服务器的模组以来，它们已发生变化（{changes}）。请先更新才能加入；你自己的模组保持不变，被替换的文件会保留在实例的备份中。"
+            "自此实例获取服务器的模组以来，它们已发生变化（{changes}）。请先更新才能加入；你自己的模组保持不变，被替换的文件会保留在实例文件夹的 backups/ 中。"
         }
         M::ChangeNew => "新增：{name}",
         M::ChangeChanged => "已更改：{name}",
@@ -319,7 +318,7 @@ pub fn text(message: M) -> &'static str {
         M::SignInIntro => {
             "登录后即可启动和停止服务器，并查看未公开列出的服务器。Lodestone Launcher 会为{computer} 生成专用密钥；你的密码不会被保存。"
         }
-        M::AddIntro => "主机的地址。不登录时，你能看到其所有者公开列出的服务器。",
+        M::AddIntro => "不登录时，你只能看到其所有者公开列出的服务器。",
         M::Address => "地址",
         M::SignInOptional => "登录（可选）",
         M::KeyExpiresAfter => "{computer} 上的密钥有效期",
@@ -343,7 +342,7 @@ pub fn text(message: M) -> &'static str {
         M::ConsoleNotShown => "控制台未显示",
         M::OutputAppearsHere => "服务器的输出会显示在这里。",
         M::Send => "发送",
-        M::ChatHint => "文字会通过 /say 发给所有人。以 / 开头可执行命令。",
+        M::ChatHint => "文字会通过 /say 发给所有人。",
         M::Console => "控制台",
         M::JumpToLatest => "跳到最新",
         M::MinecraftAccount => "Minecraft 账户",
@@ -355,14 +354,10 @@ pub fn text(message: M) -> &'static str {
 
         M::HostTitle => "在 Lodestone 上托管",
         M::ShowOnServersPage => "在“Lodestone Host”页面查看",
-        M::HostIntro => {
-            "以 Modrinth 整合包的形式，用 {name} 的模组和配置文件创建一个服务器。来自 Modrinth 的仅客户端模组会被排除。服务器创建后处于停止状态。"
-        }
         M::CoreLabel => "主机",
         M::PasswordNotKept => "你的密码只会在登录时发送一次，不会被保存。",
         M::ServerName => "服务器名称",
         M::Memory => "内存",
-        M::GamePortHint => "游戏端口是主机所在机器上从 {port} 起第一个空闲的端口。",
         M::EulaAgree => "我同意 Minecraft EULA（{url}）。主机会为新服务器接受它。",
         M::ReadEula => "阅读 EULA",
         M::CreateServer => "创建服务器",
@@ -372,14 +367,71 @@ pub fn text(message: M) -> &'static str {
         }
         M::AgreeEulaFirst => "请先同意 Minecraft EULA：主机会为新服务器接受它。",
         M::StageExporting => "正在导出实例…",
-        M::StageSigningIn => "正在登录…",
-        M::StageUploading => "正在上传整合包（{size}）…",
         M::StageCreating => "正在创建服务器…",
         M::CoreGone => "该主机已不存在。",
         M::InstanceGone => "该实例已不存在。",
-        M::PackNotKept => "主机没有保留该整合包。",
         M::SignedOutRightAway => "主机在你登录后立即让你退出登录。请重试。",
         M::AddCoreFirst => "请先在“Lodestone Host”页面添加你的主机。",
+        M::HostIntro => {
+            "用 {name} 在主机上创建服务器：包括它的模组和配置，以及你选择的世界。只有玩家需要的模组、你的账户和你自己的设置都留在这里。服务器创建后处于停止状态。"
+        }
+        M::HostWorlds => "要发送的世界",
+        M::HostWorldsHint => "下一步选择哪个世界成为服务器的世界。不发送世界则创建新世界。",
+        M::HostNoWorlds => "此实例没有世界：服务器会创建一个新世界。",
+        M::HostWorldsLoading => "正在查找实例的世界…",
+        M::HostStageSending => "正在发送到主机（{done}/{total}）…",
+        M::HostStageReading => "主机正在读取文件…",
+        M::HostPort => "端口",
+        M::HostPortInvalid => "请输入 1 到 65535 之间的端口。",
+        M::HostNameForbidden => "服务器名称不能包含 / \\ : * ? \" < > |",
+        M::HostNameTooLong => "服务器名称最多 100 个字符。",
+        M::HostNameControl => "服务器名称不能包含控制字符。",
+        M::HostCreatingHint => "你可以关闭此窗口：主机会继续设置服务器，准备好后此实例会关联到它。",
+        M::HostCreated => {
+            "{name} 已在 {core} 上，端口 {port}。它处于停止状态：准备好后，从“Lodestone Host”页面或控制面板启动它。此实例已关联到它，点击“开始游戏”即可加入。"
+        }
+        M::HostCreatedUnlinked => {
+            "{name} 已在 {core} 上，端口 {port}。它处于停止状态：准备好后，从“Lodestone Host”页面或控制面板启动它。此实例在此期间已被删除，因此没有任何实例关联到它。"
+        }
+        M::HostCreatedRelinked => "此实例之前关联到 {server}；现在它属于新服务器。",
+        M::HostLeftOut => "服务器上没有的内容",
+        M::HostCreationFailed => "主机无法创建服务器：{error}",
+        M::HostCreationFailedPlain => "主机无法创建服务器。",
+        M::HostStillCreating => {
+            "主机仍在设置服务器。准备好后它会出现在“Lodestone Host”页面上；此实例还没有关联到它。"
+        }
+        M::HostTooOld => {
+            "{core} 上的 Lodestone 版本太旧，无法从文件创建服务器。请在那台电脑上更新它，然后重试。"
+        }
+        M::HostNoPermission => "你在 {core} 上的用户无法创建服务器。请联系它的所有者。",
+        M::HostGameRunning => "请先退出游戏：游戏运行时无法发送它的世界。",
+        M::DownloadWorldAction => "下载这个世界…",
+        M::DownloadWorldTitle => "下载 {server} 的世界",
+        M::DownloadWorldIntro => {
+            "用 {server} 的一个备份在这台电脑上新建实例：包括它的世界和玩家会获得的模组。服务器的设置、管理员和插件都留在服务器上。"
+        }
+        M::DownloadWorldSignIn => "请用可以读取此服务器文件的用户登录。",
+        M::DownloadWorldNeedsPassword => "请输入你在此主机上的用户名和密码。",
+        M::DownloadWorldBackups => "备份",
+        M::DownloadWorldMidWrite => "在服务器运行时创建，可能正在写入中",
+        M::DownloadWorldBackUpNow => "立即备份",
+        M::DownloadWorldButton => "下载",
+        M::DownloadWorldBackingUp => "主机正在备份服务器…",
+        M::DownloadWorldPreparing => "主机正在准备文件…",
+        M::DownloadWorldDownloading => "正在下载（{done}/{total}）…",
+        M::DownloadWorldTooOld => {
+            "{core} 上的 Lodestone 版本太旧，无法发送世界。请在那台电脑上更新它，然后重试。"
+        }
+        M::DownloadWorldNothingToDownload => {
+            "此服务器没有备份，而你的用户无法备份它。请让它的所有者备份后再试。"
+        }
+        M::DownloadWorldBackupForbidden => "你的用户无法备份此服务器。请改选它的一个备份。",
+        M::DownloadWorldForbidden => {
+            "你的用户无法读取此服务器的文件，因此无法下载它的世界。请联系它的所有者。"
+        }
+        M::DownloadWorldNoBackups => "此服务器还没有备份。请先备份。",
+        M::DownloadWorldBackupFailed => "备份失败：{error}",
+        M::DownloadWorldCancelled => "下载已取消。",
 
         M::LanListenFailed => "无法监听局域网世界：{error}",
         M::LanLooking => "正在查找对局域网开放的世界…",
@@ -410,7 +462,6 @@ pub fn text(message: M) -> &'static str {
         M::NoInstancesYet => "你还没有实例。请先创建一个。",
 
         M::FriendsTitle => "来自邀请链接的服务器",
-        M::FriendsHint => "别人通过 Lodestone Connect 邀请链接与你共享的服务器。",
         M::JoinAFriend => "添加服务器",
         M::SharedBy => "由 {name} 共享",
         M::SharedWithFriends => "已与好友共享",
@@ -428,9 +479,7 @@ pub fn text(message: M) -> &'static str {
         M::ViaInternet => "通过互联网",
         M::JoinFriendTitle => "加入服务器",
         M::AddServerTitle => "添加服务器",
-        M::JoinFriendIntro => {
-            "粘贴别人发给你的邀请链接，它以 https://connect.lodestone.cc/j/ 开头。即使服务器现在离线，“添加”也会保存它。"
-        }
+        M::JoinFriendIntro => "即使服务器现在离线，“添加”也会保存它。",
         M::InvitePlaceholder => "邀请链接（https://connect.lodestone.cc/j/…）",
         M::NotAnInvite => {
             "这不是 Lodestone 邀请链接。邀请链接以 https://connect.lodestone.cc/j/ 开头。"
@@ -493,6 +542,14 @@ pub fn text(message: M) -> &'static str {
         M::FriendsReadFailed => "无法读取好友的服务器",
         M::FriendsSaveFailed => "无法保存好友的服务器",
         M::FriendAddress => "Magic localhost：{address}（连接时可用）",
+        M::MagicAddressHere => "Magic localhost：{address}（服务器运行时可用）",
+        M::MagicAddressForwarded => {
+            "Magic localhost：{address}（服务器运行且 Lodestone Launcher 打开时可用）"
+        }
+        M::MagicPortTakenRow => {
+            "端口 {port} 已被占用，所以这次的地址只能用到 Lodestone Launcher 关闭为止"
+        }
+        M::CopyMagicAddress => "复制 {address}",
         M::FriendPortTaken => "端口 {port} 已被占用",
         M::FriendPortTakenBody => {
             "这台电脑上的其他程序正在使用它，所以这次的地址是 {address}。下次 Lodestone Launcher 会再次尝试端口 {port}。"
@@ -525,13 +582,5 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::ConfigFiles => ["{count} 个配置文件"; 2],
         P::ScriptFiles => ["{count} 个脚本文件"; 2],
         P::AndMore => ["还有 {count} 个"; 2],
-        P::HostDone => {
-            ["{name} 已位于 {core} 上，端口为 {port}。主机正在进行设置：它会安装 Fabric，并从 Modrinth 下载 {count} 个模组文件。\n\n服务器处于停止状态。准备好后，可以在“Lodestone Host”页面或控制面板中启动它；此实例已准备好加入该服务器。";
-                2]
-        }
-        P::HostDoneRelinked => {
-            ["{name} 已位于 {core} 上，端口为 {port}。主机正在进行设置：它会安装 Fabric，并从 Modrinth 下载 {count} 个模组文件。\n\n服务器处于停止状态。准备好后，可以在“Lodestone Host”页面或控制面板中启动它；此实例已准备好加入该服务器。此实例之前关联到 {server}；现在它属于新服务器。";
-                2]
-        }
     }
 }

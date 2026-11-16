@@ -17,7 +17,10 @@ use gpui::{App, SharedString};
 use launcher_control::{ErrorObject, codes};
 use launcher_core::{
     Secret,
-    cores::{ServerInstance, client::display_address, live::LauncherScope, store::SavedCore},
+    cores::{
+        ServerInstance, client::display_address, live::LauncherScope,
+        magic_localhost::MagicAddress, store::SavedCore,
+    },
     instances::Instance,
 };
 use serde::Deserialize;
@@ -41,9 +44,24 @@ fn lower(value: impl std::fmt::Debug) -> String {
     format!("{value:?}").to_lowercase()
 }
 
+/// A server's Magic localhost: the address any Minecraft client joins it at on this
+/// computer, whether that is the server's own port or a forwarder's, and the saved port
+/// when something else had it so this session uses another.
+fn magic_fields(magic: Option<MagicAddress>) -> [(&'static str, Value); 3] {
+    let taken = match magic {
+        Some(MagicAddress::Forwarded { taken, .. }) => taken,
+        _ => None,
+    };
+    [
+        ("magic_address", json!(magic.map(|m| m.address()))),
+        ("magic_address_kind", json!(magic.map(|m| m.kind()))),
+        ("magic_port_taken", json!(taken)),
+    ]
+}
+
 fn server_json(core: &CoreEntry, server: &ServerInstance, servers: &Servers) -> Value {
     let row = (core.saved.uuid.clone(), server.uuid.clone());
-    json!({
+    let mut value = json!({
         "uuid": server.uuid,
         "name": server.name,
         "core": core.saved.uuid,
@@ -60,7 +78,11 @@ fn server_json(core: &CoreEntry, server: &ServerInstance, servers: &Servers) -> 
         "listed": server.listed,
         "linked_instance": servers.linked_instance(&core.saved.uuid, &server.uuid),
         "busy": servers.busy.get(&row).map(|b| b.label()),
-    })
+    });
+    for (key, field) in magic_fields(servers.magic_address(core, server)) {
+        value[key] = field;
+    }
+    value
 }
 
 fn core_json(core: &CoreEntry, servers: &Servers, with_servers: bool) -> Value {
@@ -884,7 +906,30 @@ struct HostParams {
     /// MB: 2048, 4096, 6144 or 8192.
     #[serde(default)]
     max_ram: Option<u32>,
-    /// Starting the server accepts Minecraft's EULA; the dialog has a box for it.
+    /// The worlds sent, by folder in `saves/` spelt exactly (a folder the instance lacks is
+    /// refused before anything is sent); when left out, `world` alone, none with
+    /// `no_world`, or else the last played; none for `[]`.
+    #[serde(default)]
+    worlds: Option<Vec<String>>,
+    /// The server's world: one of the worlds sent (or, without `worlds`, the one sent), by
+    /// folder; the host's choice (the last played) when left out.
+    #[serde(default)]
+    world: Option<String>,
+    /// A new world for the server instead of one sent.
+    #[serde(default)]
+    no_world: bool,
+    /// The game port; the first free one from 25565 when left out.
+    #[serde(default)]
+    port: Option<u16>,
+    /// The server software when the game allows a choice: `Paper` or `Vanilla` for a
+    /// vanilla instance.
+    #[serde(default)]
+    server_software: Option<String>,
+    /// Only say what the server would get (the host's summary): nothing is made. It costs
+    /// a whole transfer (the instance and its worlds are written, sent and discarded).
+    #[serde(default)]
+    preview: bool,
+    /// Making the server accepts Minecraft's EULA; the dialog has a box for it.
     #[serde(default)]
     accept_eula: bool,
 }
@@ -894,7 +939,7 @@ pub fn host(call: Call, cx: &mut App) -> Reply {
     let control = call.control.clone();
     let instance = tri!(control.instance_param(&call, cx));
     let index = tri!(core_param(&call, control.servers.read(cx)));
-    if !params.accept_eula {
+    if !params.accept_eula && !params.preview {
         return ready(Err(api_error(
             codes::EULA_REQUIRED,
             format!("Hosting a Minecraft server accepts Minecraft's EULA ({EULA_URL}). Only the user can agree to it: ask them, then pass --accept-eula."),
@@ -910,14 +955,27 @@ pub fn host(call: Call, cx: &mut App) -> Reply {
             format!("The server's memory is one of {MEMORY_CHOICES:?} MB."),
         )));
     }
+    if params.no_world && params.world.is_some() {
+        return ready(Err(api_error(
+            codes::INVALID_PARAMS,
+            "Pass a world or no_world, not both.",
+        )));
+    }
+    // the dialog's default: the instance's name as a name the core takes
     let name = params
         .name
         .clone()
         .map(|n| n.trim().to_string())
         .filter(|n| !n.is_empty())
-        .unwrap_or_else(|| instance.name.clone());
+        .unwrap_or_else(|| lodestone_ui::sharing::server_name(&instance.name));
+    // the core's checks, before a world-sized file is written and sent for it to refuse
+    if let Some(why) = server_name_problem(&name) {
+        return ready(Err(api_error(codes::INVALID_PARAMS, why)));
+    }
     let core_uuid = control.servers.read(cx).cores[index].saved.uuid.clone();
     let stage = Arc::new(Mutex::new(String::new()));
+    let progress = Arc::new(launcher_core::cores::hosting::HostProgress::default());
+    let cancel = launcher_core::game::download::CancelToken::new();
     let request = HostCore {
         core_uuid,
         sign_in: params
@@ -926,8 +984,19 @@ pub fn host(call: Call, cx: &mut App) -> Reply {
             .zip(params.password.map(Secret::new)),
         name: name.clone(),
         max_ram,
-        // checked above: the user agreed
+        worlds: params.worlds,
+        world: if params.no_world {
+            Some(None)
+        } else {
+            params.world.map(Some)
+        },
+        port: params.port,
+        server_software: params.server_software,
+        preview: params.preview,
+        // checked above: the user agreed, or nothing is made
         accept_eula: params.accept_eula,
+        progress: progress.clone(),
+        cancel: cancel.clone(),
     };
     let job_stage = stage.clone();
     let id = instance.id.clone();
@@ -937,11 +1006,228 @@ pub fn host(call: Call, cx: &mut App) -> Reply {
     let job = control.start_job(
         JobSpec::new("host", format!("Hosting {} as {name}", instance.name))
             .instance(&instance)
-            .stage(job_stage),
+            .stage(job_stage)
+            .progress(super::jobs::Progress::Files(progress.bytes.clone()))
+            .cancel(super::jobs::Cancel::Token(cancel)),
         work,
         cx,
     );
     control.reply_job(&call, job, cx)
+}
+
+/// Why the core would refuse `name` for a new server (the shared
+/// [`name_problem`](launcher_core::cores::admin::instances::name_problem)), in English,
+/// or `None`.
+fn server_name_problem(name: &str) -> Option<String> {
+    use launcher_core::cores::admin::instances::{
+        NAME_FORBIDDEN, NAME_MAX_CHARS, NameProblem, name_problem,
+    };
+    Some(match name_problem(name)? {
+        NameProblem::Empty => "The server needs a name.".into(),
+        NameProblem::TooLong => {
+            format!("The server's name can be at most {NAME_MAX_CHARS} characters long.")
+        }
+        NameProblem::ControlCharacters => "The server's name can't have control characters.".into(),
+        NameProblem::Forbidden => format!(
+            "The server's name can't have any of {}.",
+            NAME_FORBIDDEN
+                .iter()
+                .map(char::to_string)
+                .collect::<Vec<_>>()
+                .join(" ")
+        ),
+    })
+}
+
+#[derive(Deserialize)]
+struct DownloadWorldParams {
+    /// Not needed on a core this computer is the owner of (`cores claim`).
+    #[serde(default)]
+    username: Option<String>,
+    /// Read from stdin by the CLI; dropped once signed in.
+    #[serde(default)]
+    password: Option<String>,
+    /// A backup's id, `"newest"` (the default) or `"new"` (backed up now).
+    #[serde(default)]
+    backup: Option<String>,
+    /// The new instance's name (default: the server's).
+    #[serde(default)]
+    name: Option<String>,
+    /// Only say what the instance would get: nothing is made. It costs a whole transfer
+    /// (the backup is downloaded to be read, then deleted).
+    #[serde(default)]
+    preview: bool,
+}
+
+/// `servers.download_world`: a server's backup as a new instance ("Download this world",
+/// `launcher_core::cores::world_download`), its world with the mods its players get. Like
+/// `snapshots.import`, an instance with mods needs confirm.
+pub fn download_world(call: Call, cx: &mut App) -> Reply {
+    use launcher_core::cores::world_download::{self, DownloadProgress, WhichBackup};
+    use launcher_core::images::export;
+    let params: DownloadWorldParams = params!(call);
+    let control = call.control.clone();
+    let servers = control.servers.read(cx);
+    let (core_uuid, server) = tri!(find_server(&call, servers));
+    // A preview changes nothing on the core, so it never backs the server up: preview the
+    // newest backup, then download the one it names.
+    if params.preview && params.backup.as_deref() == Some("new") {
+        return ready(Err(api_error(
+            codes::INVALID_PARAMS,
+            "A preview doesn't back the server up: preview the newest backup (or one by id), then download the backup it names.",
+        )));
+    }
+    if !params.preview {
+        tri!(call.confirm(
+            "makes an instance with the server's world and the mods its players get: programs that run when the game starts. Only use servers the user trusts"
+        ));
+    }
+    let sign_in = params
+        .username
+        .filter(|u| !u.trim().is_empty())
+        .zip(params.password.map(Secret::new));
+    let to = match servers.host_to(&core_uuid, sign_in) {
+        Ok(to) => to,
+        Err(false) => return ready(Err(api_error(codes::NOT_FOUND, "That core is gone."))),
+        Err(true) => {
+            return ready(Err(api_error(
+                codes::INVALID_PARAMS,
+                "Downloading a server's world needs a username and a password (the password from stdin), or this computer connected to the core as its owner (`cores claim`).",
+            )));
+        }
+    };
+    let which = match params.backup.as_deref() {
+        None | Some("newest") => WhichBackup::Newest,
+        Some("new") => WhichBackup::New,
+        Some(id) => WhichBackup::Id(id.to_string()),
+    };
+    let instances = control.instances.read(cx);
+    let images = instances.images();
+    let downloader = instances.content_downloader();
+    let modrinth = instances.modrinth();
+    let curseforge = instances.curseforge();
+    let room = export::room_on(instances.store().root().to_path_buf());
+    let dir = instances.world_downloads_dir();
+    let preview = params.preview;
+    let name = params.name;
+    let server_name = server.name.clone();
+    let server_uuid = server.uuid.clone();
+    let core_name = to.core_name.clone();
+    // the job shows the download's bytes, then the import's
+    let bytes = Arc::new(launcher_core::game::download::Progress::default());
+    let progress = DownloadProgress::with_bytes(bytes.clone());
+    super::snapshots::job_with(
+        &call,
+        format!("Downloading the world of {server_name}"),
+        None,
+        bytes,
+        move |_, cancel| {
+            futures::executor::block_on(launcher_core::http::in_http_runtime(async move {
+                let failed = |err: world_download::WorldDownloadError| {
+                    let code = match &err {
+                        world_download::WorldDownloadError::NeedsUpdate
+                        | world_download::WorldDownloadError::NoBackups => codes::UNAVAILABLE,
+                        world_download::WorldDownloadError::Forbidden
+                        | world_download::WorldDownloadError::BackupForbidden => {
+                            codes::PERMISSION_DENIED
+                        }
+                        world_download::WorldDownloadError::NoRoom { .. } => codes::FAILED,
+                        world_download::WorldDownloadError::Cancelled => codes::CANCELLED,
+                        world_download::WorldDownloadError::Core(err) => {
+                            return core_error(err.clone());
+                        }
+                        world_download::WorldDownloadError::BackupFailed(_) => codes::FAILED,
+                    };
+                    let message = match err {
+                        world_download::WorldDownloadError::NeedsUpdate => format!(
+                            "{core_name}'s Lodestone is too old to send a world. Update it on that computer, then try again."
+                        ),
+                        other => other.to_string(),
+                    };
+                    api_error(code, message)
+                };
+                let no_modrinth = || {
+                    api_error(
+                        codes::UNAVAILABLE,
+                        "Modrinth can't be reached, so the world's mods can't be downloaded.",
+                    )
+                };
+                // checked before a world-sized download, which would be thrown away
+                if !preview && modrinth.is_none() {
+                    return Err(no_modrinth());
+                }
+                let admin = to.auth.admin(to.client).await.map_err(core_error)?;
+                let downloaded = world_download::download(
+                    &admin,
+                    &server_uuid,
+                    which,
+                    &dir,
+                    &progress,
+                    cancel,
+                    &launcher_core::cores::player_image::tokio_sleep(),
+                )
+                .await
+                .map_err(failed)?;
+                if preview {
+                    let preview = export::inspect_from_host(downloaded.path(), &server_name)
+                        .map_err(super::snapshots::image_error)?;
+                    let mut value = serde_json::to_value(&preview).unwrap_or(Value::Null);
+                    value["backup"] = json!(downloaded.backup);
+                    value["exported"] = exported_json(&downloaded.exported);
+                    return Ok(value);
+                }
+                let modrinth = modrinth.ok_or_else(no_modrinth)?;
+                let imported = export::import_file(
+                    &images,
+                    export::Sources {
+                        downloader: &downloader,
+                        modrinth: &modrinth,
+                        curseforge: curseforge.as_deref(),
+                    },
+                    export::ImportRequest {
+                        name: name.as_deref(),
+                        server: Some(&server_name),
+                        ..export::ImportRequest::new(downloaded.path())
+                    },
+                    &room,
+                    &progress.bytes,
+                    cancel,
+                )
+                .await
+                .map_err(super::snapshots::image_error)?;
+                Ok(json!({
+                    "instance": imported.instance.id,
+                    "name": imported.instance.name,
+                    "backup": downloaded.backup,
+                    "left_out": imported.left_out,
+                    "from_server": imported.from_server,
+                    "server_pack": imported.server_pack,
+                    "exported": exported_json(&downloaded.exported),
+                }))
+            }))
+        },
+        |control, _, cx| {
+            control
+                .instances
+                .update(cx, |instances, cx| instances.reload(cx))
+        },
+        cx,
+    )
+}
+
+/// What the core left out of a world's file (`left_out`, the secrets it `blanked`, the
+/// files it withheld as they hold a password or token, `secrets_withheld`, also in
+/// `left_out`, and the CurseForge files that are `not_downloadable`), each with the first
+/// names and a count. Never the file's key.
+fn exported_json(exported: &launcher_core::cores::admin::images::ExportedBackup) -> Value {
+    let list = |list: &launcher_core::cores::admin::images::NameList| json!({ "names": list.names, "count": list.count });
+    json!({
+        "left_out": list(&exported.left_out),
+        "left_out_for_players": list(&exported.left_out_for_players),
+        "blanked": list(&exported.blanked),
+        "secrets_withheld": list(&exported.secrets_withheld),
+        "not_downloadable": list(&exported.not_downloadable),
+    })
 }
 
 pub fn prompts_list(call: Call, cx: &mut App) -> Reply {
@@ -1073,4 +1359,57 @@ pub fn prompts_answer(call: Call, cx: &mut App) -> Reply {
     ready(Ok(
         json!({ "prompt": params.prompt, "answer": params.answer }),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_servers_magic_localhost_is_in_its_json() {
+        let json = |magic| {
+            Value::Object(
+                magic_fields(magic)
+                    .into_iter()
+                    .map(|(k, v)| (k.to_string(), v))
+                    .collect(),
+            )
+        };
+        assert_eq!(
+            json(Some(MagicAddress::ThisComputer { port: 25565 })),
+            json!({
+                "magic_address": "127.0.0.1:25565",
+                "magic_address_kind": "this_computer",
+                "magic_port_taken": null,
+            })
+        );
+        assert_eq!(
+            json(Some(MagicAddress::Forwarded {
+                port: 40123,
+                taken: Some(34121)
+            })),
+            json!({
+                "magic_address": "127.0.0.1:40123",
+                "magic_address_kind": "forwarded",
+                "magic_port_taken": 34121,
+            })
+        );
+        assert_eq!(
+            json(None),
+            json!({
+                "magic_address": null,
+                "magic_address_kind": null,
+                "magic_port_taken": null,
+            })
+        );
+    }
+
+    #[test]
+    fn a_server_name_the_core_would_refuse_is_caught_before_sending() {
+        assert_eq!(server_name_problem("Survival SMP (1.21)"), None);
+        assert_eq!(server_name_problem(&"é".repeat(100)), None);
+        for bad in ["My: world/1", "a\\b", "x\u{7}y", &"a".repeat(101)] {
+            assert!(server_name_problem(bad).is_some(), "{bad:?}");
+        }
+    }
 }

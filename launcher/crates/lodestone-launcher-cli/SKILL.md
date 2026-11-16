@@ -96,11 +96,12 @@ The user also sees each connected program (this CLI says
 
 - **Destructive commands need `--yes`, and you need the user's OK first.** Without it they
   fail with exit 5 and change nothing; the message says what would happen. These are:
-  `instances delete`, `worlds delete`, `worlds restore --replace`,
+  `instances delete`, `worlds delete`, `worlds restore-snapshot --mode replace`,
+  `world-backups restore --mode replace`, `world-backups delete`,
   `content remove`, `accounts remove`, `cores remove`, `cores trust`, `friends remove`,
   `friend-list answer`, `friend-list accept`, `friend-list verify`, `friend-list remove`,
   `friend-list retire-core`, `friend-list retire`, `shared clear`,
-  `play clear-logs`, `storage clean`, `snapshots restore` in place (any `--scope` but `new`), `snapshots delete`, `snapshots import` of a file with mods, `snapshots export` over an existing file, applying `modpacks update` or `modpacks add`, `modpacks remove`, an `instances copy-as` that
+  `play clear-logs`, `storage clean`, `snapshots restore` in place (any `--scope` but `new`), `snapshots delete`, `snapshots import` of a file with mods, `servers download-world` (without `--preview`), `snapshots export` over an existing file, applying `modpacks update` or `modpacks add`, `modpacks remove`, an `instances copy-as` that
   leaves mods behind or upgrades worlds (the refusal's `data.plan` says what goes and what
   stays: show it to the user), and turning on `settings developer set --sign-in-as-minecraft-launcher true`.
   Deleting moves to the Trash. Never add `--yes` on your own.
@@ -117,7 +118,33 @@ The user also sees each connected program (this CLI says
   itself carries rather than downloading from Modrinth or CurseForge: say so); only if
   they trust who sent it, rerun with `--yes`.
   An import always makes a new instance with the launcher's own launch settings (image
-  files carry none), and downloads the Modrinth and CurseForge files it lists.
+  files carry none), and downloads the Modrinth and CurseForge files it lists. A
+  server's backup exported by Lodestone Host imports as the instance a player of that
+  server would have, with its world: the preview's `from_server` names the server, its
+  server-only mods left out and how many server files aren't taken (`not_taken`); the
+  server's settings, operators and plugins never come.
+- **Hosting and downloading worlds.** `servers host` sends an instance (its mods,
+  configs and the worlds sent, never accounts or private files) and makes a stopped
+  server: run it with `--preview` first and show the user the `summary` (what the server
+  gets, client-only mods left out, files not taken, downloads, disk space). A preview
+  costs a whole transfer (the instance with its worlds is written and sent, then
+  discarded), so for a big world preview once, not again before each try. Worlds are
+  named by their folder in `saves/`, spelt exactly (`worlds list` shows them); a
+  folder the instance lacks is refused before anything is sent. `--world X` alone sends
+  only X. `--server-software` must be one of the preview's `server_choices` (any case);
+  another is refused (`invalid_params`, naming the choices). Its reply's `outcome` lists
+  what the server didn't get. `servers download-world` makes a new
+  instance from a server's backup: run it with `--preview` first (it downloads the whole
+  newest backup, or `--backup`'s, to read it, and makes nothing; the real run downloads it
+  again), then download the backup the
+  preview's `backup` names with `--backup <id> --yes` once the user trusts the server's
+  mods. `--new-backup` backs the server up first, so it never goes with `--preview`. The
+  reply's `exported` says what the core left out of the file (`left_out`, of which
+  `left_out_for_players` is what a player would miss, `blanked`
+  secrets, `secrets_withheld`, `not_downloadable`), and `server_pack` whether the files
+  only the players of a server built on a Modrinth modpack use came with it (`placed`)
+  or not (`skipped`, with the `reason`). A core older than milestone 6 answers
+  `unavailable` ("too old"): tell the user to update Lodestone on that computer.
 - **Certificates:** a core whose HTTPS certificate isn't trusted fails with
   `untrusted_certificate` and `data.fingerprint`. Ask the user to compare it with the
   fingerprint the core shows (dashboard: Settings, Core Settings; or the core's log).
@@ -125,7 +152,8 @@ The user also sees each connected program (this CLI says
   `--fingerprint`.
 - **EULA:** launching Minecraft and hosting a server accept Mojang's EULA
   (https://aka.ms/MinecraftEULA). Ask before the first `play launch`, and `servers host`
-  needs `--accept-eula`, which only the user can give.
+  needs `--accept-eula`, which only the user can give (`--preview` only shows what the
+  server would get, and makes nothing).
 - **Invite links are secrets.** Anyone with a friend's invite link can join their server.
   Pass it on stdin (`friends join -`), never echo or log it; `friends list` never prints
   one. A `wrong_host` error means the computer that answered isn't the one in the link:
@@ -297,30 +325,39 @@ lodestone-launcher-cli modpacks remove SMP fabulously-optimized     # exit 5: wh
 lodestone-launcher-cli modpacks remove SMP fabulously-optimized --yes
 ```
 
-Worlds (a world's backups are the snapshots that hold it):
+Worlds, and world backups: a world backup is a plain .zip of one world (it opens with
+any zip tool), made by hand and kept until deleted; restoring one in place first saves
+the world as it is as another world backup ("Before restoring â€¦"). "Back up my world"
+means a world backup; a snapshot is of the whole instance:
 
 ```sh
-lodestone-launcher-cli worlds list Survival
-lodestone-launcher-cli worlds backup Survival "New World"                   # long; a snapshot named after it
-lodestone-launcher-cli worlds backups Survival "New World"                  # the snapshots that hold it
-lodestone-launcher-cli worlds restore Survival "New World"                  # a copy beside it, from the newest
-lodestone-launcher-cli worlds restore Survival "New World" --snapshot "Before 1.21" --replace --yes
+lodestone-launcher-cli worlds list Survival                                 # world_backups and snapshots per world
+lodestone-launcher-cli world-backups create Survival "New World" --name "Before the raid"  # long
+lodestone-launcher-cli world-backups list Survival --world "New World"      # newest first, with each zip's path
+lodestone-launcher-cli world-backups restore Survival latest --world "New World" --mode replace --yes  # long; in place
+lodestone-launcher-cli world-backups restore Survival "Before the raid"     # long; a new world beside it
+lodestone-launcher-cli world-backups delete Survival "Before the raid" --yes  # to the Trash
+lodestone-launcher-cli world-backups list Survival --world "Hardcore run"   # a deleted world: found by its backups
+lodestone-launcher-cli world-backups list --deleted                         # kept from deleted instances
+lodestone-launcher-cli worlds snapshots Survival "New World"                # the snapshots that hold it
+lodestone-launcher-cli worlds restore-snapshot Survival "New World"         # a new world from the newest
+lodestone-launcher-cli worlds restore-snapshot Survival "New World" --snapshot "Before 1.21" --mode replace --yes
 lodestone-launcher-cli worlds delete Survival "Old World" --yes
 ```
 
-Snapshots are images in the launcher's image store: the instance's worlds and other
-files (options, servers, screenshots), linked to the mods and configs they ran with,
-which are stored once however many snapshots use them. `--everything` takes the mods and
-configs as files too. The launcher also takes them on its own before mod, modpack,
-server and loader version updates, before a restore (a safety snapshot), and after
-playing when the user turns that on. A failed snapshot stops a modpack update (the
-error says why; the window offers to update without one); a mod update goes on and its
-reply's `snapshot_failed` says why. Automatic ones are kept by the instance's policy;
-manual, imported and pinned ones are never deleted on their own. Logs, caches and the
-JVM's crash logs and dumps are never included. Nothing runs while the instance's game does (`busy`),
-including a game this launcher didn't start whose worlds are open (Minecraft 1.16 and
-later), except `restore --scope new`; a restore in place also waits (`busy`) while another
-job (a mod install, a modpack update) changes the instance's files.
+Snapshots are images in the launcher's image store of the whole instance folder: its
+worlds and other files (options, servers, screenshots), linked to the mods and configs
+they ran with, which are stored once however many snapshots use them. The launcher also
+takes them on its own before mod, modpack, server and loader version updates, before a
+restore (a safety snapshot), and after playing when the user turns that on. A failed
+snapshot stops a modpack update (the error says why; the window offers to update without
+one); a mod update goes on and its reply's `snapshot_failed` says why. Automatic ones
+are kept by the instance's policy; manual, imported and pinned ones are never deleted on
+their own. Logs, caches and the JVM's crash logs and dumps are never included. Nothing
+runs while the instance's game does (`busy`), including a game this launcher didn't
+start whose worlds are open (Minecraft 1.16 and later), except `restore --scope new`; a
+restore in place also waits (`busy`) while another job (a mod install, a modpack update)
+changes the instance's files.
 
 What the replies say beyond the obvious:
 
@@ -339,13 +376,14 @@ What the replies say beyond the obvious:
 - `snapshots restore` in place: `kept_aside` is a folder in the instance where files
   written meanwhile by another job were moved rather than lost; tell the user.
 - Snapshot records carry `world_details` (each world's folder, own name and size) and
-  `full` (it holds the mods and configs too).
+  `full` (it holds the mods and configs as files, when they couldn't be linked).
+- `world-backups restore`: `safety_world_backup` is the backup of the world as it was;
+  `kept_aside` as for snapshots.
 
 ```sh
 lodestone-launcher-cli snapshots list Survival                                   # newest first, with the policy
 lodestone-launcher-cli snapshots list --deleted                                  # kept from deleted instances
 lodestone-launcher-cli snapshots create Survival --name "Before 1.21"           # long
-lodestone-launcher-cli snapshots create Survival --everything                   # mods and configs too
 lodestone-launcher-cli snapshots restore Survival "Before 1.21" --preview       # what it replaces, how the mods differ
 lodestone-launcher-cli snapshots restore Survival latest --world "New World" --yes        # only that world
 lodestone-launcher-cli snapshots restore Survival latest --scope worlds_and_mods --yes    # the worlds and their mods
@@ -415,15 +453,20 @@ lodestone-launcher-cli cores trust-certificate "Home core" --fingerprint AB:CD:â
 lodestone-launcher-cli cores sign-out "Home core"
 lodestone-launcher-cli cores claim-local                      # owner key for the core on this computer
 lodestone-launcher-cli cores claim-local --folder ~/core-data # its data folder isn't ~/.lodestone
-lodestone-launcher-cli servers list
+lodestone-launcher-cli servers list                         # each server's Magic localhost (see below)
 lodestone-launcher-cli servers start Smp                     # needs this device signed in
 lodestone-launcher-cli servers stop Smp
 lodestone-launcher-cli servers create-instance Smp           # long; matching version, loader, mods
 lodestone-launcher-cli servers join Smp                      # long; starts it first if stopped
 lodestone-launcher-cli servers link Survival Smp
 lodestone-launcher-cli servers unlink Survival
-lodestone-launcher-cli servers host Survival --core "Lodestone Host" --accept-eula   # a core claimed with claim-local
-printf '%s\n' "$PASSWORD" | lodestone-launcher-cli servers host Survival --core "Home core" --username alice --password-stdin --accept-eula
+lodestone-launcher-cli servers host Survival --core "Lodestone Host" --preview       # what the server would get (summary)
+lodestone-launcher-cli servers host Survival --core "Lodestone Host" --accept-eula   # a core claimed with claim-local; sends the last played world
+lodestone-launcher-cli servers host Survival --core "Lodestone Host" --send-world Island --world Island --port 25570 --accept-eula
+printf '%s\n' "$PASSWORD" | lodestone-launcher-cli servers host Survival --core "Home core" --username alice --password-stdin --no-worlds --accept-eula
+lodestone-launcher-cli servers download-world Smp --core "Lodestone Host" --preview  # what the newest backup would give (its id in `backup`)
+lodestone-launcher-cli servers download-world Smp --core "Lodestone Host" --backup b1 --yes   # a new instance from that backup
+lodestone-launcher-cli servers download-world Smp --core "Lodestone Host" --new-backup --yes  # back up now, then make the instance
 lodestone-launcher-cli prompts list                          # questions the window is asking
 lodestone-launcher-cli prompts answer update play
 ```
@@ -506,6 +549,7 @@ lodestone-launcher-cli storage clean runtimes --yes     # Java runtimes no versi
 lodestone-launcher-cli storage clean cache --yes
 lodestone-launcher-cli storage clean leftovers --yes    # unfinished modpack downloads/imports
 lodestone-launcher-cli storage clean old-logs --yes     # older than 30 days; `logs` for all
+lodestone-launcher-cli storage clean deleted-world-backups --yes  # deleted instances' world backups, for good
 ```
 
 Game files and runtimes download again when needed; logs are deleted for good. Removing
@@ -603,6 +647,15 @@ Job `state`: `running`, `succeeded`, `failed`, `cancelled`. A waited command pri
 job's `result` with `"job": <id>` added, for example `content install`:
 `{"installed": [{"title": "Sodium", "file": "sodium-fabric-0.6.0.jar"}], "removed": [], "skipped": [], "job": 3}`.
 
+A server in `servers list` carries its Magic localhost, the address any Minecraft
+client joins it at: `"magic_address": "127.0.0.1:34121"` (null when there is none: the
+core hides the server's port, no port is picked yet, or the launcher can't listen for
+it), `"magic_address_kind"`: `this_computer` (a core on this computer: the server's own
+port, while it runs) or `forwarded` (another host: a port the launcher passes on to it,
+while the server runs and the launcher is open), and `"magic_port_taken"`: the usual
+port when something else had it, so this address works only until the launcher closes
+(otherwise null).
+
 A log row (`play logs`, `--follow`, `log` events):
 `{"instance": "survival", "level": "INFO", "time": "14:02:11", "thread": "Render thread", "stream": "stdout", "text": "Sound engine started"}`.
 
@@ -687,8 +740,8 @@ Back up a world (quit the game first; ask the user before stopping it):
 ```sh
 lodestone-launcher-cli play status Survival                 # must be idle
 lodestone-launcher-cli worlds list Survival
-lodestone-launcher-cli worlds backup Survival "New World"
-lodestone-launcher-cli worlds backups Survival "New World"  # the snapshots that hold it, newest first
+lodestone-launcher-cli world-backups create Survival "New World"   # long; a zip of the world
+lodestone-launcher-cli world-backups list Survival --world "New World"  # its world backups, newest first
 ```
 
 Update everything:

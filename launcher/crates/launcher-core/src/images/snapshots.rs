@@ -4,10 +4,10 @@
 //! A snapshot is usually a **data image**: everything in the game folder that isn't content
 //! ([`super::scope::ContentScope::data_accepts`]: worlds, `options.txt`, `servers.dat`,
 //! screenshots, files no pack lists), linked (`content`) to the instance's current content
-//! image, which holds the mods, configs and packs it ran with. When the user asks for
-//! everything, or the content image can't be brought up to date first (recording failed,
-//! the store has none, a "Find it for me" search has the mods renamed), it is a **full
-//! image** of the whole game folder instead, which needs no link.
+//! image, which holds the mods, configs and packs it ran with. Either way it covers the
+//! whole game folder. When the content image can't be brought up to date first
+//! (recording failed, the store has none, a "Find it for me" search has the mods renamed),
+//! it is a **full image** of the whole game folder instead, which needs no link.
 //!
 //! **Records.** Images are named by their contents, so two snapshots of an instance that
 //! didn't change between them are one image, while each keeps its own name, kind, pin and
@@ -216,8 +216,6 @@ pub struct Take<'a> {
     /// The snapshot's name (cut to [`MAX_NAME_CHARS`]); `None` or blank is
     /// [`labels::SNAPSHOT`].
     pub name: Option<String>,
-    /// A full image of the whole game folder, not a data image linked to content.
-    pub full: bool,
     /// (bytes read, bytes to read) while files are read.
     pub progress: &'a (dyn Fn(u64, u64) + Sync),
     pub cancel: Cancel<'a>,
@@ -229,7 +227,6 @@ impl<'a> Take<'a> {
         Take {
             kind,
             name: Some(name.into()),
-            full: false,
             progress: &|_, _| {},
             cancel: NEVER,
         }
@@ -452,7 +449,7 @@ impl Images {
                     .manifest_path(instance, id)
                     .is_ok_and(|path| path.is_file())
             });
-        let content = pointer.filter(|_| content_ok && !take.full);
+        let content = pointer.filter(|_| content_ok);
         let mut records = self.reconciled_locked(instance)?;
         let name = snapshot_name(take.name.as_deref());
         // A session that begins meanwhile (Play pressed again while the snapshot after the
@@ -468,7 +465,7 @@ impl Images {
         };
         let mut retried = false;
         let (image, snapshot) = loop {
-            let built = self.build_snapshot(&ctx, &take, content.clone(), &records, &name);
+            let built = self.build_snapshot(&ctx, &take, content.clone(), &records, &name, None);
             if slot.in_session() {
                 return Err(ImageError::Running);
             }
@@ -532,22 +529,33 @@ impl Images {
     }
 
     /// Snapshots the instance's game folder (its data with the link `content`, or all of
-    /// it when there is none) and builds the image, sealed and valid.
-    fn build_snapshot(
+    /// it when there is none) and builds the image, sealed and valid. With `only_worlds`,
+    /// only the content and those worlds are taken (no world for an empty list), never the
+    /// player's other files.
+    pub(crate) fn build_snapshot(
         &self,
         ctx: &InstanceContext,
         take: &Take,
         content: Option<String>,
         records: &[SnapshotRecord],
         name: &str,
+        only_worlds: Option<&[String]>,
     ) -> Result<(Image, Snapshot), ImageError> {
         let store = self.store();
         let cache = store.load_stat_cache(&ctx.id);
-        let data_filter = |candidate: &Candidate| ctx.scope.data_accepts(candidate);
+        // Only some worlds: the content and those worlds, nothing else of the player's.
+        let picked = |candidate: &Candidate| {
+            only_worlds.is_none_or(|worlds| {
+                ctx.scope.accepts(candidate) || super::scope::in_worlds(candidate, worlds)
+            })
+        };
+        let data_filter =
+            |candidate: &Candidate| ctx.scope.data_accepts(candidate) && picked(candidate);
+        let all_filter = |candidate: &Candidate| full_filter(candidate) && picked(candidate);
         let filter: &(dyn Fn(&Candidate) -> bool + Sync) = if content.is_some() {
             &data_filter
         } else {
-            &full_filter
+            &all_filter
         };
         let options = SnapshotOptions {
             cache: Some(&cache),
@@ -985,8 +993,10 @@ pub(crate) fn new_record_id(created: i64, records: &[SnapshotRecord]) -> String 
 }
 
 /// Whether `id` has a record id's shape (ASCII digits, `-`, lower-case hex; at most 32
-/// characters): it is passed on the command line and shown, never used as a path.
-fn valid_record_id(id: &str) -> bool {
+/// characters): it is passed on the command line and shown, and a world backup's files are
+/// named after it (`<id>.zip`, `<id>.json`), so it must stay a safe file name on every
+/// disk.
+pub(crate) fn valid_record_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 32
         && id

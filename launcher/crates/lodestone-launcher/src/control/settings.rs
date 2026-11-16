@@ -768,7 +768,7 @@ fn instance_sharing_json(
         "enabled": sharing.enabled,
         "sync_from": profile.preferred.as_deref() == Some(instance.id.as_str()),
         "overrides": sharing.overrides,
-        "changed_in_game": sharing.changed,
+        "changed_in_game": sharing.replaced_next_launch(&profile),
         "played": dv.is_some(),
         "values": rows,
     }))

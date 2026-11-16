@@ -287,10 +287,11 @@ impl ServerImage {
         let started = std::time::Instant::now();
         // the query (the view ids a player has) isn't logged
         let traced = path.split('?').next().unwrap_or_default().to_string();
-        let sent = crate::http::in_http_runtime(tokio::time::timeout(
-            idle,
-            self.client.send_checked(request),
-        ))
+        // The timeout is made inside the runtime: Tokio's timer needs it when it's created,
+        // not only when it's polled.
+        let sent = crate::http::in_http_runtime(async {
+            tokio::time::timeout(idle, self.client.send_checked(request)).await
+        })
         .await;
         let result = match sent {
             Ok(result) => result,
@@ -642,7 +643,9 @@ impl ServerImage {
             }
             let read = unless_cancelled(
                 cancel,
-                crate::http::in_http_runtime(tokio::time::timeout(idle, body.read(&mut buffer))),
+                crate::http::in_http_runtime(async {
+                    tokio::time::timeout(idle, body.read(&mut buffer)).await
+                }),
             )
             .await;
             let Some(read) = read else {
@@ -953,7 +956,9 @@ async fn read_bounded(
         }
         let read = unless_cancelled(
             cancel,
-            crate::http::in_http_runtime(tokio::time::timeout(idle, body.read(&mut buffer))),
+            crate::http::in_http_runtime(async {
+                tokio::time::timeout(idle, body.read(&mut buffer)).await
+            }),
         )
         .await
         .ok_or(ImageError::Cancelled)?;
@@ -981,7 +986,7 @@ async fn read_bounded(
 /// `wait`'s outcome, unless `cancel` is cancelled first (`None` then): every wait for the
 /// server (its answer, a read of its body, a `Retry-After`) ends as soon as the player
 /// presses Cancel, not when its own limit runs out.
-async fn unless_cancelled<T>(
+pub(crate) async fn unless_cancelled<T>(
     cancel: &CancelToken,
     wait: impl std::future::Future<Output = T>,
 ) -> Option<T> {

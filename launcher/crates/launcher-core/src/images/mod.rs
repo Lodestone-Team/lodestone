@@ -42,6 +42,7 @@
 pub mod check;
 pub mod context;
 pub mod export;
+pub mod from_server;
 pub mod history;
 pub mod labels;
 pub mod recorder;
@@ -303,6 +304,10 @@ pub(crate) struct GcState {
     last_for_pruning: Mutex<Option<Instant>>,
     /// How many collections were asked for, for tests of who asks.
     pub(crate) requests: AtomicU64,
+    /// When a collection is asked for later ([`Images::request_gc_after_grace`]), and
+    /// whether the thread that waits for it runs.
+    later: Mutex<Option<Instant>>,
+    later_running: AtomicBool,
 }
 
 /// The Launcher's images: see the module.
@@ -663,6 +668,62 @@ impl Images {
             *last = Some(now);
         }
         self.request_gc();
+    }
+
+    /// Asks for a collection once objects written now are past the collection's grace
+    /// ([`lodestone_image::store::gc::GRACE`]): what an operation wrote that no manifest
+    /// names ("Host this"'s worlds, an export cancelled midway) is kept by any collection
+    /// sooner, and nothing else would ask for one. A later call moves the time on; one
+    /// thread waits for it, and goes when the images do. Objects of a Launcher that quits
+    /// first go at whatever collection comes next.
+    pub(crate) fn request_gc_after_grace(&self) {
+        let at = Instant::now() + lodestone_image::store::gc::GRACE + Duration::from_secs(60);
+        {
+            // under the lock the waiting thread ends under, so it never ends unseen
+            let mut later = self.gc.later.lock().unwrap_or_else(|e| e.into_inner());
+            *later = Some(later.map_or(at, |old| old.max(at)));
+            if self.gc.later_running.swap(true, Ordering::SeqCst) {
+                return;
+            }
+        }
+        let weak = self.this.clone();
+        let spawned = std::thread::Builder::new()
+            .name("lodestone-images-gc-later".into())
+            .spawn(move || {
+                loop {
+                    // woken every minute to notice the images went
+                    std::thread::sleep(Duration::from_secs(60));
+                    let Some(images) = weak.upgrade() else {
+                        return;
+                    };
+                    let due = {
+                        let mut later = images.gc.later.lock().unwrap_or_else(|e| e.into_inner());
+                        match *later {
+                            Some(at) if at <= Instant::now() => {
+                                *later = None;
+                                true
+                            }
+                            Some(_) => false,
+                            None => {
+                                images.gc.later_running.store(false, Ordering::SeqCst);
+                                return;
+                            }
+                        }
+                    };
+                    if due {
+                        images.request_gc();
+                    }
+                }
+            });
+        if spawned.is_err() {
+            self.gc.later_running.store(false, Ordering::SeqCst);
+        }
+    }
+
+    /// When a later collection is asked for ([`Self::request_gc_after_grace`]).
+    #[cfg(test)]
+    pub(crate) fn gc_later(&self) -> Option<Instant> {
+        *self.gc.later.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     /// How many collections were asked for.

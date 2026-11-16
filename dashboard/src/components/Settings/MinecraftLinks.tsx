@@ -139,7 +139,7 @@ export function UserMinecraftLinks({
   return (
     <SettingsSection
       title={t('settings.minecraft.title')}
-      lead={t('settings.minecraft.userLead', { username })}
+      lead={t('settings.minecraft.userLead')}
     >
       <LinkList
         links={data?.filter((link) => link.uid === uid)}

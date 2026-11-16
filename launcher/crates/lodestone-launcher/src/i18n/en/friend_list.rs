@@ -9,7 +9,7 @@ crate::i18n::messages! {
     pub enum FriendListMsg {
         // ===== The section =====
         Title = "Friends",
-        Hint = "People you added once. See and join the servers they share with you, without links.",
+        Hint = "Join the servers they share with you, without invite links.",
         AddFriend = "Add friend",
         /// The section's status while it asks the service about friends.
         Refreshing = "Checking on your friends…",
@@ -75,7 +75,7 @@ crate::i18n::messages! {
         // ===== Add a friend =====
         AddTitle = "Add a friend",
         SendLinkTitle = "Send them a friend link",
-        SendLinkBody = "Make a link and send it to your friend. When they open it, their answer shows up on the Servers page for you to accept.",
+        SendLinkBody = "When they open it, accept their answer here on the Friends page.",
         MakeLink = "Make a link",
         LinkWorksOnce = "Works once, for 24 hours. Anyone with this link can ask to be your friend, so send it only to them.",
         OpenLinkTitle = "Or open their friend link",
@@ -149,7 +149,7 @@ crate::i18n::messages! {
         // ===== LAN worlds =====
         /// The switch under "You" that shares the person's LAN worlds.
         ShareLan = "Share LAN worlds with friends",
-        ShareLanBody = "When you open a singleplayer world to LAN, your friends see it here and can join it through Lodestone Connect while it's open. Friends you hide from don't see it.",
+        ShareLanBody = "Friends join through Lodestone Connect while the world is open. Friends you hide from don't see it.",
         /// While sharing is on and no world is open to LAN.
         LanNoneOpen = "No world is open to LAN right now. In the game, open a world and choose Open to LAN.",
         /// {world} is the world's name as the game announces it.
@@ -170,8 +170,6 @@ crate::i18n::messages! {
         OpenNow = "open now",
         /// Under a friend who has a world open to LAN.
         LanOpenStatus = "Has a LAN world open",
-        /// Under a friend's LAN world; {name} is the friend's name.
-        LanJoinNote = "Joinable while {name}'s game has it open.",
         LanNeedsMicrosoft = "Needs a Microsoft account: the world is in online mode.",
         /// {version} is a Minecraft version, such as 1.21.4.
         LanNeedsVersion = "Play it with Minecraft {version}.",

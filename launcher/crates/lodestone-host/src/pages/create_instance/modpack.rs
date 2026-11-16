@@ -113,6 +113,10 @@ pub fn first_free_port(used: &[u32]) -> u32 {
 /// A name, port, minimum and maximum RAM that passed the checks.
 pub type CheckedSettings = (String, u32, u32, u32);
 
+/// The characters the core refuses in a new server's name, checked here so the field says
+/// so before the request.
+pub use launcher_core::cores::admin::instances::NAME_FORBIDDEN;
+
 /// The settings step's checks (the dashboard's `settingsSchema`): the errors by field.
 pub fn check_settings(
     name: &str,
@@ -154,6 +158,8 @@ pub fn check_settings(
     let name = name.trim().to_string();
     if name.is_empty() {
         errors.push(("name", tr!(M::ValidationRequired, name = t(M::FieldName))));
+    } else if name.contains(NAME_FORBIDDEN) {
+        errors.push(("name", t(M::ValidationNameCharacters).to_string()));
     }
     let port = integer("port", M::FieldPort, port, 1, 65535, &mut errors);
     let min = integer(
@@ -672,7 +678,7 @@ impl ModpackFlow {
                     .gap(px(16.))
                     .child(div().flex_1().min_w_0().child(wizard::title(
                         t(M::ModpackSourceTitle),
-                        t(M::ModpackSourceDescription),
+                        Some(t(M::ModpackSourceDescription)),
                     )))
                     .child(
                         Button::new("modpack-upload", t(M::ModpackUpload))
@@ -856,11 +862,7 @@ impl ModpackFlow {
             .flex_col()
             .child(wizard::title(
                 t(M::ModpackVersionTitle),
-                if uploaded {
-                    t(M::ModpackVersionUploaded)
-                } else {
-                    t(M::ModpackVersionDescription)
-                },
+                uploaded.then(|| t(M::ModpackVersionUploaded)),
             ))
             .children(header)
             .when_some(list, |this, list| {
@@ -976,16 +978,19 @@ impl ModpackFlow {
             return div().into_any_element();
         };
         let error = |key: &str| self.errors.get(key).cloned();
-        let text_row =
-            |name: M, description: M, input: &Entity<TextInput>, optional: bool, key: &str| {
-                fields::row(
-                    t(name),
-                    t(description),
-                    optional,
-                    input.clone().into_any_element(),
-                    error(key),
-                )
-            };
+        let text_row = |name: M,
+                        description: Option<M>,
+                        input: &Entity<TextInput>,
+                        optional: bool,
+                        key: &str| {
+            fields::row(
+                t(name),
+                description.map(|d| t(d).into()),
+                optional,
+                input.clone().into_any_element(),
+                error(key),
+            )
+        };
         let line = self.info.as_ref().map(|info| {
             format!(
                 "{} · Minecraft {} · {} {}",
@@ -1005,10 +1010,7 @@ impl ModpackFlow {
             .flex()
             .flex_col()
             .gap(px(16.))
-            .child(wizard::title(
-                t(M::ModpackSettingsTitle),
-                t(M::ServerSettingsDescription),
-            ))
+            .child(wizard::title(t(M::ModpackSettingsTitle), None))
             .when_some(line, |this, line| {
                 this.child(
                     div()
@@ -1019,39 +1021,27 @@ impl ModpackFlow {
                 )
             })
             .child(fields::section(vec![
-                text_row(
-                    M::FieldName,
-                    M::FieldNameDescription,
-                    &settings.name,
-                    false,
-                    "name",
-                ),
+                text_row(M::FieldName, None, &settings.name, false, "name"),
                 text_row(
                     M::FieldDescription,
-                    M::FieldDescriptionDescription,
+                    None,
                     &settings.description,
                     true,
                     "description",
                 ),
-                text_row(
-                    M::FieldPort,
-                    M::FieldPortDescription,
-                    &settings.port,
-                    false,
-                    "port",
-                ),
+                text_row(M::FieldPort, None, &settings.port, false, "port"),
             ]))
             .child(fields::section(vec![
                 text_row(
                     M::FieldMinRam,
-                    M::FieldMinRamDescription,
+                    Some(M::FieldMinRamDescription),
                     &settings.min_ram,
                     false,
                     "min_ram",
                 ),
                 text_row(
                     M::FieldMaxRam,
-                    M::FieldMaxRamDescription,
+                    Some(M::FieldMaxRamDescription),
                     &settings.max_ram,
                     false,
                     "max_ram",
@@ -1060,7 +1050,7 @@ impl ModpackFlow {
             .child(fields::section(vec![
                 fields::row(
                     t(M::FieldAutoStart),
-                    t(M::FieldAutoStartDescription),
+                    Some(t(M::FieldAutoStartDescription).into()),
                     false,
                     Toggle::new("modpack-auto-start", auto_start)
                         .label(t(M::FieldAutoStart))
@@ -1075,7 +1065,7 @@ impl ModpackFlow {
                 ),
                 fields::row(
                     t(M::FieldRestartOnCrash),
-                    t(M::FieldRestartOnCrashDescription),
+                    None,
                     false,
                     Toggle::new("modpack-restart", restart)
                         .label(t(M::FieldRestartOnCrash))
@@ -1197,5 +1187,9 @@ mod tests {
         let errors = check_settings("a", "70000", "2048", "1024").unwrap_err();
         let fields: Vec<_> = errors.iter().map(|(f, _)| *f).collect();
         assert_eq!(fields, ["port", "max_ram"]);
+        // what the core refuses in a name is said on the field
+        let errors = check_settings("Survival 14:10", "25565", "1", "1").unwrap_err();
+        let fields: Vec<_> = errors.iter().map(|(f, _)| *f).collect();
+        assert_eq!(fields, ["name"]);
     }
 }

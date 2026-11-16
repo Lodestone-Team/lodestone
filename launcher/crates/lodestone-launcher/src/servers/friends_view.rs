@@ -33,7 +33,6 @@ use crate::{
     theme::{self, colors, fonts, leading, radius, text, weights},
 };
 
-/// A small Copy button that puts `value` on the clipboard.
 /// A public invite link without its scheme: `connect.lodestone.cc/j/ABCDEFGH23`.
 fn short_link(link: &str) -> &str {
     link.strip_prefix("https://")
@@ -41,6 +40,7 @@ fn short_link(link: &str) -> &str {
         .unwrap_or(link)
 }
 
+/// A small Copy button that puts `value` on the clipboard.
 pub(super) fn copy_button(id: impl Into<SharedString>, value: String) -> Button {
     Button::new(id.into(), t(CommonMsg::Copy))
         .size(ButtonSize::Slim)
@@ -49,6 +49,26 @@ pub(super) fn copy_button(id: impl Into<SharedString>, value: String) -> Button 
         .on_click(move |_, _, cx| {
             cx.write_to_clipboard(gpui::ClipboardItem::new_string(value.clone()))
         })
+}
+
+/// A Magic localhost line: `text`, which names the address and when it works, and a
+/// button (`id`) that copies `address`, for Minecraft's server list.
+/// The text wraps, and the button stays whole, in a narrow window. The button's
+/// accessible name has the address ("Copy 127.0.0.1:25565"): a page of rows, each with
+/// a Copy button, would otherwise read "Copy" over and over.
+pub(super) fn magic_line(id: impl Into<SharedString>, text: String, address: String) -> gpui::Div {
+    let label = tr!(M::CopyMagicAddress, address = address);
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .child(note(text).min_w_0().flex_shrink(1.))
+        .child(
+            div()
+                .flex_none()
+                .child(copy_button(id, address).accessible_label(label)),
+        )
 }
 
 fn paragraph(value: impl Into<SharedString>) -> gpui::Div {
@@ -111,24 +131,18 @@ impl Servers {
                     .py_3()
                     .child(Icon::User.render(px(16.), colors::GRAY_400))
                     .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .flex_1()
-                            .min_w_0()
-                            .child(
-                                div()
-                                    .id("friends-title")
-                                    .role(Role::Heading)
-                                    .aria_level(2)
-                                    .aria_label(t(M::FriendsTitle))
-                                    .font_family(fonts::heading())
-                                    .text_size(theme::text_size(text::H3))
-                                    .font_weight(weights::BOLD.into())
-                                    .text_color(crate::theme::ink::text())
-                                    .child(t(M::FriendsTitle)),
-                            )
-                            .child(note(t(M::FriendsHint))),
+                        div().flex().flex_col().flex_1().min_w_0().child(
+                            div()
+                                .id("friends-title")
+                                .role(Role::Heading)
+                                .aria_level(2)
+                                .aria_label(t(M::FriendsTitle))
+                                .font_family(fonts::heading())
+                                .text_size(theme::text_size(text::H3))
+                                .font_weight(weights::BOLD.into())
+                                .text_color(crate::theme::ink::text())
+                                .child(t(M::FriendsTitle)),
+                        ),
                     ),
             )
             .children(rows)
@@ -251,16 +265,18 @@ impl Servers {
                         this.child(note(t(M::ConnectToJoinDirectly)))
                     })
                     .children(status.map(|(line, color)| note(line).text_color(color)))
-                    // the same every session: for Minecraft's server list
+                    // the same every session: for Minecraft's server list. Under a core
+                    // on this computer too: a row there is one the core's card doesn't
+                    // list, so Play never joins it directly and its tunnel listens here
+                    // (`FriendServer::direct_join`; a listed one is the card's own row,
+                    // at the server's own port)
                     .children(saved.game_port.map(|port| {
                         let address = game_address(port);
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap_2()
-                            .child(note(tr!(M::FriendAddress, address = address)))
-                            .child(copy_button(format!("copy-address-{row_id}"), address))
+                        magic_line(
+                            format!("copy-address-{row_id}"),
+                            tr!(M::FriendAddress, address = address),
+                            address,
+                        )
                     }))
                     .when(saved.is_trusted(), |this| {
                         this.child(

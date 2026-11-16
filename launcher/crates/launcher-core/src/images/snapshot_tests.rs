@@ -108,32 +108,12 @@ fn a_snapshot_is_a_data_image_linked_to_the_current_content() {
 }
 
 #[test]
-fn everything_is_a_full_image_and_so_is_one_without_content() {
-    let s = Setup::new();
-    s.write("mods/a.jar", b"a mod");
-    s.world("World", b"r");
-    s.images.record_now(s.id(), "Created Pack").unwrap();
-    let full = s
-        .images
-        .take_snapshot(
-            s.id(),
-            Take {
-                full: true,
-                ..Take::new(SnapshotKind::Manual, "All of it")
-            },
-        )
-        .unwrap()
-        .unwrap();
-    assert!(full.full);
-    assert_eq!(full.content, None);
-    let image = s.image(&full.image);
-    assert_eq!(image.kind, Kind::Full);
-    assert_eq!(image.base, Some(lodestone_image::Base::Loader {}));
-    assert!(s.paths(&full.image).contains(&"mods/a.jar".to_string()));
-
+fn a_snapshot_without_content_to_link_is_a_full_image() {
+    // There is no option to ask for a full image: every snapshot covers the whole folder.
     // A "Find it for me" search has the mods renamed on purpose, so the current image
     // isn't what is on disk: the snapshot holds everything instead of linking it.
     let finder = Setup::new();
+    finder.world("World", b"r");
     finder.write("mods/a.jar", b"a mod");
     finder.images.record_now(finder.id(), "Created").unwrap();
     std::fs::write(
@@ -147,7 +127,13 @@ fn everything_is_a_full_image_and_so_is_one_without_content() {
     assert!(finder.images.finder_running(finder.id()));
     let record = finder.snapshot("During a search");
     assert!(record.full);
-    assert_eq!(finder.image(&record.image).kind, Kind::Full);
+    assert_eq!(record.content, None);
+    let image = finder.image(&record.image);
+    assert_eq!(image.kind, Kind::Full);
+    assert_eq!(image.base, Some(lodestone_image::Base::Loader {}));
+    let paths = finder.paths(&record.image);
+    assert!(paths.contains(&"mods/a.jar".to_string()));
+    assert!(paths.iter().any(|p| p.starts_with("saves/World/")));
 }
 
 #[test]
@@ -329,6 +315,139 @@ fn a_session_that_begins_during_a_snapshot_stops_it() {
     assert!(matches!(taken, Err(ImageError::Running)), "{taken:?}");
     assert_eq!(s.records().len(), records, "nothing is recorded");
     s.images.end_session(s.id());
+}
+
+#[test]
+fn a_session_that_begins_during_a_host_export_stops_it() {
+    let s = Setup::new();
+    s.world("World", b"r");
+    s.images.record_now(s.id(), "Created").unwrap();
+    let slot = s.images.slot(s.id());
+    // Play pressed while "Host this" reads the world: the game would write what is read.
+    let began = std::sync::atomic::AtomicBool::new(false);
+    let press_play = || {
+        if !began.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            slot.session
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+        false
+    };
+    let out = tempfile::tempdir().unwrap();
+    let to = out.path().join("host.lodeimg");
+    let exported =
+        s.images
+            .export_current(s.id(), &["World".to_string()], &to, &|_, _| {}, &press_play);
+    assert!(matches!(exported, Err(ImageError::Running)), "{exported:?}");
+    assert!(!to.exists(), "no file is left to send");
+    s.images.end_session(s.id());
+}
+
+/// "Host this" puts the worlds it reads in the store with no manifest naming them: it asks
+/// for a collection once they are past the grace, however it ends, and that collection
+/// takes them.
+/// An import cancelled once it began unpacking leaves its objects named by nothing (no
+/// instance, no manifest), so it asks for a collection of them past the grace.
+#[test]
+fn a_cancelled_import_asks_for_a_collection_of_what_it_unpacked() {
+    let s = Setup::new();
+    s.images.record_now(s.id(), "Created").unwrap();
+    s.world("World", &[7u8; 64 * 1024]);
+    let record = s.snapshot("With the world");
+    let out = tempfile::tempdir().unwrap();
+    let file = out.path().join("world.lodeimg");
+    s.images
+        .export_snapshot(s.id(), &record.id, &file, &|| false)
+        .unwrap();
+    let other = Setup::new();
+    assert_eq!(other.images.gc_later(), None);
+    let http = crate::http::default_client().unwrap();
+    let sleep: crate::game::download::Sleep = Arc::new(|_| Box::pin(async {}));
+    let downloader = crate::game::download::Downloader::new(http.clone(), sleep);
+    // never asked: the file names no download
+    let modrinth = crate::content::modrinth::Modrinth::with_urls(
+        http,
+        url::Url::parse("http://127.0.0.1:9/").unwrap(),
+        None,
+    );
+    let cancel = crate::game::download::CancelToken::new();
+    cancel.cancel();
+    let started = std::time::Instant::now();
+    let instances_before = other.store.list().0.len();
+    let refused = futures::executor::block_on(super::export::import_file(
+        &other.images,
+        super::export::Sources {
+            downloader: &downloader,
+            modrinth: &modrinth,
+            curseforge: None,
+        },
+        super::export::ImportRequest::new(&file),
+        &|_| Ok(()),
+        &crate::game::download::Progress::default(),
+        &cancel,
+    ));
+    assert!(refused.is_err(), "{:?}", refused.map(|i| i.instance.id));
+    assert_eq!(other.store.list().0.len(), instances_before, "no instance");
+    let later = other
+        .images
+        .gc_later()
+        .expect("a later collection is asked for");
+    assert!(later >= started + lodestone_image::store::gc::GRACE);
+}
+
+#[test]
+fn a_host_export_asks_for_a_collection_of_what_it_read() {
+    fn objects(s: &Setup) -> usize {
+        let mut count = 0;
+        let mut stack = vec![s.data.image_store_dir().join("objects")];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+                if entry.path().is_dir() {
+                    stack.push(entry.path());
+                } else {
+                    count += 1;
+                }
+            }
+        }
+        count
+    }
+    let s = Setup::new();
+    s.images.record_now(s.id(), "Created").unwrap();
+    // a world no snapshot ever read
+    s.world("Never snapshotted", &[9u8; 64 * 1024]);
+    let before = objects(&s);
+    assert_eq!(s.images.gc_later(), None);
+    let out = tempfile::tempdir().unwrap();
+    let to = out.path().join("host.lodeimg");
+    let started = std::time::Instant::now();
+    s.images
+        .export_current(
+            s.id(),
+            &["Never snapshotted".to_string()],
+            &to,
+            &|_, _| {},
+            &|| false,
+        )
+        .unwrap();
+    assert!(objects(&s) > before, "the world's objects are in the store");
+    let later = s
+        .images
+        .gc_later()
+        .expect("a later collection is asked for");
+    assert!(later >= started + lodestone_image::store::gc::GRACE);
+    // past the grace, the collection takes them
+    age_objects(&s.data.image_store_dir().join("objects"));
+    s.images.store().gc(&GcOptions::default()).unwrap();
+    assert_eq!(objects(&s), before);
+    s.nothing_missing();
+
+    // a cancelled export asks too
+    let s = Setup::new();
+    s.world("World", b"r");
+    let refused = s
+        .images
+        .export_current(s.id(), &["World".to_string()], &to, &|_, _| {}, &|| true);
+    assert!(refused.is_err());
+    assert!(s.images.gc_later().is_some());
 }
 
 #[test]

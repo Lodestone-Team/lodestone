@@ -37,6 +37,7 @@ pub mod recorder;
 pub mod retention;
 pub mod scope;
 pub mod serve;
+pub mod share;
 pub mod state;
 
 use std::collections::HashMap;
@@ -200,6 +201,9 @@ pub struct ImageService {
     pub(crate) views: Arc<serve::ViewCache>,
     /// Which object downloads may start ([`objects::Downloads`]).
     pub(crate) downloads: objects::Downloads,
+    /// The core's large writes in progress, whose free-space checks count each other
+    /// ([`crate::util::disk::LargeWrites`]).
+    pub(crate) large_writes: Arc<crate::util::disk::LargeWrites>,
 }
 
 static GLOBAL: OnceLock<Arc<ImageService>> = OnceLock::new();
@@ -239,6 +243,7 @@ impl ImageService {
             gc: Default::default(),
             views: Default::default(),
             downloads: Default::default(),
+            large_writes: Default::default(),
         }
     }
 
@@ -457,7 +462,7 @@ impl ImageService {
 
 /// Deletes a folder and everything in it, clearing read-only first where that stops a
 /// delete (Windows). Missing is fine.
-fn remove_tree(dir: &Path) -> std::io::Result<()> {
+pub(crate) fn remove_tree(dir: &Path) -> std::io::Result<()> {
     #[cfg(windows)]
     for entry in walkdir::WalkDir::new(dir).into_iter().flatten() {
         if let Ok(meta) = entry.metadata() {

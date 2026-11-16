@@ -870,7 +870,9 @@ fn checkbox(checked: bool) -> impl IntoElement {
         })
 }
 
-fn progress_bar(fraction: f32) -> impl IntoElement {
+/// A thin bar `fraction` full (0 to 1), as the import dialogs (and the servers' dialogs)
+/// show progress.
+pub(crate) fn progress_bar(fraction: f32) -> impl IntoElement {
     div()
         .h(px(4.))
         .w_full()

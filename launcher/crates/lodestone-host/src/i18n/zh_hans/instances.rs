@@ -11,9 +11,6 @@ pub fn text(message: M) -> &'static str {
         M::StepAutoSettings => "自动化设置",
         M::StepSelectModpack => "选择整合包",
         M::StepSelectVersion => "选择版本",
-        M::BasicSettingsDescription => "服务器的基本设置。",
-        M::ServerSettingsDescription => "配置你的服务器。",
-        M::AutoSettingsDescription => "自动配置你的服务器。",
         M::CheckFields => "请确保所有字段都已正确填写",
         M::CreateServer => "创建服务器",
         M::CreateFailed => "创建服务器出错：{error}",
@@ -25,26 +22,23 @@ pub fn text(message: M) -> &'static str {
         M::EulaLink => "Minecraft EULA",
         M::EulaRequired => "只有在你同意 Minecraft EULA 后，Minecraft 服务器才能运行。",
         M::FieldName => "名称",
-        M::FieldNameDescription => "服务器的名称",
         M::FieldNameDefault => "我的服务器",
         M::FieldDescription => "描述",
-        M::FieldDescriptionDescription => "服务器的描述",
         M::FieldPort => "端口",
-        M::FieldPortDescription => "服务器运行的端口",
         M::FieldMinRam => "最小内存",
-        M::FieldMinRamDescription => "分配给服务器的最小内存，单位为 MB",
+        M::FieldMinRamDescription => "单位为 MB。",
         M::FieldMaxRam => "最大内存",
-        M::FieldMaxRamDescription => "分配给服务器的最大内存，单位为 MB",
+        M::FieldMaxRamDescription => "单位为 MB。",
         M::FieldAutoStart => "自动启动",
-        M::FieldAutoStartDescription => "应用程序启动时自动启动服务器",
+        M::FieldAutoStartDescription => "在 Lodestone Core 启动时启动。",
         M::FieldRestartOnCrash => "崩溃后重启",
-        M::FieldRestartOnCrashDescription => "服务器崩溃后自动重启",
         M::Optional => "可选",
         M::ValidationRequired => "“{name}”为必填项",
         M::ValidationNumber => "“{name}”必须是数字",
         M::ValidationInteger => "“{name}”必须是整数",
         M::ValidationPositive => "“{name}”必须为正数",
         M::ValidationMin => "“{name}”必须大于或等于 {min}",
+        M::ValidationNameCharacters => "名称不能包含以下任何字符：/ \\ : * ? \" < > |",
         M::ValidationMax => "“{name}”必须小于或等于 {max}",
         M::ValidationOneOf => "“{name}”必须是可用选项之一",
         M::MaxRamBelowMin => "最大内存不能小于最小内存",
@@ -52,7 +46,6 @@ pub fn text(message: M) -> &'static str {
         M::CommandLineReadOnly => "此核心已禁用代码执行，此设置为只读。",
         M::CommandLineOwnerOnly => "只有所有者可以更改此设置。",
         M::GameTypeTitle => "选择游戏",
-        M::GameTypeSubtitle => "你的服务器将用于什么？",
         M::GameTypeNew => "新功能",
         M::GameTypeModpack => "Modrinth 整合包",
         M::GameTypeModpackDescription => "从 Modrinth 整合包创建 Fabric、Forge 或 NeoForge 服务器",
@@ -69,7 +62,6 @@ pub fn text(message: M) -> &'static str {
         M::ImportStopFirst => "如果服务器正在运行，请先停止它，以便完整复制世界。",
         M::ImportReading => "正在读取文件夹",
         M::ImportReadFailed => "无法读取文件夹：{error}",
-        M::ImportSettingsSubtitle => "确认 Lodestone 找到的内容，然后导入。",
         M::ImportOtherSoftware => {
             "此服务器之前使用 {other}。Lodestone 会用 {software} 运行它，两者使用相同的插件。"
         }
@@ -78,7 +70,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::ImportSoftwareUnknown => "Lodestone 无法判断此服务器使用的软件。请在下方选择。",
         M::FieldSoftware => "服务器软件",
-        M::FieldSoftwareDescription => "运行服务器的软件。Lodestone 会重新安装它。",
+        M::FieldSoftwareDescription => "Lodestone 会安装自己的副本。",
         M::FieldVersion => "Minecraft 版本",
         M::FieldVersionDescription => "服务器上次运行的版本",
         M::ImportLoadingVersions => "正在加载版本",
@@ -90,28 +82,40 @@ pub fn text(message: M) -> &'static str {
         M::ImportChooseSoftware => "请选择服务器软件",
         M::ImportServer => "导入服务器",
         M::ImportFailed => "无法导入服务器：{error}",
-        M::GameVanillaDescription => "Mojang 官方的标准原版 Minecraft 服务器。",
-        M::GameForgeDescription => "模组框架，可用于安装模组并自定义你的 Minecraft 体验。",
+        M::GameTypeImage => "从文件",
+        M::GameTypeImageDescription => "用其他 Host 或 Launcher 导出的 .lodeimg 文件创建服务器",
+        M::StepChooseFile => "选择文件",
+        M::StepImageSummary => "文件内容",
+        M::ImageFileTitle => "选择 .lodeimg 文件",
+        M::ImageFileSubtitle => "在你创建服务器之前，不会创建任何内容。",
+        M::ImageBrowse => "选择文件…",
+        M::ImageUploading => "正在读取文件…",
+        M::ImageUploadFailed => "无法打开文件：{error}",
+        M::ImageSummaryTitle => "文件内容",
+        M::ImageKeepOperators => "保留文件中的管理员：{names}",
+        M::ImageKeepOperatorsHint => "管理员可以在服务器上运行任何命令。",
+        M::ImageCreate => "创建服务器",
+        M::ImageCreateFailed => "无法创建服务器：{error}",
+        M::CreateFailedLater => "无法创建服务器",
+        M::ImageNotLodeimg => "{name} 不是 .lodeimg 文件",
+        M::GameForgeDescription => "运行 Forge 模组。",
         M::GameNeoForgeDescription => {
             "社区维护的 Forge 分支，有自己的模组，适用于 Minecraft 1.20.2 及更高版本。"
         }
-        M::GameFabricDescription => "轻量级的 Minecraft 模组工具链。",
-        M::GamePaperDescription => "高性能的 Spigot 分支，旨在修复游戏玩法和机制上的不一致。",
+        M::GameFabricDescription => "运行 Fabric 模组。",
+        M::GamePaperDescription => "运行 Bukkit 和 Spigot 插件。",
         M::GameSpigotDescription => {
             "经过修改的 Minecraft 服务器软件，支持插件，提供更高的性能和更多自定义选项。"
         }
-        M::GameBedrockDescription => "Minecraft Bedrock Edition 服务器。",
+        M::GameBedrockDescription => "只有 Bedrock Edition 玩家可以加入（手机、主机、Windows）。",
         M::GameOtherDescription => "未知的 Minecraft 变体：{name}",
         M::GameGenericDescription => "未知游戏：{name}",
         M::ModpackSourceTitle => "选择整合包",
-        M::ModpackSourceDescription => {
-            "搜索 Modrinth、粘贴 Modrinth 链接，或上传 .mrpack 文件。支持 Fabric、Forge 和 NeoForge 整合包。"
-        }
+        M::ModpackSourceDescription => "仅支持 Fabric、Forge 和 NeoForge 整合包。",
         M::ModpackSearchPlaceholder => "搜索整合包，或粘贴 Modrinth 链接",
         M::ModpackUpload => "上传 .mrpack",
         M::ModpackVersionTitle => "选择版本",
         M::ModpackVersionUploaded => "已上传的整合包。",
-        M::ModpackVersionDescription => "选择要安装的整合包版本。",
         M::ModpackDownloading => "正在下载整合包文件以读取其内容…",
         M::ModpackDownloadingSize => "正在下载整合包文件（{size}）以读取其内容…",
         M::ModpackVersionHint => {
@@ -181,7 +185,6 @@ pub fn text(message: M) -> &'static str {
         M::DetailsFolder => "文件夹",
         M::DetailsModpack => "创建自整合包",
         M::PerformanceTitle => "服务器监控",
-        M::PerformanceLead => "此实例对你的 Lodestone Core 的资源占用",
         M::CpuLoad => "CPU 负载：{value}%",
         M::MemoryUsed => "已用内存：{value} GiB",
         M::LoadingGraph => "正在加载图表",
@@ -192,12 +195,10 @@ pub fn text(message: M) -> &'static str {
         M::GraphSeconds => "{seconds} 秒",
         M::GraphSecondsAgo => "{seconds} 秒前：{value}",
         M::PlayersTitle => "玩家列表",
-        M::PlayersLead => "当前在线的所有玩家",
         M::PlayersSortByName => "名称",
         M::PlayersLinkedUser => "关联此 Minecraft 账户的 Lodestone 用户",
         M::PlayersNone => "没有在线玩家",
         M::ShareTitle => "共享",
-        M::ShareLead => "从好友列表中选择好友，或给任何人发送链接",
         M::ShareFriendsHeading => "你的好友",
         M::ShareFriendsNote => {
             "无需链接。服务器运行时，他们会在 Lodestone Launcher 中你的名字下看到这个服务器。"
@@ -207,7 +208,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::ShareLinkHeading => "或发送邀请链接",
         M::ShareOff => {
-            "把链接发给你想一起玩的人。他们在 Lodestone Launcher 中打开后，游戏会直接连接到这台电脑，无需端口转发。"
+            "收到链接的人可以从 Lodestone Launcher 加入，直接连接到这台电脑，无需端口转发。"
         }
         M::ShareStart => "通过链接共享",
         M::ShareStarting => "正在启动…",
@@ -248,7 +249,6 @@ pub fn text(message: M) -> &'static str {
         M::ShareNewLinksMade => "已生成新的邀请链接。请发给仍然可以加入的人。",
         M::ShareNewLinkFailed => "无法为 {name} 生成新链接：{error}",
         M::ShareShort => "分享",
-        M::ShareShortHint => "分享此服务器",
     }
 }
 

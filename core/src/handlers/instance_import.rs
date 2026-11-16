@@ -22,10 +22,8 @@ use crate::auth::user::UserAction;
 use crate::error::{Error, ErrorKind};
 use crate::events::Event;
 use crate::implementations::minecraft::properties::PropertiesDocument;
-use crate::implementations::minecraft::util::get_server_jar_url;
 use crate::implementations::minecraft::{
-    eula, validate_new_instance_name, FabricLoaderVersion, Flavour, FlavourKind, ForgeBuildVersion,
-    NeoForgeBuildVersion, RestoreConfig, SetupConfig,
+    eula, validate_new_instance_name, FlavourKind, RestoreConfig, SetupConfig,
 };
 use crate::modpack::write_port;
 use crate::prelude::path_to_instances;
@@ -33,7 +31,7 @@ use crate::types::InstanceUuid;
 use crate::AppState;
 
 use super::global_fs::canonicalize_global_read;
-use super::instance::{spawn_minecraft_instance_creation, PostSetupStep};
+use super::instance::{spawn_minecraft_instance_creation, PostSetupStep, SetupDone};
 use super::util::{is_script_path, AuthedUser};
 
 /// Lodestone's own files in an instance folder. They belong to the instance they were
@@ -537,24 +535,6 @@ async fn inspect_server_folder(
     Ok(Json(info))
 }
 
-/// `kind` with the loader version to install, when one is asked for.
-fn flavour_with_loader(kind: FlavourKind, loader_version: Option<&str>) -> Flavour {
-    let loader = loader_version.map(str::to_owned);
-    match kind {
-        FlavourKind::Fabric => Flavour::Fabric {
-            loader_version: loader.map(FabricLoaderVersion::new),
-            installer_version: None,
-        },
-        FlavourKind::Forge => Flavour::Forge {
-            build_version: loader.map(ForgeBuildVersion::new),
-        },
-        FlavourKind::NeoForge => Flavour::NeoForge {
-            build_version: loader.map(NeoForgeBuildVersion::new),
-        },
-        other => other.into(),
-    }
-}
-
 fn check_request(request: &ImportServerRequest) -> Result<(), Error> {
     validate_new_instance_name(&request.name)?;
     if !looks_like_version(&request.version) {
@@ -572,30 +552,6 @@ fn check_request(request: &ImportServerRequest) -> Result<(), Error> {
         }
     }
     Ok(())
-}
-
-/// The software to install: the server's own loader version when it can still be
-/// downloaded, else the newest for the Minecraft version. Fails before anything is
-/// copied when Lodestone has no such server at all.
-async fn resolve_flavour(request: &ImportServerRequest) -> Result<Flavour, Error> {
-    let newest: Flavour = request.flavour.into();
-    if let Some(loader) = request.loader_version.as_deref().filter(|v| !v.is_empty()) {
-        let asked = flavour_with_loader(request.flavour, Some(loader));
-        if asked != newest && get_server_jar_url(&request.version, &asked).await.is_ok() {
-            return Ok(asked);
-        }
-    }
-    get_server_jar_url(&request.version, &newest)
-        .await
-        .map_err(|e| {
-            bad_request(format!(
-                "Lodestone can't set up a {} server for Minecraft {}: {}",
-                newest.to_string(),
-                request.version,
-                e.source
-            ))
-        })?;
-    Ok(newest)
 }
 
 /// What the end of the import says about files that were not copied.
@@ -632,7 +588,16 @@ async fn import_server(
             .await
             .context("Failed to read the server's folder")??;
     }
-    let flavour = resolve_flavour(&request).await?;
+    // the server's own loader version when it can still be downloaded, else the newest;
+    // refused before anything is copied when Lodestone has no such server at all
+    let flavour = state
+        .server_setup
+        .resolve(
+            &request.version,
+            request.flavour,
+            request.loader_version.as_deref(),
+        )
+        .await?;
     let port = request.port;
     let setup_config = SetupConfig {
         name: request.name.clone(),
@@ -679,7 +644,7 @@ async fn import_server(
                             pending.set(0);
                         }
                     })?;
-                    Ok::<_, Error>(describe_skipped(&plan))
+                    Ok::<_, Error>(SetupDone::message(describe_skipped(&plan)))
                 }
             })
             .await

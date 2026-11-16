@@ -945,13 +945,13 @@ impl InstanceSettingsPage {
             (
                 Automation::AutoStart,
                 M::AutoStart,
-                M::AutoStartHint,
+                Some(M::AutoStartHint),
                 instance.auto_start,
             ),
             (
                 Automation::RestartOnCrash,
                 M::RestartOnCrash,
-                M::RestartOnCrashHint,
+                None,
                 instance.restart_on_crash,
             ),
         ]
@@ -962,7 +962,11 @@ impl InstanceSettingsPage {
                 _ => saved,
             };
             SettingRow::new(t(label))
-                .hint(t(if can_edit { hint } else { M::NoPermission }))
+                .hint_opt(if can_edit {
+                    hint.map(t)
+                } else {
+                    Some(t(M::NoPermission))
+                })
                 .when(which == Automation::AutoStart, |row| {
                     row.keywords(t(M::AutoStartKeywords))
                 })
@@ -976,7 +980,7 @@ impl InstanceSettingsPage {
                 )
         });
         query
-            .section(t(M::Automation), Some(t(M::AutomationLead).into()))
+            .section(t(M::Automation), None)
             .card(rows)
             .finish()
             .map(IntoElement::into_any_element)
@@ -1163,7 +1167,6 @@ impl InstanceSettingsPage {
         });
         let row = if status.accepted {
             SettingRow::new(t(M::Eula))
-                .hint(t(M::EulaAcceptedHint))
                 .child(read)
                 .child(tag(t(M::EulaAccepted), colors::GREEN))
         } else {
@@ -1185,7 +1188,7 @@ impl InstanceSettingsPage {
                 )
         };
         query
-            .section(t(M::Eula), Some(t(M::EulaLead).into()))
+            .section(t(M::Eula), None)
             .card([row])
             .finish()
             .map(IntoElement::into_any_element)
@@ -1197,16 +1200,11 @@ impl InstanceSettingsPage {
             .read(cx)
             .me
             .may_core(CorePermission::DeleteInstance);
-        let hint = if can_delete {
-            M::DeleteServerHint
-        } else {
-            M::NoPermission
-        };
         query
-            .section(t(M::DangerZone), Some(t(M::DangerZoneLead).into()))
+            .section(t(M::DangerZone), None)
             .card([SettingRow::new(t(M::DeleteServer))
                 .danger()
-                .hint(t(hint))
+                .hint_opt((!can_delete).then(|| t(M::NoPermission)))
                 .child(
                     Button::new("delete-instance", t(CommonMsg::Delete))
                         .variant(ButtonVariant::Danger)

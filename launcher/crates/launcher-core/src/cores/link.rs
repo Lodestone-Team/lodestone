@@ -62,6 +62,12 @@ pub fn save_link(instance_dir: &Path, link: &ServerLink) -> Result<(), StorageEr
     storage::save(&link_path(instance_dir), link)
 }
 
+/// Like [`save_link`], but never makes the instance folder again: a folder deleted
+/// meanwhile is an `Io` error of kind `NotFound` ([`storage::save_in_existing_dir`]).
+pub fn save_link_if_present(instance_dir: &Path, link: &ServerLink) -> Result<(), StorageError> {
+    storage::save_in_existing_dir(&link_path(instance_dir), link)
+}
+
 /// Every instance under `instances_root` with a server link: `(instance id, link)`.
 pub fn linked_instances(instances_root: &Path) -> Vec<(String, ServerLink)> {
     let Ok(entries) = fs::read_dir(instances_root) else {

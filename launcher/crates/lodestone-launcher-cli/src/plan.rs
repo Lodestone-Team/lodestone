@@ -648,17 +648,16 @@ pub fn plan(
         },
         Command::Worlds(c) => match c {
             Worlds::List(i) => call("worlds.list", vec![("instance", json!(i.instance))]),
-            Worlds::Backups(w) => call("worlds.backups", world(w)),
-            Worlds::Backup(w) => long("worlds.backup", world(w)),
-            Worlds::Restore {
+            Worlds::Snapshots(w) => call("worlds.snapshots", world(w)),
+            Worlds::RestoreSnapshot {
                 world: w,
                 snapshot,
-                replace,
+                mode,
             } => {
                 let mut pairs = world(w);
                 pairs.push(("snapshot", json!(snapshot)));
-                pairs.push(("mode", json!(if *replace { "replace" } else { "copy" })));
-                long("worlds.restore", pairs)
+                pairs.push(("mode", json!(mode)));
+                long("worlds.restore_snapshot", pairs)
             }
             Worlds::Delete(w) => call("worlds.delete", world(w)),
             Worlds::Datapacks(w) => call("worlds.datapacks", world(w)),
@@ -821,17 +820,31 @@ pub fn plan(
                 password: p,
                 name,
                 max_ram,
+                send_worlds,
+                no_worlds,
+                world,
+                no_world,
+                port,
+                server_software,
+                preview,
                 accept_eula,
             } => {
                 // the EULA is checked before the password is read, and a core this
                 // computer is the owner of needs none
                 let password = match username {
-                    Some(_) if *accept_eula => json!(password(p, read_stdin)?),
+                    Some(_) if *accept_eula || *preview => json!(password(p, read_stdin)?),
                     Some(_) => json!(""),
                     None if p.password_stdin => {
                         return Err(usage("--password-stdin goes with --username."));
                     }
                     None => Value::Null,
+                };
+                let worlds = if *no_worlds {
+                    json!([])
+                } else if send_worlds.is_empty() {
+                    Value::Null
+                } else {
+                    json!(send_worlds)
                 };
                 long(
                     "servers.host",
@@ -842,9 +855,46 @@ pub fn plan(
                         ("password", password),
                         ("name", json!(name)),
                         ("max_ram", json!(max_ram)),
+                        ("worlds", worlds),
+                        ("world", json!(world)),
+                        ("no_world", json!(no_world)),
+                        ("port", json!(port)),
+                        ("server_software", json!(server_software)),
+                        ("preview", json!(preview)),
                         ("accept_eula", json!(accept_eula)),
                     ],
                 )
+            }
+            Servers::DownloadWorld {
+                server: s,
+                username,
+                password: p,
+                backup,
+                new_backup,
+                name,
+                preview,
+            } => {
+                let password = match username {
+                    Some(_) => json!(password(p, read_stdin)?),
+                    None if p.password_stdin => {
+                        return Err(usage("--password-stdin goes with --username."));
+                    }
+                    None => Value::Null,
+                };
+                let backup = if *new_backup {
+                    json!("new")
+                } else {
+                    json!(backup.as_deref().unwrap_or("newest"))
+                };
+                let mut pairs = server(s);
+                pairs.extend([
+                    ("username", json!(username)),
+                    ("password", password),
+                    ("backup", backup),
+                    ("name", json!(name)),
+                    ("preview", json!(preview)),
+                ]);
+                long("servers.download_world", pairs)
             }
         },
         Command::Friends(c) => match c {
@@ -981,6 +1031,53 @@ pub fn plan(
                 vec![("path", json!(absolute(path)?)), ("id", json!(id))],
             ),
         },
+        Command::WorldBackups(c) => match c {
+            WorldBackups::List {
+                instance,
+                world,
+                deleted,
+            } => {
+                if *deleted {
+                    call("world_backups.list", vec![("deleted", json!(true))])
+                } else {
+                    call(
+                        "world_backups.list",
+                        vec![("instance", json!(instance)), ("world", json!(world))],
+                    )
+                }
+            }
+            WorldBackups::Create { world: w, name } => {
+                let mut pairs = world(w);
+                pairs.push(("name", json!(name)));
+                long("world_backups.create", pairs)
+            }
+            WorldBackups::Restore {
+                instance,
+                backup,
+                world,
+                mode,
+            } => long(
+                "world_backups.restore",
+                vec![
+                    ("instance", json!(instance)),
+                    ("backup", json!(backup)),
+                    ("world", json!(world)),
+                    ("mode", json!(mode)),
+                ],
+            ),
+            WorldBackups::Delete {
+                instance,
+                backup,
+                world,
+            } => call(
+                "world_backups.delete",
+                vec![
+                    ("instance", json!(instance)),
+                    ("backup", json!(backup)),
+                    ("world", json!(world)),
+                ],
+            ),
+        },
         Command::Snapshots(c) => {
             // "default" goes as it is: back to the Launcher's (a null would be left out).
             let count = |value: &Option<String>| -> Result<Option<Value>, ErrorObject> {
@@ -1001,17 +1098,10 @@ pub fn plan(
                         call("snapshots.list", vec![("instance", json!(instance))])
                     }
                 }
-                Snapshots::Create {
-                    instance,
-                    name,
-                    everything,
-                } => {
-                    let mut pairs = vec![("instance", json!(instance)), ("name", json!(name))];
-                    if *everything {
-                        pairs.push(("everything", json!(true)));
-                    }
-                    long("snapshots.create", pairs)
-                }
+                Snapshots::Create { instance, name } => long(
+                    "snapshots.create",
+                    vec![("instance", json!(instance)), ("name", json!(name))],
+                ),
                 Snapshots::Restore {
                     instance,
                     snapshot,
@@ -1304,17 +1394,10 @@ mod tests {
         let (_, params, _) = call_of(&["play", "launch", "Smp", "--skip-update"]);
         assert_eq!(params["update_mods"], json!(false));
         assert_eq!(
-            call_of(&[
-                "snapshots",
-                "create",
-                "S",
-                "--name",
-                "Before",
-                "--everything"
-            ]),
+            call_of(&["snapshots", "create", "S", "--name", "Before"]),
             (
                 "snapshots.create",
-                json!({ "instance": "S", "name": "Before", "everything": true }),
+                json!({ "instance": "S", "name": "Before" }),
                 true
             )
         );
@@ -1361,10 +1444,105 @@ mod tests {
             call_of(&["snapshots", "list", "--deleted"]).1,
             json!({ "deleted": true })
         );
-        let (_, params, _) = call_of(&["worlds", "restore", "S", "World", "--replace"]);
         assert_eq!(
-            params,
-            json!({ "instance": "S", "world": "World", "snapshot": "latest", "mode": "replace" })
+            call_of(&[
+                "worlds",
+                "restore-snapshot",
+                "S",
+                "World",
+                "--mode",
+                "replace"
+            ]),
+            (
+                "worlds.restore_snapshot",
+                json!({ "instance": "S", "world": "World", "snapshot": "latest", "mode": "replace" }),
+                true
+            )
+        );
+        assert_eq!(
+            call_of(&["worlds", "snapshots", "S", "World"]),
+            (
+                "worlds.snapshots",
+                json!({ "instance": "S", "world": "World" }),
+                false
+            )
+        );
+        for gone in [
+            ["worlds", "backup"],
+            ["worlds", "backups"],
+            ["worlds", "restore"],
+        ] {
+            let argv = ["lodestone-launcher-cli", gone[0], gone[1], "S", "World"];
+            assert!(Cli::try_parse_from(argv).is_err(), "{gone:?}");
+        }
+        assert_eq!(
+            call_of(&["world-backups", "list", "S", "--world", "World"]),
+            (
+                "world_backups.list",
+                json!({ "instance": "S", "world": "World" }),
+                false
+            )
+        );
+        assert_eq!(
+            call_of(&["world-backups", "list", "--deleted"]).1,
+            json!({ "deleted": true })
+        );
+        assert_eq!(
+            call_of(&["world-backups", "create", "S", "World", "--name", "Before"]),
+            (
+                "world_backups.create",
+                json!({ "instance": "S", "world": "World", "name": "Before" }),
+                true
+            )
+        );
+        assert_eq!(
+            call_of(&[
+                "world-backups",
+                "restore",
+                "S",
+                "latest",
+                "--world",
+                "World",
+                "--mode",
+                "replace"
+            ])
+            .1,
+            json!({ "instance": "S", "backup": "latest", "world": "World", "mode": "replace" })
+        );
+        // Both restores spell their modes alike, and default to the one that replaces
+        // nothing.
+        assert_eq!(
+            call_of(&["world-backups", "restore", "S", "Before"]).1,
+            json!({ "instance": "S", "backup": "Before", "mode": "new" })
+        );
+        assert_eq!(
+            call_of(&["worlds", "restore-snapshot", "S", "World"]).1["mode"],
+            "new"
+        );
+        for argv in [
+            ["world-backups", "restore", "S", "Before", "--mode", "copy"],
+            ["worlds", "restore-snapshot", "S", "World", "--mode", "copy"],
+        ] {
+            let argv: Vec<&str> = std::iter::once("lodestone-launcher-cli")
+                .chain(argv)
+                .collect();
+            assert!(Cli::try_parse_from(argv).is_err());
+        }
+        assert_eq!(
+            call_of(&["world-backups", "delete", "S", "Before"]),
+            (
+                "world_backups.delete",
+                json!({ "instance": "S", "backup": "Before" }),
+                false
+            )
+        );
+        assert_eq!(
+            call_of(&["world-backups", "delete", "S", "latest", "--world", "World"]).1,
+            json!({ "instance": "S", "backup": "latest", "world": "World" })
+        );
+        assert_eq!(
+            call_of(&["storage", "clean", "deleted-world-backups"]).1,
+            json!({ "what": "deleted-world-backups" })
         );
         let (_, params, _) = call_of(&[
             "shared",
@@ -1554,6 +1732,119 @@ mod tests {
         // a core this computer is the owner of needs no password
         let (_, params, _) = call_of(&["servers", "host", "S", "--core", "c", "--accept-eula"]);
         assert!(params["username"].is_null() && params["password"].is_null());
+        // the worlds default to the last played (left to the launcher), and the world to
+        // the host's choice
+        assert!(params["worlds"].is_null() && params["world"].is_null());
+        assert_eq!(params["preview"], false);
+    }
+
+    #[test]
+    fn hosting_says_which_worlds_go_and_which_is_the_servers() {
+        let (method, params, _) = call_of(&[
+            "servers",
+            "host",
+            "S",
+            "--core",
+            "c",
+            "--send-world",
+            "A",
+            "--send-world",
+            "B",
+            "--world",
+            "B",
+            "--port",
+            "25570",
+            "--server-software",
+            "Paper",
+            "--accept-eula",
+        ]);
+        assert_eq!(method, "servers.host");
+        assert_eq!(params["worlds"], json!(["A", "B"]));
+        assert_eq!(params["world"], "B");
+        assert_eq!(params["port"], 25570);
+        assert_eq!(params["server_software"], "Paper");
+        let (_, params, _) = call_of(&[
+            "servers",
+            "host",
+            "S",
+            "--core",
+            "c",
+            "--no-worlds",
+            "--no-world",
+            "--preview",
+        ]);
+        assert_eq!(params["worlds"], json!([]));
+        assert!(params["world"].is_null());
+        assert_eq!(params["no_world"], true);
+        assert_eq!(params["preview"], true);
+        assert_eq!(params["accept_eula"], false);
+        assert!(
+            Cli::try_parse_from([
+                "lodestone-launcher-cli",
+                "servers",
+                "host",
+                "S",
+                "--core",
+                "c",
+                "--send-world",
+                "A",
+                "--no-worlds"
+            ])
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn a_world_download_names_its_backup() {
+        let (method, params, _) = call_of(&[
+            "servers",
+            "download-world",
+            "Smp",
+            "--core",
+            "c",
+            "--preview",
+        ]);
+        assert_eq!(method, "servers.download_world");
+        assert_eq!(params["server"], "Smp");
+        assert_eq!(params["core"], "c");
+        assert_eq!(params["backup"], "newest");
+        assert_eq!(params["preview"], true);
+        let (_, params, _) = call_of(&[
+            "servers",
+            "download-world",
+            "Smp",
+            "--new-backup",
+            "--name",
+            "At home",
+        ]);
+        assert_eq!(params["backup"], "new");
+        assert_eq!(params["name"], "At home");
+        let (_, params, _) = call_of(&["servers", "download-world", "Smp", "--backup", "b1"]);
+        assert_eq!(params["backup"], "b1");
+        assert!(
+            Cli::try_parse_from([
+                "lodestone-launcher-cli",
+                "servers",
+                "download-world",
+                "Smp",
+                "--backup",
+                "b1",
+                "--new-backup"
+            ])
+            .is_err()
+        );
+        // a preview changes nothing on the core: it never backs the server up
+        assert!(
+            Cli::try_parse_from([
+                "lodestone-launcher-cli",
+                "servers",
+                "download-world",
+                "Smp",
+                "--new-backup",
+                "--preview"
+            ])
+            .is_err()
+        );
     }
 
     /// `path` as the CLI sends it: `/tmp/x` is absolute on Unix, but on Windows it
@@ -1651,5 +1942,74 @@ mod tests {
             crate::run::mode(&quiet.global, true),
             crate::output::Mode::Human
         );
+    }
+
+    /// The words of a shell line as `sh` would split them (quotes, no expansion).
+    fn shell_words(line: &str) -> Vec<String> {
+        let mut words = Vec::new();
+        let mut word = String::new();
+        let (mut quote, mut in_word) = (None, false);
+        for c in line.chars() {
+            match (quote, c) {
+                (Some(q), c) if c == q => quote = None,
+                (Some(_), c) => word.push(c),
+                (None, '"' | '\'') => {
+                    quote = Some(c);
+                    in_word = true;
+                }
+                (None, c) if c.is_whitespace() => {
+                    if in_word {
+                        words.push(std::mem::take(&mut word));
+                        in_word = false;
+                    }
+                }
+                (None, c) => {
+                    word.push(c);
+                    in_word = true;
+                }
+            }
+        }
+        if in_word {
+            words.push(word);
+        }
+        words
+    }
+
+    /// Every command SKILL.md shows parses, so an agent following a recipe never meets a
+    /// command that was renamed or removed.
+    #[test]
+    fn every_command_in_the_skill_parses() {
+        let skill = include_str!("../SKILL.md");
+        let mut checked = 0;
+        let mut in_block = false;
+        for line in skill.lines() {
+            if line.starts_with("```") {
+                in_block = !in_block;
+                continue;
+            }
+            if !in_block {
+                continue;
+            }
+            // Each command of the line, before a comment: `a && b`, `x | a`, `a; b`.
+            let line = line.split(" #").next().unwrap_or(line);
+            let mut commands = vec![line];
+            for separator in [" && ", " || ", "; ", " | "] {
+                commands = commands.iter().flat_map(|c| c.split(separator)).collect();
+            }
+            for command in commands.iter().map(|c| c.trim()) {
+                if !command.starts_with("lodestone-launcher-cli ") {
+                    continue;
+                }
+                let words = shell_words(command);
+                if words.iter().any(|w| w.contains('<') || w.contains('$')) {
+                    continue;
+                }
+                if let Err(err) = Cli::try_parse_from(&words) {
+                    panic!("SKILL.md: {command}\n{err}");
+                }
+                checked += 1;
+            }
+        }
+        assert!(checked > 100, "{checked}");
     }
 }

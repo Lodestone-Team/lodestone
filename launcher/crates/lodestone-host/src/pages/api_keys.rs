@@ -486,7 +486,7 @@ impl Render for ApiKeysSection {
                 t(CoreMsg::ApiKeysOwnEmpty).to_string(),
             ),
             Owner::User(_, username) => (
-                tr!(CoreMsg::ApiKeysUserLead, username = username),
+                t(CoreMsg::ApiKeysUserLead).to_string(),
                 tr!(CoreMsg::ApiKeysUserEmpty, username = username),
             ),
         };

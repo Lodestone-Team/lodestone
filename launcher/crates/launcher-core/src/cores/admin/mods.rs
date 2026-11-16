@@ -448,7 +448,7 @@ impl AdminClient {
         file_name: &str,
         bytes: &[u8],
     ) -> Result<ModpackInfo, CoreError> {
-        let body = crate::cores::hosting::multipart_file(file_name, bytes);
+        let body = multipart_file(file_name, bytes);
         let bytes = self
             .send_slow(
                 Method::POST,
@@ -464,6 +464,27 @@ impl AdminClient {
 
 /// Downloading or uploading a modpack: the dashboard sets no limit.
 const MODPACK_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+
+/// A `multipart/form-data` body with one `file` field holding a modpack, as the dashboard
+/// sends it. Returns the body and its content type.
+fn multipart_file(file_name: &str, bytes: &[u8]) -> (Vec<u8>, String) {
+    let boundary = format!(
+        "lodestone-launcher-{:016x}",
+        u64::from_le_bytes(crate::random_bytes())
+    );
+    // the name is the pack's, but quotes and line breaks would end the header
+    let safe_name: String = file_name
+        .chars()
+        .map(|c| if c == '"' || c.is_control() { '_' } else { c })
+        .collect();
+    let mut body = format!(
+        "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{safe_name}\"\r\nContent-Type: application/x-modrinth-modpack+zip\r\n\r\n"
+    )
+    .into_bytes();
+    body.extend_from_slice(bytes);
+    body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+    (body, format!("multipart/form-data; boundary={boundary}"))
+}
 
 /// What updating a server's modpack will do (`ModpackUpdatePlan`).
 #[derive(Clone, Debug, Default, PartialEq, Deserialize)]

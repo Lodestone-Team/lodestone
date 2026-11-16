@@ -8,7 +8,7 @@ each do part of the job:
 | Today | Becomes |
 | --- | --- |
 | Core backups (`core/src/backups`) | Data images |
-| Launcher snapshots, `.lodesnap`, world backup zips (were `launcher-core/src/snapshots.rs`, `worlds.rs`) | Data and full images in the Launcher's image store; the export is an image export, `.lodeimg` (done in M5) |
+| Launcher snapshots, `.lodesnap`, world backup zips (were `launcher-core/src/snapshots.rs`, `worlds.rs`) | Data and full images in the Launcher's image store; the export is an image export, `.lodeimg` (done in M5). World backups are plain zips again, outside the store, beside the snapshots: see "World backups" |
 | Core modpack record and history (`.lodestone_modpack/`) | The base and the lineage of content images |
 | Launcher `modpack.json` and its update plan | `modpack.json` stays as the updater's current state and names the base; the history is the lineage of content images |
 | `LDS2:` share codes (`launcher-core/src/content/share.rs`) | A text encoding of an image whose files can all be downloaded (the format stays: see "M5 decisions") |
@@ -340,8 +340,10 @@ view(image, side, rules) = entries with env[side] ≠ unsupported that the side 
 - A view keeps the image's base, game, `removed`, worlds, content link, excludes, withheld
   files and unknown fields (the client view only part of `removed`: below), and none of its informational fields (`parent`, `created`,
   `producer`, `label`, entries' `modified`). World files go to both views, so the server
-  view of a Launcher snapshot is what "Host this" makes; the server-to-player flow uses
-  the content image, which has no worlds.
+  view of a Launcher's image is what "Host this" makes (the core takes the server view of
+  the `.lodeimg` the Launcher sends, "M6b decisions"); the server-to-player flow uses the
+  content image, which has no worlds. The other way, "Download this world" places the
+  client view of a server's content with its worlds (`images::from_server`).
 
 - The client view's `removed` keeps only the paths the client view could carry a file at:
   none the client can't hold, none of Lodestone's own files, a server's state or disabled
@@ -908,7 +910,7 @@ Works for Fabric, Quilt, Forge and NeoForge servers.
 | World only | The world's folders, after a safety image |
 | World and its mods | The world plus the content it ran with, in one swap (the core's `world_and_mods`: the content files of the data image itself, which needs its content link) |
 | Everything | The whole image (the core's current Everything scope) |
-| As new | A new server or instance beside the original |
+| As new | A new server or instance beside the original; on the core also from a `.lodeimg` file another Host or a Launcher exported ("M6a decisions") |
 
 When the current content differs from a world's linked content, the restore says what
 differs and offers to restore it too (the Launcher's restore, M5; the core's world restore
@@ -948,10 +950,17 @@ object or chunk nothing needs. Import asks the caller whether the disk has room 
 it will unpack, then checks each chunk's and each whole file's SHA-256 before the store
 names anything by it.
 
-- Host to Host: restore as new from an image.
-- Launcher to Host: "Host this" sends the image; the core makes a server from its server view.
-- Host to Launcher: "Download this world" sends a data image; the Launcher builds the linked
-  content image.
+- Host to Host: a backup exported as a `.lodeimg` (its secrets taken out) becomes a new
+  server on another Host (done: "M6a decisions").
+- Launcher to Host: the core makes a server from the server view of a Launcher's `.lodeimg`,
+  with one picked world as its level (done in the core and the GPUI Host's "From a file":
+  "M6a decisions"); the Launcher's "Host this" writes and sends that file and makes the
+  server (done: "M6b decisions").
+- Host to Launcher: "Download this world" gets a backup as a `.lodeimg` through the core's
+  export; the Launcher builds a new instance from the client view of its linked content
+  image, the client share of the modpack the server is built on (as its players get it
+  through the base) and its worlds, as it does for any core's `.lodeimg` opened in it
+  (done: "M6b decisions").
 - Launcher to Launcher: share an image file (`.lodeimg`, an exported snapshot, M5), or an
   `LDS2:` code when every file can be downloaded.
 
@@ -977,8 +986,61 @@ names anything by it.
   in the local store. The objects endpoint (M3) serves only objects the server's current
   client view names with source `object` (and its client settings' icon and background),
   never any other object of the store by its hash: not a `modrinth`, `base` or
-  `curseforge` entry, a world, a backup's file or another server's; an export of a server
-  that leaves the computer (M6) must strip or withhold those files.
+  `curseforge` entry, a world, a backup's file or another server's. An export of a server
+  that leaves the computer (`POST /instance/{uuid}/backups/{id}/export`) blanks every
+  `server.properties` value whose key says password, secret or token (and
+  `text-filtering-config`) and drops its lines the reader can't parse, blanks Paper's
+  Velocity forwarding secret (`config/paper-global.yml`, and `paper.yml` before 1.19) and
+  Pufferfish's Sentry key, and withholds the plugins' folders unless the owner includes
+  them, Lodestone's own files (its settings hold the Java command and arguments), the
+  console's history, the JVM's crash and dump files, the programs and scripts at the top,
+  known keys to the server and services' logins (proxy forwarding secrets, NeoForge's
+  forwarding mods' settings and any settings at the top of `config/` that name velocity,
+  forwarding or proxy, Paper's `config/legacy-backup/` copy of the old `paper.yml` with
+  its Velocity secret, Floodgate's folder and Geyser's copies of its key and saved logins,
+  database passwords of LuckPerms, CoreProtect, Plan, LiteBans, AuthMe, EasyAuth, Ledger
+  and the map plugins, ServerTap's REST API key, AuthMe's and EasyAuth's players' password hashes, Discord bots'
+  tokens (SDLink's encrypted one with its key too), BungeeGuard's and the vote listeners'
+  tokens and keys, Dynmap's and BlueMap's web pages for a database; "M6a decisions" lists
+  them and the ones checked that hold none), banned
+  players' IP addresses and what the Launcher's export takes out. On top of those named
+  lists, a generic rule withholds every settings file the export would still carry that
+  holds a credential under a name that says so, whichever mod or plugin wrote it
+  (`share::secrets`, "M6a decisions", Credentials found by their names): a key whose words
+  name a password, secret, token or key (`botToken`, `secret-key`, `discord.bot.token`,
+  `[secret] key`) with a value that isn't a placeholder, a value that is a login by its
+  shape (a URL with a password, a Discord webhook or bot token), key and token files by
+  their names (`.token`, `*.pem`, `*.key`, `id_rsa`, `.env`, `credentials.json`,
+  `token.txt`), and settings files too big to read; "Include plugin settings" doesn't change
+  it, since a credential that reaches an outside account or lets someone in never travels,
+  and a server made from a file never takes such a file either. A YAML file it cleans is edited only
+  when every line is in an allowlist of simple block style that SnakeYAML reads the way
+  the editor does (`export::read_simple_yaml`), and withheld otherwise, so no form of YAML
+  (a flow mapping over lines, an escaped key, a byte order mark before a flow mapping, a
+  dotted key Bukkit's settings split into nested ones) can carry a secret past it. A server made from a file never takes those keys or programs,
+  empties the same secrets, places nothing runnable, keeps functions below operator level,
+  takes the operators' files (`ops.json`, Bukkit's `permissions.yml` and `commands.yml`,
+  whose aliases run as the console, and permission mods' and plugins' data: LuckPerms', FTB
+  Ranks', PermissionsEx's, GroupManager's, UltraPermissions', player-roles',
+  ForgeEssentials', Command Aliases') only when the owner asks, sets the settings that would
+  run a file, give operators' powers or move the worlds out of the server's folder to their
+  defaults, deletes a settings file outside the same allowlist, writes `server.properties`
+  again from what its reader parsed (online mode as the `true` or `false` Minecraft reads,
+  which trims nothing from the value), and refuses a file whose `server.properties` or
+  `ops.json` the summary can't read whole as the server would, so the summary shows what
+  the server does and a file's settings give its sender no way in. The reader of
+  `server.properties` follows Java's `Properties` line for line, comments included: a `#`
+  or `!` line while the logical line is still empty (after a line holding only `\`) is a
+  comment that ends with its own line, whatever backslash it ends with, so the setting
+  after it is read as its own and its secret blanked.
+- A server's `.lodeimg` opened in the Launcher ("Download this world", or a core export
+  imported by hand) places only the client view of its content, and of that only what the
+  content folders hold, and its worlds without the files only a server reads: never its
+  `server.properties`, operators, plugins or their data, Paper's settings or a config not
+  shared with players ("M6b decisions"); the base pack's client share comes only from
+  Modrinth, checked as for players (M4b). Its objects are unpacked only for what is placed,
+  each read from the file and checked: a file never gets the store's other files by
+  naming their hash.
 - The core's history API returns labels and paths as they are; a client that shows them
   writes their control and direction characters visibly (as `display_text` does).
 - A Launcher content image takes the whole `config/` folder and every file a pack lists.
@@ -993,8 +1055,9 @@ names anything by it.
   official launcher's account files (`launcher_accounts*.json`,
   `launcher_msa_credentials*.bin`, `launcher_profiles.json` at the top of the game folder,
   which a `.minecraft` folder pasted into an instance brings) and the account files of
-  known account switchers, and names them in `excludes` ("M5 decisions", best effort); milestone 6 must do the same
-  (milestone 4's second half only receives images). The JVM's
+  known account switchers, and names them in `excludes` ("M5 decisions", best effort); the
+  core's export does the same for a server's ("M6a decisions"; milestone 4's second half
+  only receives images). The JVM's
   crash and dump files count as secrets too: it writes them into its working folder, the
   game folder, and a crash log (`hs_err_pid*`) holds the whole command line, the access
   token included. No Launcher snapshot takes them (`hs_err_pid*`, `replay_pid*`,
@@ -1003,6 +1066,217 @@ names anything by it.
   never include the files the game writes, `command_history.txt` (commands typed, a
   server's `/login` password among them) and `hotbar.nbt` included, and an image that
   leaves the computer must never carry those either.
+
+## World backups
+
+Snapshots (the core's "backups", the Launcher's snapshots) are images of the whole
+instance or server folder, deduplicated in the image store. A **world backup** is the other
+thing people ask for: a plain, standard `.zip` of one world that opens outside Lodestone,
+made only when asked and kept until the user deletes it. It is deliberately not an image:
+no delta, no object store, no content link, so deleting one frees its whole size and a
+player can take a world anywhere with it. The two sit side by side in the UI, each in its
+own section. "World backup" always means the zip; "snapshot" always means the image.
+
+### In the Launcher
+
+`launcher/crates/launcher-core/src/world_backups/` (`mod.rs`, `restore.rs`), the shared
+zip code in `worlds/zip.rs`, the window's `instances/world_backups.rs` (Settings ›
+Snapshots' "World backups" group and its dialog) and the Worlds tab.
+
+- **Files.** `<data>/world-backups/<instance id>/<world folder>/<id>.zip` and its
+  `<id>.json`, outside the instance folder, so snapshots, exports and "Host this" never
+  take them. The id has a snapshot record id's shape (`YYYYMMDD-HHMMSS-xxxx`, UTC). The
+  zip's one top folder is the world's folder (`<world folder>/level.dat`, …), so it unzips
+  into any `saves` folder. Files already compressed (`.mca`, `.mcc`, `.mcr`, `.dat`,
+  `.dat_old`, `.nbt`, `.sqlite` with `-wal` and `-shm`, `.png`, `.jpg`, `.jpeg`, `.ogg`,
+  `.gz`, `.zip`, `.jar`, `.zst`, `.lz4`, `.xz`, `.7z`) and every file of 64 MiB or more
+  are stored as they are; the rest deflated. The `.json` (`WorldBackup`, `version` 1, at most
+  64 KiB) has the id, the owner's `instance_created` and name, the world's folder, the
+  name (the user's, cut to 200 characters, else "World backup"), the kind (`manual` or
+  `before_restore`, with `restored`: the name of the backup whose restore it came before),
+  `created`, what `level.dat` said (`level_name`, `game_version`, `data_version`), the
+  zip's size, the files' size and count, and the names left out (at most 20, and their
+  count). The zip is written as `.<id>.zip.<16 hex>.part` beside it, flushed and renamed
+  (the folder flushed on Unix), and the `.json` last (`storage::write_atomic`): only a
+  backup with both is listed, so none is ever half a zip.
+- **What a zip holds.** Every file of the world, without following links (each file is
+  opened with `O_NOFOLLOW` on Unix and must be a plain file, so one swapped for a link or
+  a pipe after the world was listed refuses the backup). Left out:
+  `session.lock` and Lodestone's working files (`.lodestone-…`, `paths::always_excluded`),
+  and, counted and listed, links and names a canonical path can't hold
+  (`CanonicalPath::new("saves/w/<path>")`: Windows device and 8.3 names, invisible
+  characters, non-NFC names, …) or the zip check refuses (`check_pack_path` on
+  `<world folder>/<path>`: `..` inside a name, a zip name over 512 characters), and of
+  two names differing only in case (a disk that keeps case apart holds both) the later,
+  with what is in it, so a zip only holds names every disk Lodestone runs on can keep and
+  its own restore takes. A
+  folder holding only names left out is left out too (not counted), so restoring in place
+  carries it back whole rather than meeting an empty folder of that name in the zip. A
+  world whose folder name the zip check or a canonical path refuses (`aux`, `COM1`, or
+  `World.` outside Windows, which `is_plain_name` finds) isn't backed up at all, with a
+  message saying to rename it (`worlds::zip::check_world_folder`).
+- **Whose.** A backup belongs to the instance whose id names its folder and whose
+  `created` time its `.json` holds. An instance put back from the Trash has both and sees
+  its backups again; a new instance that only reuses the id never sees them. Backups no
+  live instance owns are a deleted instance's (`WorldBackups::list_deleted`): Settings ›
+  Storage counts them and its clean-up (`Clean::DeletedWorldBackups`,
+  `deleted-world-backups`) deletes them for good, which its dialog says (instances still in
+  the Trash count as deleted). An entry of the instances folder that isn't a readable
+  instance (a broken `instance.json`, a link to a drive that isn't there) keeps whatever
+  its id has, and nothing counts as deleted while the instances folder can't be read.
+- **Making one** (`WorldBackups::create`, the Settings section's "Back up a world…", the
+  Worlds tab's "Back up", `world_backups.create`): under the instance's record lock in a
+  counted write of the image store, refused while a game session of the instance runs or
+  the game has that world open (its `session.lock`, `worlds::open_in_game`), for a folder
+  without `level.dat` (no restore could take it), for a world over the limits a restore's
+  zip check reads (more than 500,000 entries, folders and the top folder counted, or 64
+  GiB of files: `ZipPlan::within`), and without room for the world's size and 1 GiB on
+  the backups' disk. Cancel, a session that begins or the game opening the
+  world stops it at the next file or 8 MiB of a large one, and leaves nothing.
+- **Restoring one in place** (`RestoreTo::InPlace`, "Restore…" after a confirmation,
+  `world_backups.restore` mode `replace` with confirm): as a snapshot's restore, under the
+  record lock, refused while a game session runs or any world of the instance is open, an
+  unfinished restore undone first, only for a backup kept under a folder name a backup
+  is made under (`check_world_folder`), and never when `saves/` or a folder above it is a
+  link (a swap through it couldn't be undone; restore as a new world instead). The zip is checked whole before anything is
+  written (`worlds::zip::check`, shape `OneWorldFolder`), then what the swap would refuse
+  (from the list of what the safety backup will zip, `worlds::zip::plan`), then room: the
+  zip's unpacked size plus the world's size plus 1 GiB when the instance and the backups
+  share a disk (the usual case), else each with 1 GiB on its own disk; before the room, a
+  world grown past the limits a backup is made within is refused (its safety backup could
+  never be restored; restoring as a new world needs none). Then a **safety
+  world backup** of the world as it is ("Before restoring “<name>”", the restored name cut
+  so the whole fits 200 characters; none when the world isn't there any more), refused
+  when it fails or is cancelled. The zip is unpacked into
+  `<instance>/.lodestone-restore-staging-<16>/minecraft/saves/<world>/` and swapped in
+  with M5's journaled swap (`images/swap.rs`, `restore-journal.json`,
+  `Staged::with_folders`): the world's folder is owned, what the safety backup zipped is
+  what it replaces, every folder the zip lists (an empty `datapacks/` too) is the zip's,
+  and everything else in the world is carried back (`session.lock`, links, names no zip
+  holds, folders only on disk). Just before the swap, open worlds and a game session are
+  checked again (a game this Launcher didn't start may open a world while a large zip
+  unpacks). A restore that ends with the world unchanged (refused, cancelled while
+  unpacking, or rolled back) deletes the safety backup it made; one whose swap couldn't be
+  undone keeps it. A crash is finished or undone at the next start or by Play, as for
+  snapshots. Only that world changes; nothing is recorded in the content history (worlds
+  aren't content). Files written into the world meanwhile are kept aside
+  (`restore-leftovers-<16>/`), which the dialog says.
+- **As a new world** (`RestoreTo::NewWorld`, "Restore as a new world", mode `new`): the
+  zip unpacked into `saves/.lodestone-restore-staging-<instance id>-<16>/` (one disk with
+  `saves`, even a linked one; what a crash leaves the startup sweep deletes), then renamed
+  beside the others as "<world> (restored <date>)" (its `level.dat` name too; a folder
+  name free in `saves/` and the backups' folder), replacing nothing, no safety backup.
+- **Deleting one** moves its zip to the Trash, then deletes its `.json`; when the Trash
+  fails nothing changes.
+- **Renaming a world** in the Launcher (the Worlds tab, `WorldBackups::rename_world`)
+  moves its backups with it under the record lock (only this instance's: a deleted
+  instance that had the same id keeps its own under the old name), the new folder a name free in
+  both `saves/` and the backups' folder, the world put back if the backups can't move. A
+  world renamed outside the Launcher leaves its backups under the old folder name, listed
+  as no longer in the instance.
+- **Checking a zip** (`worlds::zip::check`, also used by world imports): only the end
+  records and central directory are read (never a scan of the file), and the whole zip is refused for more than 500,000 entries or 64 GiB
+  stated, an encrypted entry, a name `mrpack::check_pack_path` or a canonical path refuses
+  (absolute, `..`, `\`, `:`, device names, …), two names one file on a disk that ignores
+  case (`paths::case_collisions`, `ſ` and `s` too), a file that is also a folder or is
+  listed twice, and, for a backup, an entry outside its one top folder or no `level.dat`.
+  Links, `__MACOSX` and `.DS_Store`, `session.lock` and `.lodestone-…` entries are
+  skipped. Unpacking (`extract_into`) creates each file new, copies at most its stated
+  size plus one byte (a larger one refuses the zip), asks Cancel before each entry and
+  every 8 MiB of a large one, and
+  removes what it unpacked on any failure. What it unpacks is made durable as one batch
+  (`lodestone_image::store::flush`: each file and folder handed to the drive, then one
+  flush of the drive's cache), not with a cache flush per file.
+- **The window.** Settings › Snapshots is one section (one entry in the list beside the
+  page) with two groups, each under its own heading: "World backups" ("Back up a world…";
+  each world's backups in a card under the world's name, a world no longer in the instance
+  said so; per row Restore…, Restore as a new world, Show in Finder, Delete) and
+  "Snapshots of the whole instance" (as in M5, its lead the retention). One dialog makes
+  (a pick of the worlds when there are several, a name), restores (in place after a
+  confirmation naming the backup and saying the world as it is is saved first; as a new
+  world at once) and deletes; while it works it can't be closed, and Cancel stops the
+  work. The Worlds tab's "Back up" is a tab job with Cancel, as are rename and delete;
+  all three are refused, with the reason, while another job writes the instance
+  (Settings' world backup dialog, an install, a modpack update). A world's "Backups & snapshots" button (its number counts
+  both sections) opens a panel with "World backups" (its zips, with the same buttons,
+  which open the dialog) and "In snapshots" (the snapshots holding it); both list
+  Restore… (in place, asking first) then Restore as a new world. The lists follow
+  `WorldBackups::watch`. Names the Launcher gave ("World backup", "Before restoring
+  “<name>”") are shown translated.
+- **Control API and CLI.** `world_backups.list` (`instance`, `world`; or `deleted`),
+  `world_backups.create` (`instance`, `world`, `name`), `world_backups.restore`
+  (`instance`, `backup`: an id, a name, or `latest` with `world`; `mode` `new`, the
+  default, or `replace` with confirm; destructive), `world_backups.delete` (`backup` as
+  for restore, `world`; confirm). `world` is a world's folder or name, matched first
+  against the backups' own folders and world names, so a world no longer in the instance
+  is found by its backups; backups are looked up in the background.
+  `worlds.restore_snapshot` takes the same `mode` `new` or `replace` (destructive); making and restoring are jobs of
+  kind `world_backups` that `jobs.cancel` stops, and no snapshot or world backup job of an
+  instance starts while another runs. Records carry the zip's `path`. `worlds.list` counts
+  each world's `world_backups` and `snapshots`. The CLI: `world-backups list|create|restore|delete`
+  (`restore --mode new|replace`, `delete --world`), `worlds restore-snapshot --mode
+  new|replace`, `storage clean deleted-world-backups`.
+
+### On the Host
+
+The core keeps a server's world backups beside its snapshots (`core/src/backups/world/`),
+and the GPUI Host's Backups page is now called **Snapshots**, with a **World backups**
+section above the snapshots (see "WB1 decisions").
+
+- **What is in the zip.** The server's level (`level-name`) as it is on disk, and on Paper
+  and Spigot its split `<level>_nether` and `<level>_the_end` folders, each under its own
+  folder name, so the zip is a world any server or tool can use. Files are checked against
+  the server's disk layout (`DiskLayout::from_disk`): what images never record
+  (`session.lock`, `.lodestone-*`) is skipped, and links, things that aren't plain files
+  (fifos, sockets, devices), unreadable files and names a restore can't place (a vanilla
+  `DIM-1` inside a split level, a name that isn't UTF-8, the later of two names that are
+  one file on a case-insensitive disk) are left out and counted. The level must be one folder name and hold a `level.dat`, and the
+  world must fit what a restore reads (below), so every backup made can be restored.
+- **Where it lives.** `<LODESTONE_PATH>/world-backups/<uuid>/<id>.zip` with a sidecar
+  `<id>.json` (name, kind, time, level, the zip's top folders, server name, game version,
+  flavour, size, file and left-out counts, `live`, `quiesced`, and for a safety backup the
+  label of the backup it was taken before restoring). Outside every server folder and the
+  image store, and protected from the file API like `backups/`. The zip is written as
+  `.<id>.zip.part`, flushed, renamed, the folder flushed, then the sidecar written
+  atomically, so a listed backup is always whole. Listing drops a sidecar whose zip is gone
+  and adopts a whole zip with no sidecar (a crash between the two). Deleting removes the
+  zip first, then the sidecar. Deleting a server deletes its folder.
+- **Making one** (manual only: no schedule, no pruning). It holds the server's one job lock,
+  shared with snapshots, so a world backup, a snapshot and a restore never run at once. A
+  running server is quiesced exactly as a live snapshot is (`save-off`, `save-all flush`,
+  wait for the save line, then `save-on` however it ends, the same marker and 15-minute
+  cap); a stopped one can't start meanwhile. The free space for the uncompressed world is
+  reserved among the core's large writes first. Progress events and Cancel; a cancelled or
+  failed backup leaves no file.
+- **Restoring one.** Only into a stopped server. Checked before anything is written: the
+  zip (below), the world's folders (none a link or a file), that the safety backup can
+  hold everything the restore replaces, and that the disks have room for both. Then a
+  safety world backup of the current world ("Before restoring “…”"), then the zip extracted
+  into a staging folder in the server and swapped in by renames with the snapshots'
+  journal (`images/<uuid>/restore-journal.json`) and startup recovery, so a crash never
+  leaves half a world. A restore that stops before the swap, or whose swap is undone,
+  deletes its safety backup again (the world is as it was). Only the level and its
+  `_nether` and `_the_end` folders change. The
+  zip's paths go through canonical world paths into the server's current level name and
+  split, so a vanilla backup restores into Paper and back.
+- **The zip is untrusted** even though the core wrote it: at most 1,000,000 entries and
+  64 GB declared (in all, and per entry), only Stored and Deflated, no encrypted or
+  symlink entries, local headers that match the central directory, no duplicate names,
+  UTF-8 names without `\`, a leading `/`, empty, `.` or `..` parts, every part a valid
+  canonical component (Windows names, NFC, invisible characters), top folders only the
+  backup's level and its split folders, no two paths that are one on a case-insensitive
+  disk, files written with `create_new` and never more bytes than declared, and the
+  server's disk must have room for the declared total.
+- **Routes** (`core/src/handlers/world_backups.rs`), with the permissions of the matching
+  snapshot routes: `GET` and `POST /instance/{uuid}/world-backups` (ReadInstanceFile; and
+  AccessSetting to make one), `PATCH` and `DELETE …/world-backups/{id}` (AccessSetting to
+  rename, WriteInstanceFile to delete), `POST …/{id}/restore` (WriteInstanceFile, and
+  WriteGlobalFile or the owner with code execution for protected or code files it
+  changes, as a snapshot restore), `POST …/{id}/download` (ReadInstanceFile; a link to the
+  stored zip itself) and `POST …/world-backups/tasks/{task_id}/cancel` (the permission
+  that started the job). Progressions `WorldBackup`/`WorldRestore` and
+  `WorldBackupCompleted`/`WorldRestoreCompleted`. The world zip download
+  (`GET …/world/download`) and the snapshot zip download stay.
 
 ## Milestones
 
@@ -1023,9 +1297,16 @@ names anything by it.
    encoding; world snapshots on demand and before risky operations, after sessions
    optional; restore with linked content. No `.lodesnap` import and no conversion of the
    old snapshot store or world backup zips: they are removed. (Done: see "M5 decisions".
-   It also has the full-image option.)
+   Its full-image option was removed in WB2: every snapshot covers the whole folder.)
 6. Moving images between computers (Host to Host, Launcher to Host, Host to Launcher,
-   Launcher to Launcher).
+   Launcher to Launcher). Done in two parts: first the core's export of a backup as a
+   `.lodeimg` and its import of a Host's or a Launcher's `.lodeimg` as a new server, with
+   the GPUI Host's UI for both (done: "M6a decisions"); then the Launcher's "Host this" and
+   "Download this world", which call those routes, the Launcher opening a core's
+   `.lodeimg`, and the structured end of a creation from a file (done: "M6b decisions").
+   CurseForge downloads stay out of the core: the developer decided so (see "M6a
+   decisions", Making it); a CurseForge file the `.lodeimg` doesn't carry is left out and
+   the summary says so.
 
 Nothing converts old data in any milestone.
 
@@ -1145,7 +1426,7 @@ of M2 adds its own subsection.
   excludes the baseline was taken under (kept with it in `content-state.json`), and records
   "Changed outside Lodestone" when they differ; when they don't but the backup policy's
   excludes that can reach content changed since (which changes what an image holds, and its
-  id), it records "Changed the backup excludes". It waits at most 10 s for the last stop's
+  id), it records "Changed the snapshot excludes". It waits at most 10 s for the last stop's
   content work and then at most 10 s for an operation in progress, and never fails a
   start; but a record that already has the gate when that wait ends (a merged record that
   began just before) runs to its end first, since noting the start takes the instance's lock
@@ -1339,7 +1620,7 @@ of M2 adds its own subsection.
   compares by disk path with the Files API's rule for a server's files (protected files and
   Lodestone's own `.lodestone*` files need WriteGlobalFile, a restore as new too), and runs
   again on the stopped server when the plan changed since the request was checked. Everything and `world_and_mods` are content operations: they hold the
-  content gate from before the safety backup to the swap, and record "Restored backup “…”"
+  content gate from before the safety backup to the swap, and record "Restored snapshot “…”"
   after the server's settings are read again; a world restore doesn't touch content. Files
   API changes are refused while a restore runs (a job begun before it isn't stopped). The journal is
   `images/<uuid>/restore-journal.json`.
@@ -1886,7 +2167,7 @@ player" has the protocol itself).
   whose first part is or may be `mods`). A translation may leave out less than the policy
   did, never more, so content images hold what such a pattern names; backups, which take
   the policy's patterns themselves, still leave it out. A server that had such a pattern
-  records "Changed the backup excludes" once at its next check before a start. A view's
+  records "Changed the snapshot excludes" once at its next check before a start. A view's
   `excludes` therefore only name files players don't need; its `withheld` files are ones
   no image could hold, and a player lists those it would need ("What a view places").
 - **Only `side=client`.** A server view carries configs and secrets; `side=server` is 400.
@@ -2488,9 +2769,10 @@ the world backup zips is read or converted.
   brought up to date first. A folder is skipped only
   when all of it is content, so a folder holding some pack files is walked for the rest;
   content and data never overlap and together are everything a plain walk takes (tested).
-  "Include mods and configs" takes a full image of the whole game folder instead, with its
-  base and the files' Modrinth and CurseForge sources; so does every snapshot whose
-  content couldn't be brought up to date (recording failed, the store is suspended for
+  Together with its link it covers the whole game folder (since WB2 there is no option to
+  ask for more: "Include mods and configs" was removed, "WB2 decisions"). A snapshot whose
+  content couldn't be brought up to date takes a full image of the whole game folder
+  instead, with its base and the files' Modrinth and CurseForge sources (recording failed, the store is suspended for
   content, a "Find it for me" search has mods renamed), so a snapshot always holds or
   links what was on disk. The image's worlds get `level_name`, `data_version`,
   `game_version`, `last_played`, `size` (from its entries) and `quiesced: true` (the game
@@ -2526,12 +2808,12 @@ the world backup zips is read or converted.
   snapshot), `content`, `files`, `withheld`, `bytes`, `new_bytes`), written whole through the store's temporary names. Several records can
   name one image; a data image's manifest is deleted only with the last record naming it.
   Read with bounds (16 MiB, 10,000 records, every id a SHA-256 or a record id's shape).
-  Kinds: `manual` (the user, "Back up" in the Worlds tab, the CLI), `before_change`,
+  Kinds: `manual` (the user, the CLI), `before_change`,
   `after_play`, `before_restore`, `imported`. A name is the user's, cut to 200 characters,
   or the label of an automatic one; labels are plain English data like content labels:
   "Before updating <pack> to <version>", "Before updating from <server>", "Before
   updating <title>" or "Before updating N mods", "Before changing <loader> to
-  <version>", "After playing", "Before going back to “<name>”", "Backed up <world>",
+  <version>", "After playing", "Before going back to “<name>”",
   "Snapshot" when unnamed.
 - **Reconcile, and a damaged list.** Before listing, retention, a delete or a pin, under
   the record lock: a record whose manifest is gone is dropped; a data or full manifest no
@@ -2653,7 +2935,7 @@ the world backup zips is read or converted.
   the only ones, and they count with the instance's folder in Storage. The clean-up's
   dialog says it removes every snapshot of deleted instances, pinned ones too.
 - **Restore.** Scopes `Worlds`, `WorldsAndContent`, `Everything`, plus `restore_as_new` and
-  `restore_world_copy` (the Worlds tab's "Restore as copy": the world placed beside the
+  `restore_world_copy` (the Worlds tab's "Restore as a new world" on a snapshot: the world placed beside the
   others as "<world> (restored <date>)", nothing replaced, no safety snapshot). An
   in-place restore, under the record lock and inside a counted write: refused while the
   game runs; for content scopes, while a search is saved, for a snapshot of another
@@ -2681,8 +2963,8 @@ the world backup zips is read or converted.
   instance" given a name that is blank once control and invisible characters are gone
   names the instance "<instance> (<snapshot>)" (the snapshot's name without them), so the
   name never refuses what was staged. The window and the control API refuse an in-place restore
-  (the Snapshots dialog, `snapshots.restore`, the Worlds tab's "Replace world…" and
-  "Restore as copy", `worlds.restore`) while another job writes the instance's files
+  (the Snapshots dialog, `snapshots.restore`, the Worlds tab's "Restore…" and
+  "Restore as a new world" on a snapshot, `worlds.restore_snapshot`) while another job writes the instance's files
   (`Instances::files_or_pack_busy`: a tab's job holding them busy, an install, or a
   modpack update or add-on pack being applied, which mark nothing busy); and applying a
   modpack update or an add-on pack is refused while a tab's job (a restore among them)
@@ -2765,7 +3047,7 @@ the world backup zips is read or converted.
   with up to five names: the files it puts back, removes and changes. With "The
   worlds and their mods" or "Everything" chosen, the same lines say what the restore will
   change, with the loader version it goes back to.
-  The Worlds tab's "Replace world…" says that only the world goes back and points to the
+  The Worlds tab's "Restore…" on a snapshot says that only the world goes back and points to the
   Snapshots list for its mods. Known limit: the preview compares with the current content
   image without the quick check, so a mod dropped in by hand since the last record isn't
   in the list (the restore itself records it first, and replaces it). Known limit: a full
@@ -2776,7 +3058,9 @@ the world backup zips is read or converted.
   `scripts/x.zs` a later version dropped) is therefore not put back by "The worlds and
   their mods" nor named in the preview; "Everything" puts it back.
 - **Exports** (`.lodeimg`, `export::EXTENSION`): `container::export` of the snapshot's image
-  (labelled with its name, no parent) and its content image, after `PRIVATE_FILES`
+  (labelled with its name, no parent) and its content image, after `private_patterns`
+  (`share::PLAYER_PRIVATE` and the JVM's crash files, `CRASH_FILES`, since milestone 6's
+  second part)
   (`command_history.txt`, `hotbar.nbt`, `ias.json` at any depth: In-Game Account Switcher,
   `essential/microsoft_accounts.json` and `essential/mojang_accounts.json`: Essential; at
   the top of the game folder the official launcher's account files, in any case, as
@@ -2784,8 +3068,8 @@ the world backup zips is read or converted.
   which held tokens, `launcher_accounts*.json` and `launcher_msa_credentials*.bin`: a
   player who pasted a `.minecraft` folder into an instance has them); and at the top of
   the game folder the JVM's `hs_err_pid*`, `replay_pid*`, `java_pid*.hprof`,
-  `*.mdmp`, `core` and `core.*`, and every top-level name `scope::is_crash_name` matches in
-  any case, exactly what snapshots leave out, for images that hold them however they were
+  `*.mdmp`, `core` and `core.*`, and every top-level name `share::is_jvm_crash_name`
+  matches in any case, exactly what snapshots leave out, for images that hold them however they were
   made, such as an imported one) are removed
   from both and added to their `excludes`, both re-sealed. Best effort: an unlisted
   account switcher's file still travels; the dialog lists what was left out, and the
@@ -2833,8 +3117,8 @@ the world backup zips is read or converted.
   bytes that don't match the SHA-512 or SHA-256): it is logged, and the entry is one that
   wasn't downloaded, as is one without a URL (a failed CurseForge lookup). Only Cancel, or
   a failure of the store or the disk, stops it. An entry that
-  wasn't downloaded is placed when the store has its bytes (the file carries them, or the
-  store had them already) **as a plain file**: `content.json` learns no source for it,
+  wasn't downloaded is placed when the file carries its bytes (since milestone 6's second
+  part, never from the store's other files by hash: "M6b decisions") **as a plain file**: `content.json` learns no source for it,
   and the imported snapshot kept of the file records its source as `object` too
   (`without_unconfirmed_sources`, both images re-sealed), so a later restore can't record
   it as a project's file either; the rest are left out and listed, and the window says
@@ -2890,7 +3174,8 @@ the world backup zips is read or converted.
   only in the files the plan lists as left out.
 - **World identity is the folder name.** After a world is renamed, the Worlds tab no longer
   lists its older snapshots under it; they stay in the Snapshots list, and restoring the
-  world from one puts back the old folder name. Renaming no longer moves a backups folder.
+  world from one puts back the old folder name. Renaming moves no snapshot data; since WB2
+  it moves the world's world backups with it (see "World backups", In the Launcher).
 - **The UI.** Settings › Snapshots: "Take snapshot…", the after-play toggle (following the
   global default, which its hint says, until changed; then the instance's own, with "Use
   the default"; a toggle whose save fails is a notice), a row per snapshot (name, a badge:
@@ -2899,8 +3184,8 @@ the world backup zips is read or converted.
   with Restore…, Export…, Pin or Unpin and Delete (a pin or delete that fails is a
   notice), a row for
   images that can't be read with Delete (asking a second time: they go for good), and the
-  retention line. A row's details leave out "0 bytes new" and say "With mods" for a full
-  image. The list follows the store: `Images::watch_snapshots` sends the instance's id
+  retention line. A row's details leave out "0 bytes new" (since WB2 they no longer say
+  "With mods" for a full image: every snapshot covers the whole folder). The list follows the store: `Images::watch_snapshots` sends the instance's id
   after every change to its list (taken, pinned, deleted, pruned by retention, imported,
   taken back), from any thread, and `Instances` reads that instance's list again when it
   has one and counts the change (`snapshot_revision`), so the Worlds tab reads its backups
@@ -2921,28 +3206,28 @@ the world backup zips is read or converted.
   Cancel stops the work at its next check ("Cancelling…"; a restore's swap, once started,
   finishes) and the dialog says how it ended; deleting is short and can't be stopped,
   and an export stops when the dialog goes. The restore dialog is wider (680 px), so its
-  four choices fit on one line. The
-  Worlds tab's "Back up" takes a manual snapshot named after the world (of every world:
-  a snapshot holds the instance's data), with the bytes it reads as the job's progress and
-  its Cancel stopping it ("Restore as copy" and "Replace world…" stop on Cancel too, while
-  staging); a snapshot change re-reads only the backups, not the worlds; its Backups panel lists the snapshots holding
+  four choices fit on one line. Since WB2 the
+  Worlds tab's "Back up" makes a world backup, a zip of that world ("World backups"); the
+  panel its "Backups & snapshots" button opens has an "In snapshots" section that lists the snapshots holding
   the world, each with the world's own size there and "with N other worlds", with
-  "Restore as copy" and "Replace world…" (a world-only restore). `.lodeimg` files open
+  "Restore…" (a world-only restore, in place) and "Restore as a new world" (both stop on
+  Cancel while staging); a snapshot change re-reads only those, not the worlds. `.lodeimg` files open
   the import dialog when dropped or picked with Import…; a `.lodesnap` is refused as no
   modpack, whose message says snapshots shared from Lodestone end in `.lodeimg`.
-- **Control API and CLI.** `snapshots.list` (`deleted`), `snapshots.create` (`name`,
-  `everything`), `snapshots.restore` (`scope` worlds, worlds_and_mods, everything or new;
+- **Control API and CLI.** `snapshots.list` (`deleted`), `snapshots.create` (`name`),
+  `snapshots.restore` (`scope` worlds, worlds_and_mods, everything or new;
   `worlds`, `name`, `preview`; confirm in place), `snapshots.export`, `snapshots.import`
   (`preview`, `name`; confirm with mods), `snapshots.delete`, `snapshots.pin`,
-  `snapshots.policy`; `worlds.backups`, `worlds.backup` and `worlds.restore` (`snapshot`,
-  `mode`) work on snapshots. Every snapshot job (`snapshots.create`, `restore`, `export`,
-  `import`, `worlds.backup`, `worlds.restore`) can be cancelled with `jobs.cancel`, as in
+  `snapshots.policy`; `worlds.snapshots` and `worlds.restore_snapshot` (`snapshot`,
+  `mode`; named `worlds.backups` and `worlds.restore` before WB2, when `worlds.backup` took
+  a snapshot too) work on snapshots. Every snapshot job (`snapshots.create`, `restore`,
+  `export`, `import`, `worlds.restore_snapshot`) can be cancelled with `jobs.cancel`, as in
   the window. `snapshots.import` reads the file in the background (its manifests come
   from someone else and can be large), and its confirm names at most eight mods of each
   kind, with "…" for more, and the full counts. Records carry `world_details`; `snapshots.export`'s reply
   has `not_downloadable`; a restore whose `kept_aside` is set also shows the window's
   notice. The handlers that name a snapshot (`snapshots.restore`, `export`, `delete`,
-  `pin`, `worlds.restore`) read the snapshots, and `snapshots.restore` its preview, in the
+  `pin`, `worlds.restore_snapshot`) read the snapshots, and `snapshots.restore` its preview, in the
   background: reading them can wait up to 3 s for the instance's record lock, and the
   preview checks every object of the snapshot. `snapshots.restore` with scope new and no
   name names the instance after the snapshot without its invisible characters, as the
@@ -2958,3 +3243,1330 @@ the world backup zips is read or converted.
   report progress per download, not per byte placed. In launcher-core,
   `DownloadError::Failed` gained `answered` (whether a server answered the last try),
   which imports' `Breaker` reads.
+
+### M6a decisions
+
+Decisions the first part of milestone 6 made where this document left moving a server's
+images open. The code is `core/src/images/share/` (`export.rs`, `uploads.rs`,
+`inspect.rs`, `import.rs`), `core/src/handlers/backups.rs` (the export route) and
+`core/src/handlers/instance_images.rs`; the Host's client is
+`launcher-core/src/cores/admin/images.rs`, its UI `lodestone-host/src/pages/backups.rs`
+(Export…) and `pages/create_instance/image.rs` ("From a file"). M5's Launcher export and
+import are the model.
+
+- **Routes.** `POST /instance/{uuid}/backups/{id}/export` (ReadInstanceFile, like the zip
+  download; body `{ "include_plugin_data": false }`, answer `ExportedBackup`: a key for
+  `GET /file/{key}`, the file's name `<server> - <backup id>.lodeimg` and size, and what it
+  left out, blanked and can't carry, and `secrets_withheld`, the files it left out because
+  they hold a password or token, each a `NameList`: at most 64 names with their count).
+  `POST /instance/image/upload` (CreateInstance; multipart field `file`, a `.lodeimg`; answer
+  `ImageUpload`: an `upload_id` and the file's `ImageSummary`).
+  `DELETE /instance/image/upload/{upload_id}` (CreateInstance, the uploader only).
+  `DELETE /file/{key}` (the user who made the link only): lets go of a download link and
+  deletes the file made for it (a backup's zip or export) at once instead of an hour later;
+  the Host calls it once an export's download ends, however it ends.
+  `POST /instance/create_from_image` (CreateInstance, and WriteGlobalFile when the file
+  carries protected files; `CreateFromImageRequest`: `upload_id`, `image` (the id the
+  summary showed: a file that changed since is 409), `name`, `port`, `accept_eula`,
+  `world`, `keep_operators`, optional `flavour` (one of the summary's `server_choices`),
+  `description`, `min_ram`, `max_ram`; answer the new
+  server's uuid, which comes as an `InstanceCreation` progression whose end message lists
+  what the server didn't get). ts-rs bindings are in `dashboard/src/bindings`; the Tauri
+  dashboard has no UI for them.
+- **The export is a derived image.** It runs while the store's collections are held off
+  (the hold lives in the blocking work, so it lasts to the end of the reads even when the
+  request is dropped first) and only reads the store, writing a temporary file in
+  `<lodestone>/tmp/backup-downloads/` (the carried objects' size checked against the free
+  space first) that `GET /file/{key}` streams and then deletes, like the zip download,
+  which writes there too: no copy of the store. Startup empties that folder in the
+  background (`share::clear_leftovers`: renamed aside at once, then deleted), so a core
+  stopped while writing or before the download doesn't keep a world-sized file. Progress is the bytes of the
+  carried objects read (`container::export_with_progress`), sent as the progression's
+  percent; a dropped request cancels it (the `Preparing` guard both downloads share). Both
+  images are changed and sealed anew, so the export has ids of its own: (1) each data entry
+  whose path and SHA-256 its content image has takes that entry's source, SHA-1, SHA-512,
+  `env` and `env_from`, so Modrinth and CurseForge files travel as references and owner
+  marks and sides travel; (2) `base` sources become `object` (the core's `base` entries are
+  pack overrides, which no importer fetches from the `.mrpack`; the images keep their
+  `base`); (3) the patterns below are taken out of both and added to their `excludes`; (4)
+  secrets are blanked; (5) the label is "<server> – <backup name or time>", no parent,
+  producer core. A backup whose content image is gone exports without one. Backup excludes
+  near the 1,000-pattern budget plus the export's own refuse the export (409) rather than
+  write an invalid manifest.
+- **What an export takes out** (`export::SERVER_PRIVATE`, matched case-sensitively as
+  patterns and in any letter case by `export::is_private`): `.lodestone*` at any depth
+  (Lodestone's settings with the Java command and arguments, the modpack records, the
+  marks file); `/eula.txt` (accepted per person); `/.console_history` (commands the admin
+  typed); the server software, `/libraries/`, `/versions/`, `/*.jar`,
+  `/user_jvm_args.txt` (the importer's installers make their own; an untrusted server jar
+  never runs), every program or script at the top (`/*.sh`, `/*.bat`, `/*.cmd`, `/*.ps1`,
+  `/*.command`, `/*.exe`, `/*.msi`, `/*.dll`, `/*.so`, `/*.dylib`: start scripts hold
+  environment tokens, and Spigot's restart runs a script; a server from a file never takes
+  them either) and the installers' logs, `/forge-installer.log`, `/installer.log`,
+  `/*.jar.log` (Forge's and NeoForge's installer writes them on every server it makes,
+  and again on the importer's); the JVM's `/hs_err_pid*`, `/replay_pid*`,
+  `/java_pid*.hprof`, `/*.mdmp`, `/core`, `/core.*` and `share::is_jvm_crash_name`; the
+  files that hold a key to the server or a service's login
+  (`export::is_way_in`, which a server made from a file never takes either): Velocity's
+  `/forwarding.secret`, the forwarding settings `/config/FabricProxy-Lite.toml`, the old
+  FabricProxy's `/config/FabricProxy.toml` and Proxy Compatible Forge's settings
+  (`/config/proxy-compatible-forge.toml` since 1.2.0, where it reads `forwarding.secret`
+  with forwarding on by default, `/config/proxy-compatible-forge.cfg` for Minecraft
+  1.12.2, `/config/pcf-common.toml` before), NeoForge's forwarding mods' settings
+  (NeoVelocity's `/config/neovelocity-common.toml`, whose `forwarding-secret` it trusts
+  whatever `online-mode` says, and NeoForwarding's `/config/neoforwarding-server.toml`),
+  and every file or folder at the top of `config/` whose name says velocity, forwarding or
+  proxy in any letter case (`/config/*velocity*`, `/config/*forwarding*`,
+  `/config/*proxy*`: new forwarding mods keep appearing), Paper's
+  `/config/legacy-backup/` folder (when Paper moved a server to 1.19's settings it moved
+  the old `paper.yml` there as `paper.yml.old`, which still holds
+  `settings.velocity-support.secret`, the secret `paper-global.yml` took over; Paper never
+  reads the folder again), Floodgate's whole folder as a mod or a plugin
+  (`/config/floodgate/`, `/plugins/floodgate/`: whoever holds its key joins as any
+  Bedrock player through their own Geyser, and its `config.yml` names the key's file
+  (`key-file-name`), so a key under any other name, `k2.pem`, would be read as surely as
+  `key.pem`; without the folder Floodgate writes its defaults and a new key), and in
+  Geyser's folders every `.pem` (`/config/Geyser-*/*.pem`, `/plugins/Geyser-*/*.pem`: a
+  copy of Floodgate's key, under the name Geyser's `floodgate-key-file` gives) and
+  `saved-refresh-tokens.json` (the Microsoft logins Geyser keeps for Bedrock players);
+  and the settings of plugins and mods that hold a database's password, a bot's token or
+  a token that lets its holder in (each folder as `config/<folder>/` and
+  `plugins/<folder>/`, in any letter case; `export::WAY_IN_SETTINGS`): LuckPerms'
+  (`/config/luckperms/luckperms.conf`, `/plugins/LuckPerms/config.yml`: its database
+  password, and its database decides every permission), the Discord bots of DiscordSRV,
+  EssentialsX Discord and Discord Integration (`/plugins/DiscordSRV/config.yml`, the
+  copies of it DiscordSRV keeps when it updates its settings, `config.yml-build.<version>.old`
+  with the token still in them (any name beginning `config.yml` in its folder,
+  `/plugins/DiscordSRV/config.yml*`), and `/plugins/DiscordSRV/.token`, which DiscordSRV
+  reads before its settings' `BotToken`,
+  `/plugins/EssentialsDiscord/config.yml`, Discord Integration's
+  `/config/Discord-Integration.toml` as a mod and `/plugins/DiscordIntegration/config.toml`
+  as a plugin: the bot's token, whose Discord users, or its admin roles, can run
+  commands), CoreProtect's, Plan's and LiteBans'
+  databases (`/plugins/CoreProtect/config.yml`, `/plugins/Plan/config.yml`,
+  `/config/plan/config.yml`, `/plugins/LiteBans/config.yml`), ServerTap's REST API key
+  (`/plugins/ServerTap/config.yml`: its bare `key:` authenticates every call, the one that
+  runs console commands included), AuthMe's whole folder
+  (`/plugins/AuthMe/`: its database and mail passwords, and its players' password
+  hashes), BungeeGuard's tokens (`/plugins/BungeeGuard/config.yml`: whoever holds one
+  joins through their own proxy), and Votifier's and NuVotifier's tokens and keys
+  (`/plugins/Votifier/config.yml`, `/plugins/Votifier/rsa/`, the same under
+  `NuVotifier/` and `/config/nuvotifier/`: votes give rewards); and the map plugins'
+  databases: BlueMap's whole storages folder (`/config/bluemap/storages/`,
+  `/plugins/BlueMap/storages/`: every storage's file, whatever its name) and its web page
+  for SQL (`sql.php` at any depth: its web root can be moved), Dynmap's
+  `/dynmap/configuration.txt` and `/plugins/dynmap/configuration.txt` and its
+  `web/standalone/` folder as a mod and a plugin (`/dynmap/web/standalone/`,
+  `/plugins/dynmap/web/standalone/`: Dynmap writes the database's password into
+  `MySQL_config.php` or `PostgreSQL_config.php` there at every start, so the folder comes
+  back; those two names go at any depth, wherever its web path was moved); and the Discord
+  bots and logins of mods: Simple Voice Chat Discord Bridge's bots' tokens
+  (`/config/voicechat-discord.yml` as a mod, `/plugins/voicechat-discord/config.yml` as a
+  plugin), SDLink's settings (`/config/simple-discord-link/`: its bot token, encrypted,
+  and the Discord roles that run commands) and the key that decrypts the token
+  (`/sdlinkstorage/`, `sdlink.enc`), EasyAuth's database folder (`/EasyAuth/`: its
+  players' password hashes, in `easyauth.db` by default) and settings
+  (`/config/EasyAuth/`: its MySQL, PostgreSQL and MongoDB logins in `storage.conf`, its
+  proxy's shared secret in `proxy.conf`), and Ledger's `/config/ledger.toml` (its
+  database extension's password); Discord-MC-Chat's bot token (2.x's
+  `/config/discord-mc-chat.json`, the `/config/discord-mc-chat-backup.json` it makes when
+  it upgrades them, 3.x's `/config/discord_mc_chat/` folder), Mc2Discord's
+  (`/config/mc2discord.toml`), and Tebex's store key, which runs the store's commands on
+  the server (`/mods/tebex/` as a mod, `/plugins/Tebex/config.yml` as a plugin, the old
+  `/plugins/BuycraftX/`). Checked and left as they are, holding no credential:
+  Simple Voice Chat itself (its addon Simple Voice Chat Discord Bridge holds bots' tokens,
+  above), Chunky, squaremap, spark,
+  EssentialsX's own settings, CrossStitch (Velocity's argument types for Fabric). The
+  other plugins' settings go with "Include plugin settings" only, and a mod's config
+  folder travels, but neither ever carries a file the generic rule finds a credential in
+  (Credentials found by their names, below). A server from a file never takes any of these
+  either. `/banned-ips.json` (banned
+  players' IP addresses: personal data, and meaningless on another network;
+  `banned-players.json` travels); a player's files (`share::PLAYER_PRIVATE`, the list the
+  Launcher's export takes out, matched in any case by `share::is_player_private`), for a
+  server made from a game folder: `command_history.txt`, `hotbar.nbt`, `ias.json`,
+  `essential/microsoft_accounts.json`, `essential/mojang_accounts.json` at any depth, and
+  the official launcher's `/launcher_profiles.json`, `/launcher_accounts*.json` and
+  `/launcher_msa_credentials*.bin`; and `plugins/*/`, every plugin's folder (settings,
+  databases, player data), unless the owner turns on "Include plugin settings (they can
+  hold passwords)" (the Host offers it for Paper and Spigot servers; Floodgate's folder stays
+  out even then). Plugin jars travel. Logs, crash reports and caches are never
+  in a manifest. The answer lists the paths taken out; the Host's toast only counts them,
+  beside the secrets made empty and the files that hold a password or token, which it
+  names.
+- **Blanked, not withheld.** `server.properties` is written again from its properties alone
+  (`export::rebuilt_properties`), last value winning as Java reads them, with every key
+  whose name says password, secret or token (`rcon.password`, `management-server-secret`
+  among them) and `text-filtering-config` (its JSON holds the filtering service's API key)
+  empty, so comments, repeated keys (an old password a later line overrides, one commented
+  out) and lines the reader can't parse (`rcon.password=x\uD800`: Java's `Properties`
+  takes unpaired surrogates, the reader doesn't) never travel; Minecraft rewrites the file
+  at its next start anyway. It is read with every line break Java's `Properties` takes (a
+  lone carriage return too), so a password after one isn't read as part of the line
+  before, and a `#` or `!` line after a line holding only `\` is a comment that ends with
+  its own line, as Java reads it, so the password on the next line isn't read as part of
+  the comment's value (`PropertiesDocument::parse`). YAML files (`export::YAML_SECRETS`) get their values emptied in place: `secret`
+  in Paper's `config/paper-global.yml` and, before 1.19, `paper.yml` (the Velocity
+  forwarding secret), and `sentry-dsn` in `pufferfish.yml`. The cleaned copy is stored as
+  an unnamed object (collected later) and the entry names the blanked keys in an unknown
+  field, `"blanked": ["rcon.password", …]` (at most 8 keys of at most 64 bytes, within an
+  entry's budget; readers keep it), which the importer's summary shows.
+  **The YAML editor reads an allowlist** (`export::read_simple_yaml`): a YAML file it
+  cleans or pins is edited only when every line is in a strict subset of block style that
+  SnakeYAML (which Paper, Spigot and Bukkit use) provably reads the way the editor does,
+  and is otherwise withheld whatever it holds. Three rounds found a way past checks that
+  looked for odd forms (a flow collection over several lines, an escaped key, a byte order
+  mark before a flow mapping), so nothing is looked for: anything not allowed is out. The
+  subset: one byte order mark at the start at most (read past, as SnakeYAML does, and kept
+  in the copy), no other U+FEFF, no control character but the tab (in comments only), no
+  line break but `\n` and `\r\n` (no lone carriage return, U+0085, U+2028, U+2029);
+  indentation by spaces; at most one `---`, before everything else, and no other document
+  marker or directive; every other line blank, a comment, a key or a list item. A key is
+  plain or quoted without escapes (`''`, `\`), of ASCII letters, digits, `_`, `-` and
+  spaces, beginning with a letter, a digit or `_` (or such parts joined by colons, a
+  namespaced id: Paper 1.21.4 writes `minecraft:elytra:`), and never with a `.`: Bukkit's
+  settings (Spigot's, Bukkit's, the old `paper.yml`'s, Pufferfish's) split every key at
+  its dots, so a top-level `settings.restart-script:` after the nested `settings:` is
+  Spigot's restart script to them (and `settings.world-container:`,
+  `settings.permissions-file:` Bukkit's, `settings.velocity-support.secret:` the old
+  Paper's forwarding secret), out of the sight of an editor that matches one key at a
+  time; the files Bukkit saves nest their keys, so a real one has no dotted key, followed by `: ` and its value or
+  `:` alone, so no `?` or merge key, tag, anchor or alias. A value is a plain scalar on its
+  line (no indicator first, no `: `, no `:` at its end, a comment only after a space),
+  wrapped onto following lines more indented than its key that only go on with it (no
+  indicator first, `: `, comment or tab: Paper writes its long `no-permission` message so);
+  a single-quoted scalar, which may go on over following non-blank lines more indented than
+  its key up to its closing quote (`paper.yml` before 1.19 wraps one so); a double-quoted
+  one on its line; a one-line flow collection, only `{}` or a list of scalars (`[]`,
+  `[a, 'b']`, `[minecraft:elytra]`; a quote inside a plain item, `a"b`, is refused, not
+  read as the start of a quoted one); or a block scalar (`|`, `>`, with `-` or `+`), every
+  non-blank line of which is more indented than its key and at least as indented as its
+  first. A list item is one such scalar on its line (no `- key: value`, nested list or `-`
+  alone), at its key's indentation or deeper. A deeper line comes only under a key with an
+  empty value or going on with a value, and a less indented one must return to an
+  indentation a line above opened. So every key SnakeYAML finds is a line's key here, at
+  its line, and the lines the editor drops with a key's old value (`KeyLine::end`: its
+  wrapped or block scalar's lines, or the keys and items under it) come from the same
+  reading of indentation. Keys are matched in any letter case at any depth. The settings
+  files Paper, Spigot and Bukkit write today (`paper-global.yml` and
+  `paper-world-defaults.yml` of Paper 1.20 and 1.21, `spigot.yml`, `bukkit.yml`,
+  `commands.yml`, the old `paper.yml`, `pufferfish.yml`) are all in the subset and travel
+  cleaned (`real_settings_files_are_read_and_cleaned`). A copy of any of these files that
+  can't be cleaned (over 1 MiB, unreadable from the store, a YAML file that isn't UTF-8 or
+  isn't in the subset) is withheld instead: taken out of both images, its exact path
+  (`/config/paper-global.yml`) added to their `excludes` and listed in the answer's
+  `left_out`, so a file that leaves the computer never carries those secrets.
+  Beyond these and the named bots', databases' and forwarding mods' settings above, the
+  generic rule below withholds any other settings file with a credential in it; the export
+  dialog says so ("Passwords in server.properties are blanked, and files that hold a
+  password or token are left out").
+- **Credentials found by their names** (`share::secrets`, on top of the named lists, which
+  stay: they also cover files with no credential key, a database or a key under another
+  name). Four rounds of checks each found more mods and plugins whose settings hold a bot
+  token, a store key, a proxy's forwarding secret or permission data the lists didn't
+  know, and the lists will never be complete, so an export also reads every file it would
+  still carry and withholds one that holds a credential, whatever the "Include plugin
+  settings" option says (a credential that reaches an outside account or lets someone in
+  never travels), and a server made from a file never takes one (below).
+  *Which files*: every file whose extension is `.toml`, `.yml`, `.yaml`, `.json`,
+  `.json5`, `.jsonc`, `.properties`, `.conf`, `.cfg`, `.hocon`, `.ini`, `.env`, `.snbt`
+  or `.txt` (any letter case) anywhere outside the worlds, and in a world's
+  `serverconfig/` (Forge's per-world settings), plus files with no extension in a settings
+  folder (`config/`, `plugins/`, `defaultconfigs/`, a folder in `mods/`, a world's
+  `serverconfig/`: Plasmo Voice's `forwarding-secret`). A copy of a settings or key file
+  is read as the file it was made from (`secrets::underlying_name`): when a name's own
+  extension is neither read, a key's nor plainly data, it is judged by the first settings
+  or key extension in it that a separator (`-`, `_`, `.`, `~`, a space, `(`, `+`, `,`) or
+  the name's end follows, so DiscordSRV's `config.yml-build.1.28.0.old` (it moves its
+  settings there when it updates them, token and all, and its `messages.yml`,
+  `voice.yml`, `linking.yml`, `synchronization.yml` and `alerts.yml` likewise),
+  `config.json.bak`, `settings.toml~`, `config.yml.disabled`, `bot.token.old` and
+  `server.properties.old` are read or withheld as their originals are; `mods/x.jar.disabled`
+  and `icon.png.bak` are not read. Not `server.properties` and the
+  YAML files of `YAML_SECRETS`, which keep their precise blanking (edited, not withheld),
+  and not a Modrinth or CurseForge file, which travels as a reference to its public bytes.
+  *How a file is read* (`secrets::find_credential`): JSON, JSON5, JSONC and SNBT by their
+  tokens (strings, bare words, braces, brackets; comments skipped), every other format
+  line by line, following YAML's indentation, TOML's and INI's `[sections]`, HOCON's and
+  Forge `.cfg`'s braces, lists (`- item`, `[`…`]`, `.cfg`'s `<`…`>`), Forge's type letters
+  (`S:botToken=`), `.env`'s `export` and `.properties`' `key value`; a block scalar or a
+  TOML multi-line string is judged by its first line. A file it can't follow is still read
+  line by line, which errs towards finding a credential. Each key is judged with the key
+  above it (`secret: { key: … }` is a secret key).
+  *Which keys* (`secrets::credential_key`): the key is split into words at separators,
+  dots and camelCase (`botToken`: bot token, `secret_key`, `apiKey`, `rcon.password`); it
+  names a credential when its last word is `password`, `passwd`, `passphrase`, `secret`,
+  `token`, `credential(s)`, `webhook`, `apikey` (or a word ending in one: `bottoken`,
+  `rconpassword`; plurals too: `allowed-tokens`), `pwd`, `bearer` or `dsn`; when it is
+  `key` after `api`, `secret`, `private`, `license`, `access`, `auth`, `store`, `server`,
+  `signing`, `encryption`, `client`, `master`, `shared`, `hmac`, `rcon`, `bot`, `webhook`,
+  `session` and a few services' names (also as one word: `secretkey`; the word before may
+  be the parent key's last); `pass` after a word that makes it a password (`db`, `mysql`,
+  `rcon`, `smtp`, `user`, `admin`…); `url` after `webhook`; or `value` (`string`, `text`,
+  `data`) under such a key. Bare `key`, `keys` or `pass` only in a file where a key whose
+  words include `auth` is switched on (`useKeyAuth: true`, `auth: true`; ServerTap's REST
+  API `key:` authenticates its calls), never otherwise; nor a key whose last word only
+  begins like one (`keyFileName`, `keepInventory`, `passive`, `tokenExpiry`,
+  `forwarding-secret-file`, `passwordMinLength`). A `dsn` that is a database's address
+  with no login in it (`jdbc:mysql://localhost/worldguard`: no `user@` and no
+  `password=`) doesn't count; a Sentry DSN, its key before an `@`, does.
+  *Which values* (`secrets::real_value`): a placeholder doesn't count: empty or blank, a
+  boolean, `~`, a number of fewer than 8 digits (`max-tokens: 64`), one character
+  repeated (`xxxxxx`, `******`), a reference (`${BOT_TOKEN}`, `{{token}}`, `%token%`,
+  `<token>`, `[]`, `{}`), `changeme`, `changeit`, `none`, `null`, `default`, `example`,
+  `password`, `token`, `secret`, `key` and the like, passwords settings files ship with
+  (HuskHomes' `pa55w0rd`, `passw0rd`, `password123`, `defaultpass`, `guest`), the key's own
+  name or last word (`BOT_TOKEN` for `botToken`, `TOKEN`), a value that repeats the value
+  of a key in the same file naming a user or a database (`username`, `user`, `login`,
+  `database`, `db`, `db-name`: WorldGuard's `password: worldguard` beside `username:
+  worldguard`), and an instruction (`your-token-here`, `INSERT-TOKEN-HERE`,
+  `INSERT BOT TOKEN HERE`, `Paste your key`). A password is not discounted because the
+  settings say its database isn't in use (HuskHomes' `type: SQLITE`, WorldGuard's
+  `use: false`): a real password the owner once set stays a real password, so such a file
+  is withheld, named in `secrets_withheld`, rather than sent. So the defaults of a
+  fresh install, whose secrets are empty or such placeholders, travel: DiscordSRV's
+  `BotToken: ""`, EssentialsX Discord's and Discord Integration's `INSERT…HERE`, Plan's
+  `Password: password`, LuckPerms' `password: ''`, FabricProxy-Lite's `secret = ""`,
+  Sponge's `secret=""`, HuskHomes' (as a mod and a plugin), WorldGuard's, ServerTap's
+  `key: 'change_me'`, Simple Voice Chat, Chunky, spark, Geyser, Forge's server settings
+  and Paper's, Spigot's and Bukkit's (`real_default_settings_hold_no_credential`).
+  *Values that are logins by their shape*, whatever the key (`secrets::credential_value`):
+  a URL with a password (`mongodb://user:secret@host`, unless the password is a
+  placeholder), a `password=` parameter of a JDBC URL, a Discord webhook URL with its token
+  and a Discord bot token.
+  *By name* (`secrets::withheld_by_name`), files that are a credential with no keys,
+  anywhere but in a world's region, entity and POI data: `.token` and `*.token`, `*.key`,
+  `*.pem`, `*.p12`, `*.pfx`, `*.jks`, `*.keystore`, `*.secret`, `*.kdbx`, `id_rsa*`,
+  `id_ed25519*`, `id_ecdsa*`, `id_dsa*`, `.env*`, `.netrc`, `.pgpass`, `.htpasswd`,
+  `credentials`, `credentials.json`, `token.txt`, `secret*.txt`, and a `.txt` file or one
+  with no extension whose name is a credential key (`bot-token.txt`, `forwarding-secret`).
+  *Too big* (`secrets::too_large`, over `secrets::MAX_SCANNED_FILE`, 4 MiB): a file the
+  scan would read, and any file in a settings folder whose extension isn't plainly data
+  (`.jar`, `.zip`, `.gz`, images, sounds, fonts, `.nbt`, `.dat`, `.mca`, `.mcr`, `.mcc`,
+  schematics, and databases, `.db`, `.sqlite`, which the scan never reads at any size),
+  is withheld rather than sent unread.
+  A file withheld so is taken out of both images, its exact path added to their
+  `excludes` (so it is in `left_out` too) and listed in the answer's `secrets_withheld`,
+  which the Host's toast names ("Left out, as they hold a password or token (the other
+  server writes its defaults): …"); the log names the file and the key, never the value.
+  A file the export can't read from the store is withheld too.
+- **Large writes share the disk.** Every large write (a file written into `tmp/` for a
+  download link: a folder zipped, a backup zipped or exported; an upload arriving; a
+  server being made from a file, from its unpack to the end of placing its files)
+  reserves what it is still to write in one count per core
+  (`util::disk::LargeWrites`, `ImageService::large_writes`), and each write's free-space
+  check asks for what all the others still need too, so no two writes at the same time
+  ever count on the same space (an export no longer passes its check against space an
+  import is filling, nor the reverse). A user's links may hold at most 3 backup files (zips and exports, counting those
+  being written; `global_fs::MAX_BACKUP_FILES_PER_USER`, as `MAX_ZIPPED_FOLDERS_PER_USER`
+  caps zipped folders; more are 429), so repeated requests can't keep the disk at its
+  margin for the links' hour; the place goes with the write onto its blocking thread, so a
+  dropped request doesn't free it before the write ends. `DELETE /file/{key}` frees one at
+  once: the Host lets go of each backup file it saved, zip or export, once its download
+  ends however it ended (and of an export whose task was dropped, from a drop guard), so
+  files it already saved never hold the user's places.
+- **Zips kept.** The plain backup zip (`…/download`) and the world zip download stay: they
+  are for using a world outside Lodestone.
+- **Uploads.** Streamed into `<lodestone>/tmp/image-uploads/image-*.lodeimg` (wiped at
+  start), at most 64 GB (the container's own limit), refused at once when the request's
+  `Content-Length` says more or the disk can't take it, the free space checked again every
+  256 MiB written; then read on a blocking thread. At most 4 arrive at once and 2 of one
+  user's (more are 409), and each one arriving reserves its declared size, less what has
+  arrived, among the core's large writes (`uploads::Receiving`), so it never counts on the
+  same space as another upload, an import or an export. Kept an hour
+  for the uploader alone, at most 2 of each user's (their own oldest goes: one user's
+  uploads never push out another's); creating a server forgets it once placed, the Host
+  discards it when the person backs out or closes the dialog (and when Cancel is pressed
+  as the core answers: the file it took is discarded), and a task deletes uploads past
+  their hour every 5 minutes (`Uploads::prune_periodically`), so a file whose uploader
+  went away doesn't keep its space until the next upload. Wiping the folder at start runs
+  in the background (`share::clear_leftovers`). Uploads let go of are deleted outside the
+  uploads' lock, on a blocking thread (a file of up to 64 GB can take seconds to unlink).
+  Files are read one at a time (`Uploads::reading`, for the upload and for the creation's
+  second read): a small file can unpack to manifests of 512 MiB and a million entries,
+  which reading holds several times over. The turn (an owned permit) and the upload's slot
+  among those arriving go into the blocking read, so a client that hangs up mid-read
+  doesn't free them for the next file while its read goes on. At most one server is made
+  from an upload at a time (`Uploads::take`; another request for it is 409 "A server is
+  already being made from this file" until that creation ends, however it ends), so a
+  client retrying can't queue creations that each hold a file's manifests and plan in
+  memory while they wait for their turn to place.
+- **Reading a file** (`inspect`): the container's checks, then a file is refused (400) for
+  a `.lodestone*` name at any depth, a top-level `mods`, `config`, `defaultconfigs`,
+  `kubejs`, `plugins`, `libraries`, `versions` or `saves` spelled with other than ASCII
+  letters (`share::spelled_like`), a Minecraft or loader version `share::plausible_version`
+  refuses, more than `share::MAX_DOWNLOADS` (20,000) distinct downloads, two paths that are
+  one on a disk that ignores letter case (`paths::case_collisions`: a server made from it
+  would hold one of them on macOS and Windows and both on Linux, where the summary could
+  read `OPS.JSON` and the server `ops.json`), or a top-level settings file
+  (`import::SETTINGS_FILES`: `server.properties`, `ops.json`, `permissions.yml`,
+  `commands.yml`) spelled in other letters than the server reads it (`SERVER.PROPERTIES`)
+  or over 1 MiB. `server.properties` and `ops.json` are read by their exact names before
+  anything is imported (`Container::read_object`, at most 1 MiB, checked by SHA-256; a
+  file whose copy can't be read whole is refused, so a padded `server.properties` can't
+  turn online mode off unseen; a server takes them, and `permissions.yml` and
+  `commands.yml`, only from the file's own bytes, never as a download, so the summary
+  describes what is placed). `server.properties` is read with Java's line breaks, as it
+  is placed; `offline_mode` is set when `online-mode` is anything but exactly `true` (any
+  letter case, nothing around it), as Minecraft reads it (`Boolean.valueOf` on the value
+  as `Properties` parsed it, which trims nothing: `online-mode=\ true` with an escaped
+  space, an escaped tab or a no-break space before `true` is off, though a reader that
+  trims Unicode whitespace would call it on). Starting a server reads its `online-mode` and
+  `enable-rcon` the same way (`server::LaunchSettings`: the default when the key is
+  missing, otherwise on only for `true`), so Lodestone's own player lookups agree with
+  the server. A file is refused when its `server.properties` has any
+  line the reader can't parse (`inspect::check_properties`: a malformed or
+  unpaired-surrogate `\u` escape, an empty key; the line isn't shown, it may hold a
+  password): Java's `Properties` may still read it (`online-mode=false\uD800`, which
+  Minecraft reads as off), and the summary would say online mode is on; a server takes the
+  file written again from the parsed properties alone, so nothing unparsed reaches it
+  either. An `ops.json` that strict JSON can't read as a list of objects (a byte order
+  mark, text after the list, a comment, a key twice in an entry: Minecraft's Gson reads
+  some of these) is refused too, rather than shown as no operators; an empty one has none.
+  These are the only settings files the summary reads (`permissions.yml`, `commands.yml`
+  and LuckPerms' data are named, not read), and the only ones the import edits are
+  `server.properties` (rebuilt) and the YAML files of `YAML_SECRETS` and `PINNED_YAML`
+  (the allowlist above, deleted when outside it), so no file the core can't read passes
+  through it to the server. `operators` lists every `ops.json` entry (ops are kept by
+  uuid: a name, with the uuid when another entry has that name too, or the uuid of an
+  entry with none), the file's `permissions.yml` and `commands.yml`, and the permission
+  mods' and plugins' data it has (each shown once by its folder, `plugins/LuckPerms/`,
+  `saves/world/serverconfig/ftbranks/`, or file, `config/roles.json`), which
+  `keep_operators` also takes. The summary: who made it
+  (`made_by` from the producer: it only steers the dialog), game, loader and flavour, the
+  server Lodestone makes and why not, worlds with sizes and the default (a Host's level, a
+  Launcher's last played), the sender's excludes and withheld files, blanked keys (a
+  `NameList`, counted up to 100,000), what a
+  server never takes, the operators and offline mode. What the server takes is worked out
+  by `import::plan` for the default world (the whole file's when no server can be made):
+  the mods it downloads from Modrinth and their size, its CurseForge mods and the ones it
+  can't get, `carried_mods` (mod and plugin files it takes whose bytes the file carries:
+  the trust warning names them; a Launcher jar that says it runs only on clients is only
+  found once placed, so it is still named), `client_only` (mods left out as their server
+  side is `unsupported`), whether WriteGlobalFile is needed, scripts skipped,
+  `unpacked_bytes` and `needed_bytes` (creating the server checks the free space again for
+  the world picked, so the Host doesn't stop Create when only the default world doesn't
+  fit), `server_mods` (every mod and plugin file it takes, from any source: the Host's
+  trust warning, "It has N mods or plugins: programs that run on the server. Only use
+  files from people you trust.", shows whenever there is one, as the Launcher's import
+  does, with the carried ones named and the Modrinth ones listed on the download line; a
+  file with none that still carries protected files of its own, jars or programs, gets
+  "It has protected files of its own … Only use files from people you trust.") and
+  `secrets_not_taken` (the `is_way_in` files the file has, and every file the generic
+  rule finds holding a credential: `inspect::credential_files`, below). Create stays off while the
+  file carries protected files the person may not add, which the core always refuses. Every text goes through `display_text`, but a world's `folder` comes as the file
+  names it, an id the request sends back, beside `folder_shown`, written visibly; lists
+  hold at most 64 names. The core's prose fields (`unsupported`, `server_note`) are for
+  the dashboard: the Host writes its own, translated, from the loader and flavour, and the
+  Paper note only while Paper is picked.
+- **Which server.** Fabric, Forge and NeoForge images make those servers; a vanilla game
+  makes a vanilla server, or Paper when its flavour is Paper, and Paper for the Bukkit
+  family's other servers (Spigot, Bukkit, Purpur, Folia: they run its plugins and share its
+  world layout; the core can't make Spigot servers), which the summary says. A vanilla
+  game's file may become either (`server_choices` is `["Vanilla", "Paper"]`, and the
+  request's `flavour` picks; the Host offers "Server software" then), so a player's
+  singleplayer world can be hosted on Paper for plugins, its world split the Paper way; a
+  modded game's only makes its own loader's server (another `flavour` is 400). Quilt and
+  unknown loaders are refused ("Lodestone can't make Quilt servers"). The loader version is
+  the file's when it can still be downloaded, else the newest, as the folder import does
+  (`ServerSetup::resolve`).
+- **The server's view, never software or the EULA** (`import::plan`, pure and run before
+  anything is made): the placed entries (the image's over its content link's) in the
+  server's view, by the shared crate's own rule (`view::in_view(entry, Side::Server)`: a
+  path a server can hold, whose server side isn't `unsupported`; a player's own files and
+  client-only mods are left out), which `inspect` uses too. A Host's file is a server's
+  own folder, so its files at a server's path all stay, client-only mods included: those
+  were the mods the old server gave players ("For players"), and the new server's client
+  view gives them to players too (dropping them would stop players getting them). Never
+  server software (every program or script at the top included), `eula.txt` (the EULA is
+  accepted only when the request says the user ticked it), `ops.json`, Bukkit's
+  `permissions.yml` (which can give every player the operator commands) and Bukkit's
+  `commands.yml` (its aliases replace any command, and run their commands as whoever typed
+  it: the core types `stop`, `save-off` and `save-all` into the console, so an alias of
+  `stop` would run as the console when the owner stops the server; without it the server
+  writes its defaults), and permission mods' and plugins' data
+  (`import::is_permissions_data`): LuckPerms' (everything in `config/luckperms/` or
+  `plugins/LuckPerms/` but its settings, which are a way in: its H2 or SQLite database,
+  `yaml-storage/` and `json-storage/` decide who has which permission, `*` included); FTB
+  Ranks' ranks and players in any world's `serverconfig/ftbranks/` and the pack's
+  `defaultconfigs/ftbranks/` (copied into a new world: its `command.*` nodes override any
+  command's permission level, `command.op` among them) and FTB Utilities' rank files in
+  `local/ftbutilities/`; the folders of PermissionsEx, GroupManager, UltraPermissions,
+  bPermissions, zPermissions and PowerRanks (`plugins/<folder>/`); player-roles'
+  `config/roles.json` (roles that give commands and operator powers); ForgeEssentials'
+  `ForgeEssentials/` folder and its world data (`<world>/FEData/`: permissions and
+  groups); and Command Aliases' `config/commandaliases*` (aliases that can run any command
+  as the console, like Bukkit's `commands.yml`); unless `keep_operators` (off by default:
+  an operator runs any command; `import::is_operators_file`), each named in the summary's
+  operators by its folder (`saves/world/serverconfig/ftbranks/`, `plugins/PermissionsEx/`)
+  or file, scripts unless the
+  owner may add them while code execution is on (counted), nor a file that has no bytes
+  and no source this core downloads. Every file is placed without its execute bits
+  (`mode & 0o666`), so nothing the sender placed runs as a program by name.
+  Launch settings never come from a file: `.lodestone*` is refused, and the installer
+  writes the server's own.
+- **Worlds.** A Host's file keeps every world; its level is the request's `world` or the
+  file's `level-name`. A Launcher's file gives only the picked world, renamed to the
+  server's level (`ServerLayout::unused_level` of the other top-level names, normally
+  `world`); none when `world` is left out (the server makes a new one). Worlds are laid out
+  in the server layout, split the Paper way for a Paper server; a file the layout can't
+  place (a world named like server content) is refused before anything is made. The
+  singleplayer player's inventory in `level.dat` doesn't become a server player's.
+- **Making it.** Every new server goes through `ServerSetup` (`AppState::server_setup`):
+  `Installers` in the core, `FakeSetup` in tests, so creating, importing and making from an
+  image are tested with no network, no server jar and no EULA. A file's server goes
+  through this creation flow (the installer, then `materialize` straight into the folder
+  `.lodestone_creating` guards), not restore-as-new's staging and rename
+  (`backups::restore::stage_all`): restore-as-new copies the backup's server software and
+  Lodestone files and runs no installer, while a file gives neither and the installer
+  must run first. The installer sets the server up in its new folder; then, one creation
+  from a file at a time (`Uploads::placing`: each counts on the free space it checks), with
+  collections held off from the import of the objects to the end of placing them: the
+  objects the plan's files name are imported (`Container::import_objects_where_verified`,
+  every byte checked, the objects the store already has too: a file must carry every byte
+  it places, or a hash and a size alone would get another server's file out of the shared
+  store; a Launcher file's other worlds, a player's files and client-only mods are never
+  unpacked; the creation reserves these, the downloads and the placed files among the
+  core's large writes until its files are placed, and the free-space check asks for them
+  plus what the other large writes still need); every
+  Modrinth entry with a SHA-512 and its own project's and version's canonical CDN URL
+  (`inspect::names_modrinth_file`, the Launcher's rule) is downloaded once per file and
+  claimed source, 8 at a time, through `<server>/.lodestone-download-<n>`, its size and
+  SHA-512 checked, then stored and its SHA-256 checked; a download that fails is logged and
+  the import goes on, and after 8 failures in a row no new one starts (the core's
+  downloads don't say whether anyone answered); an entry no download confirmed is placed
+  from the file's own bytes as a plain file, or left out and listed; confirmed files are noted
+  as Modrinth's, so the first content image records their sources. The core has no
+  CurseForge client (it has no CurseForge API key; the Launcher's is compiled into the
+  Launcher), so a CurseForge file is placed only from bytes the file carries, and the rest
+  are left out and listed: the Host's summary says so plainly as a warning ("Lodestone
+  servers can't download from CurseForge yet, so these files won't be installed"). This
+  differs from the brief, which asked for CurseForge downloads: the developer decided that
+  CurseForge downloads stay out of the core for now, so they are out of scope (no
+  CurseForge key or client in the core). The core's own content images
+  never record CurseForge sources, so only a Launcher's file loses mods this way. The
+  installer's `server.properties` is deleted when the file has one, the free space is
+  checked once more for the placed files (the downloads took their share), and the files
+  are materialized straight into the folder, each created new, so nothing the installer wrote
+  is overwritten: a file the installer already wrote (a loader's log, say) keeps the
+  installer's copy and the file's is skipped, rather than failing the creation.
+  Then a Launcher file's placed `mods/*.jar` whose server side nothing knew is deleted
+  when its own
+  `fabric.mod.json` or `quilt.mod.json` says client only (a server loading it crashes;
+  jars that declare nothing stay, and Forge's are read as the recorder reads them,
+  without this check; a Host's file keeps its jars as its server had them);
+  `server.properties` is read with Java's line breaks, written again from the properties
+  the reader parsed alone (`export::rebuilt_properties`: no comment, repeated key or line
+  it couldn't parse reaches the server) and pinned (the port, `query.port` set
+  to the same port (the old computer's could be another server's query listener here),
+  `level-name`, an empty `server-ip` (the old computer's address wouldn't bind here),
+  every secret empty, `enable-rcon=false`, `management-server-enabled=false`,
+  `online-mode` written as the `true` or `false` Minecraft reads from it (so the placed
+  file says plainly what the summary showed: `\ true` is placed as `false`), and
+  `function-permission-level` at most 2, Minecraft's default: at 3 or 4 a world's datapack
+  could run `/op`); the YAML secrets an export blanks are emptied in the placed copies
+  (Paper's Velocity forwarding secret: with it empty Paper refuses forwarded players until
+  the owner sets their own), and `export::PINNED_YAML` is set whatever the file said:
+  Spigot's `settings.restart-script` to its default `./start.sh` (Spigot's restart and
+  watchdog run `sh <restart-script>`, which could be any placed file; no file places a
+  `start.sh`), Bukkit's `settings.permissions-file` to `permissions.yml` (which comes only
+  with the operators) and its `settings.world-container` to `.` when the file sets it (it
+  could put the worlds anywhere the core can write, outside the server's folder, its
+  backups and its users' permissions), and Bukkit's old command aliases, a top-level
+  `aliases:` section in `bukkit.yml`, to `now-in-commands.yml`, the string Bukkit writes
+  there once it has moved them (several keys per file, set one after the other,
+  `export::pin_yaml_all`): with a section there and no `commands.yml`, Paper's, Spigot's,
+  Purpur's and Folia's `CraftServer` move the section into a new `commands.yml` at the
+  first start (each alias's commands with ` $1-`), and those aliases replace any command,
+  `stop` and `save-all` included, which the core types into the console, so the sender's
+  `stop: [op sender, stop]` would make them an operator the first time the owner stopped
+  the server, although `commands.yml` comes only with the operators. The section is pinned
+  with or without the operators (real files have said `now-in-commands.yml` since Bukkit
+  moved aliases out, so only a crafted file loses anything), and an export leaves it as
+  it is, since the owner's own aliases are no secret and every server made from the file
+  pins it; a copy the cleaning can't read is deleted (the server writes
+  its defaults), and that is any copy with a line outside the editor's allowlist
+  (`export::read_simple_yaml`, as an export withholds one: a top-level
+  `settings.restart-script:`, which Bukkit's settings split at its dots,
+  `"restart\x2Dscript"`, a
+  `settings: {` with `bungeecord: false, restart-script: world/evil.txt` on the next line,
+  or a byte order mark before `{settings:{` would otherwise be Spigot's restart script to
+  SnakeYAML, unpinned), each deleted copy named in the
+  creation's end message ("settings file(s) couldn't be checked for keys to the server and
+  were left out", `import::Placed::settings_removed`), not only the log, since the owner's
+  settings from the file are gone; and the `is_way_in` files are never placed
+  (`import::Why::Secret`, listed in the summary and the creation's end message), nor any
+  file the generic rule finds a credential in: `inspect::credential_files` reads the
+  carried bytes of every file the export's scan would read (`Container::read_object_any`,
+  whole or from its chunk list, up to 4 MiB, every byte checked; a settings file whose
+  bytes don't match its hash refuses the whole file at once) and names the files that
+  hold one (a sender's bot token, proxy secret, store key or webhook), the key and token
+  files by their names, the files too big to read, and any such settings file the server
+  would download rather than take from the file's bytes (it can't be checked before it is
+  placed); `import::plan_checked` drops them as `Why::Secret`, so a sender-supplied
+  credential never configures the new server, and the end message says "file(s) holding a
+  key to the server, a password or a token were left out, so the server writes its
+  defaults". So a hostile file's settings give its
+  sender no way in: not RCON, the management server, a proxy's forwarding, Floodgate (its
+  whole folder, so not a key its settings rename), a LuckPerms database or a Discord bot
+  of theirs, a script Spigot runs, worlds outside the server's folder, or operators'
+  powers through functions, Bukkit's permissions, its command aliases or LuckPerms' own
+  storage (taken only with the operators). Its mods and plugins are code from whoever made it, which the trust warning is
+  for, and plugins' own settings (`plugins/*/`) come as the file has them. The owner's
+  marks go to the marks file; a base is followed
+  (`follow_base`), its origin taken from Modrinth when its version is a plausible id
+  (`check_api_segment`). The first content image is "Created from <file name>", the name
+  written visibly (`display_text`); no backup record is made, as a restore as new makes
+  none. The server is never started.
+- **Unfinished creations aren't servers.** Every new server's folder (from a file or not)
+  holds `.lodestone_creating` (its uuid) until the installer and any step after it (a
+  file's placing, a modpack's install) are done, and gets its `.lodestone_config` only
+  then, written atomically before the marker goes: the core never loads a server whose
+  creation a stop interrupted (half a world, a partial `mods/`, the file's own
+  `server.properties`). At startup, before the servers are read, a folder with the marker
+  and no `.lodestone_config` is deleted with its images
+  (`instance::remove_unfinished_creations`), the images first while the marker still names
+  them (a core stopped in between finds the folder again at the next start); one with both
+  only loses the marker. Such a folder can hold a half-unpacked world, so startup only
+  moves it into
+  `<instances>.unfinished` beside the servers' folder (a rename) and empties that in the
+  background (`share::clear_leftovers`, read-only files cleared as Windows needs); a
+  folder that can't be moved is deleted in place. A creation that fails while the core
+  runs discards its folder the same way and in the same order
+  (`instance::discard_unfinished`, shared with startup): its images first, keeping the
+  folder and its marker for the next start when they can't be deleted, then the folder
+  renamed aside in one step and emptied in the background, so a stop or a failed delete
+  never leaves part of a folder with no marker, nor images naming its objects. A folder
+  whose marker couldn't be written is removed at once, so no folder without a marker is
+  left.
+- **Downloads that fail.** A download whose host failed or answered no file (or one over
+  its size) is one file left out; any other failure (its file couldn't be written: a full
+  disk) stops the creation, which then deletes what it made, so a server is never made
+  without its mods with the network blamed. An entry no download confirmed is placed from
+  the file's own bytes only (an object the file carries, imported and checked), never from
+  another object the shared store has under that hash, which would let a file name any
+  server's files by hash alone. The same holds for the file's plain objects: the unpack
+  reads and checks the file's bytes of every object it places even when the store has it
+  already (`import_objects_where_verified`), so a file naming another server's object by
+  its hash and size, with other bytes of that length, is refused.
+- **Not cancelled once made.** An upload is cancelled with its request (the Host's Cancel
+  drops it at once, while it is sent or read); making the server, like every creation,
+  runs to its end or fails and deletes what it made: its images and then its folder at
+  once (Unfinished creations aren't servers), and
+  the objects it unpacked or downloaded, which no image names but the store's grace keeps
+  for an hour, by a collection asked for once that hour is past
+  (`ImageService::request_gc_after(gc::AFTER_GRACE)`, and at every startup: the timer of a
+  creation that failed in the previous run is lost with it). The Host shows how a creation ended when the creation flow says
+  more than its plain success (what a file's server didn't get) or it failed, from the
+  `InstanceCreation` progression's end, for every way of making a server; a backup
+  restored as a new server says nothing more, as its page already said it started. The
+  text is the core's English, as the Files tab's zip toasts are; the rest of the dialog is
+  translated. A structured outcome (the lists of what was left out in the progression's
+  end value) would let the Host translate it, but the end value is shared with every
+  creation and the dashboard. Milestone 6's second part made it ("M6b decisions",
+  Structured creation outcome): the end value carries an optional `outcome` beside the
+  server's info, which the Host's toast and the Launcher's "Host this" show translated.
+- **The Host's export says what it is for.** "Export as a file for another Host or a
+  Launcher" (milestone 6's second part; it was "for another Lodestone Host" while the
+  Launcher couldn't open a core export). The dialog shows an indeterminate bar while the core writes the file and the bytes
+  once it downloads (known gap: the core sends the writing's percent as a progression the
+  Host doesn't follow yet, and every container entry is deflated, so a world of 20 GB
+  spends minutes "Preparing"); the request waits up to 4 hours (Cancel ends it sooner).
+  The default file name is "<server> - <backup name or id>.lodeimg", never a relative
+  time. The ticker redraws the page only while the dialog shows the export. Once the
+  download ends, however it ends (Cancel pressed just as the core answered too), the
+  client lets go of the core's file (`DELETE /file/{key}`), so a world-sized file doesn't
+  wait out the link's hour on the core's disk.
+- **The Host's client.** `upload_image` waits an hour plus a second per 256 KiB of the
+  file (a fixed hour would end a large world sent over a home connection);
+  `upload_image_named` sends a file under another name (for "Host this", which uploads a
+  temporary export: the server is "Created from" the name given). Its Cancel makes the
+  body fail with an error the async adapter doesn't retry (`Interrupted` would spin the
+  HTTP client's only worker forever). Its Cancel watcher ends with the request's future,
+  also when that is dropped (a dialog closed mid-upload, which also cancels the upload).
+  `create_from_image` waits up to 15 minutes: before it answers, the core opens the upload
+  again (its index and manifests, which for a file of a million entries take a while),
+  checks the disk and looks the server software up over the network. Milestone 6's
+  second part uses these for "Host this" (`cores::hosting`) and adds the creation's
+  outcome (`admin::events::CreatedInstance`) and `AdminClient::wait_progression`.
+- **The Host's "From a file" summary.** The new server's name starts as the file's label
+  with the characters a server's name can't have replaced (`:` becomes `.`, the others
+  `-`: an unnamed backup's label has the time, "14:10"), and the Name field says so before
+  the request for a name typed with them (`modpack::NAME_FORBIDDEN`, for every way of
+  making a server). The disk line and the no-room warning follow the world picked
+  (`ImageSummary::needed_bytes_for`: a Launcher's file places only that world, so the
+  default world's size comes off and the picked one's goes on, each twice, unpacked then
+  placed; a Host's file places every world); the core checks again.
+- **Interop.** One container both ways: the core's files are what `lodestone_image::container`
+  writes and the Launcher reads, and the core reads any valid `.lodeimg`. The Launcher's
+  import (M5) can't place a core export (a server's layout: `server.properties`, plugins),
+  so it refuses a file whose producer is the core before anything is unpacked, saying so
+  plainly ("This file is a server's backup exported from Lodestone Host. The Launcher can't
+  open server backups yet") instead of naming the first path the client layout refuses.
+  Milestone 6's second part replaced this refusal: the Launcher opens a core export as
+  the client view of its content with its worlds (`images::from_server`, "M6b
+  decisions"). Exports from the two programs differ in bytes (deflate), so compare them
+  by image id.
+- **Names from a core are shown safely.** Whatever a core sends is untrusted to the
+  Launcher: `NameList::joined` (every list the summary, the outcome and the import show
+  from a core) shows at most the first 8 names, each through `display_text` and cut at 120
+  characters, with "…" for the rest, so a name can't span lines, hide its direction or
+  fill the dialog. The core's English reasons shown in the window (a refused creation, a
+  failed backup) go through `display_text` too. In the Launcher's "Host this" the file is
+  the person's own game, so the summary leaves out who made it and the warning to trust
+  its sender (`Picked::own_file`).
+- **The shared crate changed only additively**: `container::export_with_progress`
+  (`export` calls it), `Container::read_object`, `Container::read_object_any` (a carried
+  object whole or from its chunk list, for the import's credential scan),
+  `Container::unpacked_bytes_of`,
+  `Container::import_objects_where` and `Container::import_objects_where_verified`
+  (`import_objects` shares their loop), and the `share` module (`MAX_DOWNLOADS`,
+  `placed_entries`, `plausible_version`, `strip`, `is_jvm_crash_name`,
+  `is_launcher_account_file`, `PLAYER_PRIVATE`, `is_player_private`, `spelled_like`).
+  Milestone 6's second part moved the Launcher's own copies of these to calls to `share`
+  ("M6b decisions").
+
+### M6b decisions
+
+Decisions the second part of milestone 6 made where this document left moving images
+between the Launcher and a core open. The code is `launcher-core/src/cores/hosting.rs`
+("Host this"), `cores/world_download.rs` and `images/from_server.rs` ("Download this
+world" and a core's `.lodeimg` in the Launcher), `images/export.rs` (`export_current`, the
+import's request and preview), `core/src/images/share/outcome.rs` (the structured
+creation outcome), `lodestone-ui/src/sharing.rs` (the shared summary and outcome text),
+the Launcher's `servers/host.rs`, `servers/download_world.rs` and the snapshot import
+dialog, and the control API's and CLI's `servers host` and `servers download-world`.
+
+- **One flow each way, no `.mrpack`.** "Host this" no longer exports a `.mrpack`
+  (`/modpack/upload`, `create_modpack`): the instance goes as a `.lodeimg` through the
+  core's import, for Fabric, Forge, NeoForge and vanilla (Paper or vanilla, picked in the
+  summary) instances alike. Nothing falls back to the old path: a core without the image
+  routes is told to update. The window and the control API call the same functions. The
+  Launcher's own `.mrpack` export (instances "Export as .mrpack") and the core's modpack
+  creation for the Host and dashboard stay.
+- **Asking the core first.** Before anything is written, `hosting::probe` sends
+  `POST /instance/image/upload` with an empty multipart body: a core that makes servers
+  from files refuses it as 400 ("No file was uploaded"), a user who may not create servers
+  gets 403, and a core older than milestone 6 has no such route (404, or 405 if another
+  route matches the path): "<core>'s Lodestone is too old to make servers from files.
+  Update it on that computer, then try again." The probe holds one of the user's arriving
+  uploads only while its empty body is read; a 409 (too many arriving) also says the core
+  takes files. "Download this world" reads the export route's 404 as too old only when
+  the core gave no message of its own (no such route answers an empty body), or a 405: a
+  404 the core explains ("Backup not found" for a backup pruned or deleted meanwhile, a
+  server gone) is shown as the core's message.
+- **What "Host this" sends** (`Images::export_current`): under the instance's record lock,
+  with collections held off to the end, refused while the game runs (its worlds would be
+  read mid-write), the content is recorded as before a snapshot (a content image when it
+  changed, kept by retention like any), and a data image of only the worlds picked
+  (`saves/` and `saves/<picked>/…`: `scope::in_worlds` on top of the snapshot's filter)
+  is built; when the content can't be recorded (a "Find it for me" search is saved) one
+  full image of the content scope and those worlds goes instead. Nothing else of the
+  player's is sent: not `options.txt`, `servers.dat`, `logs/`, `crash-reports/`,
+  `screenshots/`, `usercache.json` or mods' own folders (minimaps' waypoints of other
+  servers). It is written straight to a temporary `.lodeimg` in
+  `<data>/cache/host-uploads/` (emptied at start with the other temporary folders,
+  `DataDir::temporary_dirs`), after the free space for the carried objects and 1 GiB is
+  checked. No manifest or snapshot record is saved, so the instance keeps nothing of it;
+  the objects only it read (a world no snapshot recorded) are named by nothing, and a
+  collection keeps unused objects for an hour (`store::gc::GRACE`), so however the export
+  ends (sent, refused, cancelled) it asks for a collection a minute past that
+  (`Images::request_gc_after_grace`: one waiting thread, the time moved on by a later
+  export); a Launcher that quits first leaves them to the next collection. Private files are taken out as the
+  snapshot export takes them out, and both images are labelled with the instance's name.
+  A session that begins while it reads (Play pressed: the launch waits only 10 seconds
+  for the record lock, then goes ahead) stops it at the next file, and a session seen
+  after the read or the write refuses it (`ImageError::Running`, the file deleted), as a
+  snapshot does, so a world the game writes is never sent half old, half new. The bar
+  shows the read as its first half and the write as its second. Of `config/` and the
+  other content folders only the private name list (`share::PLAYER_PRIVATE`) is taken out:
+  the Launcher doesn't scan settings files for credentials before sending (best effort,
+  as M5's export; the player sends their own files to a core they chose), so the file
+  leaves the computer with those configs. The core's import then runs its own scan on
+  every uploaded file, the Launcher's included, and withholds what it finds (listed in
+  the outcome's `secrets`). Only a credential kept under a name neither the private list
+  nor the scan recognises ends up in the server's folder, where every user of that core
+  who may read its files can read it.
+  It is uploaded as "<instance>.lodeimg", so the server's first image says "Created from
+  <instance>.lodeimg". The worlds sent default to the last played; the server's world is
+  picked in the summary among them, or none (a new world). A Quilt instance is refused
+  before anything is written ("Lodestone can't make Quilt servers"), as the core would.
+- **Nothing left behind.** The temporary file is deleted as soon as the core has
+  answered the upload (on the upload's own thread: nothing reads it after, a refused
+  creation is retried with the same upload id), so a world-sized file never waits in the
+  cache while the summary is read. The core's upload belongs to an `Uploaded`, which lets
+  go of it (`DELETE /instance/image/upload/{id}`, from a small thread) when dropped,
+  unless a creation took the upload: backing out, Cancel, a refusal the person abandons
+  and the dialog closing all drop it. Closing the dialog while the instance is written or
+  sent (Escape, the close button, the window released) cancels that work at once, so the
+  export and upload stop and leave nothing on either side. The temporary folders are
+  renamed away at start to a name no run used before, and deleted in the background with
+  any such folder an earlier run quit before deleting. A Launcher killed or quit
+  mid-dialog (the upload is let go of from a detached thread, which the quit doesn't
+  wait for) leaves the upload to the core's hourly prune, at most two per user. The
+  probe's empty upload, were a core ever to keep one, is let go of the same way.
+  The window keeps the owner key or the session from the password in memory only, for
+  the dialog's life; neither is stored or logged, and the session isn't revoked at the
+  end (as before).
+- **The EULA and starting.** The summary's EULA toggle starts off and Create stays off
+  until the person ticks it; the control API keeps `eula_required` (not for `preview`,
+  which makes nothing). `create_from_image` never starts the server and nothing in the
+  Launcher does. The tests check that no power route is called.
+- **Following the creation.** The core answers a creation with the server's uuid; the
+  Launcher reads `GET /events/all/buffer` filtered to progression events about once a
+  second (`AdminClient::wait_progression`): it finds the start whose value names the new
+  server, sums its updates for the bar, and ends at its end, also recognised by the end's
+  value when the start was missed. The buffer holds the core's last 512 events, so on a
+  busy core both can be lost: after 5 looks without a sign of the creation, the server
+  being listed counts as made, without an outcome. After 30 minutes the dialog says the
+  host is still setting it up, and the instance isn't linked. Once the creation was asked
+  for, the dialog ends on that or on a failure (Close, or the Lodestone Host page), never
+  back at the first step, where Continue would send the instance and make a second
+  server. Cancel (or closing the
+  dialog) stops only the waiting; the background task still links the instance if the
+  Launcher runs. A WebSocket follower (`cores::live`) would be exact, but much more code
+  for a rare case.
+- **Permissions.** After the upload the Launcher reads the signed-in user
+  (`GET /user/info`): the owner may change global files, a user only when given it. A
+  file whose own jars need that permission then shows the summary's error and Create stays
+  off for a user without it, as in the Host; the control API refuses before asking the
+  core. A creation the core still refuses as forbidden shows the core's own reason
+  (`HostError::Refused`), never "can't create servers", which is kept for the probe's 403.
+- **The control API's `servers host`** follows the window: its job has the bytes written
+  and sent as progress and `jobs.cancel` (the probe, the export and the upload stop, the
+  temporary file and the core's upload go; once the creation was asked for, Cancel stops
+  only the wait, and says the core goes on); the worlds are read away from the window; the
+  server's name defaults to the instance's as the core takes it (`sharing::server_name`),
+  and a name given is checked as the core checks it (at most 100 characters, no control
+  characters or `NAME_FORBIDDEN`) before anything is written, by the same check the
+  dialog uses (`admin::instances::name_problem`; the dialog says it translated, the
+  control API in English); `no_world` (the CLI's
+  `--no-world`) asks for a new world, and `world` is only ever a folder's name. The worlds
+  are checked before anything is written (`hosting::worlds_to_send`): each folder named
+  in `worlds` or `world` must be one of the instance's, spelt exactly as the export
+  matches it (a wrongly-cased name is refused with a hint, never sent as no world, which
+  would make the server a fresh one), and `world` must be among `worlds` when both are
+  given. Without `worlds`, `world` alone is sent, nothing with `no_world`, or else the
+  last played. `server_software` must be one of the summary's `server_choices`, matched
+  whatever its case and sent as the core spells it; another is refused (`invalid_params`,
+  naming the choices), the preview too, never quietly swapped for the file's own server.
+  `servers download_world`'s job shows the download's bytes, then the import's, and
+  checks that Modrinth can be reached before the download starts.
+- **Linking.** The instance is linked to the new server only once its creation ended
+  well (before, the link was saved as soon as the core answered); it replaces any earlier
+  link, which the result names. A failed creation, or a wait that stopped first, leaves
+  the old link. The window and the control API both decide it with
+  `hosting::link_when_made`. An instance deleted while its server was made (the wait goes
+  on for up to 30 minutes after the dialog closes) gets no link, which would make its
+  folder again holding only the link: `Linked::InstanceGone`, which the dialog says ("The
+  instance was deleted meanwhile, so nothing is linked to it") and the control API returns
+  as `linked: false`. The link is saved only into a folder still there
+  (`storage::save_in_existing_dir`), so a folder deleted between the check and the save
+  isn't made again either (`NotFound` is `InstanceGone`). An older core's English end
+  message is shown escaped (`display_text`), as every other text from a core, in the
+  Launcher and the GPUI Host alike.
+- **Structured creation outcome.** The `InstanceCreation` end value is now a
+  `CreatedInstance`: the server's `InstanceInfo` fields (flattened, so the JSON and the
+  dashboard's reading are unchanged) and an optional `outcome` (`CreationOutcome`:
+  `not_downloaded`, `no_source`, `client_jars`, `secrets` and `settings_removed` as
+  `NameList`s, and a count of `scripts`; boxed in Rust so every event stays small, the
+  same on the wire), sent only for a server made from a file. The
+  English message is built from the same data (`outcome::describe`), first 8 names of
+  each list. The Host's toast and the Launcher translate it (`lodestone_ui::sharing::
+  outcome_lines`); a core without it gives its English. ts-rs bindings are regenerated
+  into `dashboard/src/bindings`.
+- **Shared text.** What a file holds before a server is made and what the server didn't
+  get are said by `lodestone_ui::sharing` for both apps (the summary lines and helpers
+  moved out of the Host with their translations); each app lays the lines out with its
+  own components. `NAME_FORBIDDEN` moved to `launcher-core` (`admin::instances`).
+- **"Download this world"** (`cores::world_download`): a button on a server's page on a
+  signed-in core. The export route needs ReadInstanceFile (as the backup zip download),
+  which a Launcher's own key never has, so the dialog signs in with a password unless this
+  computer is the core's owner. It lists the backups newest first, marking those taken
+  while the server ran without a save as possibly caught mid-write, and offers "Back up
+  now" (`create_backup`, AccessSetting, waited for by its task id's `BackupCompleted`).
+  The export never includes plugins' settings. What the core says it took out of the file
+  (`left_out`, and the secrets it `blanked`) is shown in the import dialog and returned
+  by `servers.download_world` (`exported`, with `secrets_withheld` and `not_downloadable`). The control API's
+  preview downloads the newest (or a named) backup to read it and never backs the
+  server up: `backup: "new"` with `preview` is refused, so a preview changes nothing on
+  the core. A preview costs a whole download (the CLI's help and SKILL.md say so), as a
+  `servers.host` preview costs a whole upload. The core states the file's size before it
+  is downloaded: when twice that (the file, and at least as much for what the import
+  places while the file is still there) and 1 GiB to spare don't fit, it is refused and
+  the core's file let go of before a byte comes, so the disk never fills up under a game
+  saving in another instance and a download isn't waited through for an import that
+  can't fit (the import checks the exact room again). The download is held to the stated
+  size (`AdminClient::download_export`): a core sending more, or less, than it said is
+  refused, the Host's backup export too. The file is streamed
+  into `<data>/cache/world-downloads/` with a bar and Cancel, the core's file let go of
+  however it ends, and handed to the snapshot import dialog (queued, never replacing a
+  snapshot dialog that is taking, restoring or importing: it arrives on its own when the
+  download ends, and closing that dialog would cancel its work); the file is deleted when its
+  last holder lets go of it, always from a small thread (`Downloaded`'s drop), since the
+  last holder can be the window's thread. Cancel ends the download at once, also while
+  the core is yet to answer or a read waits, and a read that waits 30 seconds
+  (`DOWNLOAD_IDLE_TIMEOUT`) fails, so a link gone dead mid-download (Wi-Fi dropped, a lid
+  closed) neither holds Cancel nor waits for the 3-hour limit (`CoreClient::download_file`,
+  for every download from a core: the Host's backup exports and files too). The dialog
+  starts at "preparing the file" and says the server is being backed up only while "Back
+  up now" runs. Cancel or a failed download goes back to the signed-in
+  list of backups with why, so a password isn't asked again; when "Back up now" made a
+  backup first, the list is read again and that backup picked
+  (`DownloadProgress::backup_made`), so trying again doesn't make another. Escape or Close
+  stops a download at once, as Host this does. A 403 says the user can't
+  read the server's files; a 403 for "Back up now" says the user can't back the server up
+  and should pick a backup, and the newest is picked, so Download doesn't repeat the
+  refused request; on a server with no backups, Download is turned off and the dialog
+  says to ask the server's owner to back it up. A Cancel while the import places the
+  files is a stop (`ImageError::Cancelled`), not a failure. Of what the core says it left out, the import dialog shows
+  only what a player would miss, which the export's answer lists itself
+  (`ExportedBackup::left_out_for_players`, beside `left_out`: not the server software,
+  the EULA, the JVM's crash files, the console history, a proxy's `forwarding.secret`,
+  Lodestone's files, or anything the client view never carries by the shared crate's
+  rules, such as `server.properties`, the operators and ban lists, Bukkit's settings files
+  and `plugins/`; a `config/` file the owner didn't share with players can still be
+  listed, as the export doesn't look up the content image's marks, though the instance
+  wouldn't have taken it anyway): `left_out`'s first 64 names are mostly `libraries/`' files on a modded
+  server and plugins' data on a Paper one (which "Download this world" always leaves
+  out), so a Launcher filtering them would show nothing of what matters. The control API returns both. A file the
+  export route sent that doesn't say a core made it is refused ("The host sent a file that
+  isn't a server's backup"): labelled a Launcher's, it would skip every rule below. The
+  import dialog's preview and the control API's preview refuse it the same way
+  (`export::inspect_from_host`). A server's world carries
+  every player's playerdata, stats and advancements: users who can read the server's
+  files could already download the backup zip, so this exposes nothing new.
+- **A core's `.lodeimg` in the Launcher** (`images::from_server::client_side`), replacing
+  M6a's refusal: the content is the backup's non-world files over its content image's
+  (the content image's when it has none), in the client view (`view(Client)`), then only
+  what the Launcher's content scope holds (`scope::is_content`: a path the client view
+  lets through that a server may never place on a player's machine is left out, never
+  placed); the data image takes the world files without `share::is_server_world_file`'s
+  (Paper's per-world `paper-world.yml`, the split Nether's and End's own files; the
+  dimensions are already `DIM-1`/`DIM1`) and a world's permissions data (FTB Ranks'
+  `serverconfig/ftbranks/`, ForgeEssentials' `FEData/`, which name the server's players
+  and their ranks, as the core's import counts them among the operators), the worlds, the
+  withheld files under `saves/` and no server settings. The content is the union of the
+  backup's files and its content image's, the backup's copy winning: a file the content
+  image still lists that was deleted outside Lodestone while the server ran (which the
+  core records only at the next start's check) comes back in the downloaded instance, as
+  it does in a server made from the core's own export. The core's export copies a content
+  entry's sides and owner mark into the backup's only when their bytes match, so a newer
+  copy in the backup (a config the server rewrote on load, a jar replaced on disk) would
+  come with unknown sides; the content image's `env` and `env_from` carry over to it
+  (`from_server::with_content_sides`: the owner's mark belongs to the path, and a jar's
+  sides are the best guess for its newer copy), so a config marked "For players" comes and
+  a server-only mod doesn't, as for a player joining through M4b. Forge versions become full Maven versions, as for players.
+  Both images are made and sealed by this Launcher, labelled "Downloaded from <server>"
+  (the server's name, or for a file opened by hand the part of the core's label before
+  " – "), and the import names the instance after the server, without control or
+  invisible characters (`export::shown_name`, applied to any name an import is given,
+  since it may be a core's). Who made a file is written
+  by its sender, so a file opened by hand that holds a server's files (a top-level
+  `server.properties` or `plugins/`, or server settings) is taken as a core's whatever it
+  says (`from_server::holds_server_files`). The preview's
+  `from_server` lists the server-only mods left out and how many of the file's files
+  aren't taken. M4b's rules for players hold: Modrinth files downloaded and checked, a
+  failure left out and listed. Server configs and kubejs/ not marked "For players" don't
+  come (singleplayer may then differ from the server); Forge or NeoForge server-only mods
+  whose sides are unknown come, as they do for players.
+- **The modpack's client share.** A server built on a Modrinth pack lists every file it
+  has in its content images, so the client view holds every pack file a player needs that
+  the server also runs; the pack's client-only index files and `client-overrides/`, which
+  a player of the server installs from the base, are placed too
+  (`from_server::place_pack_share`): the pack comes from Modrinth through M4b's
+  `image_sync::base::base_pack` (the version must be the named project's and the file the
+  base's SHA-512, kept in `<data>/cache/server-packs/`), and every file of its client
+  share is placed that the images don't place at its path (compared in any letter case),
+  that the server didn't remove (the client view's `removed`) and that isn't under
+  `saves/` (the server's world is the one that comes), each checked by the pack's hashes
+  (`modpack::fetch::stage`, staged in the instance's staging folder and then moved). The
+  server's own copy of a file always wins over the pack's. Downloaded mods are recorded in
+  `content.json` as a pack install records them, and the snapshot kept of what was sent
+  links to the content recorded once they are placed. When the pack can't be had
+  (offline, gone from Modrinth, not the file the base names, a CurseForge pack, which the
+  Launcher can't install from a server as for players) or one of its files can't be
+  placed, none of it is placed, the instance is made without those files and the import
+  says why (`Imported::server_pack`: `Skipped { why, reason }`, `why` one of `gone`,
+  `curseforge` or `failed`, which the window's notice says in its language, and `reason`
+  in English for the control API); only cancelling stops the import. The preview says which (`FromServer::modpack`),
+  and for a Modrinth pack warns, as for the images' own mods, that its files may include
+  mods that run when the game starts (no count of the images' mods names them). The
+  images still claim no pack
+  (`base` and `removed` cleared) and the instance has no `modpack.json`: the copy follows
+  neither the server nor the pack's updates. The import's free-space check can't count the
+  pack's share, whose size is known only once the pack is read, so the share is checked on
+  its own before it is downloaded: one that doesn't fit with 1 GiB to spare is skipped
+  (`failed`) and the instance is made without it.
+- **A failed import leaves nothing named.** An import (a Launcher's file or a core's)
+  that fails or is cancelled once it began unpacking (Cancel during the mods' downloads,
+  a full disk while placing files) makes no instance, and the objects it put in the store
+  are named by no manifest: it asks for a collection past the grace
+  (`Images::request_gc_after_grace`), as "Host this" does, so a whole server's world
+  doesn't stay in the store for days; so does an import whose snapshot couldn't be kept.
+- **The import trusts only the file.** Both Launcher imports (a Launcher's file and a
+  core's) unpack only the objects the placed images name, each read from the file and
+  checked even when the store has it (`Container::import_objects_where_verified`), and a
+  file no download confirmed is placed only from bytes the file carries: before, M5
+  placed it from the store when the store happened to have those bytes, so a file could
+  name the user's own stored files by hash. An offline import of a pack whose mods the
+  store already has now leaves those mods out (listed) instead.
+- **The shared crate changed only additively**: `layout::BUKKIT_NETHER` and
+  `layout::BUKKIT_END` are public, and `share::is_server_world_file` is new. The Launcher
+  calls `share` instead of its copies (private patterns, `strip`, placed entries, folder
+  spellings, the version check, the download cap, the crash and account names; its
+  snapshot scope folds Unicode case for crash names now, so it leaves out slightly more
+  exotic spellings). `names_modrinth_file` and `download_key` stay in both programs: the
+  shared crate has no URL parser, and adding one would be a new dependency.
+- **Not in scope.** CurseForge downloads in the core (the developer decided they stay
+  out, "M6a decisions", Making it; the summary keeps warning). Launcher to Launcher needs nothing new: M5's `.lodeimg`
+  export and import already do it, and `LDS2:` codes stay as they are.
+
+### WB1 decisions
+
+Decisions the world backups milestone on the Host made where "World backups" left them
+open. The code is `core/src/backups/world/` (`store.rs`, `writer.rs`, `reader.rs`,
+`service.rs`), `core/src/handlers/world_backups.rs`, `restore::stage_folders`,
+`launcher-core/src/cores/admin/world_backups.rs` and the Host's `pages/backups.rs` with
+`pages/backups/world.rs`.
+
+- **One job lock per server.** World backups and restores take the snapshots' job mutex
+  (`BackupService::take_guards`, `lock_stopped`), so a snapshot (manual or scheduled)
+  waits for a world job and the reverse; a scheduled snapshot skipped meanwhile is tried
+  again by the scheduler. Both lists' `running` report whichever job holds it, with the
+  new `JobKind`s `world_backup` and `world_restore`. Deleting a world backup is refused
+  (409) while a world job of that server runs.
+- **Sidecars, not a list.** Each backup has its own `<id>.json` written after its zip, so a
+  crash leaves at worst a whole zip with no sidecar (adopted as a manual backup named by
+  nothing, its level from its top folder) or a sidecar with no zip (dropped). A sidecar that
+  can't be read is an error, never "no backups". Ids are `YYYYMMDD-HHMMSS-xxxx`, checked
+  exactly, since they name files.
+- **What the zip leaves out.** Links, unreadable files and names the server layout can't
+  place are counted (`left_out`) and the Host shows the count; `session.lock` and
+  `.lodestone-*` are skipped silently, as images do. So are fifos, sockets and devices,
+  which are never opened (a fifo's open would wait forever; files are opened without
+  following links and without blocking, then checked to be plain files through the
+  handle). Of two canonical paths that are one file on a case-insensitive disk (possible
+  on Linux), the later in the walk's name order is left out, a folder with all it holds
+  (`lodestone_image::paths::CaseTree`), since the reader refuses such pairs: a backup made
+  on a case-sensitive disk still restores, and a restore whose safety backup would drop
+  one is refused like any other left-out path. Region files and other compressed
+  formats (`.mca`, `.mcr`, `.mcc`, `.dat`, `.dat_old`, `.nbt`, `.png`, `.zip`, `.gz`,
+  `.jar`) are Stored, everything else Deflated, which keeps the save-off window short.
+- **Restore mapping.** The zip's paths map through canonical paths
+  (`saves/<level>/…`) into the server's current `level-name` and split, rewriting the level
+  name, so a vanilla backup restores into a Paper server (its `DIM-1` into
+  `<level>_nether/DIM-1`), a Paper backup into a vanilla server (its split folders' own files
+  under `.bukkit_nether/` and `.bukkit_the_end/`), and a backup into a renamed level. The
+  restore owns the current level, and on a split server its `_nether` and `_the_end`; one
+  the zip lacks is moved aside and removed (the safety backup has it).
+- **Safety backup.** Taken whenever any folder the restore replaces exists: the level
+  (with or without a `level.dat`, so a damaged world is kept too) or, on a split server,
+  its `_nether` and `_the_end` even when the level is gone (the zip then holds just those,
+  and adopting such a zip takes their level). A `before_restore` world backup named
+  "Before restoring “<label>”" cut to 100 characters; its failure refuses the restore.
+  None when the server has none of the world's folders.
+- **The safety backup holds everything the swap deletes.** The swap replaces whole folders,
+  so what the safety zip can't hold (links, files Lodestone can't read, names a restore
+  can't place, such as a vanilla `DIM-1` inside a Paper level) would be lost. A restore is
+  refused (409) when the safety backup would leave anything out, naming the first five
+  paths: checked from the walk before anything is written, and again by the safety backup
+  itself (a file that can't be read as it is copied), which then leaves nothing. There is
+  no override; the operator moves those paths out or fixes their permissions. Snapshots
+  refuse likewise ("Couldn't include … in the safety snapshot"). What the restore
+  replaces is listed for the permission check only when the requester can't change
+  global files or code (so never for the owner), after the safety plan has bounded the
+  world, and never past the reader's entry limit.
+- **Within what a restore reads.** A world over the reader's bounds (64 GB uncompressed,
+  1,000,000 files and folders) is refused before anything is reserved or paused (400,
+  "Take a snapshot instead"), and a world that grows past them while it is copied stops
+  the backup. A restore over such a world is refused too, since its safety backup
+  couldn't be made.
+- **Free space.** No time limit between world backups, and no cap on their count or total
+  size: they are manual, and the large writes' 1 GB free-space floor is the only bound.
+  Making one reserves the world's uncompressed size (an upper bound) on the world backups'
+  disk among the core's large writes (`LargeWrites`), with the 1 GB margin. A restore
+  first checks room for the safety backup and the unpacked world together (added up when
+  `world-backups/` and the server are on one disk, `util::disk::same_disk`), then the
+  steps reserve their own space as they write.
+- **Download.** The link (`global_fs::register_stored_download`) points at the stored zip
+  with a display name (`<server>-<level>-<id>.zip`), holds no copy and takes no backup-file
+  place; `DELETE /file/{key}` only forgets it, and the zip is never deleted with the link.
+  It re-checks ReadInstanceFile when used, like every link.
+- **Cancel.** `…/tasks/{task_id}/cancel` cancels a world job until its swap begins (409
+  after); snapshot jobs have no cancel. A cancelled backup removes its `.part` file (also
+  one the save pause's 15-minute cap stopped as it finished), a cancelled restore its
+  staging folder. The Host shows Cancel only to those with the permission that started
+  the job, turns a world backup's Delete off while a world job runs, and its restore
+  dialog's Restore while any job runs. A world job leaves the service however its task
+  ends (a drop guard that removes only its own entries, by task id, since it may run after
+  the next job took the lock), and a restore of a server whose last restore couldn't be
+  undone says to restart Lodestone rather than to stop the server. Only a server in the
+  Stopped state is restored into (`lock_stopped` refuses every other, Error included).
+- **Names.** Two backups of a server finishing in the same second with the same random
+  suffix never replace each other: under the record lock the final name is checked free
+  and another id drawn if not. A `<id>.zip` that is a link is neither listed nor loaded.
+  Errors that reach clients name a backup by id, never by its path. Zips without a sidecar
+  that can't be adopted are skipped until the core restarts rather than read on every
+  list. A zip that took a file out again at its end is cut to its central directory.
+- **Deleting a server** deletes `world-backups/<uuid>/` beside its snapshots, while the job
+  lock is held.
+- **Startup.** The sweep of part files and temporary sidecars runs after the snapshots'
+  recovery and is awaited before the core serves requests, so it can never remove the part
+  file of a backup started meanwhile.
+- **Snapshot wording.** The core's snapshot messages (progress, refusals, free-space
+  reasons, completions) and the Host's text say "snapshot" ("Taking a snapshot of …",
+  "Saving the snapshot", "This snapshot doesn't know …", "Restored snapshot “…”"); the
+  texts world backups share with snapshots are neutral ("Names can be at most …", "The
+  server stopped while it was being copied"). Routes, types, message keys and log lines
+  keep their backup names.
+- **Renaming** is a route (`PATCH …/world-backups/{id}`) for API clients only: the Host
+  renames neither snapshots nor world backups, and its admin client has no call for it.
+- **Not in scope.** Uploading or importing a world zip from elsewhere, scheduled world
+  backups, pruning, a cancel for snapshot jobs. `crates/lodestone-image` only gained
+  `paths::CaseTree` and `store::flush` (`write_out`, `write_out_dir`, `full_flush`, the
+  store's batched flushing made public; additive).
+- **Flushing a restore.** Unpacking a world backup and writing a snapshot's files for a
+  restore flush in one batch, as materializing does: each file and folder is handed to the
+  drive (`store::flush`), and the staging folder gets one full flush before the swap (on
+  Apple platforms a plain `fsync(2)` per file and one `F_FULLFSYNC`, on Linux one
+  `syncfs(2)`), not a full flush per file, which took minutes for a world of many files.
+  Only on unix: on Windows a folder can't be flushed, so the swap can't be made durable
+  either way.
+- **Late cancels.** A world backup closes its cancel (under the job's lock, as a restore
+  does before its swap) when the copy is done and it starts saving, so a cancel from then
+  on gets 409 rather than a success for a backup that is then listed. A restore registers
+  its job as soon as it holds the job lock and the stopped lock, before it plans: the file
+  API's refusal during a restore and the refusal to delete a world backup while a world job
+  runs hold while it plans; its Start event, and so the list's `running`, wait until the
+  restore is checked, so a refusal is only the route's response.
+- **Adopted zips.** A zip found without its sidecar (a crash between the zip's rename and
+  the sidecar's write) whose only top folder is named like a split folder (`…_nether`,
+  `…_the_end`) and has no `region` folder of its own is a split server's dimension, so its
+  level is the name's prefix; with a `region` folder it is a vanilla level of that name.
+- **Zip times.** A file's time is written in the zip's DOS fields in the core's local time,
+  as other zip tools read them, and read back the same way (only for show).
+- **Fewer walks.** The plan a request makes (a backup's check, a restore's safety plan) is
+  the one the job writes from, so a stopped world is walked once to plan and once to copy;
+  the copy's own walk is what takes region files a running server creates during its save
+  pause. Entries between 3 and 4 GiB get zip64's large file fields, so a file that grows
+  past 4 GiB while copied doesn't fail the backup. Downloads stream in 256 KiB reads.
+
+### WB2 decisions
+
+Decisions the Launcher's world backups ("World backups", In the Launcher) made where the
+developer's brief left them open. The developer decided: world backups are manual only
+(no schedule, no pruning), plus the safety backup before a restore; the Worlds tab's
+"Back up" makes one; "Include mods and configs" goes.
+
+- **Layout and ids.** `<data>/world-backups/<instance id>/<world folder>/<id>.zip` with
+  `<id>.json` beside it (`DataDir::world_backups_dir`); ids are snapshot record ids
+  (`images::snapshots::new_record_id`, `valid_record_id`), checked before any path join,
+  and a world folder must be a plain name (`content::is_plain_name`). A `.json` over
+  64 KiB, of another version, or naming another id is ignored; the folder it is in wins
+  over the folder it names.
+- **Ownership by (instance id, `created`)** rather than M5's retiring and taking back:
+  nothing is renamed when an instance is deleted, put back from the Trash or its id is
+  reused, and a crash can't leave backups half moved. Entries of the instances folder
+  that aren't readable instances are never cleaned.
+- **World identity is the folder.** A world renamed in the Launcher takes its backups
+  along (`WorldBackups::rename_world`), so a world later given the old name never inherits
+  them. Every world the Launcher places itself (a rename, an import, a restore as a new
+  world from a world backup or a snapshot) takes a folder name free in both `saves/` and
+  the instance's world backups folder (`worlds::unused_in`,
+  `WorldBackups::folders_of`), so it never takes over a deleted world's backups. A world renamed or deleted outside the Launcher leaves its backups under the old
+  folder, which Settings lists as a world no longer in the instance, and which the control
+  API's `world` finds by the backups' folder or world name; restoring one in place
+  recreates the old folder.
+- **The zip** has one top folder, the world's; `session.lock` and `.lodestone-…` names are
+  never in it; links and names a canonical path refuses are left out, counted and listed
+  in the `.json` and the row's details ("N files left out"). Restoring in place carries
+  such files on disk back into the restored world.
+- **Locking.** Making, restoring, deleting, the startup sweep and Storage's clean-up run
+  under the instance's record lock in a counted write of the image store
+  (`Images::with_instance_locked`, `with_restore_locked`, sharing `restore()`'s start), so
+  they never overlap a snapshot, a restore or a record, and a data move waits for them or
+  refuses them (`WorldBackupError::Suspended`). Making one is refused while a session runs
+  or the game has that world open, and stopped when a session begins or the world opens;
+  restoring in place is refused while any world is open (as M5's restore, since the
+  safety backup and the swap must not race the game), checked again just before the
+  swap. Making one is refused while any game session of the instance runs, not only
+  while that world is open, deliberately stricter than the brief: a world the running
+  game hasn't opened yet could be opened mid-zip, and a session is what the record lock
+  and Play already coordinate on. Restoring as a new world isn't
+  refused by the core while the game runs (it replaces nothing, as `restore_world_copy`),
+  but the dialog and the control API refuse it. The dialogs and the control API also
+  refuse making or restoring one while another job writes the
+  instance's files (`files_or_pack_busy`: an install, a modpack update, a window job),
+  as Take a snapshot does: a backup could zip a file mid-write, a swap would lose what
+  the job writes, and the work would otherwise wait for the record lock with Cancel
+  doing nothing. The dialog refuses deleting one then too, since the delete would sit
+  waiting for that lock, as long as the job runs; its progress line names the backup
+  being moved to the Trash. The control API's delete waits instead (a script can). Restoring in place is refused when
+  `saves/` or a folder above it is a link (shared saves, another drive): the swap could
+  rename through it, but its rollback refuses to (it could move files out of somewhere
+  else), so a failed or crashed swap could never be undone and would leave the instance
+  unplayable. The refusal comes before the safety backup and suggests Restore as a new
+  world. The swap itself now refuses a link above any owned path
+  (`Staged::with_folders`, `swap::no_links_above`), so snapshot restores get the same
+  protection, as does a carried path inside a folder where the restore places a file of
+  that name (found before anything is staged, not by a failed rename).
+- **Deleting** moves the zip to the Trash; Storage's clean-up of deleted instances'
+  backups deletes them for good. There is no rename, export (the zip itself is the
+  export, Show in Finder), schedule or pruning. Safety backups are kept like any other
+  and named "Before restoring “<name>”" (plain English data, like content labels), the
+  restored name cut so the whole name fits 200 characters. A restore that leaves the
+  world unchanged (refused after the safety backup, cancelled while unpacking, rolled
+  back) deletes its safety backup, since each is a full-size zip that nothing prunes;
+  the swap's own checks run before the safety backup from the list it will zip
+  (`worlds::zip::plan`), so most refusals come before it is made.
+- **A world without `level.dat`.** A manual backup of it is refused (no restore could take
+  it). The safety backup before a restore is made anyway (the world may be broken, the
+  reason for restoring) and keeps the files the restore replaces; such a zip can't be
+  restored by Lodestone but opens with any zip tool.
+- **Names in the window.** The `.json` keeps the English names the Launcher gives
+  (`labels::WORLD_BACKUP`, `labels::before_restoring`), which the control API and CLI
+  show. The window shows them in the user's language (`world_backups::shown_name`): a name
+  equal to "World backup" as `WorldBackupDefaultName`, and a `before_restore` backup whose
+  name is still `before_restoring(restored)` as `WorldBackupBeforeRestoring` with the
+  restored backup's name (itself translated when it is the default). A name the user typed
+  is shown as it is.
+- **Folder names a restore wouldn't take** are refused before zipping
+  (`worlds::zip::check_world_folder`: `check_pack_path` on `<folder>/` and
+  `CanonicalPath::new("saves/<folder>")`), rather than made into a backup every restore
+  of which fails. Names inside the world that the zip check refuses are left out like
+  other names no disk keeps, and a folder holding nothing else is left out with them.
+- **One zip checker** for world imports and world backups (`worlds::zip::check` and
+  `extract_into`, replacing `inspect_zip`, `extract`, `extract_mapped`, `plan_extract` and
+  `check_collisions`): canonical-path names and the shared crate's case folding instead of
+  `to_lowercase`, encrypted entries refused, and a free-space check (stated size and 1 GiB)
+  before an import too. A third-party world zip with such a name is now refused, with a
+  message naming it, where it used to import.
+- **Free space.** Making one: the world's size and 1 GiB on the backups' disk. Restoring
+  in place: when the instance folder and the backups folder are on one disk (the same
+  device on Unix, the same volume elsewhere; taken as one when that can't be told), the
+  zip's stated unpacked size plus the world's size plus 1 GiB, once; otherwise the stated
+  size and 1 GiB on the instance's disk and the world's size and 1 GiB on the backups'.
+  All before the safety backup. As a new world: the stated size and 1 GiB.
+- **Zip contents and speed.** Files already compressed (region files, gzip NBT, mods'
+  SQLite databases such as Distant Horizons' `DistantHorizons.sqlite` of chunks it
+  compressed itself, images, sound, archives) are stored, and so is any file of 64 MiB or
+  more whatever its name (a large file in a world is region-like data or a database, never
+  text); the rest is deflated. Deflating such files gains nothing and runs on one core
+  (about 60 to 70 MB/s: 8 s for 512 MiB, against 0.2 s stored), so a world with a 5 GiB
+  database would spend over a minute on every backup, and before every in-place restore,
+  whose safety backup runs first. Cancel is asked
+  between 8 MiB chunks of a large file too. Files are opened without following links and
+  must be plain files. Unpacking makes its files durable as one batch
+  (`lodestone_image::store::flush`) rather than with a drive cache flush per file
+  (`F_FULLFSYNC` on macOS, about 6 ms each), which also speeds up world imports.
+- **Crashes.** Every `.part` and every temp file of a `.json` being written
+  (`storage::TEMP_PREFIX`) is deleted by the startup sweep (it runs under the record
+  lock, which every zip is written under, so none is being written; the Launcher runs once
+  per data folder), and so is the instance's own restore-as-a-new-world staging folder in
+  `saves/`; the sweep covers every live instance, with world backups or not. A `.json`
+  without its zip (a crash during a delete) is deleted; a zip without its `.json` (a crash
+  between them: the user's copy) is kept as a manual backup named "World backup" of its
+  live instance, with what its `level.dat` says (nothing when it has none, as a safety
+  backup of a broken world may: `Shape::OneFolder`, so it can be listed and deleted),
+  unless the zip is older than that instance (a deleted instance whose id was reused made
+  it): such a zip is left alone. A restore's crash is M5's journal's.
+- **Snapshots cover the whole folder.** "Include mods and configs" (`Take::full`, the
+  dialog's checkbox, `snapshots.create`'s `everything`, `--everything`) and the row's
+  "With mods" are gone; a snapshot is still a full image when its content can't be linked
+  (`SnapshotRecord::full` stays). The section's hint says "Copies of the whole instance
+  folder to go back to or share."
+- **Ids and order.** A new id is unique among all of the instance's worlds' backups
+  (whichever instance made them), so an id alone finds one backup, and its suffix counts
+  up from the highest of the same second (the second's first is random below `8000`), so
+  newest first (by `created`, then id) and the API's `latest` never take the older of two
+  backups made in one second. The last id handed out per instance is remembered while
+  the Launcher runs and counts as taken, so a backup made in the second of one just
+  deleted never reuses its id.
+- **Renaming a world moves only this instance's backups.** A deleted instance that had
+  the same id keeps its backups under the old folder name, as its world was named; the
+  folder is moved in one rename when it holds only this instance's backups, else file by
+  file (zip, then `.json`), each put back if one fails.
+- **Names differing only in case.** A world on a disk that keeps case apart can hold
+  `region/` and `Region/`; the zip leaves out the later name in sorted order (counted and
+  listed), since `check` refuses such a zip and it could never be restored.
+- **Restoring as a new world** unpacks into
+  `saves/.lodestone-restore-staging-<instance id>-<16>/` (a name world lists and snapshots
+  skip), so placing it is a rename on one disk even when `saves` is a link to another
+  drive; the instance's id in it keeps another instance sharing that `saves/` from
+  sweeping it mid-restore.
+- **Speed.** Unpacking copies with a 1 MiB buffer (std's copy moves 8 KiB per call,
+  about 2.5 times slower on stored region files) and asks Cancel and moves the bar every
+  8 MiB of a large file. Making one looks at the world's `session.lock` at most every
+  250 ms, not per file. Opening a zip reads only its end records and central directory:
+  the archive is taken to start at byte 0 (`ArchiveOffset::Known(0)`), since `zip`'s
+  default scans the whole file from its first byte to find the start (about 4 s for a
+  5 GiB backup from cache, minutes from a hard drive, with no progress or Cancel). Only a
+  world import falls back to that scan, for a zip with something before it (a
+  self-extracting stub), and only when the file doesn't start with a zip record (a local
+  header, or an empty zip's end record): a damaged zip that starts like one is refused
+  without reading it through. A world backup with something before it is refused. `check`
+  lists entries from the central directory alone (`by_index_data`), reading no local
+  header. Files of 2 GiB or more are written with zip64 sizes: a deflated file just
+  under 4 GiB that doesn't compress would otherwise overflow its 32-bit sizes and fail
+  every backup of its world. Storage's clean-up of deleted instances' backups takes an
+  instance's lock only when it has some, so a long job of a live instance doesn't hold
+  it up. Storage sizes the world backups folder once,
+  in its scan (`WorldBackups::usage` leaves `bytes` to it).
+- **Window details.** Back up a world's picker, progress and result name a world by its
+  name, with its folder when another world has the same name ("New World (New World
+  (1))"). A world's label in Settings shows only with its card, so a search never leaves a
+  label without rows. The Worlds tab's world backup rows say "N files left out" as
+  Settings' do, and Delete there waits only for the tab's job, not for the game to stop
+  (deleting a zip doesn't touch the world). The restore confirmation's wording (whether
+  the world is there) comes from the list's background read, not a look at the disk.
+  Its done message names the safety backup ("The world as it was is in the world backup
+  “…”"), as the Worlds tab's snapshot restore names its safety snapshot; its title,
+  "Restore <world>", is not a question, as it stays over that message (as Restore
+  <snapshot> does). When the Worlds tab refuses a job because another one writes the
+  instance's files, it says so ("Wait for the instance's files to finish changing"), as
+  the dialog does, rather than to wait for a task it doesn't show.
+  `worlds.delete`, `rename` and the other world changes in the control API are refused
+  while a world backup job of the instance runs or the window's jobs write its files.
+- **Words.** "World backup" is the zip and "snapshot" the image everywhere in the
+  Launcher: the Worlds tab's button that opens a world's panel is "Backups & snapshots"
+  (counting its world backups and the snapshots holding it), the after-play hints say a
+  snapshot copies the whole instance folder, the Worlds tab's snapshot rows say
+  "Restore…" and "Restore as a new world" as its world backup rows do, the confirmation
+  "Restore <world> from this snapshot?" (a snapshot of the instance is taken first) with
+  "Snapshot and restore", and the job "Restoring the world from the snapshot". A modpack
+  update's replaced files are "kept inside the instance's folder, in backups/", never
+  "the instance's backups". Storage's row says how many world backups are deleted
+  instances' only when some are. `labels::backed_up` ("Backed up <world>") is gone.
+- **API and CLI names.** `world_backups.list`, `create`, `restore`, `delete`; job kind
+  `world_backups`; `worlds.backups` became `worlds.snapshots`, `worlds.restore` became
+  `worlds.restore_snapshot` (mode `new` or `replace`, as `world_backups.restore`; both
+  default to `new` and both are destructive in `meta.methods`), `worlds.backup` is gone, and
+  `worlds.list`'s `backups` became `world_backups` and `snapshots`. The CLI follows
+  (`world-backups …`, `worlds snapshots`, `worlds restore-snapshot`). Storage's clean-up is
+  `deleted-world-backups`; `storage.show` has `world_backups` (`bytes`, `backups`,
+  `deleted`, `deleted_bytes`), and the world backups folder isn't "other".
+- **Test hook.** `WorldBackups::before_swap` (tests only) runs just before an in-place
+  restore's swap, to write into the world meanwhile and check what is kept aside.
+- **Only within the limits a restore reads.** A world backup is made only when the zip it
+  would write passes the zip check a restore runs first: at most 500,000 entries (the top
+  folder, every folder and every file) and 64 GiB of files, compared with what
+  `worlds::zip::plan` lists (`ZipPlan::within`) before anything is written. Otherwise the
+  backup would be listed like any other and refused the day it is needed. A larger world
+  is refused with a message suggesting a snapshot. An in-place restore over a world past
+  those limits is refused before anything changes (its safety backup is checked the same
+  way and could never be restored), naming restore as a new world, which needs no safety
+  backup. Restores check zips against the same limits (`WorldBackups::limits`, smaller in
+  tests through `fake_limits`).
+- **The shared crate** gains only `lodestone_image::store::flush` (`write_out`,
+  `write_out_dir`, `full_flush`: public wrappers of the store's batch flush), an additive
+  change. The Host's world backups ("WB1 decisions") added the same module, word for word,
+  so the two apps share one.
+
+### ML decisions
+
+Magic localhost for every server on the Launcher's Lodestone Host page was built
+alongside these milestones but is not part of instance images: `lodestone_image` and
+this format are unchanged (nothing added, renamed or removed). Its decisions (ports saved
+in `servers.json`, forwarders for servers on other hosts, a server on this computer at
+its own port) are in `launcher/docs/friends.md`, "Magic localhost for every server".

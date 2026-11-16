@@ -15,6 +15,8 @@
 //! - [`lan`]: worlds opened to LAN on this network;
 //! - [`lan_open`]: the worlds this computer has open to LAN, for friends;
 //! - [`local_claim`]: "Connect as owner" for a core on this computer;
+//! - [`magic_localhost`]: an address on this computer for every server on the Lodestone
+//!   Host page, which any Minecraft client can join;
 //! - [`connect`] and [`friends`]: servers friends share with Lodestone Connect invite
 //!   links, joined through a direct tunnel, and the ones the user joined;
 //! - [`connect_service`]: which Lodestone Connect introduction service the apps use;
@@ -34,6 +36,7 @@ pub mod lan_open;
 pub mod link;
 pub mod live;
 pub mod local_claim;
+pub mod magic_localhost;
 pub mod models;
 pub mod player_image;
 pub mod server_list;
@@ -41,6 +44,7 @@ pub mod store;
 pub mod sync;
 pub mod tls;
 pub mod trust;
+pub mod world_download;
 
 pub use client::{CoreClient, CoreError, PackFetch, parse_address};
 pub use models::{

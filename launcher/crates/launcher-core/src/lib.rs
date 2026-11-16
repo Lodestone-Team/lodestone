@@ -44,6 +44,7 @@ pub mod trace;
 pub mod ui_skin;
 pub mod update;
 pub mod wording;
+pub mod world_backups;
 pub mod worlds;
 
 pub use secret::{MemorySecretStore, Secret, SecretStore};

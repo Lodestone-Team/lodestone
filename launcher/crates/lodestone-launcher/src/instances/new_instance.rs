@@ -687,7 +687,11 @@ fn code_preview(code: &ShareCode) -> impl IntoElement {
         )
 }
 
-fn form_row(name: impl Into<SharedString>, control: impl IntoElement) -> impl IntoElement {
+/// A dialog field: its name in a fixed-width column on the left, the control filling the rest.
+pub(super) fn form_row(
+    name: impl Into<SharedString>,
+    control: impl IntoElement,
+) -> impl IntoElement {
     div()
         .flex()
         .flex_row()

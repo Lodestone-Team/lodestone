@@ -93,7 +93,7 @@ fn conflict(message: impl Into<String>) -> Error {
 }
 
 fn not_found() -> Error {
-    err(ErrorKind::NotFound, "Backup not found")
+    err(ErrorKind::NotFound, "Snapshot not found")
 }
 
 /// Holds the image store's collections off (see the module), waiting for one that runs.
@@ -132,14 +132,14 @@ impl LiveServer for MinecraftInstance {
 pub struct JobGuards {
     _job: OwnedMutexGuard<()>,
     /// `lock_stopped`: the server is stopped and can't start. `None` for a live backup.
-    stopped: Option<OwnedMutexGuard<()>>,
+    pub(crate) stopped: Option<OwnedMutexGuard<()>>,
     /// The server's mods lock, for a restore.
     _mods: Option<OwnedMutexGuard<()>>,
 }
 
 /// A running backup or restore: its progression event and what `GET …/backups` shows.
 #[derive(Clone)]
-struct Job(Arc<JobInner>);
+pub(crate) struct Job(Arc<JobInner>);
 
 struct JobInner {
     broadcaster: EventBroadcaster,
@@ -159,7 +159,7 @@ struct JobProgress {
 }
 
 impl Job {
-    fn new(
+    pub(crate) fn new(
         broadcaster: EventBroadcaster,
         kind: JobKind,
         title: String,
@@ -188,12 +188,12 @@ impl Job {
         }))
     }
 
-    fn task_id(&self) -> String {
+    pub(crate) fn task_id(&self) -> String {
         self.0.event_id.inner().to_string()
     }
 
     /// Sends the Start event, once.
-    fn begin(&self) {
+    pub(crate) fn begin(&self) {
         let start = self
             .0
             .pending_start
@@ -218,6 +218,15 @@ impl Job {
             .started
     }
 
+    fn kind(&self) -> JobKind {
+        self.0
+            .progress
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .status
+            .kind
+    }
+
     /// The job as the list shows it, once it has started.
     fn status(&self) -> Option<RunningJob> {
         let progress = self.0.progress.lock().unwrap_or_else(|e| e.into_inner());
@@ -227,7 +236,7 @@ impl Job {
     /// Moves the progress to `at` (0..=100; it never goes back), with a new message if
     /// given. The update events carry deltas that add up to 100; they are sent when the
     /// message changes, a whole percent was made, or a while passed.
-    fn report(&self, at: f64, message: Option<&str>) {
+    pub(crate) fn report(&self, at: f64, message: Option<&str>) {
         let mut progress = self.0.progress.lock().unwrap_or_else(|e| e.into_inner());
         let at = at.clamp(progress.status.progress, 100.0);
         let new_message = message.is_some_and(|m| m != progress.status.message);
@@ -254,7 +263,7 @@ impl Job {
     }
 
     /// Sends the End event, if the Start was sent.
-    fn end(&self, success: bool, message: &str, value: ProgressionEndValue) {
+    pub(crate) fn end(&self, success: bool, message: &str, value: ProgressionEndValue) {
         if !self.started() {
             return;
         }
@@ -270,7 +279,7 @@ impl Job {
     }
 
     /// The part of the job from `base` to `base + span` percent.
-    fn phase(&self, base: f64, span: f64) -> Phase {
+    pub(crate) fn phase(&self, base: f64, span: f64) -> Phase {
         Phase {
             job: self.clone(),
             base,
@@ -281,21 +290,21 @@ impl Job {
 
 /// A part of a job's progress: 0..=100 within the phase maps onto its share of the job.
 #[derive(Clone)]
-struct Phase {
+pub(crate) struct Phase {
     job: Job,
     base: f64,
     span: f64,
 }
 
 impl Phase {
-    fn report(&self, at: f64, message: Option<&str>) {
+    pub(crate) fn report(&self, at: f64, message: Option<&str>) {
         self.job.report(
             self.base + self.span * at.clamp(0.0, 100.0) / 100.0,
             message,
         );
     }
 
-    fn begin(&self) {
+    pub(crate) fn begin(&self) {
         self.job.begin();
     }
 }
@@ -342,8 +351,8 @@ fn skips_unchanged(kind: BackupKind, named: bool, previous: &BackupRecord) -> bo
 fn image_label(kind: BackupKind, name: Option<&str>) -> String {
     match (name, kind) {
         (Some(name), _) => name.to_string(),
-        (None, BackupKind::Manual) => "Backup".to_string(),
-        (None, BackupKind::Scheduled) => "Scheduled backup".to_string(),
+        (None, BackupKind::Manual) => "Snapshot".to_string(),
+        (None, BackupKind::Scheduled) => "Scheduled snapshot".to_string(),
         (None, BackupKind::BeforeRestore) => "Before a restore".to_string(),
     }
 }
@@ -435,7 +444,7 @@ impl From<Error> for RestoreFailure {
 }
 
 /// How a swap ended, as far as the server folder goes.
-enum SwapOutcome {
+pub(crate) enum SwapOutcome {
     /// The swap was undone: the folder is as it was.
     RolledBack(Error),
     /// The folder may be half swapped: its journal is left for the repair at the next start.
@@ -445,7 +454,7 @@ enum SwapOutcome {
 /// The swap's result, from its blocking task. A task that panicked or was cancelled
 /// stopped somewhere in the renames, so the folder may be half swapped: that is broken,
 /// never unchanged.
-fn swap_outcome(
+pub(crate) fn swap_outcome(
     joined: Result<Result<(), SwapError>, tokio::task::JoinError>,
 ) -> Result<(), SwapOutcome> {
     match joined {
@@ -779,25 +788,32 @@ impl BackupService {
         lock_in(&self.jobs, uuid).try_lock_owned().ok()
     }
 
-    /// Whether a backup or restore of the server is running.
-    /// Whether a backup is being restored into the server (in place) now.
+    /// Whether a snapshot or a world backup is being restored into the server (in place)
+    /// now.
     pub fn restoring(&self, uuid: &InstanceUuid) -> bool {
-        self.running_job(uuid)
-            .is_some_and(|job| job.kind == JobKind::Restore)
+        // a world restore registers before its Start event, while it plans, so this
+        // doesn't wait for the list to show it
+        self.running
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(uuid)
+            .is_some_and(|job| matches!(job.kind(), JobKind::Restore | JobKind::WorldRestore))
     }
 
+    /// Whether a snapshot, a world backup or either's restore of the server is running.
     pub fn job_running(&self, uuid: &InstanceUuid) -> bool {
         lock_in(&self.jobs, uuid).try_lock().is_err()
     }
 
-    fn lock_job(&self, uuid: &InstanceUuid) -> Result<OwnedMutexGuard<()>, Error> {
-        self.try_lock_job(uuid)
-            .ok_or_else(|| conflict("A backup or restore of this server is already running"))
+    pub(crate) fn lock_job(&self, uuid: &InstanceUuid) -> Result<OwnedMutexGuard<()>, Error> {
+        self.try_lock_job(uuid).ok_or_else(|| {
+            conflict("A snapshot, world backup or restore of this server is already running")
+        })
     }
 
     /// The job mutex, and `lock_stopped` when the server is stopped. A running server is
     /// backed up live; one starting or stopping is refused.
-    async fn take_guards(
+    pub(crate) async fn take_guards(
         &self,
         instance: &MinecraftInstance,
         what: &str,
@@ -820,21 +836,51 @@ impl BackupService {
         })
     }
 
-    fn register(&self, uuid: &InstanceUuid, job: &Job) {
+    pub(crate) fn register(&self, uuid: &InstanceUuid, job: &Job) {
         self.running
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .insert(uuid.clone(), job.clone());
     }
 
-    fn unregister(&self, uuid: &InstanceUuid) {
-        self.running
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(uuid);
+    /// Forgets the server's running job, only while it is `task_id`: every job ends after
+    /// it let go of the job lock, so it must never remove the next job's entry.
+    pub(crate) fn unregister_task(&self, uuid: &InstanceUuid, task_id: &str) {
+        let mut running = self.running.lock().unwrap_or_else(|e| e.into_inner());
+        if running
+            .get(uuid)
+            .is_some_and(|job| job.task_id() == task_id)
+        {
+            running.remove(uuid);
+        }
     }
 
-    fn running_job(&self, uuid: &InstanceUuid) -> Option<RunningJob> {
+    /// Whether the server's last restore couldn't be undone, so it stays locked until the
+    /// core restarts and repairs it.
+    pub(crate) fn is_broken(&self, uuid: &InstanceUuid) -> bool {
+        self.broken
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains_key(uuid)
+            || self
+                .unrepaired
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .contains(uuid)
+    }
+
+    /// Keeps a server whose restore couldn't be undone from starting until the core
+    /// restarts and repairs it, with its `lock_stopped` guard.
+    pub(crate) fn mark_broken(&self, uuid: &InstanceUuid, stopped: OwnedMutexGuard<()>) {
+        self.broken
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(uuid.clone(), stopped);
+    }
+
+    /// The job that holds the server's job mutex, once it has started: a snapshot, a world
+    /// backup or either's restore.
+    pub(crate) fn running_job(&self, uuid: &InstanceUuid) -> Option<RunningJob> {
         self.running
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -993,7 +1039,7 @@ impl BackupService {
                 .map_err(|e| {
                     err(
                         ErrorKind::NotFound,
-                        format!("The backup's image can't be read: {e}"),
+                        format!("The snapshot's image can't be read: {e}"),
                     )
                 })?;
             let content = image
@@ -1131,7 +1177,7 @@ impl BackupService {
                                 warn!("Failed to delete the image {} of {uuid}: {e}", record.image);
                                 failure.get_or_insert_with(|| {
                                     Error::from(eyre!(
-                                        "Failed to delete the backup {}: {e}",
+                                        "Failed to delete the snapshot {}: {e}",
                                         record.id
                                     ))
                                 });
@@ -1361,7 +1407,7 @@ impl BackupService {
                     message.to_string(),
                 ))
             };
-            console("Backing up…");
+            console("Taking a snapshot…");
             let token = self.cancel.clone();
             let reading = phase.job.phase(phase.base, phase.span * 0.7);
             let rest = phase
@@ -1405,9 +1451,9 @@ impl BackupService {
                 Err(e) => Err(e),
             };
             console(if result.is_ok() {
-                "Backup done"
+                "Snapshot done"
             } else {
-                "Backup failed"
+                "Snapshot failed"
             });
             result?
         } else {
@@ -1417,7 +1463,7 @@ impl BackupService {
             )
         };
 
-        phase.report(95.0, Some("Saving the backup"));
+        phase.report(95.0, Some("Saving the snapshot"));
         let saved = self
             .save(
                 &uuid,
@@ -1562,7 +1608,7 @@ impl BackupService {
             images.save_manifest(id.as_ref(), &to_save).map_err(|e| {
                 err(
                     ErrorKind::Internal,
-                    format!("Failed to save the backup's image: {e}"),
+                    format!("Failed to save the snapshot's image: {e}"),
                 )
             })?;
             store.save_records(&id, &records)
@@ -1577,9 +1623,9 @@ impl BackupService {
     /// The end message of a backup.
     fn backup_message(server_name: &str, created: &Created) -> String {
         if created.image.is_none() {
-            return "Nothing changed since the last backup".to_string();
+            return "Nothing changed since the last snapshot".to_string();
         }
-        let mut message = format!("Backed up {server_name}");
+        let mut message = format!("Took a snapshot of {server_name}");
         if created.unreadable == 1 {
             message.push_str(". 1 file couldn't be read");
         } else if created.unreadable > 1 {
@@ -1587,13 +1633,13 @@ impl BackupService {
         }
         if created.live && !created.quiesced {
             message.push_str(
-                ". The server didn't confirm it had saved, so the backup may be inconsistent",
+                ". The server didn't confirm it had saved, so the snapshot may be inconsistent",
             );
         }
         message
     }
 
-    fn failure_message(&self, what: &str, e: &Error) -> String {
+    pub(crate) fn failure_message(&self, what: &str, e: &Error) -> String {
         if self.cancel.is_cancelled() {
             format!("{what} was stopped because Lodestone is shutting down")
         } else {
@@ -1625,7 +1671,7 @@ impl BackupService {
         if recent {
             return Err(err(
                 ErrorKind::TooManyRequests,
-                "Wait a minute between manual backups",
+                "Wait a minute between manual snapshots",
             ));
         }
         let guards = self.take_guards(&instance, "backing it up").await?;
@@ -1637,7 +1683,7 @@ impl BackupService {
         let job = Job::new(
             state.event_broadcaster.clone(),
             JobKind::Backup,
-            format!("Backing up {server_name}"),
+            format!("Taking a snapshot of {server_name}"),
             ProgressionStartValue::Backup {
                 instance_uuid: uuid.clone(),
             },
@@ -1658,7 +1704,7 @@ impl BackupService {
                     Self::backup_message(&server_name, created),
                     Some(created.id.clone()),
                 ),
-                Err(e) => (false, this.failure_message("The backup", e), None),
+                Err(e) => (false, this.failure_message("The snapshot", e), None),
             };
             job.end(
                 success,
@@ -1670,7 +1716,7 @@ impl BackupService {
                     message: message.clone(),
                 },
             );
-            this.unregister(&uuid);
+            this.unregister_task(&uuid, &job.task_id());
         });
         Ok(task_id)
     }
@@ -1717,7 +1763,7 @@ impl BackupService {
         let job = Job::new(
             state.event_broadcaster.clone(),
             JobKind::Backup,
-            format!("Backing up {server_name}"),
+            format!("Taking a snapshot of {server_name}"),
             ProgressionStartValue::Backup {
                 instance_uuid: uuid.clone(),
             },
@@ -1745,7 +1791,7 @@ impl BackupService {
             Err(e) => {
                 // a failure is told even when it came before any change was found
                 job.begin();
-                let message = self.failure_message("The scheduled backup", e);
+                let message = self.failure_message("The scheduled snapshot", e);
                 job.end(
                     false,
                     &message,
@@ -1758,7 +1804,7 @@ impl BackupService {
                 );
             }
         }
-        self.unregister(&uuid);
+        self.unregister_task(&uuid, &job.task_id());
         if let Ok(Created {
             image: Some(_), id, ..
         }) = &result
@@ -1853,7 +1899,7 @@ impl BackupService {
         let was_running = match instance.state().await {
             State::Running if !may_stop => {
                 return Err(conflict(
-                    "The server started meanwhile; stop it before restoring a backup",
+                    "The server started meanwhile; stop it before restoring a snapshot",
                 ))
             }
             State::Running => true,
@@ -1876,7 +1922,7 @@ impl BackupService {
             _mods: Some(mods),
         };
         if !was_running {
-            guards.stopped = Some(instance.lock_stopped("restoring a backup").await?);
+            guards.stopped = Some(instance.lock_stopped("restoring a snapshot").await?);
         }
         // the restore keeps using this policy: the check holds only for what it excludes
         let policy_exclude = self.policy(&uuid).await?.exclude;
@@ -1935,7 +1981,7 @@ impl BackupService {
                     message: message.clone(),
                 },
             );
-            this.unregister(&uuid);
+            this.unregister_task(&uuid, &job.task_id());
             if let Some(safety) = safety {
                 this.apply_retention(&uuid, Some(&safety)).await;
             }
@@ -2063,7 +2109,7 @@ impl BackupService {
             return Err(err(
                 ErrorKind::Internal,
                 format!(
-                    "The backup was restored, but the server's settings couldn't be read again: {}",
+                    "The snapshot was restored, but the server's settings couldn't be read again: {}",
                     e.source
                 ),
             ));
@@ -2123,7 +2169,7 @@ impl BackupService {
         let uuid = instance.uuid().await;
         let root = instance.path().await;
         if was_running {
-            guards.stopped = Some(instance.lock_stopped("restoring a backup").await?);
+            guards.stopped = Some(instance.lock_stopped("restoring a snapshot").await?);
         }
         // the content image first, so the safety backup links to the content as it is; then
         // the restore holds the content until its own image is recorded
@@ -2134,7 +2180,7 @@ impl BackupService {
                 self.images
                     .begin(
                         &uuid,
-                        format!("Restored backup “{}”", backup_label(&backup.record)),
+                        format!("Restored snapshot “{}”", backup_label(&backup.record)),
                     )
                     .await,
             ),
@@ -2174,7 +2220,7 @@ impl BackupService {
 
         let safety_share = if request.safety_backup { 40.0 } else { 0.0 };
         let safety = if request.safety_backup {
-            job.report(0.0, Some("Backing up the server as it is now"));
+            job.report(0.0, Some("Taking a snapshot of the server as it is now"));
             let created = self
                 .create_locked(
                     state,
@@ -2197,9 +2243,9 @@ impl BackupService {
                         n => format!(" and {n} other files"),
                     };
                     return Err(conflict(format!(
-                        "Couldn't back up {first}{others}, which the restore would replace, \
-                         so it couldn't be undone. Check that Lodestone can read them, or \
-                         restore without the safety backup"
+                        "Couldn't include {first}{others} in the safety snapshot, so the \
+                         restore couldn't be undone. Check that Lodestone can read them, or \
+                         restore without the safety snapshot"
                     ))
                     .into());
                 }
@@ -2283,10 +2329,7 @@ impl BackupService {
                 // the journal stays for the repair at the next start; until then the server
                 // stays stopped
                 if let Some(stopped) = guards.stopped.take() {
-                    self.broken
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .insert(uuid.clone(), stopped);
+                    self.mark_broken(&uuid, stopped);
                 }
                 Err(RestoreFailure::Broken(err(
                     ErrorKind::Internal,
@@ -2316,7 +2359,7 @@ impl BackupService {
         let job = Job::new(
             state.event_broadcaster.clone(),
             JobKind::Restore,
-            format!("Restoring a backup as {}", request.name),
+            format!("Restoring a snapshot as {}", request.name),
             ProgressionStartValue::InstanceCreation {
                 instance_uuid: new_uuid.clone(),
             },
@@ -2392,15 +2435,16 @@ impl BackupService {
                     state.instances.insert(new_uuid.clone(), instance.into());
                     job.end(
                         true,
-                        &format!("Restored the backup as {}", request.name),
-                        ProgressionEndValue::InstanceCreation(info),
+                        &format!("Restored the snapshot as {}", request.name),
+                        ProgressionEndValue::InstanceCreation(info.into()),
                     );
                 }
                 Err(e) => {
                     if let Some(port) = port {
                         state.port_manager.lock().await.deallocate(port);
                     }
-                    let message = this.failure_message("Restoring the backup as a new server", &e);
+                    let message =
+                        this.failure_message("Restoring the snapshot as a new server", &e);
                     // the creation's End without a value, as a failed creation sends
                     job.0.broadcaster.send(Event::new_progression_event_end(
                         job.0.event_id.clone(),
@@ -2522,26 +2566,32 @@ impl BackupService {
     /// from verified objects. Returns the zip, the folder that owns it and its size.
     ///
     /// Stops at the next file once `cancel` (a child of [`Self::cancel_token`]) is
-    /// cancelled: the handler does that when the request is dropped.
-    pub async fn zip(
+    /// cancelled: the handler does that when the request is dropped. `keep` (the user's
+    /// place among the files being written for download) goes into the blocking work and
+    /// comes back with the zip, so it is held as long as the write runs, even when the
+    /// request is dropped first.
+    pub async fn zip<K: Send + 'static>(
         self: &Arc<Self>,
         uuid: &InstanceUuid,
         id: &str,
         tmp_dir: PathBuf,
         file_name: String,
         cancel: CancellationToken,
-    ) -> Result<(PathBuf, tempfile::TempDir, u64), Error> {
+        keep: K,
+    ) -> Result<(PathBuf, tempfile::TempDir, u64, K), Error> {
         let hold = hold_off_collection(self.image_store()).await?;
         let backup = self.load(uuid, id).await?;
         let files = backup.files_on_disk()?;
         let store = self.image_store();
         let token = cancel;
+        let large_writes = self.images.large_writes.clone();
         let zipped = blocking(move || {
             let total = files
                 .iter()
                 .map(|f| f.entry.size)
                 .fold(0, u64::saturating_add);
-            require_free_space(&tmp_dir, total, "to download the backup")?;
+            // held against the core's other large writes at the same time
+            let _space = large_writes.require(&tmp_dir, total, "to download the snapshot")?;
             std::fs::create_dir_all(&tmp_dir).context("Failed to create the temporary folder")?;
             let temp_dir =
                 tempfile::tempdir_in(&tmp_dir).context("Failed to create a temporary folder")?;
@@ -2567,7 +2617,7 @@ impl BackupService {
                     .map_err(|e| {
                         err(
                             ErrorKind::Internal,
-                            format!("The backup's copy of {} can't be read: {e}", file.disk),
+                            format!("The snapshot's copy of {} can't be read: {e}", file.disk),
                         )
                     })?;
             }
@@ -2577,11 +2627,75 @@ impl BackupService {
             let size = std::fs::metadata(&out)
                 .context("Failed to read the zip")?
                 .len();
-            Ok((out, temp_dir, size))
+            Ok((out, temp_dir, size, keep))
         })
         .await;
         drop(hold);
         zipped
+    }
+}
+
+impl BackupService {
+    /// Writes a backup as a `.lodeimg` file for another computer
+    /// ([`crate::images::share::export`]) into a new temporary folder in `tmp_dir`, telling
+    /// `progress` the bytes read so far and in all. Returns what it wrote and the folder
+    /// that owns the file. Collections are held off from the cleaned copies it stores to
+    /// the end of the write, which only reads the store, whether or not the caller still
+    /// waits for it.
+    ///
+    /// Stops at the next object once `cancel` (a child of [`Self::cancel_token`]) is
+    /// cancelled: the handler does that when the request is dropped. `keep` is held as
+    /// [`Self::zip`] holds it.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn export<K: Send + 'static>(
+        self: &Arc<Self>,
+        uuid: &InstanceUuid,
+        id: &str,
+        server_name: String,
+        include_plugin_data: bool,
+        tmp_dir: PathBuf,
+        file_name: String,
+        cancel: CancellationToken,
+        mut progress: impl FnMut(u64, u64) + Send + 'static,
+        keep: K,
+    ) -> Result<
+        (
+            crate::images::share::export::BackupExport,
+            tempfile::TempDir,
+            K,
+        ),
+        Error,
+    > {
+        use crate::images::share::export;
+        let hold = hold_off_collection(self.image_store()).await?;
+        let backup = self.load(uuid, id).await?;
+        let store = self.image_store();
+        let large_writes = self.images.large_writes.clone();
+        // the hold lives in the blocking work, so it lasts exactly as long as the store is
+        // read, even when the request (and this future) is dropped first
+        blocking(move || {
+            let _hold = hold;
+            let prepared = export::prepare(&store, &backup, &server_name, include_plugin_data)?;
+            // held against the core's other large writes at the same time
+            let _space = large_writes.require(
+                &tmp_dir,
+                prepared.carried_bytes()?,
+                "to export the snapshot",
+            )?;
+            std::fs::create_dir_all(&tmp_dir).context("Failed to create the temporary folder")?;
+            let temp_dir =
+                tempfile::tempdir_in(&tmp_dir).context("Failed to create a temporary folder")?;
+            let out = temp_dir.path().join(&file_name);
+            let written = export::write(
+                &store,
+                &prepared,
+                &out,
+                &|| cancel.is_cancelled(),
+                &mut progress,
+            )?;
+            Ok((written, temp_dir, keep))
+        })
+        .await
     }
 }
 

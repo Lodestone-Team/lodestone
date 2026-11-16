@@ -134,7 +134,9 @@ pub fn text(message: M) -> &'static str {
         M::UnlinkNote => "Jouer ne rejoindra plus le serveur. Les mods restent.",
 
         M::ChangeSetting => "Modifier",
-        M::JavaMemoryLead => "Les valeurs par défaut viennent des paramètres du launcher.",
+        M::JavaMemoryLead => {
+            "La mémoire par défaut se règle dans Paramètres › Paramètres par défaut des instances."
+        }
         M::Memory => "Mémoire",
         M::Checking => "Vérification…",
         M::JavaFound => "Java {major} (version {version})",
@@ -164,7 +166,6 @@ pub fn text(message: M) -> &'static str {
         M::NoSnapshots => "Aucun instantané pour l’instant.",
         M::SnapshotSizes => "{total}, dont {new} nouveaux",
         M::SnapshotNothingNew => "{total}, rien de nouveau",
-        M::SnapshotWithMods => "Avec les mods",
         M::PreparingFile => "Préparation du fichier…",
         M::DragToShare => "Faites glisser le fichier dans une autre app, ou\u{a0}:",
         M::SaveAsEllipsis => "Enregistrer sous…",
@@ -177,25 +178,10 @@ pub fn text(message: M) -> &'static str {
         M::ImportingSnapshot => "Création de l’instance…",
         M::ReadingSnapshot => "Lecture de l’instantané…",
         M::ImportSnapshotTitle => "Nouvelle instance depuis un instantané",
+        M::ImportServerTitle => "Nouvelle instance depuis le monde d’un serveur",
         M::CreateInstanceButton => "Créer l’instance",
         M::SnapshotGameRunning => "Arrêtez d’abord le jeu.",
-        M::SnapshotsHint => {
-            "Des copies des mondes et fichiers de cette instance, pour revenir en arrière ou partager."
-        }
-        M::SnapshotIncludeEverything => "Inclure les mods et les configurations",
-        M::SnapshotIncludeEverythingHint => {
-            "Sans cela, l’instantané garde les mondes et les autres fichiers, et retient les mods avec lesquels ils tournaient."
-        }
         M::SnapshotAfterPlay => "Prendre un instantané après chaque partie",
-        M::SnapshotAfterPlayHint => {
-            "Copie les mondes après chaque partie. Suit Paramètres › Paramètres par défaut des instances, où c’est désactivé sauf si vous l’activez."
-        }
-        M::SnapshotAfterPlayDefaultHint => {
-            "Copie les mondes après chaque partie, pour les instances qui ne le règlent pas elles-mêmes. Désactivé sauf si vous l’activez."
-        }
-        M::SnapshotKeepHint => {
-            "Les instantanés pris par le Launcher sont gardés un temps\u{a0}: les {last} derniers, un par jour pendant {days} jours et un par semaine pendant {weeks} semaines. Les vôtres restent jusqu’à ce que vous les supprimiez."
-        }
         M::BadgeAutomatic => "Automatique",
         M::BadgeAfterPlaying => "Après une partie",
         M::BadgeImported => "Importé",
@@ -246,6 +232,17 @@ pub fn text(message: M) -> &'static str {
         M::ImportNotDownloadable => {
             "Leurs auteurs n’autorisent pas le téléchargement, ils sont donc laissés de côté\u{a0}: {files}."
         }
+        M::ImportServerOnlyMods => {
+            "Mods que seul le serveur utilise, laissés de côté\u{a0}: {names}"
+        }
+        M::ImportServerPack => {
+            "Les fichiers que seuls les joueurs du serveur utilisent viennent de son modpack sur Modrinth et peuvent contenir des mods\u{a0}: des programmes qui s’exécutent au démarrage du jeu. Ne téléchargez que des mondes de serveurs de confiance."
+        }
+        M::ImportServerPackCurseforge => {
+            "Le modpack du serveur vient de CurseForge, qui ne peut pas encore être téléchargé depuis un serveur\u{a0}: les fichiers que seuls ses joueurs utilisent ne viendront pas."
+        }
+        M::ImportHostLeftOut => "L’hôte a laissé ceux-ci hors du fichier\u{a0}: {files}",
+        M::ImportHostBlanked => "L’hôte a vidé ces secrets\u{a0}: {names}",
         M::ImportSpace => "Nécessite {size} d’espace disque, dont 1\u{a0}Go de marge.",
         M::ImportNeedsModrinth => {
             "Modrinth est injoignable\u{a0}: les mods du fichier ne peuvent pas être téléchargés."
@@ -269,9 +266,7 @@ pub fn text(message: M) -> &'static str {
         M::Duplicate => "Dupliquer",
         M::Duplicating => "Duplication…",
         M::ChangeVersionOrLoader => "Une autre version ou un autre chargeur",
-        M::ChangeVersionOrLoaderHint => {
-            "Une instance garde la version et le chargeur choisis à sa création. Une copie peut en avoir d’autres."
-        }
+        M::ChangeVersionOrLoaderHint => "Crée une copie. Cette instance reste telle quelle.",
         M::CopyAs => "Copier avec une autre version ou un autre chargeur",
         M::CopyAsButton => "Copier…",
         M::CopyAsKeywords => {
@@ -354,9 +349,10 @@ pub fn text(message: M) -> &'static str {
         M::DeleteHint => "Y compris ses mondes et ses mods.",
         M::DeleteButton => "Supprimer…",
 
-        M::SharedLead => "Gardez vos réglages synchronisés entre vos instances.",
+        M::SharedLead => {
+            "Les touches, la vidéo, le son et les autres options du jeu, identiques dans chaque instance qui les partage."
+        }
         M::UseSharedSettings => "Utiliser les paramètres partagés",
-        M::SharingOff => "Cette instance garde ses propres options.",
         M::SharingFrom => "Reçoit les changements faits en jeu dans {name}.",
         M::SharingMain => "Les changements faits en jeu ici mettent à jour toutes les instances.",
         M::SharingNoMain => {
@@ -364,7 +360,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::MainInstance => "Instance principale",
         M::MainInstanceHint => {
-            "Les réglages modifiés en jeu dans votre instance principale sont copiés dans chaque instance qui les partage, à son prochain démarrage. Une seule instance est principale."
+            "Ses changements faits en jeu parviennent aux autres instances qui partagent les réglages à leur prochain démarrage."
         }
         M::IsMainInstance => "C’est votre instance principale",
         M::MakeMain => "Rendre principale",
@@ -452,11 +448,9 @@ pub fn text(message: M) -> &'static str {
         M::AddGroupThere => "Déjà dans l’instance ({count})",
         M::AddedModpacks => "Modpacks ajoutés",
         M::AddModpackRow => "Ajouter un modpack",
-        M::AddModpackHint => {
-            "Ajoutez les mods et configurations d’un modpack à cette instance, à côté des siens."
-        }
+        M::AddModpackHint => "Rien de ce que l’instance contient n’est remplacé.",
         M::AddModpackServerHint => {
-            "Ajoutez les mods d’un modpack, comme des optimisations côté client, à côté de ceux de {server}. Les mods du serveur restent tels quels."
+            "Pour des mods client, comme des optimisations. Les mods de {server} restent tels quels."
         }
         M::AddModpackEllipsis => "Ajouter un modpack…",
         M::RemoveAddedModpackNote => {
@@ -468,6 +462,16 @@ pub fn text(message: M) -> &'static str {
         M::ImportLeftOutTitle => "Certains fichiers n’ont pas été importés",
         M::ImportLeftOut => {
             "Ils n’ont pas pu être téléchargés, donc la nouvelle instance ne les a pas\u{a0}: {files}."
+        }
+        M::ImportPackSkippedTitle => "Il manque les fichiers du modpack",
+        M::ImportPackSkipped => {
+            "Le modpack du serveur n’a pas pu être téléchargé ou installé (pas de connexion, pas assez d’espace libre, ou un fichier qui n’a pas passé sa vérification), donc les fichiers que seuls ses joueurs utilisent ne sont pas dans la nouvelle instance."
+        }
+        M::ImportPackSkippedGone => {
+            "Le modpack du serveur n’est plus sur Modrinth, donc les fichiers que seuls ses joueurs utilisent ne sont pas dans la nouvelle instance. Demandez au propriétaire du serveur de mettre à jour le modpack."
+        }
+        M::ImportPackSkippedCurseforge => {
+            "Le serveur repose sur un modpack CurseForge, qui ne peut pas encore être installé depuis un serveur, donc les fichiers que seuls ses joueurs utilisent ne sont pas dans la nouvelle instance."
         }
         M::RestoreKeptAside => {
             "Les fichiers écrits pendant la restauration sont conservés dans {folder}."
@@ -481,10 +485,34 @@ pub fn text(message: M) -> &'static str {
         M::ExportNotDownloadable => {
             "Ceux-ci ne peuvent pas être téléchargés, donc la personne qui importe le fichier ne les aura pas\u{a0}: {files}."
         }
-        M::SnapshotAfterPlayOwnHint => {
-            "Copie les mondes après chaque partie. Réglé pour cette instance."
-        }
         M::DeleteUnreadableNote => "Elles sont supprimées définitivement.",
+        M::SnapshotsGroup => "Instantanés enregistrés",
+        M::BackUpWorldTitle => "Sauvegarder un monde",
+        M::RestoreAsNewWorld => "Restaurer comme nouveau monde",
+        M::WorldBackupWorld => "Monde",
+        M::WorldBackupDefaultName => "Sauvegarde de monde",
+        M::WorldBackupBeforeRestoring => "Avant la restauration de «\u{a0}{name}\u{a0}»",
+        M::BackUpButton => "Sauvegarder",
+        M::BackingUpWorld => "Sauvegarde de {name}…",
+        M::WorldBackedUp => "{name} est sauvegardé.",
+        M::NoWorldsToBackUp => "Cette instance n’a pas encore de monde.",
+        M::RestoreWorldTitle => "Restaurer {world}",
+        M::RestoreWorldBody => {
+            "{world} revient à son état dans «\u{a0}{name}\u{a0}» ({when}). Le monde tel qu’il est maintenant est d’abord enregistré dans une autre sauvegarde de monde."
+        }
+        M::RestoreWorldGoneBody => {
+            "{world} n’est plus dans cette instance. Il revient tel qu’il était dans «\u{a0}{name}\u{a0}» ({when})."
+        }
+        M::SaveAndRestore => "Enregistrer et restaurer",
+        M::SavingWorld => "Enregistrement du monde tel qu’il est…",
+        M::UnpackingWorldBackup => "Décompression de la sauvegarde de monde…",
+        M::WorldRestored => "{world} est restauré.",
+        M::WorldRestoredSafety => {
+            "Le monde tel qu’il était est dans la sauvegarde de monde «\u{a0}{name}\u{a0}»."
+        }
+        M::WorldRestoredAsNew => "Restauré comme nouveau monde, {folder}.",
+        M::DeleteWorldBackupTitle => "Supprimer cette sauvegarde de monde\u{a0}?",
+        M::DeleteWorldBackupBody => "«\u{a0}{name}\u{a0}» est placé dans {trash}.",
     }
 }
 
@@ -567,6 +595,14 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::ImportCarriedMods => [
             "{count} d’entre eux est dans le fichier lui-même, et non téléchargé depuis Modrinth ou CurseForge\u{a0}: {names}",
             "{count} d’entre eux sont dans le fichier lui-même, et non téléchargés depuis Modrinth ou CurseForge\u{a0}: {names}",
+        ],
+        P::ImportFromServer => [
+            "Une sauvegarde du serveur {server}\u{a0}: son monde, avec les mods que reçoivent ses joueurs. {count} fichier du serveur n’est pas repris (paramètres, opérateurs et plugins du serveur).",
+            "Une sauvegarde du serveur {server}\u{a0}: son monde, avec les mods que reçoivent ses joueurs. {count} fichiers du serveur ne sont pas repris (paramètres, opérateurs et plugins du serveur).",
+        ],
+        P::WorldBackupLeftOut => [
+            "{count}\u{a0}fichier laissé de côté",
+            "{count}\u{a0}fichiers laissés de côté",
         ],
     }
 }

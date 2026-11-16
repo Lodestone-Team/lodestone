@@ -9,6 +9,7 @@ use launcher_core::cores::{
         plan::{PackChanges, Summary},
     },
     local_claim::{ClaimError, LocalCredentials},
+    magic_localhost::MagicPort,
     store::SavedCore,
     tls::{CertificatePin, format_fingerprint},
     trust::{Advisory, ModrinthMatch},
@@ -49,8 +50,19 @@ pub const SCENES: &[&str] = &[
     "servers-lan-join",
     "servers-host",
     "servers-host-owner",
-    "servers-host-progress",
-    "servers-host-done",
+    "servers-host-uploading",
+    "servers-host-summary",
+    "servers-host-summary-world",
+    "servers-host-summary-no-global",
+    "servers-host-creating",
+    "servers-host-outcome",
+    "servers-host-outcome-unlinked",
+    "servers-host-too-old",
+    "servers-host-still-creating",
+    "servers-download-world",
+    "servers-download-world-progress",
+    "servers-download-world-backup-forbidden",
+    "servers-download-world-backup-forbidden-none",
     "servers-certificate",
     "servers-certificate-changed",
     "servers-certificate-new",
@@ -62,6 +74,8 @@ pub const SCENES: &[&str] = &[
     "servers-shared-local",
     "servers-shared-local-gone",
     "servers-rows",
+    "servers-magic-localhost",
+    "servers-magic-port-taken",
     "servers-open-title",
     "servers-history-back",
     "servers-highlight",
@@ -102,12 +116,8 @@ const NEW_FINGERPRINT: &str = "A1B2C3D4E5F60718293A4B5C6D7E8F9011223344556677889
 pub fn has_instances(scene: &str) -> bool {
     matches!(
         scene,
-        "servers-lan-join"
-            | "servers-host"
-            | "servers-host-owner"
-            | "servers-host-progress"
-            | "servers-host-done"
-    )
+        "servers-lan-join" | "servers-host" | "servers-host-owner"
+    ) || scene.starts_with("servers-host-")
 }
 
 fn server(
@@ -188,25 +198,36 @@ fn home(signed_in: bool) -> (SavedCore, CoreStatus, bool) {
         signed_in.then_some("peter"),
     );
     core.set_trusted(true);
+    // each at its own port, as Magic localhost shows them
+    let at = |port: u32, server: ServerInstance| ServerInstance {
+        port: Some(port),
+        ..server
+    };
     let instances = vec![
         smp(),
-        server(
-            "creative",
-            "Creative world",
-            "1.21.1",
-            ServerLoader::Vanilla,
-            None,
-            ServerState::Stopped,
-            None,
+        at(
+            25566,
+            server(
+                "creative",
+                "Creative world",
+                "1.21.1",
+                ServerLoader::Vanilla,
+                None,
+                ServerState::Stopped,
+                None,
+            ),
         ),
-        server(
-            "atm",
-            "All the Mods",
-            "1.20.1",
-            ServerLoader::Forge,
-            Some("1.20.1-47.4.28"),
-            ServerState::Stopped,
-            None,
+        at(
+            25567,
+            server(
+                "atm",
+                "All the Mods",
+                "1.20.1",
+                ServerLoader::Forge,
+                Some("1.20.1-47.4.28"),
+                ServerState::Stopped,
+                None,
+            ),
         ),
     ];
     (
@@ -222,12 +243,19 @@ fn home(signed_in: bool) -> (SavedCore, CoreStatus, bool) {
 }
 
 fn friend_core() -> SavedCore {
-    pinned(saved(
+    let mut core = pinned(saved(
         "friend",
         "https://192.168.1.42:16662",
         "Alex's server box",
         None,
-    ))
+    ));
+    // Skyblock's Magic localhost port on this computer
+    core.magic_ports = vec![MagicPort {
+        instance: "skyblock".into(),
+        port: 34121,
+        target: 25565,
+    }];
+    core
 }
 
 fn friend() -> (SavedCore, CoreStatus, bool) {
@@ -312,7 +340,12 @@ fn apply_servers(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) 
             };
             servers.preview_local(found, Vec::new(), None);
         }
-        "servers" | "servers-ready" | "servers-core-menu" | "servers-core-menu-other" => {
+        "servers"
+        | "servers-ready"
+        | "servers-core-menu"
+        | "servers-core-menu-other"
+        | "servers-magic-localhost"
+        | "servers-magic-port-taken" => {
             servers.preview(
                 vec![
                     local_home(),
@@ -337,6 +370,10 @@ fn apply_servers(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) 
                 // the "…" menu of the Host here, or of Alex's core under "Other cores"
                 "servers-core-menu" => servers.preview_core_menu("home"),
                 "servers-core-menu-other" => servers.preview_core_menu("friend"),
+                // something else had Skyblock's port, so this session is at another
+                "servers-magic-port-taken" => {
+                    servers.preview_magic_bound("friend", "skyblock", 40123)
+                }
                 _ => {}
             }
         }
@@ -997,18 +1034,30 @@ fn apply_extras(scene: &str, shell: &mut LauncherShell, cx: &mut Context<Launche
             shell.show(Page::Servers, cx);
             true
         }
-        "servers-host" | "servers-host-owner" | "servers-host-progress" | "servers-host-done" => {
+        "servers-download-world"
+        | "servers-download-world-progress"
+        | "servers-download-world-backup-forbidden"
+        | "servers-download-world-backup-forbidden-none" => {
+            servers.update(cx, |servers, cx| {
+                let mut home = home(true);
+                home.0.local_claim = true;
+                servers.preview(vec![home], Vec::new());
+                let step = scene
+                    .strip_prefix("servers-download-world-")
+                    .unwrap_or("pick");
+                servers.preview_download_world(step, cx);
+            });
+            shell.show(Page::Servers, cx);
+            true
+        }
+        scene if scene == "servers-host" || scene.starts_with("servers-host-") => {
             servers.update(cx, |servers, cx| {
                 let mut home = home(true);
                 // connected as owner on this computer: the owner key creates the server
-                home.0.local_claim = scene == "servers-host-owner";
+                home.0.local_claim = scene != "servers-host";
                 servers.preview(vec![home, friend()], Vec::new());
-                let (stage, done) = match scene {
-                    "servers-host-progress" => (Some("Uploading the modpack (3.2 MB)…"), None),
-                    "servers-host-done" => (None, Some("Survival 1.20.1 is on Peter's Lodestone Core, on port 25566. The host is setting it up now: it installs Fabric and downloads 24 mod file(s) from Modrinth.\n\nThe server is stopped. Start it from the Lodestone Host page or the dashboard when you're ready; this instance is ready to join it.")),
-                    _ => (None, None),
-                };
-                servers.preview_host(&survival, stage, done, cx);
+                let step = scene.strip_prefix("servers-host-").unwrap_or("setup");
+                servers.preview_host(&survival, step, cx);
             });
             shell.select_instance(&survival, cx);
             shell.select_tab(crate::shell::InstanceTab::Settings, cx);

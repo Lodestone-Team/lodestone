@@ -3,9 +3,9 @@
 //! - `GET /instance/{uuid}/world/download` zips the world (`level-name` in
 //!   `server.properties`, and the `<level>_nether` and `<level>_the_end` folders of
 //!   Bukkit-style servers) and returns a key for `GET /file/{key}`, like the file API's
-//!   folder downloads. Needs `ReadInstanceFile`. Lodestone has no way to pause saving
-//!   (`save-off`/`save-all`), so the server must be stopped: a running world can be
-//!   half written.
+//!   folder downloads. Needs `ReadInstanceFile`. This quick download doesn't pause
+//!   saving (`save-off`/`save-all`, as snapshots and world backups do), so the server
+//!   must be stopped: a running world can be half written.
 //! - `GET /instance/{uuid}/resource_pack` (needs `ViewInstance`, since players get the
 //!   pack when they join anyway) and `PUT` (needs `AccessSetting`) read and write the four
 //!   resource pack lines of `server.properties`, keeping every other line.

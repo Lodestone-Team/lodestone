@@ -243,7 +243,30 @@ pub(super) fn job(
     after: impl FnOnce(&Control, &Value, &mut App) + 'static,
     cx: &mut App,
 ) -> Reply {
-    let progress = Arc::new(Downloads::default());
+    job_with(
+        call,
+        label,
+        instance,
+        Arc::new(Downloads::default()),
+        work,
+        after,
+        cx,
+    )
+}
+
+/// [`job`], with the job's progress `progress`, which the work may also move itself (a
+/// download that counts its own bytes).
+pub(super) fn job_with(
+    call: &Call,
+    label: String,
+    instance: Option<&Instance>,
+    progress: Arc<Downloads>,
+    work: impl FnOnce(&(dyn Fn(u64, u64) + Sync), &CancelToken) -> Result<Value, ErrorObject>
+    + Send
+    + 'static,
+    after: impl FnOnce(&Control, &Value, &mut App) + 'static,
+    cx: &mut App,
+) -> Reply {
     let report = progress.clone();
     let cancel = CancelToken::new();
     let job_cancel = cancel.clone();
@@ -284,16 +307,23 @@ pub(super) fn idle(control: &Control, instance: &Instance, cx: &App) -> Result<(
     no_snapshot_job(control, instance)
 }
 
-/// Refuses while a job of this API works on the instance's snapshots.
+/// Refuses while a job of this API works on the instance's snapshots or world backups:
+/// each holds the instance's record lock, and a restore of one changes what the other
+/// reads.
 fn no_snapshot_job(control: &Control, instance: &Instance) -> Result<(), ErrorObject> {
-    if let Some(job) = control.jobs.borrow().running_for("snapshots", &instance.id) {
-        return Err(api_error(
-            codes::BUSY,
-            format!(
-                "Job {job} is working on {}'s snapshots; wait for it.",
-                instance.name
-            ),
-        ));
+    for (kind, what) in [
+        ("snapshots", "snapshots"),
+        ("world_backups", "world backups"),
+    ] {
+        if let Some(job) = control.jobs.borrow().running_for(kind, &instance.id) {
+            return Err(api_error(
+                codes::BUSY,
+                format!(
+                    "Job {job} is working on {}'s {what}; wait for it.",
+                    instance.name
+                ),
+            ));
+        }
     }
     Ok(())
 }
@@ -346,9 +376,6 @@ pub fn list(call: Call, cx: &mut App) -> Reply {
 struct CreateParams {
     #[serde(default)]
     name: Option<String>,
-    /// A full image: mods and configs too, not only what the content image links.
-    #[serde(default)]
-    everything: bool,
 }
 
 /// `snapshots.create`: takes a snapshot.
@@ -375,7 +402,6 @@ pub fn create(call: Call, cx: &mut App) -> Reply {
                     Take {
                         kind: SnapshotKind::Manual,
                         name: params.name,
-                        full: params.everything,
                         progress,
                         cancel: &|| cancel.is_cancelled(),
                     },
@@ -753,9 +779,11 @@ fn import_inspected(
                         modrinth: &modrinth,
                         curseforge: curseforge.as_deref(),
                     },
-                    &path,
-                    name.as_deref(),
-                    Some(&expected),
+                    export::ImportRequest {
+                        name: name.as_deref(),
+                        expect_image: Some(&expected),
+                        ..export::ImportRequest::new(&path)
+                    },
                     &room,
                     &progress,
                     cancel,
@@ -766,6 +794,8 @@ fn import_inspected(
                 "instance": imported.instance.id,
                 "name": imported.instance.name,
                 "left_out": imported.left_out,
+                "from_server": imported.from_server,
+                "server_pack": imported.server_pack,
             }))
         },
         |control, _, cx| {

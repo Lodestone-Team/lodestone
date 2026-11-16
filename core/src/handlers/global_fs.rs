@@ -80,6 +80,9 @@ pub struct DownloadableFile {
     /// For a zipped folder, the zip, which other links for the same folder may share.
     /// It is deleted once the last of them is dropped.
     zip: Option<Arc<ZippedFolder>>,
+    /// The name the download is saved as, when it isn't the file's own (a world backup's
+    /// stored zip, say, which is named by its id).
+    file_name: Option<String>,
     /// The user who made the link, as their request authenticated (session or API key).
     owner: User,
     scope: DownloadScope,
@@ -109,6 +112,32 @@ pub(super) async fn register_download(
             path,
             temp_dir,
             zip: None,
+            file_name: None,
+            owner,
+            scope,
+            expires_at: Instant::now() + DOWNLOAD_LINK_TTL,
+        },
+    )
+    .await
+}
+
+/// Stores a download link for a file Lodestone keeps (a world backup's zip), saved as
+/// `file_name`, like [`register_download`]. The link holds no copy and never deletes the
+/// file: when it expires or `DELETE /file/{key}` lets go of it, only the link goes.
+pub(super) async fn register_stored_download(
+    state: &AppState,
+    path: PathBuf,
+    file_name: String,
+    owner: User,
+    scope: DownloadScope,
+) -> String {
+    insert_download(
+        state,
+        DownloadableFile {
+            path,
+            temp_dir: None,
+            zip: None,
+            file_name: Some(file_name),
             owner,
             scope,
             expires_at: Instant::now() + DOWNLOAD_LINK_TTL,
@@ -132,6 +161,7 @@ pub(super) async fn register_zipped_folder_download(
             path: zip.zip_path.clone(),
             temp_dir: None,
             zip: Some(zip),
+            file_name: None,
             owner,
             scope,
             expires_at: Instant::now() + DOWNLOAD_LINK_TTL,
@@ -239,57 +269,97 @@ impl FolderFingerprint {
     }
 }
 
+/// Places some of each user's requests hold while they make a file for a download link, by
+/// user id.
+type UserSlots = std::sync::Mutex<HashMap<String, usize>>;
+
 /// The number of folders each user is zipping for download right now, by user id, so a
 /// user's requests at the same time can't all pass [`MAX_ZIPPED_FOLDERS_PER_USER`] before
 /// any of them holds its zip. A place is checked for and taken only while `download_urls`
-/// is locked, and given back when its [`ZippingSlot`] is dropped: once the zip's link is
+/// is locked, and given back when its [`UserSlot`] is dropped: once the zip's link is
 /// stored, or once the zip ends when it failed or its request was cancelled.
-static ZIPPING_FOR_DOWNLOAD: LazyLock<std::sync::Mutex<HashMap<String, usize>>> =
-    LazyLock::new(Default::default);
+static ZIPPING_FOR_DOWNLOAD: LazyLock<UserSlots> = LazyLock::new(Default::default);
 
-/// One of a user's places in [`ZIPPING_FOR_DOWNLOAD`], given back when dropped.
-pub(super) struct ZippingSlot {
+/// The number of backups each user is writing for download right now (zips and `.lodeimg`
+/// exports), as [`ZIPPING_FOR_DOWNLOAD`] is for folders, against
+/// [`MAX_BACKUP_FILES_PER_USER`].
+static WRITING_BACKUP_FILES: LazyLock<UserSlots> = LazyLock::new(Default::default);
+
+/// One of a user's places in a [`UserSlots`], given back when dropped.
+pub(super) struct UserSlot {
+    slots: &'static UserSlots,
     user: String,
 }
 
-impl ZippingSlot {
-    fn count(user: &str) -> usize {
-        let zipping = ZIPPING_FOR_DOWNLOAD
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        zipping.get(user).copied().unwrap_or(0)
+impl UserSlot {
+    fn count(slots: &'static UserSlots, user: &str) -> usize {
+        let taken = slots.lock().unwrap_or_else(|e| e.into_inner());
+        taken.get(user).copied().unwrap_or(0)
     }
 
-    fn take(user: &str) -> ZippingSlot {
-        let mut zipping = ZIPPING_FOR_DOWNLOAD
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        *zipping.entry(user.to_string()).or_default() += 1;
-        ZippingSlot {
+    fn take(slots: &'static UserSlots, user: &str) -> UserSlot {
+        let mut taken = slots.lock().unwrap_or_else(|e| e.into_inner());
+        *taken.entry(user.to_string()).or_default() += 1;
+        UserSlot {
+            slots,
             user: user.to_string(),
         }
     }
 }
 
-impl Drop for ZippingSlot {
+impl Drop for UserSlot {
     fn drop(&mut self) {
-        let mut zipping = ZIPPING_FOR_DOWNLOAD
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        if let Some(count) = zipping.get_mut(&self.user) {
+        let mut taken = self.slots.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(count) = taken.get_mut(&self.user) {
             *count = count.saturating_sub(1);
             if *count == 0 {
-                zipping.remove(&self.user);
+                taken.remove(&self.user);
             }
         }
     }
+}
+
+/// The most backups (zips and `.lodeimg` exports) one user's download links may hold at
+/// once, counting those being written. Each is the size of a world, kept in the temporary
+/// folder for [`DOWNLOAD_LINK_TTL`] unless its link is let go of
+/// (`DELETE /file/{key}`), so without a cap anyone who may read a server's files could keep
+/// the disk at its margin by asking again and again, as [`MAX_ZIPPED_FOLDERS_PER_USER`]
+/// guards against for folders.
+pub(crate) const MAX_BACKUP_FILES_PER_USER: usize = 3;
+
+/// Takes one of `requester`'s places for writing a backup into `dir` for download, unless
+/// their live links to files in `dir` and the backups they are writing already make
+/// [`MAX_BACKUP_FILES_PER_USER`]. The place goes with the write onto its blocking thread
+/// and is dropped once the file's link is stored, or the write ended without one.
+pub(super) async fn take_backup_file_slot(
+    state: &AppState,
+    requester: &User,
+    dir: &std::path::Path,
+) -> Result<UserSlot, Error> {
+    let user: &str = requester.uid.as_ref();
+    let download_urls = state.download_urls.lock().await;
+    let now = Instant::now();
+    let held = download_urls
+        .values()
+        .filter(|file| file.expires_at > now && file.owner.uid == user)
+        .filter(|file| file.path.starts_with(dir))
+        .count();
+    if held + UserSlot::count(&WRITING_BACKUP_FILES, user) >= MAX_BACKUP_FILES_PER_USER {
+        return Err(Error {
+            kind: ErrorKind::TooManyRequests,
+            source: eyre!(
+                "You already have {MAX_BACKUP_FILES_PER_USER} backup files waiting to be downloaded. Their links expire an hour after they were made; try again then"
+            ),
+        });
+    }
+    Ok(UserSlot::take(&WRITING_BACKUP_FILES, user))
 }
 
 /// A zipped folder ready for [`register_zipped_folder_download`]. A new zip keeps its
 /// user's place among the folders being zipped until its link is stored.
 pub(super) struct ZippedDownload {
     zip: Arc<ZippedFolder>,
-    slot: Option<ZippingSlot>,
+    slot: Option<UserSlot>,
 }
 
 impl ZippedDownload {
@@ -338,7 +408,8 @@ pub(super) async fn zip_folder_for_download(
             .collect();
         held.sort();
         held.dedup();
-        if held.len() + ZippingSlot::count(user) >= MAX_ZIPPED_FOLDERS_PER_USER {
+        if held.len() + UserSlot::count(&ZIPPING_FOR_DOWNLOAD, user) >= MAX_ZIPPED_FOLDERS_PER_USER
+        {
             return Err(Error {
                 kind: ErrorKind::TooManyRequests,
                 source: eyre!(
@@ -346,12 +417,13 @@ pub(super) async fn zip_folder_for_download(
                 ),
             });
         }
-        ZippingSlot::take(user)
+        UserSlot::take(&ZIPPING_FOR_DOWNLOAD, user)
     };
 
     // The slot goes with the zip onto its blocking thread, which runs to the end even when
     // the request is cancelled (the client went away): the place stays taken until then,
     // so cancelled requests can't leave any number of zips being made.
+    let large_writes = state.images.large_writes.clone();
     let (zip, slot) = tokio::task::spawn_blocking(move || {
         #[cfg(test)]
         drop(tests::ZIP_GATE.lock());
@@ -361,13 +433,15 @@ pub(super) async fn zip_folder_for_download(
             lodestone_tmp.display()
         ))?;
         // a world's files hardly compress, so the zip needs about as much room as they use,
-        // on top of what the other zips being made still need
-        let reserved = SpaceForZip::reserve(fingerprint.bytes);
+        // on top of what the core's other large writes (uploads, servers made from files,
+        // folders and backups zipped or exported) still need
+        let reserved = large_writes.reserve(fingerprint.bytes);
+        let others = reserved.others();
         require_free_space(
             lodestone_tmp,
-            fingerprint.bytes.saturating_add(reserved.others),
-            if reserved.others > 0 {
-                "to zip the folder for download, with the other folders being zipped"
+            fingerprint.bytes.saturating_add(others),
+            if others > 0 {
+                "to zip the folder for download, with the other large files being written"
             } else {
                 "to zip the folder for download"
             },
@@ -395,32 +469,6 @@ pub(super) async fn zip_folder_for_download(
         zip: Arc::new(zip),
         slot: Some(slot),
     })
-}
-
-/// The bytes the folders being zipped for download still need, by all users together, so
-/// zips made at the same time can't all pass the free space check against the same free
-/// space.
-static ZIPPING_BYTES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-
-/// A zip's place in [`ZIPPING_BYTES`], given back when dropped.
-struct SpaceForZip {
-    bytes: u64,
-    /// What the other zips being made needed when this one started.
-    others: u64,
-}
-
-impl SpaceForZip {
-    fn reserve(bytes: u64) -> SpaceForZip {
-        // folder sizes add up to far less than u64::MAX, so this can't overflow
-        let others = ZIPPING_BYTES.fetch_add(bytes, std::sync::atomic::Ordering::SeqCst);
-        SpaceForZip { bytes, others }
-    }
-}
-
-impl Drop for SpaceForZip {
-    fn drop(&mut self) {
-        ZIPPING_BYTES.fetch_sub(self.bytes, std::sync::atomic::Ordering::SeqCst);
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize, TS)]
@@ -509,18 +557,21 @@ fn touches_lodestone_secret(
 /// keys), `local_claim`, whose files grant owner access (see [`crate::local_claim`]),
 /// `tls`, the web server's certificate and private key, `backups`
 /// ([`crate::prelude::path_to_backups`]: every server's backed-up files, and the restore
-/// journals that startup recovery trusts), and `playit.toml`.
+/// journals that startup recovery trusts), `world-backups`
+/// ([`crate::prelude::path_to_world_backups`]: every server's world zips and the sidecars a
+/// restore trusts), and `playit.toml`.
 ///
 /// Compatibility: cores before Lodestone Connect saved a playit.gg secret key in
 /// `playit.toml`. Playit.gg support is gone, but the file can still be on disk (the core
 /// never deletes it), so it stays protected.
-fn lodestone_secret_paths(root: &std::path::Path, stores: &std::path::Path) -> [PathBuf; 5] {
+fn lodestone_secret_paths(root: &std::path::Path, stores: &std::path::Path) -> [PathBuf; 6] {
     [
         stores.to_path_buf(),
         root.join("playit.toml"),
         root.join(crate::local_claim::CLAIM_DIR),
         root.join("tls"),
         root.join(crate::prelude::BACKUPS_DIR),
+        root.join(crate::prelude::WORLD_BACKUPS_DIR),
     ]
 }
 
@@ -1085,13 +1136,21 @@ async fn upload_file(
     result.map(Json)
 }
 
-/// Builds a `Content-Disposition: attachment` value. Characters that are not printable
-/// ASCII, and quotes and backslashes, are replaced so the header is always valid.
+/// Builds a `Content-Disposition: attachment` value naming the file at `path`. Characters
+/// that are not printable ASCII, and quotes and backslashes, are replaced so the header is
+/// always valid.
 fn attachment_header(path: &std::path::Path) -> String {
-    let name: String = path
-        .file_name()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "unknown".to_string())
+    attachment_header_named(
+        &path
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "unknown".to_string()),
+    )
+}
+
+/// [`attachment_header`] with the name `name`.
+fn attachment_header_named(name: &str) -> String {
+    let name: String = name
         .chars()
         .map(|c| {
             if (c.is_ascii_graphic() || c == ' ') && c != '"' && c != '\\' {
@@ -1113,12 +1172,15 @@ async fn download(
         source: eyre!("File not found with the download key"),
     };
     // copy what we need out of the map so the lock is not held while awaiting
-    let (path, owner, scope) = {
+    let (path, file_name, owner, scope) = {
         let mut download_urls = state.download_urls.lock().await;
         match download_urls.get(&key) {
-            Some(file) if file.expires_at > Instant::now() => {
-                (file.path.clone(), file.owner.clone(), file.scope.clone())
-            }
+            Some(file) if file.expires_at > Instant::now() => (
+                file.path.clone(),
+                file.file_name.clone(),
+                file.owner.clone(),
+                file.scope.clone(),
+            ),
             Some(_) => {
                 if let Some(file) = download_urls.remove(&key) {
                     discard_download(file);
@@ -1145,14 +1207,50 @@ async fn download(
 
     let mut response = Response::builder()
         .header(CONTENT_TYPE, "application/octet-stream")
-        .header(CONTENT_DISPOSITION, attachment_header(&path));
+        .header(
+            CONTENT_DISPOSITION,
+            match &file_name {
+                Some(name) => attachment_header_named(name),
+                None => attachment_header(&path),
+            },
+        );
     if let Ok(metadata) = file.metadata().await {
         response = response.header(CONTENT_LENGTH, metadata.len());
     }
-    let body = Body::from_stream(ReaderStream::new(file));
+    // large reads: each one is a trip to the blocking pool, and world backups and
+    // snapshot zips run to gigabytes
+    let body = Body::from_stream(ReaderStream::with_capacity(file, 256 * 1024));
     Ok(response
         .body(body)
         .context("Failed to build the download response")?)
+}
+
+/// `DELETE /file/{key}`: lets go of a download link its owner no longer needs, deleting a
+/// file made for it (a backup's zip or export, which can be the size of a world) at once
+/// instead of an hour later. A client that downloaded the file, or gave up on it, calls
+/// it. Only the user who made the link may.
+async fn release_download(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    Path(key): Path<String>,
+    requester: super::util::AuthedUser,
+) -> Result<Json<serde_json::Value>, Error> {
+    let released = {
+        let mut download_urls = state.download_urls.lock().await;
+        match download_urls.get(&key) {
+            Some(file) if file.owner.uid == requester.uid => download_urls.remove(&key),
+            _ => None,
+        }
+    };
+    match released {
+        Some(file) => {
+            discard_download(file);
+            Ok(Json(serde_json::json!({})))
+        }
+        None => Err(Error {
+            kind: ErrorKind::NotFound,
+            source: eyre!("File not found with the download key"),
+        }),
+    }
 }
 
 pub fn get_global_fs_routes(state: AppState) -> Router {
@@ -1177,7 +1275,7 @@ pub fn get_global_fs_routes(state: AppState) -> Router {
             // uploads are streamed to disk, so they have no size limit
             put(upload_file).layer(DefaultBodyLimit::disable()),
         )
-        .route("/file/{key}", get(download))
+        .route("/file/{key}", get(download).delete(release_download))
         .with_state(state)
 }
 
@@ -1197,6 +1295,8 @@ mod tests {
             "/home/u/.lodestone/tls/key.pem",
             "/home/u/.lodestone/backups/images/x/restore-journal.json",
             "/home/u/.lodestone/backups/objects/ab/abcd",
+            "/home/u/.lodestone/world-backups/x/20260101-000000-aaaa.zip",
+            "/home/u/.lodestone/world-backups/x/20260101-000000-aaaa.json",
         ] {
             assert!(
                 touches_lodestone_secret(std::path::Path::new(path), &secrets, false),
@@ -1229,6 +1329,9 @@ mod tests {
             "/home/u/.lodestone/stores/users.json",
             "/home/u/.lodestone/stores",
             "/home/u/.lodestone/tls/key.pem",
+            // planting a world zip or editing its sidecar, even before the folder exists
+            "/home/u/.lodestone/world-backups",
+            "/home/u/.lodestone/world-backups/x/20260101-000000-aaaa.json",
             // moving or deleting a folder that holds them
             "/home/u/.lodestone",
             "/home/u",
@@ -1353,6 +1456,14 @@ mod tests {
         }
     }
 
+    /// Lodestone's folders for these tests, for the whole process: the paths are set once,
+    /// so a folder of one test's own would be deleted under the others when it ends.
+    fn init_paths() {
+        static LODESTONE_DIR: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
+        let dir = LODESTONE_DIR.get_or_init(|| tempfile::tempdir().unwrap());
+        crate::prelude::try_init_paths(dir.path().to_owned()).unwrap();
+    }
+
     fn hours_ago(hours: u64) -> SystemTime {
         SystemTime::now() - Duration::from_secs(hours * 60 * 60)
     }
@@ -1392,8 +1503,7 @@ mod tests {
     /// time only, so the old zip was handed out again.
     #[tokio::test]
     async fn a_rewritten_file_is_zipped_again_whatever_its_time() {
-        let lodestone = tempfile::tempdir().unwrap();
-        crate::prelude::try_init_paths(lodestone.path().to_owned()).unwrap();
+        init_paths();
         let dir = tempfile::tempdir().unwrap();
         let state = crate::test_util::test_app_state(dir.path(), Default::default()).await;
         // a user for each folder, so their zips stay within a user's cap
@@ -1479,8 +1589,7 @@ mod tests {
     // the gate is held across awaits on purpose, to hold the zip back meanwhile
     #[allow(clippy::await_holding_lock)]
     async fn a_cancelled_zip_keeps_its_place_until_it_ends() {
-        let lodestone = tempfile::tempdir().unwrap();
-        crate::prelude::try_init_paths(lodestone.path().to_owned()).unwrap();
+        init_paths();
         let dir = tempfile::tempdir().unwrap();
         let state = crate::test_util::test_app_state(dir.path(), Default::default()).await;
         let user = User::new("canceller".into(), "pw", false, false, Default::default());
@@ -1500,16 +1609,20 @@ mod tests {
                     .map(|_| ())
             }
         });
-        while ZippingSlot::count(&uid) == 0 {
+        while UserSlot::count(&ZIPPING_FOR_DOWNLOAD, &uid) == 0 {
             tokio::time::sleep(Duration::from_millis(1)).await;
         }
         request.abort();
         assert!(request.await.unwrap_err().is_cancelled());
-        assert_eq!(ZippingSlot::count(&uid), 1, "the zip still holds its place");
+        assert_eq!(
+            UserSlot::count(&ZIPPING_FOR_DOWNLOAD, &uid),
+            1,
+            "the zip still holds its place"
+        );
 
         drop(gate);
         let started = Instant::now();
-        while ZippingSlot::count(&uid) != 0 {
+        while UserSlot::count(&ZIPPING_FOR_DOWNLOAD, &uid) != 0 {
             assert!(
                 started.elapsed() < Duration::from_secs(30),
                 "the zip never ended"
@@ -1524,8 +1637,7 @@ mod tests {
     /// every request zipped the folder again and kept the zip for an hour.
     #[tokio::test]
     async fn zipped_folders_are_reused_and_capped_per_user() {
-        let lodestone = tempfile::tempdir().unwrap();
-        crate::prelude::try_init_paths(lodestone.path().to_owned()).unwrap();
+        init_paths();
         let dir = tempfile::tempdir().unwrap();
         let state = crate::test_util::test_app_state(dir.path(), Default::default()).await;
         let viewer = User::new("viewer".into(), "pw", false, false, Default::default());
@@ -1581,7 +1693,7 @@ mod tests {
                 .unwrap();
             register_zipped_folder_download(&state, zipped, viewer.clone(), scope()).await;
         }
-        let being_made = ZippingSlot::take(viewer.uid.as_ref());
+        let being_made = UserSlot::take(&ZIPPING_FOR_DOWNLOAD, viewer.uid.as_ref());
         let error = zip_folder_for_download(&state, folder("one_more"), &viewer)
             .await
             .err()

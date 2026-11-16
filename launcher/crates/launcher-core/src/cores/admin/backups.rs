@@ -148,14 +148,21 @@ impl Default for BackupPolicy {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum JobKind {
+    /// A snapshot.
     #[default]
     Backup,
+    /// A snapshot's restore.
     Restore,
+    /// A world backup (`super::world_backups`).
+    WorldBackup,
+    /// A world backup's restore.
+    WorldRestore,
     #[serde(other)]
     Unknown,
 }
 
-/// The backup or restore of the server that is running (`RunningJob`).
+/// The job of the server that is running (`RunningJob`): a snapshot, a world backup or
+/// either's restore, which share one lock per server.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RunningJob {
     #[serde(default)]
@@ -280,7 +287,7 @@ fn update_body(name: Option<Option<&str>>, pinned: Option<bool>) -> Value {
 
 impl AdminClient {
     /// A JSON request with [`BACKUP_JOB_TIMEOUT`].
-    async fn json_slow<T: DeserializeOwned>(
+    pub(super) async fn json_slow<T: DeserializeOwned>(
         &self,
         method: Method,
         path: &str,
@@ -382,7 +389,9 @@ impl AdminClient {
 
     /// Downloads the backup as a zip into `out`; the bytes saved. The zip is written
     /// next to `out` and only replaces it once complete, so a failed or dropped
-    /// download leaves a file already there as it was, and no partial zip.
+    /// download leaves a file already there as it was, and no partial zip. The core's
+    /// zip is let go of once the download ends, however it ends: a zip already saved
+    /// mustn't hold one of the user's few places for backup files for the link's hour.
     pub async fn download_backup_to(
         &self,
         uuid: &str,
@@ -390,7 +399,8 @@ impl AdminClient {
         out: &Path,
     ) -> Result<u64, CoreError> {
         let download = self.backup_download_key(uuid, id).await?;
-        save_via_partial(out, |partial| async move {
+        let release = super::images::ReleaseOnDrop::new(self, &download.key);
+        let saved = save_via_partial(out, |partial| async move {
             self.core()
                 .download_file(
                     &download.key,
@@ -401,7 +411,9 @@ impl AdminClient {
                 )
                 .await
         })
-        .await
+        .await;
+        release.now().await;
+        saved
     }
 
     /// `GET /instance/{uuid}/backups/policy`.

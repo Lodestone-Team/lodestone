@@ -4,7 +4,7 @@ pub fn text(message: M) -> &'static str {
     match message {
         M::Title => "Amis",
         M::Hint => {
-            "Les personnes ajoutées une fois pour toutes. Voyez et rejoignez les serveurs qu’elles partagent avec vous, sans lien."
+            "Rejoignez les serveurs que vos amis partagent avec vous, sans lien d’invitation."
         }
         M::AddFriend => "Ajouter un ami",
         M::Refreshing => "Vérification de vos amis…",
@@ -54,9 +54,7 @@ pub fn text(message: M) -> &'static str {
         M::ShowServers => "Afficher les serveurs",
         M::AddTitle => "Ajouter un ami",
         M::SendLinkTitle => "Envoyez-lui un lien d’ami",
-        M::SendLinkBody => {
-            "Créez un lien et envoyez-le à votre ami. Quand il l’ouvrira, sa réponse apparaîtra sur la page Serveurs pour que vous l’acceptiez."
-        }
+        M::SendLinkBody => "Quand votre ami l’ouvrira, acceptez sa réponse ici, sur la page Amis.",
         M::MakeLink => "Créer un lien",
         M::LinkWorksOnce => {
             "Utilisable une fois, pendant 24\u{a0}heures. Toute personne qui a ce lien peut demander à devenir votre ami\u{202F}: ne l’envoyez qu’à lui."
@@ -133,7 +131,7 @@ pub fn text(message: M) -> &'static str {
         M::RemoveFriend => "Retirer cet ami",
         M::ShareLan => "Partager les mondes LAN avec mes amis",
         M::ShareLanBody => {
-            "Quand vous ouvrez un monde solo en LAN, vos amis le voient ici et peuvent le rejoindre via Lodestone Connect tant qu’il est ouvert. Les amis à qui vous êtes masqué ne le voient pas."
+            "Vos amis le rejoignent via Lodestone Connect tant que le monde est ouvert. Les amis à qui vous êtes masqué ne le voient pas."
         }
         M::LanNoneOpen => {
             "Aucun monde n’est ouvert en LAN pour l’instant. Dans le jeu, ouvrez un monde et choisissez Ouvrir au LAN."
@@ -152,7 +150,6 @@ pub fn text(message: M) -> &'static str {
         M::LanWorld => "Monde LAN",
         M::OpenNow => "ouvert maintenant",
         M::LanOpenStatus => "A un monde LAN ouvert",
-        M::LanJoinNote => "Accessible tant que le jeu de {name} le garde ouvert.",
         M::LanNeedsMicrosoft => {
             "Nécessite un compte Microsoft\u{a0}: le monde est en mode en ligne."
         }

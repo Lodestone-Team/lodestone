@@ -1,5 +1,6 @@
-//! What the Servers page does beyond listing and joining: "Host on a Lodestone core"
-//! ([`super::host`]) and LAN worlds ([`super::lan`]). Their state is one field of
+//! What the Servers page does beyond listing and joining: "Host on Lodestone"
+//! ([`super::host`]), "Download this world" ([`super::download_world`]) and LAN worlds
+//! ([`super::lan`]). Their state is one field of
 //! [`Servers`], and their dialogs are drawn by the Servers overlay (`ServersOverlay`
 //! in [`super::view`]).
 
@@ -8,6 +9,7 @@ use gpui::{App, Entity, IntoElement, SharedString, Subscription, div, prelude::*
 
 use super::{
     Servers,
+    download_world::DownloadWorldDialog,
     host::HostDialog,
     lan::{LanPicker, LanState},
 };
@@ -19,6 +21,7 @@ use crate::{
 /// Hosting's and LAN worlds' state on the Servers page.
 pub struct Extras {
     pub(super) host: DialogSlot<Servers, (Entity<HostDialog>, Subscription)>,
+    pub(super) download_world: DialogSlot<Servers, (Entity<DownloadWorldDialog>, Subscription)>,
     pub(super) lan: LanState,
     pub(super) lan_picker: DialogSlot<Servers, LanPicker>,
 }
@@ -27,6 +30,7 @@ impl Default for Extras {
     fn default() -> Self {
         Self {
             host: DialogSlot::new(|this: &mut Servers| &mut this.extras.host),
+            download_world: DialogSlot::new(|this: &mut Servers| &mut this.extras.download_world),
             lan: LanState::default(),
             lan_picker: DialogSlot::new(|this: &mut Servers| &mut this.extras.lan_picker),
         }
@@ -69,3 +73,6 @@ pub(super) fn pills<T: Clone + PartialEq + 'static>(
         on_pick(value, cx)
     })
 }
+
+/// A thin bar `fraction` full (0 to 1): the import dialogs' own.
+pub(super) use crate::instances::import::progress_bar;

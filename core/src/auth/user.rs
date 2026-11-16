@@ -498,7 +498,9 @@ impl User {
                     Some(view(instance_uuid))
                 }
                 ProgressionStartValue::Backup { instance_uuid }
-                | ProgressionStartValue::Restore { instance_uuid } => {
+                | ProgressionStartValue::Restore { instance_uuid }
+                | ProgressionStartValue::WorldBackup { instance_uuid }
+                | ProgressionStartValue::WorldRestore { instance_uuid } => {
                     Some(read_files(instance_uuid))
                 }
             },
@@ -506,13 +508,15 @@ impl User {
                 inner: Some(end_value),
                 ..
             } => match end_value {
-                ProgressionEndValue::InstanceCreation(info) => Some(view(&info.uuid)),
+                ProgressionEndValue::InstanceCreation(created) => Some(view(&created.info.uuid)),
                 ProgressionEndValue::InstanceDelete { instance_uuid }
                 | ProgressionEndValue::FSOperationCompleted { instance_uuid, .. } => {
                     Some(view(instance_uuid))
                 }
                 ProgressionEndValue::BackupCompleted { instance_uuid, .. }
-                | ProgressionEndValue::RestoreCompleted { instance_uuid, .. } => {
+                | ProgressionEndValue::RestoreCompleted { instance_uuid, .. }
+                | ProgressionEndValue::WorldBackupCompleted { instance_uuid, .. }
+                | ProgressionEndValue::WorldRestoreCompleted { instance_uuid, .. } => {
                     Some(read_files(instance_uuid))
                 }
             },
@@ -2314,6 +2318,12 @@ mod permission_tests {
             ProgressionStartValue::Restore {
                 instance_uuid: i.clone(),
             },
+            ProgressionStartValue::WorldBackup {
+                instance_uuid: i.clone(),
+            },
+            ProgressionStartValue::WorldRestore {
+                instance_uuid: i.clone(),
+            },
         ];
         for start in starts {
             let (event, id) =
@@ -2331,6 +2341,26 @@ mod permission_tests {
                     message: "done".to_string(),
                 }),
             );
+            assert!(reader.can_view_event(&end));
+            assert!(!view_only.can_view_event(&end));
+        }
+        for end_value in [
+            ProgressionEndValue::WorldBackupCompleted {
+                instance_uuid: i.clone(),
+                world_backup_id: None,
+                success: true,
+                message: "done".to_string(),
+            },
+            ProgressionEndValue::WorldRestoreCompleted {
+                instance_uuid: i.clone(),
+                world_backup_id: None,
+                safety_id: None,
+                success: true,
+                message: "done".to_string(),
+            },
+        ] {
+            let (_, id) = Event::new_progression_event_start("p", None, None, CausedBy::System);
+            let end = Event::new_progression_event_end(id, true, Some("done"), Some(end_value));
             assert!(reader.can_view_event(&end));
             assert!(!view_only.can_view_event(&end));
         }

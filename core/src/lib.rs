@@ -5,7 +5,7 @@ use crate::event_broadcaster::EventBroadcaster;
 use crate::migration::migrate;
 use crate::prelude::{
     init_app_state, lodestone_path, path_to_backups, path_to_global_settings, path_to_stores,
-    path_to_tmp, path_to_users, try_init_paths, VERSION,
+    path_to_tmp, path_to_users, path_to_world_backups, try_init_paths, VERSION,
 };
 use crate::traits::t_configurable::GameType;
 use crate::traits::t_server::State;
@@ -115,6 +115,7 @@ pub mod prelude;
 pub mod product;
 mod public_listing;
 pub mod remote_access;
+pub mod server_setup;
 mod shutdown;
 pub mod tauri_export;
 mod tls;
@@ -177,14 +178,21 @@ pub(crate) mod test_util {
         let remote_access = global_settings.remote_access();
         // each test core its own store, so parallel tests never share one
         let images = Arc::new(crate::images::ImageService::new(dir.join("backups")));
+        let large_writes = images.large_writes.clone();
         let backups = Arc::new(crate::backups::BackupService::new(
             images.clone(),
             dir.join("instances"),
+        ));
+        let world_backups = Arc::new(crate::backups::world::WorldBackupService::new(
+            backups.clone(),
+            images.clone(),
+            dir.join("world-backups"),
         ));
         crate::AppState {
             remote_access,
             images,
             backups,
+            world_backups,
             instances: Arc::new(dashmap::DashMap::new()),
             users_manager: Arc::new(RwLock::new(users_manager)),
             events_buffer: Arc::new(Mutex::new(ringbuffer::AllocRingBuffer::new(512))),
@@ -245,6 +253,11 @@ pub(crate) mod test_util {
             )),
             product: crate::product::CoreProduct::Core,
             launched_by: crate::product::LaunchedBy::Direct,
+            server_setup: Arc::new(crate::server_setup::FakeSetup::default()),
+            image_uploads: Arc::new(crate::images::share::uploads::Uploads::new(
+                dir.join("image-uploads"),
+                large_writes,
+            )),
         }
     }
 
@@ -343,10 +356,17 @@ pub struct AppState {
     /// Whether other devices may use the core, kept in sync by [`GlobalSettings`]; see
     /// [`remote_access`].
     remote_access: Arc<remote_access::RemoteAccess>,
-    /// Server backups: the store, its locks and the running backups and restores.
+    /// Server snapshots ("backups"): the store, its locks and the running backups and
+    /// restores.
     backups: Arc<backups::BackupService>,
+    /// Server world backups, plain zips beside the snapshots, sharing their job locks.
+    world_backups: Arc<backups::world::WorldBackupService>,
     /// Instance images: content images, and the collector of the backup folder they share.
     images: Arc<images::ImageService>,
+    /// Picks and installs new servers' software; tests use a fake that needs no network.
+    server_setup: Arc<dyn server_setup::ServerSetup>,
+    /// Uploaded `.lodeimg` files a server can be made from.
+    image_uploads: Arc<images::share::uploads::Uploads>,
 }
 
 impl AppState {
@@ -394,6 +414,9 @@ fn api_router(shared_state: AppState) -> Router {
         .merge(get_instance_players_routes(shared_state.clone()))
         .merge(get_instance_routes(shared_state.clone()))
         .merge(get_instance_import_routes(shared_state.clone()))
+        .merge(handlers::instance_images::get_instance_image_routes(
+            shared_state.clone(),
+        ))
         .merge(get_system_routes(shared_state.clone()))
         .merge(get_checks_routes(shared_state.clone()))
         .merge(handlers::connect::get_connect_routes(shared_state.clone()))
@@ -424,6 +447,9 @@ fn api_router(shared_state: AppState) -> Router {
         ))
         .merge(handlers::trace::get_trace_routes(shared_state.clone()))
         .merge(handlers::backups::get_backup_routes(shared_state.clone()))
+        .merge(handlers::world_backups::get_world_backup_routes(
+            shared_state.clone(),
+        ))
         .layer(axum::middleware::from_fn(crate::trace::http_middleware))
         // inside CORS, so a dashboard on another origin can read why it was refused (and
         // preflights are answered); before every route, WebSocket upgrades included
@@ -1378,6 +1404,8 @@ pub async fn run_with(
         }
     }
 
+    // servers whose creation a stop interrupted are deleted, not read half made
+    handlers::instance::remove_unfinished_creations(&path_to_instances, &images).await;
     let instances = restore_instances(&path_to_instances, tx.clone(), code_execution.clone())
         .await
         .map_err(|_| Error {
@@ -1394,8 +1422,29 @@ pub async fn run_with(
     // claims a previous run left are never finished
     let local_claims = local_claim::LocalClaims::new(&lodestone_path);
     local_claims.clean_up().await;
+    // backups a stopped core was writing for download, or that were never downloaded
+    images::share::clear_leftovers(&handlers::backups::downloads_dir());
+    let world_backups = Arc::new(backups::world::WorldBackupService::new(
+        backups.clone(),
+        images.clone(),
+        path_to_world_backups(),
+    ));
+    {
+        // world zips a stopped core was writing; awaited before serving, so it can't
+        // remove the part file of a backup someone starts meanwhile
+        let world_backups = world_backups.clone();
+        if let Err(e) = tokio::task::spawn_blocking(move || world_backups.sweep()).await {
+            error!("World backup clean-up failed: {e}");
+        }
+    }
     let shared_state = AppState {
+        server_setup: Arc::new(server_setup::Installers),
+        image_uploads: Arc::new(images::share::uploads::Uploads::new(
+            path_to_tmp().join("image-uploads"),
+            images.large_writes.clone(),
+        )),
         backups: backups.clone(),
+        world_backups,
         images: images.clone(),
         remote_access: remote_access.clone(),
         local_claims: Arc::new(local_claims),
@@ -1474,6 +1523,8 @@ pub async fn run_with(
     tokio::spawn(crate::modpack::updates::watch(shared_state.clone()));
     // scheduled backups; ends when the backup service is cancelled at shutdown
     tokio::spawn(backups::scheduler::run(shared_state.clone()));
+    // uploaded .lodeimg files past their hour
+    tokio::spawn(shared_state.image_uploads.clone().prune_periodically());
 
     // Instance images: where merged records find their servers.
     images.set_instances(Arc::new(images::AppInstances {

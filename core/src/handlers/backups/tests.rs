@@ -229,6 +229,48 @@ fn the_hosts_bodies_are_read() {
     assert_eq!(task, json!({ "task_id": "7380000000000000001" }));
 }
 
+/// Of what an export left out, a player is told only what a player would miss: never the
+/// server software, the EULA, Lodestone's files or what a client view never carries
+/// (plugins' data, the server's settings), however many there are.
+#[test]
+fn players_are_told_only_what_they_would_miss() {
+    for kept in [
+        "config/FabricProxy-Lite.toml",
+        "mods/kept/a.jar",
+        "saves/world/data/secrets.dat",
+        "kubejs/server_scripts/token.js",
+    ] {
+        assert!(missed_by_players(kept), "{kept}");
+    }
+    for software in [
+        ".lodestone_config",
+        "config/.lodestone-marks.json",
+        "eula.txt",
+        "EULA.TXT",
+        ".console_history",
+        "fabric-server-launch.jar",
+        "run.sh",
+        "user_jvm_args.txt",
+        "hs_err_pid123.log",
+        "libraries/net/fabricmc/x.jar",
+        "Versions/1.21.1/server.jar",
+        // what a player's instance never takes: the server's settings, operators and
+        // plugins' data
+        "ops.json",
+        "server.properties",
+        "Banned-IPs.json",
+        "forwarding.secret",
+        "plugins/LuckPerms/config.yml",
+        "PLUGINS/Essentials/userdata/0f0e.yml",
+        "plugins/CoreProtect/database.db",
+        "bukkit.yml",
+        "usercache.json",
+        "mods/old.jar.disabled",
+    ] {
+        assert!(!missed_by_players(software), "{software}");
+    }
+}
+
 #[tokio::test]
 async fn backups_are_listed_renamed_pinned_and_deleted() {
     let core = core().await;
@@ -1020,7 +1062,7 @@ async fn a_dropped_download_ends_its_progression() {
     let mut events = core.state.event_broadcaster.subscribe();
     let (_, event_id) = Event::new_progression_event_start("Zipping", None, None, CausedBy::System);
     let cancel = core.state.backups.cancel_token().child_token();
-    drop(Zipping {
+    drop(Preparing {
         broadcaster: core.state.event_broadcaster.clone(),
         event_id: Some(event_id.clone()),
         cancel: cancel.clone(),
@@ -1040,7 +1082,7 @@ async fn a_dropped_download_ends_its_progression() {
     assert_eq!(ended, vec![(event_id.inner(), false)]);
 
     // one that finished sends its own End, once
-    let zipping = Zipping {
+    let zipping = Preparing {
         broadcaster: core.state.event_broadcaster.clone(),
         event_id: Some(event_id.clone()),
         cancel: core.state.backups.cancel_token().child_token(),
@@ -1304,7 +1346,7 @@ async fn the_world_and_its_mods_are_restored_and_recorded() {
     assert!(image
         .label
         .as_deref()
-        .is_some_and(|label| label.contains("Restored backup “Base”")));
+        .is_some_and(|label| label.contains("Restored snapshot “Base”")));
     // the content is the backup's again, so it is the same image
     assert_eq!(image.id, content.id);
 
@@ -1416,4 +1458,58 @@ async fn collections_during_a_backup_never_take_its_files() {
             .verify_object(&entry.sha256, entry.size, lodestone_image::store::NEVER)
             .unwrap();
     }
+}
+
+/// An export whose request is dropped before the file is written (the client went away)
+/// ends its progression through the route's own guard, and leaves no file behind.
+#[tokio::test]
+async fn a_dropped_export_ends_its_progression() {
+    let core = core().await;
+    let owner = core.owner().await;
+    let id = core.backup(&owner, None).await;
+    let user = User::new("exporter".into(), "pw", true, false, Default::default());
+    core.state
+        .users_manager
+        .write()
+        .await
+        .add_user(user.clone(), CausedBy::System)
+        .await
+        .unwrap();
+    let mut events = core.state.event_broadcaster.subscribe();
+    let mut export = Box::pin(export_backup(
+        State(core.state.clone()),
+        Path((core.uuid.clone(), id.clone())),
+        AuthedUser(user),
+        None,
+    ));
+    // the progression starts, then the export waits for the backup store
+    assert!(futures::poll!(export.as_mut()).is_pending());
+    drop(export);
+    let mut started = None;
+    let mut ended = Vec::new();
+    while let Ok(event) = events.try_recv() {
+        let crate::events::EventInner::ProgressionEvent(p) = event.event_inner else {
+            continue;
+        };
+        match p.progression_event_inner() {
+            crate::events::ProgressionEventInner::ProgressionStart { .. } => {
+                started = Some(p.event_id())
+            }
+            crate::events::ProgressionEventInner::ProgressionEnd { success, .. } => {
+                ended.push((p.event_id(), *success))
+            }
+            _ => {}
+        }
+    }
+    let started = started.expect("the export's progression started");
+    assert_eq!(ended, vec![(started, false)]);
+    // the dropped request's export never writes its file
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    let suffix = format!("{id}.{}", crate::images::share::EXTENSION);
+    let written: Vec<_> = walkdir::WalkDir::new(path_to_tmp())
+        .into_iter()
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().ends_with(&suffix))
+        .collect();
+    assert!(written.is_empty(), "{written:?}");
 }
