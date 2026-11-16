@@ -420,7 +420,7 @@ mod screenshot {
                     .timer(Duration::from_millis(500))
                     .await;
             }
-            // `--world-backup create|restore|restore-running|delete|running|download`: the
+            // `--world-backup create|restore|restore-running|restore-busy|delete|running|download`: the
             // Snapshots tab's World backups section (with `--tab backups --demo`)
             if let Some(scene) = arg_after("--world-backup") {
                 window

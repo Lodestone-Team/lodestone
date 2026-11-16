@@ -442,21 +442,40 @@ impl BackupsPage {
         } else {
             None
         };
-        let delete_why = (!may_write).then(|| t(M::NoWritePermission));
+        // the core refuses a delete while a world job runs (it may be reading the zip)
+        let world_job = self
+            .job
+            .as_ref()
+            .is_some_and(|job| matches!(job.kind, JobKind::WorldBackup | JobKind::WorldRestore));
+        let delete_why = if !may_write {
+            Some(t(M::NoWritePermission))
+        } else if world_job {
+            Some(t(M::JobRunning))
+        } else {
+            None
+        };
 
         let before_restoring = backup
             .before_restoring
             .as_deref()
             .map(|name| tr!(M::WorldBeforeRestoreHint, name = shown(name)));
-        let mut tags = vec![match backup.kind {
-            WorldBackupKind::BeforeRestore => tag_with_text_tip(
+        let mut tags = Vec::new();
+        match backup.kind {
+            WorldBackupKind::BeforeRestore => tags.push(tag_with_text_tip(
                 id("kind"),
                 t(M::TagBeforeRestore),
                 before_restoring,
                 colors::VIOLET,
-            ),
-            _ => tag_with_tip(id("kind"), t(M::TagManual), None, colors::GRAY_400),
-        }];
+            )),
+            WorldBackupKind::Manual => tags.push(tag_with_tip(
+                id("kind"),
+                t(M::TagManual),
+                None,
+                colors::GRAY_400,
+            )),
+            // a kind a newer core added: no tag rather than a wrong one
+            WorldBackupKind::Unknown => {}
+        }
         if backup.live {
             tags.push(tag_with_tip(
                 id("live"),
@@ -630,6 +649,8 @@ impl BackupsPage {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let may = may_restore_into(self.instance_state(cx));
+        // a job that started after the dialog opened (a scheduled snapshot) holds the lock
+        let job_running = self.job.is_some();
         let close = cx.entity().downgrade();
         let cancel = close.clone();
         Dialog::new(
@@ -657,6 +678,9 @@ impl BackupsPage {
                         .child(t(M::WorldRestoreBody)),
                 )
                 .when(!may, |this| this.child(parts::warning(t(M::WorldMustStop))))
+                .when(may && job_running, |this| {
+                    this.child(parts::warning(t(M::JobRunning)))
+                })
                 .child(parts::paragraph(t(M::WorldSafetyNote)))
                 .children(shown.error.clone().map(parts::error)),
         )
@@ -664,7 +688,7 @@ impl BackupsPage {
             Button::new(("world-backup-restore", 1usize), t(M::Restore))
                 .variant(ButtonVariant::Danger)
                 .loading(shown.busy)
-                .disabled(shown.busy || !may)
+                .disabled(shown.busy || !may || job_running)
                 .on_click(cx.listener(|this, _, _, cx| this.restore_world(cx))),
         )
         .footer(
@@ -736,7 +760,7 @@ impl BackupsPage {
     }
 
     /// A World backups scene for the development screenshots' `--world-backup` (with
-    /// `--tab backups --demo`): `create`, `restore`, `restore-running` (the server runs),
+    /// `--tab backups --demo`): `create`, `restore`, `restore-running` (the server runs), `restore-busy` (a job runs),
     /// `delete`, `running` (a world backup at 37 % with its Cancel) or `download` (a row
     /// downloading, at 55 %).
     #[cfg(feature = "screenshot")]
@@ -750,13 +774,22 @@ impl BackupsPage {
         };
         match scene {
             "create" => self.open_world_create(cx),
-            "restore" | "restore-running" => {
+            "restore" | "restore-running" | "restore-busy" => {
                 use launcher_core::cores::admin::models::InstanceState;
-                let to = if scene == "restore" {
-                    InstanceState::Stopped
-                } else {
+                let to = if scene == "restore-running" {
                     InstanceState::Running
+                } else {
+                    InstanceState::Stopped
                 };
+                if scene == "restore-busy" {
+                    // a scheduled snapshot started after the dialog opened
+                    self.job = Some(Job {
+                        task_id: 7_380_000_000_000_000_003,
+                        kind: JobKind::Backup,
+                        progress: Some(42.0),
+                        message: "Copying".to_string(),
+                    });
+                }
                 let uuid = self.uuid.clone();
                 self.state.update(cx, |state, cx| {
                     let fakes = Some(&mut state.fake_instances);

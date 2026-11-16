@@ -10,11 +10,15 @@
 //! counted. Region files and other compressed formats are stored as they are, which keeps
 //! the time a running server's saving is paused short; the rest is deflated.
 //!
+//! A world is only backed up within the bounds a restore reads a zip in ([`ZipLimits`]): a
+//! backup Lodestone couldn't restore is refused before anything is written, and stopped
+//! should the world grow past them while it is copied.
+//!
 //! Everything here is blocking. The caller holds the server's job lock, and pauses a
 //! running server's saving around [`write_world_zip`].
 
 use std::fs::{self, File};
-use std::io::{self, BufWriter, Read, Write};
+use std::io::{self, BufWriter, Read, Seek, Write};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
@@ -25,6 +29,9 @@ use zip::CompressionMethod;
 
 use crate::backups::store::{cancelled, err, Cancel};
 use crate::error::{Error, ErrorKind};
+use crate::util::disk::format_bytes;
+
+use super::reader::ZipLimits;
 
 /// Files whose contents are already compressed, stored as they are: deflating region files
 /// gains little and would keep a running server's saving paused longer.
@@ -34,6 +41,9 @@ const STORED_EXTENSIONS: [&str; 10] = [
 
 /// Copied this much at a time, checking for cancellation between.
 const CHUNK: usize = 64 * 1024;
+
+/// How many of the paths a backup leaves out are named, for messages.
+const LEFT_OUT_SAMPLE: usize = 5;
 
 /// What a world backup will hold, from a walk that reads nothing.
 #[derive(Debug, Clone)]
@@ -45,14 +55,24 @@ pub struct WorldPlan {
     /// The files' sizes added up: the most the zip can take on disk, near enough.
     pub total_bytes: u64,
     pub file_count: u64,
+    /// The files and folders the zip will have: its entries.
+    pub entry_count: u64,
+    /// What the walk leaves out (links, folders that can't be listed, names the layout
+    /// can't place), and the first few of them by path.
+    pub left_out: u64,
+    pub left_out_sample: Vec<String>,
+    /// The bounds the zip is kept within, so a restore can read it.
+    pub limits: ZipLimits,
 }
 
 /// What [`write_world_zip`] wrote.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Written {
     pub file_count: u64,
     /// Links, files that couldn't be read or vanished, and names the layout can't place.
     pub left_out: u64,
+    /// The first few of those, by path.
+    pub left_out_sample: Vec<String>,
     /// The zip's size.
     pub size: u64,
 }
@@ -65,6 +85,38 @@ enum Item {
         path: PathBuf,
         size: u64,
     },
+    /// What a backup can't hold: a link, a folder that can't be listed, a name the layout
+    /// can't place.
+    LeftOut(String),
+}
+
+/// Counts what is left out and keeps the first few paths.
+#[derive(Debug, Default)]
+struct LeftOut {
+    count: u64,
+    sample: Vec<String>,
+}
+
+impl LeftOut {
+    fn add(&mut self, path: String) {
+        self.count += 1;
+        if self.sample.len() < LEFT_OUT_SAMPLE {
+            self.sample.push(path);
+        }
+    }
+}
+
+/// The refusal of a world too large for a restore to read back.
+fn too_large(limits: &ZipLimits) -> Error {
+    err(
+        ErrorKind::BadRequest,
+        format!(
+            "The world is too large for a world backup: Lodestone restores world backups of \
+             up to {} and {} files and folders. Take a snapshot instead",
+            format_bytes(limits.max_bytes),
+            limits.max_entries
+        ),
+    )
 }
 
 fn no_world() -> Error {
@@ -74,27 +126,40 @@ fn no_world() -> Error {
     )
 }
 
-/// Checks the server in `root` has a world to back up: NotFound when it has no level
-/// with a `level.dat`; a level or split folder that is a link is refused.
-pub fn check_world(root: &Path, layout: &ServerLayout) -> Result<(), Error> {
-    world_folders(root, layout, true).map(|_| ())
+/// Checks the server in `root` has a world to back up within `limits`: NotFound when it
+/// has no level with a `level.dat`; a level or split folder that is a link is refused, and
+/// so is a world too large to restore. Walks the world without reading it.
+pub fn check_world(root: &Path, layout: &ServerLayout, limits: ZipLimits) -> Result<(), Error> {
+    plan_world(root, layout, true, limits).map(|_| ())
 }
 
 /// The world's folders in `root` for `layout`, and what they hold. Checked as
-/// [`check_world`] checks; with `require_level_dat` false a level folder without a
-/// `level.dat` is taken too (a restore's safety backup keeps a damaged world as well).
+/// [`check_world`] checks; with `require_level_dat` false a world without a `level.dat`, or
+/// a split server's `_nether` and `_the_end` folders without their level, is taken too (a
+/// restore's safety backup keeps whatever the restore replaces).
 pub fn plan_world(
     root: &Path,
     layout: &ServerLayout,
     require_level_dat: bool,
+    limits: ZipLimits,
 ) -> Result<WorldPlan, Error> {
     let folders = world_folders(root, layout, require_level_dat)?;
     let mut total_bytes = 0u64;
     let mut file_count = 0u64;
+    let mut entry_count = 0u64;
+    let mut left_out = LeftOut::default();
     walk(root, layout, &folders, &mut |item| {
-        if let Item::File { size, .. } = item {
-            total_bytes = total_bytes.saturating_add(size);
-            file_count += 1;
+        match item {
+            Item::File { size, .. } => {
+                total_bytes = total_bytes.saturating_add(size);
+                file_count += 1;
+                entry_count += 1;
+            }
+            Item::Dir(_) => entry_count += 1,
+            Item::LeftOut(path) => left_out.add(path),
+        }
+        if total_bytes > limits.max_bytes || entry_count > limits.max_entries {
+            return Err(too_large(&limits));
         }
         Ok(())
     })?;
@@ -104,7 +169,23 @@ pub fn plan_world(
         folders,
         total_bytes,
         file_count,
+        entry_count,
+        left_out: left_out.count,
+        left_out_sample: left_out.sample,
+        limits,
     })
+}
+
+/// The top folders a world of `layout` has: the level, then on a split server its
+/// `_nether` and `_the_end` folders.
+pub fn world_tops(layout: &ServerLayout) -> Vec<String> {
+    let level = layout.level_name().to_string();
+    let mut tops = vec![level.clone()];
+    if layout.is_split() {
+        tops.push(format!("{level}_nether"));
+        tops.push(format!("{level}_the_end"));
+    }
+    tops
 }
 
 /// The level, then on a split server its `_nether` and `_the_end` folders that are there.
@@ -114,11 +195,7 @@ fn world_folders(
     require_level_dat: bool,
 ) -> Result<Vec<String>, Error> {
     let level = layout.level_name().to_string();
-    let mut tops = vec![level.clone()];
-    if layout.is_split() {
-        tops.push(format!("{level}_nether"));
-        tops.push(format!("{level}_the_end"));
-    }
+    let tops = world_tops(layout);
     let mut folders = Vec::new();
     for top in tops {
         match fs::symlink_metadata(root.join(&top)) {
@@ -132,24 +209,28 @@ fn world_folders(
             _ => {}
         }
     }
-    if folders.first() != Some(&level)
-        || (require_level_dat && !root.join(&level).join("level.dat").is_file())
-    {
+    let whole = folders.first() == Some(&level) && root.join(&level).join("level.dat").is_file();
+    if folders.is_empty() || (require_level_dat && !whole) {
         return Err(no_world());
     }
     Ok(folders)
 }
 
 /// Visits the world's folders in a fixed order (by name), giving the folders and files a
-/// zip takes, and returns how many it left out.
+/// zip takes and what it leaves out.
 fn walk(
     root: &Path,
     layout: &ServerLayout,
     folders: &[String],
     visit: &mut dyn FnMut(Item) -> Result<(), Error>,
-) -> Result<u64, Error> {
+) -> Result<(), Error> {
     let disk = DiskLayout::Server(layout.clone());
-    let mut left_out = 0u64;
+    let shown = |path: &Path| {
+        path.strip_prefix(root)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .replace('\\', "/")
+    };
     for top in folders {
         let mut entries = walkdir::WalkDir::new(root.join(top))
             .follow_links(false)
@@ -159,20 +240,22 @@ fn walk(
             let entry = match entry {
                 Ok(entry) => entry,
                 // a folder that can't be listed: what is in it is left out
-                Err(_) => {
-                    left_out += 1;
+                Err(e) => {
+                    visit(Item::LeftOut(
+                        e.path().map(shown).unwrap_or_else(|| top.clone()),
+                    ))?;
                     continue;
                 }
             };
             let Some(rel) = relative(root, entry.path()) else {
-                left_out += 1;
+                visit(Item::LeftOut(shown(entry.path())))?;
                 if entry.file_type().is_dir() {
                     entries.skip_current_dir();
                 }
                 continue;
             };
             if entry.path_is_symlink() || entry.file_type().is_symlink() {
-                left_out += 1;
+                visit(Item::LeftOut(rel))?;
                 continue;
             }
             if entry.file_type().is_dir() {
@@ -196,11 +279,11 @@ fn walk(
                     })?;
                 }
                 Ok(None) => {}
-                Err(_) => left_out += 1,
+                Err(_) => visit(Item::LeftOut(rel))?,
             }
         }
     }
-    Ok(left_out)
+    Ok(())
 }
 
 /// `path` relative to `root`, `/`-separated; `None` when a part isn't UTF-8.
@@ -261,9 +344,10 @@ fn file_options(name: &str, size: u64, modified: Option<SystemTime>) -> SimpleFi
 }
 
 /// Writes the world `plan` names, walked again now (inside a running server's save pause,
-/// so new region files are taken), as a zip at `out_part`, which must not exist. Tells
-/// `progress` the bytes copied and the plan's total. On any failure or cancellation the
-/// part file is deleted, so nothing is left; on success it is flushed to disk.
+/// so new region files are taken), as a zip at `out_part`, which must not exist, within the
+/// plan's limits. Tells `progress` the bytes copied and the plan's total. On any failure or
+/// cancellation the part file is deleted, so nothing is left; on success it is flushed to
+/// disk.
 pub fn write_world_zip(
     plan: &WorldPlan,
     out_part: &Path,
@@ -301,15 +385,24 @@ fn write_into(
     let io_error =
         |e: io::Error| Error::from(eyre!(e).wrap_err("Failed to write the world backup"));
     let mut zip = zip::ZipWriter::new(BufWriter::new(file));
+    let limits = plan.limits;
     let mut copied = 0u64;
     let mut file_count = 0u64;
-    let mut vanished = 0u64;
+    let mut entries = 0u64;
+    let mut left_out = LeftOut::default();
     let mut buffer = vec![0u8; CHUNK];
-    let left_out = walk(&plan.root, &plan.layout, &plan.folders, &mut |item| {
+    walk(&plan.root, &plan.layout, &plan.folders, &mut |item| {
         if cancel() {
             return Err(cancelled());
         }
+        if !matches!(item, Item::LeftOut(_)) {
+            entries += 1;
+            if entries > limits.max_entries {
+                return Err(too_large(&limits));
+            }
+        }
         match item {
+            Item::LeftOut(path) => left_out.add(path),
             Item::Dir(rel) => {
                 let options = SimpleFileOptions::default().unix_permissions(0o755);
                 zip.add_directory(format!("{rel}/"), options)
@@ -318,7 +411,7 @@ fn write_into(
             Item::File { rel, path, .. } => {
                 // gone, or can't be opened: left out
                 let Ok(mut source) = File::open(&path) else {
-                    vanished += 1;
+                    left_out.add(rel);
                     return Ok(());
                 };
                 let meta = source.metadata().map_err(io_error)?;
@@ -337,15 +430,18 @@ fn write_into(
                         Err(_) => {
                             // couldn't be read through: taken out again
                             zip.abort_file().map_err(zip_error)?;
-                            vanished += 1;
+                            left_out.add(rel);
                             return Ok(());
                         }
                     };
                     if read == 0 {
                         break;
                     }
-                    zip.write_all(&buffer[..read]).map_err(io_error)?;
                     copied = copied.saturating_add(read as u64);
+                    if copied > limits.max_bytes {
+                        return Err(too_large(&limits));
+                    }
+                    zip.write_all(&buffer[..read]).map_err(io_error)?;
                     progress(copied, plan.total_bytes);
                 }
                 file_count += 1;
@@ -354,12 +450,16 @@ fn write_into(
         Ok(())
     })?;
     let writer = zip.finish().map_err(zip_error)?;
-    let file = writer.into_inner().map_err(|e| io_error(e.into_error()))?;
+    let mut file = writer.into_inner().map_err(|e| io_error(e.into_error()))?;
+    // a file taken out again at the end (`abort_file`) leaves its bytes past the central
+    // directory: cut them off, so the zip and its size are only what it holds
+    let size = file.stream_position().map_err(io_error)?;
+    file.set_len(size).map_err(io_error)?;
     file.sync_all().map_err(io_error)?;
-    let size = file.metadata().map_err(io_error)?.len();
     Ok(Written {
         file_count,
-        left_out: left_out + vanished,
+        left_out: left_out.count,
+        left_out_sample: left_out.sample,
         size,
     })
 }

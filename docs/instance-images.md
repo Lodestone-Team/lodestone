@@ -1088,7 +1088,8 @@ section above the snapshots (see "WB1 decisions").
   the server's disk layout (`DiskLayout::from_disk`): what images never record
   (`session.lock`, `.lodestone-*`) is skipped, and links, unreadable files and names the
   layout can't place (a vanilla `DIM-1` inside a split level, a name that isn't UTF-8) are
-  left out and counted. The level must be one folder name and hold a `level.dat`.
+  left out and counted. The level must be one folder name and hold a `level.dat`, and the
+  world must fit what a restore reads (below), so every backup made can be restored.
 - **Where it lives.** `<LODESTONE_PATH>/world-backups/<uuid>/<id>.zip` with a sidecar
   `<id>.json` (name, kind, time, level, the zip's top folders, server name, game version,
   flavour, size, file and left-out counts, `live`, `quiesced`, and for a safety backup the
@@ -1105,11 +1106,15 @@ section above the snapshots (see "WB1 decisions").
   cap); a stopped one can't start meanwhile. The free space for the uncompressed world is
   reserved among the core's large writes first. Progress events and Cancel; a cancelled or
   failed backup leaves no file.
-- **Restoring one.** Only into a stopped server. First a safety world backup of the current
-  world ("Before restoring “…”"), then the zip is checked as untrusted (below), extracted
+- **Restoring one.** Only into a stopped server. Checked before anything is written: the
+  zip (below), the world's folders (none a link or a file), that the safety backup can
+  hold everything the restore replaces, and that the disks have room for both. Then a
+  safety world backup of the current world ("Before restoring “…”"), then the zip extracted
   into a staging folder in the server and swapped in by renames with the snapshots'
   journal (`images/<uuid>/restore-journal.json`) and startup recovery, so a crash never
-  leaves half a world. Only the level and its `_nether` and `_the_end` folders change. The
+  leaves half a world. A restore that stops before the swap, or whose swap is undone,
+  deletes its safety backup again (the world is as it was). Only the level and its
+  `_nether` and `_the_end` folders change. The
   zip's paths go through canonical world paths into the server's current level name and
   split, so a vanilla backup restores into Paper and back.
 - **The zip is untrusted** even though the core wrote it: at most 1,000,000 entries and
@@ -4104,21 +4109,50 @@ open. The code is `core/src/backups/world/` (`store.rs`, `writer.rs`, `reader.rs
   under `.bukkit_nether/` and `.bukkit_the_end/`), and a backup into a renamed level. The
   restore owns the current level, and on a split server its `_nether` and `_the_end`; one
   the zip lacks is moved aside and removed (the safety backup has it).
-- **Safety backup.** Taken whenever the current level folder exists (with or without a
-  `level.dat`, so a damaged world is kept too), as a `before_restore` world backup named
+- **Safety backup.** Taken whenever any folder the restore replaces exists: the level
+  (with or without a `level.dat`, so a damaged world is kept too) or, on a split server,
+  its `_nether` and `_the_end` even when the level is gone (the zip then holds just those,
+  and adopting such a zip takes their level). A `before_restore` world backup named
   "Before restoring “<label>”" cut to 100 characters; its failure refuses the restore.
-  None when the server has no level folder at all.
-- **Free space.** No time limit between world backups. Making one reserves the world's
-  uncompressed size (an upper bound) on the world backups' disk among the core's large
-  writes (`LargeWrites`), with the 1 GB margin; restoring one reserves the zip's declared
-  size on the server's disk for staging.
+  None when the server has none of the world's folders.
+- **The safety backup holds everything the swap deletes.** The swap replaces whole folders,
+  so what the safety zip can't hold (links, files Lodestone can't read, names a restore
+  can't place, such as a vanilla `DIM-1` inside a Paper level) would be lost. A restore is
+  refused (409) when the safety backup would leave anything out, naming the first five
+  paths: checked from the walk before anything is written, and again by the safety backup
+  itself (a file that can't be read as it is copied), which then leaves nothing. There is
+  no override; the operator moves those paths out or fixes their permissions. Snapshots
+  refuse likewise ("Couldn't include … in the safety snapshot").
+- **Within what a restore reads.** A world over the reader's bounds (64 GB uncompressed,
+  1,000,000 files and folders) is refused before anything is reserved or paused (400,
+  "Take a snapshot instead"), and a world that grows past them while it is copied stops
+  the backup. A restore over such a world is refused too, since its safety backup
+  couldn't be made.
+- **Free space.** No time limit between world backups, and no cap on their count or total
+  size: they are manual, and the large writes' 1 GB free-space floor is the only bound.
+  Making one reserves the world's uncompressed size (an upper bound) on the world backups'
+  disk among the core's large writes (`LargeWrites`), with the 1 GB margin. A restore
+  first checks room for the safety backup and the unpacked world together (added up when
+  `world-backups/` and the server are on one disk, `util::disk::same_disk`), then the
+  steps reserve their own space as they write.
 - **Download.** The link (`global_fs::register_stored_download`) points at the stored zip
   with a display name (`<server>-<level>-<id>.zip`), holds no copy and takes no backup-file
   place; `DELETE /file/{key}` only forgets it, and the zip is never deleted with the link.
   It re-checks ReadInstanceFile when used, like every link.
 - **Cancel.** `…/tasks/{task_id}/cancel` cancels a world job until its swap begins (409
-  after); snapshot jobs have no cancel. A cancelled backup removes its `.part` file, a
-  cancelled restore its staging folder.
+  after); snapshot jobs have no cancel. A cancelled backup removes its `.part` file (also
+  one the save pause's 15-minute cap stopped as it finished), a cancelled restore its
+  staging folder. The Host shows Cancel only to those with the permission that started
+  the job, turns a world backup's Delete off while a world job runs, and its restore
+  dialog's Restore while any job runs. A world job leaves the service however its task
+  ends (a drop guard), and a restore of a server whose last restore couldn't be undone
+  says to restart Lodestone rather than to stop the server.
+- **Names.** Two backups of a server finishing in the same second with the same random
+  suffix never replace each other: under the record lock the final name is checked free
+  and another id drawn if not. A `<id>.zip` that is a link is neither listed nor loaded.
+  Errors that reach clients name a backup by id, never by its path. Zips without a sidecar
+  that can't be adopted are skipped until the core restarts rather than read on every
+  list. A zip that took a file out again at its end is cut to its central directory.
 - **Deleting a server** deletes `world-backups/<uuid>/` beside its snapshots, while the job
   lock is held.
 - **Startup.** The sweep of part files and temporary sidecars runs after the snapshots'
@@ -4134,3 +4168,4 @@ open. The code is `core/src/backups/world/` (`store.rs`, `writer.rs`, `reader.rs
   renames neither snapshots nor world backups, and its admin client has no call for it.
 - **Not in scope.** Uploading or importing a world zip from elsewhere, scheduled world
   backups, pruning, a cancel for snapshot jobs. `crates/lodestone-image` is unchanged.
+  Extracting a world backup flushes each file only on unix, as a snapshot restore does.

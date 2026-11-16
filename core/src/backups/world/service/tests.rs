@@ -6,7 +6,6 @@ use std::fs;
 use std::path::Path;
 
 use crate::backups::live::tests::{short, system, FakeLines, FakeServer, SAVED};
-use crate::backups::world::reader::plan_restore;
 use crate::backups::world::writer::tests::{read_zip, write};
 use crate::event_broadcaster::EventBroadcaster;
 
@@ -24,17 +23,19 @@ struct Env {
 }
 
 fn env() -> Env {
+    env_within(ZipLimits::default())
+}
+
+fn env_within(limits: ZipLimits) -> Env {
     let dir = tempfile::tempdir().unwrap();
     let images = Arc::new(ImageService::new(dir.path().join("backups")));
     let backups = Arc::new(BackupService::new(
         images.clone(),
         dir.path().join("instances"),
     ));
-    let service = Arc::new(WorldBackupService::new(
-        backups,
-        images,
-        dir.path().join("world-backups"),
-    ));
+    let mut service = WorldBackupService::new(backups, images, dir.path().join("world-backups"));
+    service.limits = limits;
+    let service = Arc::new(service);
     let (broadcaster, events) = EventBroadcaster::new(256);
     Env {
         dir,
@@ -122,13 +123,12 @@ impl Env {
         record: &WorldBackupRecord,
         token: &CancellationToken,
     ) -> Result<Restored, Error> {
-        let zip = self.service.store().zip_path(&uuid(), &record.id).unwrap();
-        let plan = plan_restore(&zip, &record.level, &source.layout)?;
+        let prepared = self.service.prepare_restore(source, record).await?;
         self.service
             .restore_locked(
                 source,
                 record,
-                plan,
+                prepared,
                 &mut None,
                 &Arc::new(StdMutex::new(true)),
                 &self.job(JobKind::WorldRestore),
@@ -144,6 +144,7 @@ fn manual(name: &str) -> NewBackup {
         name: Some(name.to_string()),
         before_restoring: None,
         require_level_dat: true,
+        refuse_left_out: false,
     }
 }
 
@@ -435,7 +436,7 @@ async fn a_vanilla_backup_restores_into_paper() {
 }
 
 #[tokio::test]
-async fn a_restore_without_a_world_takes_no_safety_backup() {
+async fn a_restore_without_any_world_folder_takes_no_safety_backup() {
     let env = env();
     let root = env.root();
     vanilla_world(&root);
@@ -477,14 +478,14 @@ async fn a_restore_that_fails_or_is_cancelled_leaves_the_world() {
 
     // a zip that changed since it was planned fails while it is unpacked
     let zip = env.service.store().zip_path(&uuid(), &first.id).unwrap();
-    let plan = plan_restore(&zip, &first.level, &source.layout).unwrap();
+    let prepared = env.service.prepare_restore(&source, &first).await.unwrap();
     fs::write(&zip, b"not a zip any more").unwrap();
     let error = env
         .service
         .restore_locked(
             &source,
             &first,
-            plan,
+            prepared,
             &mut None,
             &Arc::new(StdMutex::new(true)),
             &env.job(JobKind::WorldRestore),
@@ -500,6 +501,10 @@ async fn a_restore_that_fails_or_is_cancelled_leaves_the_world() {
     );
     assert_eq!(env.server_files(), before);
     assert_eq!(fs::read(root.join("world/level.dat")).unwrap(), b"level v2");
+    // the world is as it was, so the safety backup taken for it is gone again
+    let listed = env.service.list(&uuid()).await.unwrap().backups;
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].id, first.id);
 }
 
 #[tokio::test]
@@ -581,4 +586,291 @@ fn safety_names_fit() {
     assert_eq!(backup_label(&record), "Spawn");
     record.name = None;
     assert_eq!(backup_label(&record), "2025-01-01 00:00 UTC");
+}
+
+/// A Paper server whose level folder is gone still has its Nether and End, which the
+/// restore replaces: they are saved first.
+#[tokio::test]
+async fn split_folders_without_their_level_are_saved_before_a_restore() {
+    let env = env();
+    let root = env.root();
+    vanilla_world(&root);
+    let vanilla = env.back_up(&env.source("world", false), "Vanilla").await;
+    fs::remove_dir_all(root.join("world")).unwrap();
+    write(
+        &root,
+        "world_nether/DIM-1/region/r.0.0.mca",
+        b"built nether",
+    );
+    write(&root, "world_the_end/DIM1/region/r.0.0.mca", b"built end");
+    let paper = env.source("world", true);
+    let restored = env
+        .restore(&paper, &vanilla, &CancellationToken::new())
+        .await
+        .unwrap();
+    assert_eq!(fs::read(root.join("world/level.dat")).unwrap(), b"level v1");
+    assert_eq!(
+        fs::read(root.join("world_nether/DIM-1/region/r.0.0.mca")).unwrap(),
+        b"nether v1"
+    );
+    assert!(!root.join("world_the_end").exists());
+    let safety = env
+        .service
+        .load(&uuid(), restored.safety_id.as_deref().unwrap())
+        .await
+        .unwrap();
+    assert_eq!(safety.folders, ["world_nether", "world_the_end"]);
+    let entries = read_zip(&env.service.store().zip_path(&uuid(), &safety.id).unwrap());
+    assert_eq!(
+        entries["world_nether/DIM-1/region/r.0.0.mca"].0,
+        b"built nether"
+    );
+    assert_eq!(
+        entries["world_the_end/DIM1/region/r.0.0.mca"].0,
+        b"built end"
+    );
+
+    // and the safety backup puts them back, without a level
+    env.restore(&paper, &safety, &CancellationToken::new())
+        .await
+        .unwrap();
+    assert!(!root.join("world").exists());
+    assert_eq!(
+        fs::read(root.join("world_the_end/DIM1/region/r.0.0.mca")).unwrap(),
+        b"built end"
+    );
+}
+
+/// What the safety backup couldn't hold, the restore would delete: it is refused before
+/// anything is written, naming the paths.
+#[tokio::test]
+async fn a_restore_whose_safety_backup_would_leave_things_out_is_refused() {
+    let env = env();
+    let root = env.root();
+    write(&root, "world/level.dat", b"level v1");
+    let paper = env.source("world", true);
+    let first = env.back_up(&paper, "First").await;
+    // a vanilla Nether in the split level: a Paper restore couldn't place it back
+    write(&root, "world/DIM-1/region/r.0.0.mca", b"real nether");
+    let before = env.server_files();
+    let error = env
+        .restore(&paper, &first, &CancellationToken::new())
+        .await
+        .err()
+        .unwrap();
+    assert!(
+        matches!(error.kind, ErrorKind::Conflict),
+        "{}",
+        error.source
+    );
+    assert!(
+        error
+            .source
+            .to_string()
+            .contains("world/DIM-1/region/r.0.0.mca"),
+        "{}",
+        error.source
+    );
+    assert_eq!(env.server_files(), before);
+    assert_eq!(env.service.list(&uuid()).await.unwrap().backups.len(), 1);
+
+    // a link inside the world, likewise
+    #[cfg(unix)]
+    {
+        fs::remove_dir_all(root.join("world/DIM-1")).unwrap();
+        std::os::unix::fs::symlink(root.join("mods"), root.join("world/datapacks")).unwrap();
+        let error = env
+            .restore(&paper, &first, &CancellationToken::new())
+            .await
+            .err()
+            .unwrap();
+        assert!(
+            error.source.to_string().contains("world/datapacks"),
+            "{}",
+            error.source
+        );
+        assert!(fs::symlink_metadata(root.join("world/datapacks")).is_ok());
+        assert_eq!(env.service.list(&uuid()).await.unwrap().backups.len(), 1);
+    }
+}
+
+/// A safety backup that finds a file it can't read as it copies is refused, and leaves
+/// nothing: its restore stops before the world is touched.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_safety_backup_that_leaves_a_file_out_stops_the_restore() {
+    use std::os::unix::fs::PermissionsExt;
+    let env = env();
+    let root = env.root();
+    vanilla_world(&root);
+    let source = env.source("world", false);
+    let first = env.back_up(&source, "First").await;
+    write(&root, "world/data/secret.dat", b"x");
+    let secret = root.join("world/data/secret.dat");
+    fs::set_permissions(&secret, fs::Permissions::from_mode(0o000)).unwrap();
+    if fs::File::open(&secret).is_ok() {
+        // running as root: every file can be read
+        return;
+    }
+    let error = env
+        .restore(&source, &first, &CancellationToken::new())
+        .await
+        .err()
+        .unwrap();
+    fs::set_permissions(&secret, fs::Permissions::from_mode(0o644)).unwrap();
+    assert!(
+        matches!(error.kind, ErrorKind::Conflict),
+        "{}",
+        error.source
+    );
+    assert!(error.source.to_string().contains("world/data/secret.dat"));
+    assert!(secret.exists());
+    assert_eq!(env.folder_names().len(), 2);
+}
+
+/// A world too large for a restore to read back is refused before anything is reserved
+/// or written, and so is a restore over one (its safety backup couldn't be restored).
+#[tokio::test]
+async fn a_world_too_large_to_restore_is_refused() {
+    let env = env_within(ZipLimits {
+        max_entries: 1000,
+        max_bytes: 30,
+    });
+    vanilla_world(&env.root());
+    let source = env.source("world", false);
+    let first = env.back_up(&source, "Small").await;
+    write(&env.root(), "world/region/r.1.0.mca", b"0123456789");
+    let error = env
+        .service
+        .write_backup(
+            &source,
+            None,
+            manual("Large"),
+            env.job(JobKind::WorldBackup).phase(0.0, 100.0),
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(error.kind, ErrorKind::BadRequest),
+        "{}",
+        error.source
+    );
+    assert_eq!(env.folder_names().len(), 2);
+    let error = env
+        .restore(&source, &first, &CancellationToken::new())
+        .await
+        .err()
+        .unwrap();
+    assert!(
+        matches!(error.kind, ErrorKind::Conflict),
+        "{}",
+        error.source
+    );
+    assert!(env.root().join("world/region/r.1.0.mca").exists());
+}
+
+/// A disk without room for the safety backup and the unpacked world together refuses the
+/// restore before the safety backup is written.
+#[tokio::test]
+async fn a_restore_without_room_is_refused_first() {
+    let env = env();
+    vanilla_world(&env.root());
+    let source = env.source("world", false);
+    let first = env.back_up(&source, "First").await;
+    let held = env.service.images.large_writes.reserve(u64::MAX / 2);
+    let error = env
+        .restore(&source, &first, &CancellationToken::new())
+        .await
+        .err()
+        .unwrap();
+    assert!(
+        matches!(error.kind, ErrorKind::Conflict),
+        "{}",
+        error.source
+    );
+    assert_eq!(env.service.list(&uuid()).await.unwrap().backups.len(), 1);
+    drop(held);
+    env.restore(&source, &first, &CancellationToken::new())
+        .await
+        .unwrap();
+}
+
+/// The world's folders are refused when one is a link or a file, before anything walks
+/// through it.
+#[cfg(unix)]
+#[test]
+fn current_paths_refuses_linked_and_file_tops() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    write(root, "elsewhere/a.txt", b"x");
+    std::os::unix::fs::symlink(root.join("elsewhere"), root.join("world")).unwrap();
+    let tops = ["world".to_string(), "world_nether".to_string()];
+    let error = current_paths(root, &tops).unwrap_err();
+    assert!(matches!(error.kind, ErrorKind::BadRequest));
+    fs::remove_file(root.join("world")).unwrap();
+    write(root, "world/level.dat", b"x");
+    write(root, "world_nether", b"a file");
+    assert!(current_paths(root, &tops).is_err());
+    fs::remove_file(root.join("world_nether")).unwrap();
+    let found = current_paths(root, &tops).unwrap();
+    assert_eq!(
+        found,
+        [
+            ("world".to_string(), true),
+            ("world/level.dat".to_string(), false)
+        ]
+    );
+}
+
+/// A world job leaves the service however its task ends.
+#[tokio::test]
+async fn a_world_job_is_removed_even_if_its_task_dies() {
+    let env = env();
+    env.service.add_job(
+        &uuid(),
+        WorldJob {
+            task_id: "1".to_string(),
+            kind: JobKind::WorldBackup,
+            cancel: CancellationToken::new(),
+            cancellable: Arc::new(StdMutex::new(true)),
+        },
+    );
+    let job = env.job(JobKind::WorldBackup);
+    job.begin();
+    env.service.backups.register(&uuid(), &job);
+    let cleanup = JobCleanup {
+        service: env.service.clone(),
+        uuid: uuid(),
+    };
+    let task = tokio::spawn(async move {
+        let _cleanup = cleanup;
+        panic!("on purpose");
+    });
+    assert!(task.await.is_err());
+    assert!(!env.service.world_job_running(&uuid()));
+    assert!(env.service.backups.running_job(&uuid()).is_none());
+}
+
+#[tokio::test]
+async fn a_broken_server_is_known() {
+    let env = env();
+    assert!(!env.service.backups.is_broken(&uuid()));
+    let guard = Arc::new(Mutex::new(())).lock_owned().await;
+    env.service.backups.mark_broken(&uuid(), guard);
+    assert!(env.service.backups.is_broken(&uuid()));
+}
+
+#[test]
+fn left_out_refusals_name_a_few() {
+    let one = left_out_refusal(1, &["world/a".to_string()]);
+    assert!(one
+        .source
+        .to_string()
+        .starts_with("Couldn't include world/a in"));
+    let many = left_out_refusal(7, &["world/a".to_string(), "world/b".to_string()]);
+    assert!(many
+        .source
+        .to_string()
+        .starts_with("Couldn't include world/a, world/b and 5 others in"));
 }

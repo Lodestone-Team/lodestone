@@ -1506,6 +1506,86 @@ fn whole_folders_recover_after_a_crash_at_every_rename() {
     }
 }
 
+/// A world swap where the server lacks a folder the zip has (`_nether`) and the zip lacks
+/// one the server has (`_the_end`): a crash at every rename recovers the old world, a
+/// failure rolls back to it, and a journal that says done keeps the new one.
+#[test]
+fn whole_folders_with_missing_sides_recover() {
+    fn staged(env: &Env) -> (Staged, BTreeMap<String, Option<Vec<u8>>>) {
+        let root = &env.root;
+        write(root, "server.properties", b"level-name=world");
+        write(root, "world/level.dat", b"old level");
+        write(root, "world_the_end/DIM1/region/r.0.0.mca", b"old end");
+        let before = snapshot(root);
+        let tops = ["world", "world_nether", "world_the_end"].map(String::from);
+        let staged = stage_folders(root, &tops, &mut |staging| {
+            write(staging, "world/level.dat", b"new level");
+            write(
+                staging,
+                "world_nether/DIM-1/region/r.0.0.mca",
+                b"new nether",
+            );
+            Ok(())
+        })
+        .unwrap();
+        let sides: Vec<(bool, bool)> = staged
+            .owned
+            .iter()
+            .map(|e| (e.had_old, e.had_new))
+            .collect();
+        assert_eq!(sides, [(true, true), (false, true), (true, false)]);
+        (staged, before)
+    }
+    // 2 old folders moved aside, 2 new ones in
+    for crash_after in 0..=4 {
+        let env = env();
+        let (mut staged, before) = staged(&env);
+        staged.faults.crash_after = Some(crash_after);
+        assert!(matches!(
+            staged.swap(&env.journal()),
+            Err(SwapError::Broken(_))
+        ));
+        let recovery = env.recover();
+        assert_eq!(recovery.repaired, vec![uuid()], "crash after {crash_after}");
+        assert_eq!(snapshot(&env.root), before, "crash after {crash_after}");
+        assert!(!env.journal().exists());
+    }
+    for fail_after in 0..4 {
+        let env = env();
+        let (mut staged, before) = staged(&env);
+        staged.faults.fail_after = Some(fail_after);
+        assert!(matches!(
+            staged.swap(&env.journal()),
+            Err(SwapError::RolledBack(_))
+        ));
+        assert_eq!(snapshot(&env.root), before, "fail after {fail_after}");
+    }
+    // the core died after the journal said done: recovery keeps the new world
+    let env = env();
+    let (staged, _) = staged(&env);
+    let entries = staged.owned.clone();
+    staged.swap(&env.journal()).unwrap();
+    write_journal(
+        &env.journal(),
+        &Journal {
+            phase: Phase::Done,
+            staging: "0123456789abcdef".to_string(),
+            old: "fedcba9876543210".to_string(),
+            entries,
+            software: None,
+        },
+    )
+    .unwrap();
+    let recovery = env.recover();
+    assert_eq!(recovery.repaired, vec![uuid()]);
+    assert_eq!(read(&env.root, "world/level.dat").unwrap(), "new level");
+    assert_eq!(
+        read(&env.root, "world_nether/DIM-1/region/r.0.0.mca").unwrap(),
+        "new nether"
+    );
+    assert!(!env.root.join("world_the_end").exists());
+}
+
 #[test]
 fn whole_folders_refuse_links_files_and_failures_before_anything_moves() {
     let env = env();

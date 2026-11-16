@@ -18,9 +18,11 @@
 //! Everything here is blocking; the service holds the server's record lock around a list,
 //! a final rename with its sidecar, and a delete.
 
+use std::collections::HashSet;
 use std::fs;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use color_eyre::eyre::eyre;
 use tracing::{info, warn};
@@ -67,16 +69,22 @@ fn io_error(e: io::Error, what: impl Into<String>) -> Error {
     Error::from(eyre!(e).wrap_err(what.into()))
 }
 
-/// The world backups' folder (see the module). Cheap to make.
+/// The world backups' folder (see the module). Cheap to clone.
 #[derive(Debug, Clone)]
 pub struct WorldStore {
     root: PathBuf,
+    /// `<uuid>/<id>` of zips without a sidecar that couldn't be adopted, so each list
+    /// doesn't read and log them again until the core restarts.
+    not_adopted: Arc<Mutex<HashSet<String>>>,
 }
 
 impl WorldStore {
     /// The world backups under `root` (`<lodestone>/world-backups`).
     pub fn new(root: PathBuf) -> WorldStore {
-        WorldStore { root }
+        WorldStore {
+            root,
+            not_adopted: Default::default(),
+        }
     }
 
     pub fn root(&self) -> &Path {
@@ -124,12 +132,14 @@ impl WorldStore {
         write_small_atomic(&self.record_path(uuid, &record.id)?, &json)
     }
 
-    /// A backup's sidecar, checked: NotFound when its zip or sidecar is missing.
+    /// A backup's sidecar, checked: NotFound when its zip or sidecar is missing, or its zip
+    /// isn't a plain file (a link isn't followed), as [`Self::list`] sees backups.
     pub fn load(&self, uuid: &InstanceUuid, id: &str) -> Result<WorldBackupRecord, Error> {
         if !valid_world_backup_id(id) {
             return Err(not_found());
         }
-        if !self.zip_path(uuid, id)?.is_file() {
+        let zip = self.zip_path(uuid, id)?;
+        if !fs::symlink_metadata(&zip).is_ok_and(|m| m.file_type().is_file()) {
             return Err(not_found());
         }
         match read_record(&self.record_path(uuid, id)?, id)? {
@@ -149,13 +159,14 @@ impl WorldStore {
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
             Err(e) => return Err(io_error(e, "Failed to list the world backups")),
         };
-        let mut zips = Vec::new();
-        let mut sidecars = Vec::new();
+        let mut zips = HashSet::new();
+        let mut sidecars = HashSet::new();
         for (count, entry) in entries.enumerate() {
             if count >= MAX_FOLDER_ENTRIES {
+                warn!("{} has too many files to list", dir.display());
                 return Err(err(
                     ErrorKind::Internal,
-                    format!("{} has too many files to list", dir.display()),
+                    "The server's world backups folder has too many files to list",
                 ));
             }
             let entry = entry.map_err(|e| io_error(e, "Failed to list the world backups"))?;
@@ -167,13 +178,13 @@ impl WorldStore {
                 .filter(|id| valid_world_backup_id(id))
             {
                 if entry.file_type().is_ok_and(|t| t.is_file()) {
-                    zips.push(id.to_string());
+                    zips.insert(id.to_string());
                 }
             } else if let Some(id) = name
                 .strip_suffix(".json")
                 .filter(|id| valid_world_backup_id(id))
             {
-                sidecars.push(id.to_string());
+                sidecars.insert(id.to_string());
             }
         }
         let mut records = Vec::new();
@@ -191,16 +202,24 @@ impl WorldStore {
                 records.push(record);
             }
         }
-        for id in zips.iter().filter(|id| !sidecars.contains(id)) {
+        for id in zips.iter().filter(|id| !sidecars.contains(*id)) {
+            let key = format!("{uuid}/{id}");
+            let mut not_adopted = self.not_adopted.lock().unwrap_or_else(|e| e.into_inner());
+            if not_adopted.contains(&key) {
+                continue;
+            }
             match self.adopt(uuid, id) {
                 Ok(record) => {
                     info!("Listed the world backup {id} of {uuid}, which had no record");
                     records.push(record);
                 }
-                Err(e) => warn!(
-                    "The world backup {id} of {uuid} has no record and can't be read: {}",
-                    e.source
-                ),
+                Err(e) => {
+                    warn!(
+                        "The world backup {id} of {uuid} has no record and can't be read: {}",
+                        e.source
+                    );
+                    not_adopted.insert(key);
+                }
             }
         }
         records.sort_by(|a, b| b.created.cmp(&a.created).then_with(|| b.id.cmp(&a.id)));
@@ -215,14 +234,7 @@ impl WorldStore {
             .map_err(|e| io_error(e, "Failed to read the world backup"))?
             .len();
         let (folders, file_count) = zip_top_folders(&zip)?;
-        let level = folders
-            .iter()
-            .find(|top| {
-                !folders.iter().any(|other| {
-                    *top == &format!("{other}_nether") || *top == &format!("{other}_the_end")
-                })
-            })
-            .cloned()
+        let level = adopted_level(&folders)
             .ok_or_else(|| err(ErrorKind::Internal, "The zip has no world folder"))?;
         lodestone_image::ServerLayout::new(level.clone(), [], false).map_err(|e| {
             err(
@@ -289,8 +301,10 @@ impl WorldStore {
     /// When a server is deleted: every world backup of it.
     pub fn delete_server(&self, uuid: &InstanceUuid) -> Result<(), Error> {
         let dir = self.dir(uuid)?;
-        crate::images::remove_tree(&dir)
-            .map_err(|e| io_error(e, format!("Failed to delete {}", dir.display())))
+        crate::images::remove_tree(&dir).map_err(|e| {
+            warn!("Failed to delete {}: {e}", dir.display());
+            io_error(e, "Failed to delete the server's world backups")
+        })
     }
 
     /// At startup: deletes the part files and temporary sidecars a crash left in every
@@ -331,16 +345,46 @@ fn checked_id(id: &str) -> Result<&str, Error> {
     }
 }
 
+/// The level of a zip adopted with these top folders: the one the others are the split
+/// folders of, or, when the zip holds only a split server's `_nether` and `_the_end`
+/// folders (a restore's safety backup of a world whose level was gone), the level they
+/// name.
+fn adopted_level(folders: &[String]) -> Option<String> {
+    let split_of = |top: &str| {
+        top.strip_suffix("_nether")
+            .or_else(|| top.strip_suffix("_the_end"))
+            .map(str::to_string)
+    };
+    let level = folders.iter().find(|top| {
+        !folders
+            .iter()
+            .any(|other| split_of(top).as_deref() == Some(other.as_str()))
+    })?;
+    if folders.len() > 1 {
+        if let Some(prefix) = split_of(level) {
+            if folders
+                .iter()
+                .all(|top| split_of(top).as_deref() == Some(&prefix))
+            {
+                return Some(prefix);
+            }
+        }
+    }
+    Some(level.clone())
+}
+
 /// Reads and checks the sidecar at `path` for `id`: `None` when it is missing, an error
-/// when it can't be read or isn't valid.
+/// when it can't be read or isn't valid. The error names the backup, not the path (it
+/// reaches clients); the log has the path.
 fn read_record(path: &Path, id: &str) -> Result<Option<WorldBackupRecord>, Error> {
     let damaged = |why: String| {
+        warn!(
+            "The world backup record {} can't be read: {why}",
+            path.display()
+        );
         err(
             ErrorKind::Internal,
-            format!(
-                "The world backup record {} can't be read: {why}",
-                path.display()
-            ),
+            format!("The record of the world backup {id} can't be read: {why}"),
         )
     };
     let file = match fs::File::open(path) {
@@ -647,6 +691,66 @@ pub(crate) mod tests {
             ));
             assert!(store.zip_path(&uuid(), bad).is_err());
         }
+    }
+
+    #[test]
+    fn adopted_levels() {
+        let level =
+            |tops: &[&str]| adopted_level(&tops.iter().map(|t| t.to_string()).collect::<Vec<_>>());
+        assert_eq!(level(&["world"]).as_deref(), Some("world"));
+        assert_eq!(level(&["world", "world_nether"]).as_deref(), Some("world"));
+        assert_eq!(
+            level(&["world", "world_nether", "world_the_end"]).as_deref(),
+            Some("world")
+        );
+        // a safety backup of split folders whose level was gone
+        assert_eq!(
+            level(&["world_nether", "world_the_end"]).as_deref(),
+            Some("world")
+        );
+        // alone, a folder is its own level (a vanilla level may be called that)
+        assert_eq!(level(&["mine_nether"]).as_deref(), Some("mine_nether"));
+        assert_eq!(level(&[]), None);
+    }
+
+    /// A zip that is a link isn't a backup to `load` either (the list never shows it), so
+    /// a download or restore never reads through it.
+    #[cfg(unix)]
+    #[test]
+    fn a_linked_zip_is_not_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = WorldStore::new(dir.path().to_path_buf());
+        let uuid = uuid();
+        let id = "20260101-000000-aaaa";
+        let elsewhere = dir.path().join("elsewhere.zip");
+        write_zip(&elsewhere, &[("world/level.dat", b"x")]);
+        fs::create_dir_all(store.dir(&uuid).unwrap()).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, store.zip_path(&uuid, id).unwrap()).unwrap();
+        store.save_record(&uuid, &record(id, 1)).unwrap();
+        assert!(matches!(
+            store.load(&uuid, id).unwrap_err().kind,
+            ErrorKind::NotFound
+        ));
+    }
+
+    /// A damaged record's error names the backup, not where Lodestone keeps it.
+    #[test]
+    fn errors_name_no_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = WorldStore::new(dir.path().to_path_buf());
+        let uuid = uuid();
+        let id = "20260101-000000-aaaa";
+        write_zip(
+            &store.zip_path(&uuid, id).unwrap(),
+            &[("world/level.dat", b"x")],
+        );
+        fs::write(store.record_path(&uuid, id).unwrap(), b"{").unwrap();
+        let message = store.list(&uuid).unwrap_err().source.to_string();
+        assert!(message.contains(id), "{message}");
+        assert!(
+            !message.contains(&dir.path().to_string_lossy().to_string()),
+            "{message}"
+        );
     }
 
     #[test]

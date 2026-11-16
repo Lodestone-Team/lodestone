@@ -282,16 +282,11 @@ pub fn plan_restore_with(
             file.disk
         )));
     }
-    let mut tops = vec![target_level.to_string()];
-    if target.is_split() {
-        tops.push(format!("{target_level}_nether"));
-        tops.push(format!("{target_level}_the_end"));
-    }
     Ok(RestoreZipPlan {
         files,
         folders,
         total_bytes,
-        tops,
+        tops: super::writer::world_tops(target),
     })
 }
 
@@ -362,6 +357,11 @@ pub fn extract_into(
             // only the time it shows; the world is right either way
             let _ = out.set_modified(modified);
         }
+        // on disk before the swap puts it in place and deletes the world it replaces. Only
+        // on unix, where the folders are flushed too (`sync_tree`): on Windows a folder
+        // can't be, so flushing every file (FlushFileBuffers) would make restores of big
+        // worlds minutes slower and still not make the swap durable
+        #[cfg(unix)]
         out.sync_all().map_err(|e| io_error(e, &file.disk))?;
     }
     Ok(())

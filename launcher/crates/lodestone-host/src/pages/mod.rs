@@ -157,7 +157,7 @@ pub fn backup_export_demo(view: &AnyView, scene: &str, cx: &mut App) {
 }
 
 /// A World backups scene on the Snapshots tab (development screenshots'
-/// `--world-backup create|restore|restore-running|delete|running|download`, with `--tab
+/// `--world-backup create|restore|restore-running|restore-busy|delete|running|download`, with `--tab
 /// backups --demo`).
 #[cfg(feature = "screenshot")]
 pub fn world_backup_demo(view: &AnyView, scene: &str, cx: &mut App) {

@@ -1193,8 +1193,14 @@ impl BackupsPage {
             JobKind::WorldRestore => M::WorldRestoring,
             _ => M::BackingUp,
         });
-        // a world job can be cancelled (a restore until it puts the world in place)
-        let cancel = matches!(job.kind, JobKind::WorldBackup | JobKind::WorldRestore).then(|| {
+        // a world job can be cancelled (a restore until it puts the world in place), by
+        // whoever may start one: the core's cancel route asks the same permission
+        let may_cancel = match job.kind {
+            JobKind::WorldBackup => self.may(InstancePermission::Settings, cx),
+            JobKind::WorldRestore => self.may(InstancePermission::WriteFiles, cx),
+            _ => false,
+        };
+        let cancel = may_cancel.then(|| {
             Button::new("world-job-cancel", t(CommonMsg::Cancel))
                 .size(ButtonSize::Slim)
                 .loading(self.cancelling)

@@ -836,6 +836,20 @@ impl BackupService {
             .remove(uuid);
     }
 
+    /// Whether the server's last restore couldn't be undone, so it stays locked until the
+    /// core restarts and repairs it.
+    pub(crate) fn is_broken(&self, uuid: &InstanceUuid) -> bool {
+        self.broken
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains_key(uuid)
+            || self
+                .unrepaired
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .contains(uuid)
+    }
+
     /// Keeps a server whose restore couldn't be undone from starting until the core
     /// restarts and repairs it, with its `lock_stopped` guard.
     pub(crate) fn mark_broken(&self, uuid: &InstanceUuid, stopped: OwnedMutexGuard<()>) {
@@ -2210,9 +2224,8 @@ impl BackupService {
                         n => format!(" and {n} other files"),
                     };
                     return Err(conflict(format!(
-                        "Couldn't back up {first}{others}, which the restore would replace, \
-                         so it couldn't be undone. Check that Lodestone can read them, or \
-                         restore without the safety backup"
+                        "Couldn't include {first}{others} in the safety snapshot, so the \
+                         restore couldn't be undone. Check that Lodestone can read them"
                     ))
                     .into());
                 }
