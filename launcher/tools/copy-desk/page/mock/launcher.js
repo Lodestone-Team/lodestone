@@ -293,6 +293,7 @@
         h("button", { disabled: !ctx.canForward(), onclick: () => ctx.forward() }, ic("chevR"))),
       h("div.lx-logo", logoMark(), tx("Lodestone"), S.build === "dev" ? h("span.lx-devb", sh("DevBadge")) : null),
       h("div.lx-upd",
+        S.crashNotice === "on" ? [h("span.lx-pill", sh("CrashNotice")), btn(sh("OpenLogs"), { sm: true }), btn(sh("DismissCrashNotice"), { sm: true })] : null,
         upd === "available" ? [h("span.lx-pill", sh("UpdateAvailableBadge")), btn(sh("DownloadUpdate"), { sm: true, kind: "p", on: () => ctx.set("update", "ready") })] :
           upd === "ready" ? [h("span.lx-pill", sh("UpdateReadyBadge")), btn(sh("RestartToUpdate"), { sm: true, kind: "p" })] :
             upd === "downloading" ? h("span.lx-muted", sh("UpdateDownloading", { build: 1412, percent: "42%" })) : null));
@@ -1055,7 +1056,9 @@
       section(sh("SignInSection"), card(srow(sh("SignInAsLauncher"), sh("SignInAsLauncherHint"), toggle(ctx.state.account === "launcher", () => ctx.state.account === "launcher" ? ctx.open("turnOffLauncher") : ctx.open("launcherIdentity"))))),
       section(sh("OfflineAccountsSetting"), card(srow(sh("OfflineAccountsSetting"), [sh("OfflineAccountsSettingHint", { add: "Add offline account" }), " ", sh("OfflineAccountsAlwaysOn")], toggle(true)))),
       section(sh("FirstTimeSetupSection"), card(srow(sh("ResetFirstTimeSetup"), sh("ResetFirstTimeSetupHint"), btn(cm("Reset"), { on: () => ctx.set("toast", "firstTime") })))),
-      section(sh("DiagnosticsSection"), card(srow(sh("PerfMonitor"), sh("PerfMonitorHint"), btn(sh("PerfOpen"), { on: () => ctx.open("perf") })))),
+      section(sh("DiagnosticsSection"), card(srow(sh("PerfMonitor"), sh("PerfMonitorHint"), btn(sh("PerfOpen"), { on: () => ctx.open("perf") })),
+        srow(sh("LogsSetting"), sh("LogsHint", { path: "/Users/you/Library/Application Support/Lodestone Launcher/logs" }), btn(sh("OpenLogsFolder"), { sm: true })),
+        srow(sh("LogDetail"), [sh("LogDetailHint"), " ", sh("LogLevelFromEnv")], seg([["info", sh("LogInfo")], ["debug", sh("LogDebug")]], "info")))),
     ];
   }
 
@@ -1556,6 +1559,7 @@
     game: ST("Game", "stopped preparing launching playing stopping verifying modpackUpdating crashed"),
     update: ST("Launcher update", "none notChecked checking available downloading ready failed dev"),
     build: ST("Build", "dev release"),
+    crashNotice: ST("Crash notice (top bar)", "off on"),
     toast: { label: "Notice (toast)", options: opts("none narrator undo redo settingsOf crashed signInExpired addAccount ready shareReady copied verified copiedKey copiedInvite skinCopied firstTime synced copiedValues"), default: "none" },
     groups: ST("Sidebar groups", "on off"),
     logs: ST("Logs tab", "filled empty nomatch"),

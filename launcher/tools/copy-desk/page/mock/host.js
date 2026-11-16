@@ -512,7 +512,8 @@
       toast("info", FP("FilesUploading", { count: 3 })),
       toast("ok", F("FilesDeletedFile", { name: "server.properties" })),
       toast("ok", N("ShareCopied")),
-      toast("err", F("ConsoleSendFailed", { error: "the server is stopped" }), M("TryAgain")));
+      toast("err", F("ConsoleSendFailed", { error: "the server is stopped" }), M("TryAgain")),
+      toast("info", S("ClosedUnexpectedly"), S("OpenLogs")));
   }
 
   // bare screens (before the shell): core starting, failed, signing in
@@ -1206,6 +1207,9 @@
         srow(C("UpdateAutomatically"), C("UpdateAutomaticallyHint"), toggle(!dis, null, dis)),
         srow(C("BetaBuilds"), C("BetaBuildsHint"), toggle(false, null, dis)),
         srow(C("DeveloperBuilds"), C("DeveloperBuildsHint"), toggle(s.dev === "on", null, dis)))),
+      ssec(C("LogsSection"), null, rows(
+        srow(C("LogsSection"), C("LogsHint", { path: "/Users/you/Library/Application Support/Lodestone Host/logs" }), btn(S("OpenLogFolder"), { sm: true })),
+        srow(C("LogDetail"), h("span", C("LogDetailHint"), h("div.hx-warn-t", C("LogLevelFromEnv"))), h("div.hx-flex", { style: { gap: "4px" } }, btn(C("LogInfo"), { sm: true, v: "primary" }), btn(C("LogDebug"), { sm: true }))))),
       ssec(C("DeveloperSection"), null, rows(
         srow(C("ConnectService"), h("span", C("ConnectServiceHint"),
           s.relay === "custom" ? h("div.hx-warn-t", C("ConnectServiceInUse", { service: "https://relay.test:8443" })) : null,
