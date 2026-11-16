@@ -16,6 +16,7 @@ pub mod sharing;
 pub mod skin;
 pub mod theme;
 pub mod undo;
+pub mod values;
 
 // Undo and Redo, which a focused text field takes first for its text, and an app's
 // window then for its settings (see `undo`). In the `launcher` namespace, as the

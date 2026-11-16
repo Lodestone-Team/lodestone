@@ -53,8 +53,10 @@ pub use launcher_core::settings::Language;
 
 pub use en::{
     common::{CommonMsg, CommonPlural},
+    facts::{FactMsg, FactPlural},
     format::{FormatMsg, FormatPlural},
     sharing::{SharingMsg, SharingPlural},
+    values::{ValueMsg, ValuePlural},
 };
 
 /// A language the apps are translated into.
@@ -570,6 +572,8 @@ areas! {
     common => CommonMsg, CommonPlural;
     format => FormatMsg, FormatPlural;
     sharing => SharingMsg, SharingPlural;
+    facts => FactMsg, FactPlural;
+    values => ValueMsg, ValuePlural;
 }
 
 /// Gives `element` and its children the current locale's Chinese fonts, tried for
