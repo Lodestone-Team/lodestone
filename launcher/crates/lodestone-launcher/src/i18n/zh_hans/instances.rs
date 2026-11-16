@@ -187,7 +187,6 @@ pub fn text(message: M) -> &'static str {
         M::KindPlugin => "插件",
         M::SearchingModrinth => "正在搜索 Modrinth",
         M::NoModpacksMatch => "没有匹配的整合包。",
-        M::ByAuthor => "作者 {author} · {downloads} 次下载",
         M::PickModpack => "选择一个整合包以查看其版本。",
         M::LoadingModpack => "正在加载整合包",
         M::Versions => "版本",

@@ -222,8 +222,6 @@ crate::i18n::messages! {
         KindPlugin = "plugin",
         SearchingModrinth = "Searching Modrinth",
         NoModpacksMatch = "No modpacks match.",
-        /// Under a search result: its author and download count ("1.2M").
-        ByAuthor = "by {author} · {downloads} downloads",
         PickModpack = "Pick a modpack to see its versions.",
         LoadingModpack = "Loading the modpack",
         /// The picked modpack's tabs.

@@ -27,16 +27,19 @@ crate::i18n::messages! {
         AlreadyInstalled = "Installed",
         /// The filter beside a platform's view that keeps installed results listed.
         ShowInstalled = "Show installed",
-        /// Headings over the list, with how many rows follow.
-        InstalledCount = "Installed · {count}",
-        /// Resource packs in use; the top one wins where they overlap.
-        EnabledCount = "Enabled · {count} · the top pack wins where packs overlap",
-        AvailableCount = "Available · {count}",
+        /// Headings over the list, each followed by how many rows follow as a badge.
+        /// Resource packs in use:
+        Enabled = "Enabled",
+        /// Under the Enabled heading.
+        TopPackWins = "The top pack wins where packs overlap.",
+        /// Packs not in use.
+        Available = "Available",
         /// Nothing installed matches the search; {kind} is "mods", "resource packs" or
         /// "shaders".
-        NoInstalledMatch = "Installed · {count} · No installed {kind} match.",
-        /// The filter beside the Modrinth heading; {target} is "1.20.1 / Fabric".
-        OnlyTarget = "{target} only",
+        NoInstalledMatch = "No installed {kind} match.",
+        /// The filter beside the Modrinth heading, followed by what results must suit
+        /// ("Minecraft 1.20.1", "Fabric").
+        CompatibleOnly = "Compatible only",
 
 
         StopGameFirst = "Stop the game first: it rewrites these files when it exits.",
@@ -89,13 +92,10 @@ crate::i18n::messages! {
         /// Next to "Add file…" for resource and shader packs on Linux and Windows,
         /// whose file dialogs show files or folders but not both: adds an unzipped pack.
         AddFolder = "Add folder…",
-        /// An installed item that is a folder: "{name} · folder".
-        ItemFolder = "{name} · folder",
         Compatible = "Compatible",
         OlderVersion = "Older version",
         NewerVersion = "Newer version",
         NotOnModrinth = "Not on Modrinth",
-        UpdateTo = "Update to {version}",
         NoModsYet = "No mods yet. Browse Modrinth, or drop .jar files here.",
         NoResourcePacksYet = "No resource packs yet. Browse Modrinth, or drop .zip files or folders here.",
         NoShaderPacksYet = "No shader packs yet. Browse Modrinth, or drop .zip files or folders here.",
@@ -226,8 +226,6 @@ crate::i18n::messages! {
         CatScreenshot = "Screenshot",
         NothingOnCurseForge = "Nothing on CurseForge matches.",
         PageOf = "Page {page} of {pages}",
-        /// A project's author.
-        ByAuthor = "by {author}",
         /// A badge: the project is installed.
         InstalledBadge = "Installed",
         OptionalOnServers = "Optional on servers",
@@ -235,7 +233,6 @@ crate::i18n::messages! {
         /// is needed there). Smaller counts use the plural.
         DownloadsCompact = "{count} downloads",
         FollowsCompact = "{count} follows",
-        FollowersCompact = "{count} followers",
 
         // A project's page.
         LoadingProject = "Loading the project",
@@ -318,9 +315,6 @@ crate::i18n::messages! {
     }
 
     pub enum ContentPlural {
-        Downloads = ("{count} download", "{count} downloads"),
-        Follows = ("{count} follow", "{count} follows"),
-        Followers = ("{count} follower", "{count} followers"),
         MoreVersions = ("{count} more version is on Modrinth.", "{count} more versions are on Modrinth."),
         /// Over the list of mods that need the one being turned off.
         NeededBy = ("{count} mod needs {name} and won't load without it:", "{count} mods need {name} and won't load without it:"),

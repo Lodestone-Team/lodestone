@@ -22,16 +22,16 @@ use launcher_core::images::labels;
 
 use super::{
     ContentView, Job, Load, PAGE_SIZE,
-    view::{
-        badge, counted, heading, icon_box, list_box, muted, pills, row_base, short_list, small,
-    },
+    view::{badge, heading, icon_box, list_box, muted, pills, row_base, small},
 };
 use crate::components::{
-    Button, ButtonSize, ButtonVariant, Icon, KeyboardFocus, LoadingDots, Toggle,
+    Button, ButtonSize, ButtonVariant, Fact, FactLine, FactValue, Icon, KeyboardFocus, LoadingDots,
+    Toggle,
     a11y::{Accessible, Role},
 };
-use crate::i18n::{CommonMsg, ContentMsg as M, ContentPlural as P, format, t, tr};
+use crate::i18n::{CommonMsg, ContentMsg as M, ContentPlural as P, FactMsg, format, t, tr};
 use crate::theme::{self, colors, fonts, text, weights};
+use lodestone_ui::values::truncate::sanitize;
 
 /// How often the folder is looked at for files downloaded by hand.
 const WATCH_EVERY: Duration = Duration::from_secs(2);
@@ -946,29 +946,21 @@ impl ContentView {
                                     .font_weight(weights::BOLD.into())
                                     .text_color(crate::theme::ink::text())
                                     .child(hit.name.clone()),
-                            )
-                            .when(!author.is_empty(), |this| {
-                                this.child(
-                                    small(tr!(M::ByAuthor, author = author))
-                                        .flex_none()
-                                        .text_color(crate::theme::ink::muted()),
-                                )
-                            }),
+                            ),
                     )
+                    // the author and downloads under the name
+                    .child(FactLine::row(("cf-hit-facts", index)).facts(
+                        crate::instances::facts::project_facts(
+                            Some(&author),
+                            Some(hit.download_count.max(0.0) as u64),
+                            None,
+                        ),
+                    ))
                     .child(
                         small(hit.summary.clone())
                             .truncate()
                             .text_color(crate::theme::ink::secondary()),
                     ),
-            )
-            .child(
-                small(counted(
-                    hit.download_count.max(0.0) as u64,
-                    P::Downloads,
-                    M::DownloadsCompact,
-                ))
-                .flex_none()
-                .text_color(crate::theme::ink::muted()),
             )
             .map(|this| {
                 if installed {
@@ -1080,26 +1072,23 @@ impl ContentView {
                                 .whitespace_normal()
                                 .child(project.summary.clone()),
                         )
-                        .child(
-                            small(if author.is_empty() {
-                                counted(
+                        .child({
+                            // the author and downloads as keys over values
+                            let mut stats = Vec::new();
+                            if !author.is_empty() {
+                                stats.push(Fact::new(
+                                    t(FactMsg::Author),
+                                    FactValue::text(sanitize(&author, 64)),
+                                ));
+                            }
+                            stats.push(Fact::new(
+                                t(FactMsg::Downloads),
+                                crate::instances::facts::compact_count(
                                     project.download_count.max(0.0) as u64,
-                                    P::Downloads,
-                                    M::DownloadsCompact,
-                                )
-                            } else {
-                                format!(
-                                    "{} · {}",
-                                    tr!(M::ByAuthor, author = author),
-                                    counted(
-                                        project.download_count.max(0.0) as u64,
-                                        P::Downloads,
-                                        M::DownloadsCompact
-                                    )
-                                )
-                            })
-                            .text_color(crate::theme::ink::muted()),
-                        ),
+                                ),
+                            ));
+                            FactLine::strip("cf-project-stats").facts(stats)
+                        }),
                 ),
         );
         if kind == ContentKind::ShaderPack && self.shaders.loader.is_none() {
@@ -1367,20 +1356,15 @@ impl ContentView {
                                         ))
                                     }),
                             )
-                            .child(
-                                small(format!(
-                                    "{} · {} · {date} · {}",
-                                    short_list(&tags.game_versions, 3),
-                                    if loaders.is_empty() {
-                                        String::from("—")
-                                    } else {
-                                        short_list(&loaders, 3)
-                                    },
-                                    format::bytes(file.file_length)
-                                ))
-                                .truncate()
-                                .text_color(crate::theme::ink::faint()),
-                            )
+                            .child(FactLine::row(("cf-file-facts", index)).facts(
+                                crate::instances::facts::release_facts(
+                                    &tags.game_versions,
+                                    &loaders,
+                                    Some(date.clone()),
+                                    Some(file.file_length),
+                                    3,
+                                ),
+                            ))
                             .when_some(problem, |this, problem| {
                                 this.child(small(problem).text_color(colors::YELLOW_300))
                             }),

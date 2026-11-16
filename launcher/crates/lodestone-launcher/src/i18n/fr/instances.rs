@@ -215,7 +215,6 @@ pub fn text(message: M) -> &'static str {
         M::KindPlugin => "plugin",
         M::SearchingModrinth => "Recherche sur Modrinth",
         M::NoModpacksMatch => "Aucun modpack ne correspond.",
-        M::ByAuthor => "par {author} · {downloads}\u{a0}téléchargements",
         M::PickModpack => "Choisissez un modpack pour voir ses versions.",
         M::LoadingModpack => "Chargement du modpack",
         M::Versions => "Versions",

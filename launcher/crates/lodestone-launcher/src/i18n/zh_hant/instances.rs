@@ -187,7 +187,6 @@ pub fn text(message: M) -> &'static str {
         M::KindPlugin => "外掛程式",
         M::SearchingModrinth => "正在搜尋 Modrinth",
         M::NoModpacksMatch => "沒有相符的模組包。",
-        M::ByAuthor => "作者 {author} · {downloads} 次下載",
         M::PickModpack => "選擇一個模組包以查看其版本。",
         M::LoadingModpack => "正在載入模組包",
         M::Versions => "版本",

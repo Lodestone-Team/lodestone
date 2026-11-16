@@ -18,13 +18,11 @@ pub fn text(message: M) -> &'static str {
         M::BackToTop => "Revenir en haut",
         M::AlreadyInstalled => "Installé",
         M::ShowInstalled => "Afficher les installés",
-        M::InstalledCount => "Installés · {count}",
-        M::EnabledCount => "Activés · {count} · le pack du haut l’emporte en cas de chevauchement",
-        M::AvailableCount => "Disponibles · {count}",
-        M::NoInstalledMatch => {
-            "Installés · {count} · Aucun élément installé ne correspond ({kind})."
-        }
-        M::OnlyTarget => "{target} uniquement",
+        M::Enabled => "Activés",
+        M::TopPackWins => "Le pack du haut l’emporte en cas de chevauchement.",
+        M::Available => "Disponibles",
+        M::NoInstalledMatch => "Aucun élément installé ne correspond ({kind}).",
+        M::CompatibleOnly => "Compatibles uniquement",
 
         M::StopGameFirst => {
             "Arrêtez d’abord le jeu\u{a0}: il réécrit ces fichiers lorsqu’il se ferme."
@@ -71,12 +69,10 @@ pub fn text(message: M) -> &'static str {
         M::UpdateAll => "Tout mettre à jour ({count})",
         M::AddFile => "Ajouter un fichier…",
         M::AddFolder => "Ajouter un dossier…",
-        M::ItemFolder => "{name} · dossier",
         M::Compatible => "Compatible",
         M::OlderVersion => "Version plus ancienne",
         M::NewerVersion => "Version plus récente",
         M::NotOnModrinth => "Absent de Modrinth",
-        M::UpdateTo => "Passer à {version}",
         M::NoModsYet => {
             "Aucun mod pour l’instant. Parcourez Modrinth, ou déposez des fichiers .jar ici."
         }
@@ -227,12 +223,10 @@ pub fn text(message: M) -> &'static str {
         M::CatScreenshot => "Capture d’écran",
         M::NothingOnCurseForge => "Aucun résultat sur CurseForge.",
         M::PageOf => "Page {page} sur {pages}",
-        M::ByAuthor => "par {author}",
         M::InstalledBadge => "Installé",
         M::OptionalOnServers => "Facultatif sur les serveurs",
         M::DownloadsCompact => "{count} téléchargements",
         M::FollowsCompact => "{count} abonnés",
-        M::FollowersCompact => "{count} abonnés",
 
         M::LoadingProject => "Chargement du projet",
         M::ViewOnModrinth => "Voir sur Modrinth",
@@ -309,9 +303,6 @@ pub fn text(message: M) -> &'static str {
 
 pub fn plural(message: P) -> [&'static str; 2] {
     match message {
-        P::Downloads => ["{count} téléchargement", "{count} téléchargements"],
-        P::Follows => ["{count} abonné", "{count} abonnés"],
-        P::Followers => ["{count} abonné", "{count} abonnés"],
         P::Needs => [
             "{name} a besoin de {count} mod désactivé :",
             "{name} a besoin de {count} mods désactivés :",
