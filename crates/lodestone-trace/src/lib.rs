@@ -399,6 +399,182 @@ fn scrub_query(word: &str) -> Option<String> {
     changed.then(|| format!("{base}?{}", parts.join("&")))
 }
 
+/// A line of text for a log file without the secrets in it: what [`scrub_str`] blanks
+/// (tokens, `Bearer`/`Basic` credentials, secret query parameters), and also
+///
+/// - the value of `name=value`, `name: value` and `"name": "value"` when the name is
+///   a secret's ([`is_secret_name`]), and of `code=` and `key=` unless it is a number
+///   (an exit code says nothing secret);
+/// - the word after a `--flag` named like a secret (`--accessToken …` on the game's
+///   command line);
+/// - everything after `Authorization:` on its line.
+///
+/// Multi-line text is scrubbed line by line. Text without secrets comes back borrowed.
+/// This is a heuristic, a last line of defence: callers leave secrets out at the source.
+pub fn scrub_line(text: &str) -> std::borrow::Cow<'_, str> {
+    let mut out = String::new();
+    let mut changed = false;
+    for line in text.split_inclusive('\n') {
+        let (body, end) = match line.strip_suffix('\n') {
+            Some(body) => (body, "\n"),
+            None => (line, ""),
+        };
+        match scrub_one_line(body) {
+            Some(clean) => {
+                changed = true;
+                out.push_str(&clean);
+            }
+            None => out.push_str(body),
+        }
+        out.push_str(end);
+    }
+    if changed {
+        std::borrow::Cow::Owned(out)
+    } else {
+        std::borrow::Cow::Borrowed(text)
+    }
+}
+
+/// [`scrub_line`] for one line, or `None` when it has no secrets.
+fn scrub_one_line(line: &str) -> Option<String> {
+    let mut changed = false;
+    let mut line = std::borrow::Cow::Borrowed(line);
+    if let Some(clean) = scrub_json_pairs(&line) {
+        line = std::borrow::Cow::Owned(clean);
+        changed = true;
+    }
+    const AUTHORIZATION: &str = "authorization:";
+    if let Some(at) = line.to_ascii_lowercase().find(AUTHORIZATION) {
+        let end = at + AUTHORIZATION.len();
+        let rest = line[end..].trim();
+        if !rest.is_empty() && rest != REDACTED {
+            line = std::borrow::Cow::Owned(format!("{} {REDACTED}", &line[..end]));
+            changed = true;
+        }
+    }
+    let mut redact_next = false;
+    let words: Vec<String> = line
+        .split(' ')
+        .map(|word| {
+            if word.is_empty() {
+                return String::new();
+            }
+            let out = if redact_next && !word.contains(REDACTED) {
+                changed = true;
+                REDACTED.to_string()
+            } else if let Some(clean) = scrub_word(word) {
+                changed = true;
+                clean
+            } else {
+                word.to_string()
+            };
+            redact_next = takes_secret_next(word);
+            out
+        })
+        .collect();
+    changed.then(|| words.join(" "))
+}
+
+/// A word with its secret blanked: a token, a URL's secret query parameters, or the
+/// value of a secret `name=value`.
+fn scrub_word(word: &str) -> Option<String> {
+    if word.contains(REDACTED) {
+        return None;
+    }
+    if looks_like_token(word) {
+        return Some(REDACTED.into());
+    }
+    if let Some(clean) = scrub_query(word) {
+        return Some(clean);
+    }
+    let (name, value) = word.split_once('=')?;
+    let stem = name.trim_matches(|c: char| !(c.is_ascii_alphanumeric() || c == '_'));
+    let value_stem = value.trim_matches(|c: char| matches!(c, '"' | '\'' | ',' | ';' | ')'));
+    let plain = value_stem.is_empty() || matches!(value_stem, "true" | "false" | "null" | "None");
+    let secret = is_secret_name(stem)
+        || (matches!(stem, "code" | "key") && !value_stem.chars().all(|c| c.is_ascii_digit()));
+    (secret && !plain).then(|| format!("{name}={REDACTED}"))
+}
+
+/// Whether the word after `word` is a secret: after `Bearer` or `Basic`, a `--flag`
+/// named like a secret, or a `name:` that is.
+fn takes_secret_next(word: &str) -> bool {
+    if matches!(word.to_ascii_lowercase().as_str(), "bearer" | "basic") {
+        return true;
+    }
+    if let Some(flag) = word.strip_prefix('-') {
+        let flag = flag.trim_start_matches('-');
+        return !flag.is_empty() && !flag.contains('=') && is_secret_name(flag);
+    }
+    match word.strip_suffix(':') {
+        Some(name) => is_secret_name(name.trim_matches(|c: char| !c.is_ascii_alphanumeric())),
+        None => false,
+    }
+}
+
+/// JSON's `"name": "value"` pairs with a secret name, with their values blanked, or
+/// `None` when there are none. Numbers, flags and `null` are kept, as [`scrub`] does.
+fn scrub_json_pairs(line: &str) -> Option<String> {
+    /// The end (exclusive, after the closing quote) of the JSON string starting at
+    /// `start`, which is a `"`.
+    fn string_end(bytes: &[u8], start: usize) -> Option<usize> {
+        let mut at = start + 1;
+        while at < bytes.len() {
+            match bytes[at] {
+                b'\\' => at += 2,
+                b'"' => return Some(at + 1),
+                _ => at += 1,
+            }
+        }
+        None
+    }
+    let bytes = line.as_bytes();
+    let mut out = String::new();
+    let mut copied = 0;
+    let mut at = 0;
+    while at < bytes.len() {
+        if bytes[at] != b'"' {
+            at += 1;
+            continue;
+        }
+        let Some(name_end) = string_end(bytes, at) else {
+            break;
+        };
+        let name = &line[at + 1..name_end - 1];
+        let mut next = name_end;
+        while next < bytes.len() && bytes[next] == b' ' {
+            next += 1;
+        }
+        if next >= bytes.len() || bytes[next] != b':' || !is_secret_name(name) {
+            at = name_end;
+            continue;
+        }
+        next += 1;
+        while next < bytes.len() && bytes[next] == b' ' {
+            next += 1;
+        }
+        if next < bytes.len() && bytes[next] == b'"' {
+            let Some(value_end) = string_end(bytes, next) else {
+                break;
+            };
+            let value = &line[next + 1..value_end - 1];
+            if !value.is_empty() && value != REDACTED {
+                out.push_str(&line[copied..next + 1]);
+                out.push_str(REDACTED);
+                out.push('"');
+                copied = value_end;
+            }
+            at = value_end;
+        } else {
+            at = next;
+        }
+    }
+    (copied > 0).then(|| {
+        out.push_str(&line[copied..]);
+        out
+    })
+}
+
 /// Whether `word` looks like a token: a JWT, a Lodestone API key (`lsk_…`), a
 /// Microsoft token, or a long run of mixed letters and digits with no path in it.
 pub fn looks_like_token(word: &str) -> bool {
@@ -588,5 +764,73 @@ mod tests {
             json!({ "account": { "name": "steve", "token": REDACTED } })
         );
         assert_eq!(bus.topics(), [("http.request".to_string(), 1)]);
+    }
+
+    #[test]
+    fn log_lines_lose_their_secrets() {
+        let cases = [
+            ("refresh failed: password=hunter2 user=steve", "refresh failed: password=[redacted] user=steve"),
+            ("got access_token: abc123 for steve", "got access_token: [redacted] for steve"),
+            (
+                r#"body {"access_token":"abc","expires_in":3600,"has_token":true}"#,
+                r#"body {"access_token":"[redacted]","expires_in":3600,"has_token":true}"#,
+            ),
+            (
+                r#"{"name": "steve", "refresh_token": "M.R3_x"}"#,
+                r#"{"name": "steve", "refresh_token": "[redacted]"}"#,
+            ),
+            (
+                "java -Xmx2G net.minecraft.client.main.Main --username steve --accessToken abc.def --version 1.21",
+                "java -Xmx2G net.minecraft.client.main.Main --username steve --accessToken [redacted] --version 1.21",
+            ),
+            ("request headers Authorization: Bearer abc", "request headers Authorization: [redacted]"),
+            ("authorization: Basic dXNlcjpwYXNz", "authorization: [redacted]"),
+            ("sent Bearer xyz to the core", "sent Bearer [redacted] to the core"),
+            (
+                "key lsk_0123abcd_ZXhhbXBsZXNlY3JldGtleXZhbHVl refused",
+                "key [redacted] refused",
+            ),
+            ("code M.C507_BAY.2.U.abcdef0123456789 expired", "code [redacted] expired"),
+            (
+                "jwt eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOjF9.c2lnbmF0dXJlc2ln end",
+                "jwt [redacted] end",
+            ),
+            (
+                "GET https://core.example/api?key=abc&x=1 failed",
+                "GET https://core.example/api?key=[redacted]&x=1 failed",
+            ),
+            ("Token { access_token: \"abc\" }", "Token { access_token: [redacted] }"),
+            ("sign-in code=AbCd1234 refused", "sign-in code=[redacted] refused"),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(scrub_line(input), expected, "{input}");
+        }
+    }
+
+    #[test]
+    fn log_lines_keep_plain_text() {
+        for plain in [
+            "the core exited with code=1 after 3 s",
+            "saved 12 files to /Users/steve/Library/Application Support/Lodestone/instances/a",
+            "instance 7c1f3e8a-0b2d-4f6e-9a11-2d3c4b5a6978 has_token=true",
+            "hash 3f786850e387550fdab836ed7e6dc881de23001b",
+            "invalid type: map, expected a string at line 1 column 20",
+            "",
+        ] {
+            let clean = scrub_line(plain);
+            assert!(
+                matches!(clean, std::borrow::Cow::Borrowed(_)),
+                "{plain} became {clean}"
+            );
+        }
+    }
+
+    #[test]
+    fn multi_line_text_is_scrubbed_line_by_line() {
+        let text = "first line\npassword: hunter2\n  Authorization: Bearer abc\nlast";
+        assert_eq!(
+            scrub_line(text),
+            "first line\npassword: [redacted]\n  Authorization: [redacted]\nlast"
+        );
     }
 }
