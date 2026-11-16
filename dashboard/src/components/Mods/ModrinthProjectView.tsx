@@ -26,13 +26,12 @@ import {
   useModrinthVersion,
   useModrinthVersions,
 } from 'data/Mods';
-import { t as translate, useT } from 'i18n';
+import { formatCompact, t as translate, useT } from 'i18n';
 import { useMemo, useState } from 'react';
 import { toast } from 'react-toastify';
 import { safeImageUrl, safeLinkUrl } from 'utils/markdown';
 import {
   compatibleLoaders,
-  formatCount,
   formatDate,
   isVersionCompatible,
   modrinthProjectUrl,
@@ -558,14 +557,14 @@ export default function ModrinthProjectView({
               title={t('mods.downloads', { count: project.downloads })}
             >
               <FontAwesomeIcon icon={faDownload} />
-              {formatCount(project.downloads)}
+              {formatCompact(project.downloads)}
             </span>
             <span
               className="flex items-center gap-1"
               title={t('mods.followers', { count: project.followers })}
             >
               <FontAwesomeIcon icon={faHeart} />
-              {formatCount(project.followers)}
+              {formatCompact(project.followers)}
             </span>
             <span className="flex items-center gap-1">
               <FontAwesomeIcon icon={faServer} />

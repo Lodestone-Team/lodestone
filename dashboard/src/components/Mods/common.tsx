@@ -10,7 +10,8 @@ import { t as translate, useI18n, useT } from 'i18n';
 import Tooltip from 'rc-tooltip';
 import { ReactNode, useState } from 'react';
 import { safeImageUrl } from 'utils/markdown';
-import { formatCount, installedModName, installedModVersion } from 'utils/mods';
+import { installedModName, installedModVersion } from 'utils/mods';
+import { formatCompact } from 'i18n';
 import { cn } from 'utils/util';
 
 /** A project icon from Modrinth (https only), or a placeholder cube. */
@@ -328,7 +329,7 @@ export const ModrinthHitCard = ({
         title={t('mods.downloads', { count: hit.downloads })}
       >
         <FontAwesomeIcon icon={faDownload} />
-        {formatCount(hit.downloads)}
+        {formatCompact(hit.downloads)}
       </div>
     </button>
   );

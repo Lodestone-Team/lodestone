@@ -31,6 +31,7 @@ import { formatDate, t as translate, useI18n } from 'i18n';
 import { useRef, useState } from 'react';
 import { toast } from 'react-toastify';
 import { cn, errorToString } from 'utils/util';
+import { loaderName } from 'utils/values';
 
 /*
  * The modpack of a server made from one (Mods tab, above the mods): which
@@ -44,14 +45,6 @@ import { cn, errorToString } from 'utils/util';
 
 /** How many changes an entry lists before "and N more". */
 const CHANGES_SHOWN = 40;
-
-const LOADER_TITLES: Record<string, string> = {
-  fabric: 'Fabric',
-  forge: 'Forge',
-  neoforge: 'NeoForge',
-};
-
-const loaderTitle = (loader: string) => LOADER_TITLES[loader] ?? loader;
 
 /** The sign and color of a change: + added, ↑ updated, ~ replaced, − removed. */
 const CHANGE_MARKS: Record<ChangeKind, [string, string]> = {
@@ -226,7 +219,7 @@ const HistoryRow = ({
             <div className="flex flex-row flex-wrap gap-2 text-small text-white/30">
               <span>{formatDateTime(entry.time)}</span>
               <span>
-                Minecraft {entry.game_version} · {loaderTitle(entry.loader)}{' '}
+                Minecraft {entry.game_version} · {loaderName(entry.loader)}{' '}
                 {entry.loader_version ?? ''}
               </span>
             </div>
@@ -294,7 +287,7 @@ const PlanBody = ({
       {plan.reinstalls_server && (
         <span>
           {t('mods.modpack.dialog.reinstall', {
-            software: `${loaderTitle(target.loader)} ${
+            software: `${loaderName(target.loader)} ${
               target.loader_version ?? ''
             } · Minecraft ${target.game_version}`,
           })}

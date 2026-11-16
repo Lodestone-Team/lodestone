@@ -30,6 +30,7 @@ import type { MessageArgs, MessageKey, Messages, TFunction } from './types.ts';
 
 export type { MessageKey, PlainMessageKey, TFunction } from './types.ts';
 export type { Language } from './core.ts';
+export type { NumberPart } from './format.ts';
 export { LANGUAGES, LANGUAGE_NAMES } from './core.ts';
 export { useLanguagePreference, type LanguagePreference } from './language.ts';
 
@@ -112,6 +113,14 @@ function makeI18n(language: Language) {
       format.formatRelativeTime(language, time, now),
     formatBytes: (bytes: number, decimals?: number, unitOf?: number) =>
       format.formatBytes(language, bytes, decimals, unitOf),
+    formatBytesParts: (bytes: number, decimals?: number, unitOf?: number) =>
+      format.formatBytesParts(language, bytes, decimals, unitOf),
+    formatFractionParts: (
+      done: number | null,
+      total: number | null,
+      opts?: { bytes?: boolean }
+    ) => format.formatFractionParts(language, done, total, opts),
+    formatCompact: (n: number) => format.formatCompact(language, n),
     formatList: (items: string[], type?: 'conjunction' | 'disjunction') =>
       format.formatList(language, items, type),
   };
@@ -154,3 +163,5 @@ export const formatBytes = (
   decimals?: number,
   unitOf?: number
 ) => format.formatBytes(getLanguage(), bytes, decimals, unitOf);
+export const formatCompact = (n: number) =>
+  format.formatCompact(getLanguage(), n);

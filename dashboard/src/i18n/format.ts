@@ -92,6 +92,30 @@ const BYTE_UNITS = [
   'petabyte',
 ] as const;
 
+/** A piece of a formatted number: the figures, or the unit (shown lighter). */
+export type NumberPart = { text: string; unit: boolean };
+
+/** The unit index (0 = bytes) that fits a size, 1024 per step. */
+const byteUnit = (unitOf: number) =>
+  unitOf <= 0
+    ? 0
+    : Math.min(
+        BYTE_UNITS.length - 1,
+        Math.max(0, Math.floor(Math.log(unitOf) / Math.log(1024)))
+      );
+
+const byteFormat = (language: Language, i: number, decimals: number) =>
+  cached(
+    `b:${language}:${i}:${decimals}`,
+    () =>
+      new Intl.NumberFormat(language, {
+        style: 'unit',
+        unit: BYTE_UNITS[i],
+        unitDisplay: 'short',
+        maximumFractionDigits: Math.max(0, decimals),
+      })
+  ) as Intl.NumberFormat;
+
 /**
  * A size in bytes with a unit of the language (1024 per step), e.g. "1.5 MB",
  * "1,5 Mo", "1.5MB". The unit is the one that fits `unitOf` (the total of a
@@ -103,20 +127,71 @@ export function formatBytes(
   decimals = 2,
   unitOf: number = bytes
 ): string {
-  const i =
-    unitOf <= 0
-      ? 0
-      : Math.min(
-          BYTE_UNITS.length - 1,
-          Math.max(0, Math.floor(Math.log(unitOf) / Math.log(1024)))
-        );
-  return formatNumber(language, bytes / Math.pow(1024, i), {
-    style: 'unit',
-    unit: BYTE_UNITS[i],
-    unitDisplay: 'short',
-    maximumFractionDigits: Math.max(0, decimals),
-  });
+  const i = byteUnit(unitOf);
+  return byteFormat(language, i, decimals).format(bytes / Math.pow(1024, i));
 }
+
+/**
+ * formatBytes() in pieces, so the unit can be styled apart from the figures.
+ * The language's order and spacing are kept ("1,5 Mo", "1.5MB").
+ */
+export function formatBytesParts(
+  language: Language,
+  bytes: number,
+  decimals = 2,
+  unitOf: number = bytes
+): NumberPart[] {
+  const i = byteUnit(unitOf);
+  return byteFormat(language, i, decimals)
+    .formatToParts(bytes / Math.pow(1024, i))
+    .map((part) => ({ text: part.value, unit: part.type === 'unit' }));
+}
+
+/**
+ * "done / total" with the unit once, after the total: "1.2 / 3.4 MB", both
+ * numbers in the total's unit. An unknown number is a dash.
+ */
+export function formatFractionParts(
+  language: Language,
+  done: number | null,
+  total: number | null,
+  opts: { bytes?: boolean } = {}
+): NumberPart[] {
+  const dash: NumberPart = { text: '–', unit: false };
+  const slash: NumberPart = { text: ' / ', unit: true };
+  if (!opts.bytes) {
+    const n = (v: number | null): NumberPart =>
+      v === null ? dash : { text: formatNumber(language, v), unit: false };
+    return [n(done), slash, n(total)];
+  }
+  const unitOf = total ?? done ?? 0;
+  if (done === null)
+    return [
+      dash,
+      slash,
+      ...(total === null
+        ? [dash]
+        : formatBytesParts(language, total, 2, unitOf)),
+    ];
+  if (total === null)
+    // no total: the done value keeps its own unit
+    return [...formatBytesParts(language, done, 2, unitOf), slash, dash];
+  // only the figures of the done value: its unit is the total's
+  const figures = formatBytesParts(language, done, 2, unitOf)
+    .filter((part) => !part.unit)
+    .map((part) => part.text)
+    .join('')
+    .trim();
+  return [
+    { text: figures, unit: false },
+    slash,
+    ...formatBytesParts(language, total, 2, unitOf),
+  ];
+}
+
+/** A count as "1.2K", "12.3万" in the language. */
+export const formatCompact = (language: Language, n: number) =>
+  formatNumber(language, n, { notation: 'compact', maximumFractionDigits: 1 });
 
 /** "a, b and c" in the language */
 export function formatList(

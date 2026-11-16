@@ -3,7 +3,7 @@ import { InstalledMod } from 'bindings/InstalledMod';
 import { InstalledModKind } from 'bindings/InstalledModKind';
 import { InstalledModLoader } from 'bindings/InstalledModLoader';
 import { ModrinthVersion } from 'bindings/ModrinthVersion';
-import { formatDate as formatLocaleDate, formatNumber, t } from 'i18n';
+import { formatDate as formatLocaleDate, t } from 'i18n';
 import { safeImageUrl } from 'utils/markdown';
 
 /** What kind of add-ons an instance supports, and its Modrinth loader. */
@@ -67,10 +67,6 @@ export const installedModName = (mod: InstalledMod) =>
 /** The version to show for an installed mod, if any. */
 export const installedModVersion = (mod: InstalledMod) =>
   mod.modrinth?.version_number || mod.metadata?.version || null;
-
-/** A count such as 1234567 as "1.2M" in the current language. */
-export const formatCount = (count: number) =>
-  formatNumber(count, { notation: 'compact', maximumFractionDigits: 1 });
 
 /**
  * An ISO date as e.g. "Mar 4, 2025" in the current language, or the input
