@@ -213,8 +213,6 @@ crate::i18n::messages! {
         /// The Settings tab's toggle; also Settings › Instance defaults' default.
         SnapshotAfterPlay = "Take a snapshot after each play session",
         SnapshotAfterPlayHint = "Copies the whole instance folder after you play. Follows Settings › Instance defaults, where it is off unless you turn it on.",
-        /// Settings › Instance defaults' toggle.
-        SnapshotAfterPlayDefaultHint = "Copies the whole instance folder after each play session, for instances that don't set it themselves. Off unless you turn it on.",
         /// {last}, {days} and {weeks} are numbers.
         SnapshotKeepHint = "Snapshots the Launcher takes on its own are kept for a while: the last {last}, one a day for {days} days and one a week for {weeks} weeks. Yours stay until you delete them.",
         /// Badges on a snapshot's row.

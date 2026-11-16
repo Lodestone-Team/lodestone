@@ -343,18 +343,16 @@ impl Render for LauncherSettings {
                         })),
                 ),
             // An instance's own setting wins over this one.
-            SettingRow::new(t(InstanceSettingsMsg::SnapshotAfterPlay))
-                .hint(t(InstanceSettingsMsg::SnapshotAfterPlayDefaultHint))
-                .child(
-                    Toggle::new("default-snapshot-after-play", after_play)
-                        .label(t(InstanceSettingsMsg::SnapshotAfterPlay))
-                        .on_change(cx.listener(|this, value: &bool, _, cx| {
-                            let on = *value;
-                            this.instances.update(cx, |instances, cx| {
-                                instances.set_default_snapshot_after_play(on, cx)
-                            });
-                        })),
-                ),
+            SettingRow::new(t(InstanceSettingsMsg::SnapshotAfterPlay)).child(
+                Toggle::new("default-snapshot-after-play", after_play)
+                    .label(t(InstanceSettingsMsg::SnapshotAfterPlay))
+                    .on_change(cx.listener(|this, value: &bool, _, cx| {
+                        let on = *value;
+                        this.instances.update(cx, |instances, cx| {
+                            instances.set_default_snapshot_after_play(on, cx)
+                        });
+                    })),
+            ),
         ]);
         let fields = query.card([
             SettingRow::new(t(M::Memory))
