@@ -74,7 +74,7 @@ use crate::{
     error::{Error, ErrorKind},
     events::CausedBy,
     handlers::util::ClientIp,
-    util::rand_alphanumeric,
+    util::{fs::open_no_follow, rand_alphanumeric},
     AppState,
 };
 
@@ -639,26 +639,6 @@ fn read_small_blocking(path: &Path, max: u64) -> Result<Option<String>, Error> {
     String::from_utf8(bytes)
         .map(Some)
         .map_err(|_| denied(format!("{name} isn't text")))
-}
-
-/// Opens `path` for reading without following a final symbolic link: `O_NOFOLLOW` (an
-/// error for a link) and `O_NONBLOCK` (so a FIFO can't hold the request up) on Unix, the
-/// link itself on Windows (`FILE_FLAG_OPEN_REPARSE_POINT`), which then isn't a file.
-fn open_no_follow(path: &Path) -> std::io::Result<std::fs::File> {
-    let mut options = std::fs::OpenOptions::new();
-    options.read(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::OpenOptionsExt;
-        // FILE_FLAG_OPEN_REPARSE_POINT
-        options.custom_flags(0x0020_0000);
-    }
-    options.open(path)
 }
 
 fn file_name(path: &Path) -> String {

@@ -212,6 +212,23 @@ pub enum ProgressionEndValue {
         success: bool,
         message: String,
     },
+    /// A world backup ended. `world_backup_id` is the new world backup; `None` when it
+    /// failed or was cancelled.
+    WorldBackupCompleted {
+        instance_uuid: InstanceUuid,
+        world_backup_id: Option<String>,
+        success: bool,
+        message: String,
+    },
+    /// A world backup's restore ended. `world_backup_id` is the one restored, `safety_id`
+    /// the safety world backup taken first (none when the server had no world).
+    WorldRestoreCompleted {
+        instance_uuid: InstanceUuid,
+        world_backup_id: Option<String>,
+        safety_id: Option<String>,
+        success: bool,
+        message: String,
+    },
 }
 
 /// A new server, at the end of its creation: its info, and for one made from a `.lodeimg`
@@ -246,6 +263,8 @@ pub enum ProgressionStartValue {
     InstanceDelete { instance_uuid: InstanceUuid },
     Backup { instance_uuid: InstanceUuid },
     Restore { instance_uuid: InstanceUuid },
+    WorldBackup { instance_uuid: InstanceUuid },
+    WorldRestore { instance_uuid: InstanceUuid },
 }
 
 // the backend will keep exactly 1 copy of ProgressionStart, and 1 copy of ProgressionUpdate OR ProgressionEnd

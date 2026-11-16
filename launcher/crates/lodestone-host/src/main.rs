@@ -97,7 +97,8 @@ fn main() {
 
 /// `--screenshot <file.png> [--wait <seconds>] [--select-first] [--tab <tab>] [--toasts] [--demo]`
 /// `[--power-menu]` (the selected instance's power menu open)
-/// `[--friends <scene>] [--mods <scene>] [--backup-export <scene>] [--settings-search <text>]`,
+/// `[--friends <scene>] [--mods <scene>] [--backup-export <scene>] [--world-backup <scene>]`
+/// `[--settings-search <text>]`,
 /// with the `screenshot` feature: renders the window offscreen after the wait (10 s by
 /// default: the core starts and the Host signs in), optionally with the first instance
 /// selected (on its `--tab`: `console`, `files`, …), sample toasts shown and the page
@@ -405,13 +406,28 @@ mod screenshot {
                     .timer(Duration::from_millis(500))
                     .await;
             }
-            // `--backup-export options|running`: the Backups tab's export dialog (with
+            // `--backup-export options|running`: the Snapshots tab's export dialog (with
             // `--tab backups --demo`)
             if let Some(scene) = arg_after("--backup-export") {
                 window
                     .update(cx, |app, _, cx| {
                         let view = app.shell()?.read(cx).page_view()?;
                         lodestone_host::pages::backup_export_demo(&view, &scene, cx);
+                        Some(())
+                    })
+                    .ok();
+                cx.background_executor()
+                    .timer(Duration::from_millis(500))
+                    .await;
+            }
+            // `--world-backup create|restore|restore-running|restore-busy|delete|running|
+            // download`: the Snapshots tab's World backups section (with `--tab backups
+            // --demo`)
+            if let Some(scene) = arg_after("--world-backup") {
+                window
+                    .update(cx, |app, _, cx| {
+                        let view = app.shell()?.read(cx).page_view()?;
+                        lodestone_host::pages::world_backup_demo(&view, &scene, cx);
                         Some(())
                     })
                     .ok();

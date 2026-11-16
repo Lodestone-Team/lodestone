@@ -684,7 +684,9 @@ fn refuse_during_restore(state: &AppState, uuid: &InstanceUuid) -> Result<(), Er
     if state.backups.restoring(uuid) {
         return Err(Error {
             kind: ErrorKind::Conflict,
-            source: eyre!("A backup is being restored into this server; try again when it is done"),
+            source: eyre!(
+                "A snapshot or world backup is being restored into this server; try again when it is done"
+            ),
         });
     }
     Ok(())

@@ -147,7 +147,7 @@ pub fn image_layout(image: &Image, level: Option<&str>, split: bool) -> Result<D
     let layout = ServerLayout::new(level, others, split).map_err(|e| {
         err(
             ErrorKind::Internal,
-            format!("The backup's worlds can't be placed on a server: {e}"),
+            format!("The snapshot's worlds can't be placed on a server: {e}"),
         )
     })?;
     Ok(DiskLayout::Server(layout))
@@ -219,11 +219,11 @@ impl RestorePlan {
 /// handler asks first, before it stops the server.
 pub fn check_scope(scope: RestoreScope, has_level: bool, has_content: bool) -> Result<(), Error> {
     if scope != RestoreScope::Everything && !has_level {
-        return Err(bad_request("This backup has no world"));
+        return Err(bad_request("This snapshot has no world"));
     }
     if scope == RestoreScope::WorldAndMods && !has_content {
         return Err(bad_request(
-            "This backup doesn't know the content it ran with, so its mods can't be restored",
+            "This snapshot doesn't know the content it ran with, so its mods can't be restored",
         ));
     }
     Ok(())
@@ -286,7 +286,7 @@ pub fn plan(
             err(
                 ErrorKind::Internal,
                 format!(
-                    "The backup's {} can't be placed on this server: {e}",
+                    "The snapshot's {} can't be placed on this server: {e}",
                     entry.path
                 ),
             )
@@ -595,13 +595,13 @@ pub fn pin_config_json(text: &str, pin: &Pin) -> Result<String, Error> {
     let mut value: serde_json::Value = serde_json::from_str(text).map_err(|e| {
         err(
             ErrorKind::Internal,
-            format!("The backup's server settings can't be read: {e}"),
+            format!("The snapshot's server settings can't be read: {e}"),
         )
     })?;
     let object = value.as_object_mut().ok_or_else(|| {
         err(
             ErrorKind::Internal,
-            "The backup's server settings can't be read",
+            "The snapshot's server settings can't be read",
         )
     })?;
     if let Some(name) = &pin.name {
@@ -667,7 +667,7 @@ pub fn pin_settings(dir: &Path, pin: &Pin) -> Result<(), Error> {
     let config = dir.join(CONFIG_FILE);
     if config.is_file() {
         let text =
-            fs::read_to_string(&config).context("Failed to read the backup's server settings")?;
+            fs::read_to_string(&config).context("Failed to read the snapshot's server settings")?;
         write_synced(&config, pin_config_json(&text, pin)?.as_bytes())
             .context("Failed to write the server settings")?;
     }
@@ -716,7 +716,7 @@ fn write_files(
             return Err(err(
                 ErrorKind::Internal,
                 format!(
-                    "The backup's {} has a path that can't be placed",
+                    "The snapshot's {} has a path that can't be placed",
                     file.entry.path
                 ),
             ));
@@ -740,12 +740,15 @@ fn write_files(
                 StoreError::Missing(_) | StoreError::Damaged(_) | StoreError::WrongSize { .. } => {
                     err(
                         ErrorKind::Internal,
-                        format!("The backup's copy of {} is missing or damaged", file.disk),
+                        format!("The snapshot's copy of {} is missing or damaged", file.disk),
                     )
                 }
                 other => err(
                     ErrorKind::Internal,
-                    format!("Failed to read the backup's copy of {}: {other}", file.disk),
+                    format!(
+                        "Failed to read the snapshot's copy of {}: {other}",
+                        file.disk
+                    ),
                 ),
             })?;
         let out = writer
@@ -763,12 +766,13 @@ fn write_files(
         }
         #[cfg(not(unix))]
         let _ = placed_mode;
-        // on disk before the swap puts it in place and deletes the file it replaces. Only
-        // on unix, where the folders are flushed too (`sync_tree`): on Windows a folder
-        // can't be, so flushing every file (FlushFileBuffers) would make restores of big
-        // worlds minutes slower and still not make the swap durable
+        // on disk before the swap puts it in place and deletes the file it replaces: handed
+        // to the drive here, made durable by `sync_tree`'s one flush at the end. Only on
+        // unix, where the folders are flushed too: on Windows a folder can't be, so
+        // flushing every file would make restores of big worlds slower and still not make
+        // the swap durable
         #[cfg(unix)]
-        out.sync_all()
+        lodestone_image::store::flush::write_out(&out)
             .map_err(|e| io_error(e, format!("Failed to write {}", file.disk)))?;
         done = done.saturating_add(file.entry.size);
         progress(done, total);
@@ -794,20 +798,25 @@ pub(crate) fn sync_dir(dir: &Path) -> io::Result<()> {
     Ok(())
 }
 
-/// Flushes `dir` and every folder in it, so files written into them can't vanish in a
-/// power loss after the swap.
+/// Flushes `dir` and every folder in it, and the files written into them (each handed to
+/// the drive with `flush::write_out`), so none can vanish in a power loss after the swap.
+/// One batch with a single full flush at the end (lodestone_image's `flush`): a full flush
+/// per file or folder costs about 6 ms each on Apple platforms, minutes for a big world.
+/// Only on unix (see [`write_files`]).
 fn sync_tree(dir: &Path) -> Result<(), Error> {
+    use lodestone_image::store::flush;
     if cfg!(not(unix)) {
         return Ok(());
     }
+    let failed = |e| io_error(e, "Failed to flush the restore");
     for entry in walkdir::WalkDir::new(dir).follow_links(false) {
         let entry =
             entry.map_err(|e| Error::from(eyre!(e).wrap_err("Failed to flush the restore")))?;
         if entry.file_type().is_dir() {
-            sync_dir(entry.path()).map_err(|e| io_error(e, "Failed to flush the restore"))?;
+            flush::write_out_dir(entry.path()).map_err(failed)?;
         }
     }
-    Ok(())
+    flush::full_flush(dir).map_err(failed)
 }
 
 /// A backup's files staged inside the server folder, ready to [`swap`](Staged::swap) in.
@@ -901,6 +910,72 @@ pub fn stage(
             old: random_suffix(),
             owned,
             carried,
+            software: None,
+            rename_budget: SWAP_RENAME_BUDGET,
+            #[cfg(test)]
+            faults: Faults::default(),
+        })
+    })();
+    if result.is_err() {
+        if let Err(e) = fs::remove_dir_all(&staging_dir) {
+            warn!("Failed to delete {}: {e}", staging_dir.display());
+        }
+    }
+    result
+}
+
+/// Stages whole top-level folders of the server for a swap: makes the staging folder,
+/// lets `fill` write into it what each of `tops` becomes (a top it leaves out is removed by
+/// the swap), and flushes it. The swap then replaces exactly `tops` and nothing else; none
+/// of what is in them now is kept. A world backup's restore uses this
+/// (`crate::backups::world`), with the same journal and recovery as a snapshot's.
+///
+/// Each top must be a plain folder name, and may not be a link or a file now. On failure the
+/// staging folder is deleted and nothing else has changed.
+pub fn stage_folders(
+    server_root: &Path,
+    tops: &[String],
+    fill: &mut dyn FnMut(&Path) -> Result<(), Error>,
+) -> Result<Staged, Error> {
+    for top in tops {
+        if !valid_rel_path(top) || top.contains('/') {
+            return Err(bad_request(format!("{top} isn't a folder name")));
+        }
+        match disk_kind(&server_root.join(top)) {
+            Some(DiskKind::Link) => {
+                return Err(bad_request(format!(
+                    "{top} is a link; restore can't replace it"
+                )))
+            }
+            Some(DiskKind::File) => {
+                return Err(bad_request(format!(
+                    "{top} is a file in the way of the restore; move it first"
+                )))
+            }
+            _ => {}
+        }
+    }
+    let staging = random_suffix();
+    let staging_dir = server_root.join(format!("{STAGING_PREFIX}{staging}"));
+    fs::create_dir(&staging_dir)
+        .map_err(|e| io_error(e, "Failed to create the restore's staging folder"))?;
+    let result = (|| -> Result<Staged, Error> {
+        fill(&staging_dir)?;
+        sync_tree(&staging_dir)?;
+        let mut owned = Vec::new();
+        for top in tops {
+            owned.push(JournalEntry {
+                path: top.clone(),
+                had_old: exists(&server_root.join(top)),
+                had_new: exists(&staging_dir.join(top)),
+            });
+        }
+        Ok(Staged {
+            server_root: server_root.to_path_buf(),
+            staging: staging.clone(),
+            old: random_suffix(),
+            owned,
+            carried: Vec::new(),
             software: None,
             rename_budget: SWAP_RENAME_BUDGET,
             #[cfg(test)]
@@ -1663,7 +1738,7 @@ pub fn all_files(image: &Image, layout: &DiskLayout) -> Result<Vec<Target>, Erro
             err(
                 ErrorKind::Internal,
                 format!(
-                    "The backup's {} can't be placed on a server: {e}",
+                    "The snapshot's {} can't be placed on a server: {e}",
                     entry.path
                 ),
             )

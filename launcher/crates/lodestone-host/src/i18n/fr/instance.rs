@@ -24,7 +24,7 @@ pub fn text(message: M) -> &'static str {
         M::DeleteWarning => {
             "Les paramètres et mondes de cette instance seront définitivement supprimés. Sauvegardez vos données importantes avant de continuer."
         }
-        M::DeleteBackupsToo => "Ses sauvegardes sont supprimées aussi.",
+        M::DeleteBackupsToo => "Ses instantanés et ses sauvegardes du monde sont supprimés aussi.",
         M::Deleting => "Suppression de {name}…",
         M::CommandLineReadOnly => {
             "Lecture seule tant que l’exécution de code est désactivée sur ce core."

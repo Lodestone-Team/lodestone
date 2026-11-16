@@ -114,7 +114,7 @@ fn snapshot_error(e: SnapshotError) -> Error {
         SnapshotError::RootMissing(_) => err(ErrorKind::NotFound, "The server folder is missing"),
         SnapshotError::Store(e) => err(
             ErrorKind::Internal,
-            format!("Failed to write to the backup store: {e}"),
+            format!("Failed to write to the snapshot store: {e}"),
         ),
     }
 }
@@ -181,7 +181,7 @@ impl Prepared {
         if to_read <= self.prefetch_min {
             return Ok(false);
         }
-        require_free_space(store.root(), to_read, "for a backup")?;
+        require_free_space(store.root(), to_read, "for a snapshot")?;
         progress(0, to_read);
         let snapshot = snapshot::run(store, plan, &options, progress).map_err(snapshot_error)?;
         self.cache = Some(snapshot.cache);
@@ -202,7 +202,7 @@ impl Prepared {
         let plan = snapshot::plan(store, &self.request.root, &self.layout, &options)
             .map_err(snapshot_error)?;
         walked(plan.bytes_to_read());
-        require_free_space(store.root(), plan.bytes_to_read(), "for a backup")?;
+        require_free_space(store.root(), plan.bytes_to_read(), "for a snapshot")?;
         let snapshot = snapshot::run(store, plan, &options, progress).map_err(snapshot_error)?;
         Ok(Taken {
             snapshot,
@@ -250,7 +250,7 @@ pub fn build(prepared: &Prepared, taken: &Taken, meta: Meta) -> Result<Image, Er
     image.validate().map_err(|e| {
         err(
             ErrorKind::Internal,
-            format!("The backup isn't a valid image: {e}"),
+            format!("The snapshot isn't a valid image: {e}"),
         )
     })?;
     Ok(image)
