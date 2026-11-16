@@ -117,7 +117,7 @@ crate::i18n::messages! {
         /// {when} is when the backup was made: "today, 14:05".
         ReplaceWorldBody = "{name} goes back to how it was {when}. A snapshot of the world as it is now is taken first and kept for 30 days.",
         BackUpAndReplace = "Back up and replace",
-        RemoveAccountTitle = "Remove {name}?",
+        RemoveAccountTitle = "Remove account?",
         RemoveAccountBody = "Lodestone Launcher forgets this account and deletes its saved sign-in from your {keychain}. You can add it again later.",
         RemoveAccount = "Remove account",
         /// {description} is the crash's own text, in English.
@@ -170,7 +170,6 @@ crate::i18n::messages! {
         // Unsaved settings.
         SaveChangesTitle = "Save your changes?",
         UnsavedDefaultsBody = "You changed Instance defaults. Save them, or discard them?",
-        UnsavedInstanceBody = "You changed the settings of {name}. Save them, or discard them?",
         UnsavedThisInstanceBody = "You changed the settings of this instance. Save them, or discard them?",
         UnsavedInDefaults = "You have unsaved changes in Instance defaults",
 
@@ -237,14 +236,15 @@ crate::i18n::messages! {
         SyncFrom = "Main instance",
         SyncFromHint = "Settings you change in the main instance are copied to your other instances automatically.",
         SyncFromNoneHint = "Without a main instance, the shared settings change only here.",
-        /// The offer to make a new instance the main one; also asked before another
-        /// instance takes over as main.
-        MainOfferTitle = "Make {name} your main instance?",
+        /// The offer to make a new instance the main one; it is in a card under the
+        /// title.
+        MainOfferTitle = "Make main instance?",
+        /// Asked before another instance becomes the main one; it is in a card under the title, and the one it replaces in a row.
+        MainSwitchTitle = "Change main instance?",
         MainOfferBody = "Shared game settings keep your controls, video, sound and other options the same in every instance. Settings you change in-game in your main instance are copied to the others when they start.",
         MainChangeLater = "You can change this later in Settings › Shared game settings.",
         MakeItMain = "Make it main",
-        MainSwitchBody = "{current} is your main instance now. Its in-game changes will stop updating your shared settings, and {name}'s will update them instead.",
-        MakeNameMain = "Make {name} main",
+        MainSwitchBody = "Its in-game changes will update your shared settings, and the old main instance's will stop updating them.",
         /// Settings > Developer.
         FirstTimeSetupSection = "First-time setup",
         ResetFirstTimeSetup = "Reset first-time setup",
@@ -297,8 +297,6 @@ crate::i18n::messages! {
         Offline = "Offline",
         AddMicrosoftAccount = "Add Microsoft account",
         AddOfflineAccount = "Add offline account",
-        /// The account menu's last row.
-        RemoveNamed = "Remove {name}",
         /// Shown wherever an offline account appears.
         OfflineNote = "Offline – single-player and offline-mode servers only",
 

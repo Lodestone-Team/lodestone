@@ -55,9 +55,9 @@ use crate::{
         skin_dialog::{SkinDialog, SkinDialogDismissed},
     },
     components::{
-        Button, ButtonVariant, CountBadge, Dialog, DialogSlot, DiffValue, FactList, FactValue,
-        Kind, Num, ObjectCard, ProductPhrase, RichText, UnderDialogs, ValueField, ValueKind,
-        VersionTag, focus,
+        Button, ButtonVariant, CountBadge, Dialog, DialogSlot, DiffValue, Fact, FactList,
+        FactValue, ItemIcon, Kind, NameGroup, NameItem, NameList, Num, ObjectCard, ObjectChip,
+        ProductPhrase, RichText, UnderDialogs, ValueField, ValueKind, VersionTag, focus,
         settings::{FindSetting, SettingsSearch, Toast},
         window_frame,
     },
@@ -177,6 +177,11 @@ enum Modal {
     LaunchFailed {
         title: SharedString,
         message: SharedString,
+        focus: FocusHandle,
+    },
+    /// A notice with its names and values set apart.
+    Report {
+        report: Box<crate::instances::report::Report>,
         focus: FocusHandle,
     },
     /// "Make {name} your main instance?", for a new instance with no main yet.
@@ -398,6 +403,16 @@ impl LauncherShell {
                 InstancesEvent::Exited { .. }
                 | InstancesEvent::ReachedMenu(_)
                 | InstancesEvent::ModsRefused(_) => {}
+                InstancesEvent::Report(report) => {
+                    let focus = cx.focus_handle();
+                    this.open_modal(
+                        Modal::Report {
+                            report: report.clone(),
+                            focus,
+                        },
+                        cx,
+                    );
+                }
                 InstancesEvent::LaunchFailed { title, message, .. }
                 | InstancesEvent::PlayFailed { title, message, .. }
                 | InstancesEvent::Notice { title, message, .. } => {
@@ -1301,6 +1316,15 @@ impl LauncherShell {
     ) {
         let focus = cx.focus_handle();
         self.open_modal(Modal::ToggleMod { prompt, focus }, cx);
+    }
+
+    /// The card naming the instance `id` under a dialog's title, with its game and
+    /// loader; its name alone when it is gone.
+    fn instance_card(&self, id: &str, name: &str, cx: &App) -> ObjectCard {
+        match self.instances.read(cx).list().iter().find(|i| i.id == id) {
+            Some(instance) => crate::instances::facts::card(instance),
+            None => crate::instances::facts::named_card(name),
+        }
     }
 
     /// Shows the launch error dialog, for the offscreen screenshots.
@@ -2354,7 +2378,7 @@ impl LauncherShell {
         focus: FocusHandle,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        use crate::i18n::{ContentMsg as CM, ContentPlural as CP};
+        use crate::i18n::ContentMsg as CM;
         let name = prompt.name.clone();
         let enable = prompt.enable;
         let all: Vec<String> = std::iter::once(prompt.file_name.clone())
@@ -2374,41 +2398,36 @@ impl LauncherShell {
                 })
             }
         };
-        let list = div()
-            .flex()
-            .flex_col()
-            .gap_1()
-            .py_2()
-            .px_3()
-            .rounded(radius::LG)
-            .bg(colors::GRAY_900)
-            .text_color(crate::theme::ink::text())
-            .children(prompt.others.iter().map(|other| {
-                div()
-                    .flex()
-                    .flex_row()
-                    .gap_2()
-                    .child(div().text_color(crate::theme::ink::muted()).child("•"))
-                    .child(other.name.clone())
-            }));
-        let count = prompt.others.len();
+        // the mod in a card under the title; the mods it concerns, counted, under it
+        let heading = t(if enable {
+            CM::NeedsHeading
+        } else {
+            CM::NeededByHeading
+        });
+        let list =
+            NameList::new("toggle-mod-others").collapsed_after(5).group(
+                NameGroup::new(heading).items(prompt.others.iter().map(|other| {
+                    NameItem::new(other.name.clone()).icon(ItemIcon::Kind(Kind::Mod))
+                })),
+            );
+        let card = ObjectCard::new(name.clone()).kind(Kind::Mod).compact(true);
         let (id, title, lead, warning, all_label, only_label) = if enable {
             (
                 "enable-mod",
-                tr!(CM::EnableModTitle, name = name),
-                trn!(CP::Needs, count, name = name),
-                tr!(CM::EnableModOnlyWarning, name = name),
+                t(CM::EnableModTitle),
+                None,
+                t(CM::EnableModOnlyWarning),
                 t(CM::EnableModAll),
-                tr!(CM::EnableModOnly, name = name),
+                t(CM::EnableModOnly),
             )
         } else {
             (
                 "disable-mod",
-                tr!(CM::DisableModTitle, name = name),
-                trn!(CP::NeededBy, count, name = name),
-                tr!(CM::DisableModOnlyWarning, name = name),
+                t(CM::DisableModTitle),
+                Some(t(CM::NeededByBody)),
+                t(CM::DisableModOnlyWarning),
                 t(CM::DisableModAll),
-                tr!(CM::DisableModOnly, name = name),
+                t(CM::DisableModOnly),
             )
         };
         Dialog::new(id, title, focus)
@@ -2422,8 +2441,9 @@ impl LauncherShell {
                     .flex_col()
                     .gap_3()
                     .text_color(crate::theme::ink::secondary())
-                    .child(lead)
+                    .child(card)
                     .child(list)
+                    .children(lead)
                     .child(
                         div()
                             .text_size(theme::text_size(text::SMALL))
@@ -2485,38 +2505,36 @@ impl LauncherShell {
                 cx,
             ),
             Modal::OfferMain { id, name, focus } => {
+                let card = self.instance_card(id, name, cx);
                 let id = id.clone();
-                Dialog::new(
-                    "offer-main",
-                    tr!(M::MainOfferTitle, name = name),
-                    focus.clone(),
-                )
-                .on_close(close(cx))
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap_2()
-                        .text_color(crate::theme::ink::secondary())
-                        .whitespace_normal()
-                        .child(t(M::MainOfferBody))
-                        .child(t(M::MainChangeLater)),
-                )
-                .footer(
-                    Button::new("offer-main-yes", t(M::MakeItMain))
-                        .variant(ButtonVariant::Primary)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.close_modal(cx);
-                            this.instances
-                                .update(cx, |instances, cx| instances.set_main(Some(&id), cx));
-                        })),
-                )
-                .footer(
-                    Button::new("offer-main-no", t(CommonMsg::NotNow))
-                        .variant(ButtonVariant::Secondary)
-                        .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx))),
-                )
-                .into_any_element()
+                Dialog::new("offer-main", t(M::MainOfferTitle), focus.clone())
+                    .on_close(close(cx))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_2()
+                            .text_color(crate::theme::ink::secondary())
+                            .whitespace_normal()
+                            .child(card)
+                            .child(t(M::MainOfferBody))
+                            .child(t(M::MainChangeLater)),
+                    )
+                    .footer(
+                        Button::new("offer-main-yes", t(M::MakeItMain))
+                            .variant(ButtonVariant::Primary)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.close_modal(cx);
+                                this.instances
+                                    .update(cx, |instances, cx| instances.set_main(Some(&id), cx));
+                            })),
+                    )
+                    .footer(
+                        Button::new("offer-main-no", t(CommonMsg::NotNow))
+                            .variant(ButtonVariant::Secondary)
+                            .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx))),
+                    )
+                    .into_any_element()
             }
             Modal::ConfirmMain {
                 id,
@@ -2524,34 +2542,44 @@ impl LauncherShell {
                 current,
                 focus,
             } => {
+                // the new main instance in a card; the one it replaces, once, in a row
+                let card = self.instance_card(id, name, cx);
+                let replaces = FactList::new("confirm-main-replaces").row(
+                    t(FactMsg::Replaces),
+                    ObjectChip::new(current.clone()).kind(Kind::Instance),
+                );
                 let id = id.clone();
-                Dialog::new(
-                    "confirm-main",
-                    tr!(M::MainOfferTitle, name = name),
-                    focus.clone(),
-                )
-                .on_close(close(cx))
-                .child(
-                    div()
-                        .text_color(crate::theme::ink::secondary())
-                        .whitespace_normal()
-                        .child(tr!(M::MainSwitchBody, current = current, name = name)),
-                )
-                .footer(
-                    Button::new("confirm-main-yes", tr!(M::MakeNameMain, name = name))
+                Dialog::new("confirm-main", t(M::MainSwitchTitle), focus.clone())
+                    .on_close(close(cx))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_3()
+                            .text_color(crate::theme::ink::secondary())
+                            .whitespace_normal()
+                            .child(card)
+                            .child(replaces)
+                            .child(t(M::MainSwitchBody)),
+                    )
+                    .footer(
+                        Button::new(
+                            "confirm-main-yes",
+                            t(crate::i18n::InstanceSettingsMsg::MakeMain),
+                        )
                         .variant(ButtonVariant::Primary)
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.close_modal(cx);
                             this.instances
                                 .update(cx, |instances, cx| instances.set_main(Some(&id), cx));
                         })),
-                )
-                .footer(
-                    Button::new("confirm-main-cancel", t(CommonMsg::Cancel))
-                        .variant(ButtonVariant::Secondary)
-                        .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx))),
-                )
-                .into_any_element()
+                    )
+                    .footer(
+                        Button::new("confirm-main-cancel", t(CommonMsg::Cancel))
+                            .variant(ButtonVariant::Secondary)
+                            .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx))),
+                    )
+                    .into_any_element()
             }
             Modal::ConfirmRosetta {
                 id,
@@ -2575,32 +2603,40 @@ impl LauncherShell {
                 let play = answer(true, id.clone(), cx);
                 let cancel = answer(false, id.clone(), cx);
                 let dismiss = answer(false, id.clone(), cx);
-                Dialog::new(
-                    "confirm-rosetta",
-                    tr!(IM::RosettaNoticeTitle, version = version),
-                    focus.clone(),
-                )
-                .on_close(dismiss)
-                .child(
-                    div()
-                        .text_color(crate::theme::ink::secondary())
-                        .whitespace_normal()
-                        .child(t(match reason {
-                            Rosetta::Version => IM::RosettaNoticeBody,
-                            Rosetta::JavaOverride => IM::RosettaNoticeBodyOverride,
-                        })),
-                )
-                .footer(
-                    Button::new("confirm-rosetta-play", t(M::Play))
-                        .variant(ButtonVariant::Primary)
-                        .on_click(move |_, window, cx| play(window, cx)),
-                )
-                .footer(
-                    Button::new("confirm-rosetta-cancel", t(CommonMsg::Cancel))
-                        .variant(ButtonVariant::Secondary)
-                        .on_click(move |_, window, cx| cancel(window, cx)),
-                )
-                .into_any_element()
+                // the instance in a card with its game, under a title that says what
+                // happens
+                let card = match self.instances.read(cx).list().iter().find(|i| i.id == *id) {
+                    Some(instance) => crate::instances::facts::card(instance),
+                    None => ObjectCard::new(id.clone())
+                        .kind(Kind::Instance)
+                        .fact(crate::instances::facts::game_fact(version)),
+                };
+                Dialog::new("confirm-rosetta", t(IM::RosettaNoticeTitle), focus.clone())
+                    .on_close(dismiss)
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_3()
+                            .text_color(crate::theme::ink::secondary())
+                            .whitespace_normal()
+                            .child(card)
+                            .child(t(match reason {
+                                Rosetta::Version => IM::RosettaNoticeBody,
+                                Rosetta::JavaOverride => IM::RosettaNoticeBodyOverride,
+                            })),
+                    )
+                    .footer(
+                        Button::new("confirm-rosetta-play", t(M::Play))
+                            .variant(ButtonVariant::Primary)
+                            .on_click(move |_, window, cx| play(window, cx)),
+                    )
+                    .footer(
+                        Button::new("confirm-rosetta-cancel", t(CommonMsg::Cancel))
+                            .variant(ButtonVariant::Secondary)
+                            .on_click(move |_, window, cx| cancel(window, cx)),
+                    )
+                    .into_any_element()
             }
             Modal::LaunchFailed {
                 title,
@@ -2628,6 +2664,12 @@ impl LauncherShell {
                         })),
                 )
                 .into_any_element(),
+            Modal::Report { report, focus } => {
+                Dialog::new("report", report.title.clone(), focus.clone())
+                    .on_close(close(cx))
+                    .child(report.render())
+                    .into_any_element()
+            }
             Modal::DeleteInstance {
                 id,
                 name,
@@ -2725,33 +2767,43 @@ impl LauncherShell {
                 username,
                 focus,
             } => {
+                // the account in a card with its face and kind
+                let accounts = self.accounts.read(cx);
+                let account = accounts.accounts().iter().find(|a| a.id == *id);
+                let kind = match account.map(|a| a.kind) {
+                    Some(launcher_core::accounts::AccountKind::Offline) => t(M::OfflineAccount),
+                    _ => t(M::MicrosoftAccount),
+                };
+                let card = ObjectCard::new(username.clone())
+                    .thumbnail(account_box::avatar(accounts, account, px(32.)))
+                    .fact(Fact::bare_named(t(FactMsg::Type), kind));
                 let id = id.clone();
-                Dialog::new(
-                    "remove-account",
-                    tr!(M::RemoveAccountTitle, name = username),
-                    focus.clone(),
-                )
-                .on_close(close(cx))
-                .child(
-                    div()
-                        .text_color(crate::theme::ink::secondary())
-                        .child(tr!(M::RemoveAccountBody, keychain = t(CommonMsg::Keychain))),
-                )
-                .footer(
-                    Button::new("confirm-remove", t(M::RemoveAccount))
-                        .variant(ButtonVariant::Danger)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.accounts
-                                .update(cx, |accounts, cx| accounts.remove(&id, cx));
-                            this.close_modal(cx);
-                        })),
-                )
-                .footer(
-                    Button::new("cancel-remove", t(CommonMsg::Cancel))
-                        .variant(ButtonVariant::Secondary)
-                        .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx))),
-                )
-                .into_any_element()
+                Dialog::new("remove-account", t(M::RemoveAccountTitle), focus.clone())
+                    .on_close(close(cx))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_3()
+                            .text_color(crate::theme::ink::secondary())
+                            .child(card)
+                            .child(tr!(M::RemoveAccountBody, keychain = t(CommonMsg::Keychain))),
+                    )
+                    .footer(
+                        Button::new("confirm-remove", t(M::RemoveAccount))
+                            .variant(ButtonVariant::Danger)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.accounts
+                                    .update(cx, |accounts, cx| accounts.remove(&id, cx));
+                                this.close_modal(cx);
+                            })),
+                    )
+                    .footer(
+                        Button::new("cancel-remove", t(CommonMsg::Cancel))
+                            .variant(ButtonVariant::Secondary)
+                            .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx))),
+                    )
+                    .into_any_element()
             }
         })
     }

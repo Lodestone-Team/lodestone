@@ -4,10 +4,24 @@ crate::i18n::messages! {
     pub enum InstancesMsg {
         /// Two sentences one after the other, as one message: "{first} {second}".
         TwoSentences = "{first} {second}",
-        /// After an instance was made from a share code; {name} is its name.
-        ShareCodeReady = "{name} is ready",
-        /// {names} lists what couldn't be installed.
-        ShareCodeNotInstalled = "Not installed: {names}.",
+        /// A modpack import or a share code finished: the dialog's title; the instance is in a card under it.
+        InstanceReady = "Instance ready",
+        /// Under the instance that is ready.
+        PressPlayToDownload = "Press Play to download the game and start it.",
+        /// Under an instance a modpack was added to.
+        PressPlayToStart = "Press Play to start it.",
+        /// Over the mods a share code couldn't install.
+        NotInstalled = "Not installed",
+        /// Over the files of a modpack that were left out.
+        LeftOutOfPack = "Left out of the pack",
+        /// Over the mods a copy with another version couldn't take along.
+        StayedBehind = "Stayed behind",
+        /// Over the mods the copied mods need that couldn't be installed.
+        NeededNotInstalled = "Needed but not installed",
+        /// After a modpack update: the key of the folder that keeps the files it replaced.
+        ReplacedFiles = "Replaced files",
+        /// Under that folder.
+        ReplacedFilesKept = "The files the update replaced are kept there in case you need them back.",
         ShareCodeContentFailed = "Couldn't install the share code's content",
         ShareCodeOffline = "Modrinth can't be reached, so the instance was made without its content.",
         /// An error's title and its text, in the console: "Couldn't start Java: …".
@@ -74,9 +88,9 @@ crate::i18n::messages! {
         RosettaNeeded = "Rosetta 2 is needed",
         RosettaMissing = "This Minecraft version needs an Intel (x86_64) Java, which runs on Apple silicon through Rosetta 2. Rosetta isn't installed. Install it by running this in Terminal, then press Play again:\n\nsoftwareupdate --install-rosetta",
         /// Asked once per instance, before its first game under Rosetta 2 on an Apple
-        /// silicon Mac, with Play and Cancel. {version} is the Minecraft version, such
-        /// as 1.12.2.
-        RosettaNoticeTitle = "Minecraft {version} runs under Rosetta 2",
+        /// silicon Mac, with Play and Cancel; the instance is in a card under it, with
+        /// its Minecraft version.
+        RosettaNoticeTitle = "Runs under Rosetta 2",
         /// Minecraft 1.13.2 and older.
         RosettaNoticeBody = "Mojang made no Apple silicon build of some libraries this version needs, so it runs in an Intel Java through Rosetta 2. It takes longer to start, then plays normally. Minecraft 1.14 and later run natively.",
         /// A version that could run natively, with an Intel Java chosen in the
@@ -177,23 +191,18 @@ crate::i18n::messages! {
         /// The name of a modpack whose file has no name.
         Modpack = "Modpack",
         ReadingModpack = "Reading the modpack",
-        /// A modpack import finished: the dialog's title.
-        ModpackReady = "{name} is ready",
-        ModpackReadyMessage = "Minecraft {version} with {loader}. Press Play to download the game and start it.",
         CouldntImportModpack = "Couldn't import the modpack",
         CouldntUpdateModpack = "Couldn't update the modpack",
         StopGameFirst = "Stop the game first.",
         FinishFinderFirst = "Finish the Find it for me search first: it has some of the mods turned off.",
         ModpackUpdated = "Modpack updated",
-        /// "Survival now runs Fabulously Optimized 6.1.0. The files it replaced are saved in …".
-        ModpackUpdatedMessage = "{name} now runs {pack} {version}. The files it replaced are saved in {path}.",
         UpdatedButNotSaved = "The files were updated, but the instance couldn't be saved: {error}",
         // A modpack import's or update's progress.
         DownloadingName = "Downloading {name}",
         InstallingName = "Installing {name}",
         CopyingConfigs = "Copying the pack's configs",
         /// A copy with another version or loader: the notice when it is made.
-        CopyReady = "{name} is ready",
+        CopyReady = "Copy ready",
         CouldntCopy = "Couldn't make the copy",
         /// What a copy with another version or loader is doing.
         CopyingWorlds = "Copying the worlds",
@@ -275,17 +284,11 @@ crate::i18n::messages! {
         ModpackAddedAlready = "{pack} is added to this instance already. Remove it in Settings first to add another version.",
         CouldntAddModpack = "Couldn't add the modpack",
         ModpackAdded = "Modpack added",
-        /// "Fabulously Optimized was added to Survival. Press Play to start it."
-        ModpackAddedMessage = "{pack} was added to {name}. Press Play to start it.",
         CouldntRemoveModpack = "Couldn't remove the modpack",
         ModpackRemoved = "Modpack removed",
     }
 
     pub enum InstancesPlural {
-        ShareCodeInstalled = (
-            "Installed {count} item from the code.",
-            "Installed {count} items from the code."
-        ),
         /// "Checked 4,091 game files in 45 ms: 4,091 unchanged since the last check, 0 hashed, 0 downloaded."
         CheckSummary = (
             "Checked {count} game file in {ms} ms: {unchanged} unchanged since the last check, {hashed} hashed, {downloaded} downloaded.",
@@ -334,16 +337,8 @@ crate::i18n::messages! {
             "{count} file has to be downloaded from CurseForge's website: the instance's Content tab shows it.",
             "{count} files have to be downloaded from CurseForge's website: the instance's Content tab shows them."
         ),
-        PackFilesLeftOut = (
-            "{count} file of the pack was left out: {path}.",
-            "{count} files of the pack were left out, such as {path}."
-        ),
         /// A modpack's progress.
         DownloadingFiles = ("Downloading {count} file", "Downloading {count} files"),
-        /// After a copy's "ready" message; {names} is a list of mods.
-        CopyModsLeftBehind = ("{count} mod stayed behind: {names}.", "{count} mods stayed behind: {names}."),
-        /// Mods the copied mods require that couldn't be installed.
-        CopyDependenciesMissing = ("{count} mod they need couldn't be installed: {names}.", "{count} mods they need couldn't be installed: {names}."),
         /// The mod finder's progress.
         FinderModsLeft = ("{count} mod left to check", "{count} mods left to check"),
         FinderModsOff = ("{count} mod turned off", "{count} mods turned off"),

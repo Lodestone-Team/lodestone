@@ -81,7 +81,7 @@ pub fn text(message: M) -> &'static str {
             "「{name}」會回到{when} 時的狀態。會先為現在的世界拍攝快照，並保留 30 天。"
         }
         M::BackUpAndReplace => "備份並取代",
-        M::RemoveAccountTitle => "移除「{name}」？",
+        M::RemoveAccountTitle => "移除帳號？",
         M::RemoveAccountBody => {
             "Lodestone Launcher 會忘記這個帳號，並從你的{keychain}中刪除它儲存的登入資訊。之後你可以再次新增。"
         }
@@ -137,7 +137,6 @@ pub fn text(message: M) -> &'static str {
 
         M::SaveChangesTitle => "要儲存變更嗎？",
         M::UnsavedDefaultsBody => "你變更了實例預設設定。要儲存還是捨棄？",
-        M::UnsavedInstanceBody => "你變更了「{name}」的設定。要儲存還是捨棄？",
         M::UnsavedThisInstanceBody => "你變更了這個實例的設定。要儲存還是捨棄？",
         M::UnsavedInDefaults => "實例預設設定中有尚未儲存的變更",
 
@@ -190,16 +189,14 @@ pub fn text(message: M) -> &'static str {
         M::SyncFrom => "主實例",
         M::SyncFromHint => "你在主實例中變更的設定會自動複製到其他實例。",
         M::SyncFromNoneHint => "沒有主實例時，共用設定只在這裡變更。",
-        M::MainOfferTitle => "將「{name}」設為主實例？",
+        M::MainOfferTitle => "設為主實例？",
+        M::MainSwitchTitle => "更換主實例？",
         M::MainOfferBody => {
             "共用遊戲設定讓你的操作、視訊、音效等選項在每個實例中保持一致。你在主實例遊戲中變更的設定，會在其他實例啟動時複製過去。"
         }
         M::MainChangeLater => "之後可以在「設定 › 共用遊戲設定」中變更。",
         M::MakeItMain => "設為主實例",
-        M::MainSwitchBody => {
-            "「{current}」目前是你的主實例。它在遊戲中的變更將不再更新共用設定，改由「{name}」更新。"
-        }
-        M::MakeNameMain => "將「{name}」設為主實例",
+        M::MainSwitchBody => "它在遊戲中的變更將更新你的共用設定，原主實例的變更將不再更新它們。",
         M::FirstTimeSetupSection => "首次設定",
         M::ResetFirstTimeSetup => "重設首次設定",
         M::ResetFirstTimeSetupHint => {
@@ -249,7 +246,6 @@ pub fn text(message: M) -> &'static str {
         M::Offline => "離線",
         M::AddMicrosoftAccount => "新增 Microsoft 帳號",
         M::AddOfflineAccount => "新增離線帳號",
-        M::RemoveNamed => "移除「{name}」",
         M::OfflineNote => "離線 – 僅限單人遊戲和離線模式伺服器",
         M::ChangePlayerSkin => "更換外觀…",
         M::PlayerSkinDialogTitle => "{name} 的外觀",

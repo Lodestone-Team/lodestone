@@ -89,7 +89,7 @@ pub fn text(message: M) -> &'static str {
             "{name} revient à son état de la sauvegarde ({when}). Un instantané du monde tel qu’il est maintenant est pris d’abord et gardé 30\u{a0}jours."
         }
         M::BackUpAndReplace => "Sauvegarder et remplacer",
-        M::RemoveAccountTitle => "Retirer {name}\u{202F}?",
+        M::RemoveAccountTitle => "Retirer le compte\u{202F}?",
         M::RemoveAccountBody => {
             "Lodestone Launcher oublie ce compte et supprime sa connexion enregistrée de votre {keychain}. Vous pourrez l’ajouter de nouveau plus tard."
         }
@@ -154,9 +154,6 @@ pub fn text(message: M) -> &'static str {
         M::SaveChangesTitle => "Enregistrer vos modifications\u{202F}?",
         M::UnsavedDefaultsBody => {
             "Vous avez modifié les paramètres par défaut des instances. Les enregistrer ou les abandonner\u{202F}?"
-        }
-        M::UnsavedInstanceBody => {
-            "Vous avez modifié les paramètres de {name}. Les enregistrer ou les abandonner\u{202F}?"
         }
         M::UnsavedThisInstanceBody => {
             "Vous avez modifié les paramètres de cette instance. Les enregistrer ou les abandonner\u{202F}?"
@@ -226,7 +223,8 @@ pub fn text(message: M) -> &'static str {
         M::SyncFromNoneHint => {
             "Sans instance principale, les réglages partagés ne changent qu’ici."
         }
-        M::MainOfferTitle => "Faire de {name} votre instance principale\u{202F}?",
+        M::MainOfferTitle => "En faire l’instance principale\u{202F}?",
+        M::MainSwitchTitle => "Changer d’instance principale\u{202F}?",
         M::MainOfferBody => {
             "Les réglages de jeu partagés gardent vos contrôles, la vidéo, le son et d’autres options identiques dans toutes vos instances. Les réglages modifiés en jeu dans votre instance principale sont copiés dans les autres à leur démarrage."
         }
@@ -235,9 +233,8 @@ pub fn text(message: M) -> &'static str {
         }
         M::MakeItMain => "En faire l’instance principale",
         M::MainSwitchBody => {
-            "{current} est votre instance principale. Ses changements en jeu ne mettront plus à jour vos réglages partagés\u{a0}: ce seront ceux de {name}."
+            "Ses changements en jeu mettront à jour vos paramètres partagés, et ceux de l’ancienne instance principale cesseront de le faire."
         }
-        M::MakeNameMain => "Rendre {name} principale",
         M::FirstTimeSetupSection => "Première configuration",
         M::ResetFirstTimeSetup => "Réinitialiser la première configuration",
         M::ResetFirstTimeSetupHint => {
@@ -297,7 +294,6 @@ pub fn text(message: M) -> &'static str {
         M::Offline => "Hors ligne",
         M::AddMicrosoftAccount => "Ajouter un compte Microsoft",
         M::AddOfflineAccount => "Ajouter un compte hors ligne",
-        M::RemoveNamed => "Retirer {name}",
         M::OfflineNote => "Hors ligne – solo et serveurs en mode hors ligne uniquement",
         M::ChangePlayerSkin => "Changer de skin…",
         M::PlayerSkinDialogTitle => "Skin de {name}",

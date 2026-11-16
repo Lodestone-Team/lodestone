@@ -3,8 +3,17 @@ use crate::i18n::{InstancesMsg as M, InstancesPlural as P};
 pub fn text(message: M) -> &'static str {
     match message {
         M::TwoSentences => "{first} {second}",
-        M::ShareCodeReady => "{name} est prête",
-        M::ShareCodeNotInstalled => "Non installés\u{a0}: {names}.",
+        M::InstanceReady => "Instance prête",
+        M::PressPlayToDownload => "Appuyez sur Jouer pour télécharger le jeu et le lancer.",
+        M::PressPlayToStart => "Appuyez sur Jouer pour la lancer.",
+        M::NotInstalled => "Non installés",
+        M::LeftOutOfPack => "Laissés hors du pack",
+        M::StayedBehind => "Restés en arrière",
+        M::NeededNotInstalled => "Nécessaires mais non installés",
+        M::ReplacedFiles => "Fichiers remplacés",
+        M::ReplacedFilesKept => {
+            "Les fichiers remplacés par la mise à jour y sont gardés au cas où vous en auriez besoin."
+        }
         M::ShareCodeContentFailed => "Impossible d’installer le contenu du code de partage",
         M::ShareCodeOffline => {
             "Modrinth est injoignable\u{a0}: l’instance a été créée sans son contenu."
@@ -71,7 +80,7 @@ pub fn text(message: M) -> &'static str {
         M::RosettaMissing => {
             "Cette version de Minecraft a besoin d’un Java Intel (x86_64), qui s’exécute sur Apple Silicon grâce à Rosetta 2. Rosetta n’est pas installé. Installez-le en exécutant cette commande dans le Terminal, puis cliquez de nouveau sur Jouer\u{a0}:\n\nsoftwareupdate --install-rosetta"
         }
-        M::RosettaNoticeTitle => "Minecraft {version} s’exécute via Rosetta\u{a0}2",
+        M::RosettaNoticeTitle => "S’exécute via Rosetta\u{a0}2",
         M::RosettaNoticeBody => {
             "Mojang n’a pas fait de version Apple Silicon de certaines bibliothèques dont cette version a besoin\u{a0}: elle s’exécute donc dans un Java Intel grâce à Rosetta\u{a0}2. Elle met plus de temps à démarrer, puis fonctionne normalement. Minecraft 1.14 et les versions suivantes s’exécutent nativement."
         }
@@ -169,10 +178,6 @@ pub fn text(message: M) -> &'static str {
         }
         M::Modpack => "Modpack",
         M::ReadingModpack => "Lecture du modpack",
-        M::ModpackReady => "L’instance {name} est prête",
-        M::ModpackReadyMessage => {
-            "Minecraft {version} avec {loader}. Cliquez sur Jouer pour télécharger le jeu et le démarrer."
-        }
         M::CouldntImportModpack => "Impossible d’importer le modpack",
         M::CouldntUpdateModpack => "Impossible de mettre à jour le modpack",
         M::StopGameFirst => "Arrêtez d’abord le jeu.",
@@ -180,15 +185,12 @@ pub fn text(message: M) -> &'static str {
             "Terminez d’abord la recherche Le trouver pour moi\u{a0}: elle a désactivé une partie des mods."
         }
         M::ModpackUpdated => "Modpack mis à jour",
-        M::ModpackUpdatedMessage => {
-            "{name} utilise maintenant {pack} {version}. Les fichiers remplacés sont conservés dans {path}."
-        }
         M::UpdatedButNotSaved => {
             "Les fichiers ont été mis à jour, mais l’instance n’a pas pu être enregistrée\u{a0}: {error}"
         }
         M::DownloadingName => "Téléchargement de {name}",
         M::InstallingName => "Installation de {name}",
-        M::CopyReady => "L’instance {name} est prête",
+        M::CopyReady => "Copie prête",
         M::CouldntCopy => "Impossible de faire la copie",
         M::CopyingWorlds => "Copie des mondes",
         M::CopyingPacksAndOptions => "Copie des packs de ressources, des shaders et des options",
@@ -280,7 +282,6 @@ pub fn text(message: M) -> &'static str {
         }
         M::CouldntAddModpack => "Impossible d’ajouter le modpack",
         M::ModpackAdded => "Modpack ajouté",
-        M::ModpackAddedMessage => "{pack} a été ajouté à {name}. Appuyez sur Jouer pour la lancer.",
         M::CouldntRemoveModpack => "Impossible de retirer le modpack",
         M::ModpackRemoved => "Modpack retiré",
     }
@@ -330,29 +331,13 @@ pub fn plural(message: P) -> [&'static str; 2] {
             "{count} instances à copier, {size}.",
         ],
         P::ImportInstances => ["Importer {count} instance", "Importer {count} instances"],
-        P::ShareCodeInstalled => [
-            "{count} élément installé depuis le code.",
-            "{count} éléments installés depuis le code.",
-        ],
         P::PackFilesToDownload => [
             "{count} fichier doit être téléchargé depuis le site de CurseForge\u{a0}: l’onglet Contenu de l’instance l’affiche.",
             "{count} fichiers doivent être téléchargés depuis le site de CurseForge\u{a0}: l’onglet Contenu de l’instance les affiche.",
         ],
-        P::PackFilesLeftOut => [
-            "{count} fichier du pack a été ignoré\u{a0}: {path}.",
-            "{count} fichiers du pack ont été ignorés, par exemple {path}.",
-        ],
         P::DownloadingFiles => [
             "Téléchargement de {count} fichier",
             "Téléchargement de {count} fichiers",
-        ],
-        P::CopyModsLeftBehind => [
-            "{count}\u{a0}mod n’a pas été copié\u{a0}: {names}.",
-            "{count}\u{a0}mods n’ont pas été copiés\u{a0}: {names}.",
-        ],
-        P::CopyDependenciesMissing => [
-            "{count}\u{a0}mod dont ils ont besoin n’a pas pu être installé\u{a0}: {names}.",
-            "{count}\u{a0}mods dont ils ont besoin n’ont pas pu être installés\u{a0}: {names}.",
         ],
         P::FinderModsLeft => [
             "{count} mod reste à vérifier",

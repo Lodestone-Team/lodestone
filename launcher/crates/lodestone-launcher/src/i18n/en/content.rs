@@ -298,15 +298,21 @@ crate::i18n::messages! {
         /// {names} is the list of files the user downloaded.
         AddedDownloads = "Added {names}.",
         /// Turning off a mod other enabled mods need: "Turn off Fabric API?"
-        DisableModTitle = "Turn off {name}?",
-        DisableModOnlyWarning = "With only {name} off, the game won't start until they're off too or {name} is back on.",
+        DisableModTitle = "Turn off mod?",
+        DisableModOnlyWarning = "With only this mod off, the game won't start until they're off too or it's back on.",
         DisableModAll = "Turn them all off",
-        DisableModOnly = "Only {name}",
+        DisableModOnly = "Only this mod",
         /// Turning on a mod that needs mods that are off: "Turn on Sodium?"
-        EnableModTitle = "Turn on {name}?",
-        EnableModOnlyWarning = "With only {name} on, the game won't start until they're on too or {name} is off again.",
+        EnableModTitle = "Turn on mod?",
+        EnableModOnlyWarning = "With only this mod on, the game won't start until they're on too or it's off again.",
         EnableModAll = "Turn them all on",
-        EnableModOnly = "Only {name}",
+        EnableModOnly = "Only this mod",
+        /// Over the mods that need the one being turned off, with their count as a badge.
+        NeededByHeading = "Needed by",
+        /// Under that list.
+        NeededByBody = "These mods won't load without it.",
+        /// Over the mods that are off that the one being turned on needs.
+        NeedsHeading = "Needs, turned off",
 
         /// Next to "Browse Modrinth" on the Mods tab: add a modpack's mods.
         AddModpackContent = "Add a modpack",
@@ -316,9 +322,5 @@ crate::i18n::messages! {
 
     pub enum ContentPlural {
         MoreVersions = ("{count} more version is on Modrinth.", "{count} more versions are on Modrinth."),
-        /// Over the list of mods that need the one being turned off.
-        NeededBy = ("{count} mod needs {name} and won't load without it:", "{count} mods need {name} and won't load without it:"),
-        /// Over the list of mods that are off that the one being turned on needs.
-        Needs = ("{name} needs {count} mod that is off:", "{name} needs {count} mods that are off:"),
     }
 }

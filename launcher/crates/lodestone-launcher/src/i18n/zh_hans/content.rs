@@ -261,18 +261,21 @@ pub fn text(message: M) -> &'static str {
         M::WatchFolderPrompt => "监视此文件夹",
         M::CouldntAddDownload => "无法添加 {name}：{error}",
         M::AddedDownloads => "已添加 {names}。",
-        M::DisableModTitle => "要关闭 {name} 吗？",
+        M::DisableModTitle => "要关闭模组吗？",
         M::DisableModOnlyWarning => {
-            "如果只关闭 {name}，在它们也关闭或重新开启 {name} 之前，游戏将无法启动。"
+            "如果只关闭这个模组，游戏将无法启动，直到它们也被关闭，或这个模组重新开启。"
         }
         M::DisableModAll => "全部关闭",
-        M::DisableModOnly => "仅关闭 {name}",
-        M::EnableModTitle => "要开启 {name} 吗？",
+        M::DisableModOnly => "仅关闭这个模组",
+        M::EnableModTitle => "要开启模组吗？",
         M::EnableModOnlyWarning => {
-            "如果只开启 {name}，在它们也开启或再次关闭 {name} 之前，游戏将无法启动。"
+            "如果只开启这个模组，游戏将无法启动，直到它们也被开启，或这个模组再次关闭。"
         }
         M::EnableModAll => "全部开启",
-        M::EnableModOnly => "仅开启 {name}",
+        M::EnableModOnly => "仅开启这个模组",
+        M::NeededByHeading => "被以下模组需要",
+        M::NeededByBody => "没有它，这些模组将无法加载。",
+        M::NeedsHeading => "需要但已关闭",
 
         M::AddModpackContent => "添加整合包",
         M::NoSnapshotFirst => "未能先拍摄快照，请在游玩前到“设置 › 快照”中拍摄一个。\n{error}",
@@ -281,8 +284,6 @@ pub fn text(message: M) -> &'static str {
 
 pub fn plural(message: P) -> [&'static str; 2] {
     match message {
-        P::Needs => ["{name} 需要以下 {count} 个已关闭的模组："; 2],
-        P::NeededBy => ["以下 {count} 个模组需要 {name}，没有它将无法加载："; 2],
         P::MoreVersions => ["Modrinth 上还有 {count} 个版本。"; 2],
     }
 }

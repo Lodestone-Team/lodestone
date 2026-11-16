@@ -3,8 +3,15 @@ use crate::i18n::{InstancesMsg as M, InstancesPlural as P};
 pub fn text(message: M) -> &'static str {
     match message {
         M::TwoSentences => "{first}{second}",
-        M::ShareCodeReady => "{name} 已就绪",
-        M::ShareCodeNotInstalled => "未安装：{names}。",
+        M::InstanceReady => "实例已就绪",
+        M::PressPlayToDownload => "按“开始游戏”即可下载并启动游戏。",
+        M::PressPlayToStart => "按“开始游戏”即可启动。",
+        M::NotInstalled => "未安装",
+        M::LeftOutOfPack => "整合包中被跳过的文件",
+        M::StayedBehind => "未复制的模组",
+        M::NeededNotInstalled => "所需但无法安装的模组",
+        M::ReplacedFiles => "被替换的文件",
+        M::ReplacedFilesKept => "更新所替换的文件保存在那里，以备你需要找回。",
         M::ShareCodeContentFailed => "无法安装分享码中的内容",
         M::ShareCodeOffline => "无法连接 Modrinth，因此创建的实例不含其内容。",
         M::TitleAndMessage => "{title}：{message}",
@@ -57,7 +64,7 @@ pub fn text(message: M) -> &'static str {
         M::RosettaMissing => {
             "此 Minecraft 版本需要 Intel（x86_64）Java，它在 Apple Silicon 上通过 Rosetta 2 运行。Rosetta 尚未安装。请在“终端”中运行以下命令安装，然后再次点击“开始游戏”：\n\nsoftwareupdate --install-rosetta"
         }
-        M::RosettaNoticeTitle => "Minecraft {version} 通过 Rosetta 2 运行",
+        M::RosettaNoticeTitle => "通过 Rosetta 2 运行",
         M::RosettaNoticeBody => {
             "Mojang 没有为此版本需要的部分库制作 Apple 芯片版本，因此它会通过 Rosetta 2 在 Intel 版 Java 中运行。启动会慢一些，之后可以正常游玩。Minecraft 1.14 及更高版本会原生运行。"
         }
@@ -147,22 +154,15 @@ pub fn text(message: M) -> &'static str {
         }
         M::Modpack => "整合包",
         M::ReadingModpack => "正在读取整合包",
-        M::ModpackReady => "{name} 已就绪",
-        M::ModpackReadyMessage => {
-            "Minecraft {version}，使用 {loader}。点击“开始游戏”即可下载并启动游戏。"
-        }
         M::CouldntImportModpack => "无法导入整合包",
         M::CouldntUpdateModpack => "无法更新整合包",
         M::StopGameFirst => "请先停止游戏。",
         M::FinishFinderFirst => "请先完成“帮我找出来”的查找：它关闭了部分模组。",
         M::ModpackUpdated => "整合包已更新",
-        M::ModpackUpdatedMessage => {
-            "{name} 现在运行 {pack} {version}。被替换的文件已保存在 {path}。"
-        }
         M::UpdatedButNotSaved => "文件已更新，但无法保存实例：{error}",
         M::DownloadingName => "正在下载 {name}",
         M::InstallingName => "正在安装 {name}",
-        M::CopyReady => "{name} 已就绪",
+        M::CopyReady => "副本已就绪",
         M::CouldntCopy => "无法创建副本",
         M::CopyingWorlds => "正在复制世界",
         M::CopyingPacksAndOptions => "正在复制资源包、光影和选项",
@@ -244,7 +244,6 @@ pub fn text(message: M) -> &'static str {
         M::ModpackAddedAlready => "此实例已添加 {pack}。要添加其他版本，请先在“设置”中将其移除。",
         M::CouldntAddModpack => "无法添加整合包",
         M::ModpackAdded => "整合包已添加",
-        M::ModpackAddedMessage => "{pack} 已添加到 {name}。按“开始游戏”即可启动。",
         M::CouldntRemoveModpack => "无法移除整合包",
         M::ModpackRemoved => "整合包已移除",
     }
@@ -270,14 +269,10 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::ProblemAndMore => ["{problem}（另有 {count} 个问题）"; 2],
         P::InstancesToCopy => ["将复制 {count} 个实例，共 {size}。"; 2],
         P::ImportInstances => ["导入 {count} 个实例"; 2],
-        P::ShareCodeInstalled => ["已从分享码安装 {count} 项内容。"; 2],
         P::PackFilesToDownload => {
             ["有 {count} 个文件需要从 CurseForge 网站下载：实例的“内容”标签页会列出它们。"; 2]
         }
-        P::PackFilesLeftOut => ["整合包中有 {count} 个文件被跳过，例如 {path}。"; 2],
         P::DownloadingFiles => ["正在下载 {count} 个文件"; 2],
-        P::CopyModsLeftBehind => ["{count} 个模组未复制：{names}。"; 2],
-        P::CopyDependenciesMissing => ["{count} 个所需的前置模组无法安装：{names}。"; 2],
         P::FinderModsLeft => ["还有 {count} 个模组待检查"; 2],
         P::FinderModsOff => ["已禁用 {count} 个模组"; 2],
         P::FinderTriesLeft => ["大约还需 {count} 次尝试"; 2],

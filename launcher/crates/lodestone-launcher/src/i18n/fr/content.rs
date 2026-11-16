@@ -281,18 +281,21 @@ pub fn text(message: M) -> &'static str {
         M::WatchFolderPrompt => "Surveiller ce dossier",
         M::CouldntAddDownload => "Impossible d’ajouter {name}\u{a0}: {error}",
         M::AddedDownloads => "{names} ajouté(s).",
-        M::DisableModTitle => "Désactiver {name} ?",
+        M::DisableModTitle => "Désactiver le mod\u{202F}?",
         M::DisableModOnlyWarning => {
-            "Si seul {name} est désactivé, le jeu ne démarrera pas tant qu’ils ne sont pas désactivés aussi ou que {name} n’est pas réactivé."
+            "Si seul ce mod est désactivé, le jeu ne démarrera pas tant qu’ils ne sont pas désactivés aussi ou que ce mod n’est pas réactivé."
         }
         M::DisableModAll => "Tout désactiver",
-        M::DisableModOnly => "Seulement {name}",
-        M::EnableModTitle => "Activer {name} ?",
+        M::DisableModOnly => "Seulement ce mod",
+        M::EnableModTitle => "Activer le mod\u{202F}?",
         M::EnableModOnlyWarning => {
-            "Si seul {name} est activé, le jeu ne démarrera pas tant qu’ils ne sont pas activés aussi ou que {name} n’est pas désactivé."
+            "Si seul ce mod est activé, le jeu ne démarrera pas tant qu’ils ne sont pas activés aussi ou que ce mod n’est pas désactivé."
         }
         M::EnableModAll => "Tout activer",
-        M::EnableModOnly => "Seulement {name}",
+        M::EnableModOnly => "Seulement ce mod",
+        M::NeededByHeading => "Requis par",
+        M::NeededByBody => "Ces mods ne se chargeront pas sans lui.",
+        M::NeedsHeading => "Requis, désactivés",
 
         M::AddModpackContent => "Ajouter un modpack",
         M::NoSnapshotFirst => {
@@ -303,14 +306,6 @@ pub fn text(message: M) -> &'static str {
 
 pub fn plural(message: P) -> [&'static str; 2] {
     match message {
-        P::Needs => [
-            "{name} a besoin de {count} mod désactivé :",
-            "{name} a besoin de {count} mods désactivés :",
-        ],
-        P::NeededBy => [
-            "{count} mod a besoin de {name} et ne se chargera pas sans lui :",
-            "{count} mods ont besoin de {name} et ne se chargeront pas sans lui :",
-        ],
         P::MoreVersions => [
             "{count} autre version est sur Modrinth.",
             "{count} autres versions sont sur Modrinth.",
