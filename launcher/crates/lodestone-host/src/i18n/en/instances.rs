@@ -96,7 +96,7 @@ crate::i18n::messages! {
         StepChooseFile = "Choose a file",
         StepImageSummary = "What’s in it",
         ImageFileTitle = "Choose a .lodeimg file",
-        ImageFileSubtitle = "A backup exported from Lodestone Host, or a snapshot exported from Lodestone Launcher. Nothing is made until you create the server.",
+        ImageFileSubtitle = "A snapshot exported from Lodestone Host or Lodestone Launcher. Nothing is made until you create the server.",
         ImageBrowse = "Choose file…",
         /// While the file is sent to the core and read.
         ImageUploading = "Reading the file…",

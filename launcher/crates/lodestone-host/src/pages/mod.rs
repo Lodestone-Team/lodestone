@@ -12,7 +12,7 @@
 //! | Overview | [`overview`] | A |
 //! | Console | [`console`] | B |
 //! | Files | [`files`] | B |
-//! | Backups | [`backups`] | backups |
+//! | Snapshots (world backups and snapshots) | [`backups`] | backups |
 //! | Settings (instance) | [`instance_settings`] | C |
 //! | Mods / Plugins | [`mods`] | C |
 //! | Event logs | [`event_logs`] | C |
@@ -147,12 +147,22 @@ pub fn mods_demo(view: &AnyView, scene: &str, cx: &mut App) {
     }
 }
 
-/// Opens the Backups tab's export dialog for the first backup (development screenshots'
+/// Opens the Snapshots tab's export dialog for the first snapshot (development screenshots'
 /// `--backup-export options|running`, with `--tab backups --demo`).
 #[cfg(feature = "screenshot")]
 pub fn backup_export_demo(view: &AnyView, scene: &str, cx: &mut App) {
     if let Ok(page) = view.clone().downcast::<backups::BackupsPage>() {
         page.update(cx, |page, cx| page.export_for_screenshot(scene, cx));
+    }
+}
+
+/// A World backups scene on the Snapshots tab (development screenshots'
+/// `--world-backup create|restore|restore-running|delete|running|download`, with `--tab
+/// backups --demo`).
+#[cfg(feature = "screenshot")]
+pub fn world_backup_demo(view: &AnyView, scene: &str, cx: &mut App) {
+    if let Ok(page) = view.clone().downcast::<backups::BackupsPage>() {
+        page.update(cx, |page, cx| page.world_backup_for_screenshot(scene, cx));
     }
 }
 

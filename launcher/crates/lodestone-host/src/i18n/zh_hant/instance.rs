@@ -20,7 +20,7 @@ pub fn text(message: M) -> &'static str {
         M::DeleteConfirm => "我了解，刪除此伺服器",
         M::DeleteCannotUndo => "此動作無法復原。",
         M::DeleteWarning => "此實例的設定和世界將被永久刪除。繼續之前，請備份所有重要資料。",
-        M::DeleteBackupsToo => "它的備份也會被刪除。",
+        M::DeleteBackupsToo => "它的快照和世界備份也會被刪除。",
         M::Deleting => "正在刪除 {name}…",
         M::CommandLineReadOnly => "此核心已停用程式碼執行，此設定為唯讀。",
         M::CommandLineOwnerOnly => "只有擁有者可以變更此設定。",
