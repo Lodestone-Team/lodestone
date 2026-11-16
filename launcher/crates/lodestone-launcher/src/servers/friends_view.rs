@@ -33,7 +33,6 @@ use crate::{
     theme::{self, colors, fonts, leading, radius, text, weights},
 };
 
-/// A small Copy button that puts `value` on the clipboard.
 /// A public invite link without its scheme: `connect.lodestone.cc/j/ABCDEFGH23`.
 fn short_link(link: &str) -> &str {
     link.strip_prefix("https://")
@@ -41,6 +40,7 @@ fn short_link(link: &str) -> &str {
         .unwrap_or(link)
 }
 
+/// A small Copy button that puts `value` on the clipboard.
 pub(super) fn copy_button(id: impl Into<SharedString>, value: String) -> Button {
     Button::new(id.into(), t(CommonMsg::Copy))
         .size(ButtonSize::Slim)
@@ -49,6 +49,18 @@ pub(super) fn copy_button(id: impl Into<SharedString>, value: String) -> Button 
         .on_click(move |_, _, cx| {
             cx.write_to_clipboard(gpui::ClipboardItem::new_string(value.clone()))
         })
+}
+
+/// A Magic localhost line: `text`, which names the address and when it works, and a
+/// button (`id`) that copies `address`, for Minecraft's server list.
+pub(super) fn magic_line(id: impl Into<SharedString>, text: String, address: String) -> gpui::Div {
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .child(note(text))
+        .child(copy_button(id, address))
 }
 
 fn paragraph(value: impl Into<SharedString>) -> gpui::Div {
@@ -248,13 +260,11 @@ impl Servers {
                     // the same every session: for Minecraft's server list
                     .children(saved.game_port.map(|port| {
                         let address = game_address(port);
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap_2()
-                            .child(note(tr!(M::FriendAddress, address = address)))
-                            .child(copy_button(format!("copy-address-{row_id}"), address))
+                        magic_line(
+                            format!("copy-address-{row_id}"),
+                            tr!(M::FriendAddress, address = address),
+                            address,
+                        )
                     }))
                     .when(saved.is_trusted(), |this| {
                         this.child(

@@ -537,6 +537,12 @@ crate::i18n::messages! {
         /// "Magic localhost" names the feature: a tunnelled server always answers at the
         /// same address on this computer.
         FriendAddress = "Magic localhost: {address} (while connected)",
+        /// On the row of a server on a host on this computer. {address} is 127.0.0.1 and
+        /// the server's own port; any Minecraft client can join it there.
+        MagicAddressHere = "Magic localhost: {address} (while the server runs)",
+        /// On the row of a server on another host. {address} is 127.0.0.1:<port>, the
+        /// same every time: the launcher passes connections there on to the server.
+        MagicAddressForwarded = "Magic localhost: {address} (while Lodestone Launcher is open)",
         /// {port} is the server's usual local port.
         FriendPortTaken = "Port {port} was in use",
         /// {address} is this session's 127.0.0.1:<port>; {port} the usual one.

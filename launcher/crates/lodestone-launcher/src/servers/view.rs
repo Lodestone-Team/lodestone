@@ -18,6 +18,7 @@ use launcher_core::cores::{
         plan::{PackChanges, Summary},
     },
     local_claim::ClaimError,
+    magic_localhost::MagicAddress,
     trust::Advisory,
 };
 use launcher_core::ui_skin::SurfaceId;
@@ -392,10 +393,24 @@ impl Servers {
 
         let status = status_label(server);
         let element_id = SharedString::from(format!("server-{row_id}"));
+        // any Minecraft client joins it at this address on this computer
+        let magic = self.magic_address(core, server).map(|magic| {
+            let address = magic.address();
+            let text = match magic {
+                MagicAddress::ThisComputer { .. } => tr!(M::MagicAddressHere, address = address),
+                MagicAddress::Forwarded { .. } => {
+                    tr!(M::MagicAddressForwarded, address = address)
+                }
+            };
+            (text, address)
+        });
         // the row shows the state with its power icon (or dot); screen readers hear it
         let mut description = format!("{status} · {}", server_detail(server));
         if shared {
             description = format!("{description} · {}", t(M::SharedTag));
+        }
+        if let Some((text, _)) = &magic {
+            description = format!("{description} · {text}");
         }
         let description: SharedString = description.into();
         let share_link = self.share_link(&core_uuid, &server.uuid).is_some();
@@ -477,7 +492,14 @@ impl Servers {
                                 ))
                             }),
                     )
-                    .child(small(server_detail(server)).text_color(crate::theme::ink::muted())),
+                    .child(small(server_detail(server)).text_color(crate::theme::ink::muted()))
+                    .children(magic.map(|(text, address)| {
+                        super::friends_view::magic_line(
+                            format!("copy-magic-{row_id}"),
+                            text,
+                            address,
+                        )
+                    })),
             )
             .child(
                 div()

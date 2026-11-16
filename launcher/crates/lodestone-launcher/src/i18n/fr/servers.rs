@@ -666,6 +666,10 @@ pub fn text(message: M) -> &'static str {
         M::FriendsReadFailed => "Impossible de lire les serveurs de vos amis",
         M::FriendsSaveFailed => "Impossible d’enregistrer les serveurs de vos amis",
         M::FriendAddress => "Magic localhost\u{a0}: {address} (une fois connecté)",
+        M::MagicAddressHere => "Magic localhost\u{a0}: {address} (tant que le serveur tourne)",
+        M::MagicAddressForwarded => {
+            "Magic localhost\u{a0}: {address} (tant que Lodestone Launcher est ouvert)"
+        }
         M::FriendPortTaken => "Le port {port} était occupé",
         M::FriendPortTakenBody => {
             "Un autre programme de cet ordinateur l’utilise, donc cette fois l’adresse est {address}. La prochaine fois, Lodestone Launcher essaiera de nouveau le port {port}."

@@ -1134,16 +1134,11 @@ impl Servers {
                     // the tunnel's address on this computer, the same every time
                     .children(magic_port.map(|port| {
                         let address = launcher_core::cores::friends::game_address(port);
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap_2()
-                            .child(note(tr!(ServersMsg::FriendAddress, address = address)))
-                            .child(super::friends_view::copy_button(
-                                format!("copy-address-{id}"),
-                                address,
-                            ))
+                        super::friends_view::magic_line(
+                            format!("copy-address-{id}"),
+                            tr!(ServersMsg::FriendAddress, address = address),
+                            address,
+                        )
                     })),
             )
             .child(

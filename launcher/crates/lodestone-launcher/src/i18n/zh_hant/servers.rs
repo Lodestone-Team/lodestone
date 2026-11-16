@@ -546,6 +546,8 @@ pub fn text(message: M) -> &'static str {
         M::FriendsReadFailed => "無法讀取好友的伺服器",
         M::FriendsSaveFailed => "無法儲存好友的伺服器",
         M::FriendAddress => "Magic localhost：{address}（連線時可用）",
+        M::MagicAddressHere => "Magic localhost：{address}（伺服器執行時可用）",
+        M::MagicAddressForwarded => "Magic localhost：{address}（Lodestone Launcher 開啟時可用）",
         M::FriendPortTaken => "連接埠 {port} 已被占用",
         M::FriendPortTakenBody => {
             "這台電腦上的其他程式正在使用它，所以這次的位址是 {address}。下次 Lodestone Launcher 會再試一次連接埠 {port}。"

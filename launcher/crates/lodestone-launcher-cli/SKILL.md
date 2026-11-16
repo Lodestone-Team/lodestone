@@ -453,7 +453,7 @@ lodestone-launcher-cli cores trust-certificate "Home core" --fingerprint AB:CD:â
 lodestone-launcher-cli cores sign-out "Home core"
 lodestone-launcher-cli cores claim-local                      # owner key for the core on this computer
 lodestone-launcher-cli cores claim-local --folder ~/core-data # its data folder isn't ~/.lodestone
-lodestone-launcher-cli servers list
+lodestone-launcher-cli servers list                         # magic_address: 127.0.0.1:<port> any Minecraft client joins
 lodestone-launcher-cli servers start Smp                     # needs this device signed in
 lodestone-launcher-cli servers stop Smp
 lodestone-launcher-cli servers create-instance Smp           # long; matching version, loader, mods
