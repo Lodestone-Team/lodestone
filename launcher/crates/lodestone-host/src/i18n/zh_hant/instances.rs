@@ -71,12 +71,8 @@ pub fn text(message: M) -> &'static str {
         M::ImportReading => "正在讀取資料夾",
         M::ImportReadFailed => "無法讀取資料夾：{error}",
         M::ImportSettingsSubtitle => "確認 Lodestone 找到的內容，然後匯入。",
-        M::ImportOtherSoftware => {
-            "此伺服器先前使用 {other}。Lodestone 會用 {software} 執行它，兩者使用相同的外掛。"
-        }
-        M::ImportNotOffered => {
-            "此伺服器先前使用 {other}，Lodestone 不提供它。請選擇用來執行它的軟體。"
-        }
+        M::ImportOtherSoftware => "Lodestone 會用使用相同外掛的軟體執行它。",
+        M::ImportNotOffered => "Lodestone 不提供此軟體。請選擇用來執行它的軟體。",
         M::ImportSoftwareUnknown => "Lodestone 無法判斷此伺服器使用的軟體。請在下方選擇。",
         M::FieldSoftware => "伺服器軟體",
         M::FieldSoftwareDescription => "執行伺服器的軟體。Lodestone 會重新安裝它。",
@@ -104,12 +100,12 @@ pub fn text(message: M) -> &'static str {
         M::ImageUploadFailed => "無法開啟檔案：{error}",
         M::ImageSummaryTitle => "檔案內容",
         M::ImageSummarySubtitle => "檢查檔案內容，然後建立伺服器。",
-        M::ImageKeepOperators => "保留檔案中的管理員：{names}",
+        M::ImageKeepOperators => "保留檔案中的管理員",
         M::ImageKeepOperatorsHint => "管理員可以在伺服器上執行任何指令。",
         M::ImageCreate => "建立伺服器",
         M::ImageCreateFailed => "無法建立伺服器：{error}",
         M::CreateFailedLater => "無法建立伺服器",
-        M::ImageNotLodeimg => "{name} 不是 .lodeimg 檔案",
+        M::ImageNotLodeimg => "不是 .lodeimg 檔案",
         M::GameVanillaDescription => "Mojang 官方的標準原版 Minecraft 伺服器。",
         M::GameForgeDescription => "模組框架，可用來安裝模組並自訂你的 Minecraft 體驗。",
         M::GameNeoForgeDescription => {
@@ -133,7 +129,6 @@ pub fn text(message: M) -> &'static str {
         M::ModpackVersionUploaded => "已上傳的模組包。",
         M::ModpackVersionDescription => "選擇要安裝的模組包版本。",
         M::ModpackDownloading => "正在下載模組包檔案以讀取其內容…",
-        M::ModpackDownloadingSize => "正在下載模組包檔案（{size}）以讀取其內容…",
         M::ModpackVersionHint => {
             "選擇一個版本以查看其內容。Lodestone 會下載該版本的模組包檔案來讀取；在你點擊「建立伺服器」之前，不會安裝任何內容。"
         }
@@ -147,7 +142,6 @@ pub fn text(message: M) -> &'static str {
         M::ModpackSummaryModpack => "模組包",
         M::ModpackSummaryLoader => "載入器",
         M::ModpackSummaryServerFiles => "伺服器檔案",
-        M::ModpackSummaryServerFilesValue => "{count} 個（需下載 {size}）",
         M::ModpackUnsupported => "無法使用此模組包：{reason}",
         M::ModpackInspectFailed => "無法讀取模組包：{error}",
         M::ModpackNotAModpack => "這是 {type}，不是模組包",
@@ -274,6 +268,5 @@ pub fn text(message: M) -> &'static str {
 pub fn plural(message: P) -> [&'static str; 2] {
     match message {
         P::ModpackShowMore => ["顯示更多（還有 {count} 個）", "顯示更多（還有 {count} 個）"],
-        P::ImportFiles => ["{count} 個檔案", "{count} 個檔案"],
     }
 }

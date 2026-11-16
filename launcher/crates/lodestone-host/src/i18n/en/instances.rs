@@ -76,8 +76,8 @@ crate::i18n::messages! {
         ImportReadFailed = "Couldn’t read the folder: {error}",
         ImportSettingsSubtitle = "Check what Lodestone found, then import.",
         /// {other} is the server's own software ("Purpur"), {software} what Lodestone runs it with ("Paper").
-        ImportOtherSoftware = "This server ran {other}. Lodestone runs it with {software}, which uses the same plugins.",
-        ImportNotOffered = "This server ran {other}, which Lodestone doesn’t offer. Choose the software to run it with.",
+        ImportOtherSoftware = "Lodestone runs it with software that uses the same plugins.",
+        ImportNotOffered = "Lodestone doesn’t offer this software. Choose the software to run it with.",
         ImportSoftwareUnknown = "Lodestone couldn’t tell what software this server runs. Choose it below.",
         FieldSoftware = "Server software",
         FieldSoftwareDescription = "What runs the server. Lodestone installs it again.",
@@ -104,14 +104,14 @@ crate::i18n::messages! {
         ImageSummaryTitle = "What’s in the file",
         ImageSummarySubtitle = "Check what the file holds, then create the server.",
         /// {names}: the operators in the file.
-        ImageKeepOperators = "Keep the file’s operators: {names}",
+        ImageKeepOperators = "Keep the file’s operators",
         ImageKeepOperatorsHint = "Operators can run any command on the server.",
         ImageCreate = "Create Server",
         ImageCreateFailed = "Couldn’t create the server: {error}",
         /// A server's creation failed after it was asked for, and the core said nothing.
         CreateFailedLater = "The server couldn’t be created",
         /// {name}: the file chosen.
-        ImageNotLodeimg = "{name} isn’t a .lodeimg file",
+        ImageNotLodeimg = "Not a .lodeimg file",
         GameVanillaDescription = "Standard vanilla Minecraft server from Mojang.",
         GameForgeDescription = "Modding framework that allows you to install mods and customize your Minecraft experience.",
         GameNeoForgeDescription = "Community fork of Forge with its own mods, for Minecraft 1.20.2 and later.",
@@ -130,7 +130,6 @@ crate::i18n::messages! {
         ModpackVersionUploaded = "The uploaded modpack.",
         ModpackVersionDescription = "Pick the modpack version to install.",
         ModpackDownloading = "Downloading the modpack file to read it…",
-        ModpackDownloadingSize = "Downloading the modpack file ({size}) to read it…",
         ModpackVersionHint = "Select a version to see what it contains. Lodestone downloads its modpack file to read it; nothing is installed until you click Create Server.",
         ModpackSettingsTitle = "Server settings",
         ModpackLoading = "Loading modpack",
@@ -142,7 +141,6 @@ crate::i18n::messages! {
         ModpackSummaryModpack = "Modpack",
         ModpackSummaryLoader = "Loader",
         ModpackSummaryServerFiles = "Server files",
-        ModpackSummaryServerFilesValue = "{count} ({size} to download)",
         ModpackUnsupported = "This modpack can’t be used: {reason}",
         ModpackInspectFailed = "Failed to read the modpack: {error}",
         ModpackNotAModpack = "That is a {type}, not a modpack",
@@ -166,9 +164,9 @@ crate::i18n::messages! {
         SearchPage = "Page {page} of {total}",
         PreviousPage = "Previous page",
         NextPage = "Next page",
-        VersionRelease = "release",
-        VersionBeta = "beta",
-        VersionAlpha = "alpha",
+        VersionRelease = "Release",
+        VersionBeta = "Beta",
+        VersionAlpha = "Alpha",
         /// The Overview tab.
         NotFound = "Server not found",
         NoName = "No name",
@@ -268,6 +266,5 @@ crate::i18n::messages! {
 
     pub enum InstancesPlural {
         ModpackShowMore = ("Show more ({count} left)", "Show more ({count} left)"),
-        ImportFiles = ("{count} file", "{count} files"),
     }
 }

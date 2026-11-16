@@ -17,9 +17,14 @@ use launcher_core::cores::{
     },
 };
 use lodestone_ui::{
-    components::{Button, ButtonSize, ButtonVariant, Icon, LoadingDots, TextInput, Toast, Toggle},
+    components::{
+        Button, ButtonSize, ButtonVariant, Fact, FactLine, FactList, FactValue, Icon, Kind,
+        LoadingDots, Num, ObjectCard, ProductPhrase, StatusBadge, TextInput, Toast, Toggle,
+        VersionTag,
+    },
     file_dialog::{Pick, ShowsError},
-    theme::{colors, ink, px, radius, text, weights},
+    theme::{Tone, colors, ink, px, radius, text, weights},
+    values::Product,
 };
 
 use super::{
@@ -28,7 +33,7 @@ use super::{
     wizard,
 };
 use crate::{
-    i18n::{CommonMsg, InstancesMsg as M, InstancesPlural as P, t, tr, trn},
+    i18n::{CommonMsg, FactMsg, InstancesMsg as M, InstancesPlural as P, t, tr, trn},
     instance_icons,
     state::HostState,
 };
@@ -553,23 +558,38 @@ impl ModpackFlow {
 }
 
 fn version_type_label(kind: ModrinthVersionType) -> Option<AnyElement> {
-    let (label, color) = match kind {
-        ModrinthVersionType::Release => (t(M::VersionRelease), colors::GREEN),
-        ModrinthVersionType::Beta => (t(M::VersionBeta), colors::YELLOW),
-        ModrinthVersionType::Alpha => (t(M::VersionAlpha), colors::RED_200),
+    let (label, tone) = match kind {
+        ModrinthVersionType::Release => (t(M::VersionRelease), Tone::Success),
+        ModrinthVersionType::Beta => (t(M::VersionBeta), Tone::Warning),
+        ModrinthVersionType::Alpha => (t(M::VersionAlpha), Tone::Danger),
         ModrinthVersionType::Unknown => return None,
     };
-    Some(
-        div()
-            .flex_none()
-            .px(px(6.))
-            .rounded(radius::DEFAULT)
-            .bg(color.opacity(15))
-            .text_size(text::CAPTION)
-            .font_weight(weights::BOLD.face())
-            .text_color(color)
-            .child(label)
-            .into_any_element(),
+    Some(StatusBadge::new(label, tone).into_any_element())
+}
+
+/// A loader's name as it spells it ("fabric" is Fabric).
+fn loader_name(id: &str) -> String {
+    match Product::from_name(id) {
+        Some(product) => product.name().to_string(),
+        None => {
+            let mut chars = id.chars();
+            chars
+                .next()
+                .map(|first| first.to_uppercase().chain(chars).collect())
+                .unwrap_or_default()
+        }
+    }
+}
+
+/// The game and the loader a pack runs on, as plain phrases ("Minecraft 1.21.1",
+/// "Fabric 0.16.9").
+fn software(info: &ModpackInfo) -> (ProductPhrase, Option<ProductPhrase>) {
+    (
+        ProductPhrase::new(Product::Minecraft, info.game_version.clone()),
+        ProductPhrase::from_name(
+            &info.loader,
+            info.loader_version.clone().unwrap_or_default(),
+        ),
     )
 }
 
@@ -580,58 +600,43 @@ fn short_date(iso: &str) -> String {
         .unwrap_or_else(|_| iso.chars().take(10).collect())
 }
 
-/// What the core found in the pack (`ModpackSummary`).
+/// What the core found in the pack (`ModpackSummary`): one fact a row.
 fn summary(info: &ModpackInfo) -> AnyElement {
-    let with = |a: &str, b: &Option<String>| match b {
-        Some(b) => format!("{a} {b}"),
-        None => a.to_string(),
+    let (game, loader) = software(info);
+    let modpack = div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap(px(6.))
+        .min_w_0()
+        .child(lodestone_ui::components::readable::object_name(
+            info.name.clone(),
+        ))
+        .when_some(info.version_number.clone(), |this, version| {
+            this.child(VersionTag::new(version))
+        });
+    let mut facts = FactList::new("modpack-summary")
+        .framed(true)
+        .row(
+            t(M::ModpackSummaryModpack),
+            FactValue::element(modpack, info.name.clone()),
+        )
+        .row(game.key(), game);
+    facts = match loader {
+        Some(loader) => facts.row(loader.key(), loader),
+        None => facts.row(t(FactMsg::Loader), loader_name(&info.loader)),
     };
-    let rows = [
-        (
-            t(M::ModpackSummaryModpack).to_string(),
-            with(&info.name, &info.version_number),
-        ),
-        ("Minecraft".to_string(), info.game_version.clone()),
-        (
-            t(M::ModpackSummaryLoader).to_string(),
-            with(&info.loader, &info.loader_version),
-        ),
-        (
-            t(M::ModpackSummaryServerFiles).to_string(),
-            tr!(
-                M::ModpackSummaryServerFilesValue,
-                count = info.server_file_count,
-                size = lodestone_ui::i18n::format::bytes(info.server_download_size)
-            ),
-        ),
-    ];
+    let facts = facts
+        .row(
+            t(M::ModpackSummaryServerFiles),
+            Num::count(info.server_file_count as u64),
+        )
+        .row(t(FactMsg::Download), Num::bytes(info.server_download_size));
     div()
         .flex()
         .flex_col()
         .gap(px(12.))
-        .child(fields::section(
-            rows.into_iter()
-                .map(|(label, value)| {
-                    div()
-                        .flex()
-                        .flex_row()
-                        .justify_between()
-                        .gap(px(16.))
-                        .px(px(16.))
-                        .py(px(8.))
-                        .text_size(text::MEDIUM)
-                        .child(div().flex_none().text_color(ink::muted()).child(label))
-                        .child(
-                            div()
-                                .min_w_0()
-                                .truncate()
-                                .text_color(ink::text())
-                                .child(value),
-                        )
-                        .into_any_element()
-                })
-                .collect(),
-        ))
+        .child(facts)
         .when_some(info.summary.clone(), |this, summary| {
             this.child(
                 div()
@@ -839,13 +844,9 @@ impl ModpackFlow {
                 .text_size(text::MEDIUM)
                 .text_color(ink::muted())
                 .child(LoadingDots)
-                .child(match inspecting_size {
-                    Some(size) => tr!(
-                        M::ModpackDownloadingSize,
-                        size = lodestone_ui::i18n::format::bytes(size)
-                    ),
-                    None => t(M::ModpackDownloading).to_string(),
-                })
+                .child(t(M::ModpackDownloading))
+                // the file's size, its own value
+                .when_some(inspecting_size, |this, size| this.child(Num::bytes(size)))
                 .into_any_element()
         } else if let Some(info) = &self.info {
             summary(info)
@@ -903,18 +904,29 @@ impl ModpackFlow {
         let is_selected = selected == Some(version.id.as_str());
         let busy = self.inspecting.is_some();
         let inspecting = self.inspecting.as_deref() == Some(version.id.as_str());
-        let mut detail = format!(
-            "{} · {} · {}",
-            version.game_versions.join(", "),
-            version.loaders.join(", "),
-            short_date(&version.date_published)
+        // the game versions, the loaders by name, when it was published and its size
+        let loaders: Vec<String> = version.loaders.iter().map(|l| loader_name(l)).collect();
+        let detail = FactLine::row(SharedString::from(format!(
+            "modpack-version-{}",
+            version.id
+        )))
+        .fact(
+            Fact::bare_named(
+                t(FactMsg::Game),
+                lodestone_ui::values::phrase(Product::Minecraft, &version.game_versions.join(", ")),
+            )
+            .priority(2),
+        )
+        .fact(Fact::bare_named(t(FactMsg::Loader), loaders.join(", ")).priority(1))
+        .fact(Fact::new(
+            t(FactMsg::Published),
+            FactValue::time(short_date(&version.date_published)),
+        ))
+        .facts(
+            version
+                .primary_file()
+                .map(|file| Fact::bare_named(t(FactMsg::Size), Num::bytes(file.size))),
         );
-        if let Some(file) = version.primary_file() {
-            detail = format!(
-                "{detail} · {}",
-                lodestone_ui::i18n::format::bytes(file.size)
-            );
-        }
         let id = version.id.clone();
         div()
             .flex()
@@ -937,23 +949,10 @@ impl ModpackFlow {
                             .flex_row()
                             .items_center()
                             .gap(px(8.))
-                            .child(
-                                div()
-                                    .truncate()
-                                    .text_size(text::MEDIUM)
-                                    .font_weight(weights::BOLD.face())
-                                    .text_color(ink::text())
-                                    .child(version.version_number.clone()),
-                            )
+                            .child(VersionTag::new(version.version_number.clone()))
                             .children(version_type_label(version.version_type)),
                     )
-                    .child(
-                        div()
-                            .truncate()
-                            .text_size(text::SMALL)
-                            .text_color(ink::muted())
-                            .child(detail),
-                    ),
+                    .child(detail),
             )
             .child(
                 Button::new(
@@ -992,14 +991,16 @@ impl ModpackFlow {
                     error(key),
                 )
             };
+        // the pack being installed, with the game and loader it runs on
         let line = self.info.as_ref().map(|info| {
-            format!(
-                "{} · Minecraft {} · {} {}",
-                info.name,
-                info.game_version,
-                launcher_core::cores::admin::mods::loader_title(&info.loader),
-                info.loader_version.clone().unwrap_or_default()
-            )
+            let (game, loader) = software(info);
+            let mut card = ObjectCard::new(info.name.clone())
+                .kind(Kind::Modpack)
+                .fact(Fact::bare_named(game.key(), game));
+            if let Some(loader) = loader {
+                card = card.fact(Fact::bare_named(loader.key(), loader));
+            }
+            card
         });
         let auto_start = settings.auto_start;
         let restart = settings.restart_on_crash;
@@ -1015,15 +1016,7 @@ impl ModpackFlow {
                 t(M::ModpackSettingsTitle),
                 t(M::ServerSettingsDescription),
             ))
-            .when_some(line, |this, line| {
-                this.child(
-                    div()
-                        .mt(px(-12.))
-                        .text_size(text::MEDIUM)
-                        .text_color(ink::muted())
-                        .child(line),
-                )
-            })
+            .when_some(line, |this, card| this.child(card))
             .child(fields::section(vec![
                 text_row(
                     M::FieldName,

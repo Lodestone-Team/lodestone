@@ -71,12 +71,8 @@ pub fn text(message: M) -> &'static str {
         M::ImportReading => "正在读取文件夹",
         M::ImportReadFailed => "无法读取文件夹：{error}",
         M::ImportSettingsSubtitle => "确认 Lodestone 找到的内容，然后导入。",
-        M::ImportOtherSoftware => {
-            "此服务器之前使用 {other}。Lodestone 会用 {software} 运行它，两者使用相同的插件。"
-        }
-        M::ImportNotOffered => {
-            "此服务器之前使用 {other}，Lodestone 不提供它。请选择用来运行它的软件。"
-        }
+        M::ImportOtherSoftware => "Lodestone 会用使用相同插件的软件运行它。",
+        M::ImportNotOffered => "Lodestone 不提供此软件。请选择用来运行它的软件。",
         M::ImportSoftwareUnknown => "Lodestone 无法判断此服务器使用的软件。请在下方选择。",
         M::FieldSoftware => "服务器软件",
         M::FieldSoftwareDescription => "运行服务器的软件。Lodestone 会重新安装它。",
@@ -104,12 +100,12 @@ pub fn text(message: M) -> &'static str {
         M::ImageUploadFailed => "无法打开文件：{error}",
         M::ImageSummaryTitle => "文件内容",
         M::ImageSummarySubtitle => "检查文件内容，然后创建服务器。",
-        M::ImageKeepOperators => "保留文件中的管理员：{names}",
+        M::ImageKeepOperators => "保留文件中的管理员",
         M::ImageKeepOperatorsHint => "管理员可以在服务器上运行任何命令。",
         M::ImageCreate => "创建服务器",
         M::ImageCreateFailed => "无法创建服务器：{error}",
         M::CreateFailedLater => "无法创建服务器",
-        M::ImageNotLodeimg => "{name} 不是 .lodeimg 文件",
+        M::ImageNotLodeimg => "不是 .lodeimg 文件",
         M::GameVanillaDescription => "Mojang 官方的标准原版 Minecraft 服务器。",
         M::GameForgeDescription => "模组框架，可用于安装模组并自定义你的 Minecraft 体验。",
         M::GameNeoForgeDescription => {
@@ -133,7 +129,6 @@ pub fn text(message: M) -> &'static str {
         M::ModpackVersionUploaded => "已上传的整合包。",
         M::ModpackVersionDescription => "选择要安装的整合包版本。",
         M::ModpackDownloading => "正在下载整合包文件以读取其内容…",
-        M::ModpackDownloadingSize => "正在下载整合包文件（{size}）以读取其内容…",
         M::ModpackVersionHint => {
             "选择一个版本以查看其内容。Lodestone 会下载该版本的整合包文件进行读取；在你点击“创建服务器”之前，不会安装任何内容。"
         }
@@ -147,7 +142,6 @@ pub fn text(message: M) -> &'static str {
         M::ModpackSummaryModpack => "整合包",
         M::ModpackSummaryLoader => "加载器",
         M::ModpackSummaryServerFiles => "服务器文件",
-        M::ModpackSummaryServerFilesValue => "{count} 个（需下载 {size}）",
         M::ModpackUnsupported => "无法使用此整合包：{reason}",
         M::ModpackInspectFailed => "读取整合包失败：{error}",
         M::ModpackNotAModpack => "这是 {type}，不是整合包",
@@ -274,6 +268,5 @@ pub fn text(message: M) -> &'static str {
 pub fn plural(message: P) -> [&'static str; 2] {
     match message {
         P::ModpackShowMore => ["显示更多（还剩 {count} 个）", "显示更多（还剩 {count} 个）"],
-        P::ImportFiles => ["{count} 个文件", "{count} 个文件"],
     }
 }
