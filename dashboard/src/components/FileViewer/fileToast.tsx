@@ -18,6 +18,25 @@ export const fileKind = (
 export const baseName = (path: string) =>
   path.split(/[\\/]/).filter(Boolean).pop() ?? path;
 
+/** What a file toast shows: the file as a mono chip, the outcome and the reason */
+export function FileToastContent({
+  file,
+  outcome,
+  reason,
+}: {
+  file: { name: string; kind: ObjectKind };
+  outcome: string;
+  reason?: string | null;
+}) {
+  return (
+    <ObjectToast
+      object={<ObjectChip kind={file.kind} name={file.name} mono />}
+      outcome={outcome}
+      reason={reason}
+    />
+  );
+}
+
 /**
  * A toast about a file: its name (never the whole path) as a mono chip with
  * its kind icon, the outcome, and the reason (the core's error) under it.
@@ -28,12 +47,7 @@ export function fileToast(
   outcome: string,
   reason?: string | null
 ) {
-  toast(
-    <ObjectToast
-      object={<ObjectChip kind={file.kind} name={file.name} mono />}
-      outcome={outcome}
-      reason={reason}
-    />,
-    { type }
-  );
+  toast(<FileToastContent file={file} outcome={outcome} reason={reason} />, {
+    type,
+  });
 }
