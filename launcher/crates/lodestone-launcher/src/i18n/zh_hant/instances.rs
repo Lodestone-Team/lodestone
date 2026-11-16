@@ -122,6 +122,7 @@ pub fn text(message: M) -> &'static str {
         M::NewestRelease => "最新正式版",
         M::NewestSnapshot => "最新快照版",
         M::NoInstances => "沒有實例。",
+        M::ToCopy => "待複製",
         M::LookingForLaunchers => "正在尋找其他啟動器",
         M::NoLaunchersFound => {
             "在常用位置找不到其他啟動器。請選擇某個啟動器或實例的資料夾，從中匯入。"
@@ -134,7 +135,6 @@ pub fn text(message: M) -> &'static str {
         M::MatchingModrinth => "正在將模組和資源包與 Modrinth 比對",
         M::CheckToImport => "勾選要匯入的實例。其檔案會被複製，原啟動器中的檔案維持不變。",
         M::LeaveWorldsOut => "不匯入世界",
-        M::LeaveWorldsOutSize => "不匯入世界（{size}）",
         M::Import => "匯入",
         M::ChooseFolder => "選擇資料夾…",
         M::StopImportingTitle => "停止匯入？",
@@ -269,7 +269,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::LinesShown => ["顯示 {shown} 行，共 {count} 行"; 2],
         P::LinesShownFollowing => ["顯示 {shown} 行，共 {count} 行 · 自動捲動"; 2],
         P::ProblemAndMore => ["{problem}（另有 {count} 個問題）"; 2],
-        P::InstancesToCopy => ["將複製 {count} 個實例，共 {size}。"; 2],
         P::ImportInstances => ["匯入 {count} 個實例"; 2],
         P::PackFilesToDownload => {
             ["有 {count} 個檔案需要從 CurseForge 網站下載：實例的「內容」分頁會列出它們。"; 2]

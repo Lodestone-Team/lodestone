@@ -159,6 +159,8 @@ crate::i18n::messages! {
         NewestSnapshot = "The newest snapshot",
         /// A launcher's folder with no instances in it.
         NoInstances = "No instances.",
+        /// The import's summary: the key of how much the checked instances copy, after their count.
+        ToCopy = "To copy",
         LookingForLaunchers = "Looking for other launchers",
         NoLaunchersFound = "No other launchers were found in their usual places. Choose a launcher's folder, or an instance's, to import from it.",
         /// An import in the queue that hasn't started.
@@ -172,8 +174,6 @@ crate::i18n::messages! {
         MatchingModrinth = "Matching mods and packs to Modrinth",
         CheckToImport = "Check the instances to import. Their files are copied; the other launcher keeps its own.",
         LeaveWorldsOut = "Leave worlds out",
-        /// With the size the worlds take.
-        LeaveWorldsOutSize = "Leave worlds out ({size})",
         Import = "Import",
         ChooseFolder = "Choose a folder…",
         /// Asked when the import dialog closes while imports are running.
@@ -328,8 +328,6 @@ crate::i18n::messages! {
         ),
         /// A launcher's first problem, and how many more it has.
         ProblemAndMore = ("{problem} (and {count} more)", "{problem} (and {count} more)"),
-        /// The import's summary: how many instances are checked, and their size.
-        InstancesToCopy = ("{count} instance to copy, {size}.", "{count} instances to copy, {size}."),
         /// The import button, for two instances or more.
         ImportInstances = ("Import {count} instance", "Import {count} instances"),
         /// After importing a CurseForge pack: files to download from curseforge.com.

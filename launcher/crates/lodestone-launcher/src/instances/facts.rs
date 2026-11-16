@@ -72,12 +72,19 @@ pub fn played_facts(instance: &Instance) -> Vec<Fact> {
     facts
 }
 
-/// The card naming an instance under a dialog's title, with its game and loader.
+/// The card naming an instance under a dialog's title, with its game and loader as
+/// phrases that need no key (it is still spoken).
 pub fn card(instance: &Instance) -> ObjectCard {
-    version_facts(instance).into_iter().fold(
-        ObjectCard::new(instance.name.clone()).kind(Kind::Instance),
-        ObjectCard::fact,
-    )
+    let mut card = ObjectCard::new(instance.name.clone())
+        .kind(Kind::Instance)
+        .fact(Fact::bare_named(
+            t(FactMsg::Game),
+            game(&instance.game_version),
+        ));
+    if let Some(loader) = loader(instance) {
+        card = card.fact(Fact::bare_named(t(FactMsg::Loader), loader));
+    }
+    card
 }
 
 /// The card for an instance known only by name (it may be gone).

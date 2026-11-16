@@ -142,6 +142,7 @@ pub fn text(message: M) -> &'static str {
         M::NewestRelease => "La version stable la plus récente",
         M::NewestSnapshot => "Le snapshot le plus récent",
         M::NoInstances => "Aucune instance.",
+        M::ToCopy => "À copier",
         M::LookingForLaunchers => "Recherche des autres launchers",
         M::NoLaunchersFound => {
             "Aucun autre launcher n’a été trouvé aux emplacements habituels. Choisissez le dossier d’un launcher, ou celui d’une instance, pour importer depuis celui-ci."
@@ -156,7 +157,6 @@ pub fn text(message: M) -> &'static str {
             "Cochez les instances à importer. Leurs fichiers sont copiés\u{202F}; l’autre launcher garde les siens."
         }
         M::LeaveWorldsOut => "Ne pas copier les mondes",
-        M::LeaveWorldsOutSize => "Ne pas copier les mondes ({size})",
         M::Import => "Importer",
         M::ChooseFolder => "Choisir un dossier…",
         M::StopImportingTitle => "Arrêter l’importation\u{202F}?",
@@ -325,10 +325,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::ProblemAndMore => [
             "{problem} (et {count} autre)",
             "{problem} (et {count} autres)",
-        ],
-        P::InstancesToCopy => [
-            "{count} instance à copier, {size}.",
-            "{count} instances à copier, {size}.",
         ],
         P::ImportInstances => ["Importer {count} instance", "Importer {count} instances"],
         P::PackFilesToDownload => [

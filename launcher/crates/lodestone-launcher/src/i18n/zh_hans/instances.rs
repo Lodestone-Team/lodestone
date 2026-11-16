@@ -122,6 +122,7 @@ pub fn text(message: M) -> &'static str {
         M::NewestRelease => "最新正式版",
         M::NewestSnapshot => "最新快照版",
         M::NoInstances => "没有实例。",
+        M::ToCopy => "待复制",
         M::LookingForLaunchers => "正在查找其他启动器",
         M::NoLaunchersFound => {
             "在常见位置未找到其他启动器。请选择某个启动器或实例的文件夹以从中导入。"
@@ -134,7 +135,6 @@ pub fn text(message: M) -> &'static str {
         M::MatchingModrinth => "正在将模组和资源包与 Modrinth 匹配",
         M::CheckToImport => "勾选要导入的实例。其文件会被复制，原启动器中的文件保持不变。",
         M::LeaveWorldsOut => "不导入世界",
-        M::LeaveWorldsOutSize => "不导入世界（{size}）",
         M::Import => "导入",
         M::ChooseFolder => "选择文件夹…",
         M::StopImportingTitle => "停止导入？",
@@ -267,7 +267,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::LinesShown => ["显示 {shown} 行，共 {count} 行"; 2],
         P::LinesShownFollowing => ["显示 {shown} 行，共 {count} 行 · 自动滚动"; 2],
         P::ProblemAndMore => ["{problem}（另有 {count} 个问题）"; 2],
-        P::InstancesToCopy => ["将复制 {count} 个实例，共 {size}。"; 2],
         P::ImportInstances => ["导入 {count} 个实例"; 2],
         P::PackFilesToDownload => {
             ["有 {count} 个文件需要从 CurseForge 网站下载：实例的“内容”标签页会列出它们。"; 2]

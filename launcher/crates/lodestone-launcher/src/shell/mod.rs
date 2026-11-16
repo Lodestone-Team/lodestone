@@ -2607,9 +2607,14 @@ impl LauncherShell {
                 // happens
                 let card = match self.instances.read(cx).list().iter().find(|i| i.id == *id) {
                     Some(instance) => crate::instances::facts::card(instance),
-                    None => ObjectCard::new(id.clone())
-                        .kind(Kind::Instance)
-                        .fact(crate::instances::facts::game_fact(version)),
+                    None => {
+                        ObjectCard::new(id.clone())
+                            .kind(Kind::Instance)
+                            .fact(Fact::bare_named(
+                                t(FactMsg::Game),
+                                crate::instances::facts::game(version),
+                            ))
+                    }
                 };
                 Dialog::new("confirm-rosetta", t(IM::RosettaNoticeTitle), focus.clone())
                     .on_close(dismiss)
