@@ -330,7 +330,6 @@ pub fn text(message: M) -> &'static str {
         M::EventApiKeyCreated => "Clé d’API créée",
         M::EventApiKeyRevoked => "Clé d’API révoquée",
         M::LoadFailed => "Impossible de charger les notifications : {error}",
-        M::CoreFailedNotice => "Lodestone Core n’a pas pu démarrer : {error}",
         M::UpdatesTitle => "Mises à jour",
         M::UpdatesLead => {
             "Lodestone Host, sur cet ordinateur. Lodestone Core se met à jour avec lui."
@@ -344,8 +343,6 @@ pub fn text(message: M) -> &'static str {
         M::DeveloperBuildsHint => {
             "Pour les développeurs de Lodestone : met à jour vers des builds de développement, qui peuvent comporter des bugs."
         }
-        M::BuildNumber => "Build {build}",
-        M::BuildNumberCommit => "Build {build} · {commit}",
         M::DevelopmentBuild => "Build de développement",
         M::UpdatesUnavailable => {
             "Ce build ne se met pas à jour tout seul. Lodestone Host téléchargé depuis le site, si."
@@ -353,10 +350,9 @@ pub fn text(message: M) -> &'static str {
         M::UpdateNotChecked => "Recherche de nouveaux builds toutes les quelques heures.",
         M::UpdateChecking => "Recherche d’un build plus récent…",
         M::UpToDate => "C’est le build le plus récent.",
-        M::UpdateAvailable => "Le build {build} est disponible.",
-        M::UpdateDownloading => "Téléchargement du build {build}… {percent}",
+        M::UpdateAvailable => "Un nouveau build est disponible.",
         M::UpdateReady => {
-            "Le build {build} est téléchargé. Redémarrez pour l’utiliser : vos serveurs s’arrêtent, puis redémarrent s’ils démarrent tout seuls. Quitter l’installe aussi."
+            "Le nouveau build est téléchargé. Redémarrez pour l’utiliser : vos serveurs s’arrêtent, puis redémarrent s’ils démarrent d’eux-mêmes. Quitter l’installe aussi."
         }
         M::RestartUpdateTitle => "Redémarrer pour mettre à jour ?",
         M::RestartUpdateBody => {
@@ -368,9 +364,9 @@ pub fn text(message: M) -> &'static str {
         M::ConnectServiceHint => {
             "Pour les tests. Les liens d’invitation et la liste d’amis utilisent ce service. Le changer redémarre le cœur."
         }
-        M::ConnectServiceInUse => "Relais de dév.\u{a0}: {service}",
+        M::ConnectServiceInUse => "Relais de dév.",
         M::ConnectServiceEnv => {
-            "{var} est défini, donc le cœur utilise {service}. Le réglage s’appliquera une fois la variable retirée."
+            "Une variable d’environnement définit le relais : le réglage s’applique une fois qu’elle est retirée."
         }
         M::ConnectServiceScheme => "Commencez l’adresse par https://.",
         M::ConnectServiceInsecure => {
@@ -465,6 +461,8 @@ pub fn text(message: M) -> &'static str {
         M::ShownVersion => "Version",
         M::ShownPlayers => "Nombre de joueurs",
         M::ThisCore => "Ce core",
+        M::NewBuild => "Nouveau build",
+        M::ConnectServiceVariable => "Variable",
     }
 }
 

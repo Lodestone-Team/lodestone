@@ -77,10 +77,7 @@ impl HostApp {
                 if let CoreStatus::Failed { reason, .. } = &this.supervisor.read(cx).status
                     && crate::notifications::in_background(cx)
                 {
-                    crate::notifications::native::notify(
-                        crate::APP_NAME,
-                        &crate::i18n::tr!(crate::i18n::CoreMsg::CoreFailedNotice, error = reason),
-                    );
+                    crate::notifications::native::notify(crate::APP_NAME, reason);
                 }
                 cx.notify();
             }

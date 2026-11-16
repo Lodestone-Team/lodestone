@@ -272,7 +272,6 @@ pub fn text(message: M) -> &'static str {
         M::EventApiKeyCreated => "已建立 API 金鑰",
         M::EventApiKeyRevoked => "已撤銷 API 金鑰",
         M::LoadFailed => "無法載入通知：{error}",
-        M::CoreFailedNotice => "Lodestone Core 無法啟動：{error}",
         M::UpdatesTitle => "更新",
         M::UpdatesLead => "這台電腦上的 Lodestone Host。Lodestone Core 隨之更新。",
         M::ThisVersion => "此版本",
@@ -282,17 +281,14 @@ pub fn text(message: M) -> &'static str {
         M::BetaBuildsHint => "測試版組建可能有錯誤。",
         M::DeveloperBuilds => "開發者組建",
         M::DeveloperBuildsHint => "供 Lodestone 開發者使用：更新到開發版組建，可能有錯誤。",
-        M::BuildNumber => "組建 {build}",
-        M::BuildNumberCommit => "組建 {build} · {commit}",
         M::DevelopmentBuild => "開發組建",
         M::UpdatesUnavailable => "此組建不會自動更新。從官網下載的 Lodestone Host 會自動更新。",
         M::UpdateNotChecked => "每隔幾小時檢查一次是否有新組建。",
         M::UpdateChecking => "正在檢查新組建…",
         M::UpToDate => "目前已是最新組建。",
-        M::UpdateAvailable => "組建 {build} 現已可用。",
-        M::UpdateDownloading => "正在下載組建 {build}… {percent}",
+        M::UpdateAvailable => "有新的組建可用。",
         M::UpdateReady => {
-            "組建 {build} 已下載，重新啟動後即可使用：你的伺服器會停止，設為自動啟動的伺服器隨後會再次啟動。結束時也會安裝。"
+            "新組建已下載。重新啟動即可使用：你的伺服器會先停止，設為自動啟動的伺服器隨後會再次啟動。結束時也會安裝。"
         }
         M::RestartUpdateTitle => "重新啟動以更新？",
         M::RestartUpdateBody => {
@@ -302,10 +298,8 @@ pub fn text(message: M) -> &'static str {
         M::DeveloperSection => "開發者",
         M::ConnectService => "Connect 服務（中繼）",
         M::ConnectServiceHint => "僅供測試。邀請連結和好友清單使用此服務。變更後會重新啟動核心。",
-        M::ConnectServiceInUse => "開發中繼：{service}",
-        M::ConnectServiceEnv => {
-            "已設定 {var}，因此核心使用 {service}。取消設定後，此設定才會生效。"
-        }
+        M::ConnectServiceInUse => "開發中繼",
+        M::ConnectServiceEnv => "一個環境變數指定了中繼，取消該變數後此設定才會生效。",
         M::ConnectServiceScheme => "位址需以 https:// 開頭。",
         M::ConnectServiceInsecure => {
             "請使用 https://。只有本機上的服務（127.0.0.1 或 localhost）可以使用 http://。"
@@ -385,6 +379,8 @@ pub fn text(message: M) -> &'static str {
         M::ShownVersion => "版本",
         M::ShownPlayers => "玩家人數",
         M::ThisCore => "此核心",
+        M::NewBuild => "新組建",
+        M::ConnectServiceVariable => "變數",
     }
 }
 

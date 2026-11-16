@@ -78,6 +78,10 @@ crate::i18n::messages! {
         CoreSystem = "System",
         /// A key in the connection's tooltip: the core's computer.
         CoreComputer = "Computer",
+        /// The core failed screen's title when the core exited.
+        CoreStopped = "Lodestone Core stopped",
+        /// The core failed screen's title when the core never answered.
+        CoreNoAnswer = "Lodestone Core didn’t answer in time",
     }
 
     pub enum ShellPlural {

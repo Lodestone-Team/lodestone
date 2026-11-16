@@ -64,6 +64,8 @@ pub fn text(message: M) -> &'static str {
         M::Reload => "重新加载",
         M::CoreSystem => "系统",
         M::CoreComputer => "计算机",
+        M::CoreStopped => "Lodestone Core 已停止",
+        M::CoreNoAnswer => "Lodestone Core 未及时响应",
     }
 }
 

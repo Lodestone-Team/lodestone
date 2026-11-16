@@ -66,6 +66,8 @@ pub fn text(message: M) -> &'static str {
         M::Reload => "Recharger",
         M::CoreSystem => "Système",
         M::CoreComputer => "Ordinateur",
+        M::CoreStopped => "Lodestone Core s’est arrêté",
+        M::CoreNoAnswer => "Lodestone Core n’a pas répondu à temps",
     }
 }
 
