@@ -19,6 +19,7 @@ pub struct ListRow {
     label: SharedString,
     icon: Option<Icon>,
     detail: Option<SharedString>,
+    count: Option<u64>,
     selected: bool,
     disabled: bool,
     danger: bool,
@@ -32,6 +33,7 @@ impl ListRow {
             label: label.into(),
             icon: None,
             detail: None,
+            count: None,
             selected: false,
             disabled: false,
             danger: false,
@@ -47,6 +49,12 @@ impl ListRow {
     /// Short text at the end of the row, such as a status.
     pub fn detail(mut self, detail: impl Into<SharedString>) -> Self {
         self.detail = Some(detail.into());
+        self
+    }
+
+    /// A count after the label, as a badge (never "(7)" in the label).
+    pub fn count(mut self, count: u64) -> Self {
+        self.count = Some(count);
         self
     }
 
@@ -143,6 +151,13 @@ impl RenderOnce for ListRow {
                 this.child(icon.render(px(14.), icon_color))
             })
             .child(div().flex_1().min_w_0().truncate().child(self.label))
+            .when_some(self.count, |this, count| {
+                this.child(
+                    super::CountBadge::new(count)
+                        .active(self.selected)
+                        .id("count"),
+                )
+            })
             .when_some(self.detail, |this, detail| {
                 this.child(
                     div()

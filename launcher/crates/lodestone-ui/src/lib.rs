@@ -4,7 +4,9 @@
 //! paint with.
 //!
 //! Each app opens its own windows and owns its pages; this crate has no app state.
-//! Run `cargo run -p lodestone-launcher --example components` to see the components.
+//! Run `cargo run -p lodestone-launcher --example components` to see the basic
+//! components, and the apps' `components` screenshot scenes for the readable ones
+//! (`components::readable`, `launcher/docs/readable-values.md`).
 
 pub mod assets;
 pub mod components;

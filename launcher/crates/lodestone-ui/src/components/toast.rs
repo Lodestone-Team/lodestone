@@ -94,6 +94,10 @@ pub struct Toast {
     pub key: Option<SharedString>,
     pub duration: Duration,
     action: Option<ToastAction>,
+    /// What the toast is about, on its first line, with its state; the text is then
+    /// the outcome under it.
+    object: Option<super::ObjectChip>,
+    status: Option<super::StatusBadge>,
 }
 
 impl std::fmt::Debug for Toast {
@@ -118,7 +122,23 @@ impl Toast {
                 DEFAULT_DURATION
             },
             action: None,
+            object: None,
+            status: None,
         }
+    }
+
+    /// Leads with the object the toast is about ("Survival"), the text becoming the
+    /// outcome under it ("Settings changed"), so the name is never inside the
+    /// sentence.
+    pub fn object(mut self, object: super::ObjectChip) -> Self {
+        self.object = Some(object);
+        self
+    }
+
+    /// The object's state, at the end of its line ("Online", "Stopped").
+    pub fn status(mut self, status: super::StatusBadge) -> Self {
+        self.status = Some(status);
+        self
     }
 
     pub fn info(text: impl Into<SharedString>) -> Self {
@@ -363,7 +383,31 @@ impl Render for Toasts {
                             .pt(px(2.))
                             .child(toast.level.icon().render(px(16.), color)),
                     )
-                    .child(div().flex_1().min_w_0().child(toast.text.clone()))
+                    .child(match toast.object.clone() {
+                        None => div().flex_1().min_w_0().child(toast.text.clone()),
+                        Some(object) => div()
+                            .flex()
+                            .flex_col()
+                            .flex_1()
+                            .min_w_0()
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_row()
+                                    .items_center()
+                                    .gap(px(8.))
+                                    .min_w_0()
+                                    .child(object)
+                                    .child(div().flex_1())
+                                    .children(toast.status.clone()),
+                            )
+                            .child(
+                                div()
+                                    .text_size(theme::text_size(text::SMALL))
+                                    .text_color(theme::ink::muted())
+                                    .child(toast.text.clone()),
+                            ),
+                    })
                     .children(action)
                     .child(
                         div()
