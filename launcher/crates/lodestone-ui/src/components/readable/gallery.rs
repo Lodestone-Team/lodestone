@@ -433,7 +433,7 @@ impl Render for ComponentGallery {
                         needed = format::bytes_parts(2_400_000_000),
                         free = format::bytes_parts(1_100_000_000)
                     ))
-                    .child(tr_spans!(CommonMsg::NoSettingsMatch, query = Mono("JAVA_HOME")))
+                    .child(tr_spans!(ValueMsg::KeyValue, key = t(CommonMsg::Search), value = Mono("JAVA_HOME")))
                     .child(tr_spans!(ValueMsg::KeyValue, key = Obj("Survival"), value = t(ValueMsg::Running))),
             ),
             section(

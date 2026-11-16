@@ -403,11 +403,11 @@ fn shown_names(names: &NameList) -> Vec<String> {
 fn name_group(heading: impl Into<SharedString>, names: &NameList, icon: ItemIcon) -> NameGroup {
     let shown = shown_names(names);
     let more = names.count.saturating_sub(shown.len() as u64);
-    let mut group = NameGroup::new(heading).items(shown.into_iter().map(|name| {
-        NameItem::new(name)
-            .icon(icon.clone())
-            .style(NameStyle::Path)
-    }));
+    let mut group = NameGroup::new(heading).items(
+        shown
+            .into_iter()
+            .map(|name| NameItem::new(name).icon(icon).style(NameStyle::Path)),
+    );
     // names the core counted but didn't send: counted, never an uncounted "…"
     if more > 0 {
         group = group.item(

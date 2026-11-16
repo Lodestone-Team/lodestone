@@ -331,13 +331,14 @@ impl SettingsQuery {
                     .into_any_element(),
             );
         }
-        let message: SharedString =
-            i18n::interpolate(t(CommonMsg::NoSettingsMatch), &[("query", &self.text)]).into();
+        // the outcome, then what was searched for as the person typed it
+        let message: SharedString = t(CommonMsg::NoSettingsMatch).into();
+        let label = crate::components::readable::key_value(&message, &self.text);
         let clear = self.clear.clone();
         Some(
             div()
                 .id("settings-search-empty")
-                .accessible(Role::Status, "settings-search-empty", message.clone())
+                .accessible(Role::Status, "settings-search-empty", label)
                 .flex()
                 .flex_col()
                 .items_center()
@@ -355,6 +356,15 @@ impl SettingsQuery {
                         .font_weight(weights::BOLD.into())
                         .text_color(crate::theme::ink::text())
                         .child(message),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_2()
+                        .child(crate::components::readable::key_text(t(CommonMsg::Search)))
+                        .child(crate::components::MonoValue::new(self.text.clone())),
                 )
                 .when_some(clear, |this, clear| {
                     this.child(

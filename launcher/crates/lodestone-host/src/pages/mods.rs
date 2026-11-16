@@ -491,7 +491,7 @@ impl ModsPage {
 fn incompatible_body(m: &project::Mismatch, plugin: bool, note: AnyElement) -> AnyElement {
     let loaders: Vec<String> = m.loaders.iter().map(|l| project::loader_name(l)).collect();
     let loader_matches = m.loaders.iter().any(|l| l.eq_ignore_ascii_case(&m.loader));
-    let game_matches = m.game_versions.iter().any(|g| *g == m.game_version);
+    let game_matches = m.game_versions.contains(&m.game_version);
     div()
         .flex()
         .flex_col()

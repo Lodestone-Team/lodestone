@@ -368,15 +368,14 @@ impl ModsPage {
                         lines.extend(counts);
                         lines.extend(done.skipped);
                         this.modpack_check = ModpackCheck::Idle;
-                        let toast = if restore {
+                        if restore {
                             Toast::success(lines.join("\n"))
                                 .object(ObjectChip::new(pack).icon(Icon::CodeCompare))
                         } else {
                             Toast::success(lines.join("\n"))
                                 .object(ObjectChip::new(pack).kind(Kind::Modpack))
                                 .version(VersionTag::new(version))
-                        };
-                        toast
+                        }
                     }
                     Err(err) if restore => Toast::error(tr!(M::ModpackRestoreFailed, error = err)),
                     Err(err) => Toast::error(tr!(M::ModpackUpdateFailed, error = err)),
@@ -922,7 +921,7 @@ impl ModsPage {
         let files = |heading: &str, paths: &[String], icon: ItemIcon| {
             NameGroup::new(heading.to_string()).items(paths.iter().map(|path| {
                 NameItem::new(path.clone())
-                    .icon(icon.clone())
+                    .icon(icon)
                     .style(NameStyle::Path)
             }))
         };

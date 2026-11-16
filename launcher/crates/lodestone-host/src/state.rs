@@ -696,7 +696,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             translated.text.as_ref(),
-            "1 file couldn’t be downloaded and was left out: mods/a.jar\n1 script was left out: only the owner can add scripts, while code execution is on."
+            "1 file couldn’t be downloaded and was left out\n1 script was left out: only the owner can add scripts, while code execution is on."
         );
         // an outcome with nothing in it says nothing
         assert!(
