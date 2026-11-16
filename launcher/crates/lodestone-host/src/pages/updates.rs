@@ -363,7 +363,7 @@ fn logs_rows(prefs: &crate::prefs::PrefsData) -> [SettingRow; 2] {
         .display()
         .to_string();
     [
-        SettingRow::new(t(CoreMsg::LogsSection))
+        SettingRow::new(t(CoreMsg::LogFiles))
             .hint(tr!(CoreMsg::LogsHint, path = path))
             .child(
                 Button::new(

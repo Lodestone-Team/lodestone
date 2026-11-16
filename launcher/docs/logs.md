@@ -16,7 +16,11 @@ The Launcher's logs stay in the default data folder when the data folder is move
 (Settings › Storage), so they are found even while a moved folder's drive isn't
 connected. `LODESTONE_LAUNCHER_DATA_DIR` replaces the default folder, as for everything
 else. Settings › Developer › Diagnostics › **Open logs folder** (the Launcher) and
-Settings › Updates › Logs › **Open the log folder** (the Host) show the folder.
+Settings › Updates › Logs › Log files › **Open logs folder** (the Host) show the folder.
+On macOS and Linux the folder is the user's alone (0700) and its files too (0600),
+wherever it is. Two Launchers on one data folder (a dev build beside the installed app)
+share the files: their lines interleave and the files grow past 5 MB, but each removes
+only its own run's mark.
 
 Tests and the offscreen scenes never write to the real folders: the scenes log to their
 own `LODESTONE_LAUNCHER_DATA_DIR`/`LODESTONE_HOST_DATA_DIR` when one is set, and
@@ -41,6 +45,9 @@ A message's later lines are indented two spaces. What goes in:
   jobs that failed, the Host's core starting, exiting and restarting, every error
   shown in a toast, and the Launcher's failure dialogs (a modpack import or update
   that failed, files a game still has open, a copy that couldn't be made);
+- core replies the client can't read (the request, the type and serde's error, never
+  the body), failed sign-ins and skin changes, the Host's instance list failing (once
+  per change);
 - failures on the debug trace bus (`http.error`, `core_http.error`, `game.failed`,
   `job.finished` that failed, with the job's kind and instance, `game.exit` that
   crashed, `images.*` warnings, `storage.move` errors, responses with a 5xx status), as
@@ -50,7 +57,13 @@ A message's later lines are indented two spaces. What goes in:
 - a panic's report (below).
 
 A failure that repeats is written a few times a minute, then summed up ("and N more
-like it"), so it doesn't rotate the useful lines away.
+like it"), so it doesn't rotate the useful lines away. A request that couldn't reach its
+host is written once per outage ("more failed requests to … aren't logged until it
+answers", then "… answers again"): a saved core that is off is polled every few seconds,
+and that is normal.
+
+Failure dialogs and toasts are logged as they are shown, so their text is in the app's
+language; the errors under them, logged where they are decided, are in English.
 
 ## Levels
 
@@ -59,10 +72,15 @@ The apps' own crates (`lodestone_*`, `launcher_*`) log at **info**, everything e
 Settings › Updates in the Host) switches the apps' own crates to **debug**, at once.
 `LODESTONE_LOG`, written like `RUST_LOG` (`info,launcher_core::cores=debug,gpui=off`),
 replaces both while the app runs with it; the setting then says so and is disabled.
+Even then, the network crates that print whole requests at trace (tungstenite, hyper,
+h2, reqwest, rustls) stop at debug, so a log made with `LODESTONE_LOG=trace` can still
+be sent.
 
 ## Rotation
 
-At 5 MB a file becomes `.1`, `.1` becomes `.2`, and so on; `.5` is dropped. Lines are
+At 5 MB a file becomes `.1`, `.1` becomes `.2`, and so on; `.5` is dropped. The file is
+moved aside (`.rotating`) before the older ones move up, so when another program holds
+it (Windows), the history is kept and the rotation is tried again after another 1 MB. Lines are
 buffered: warnings and errors are flushed at once, the rest within a second, and a
 panic's report before the process carries on. A forced quit can lose up to a second of
 info lines.
@@ -74,21 +92,32 @@ The panic hook writes a panic's message, place, thread and a backtrace to the lo
 that cannot unwind", is added to it). The app marks a run in `logs/session.json` and
 removes the mark when it quits cleanly; at the next start, a mark still there whose run
 `last-crash.txt` names means a crash nobody saw end, and the app says so once: a notice
-in the Launcher's top bar, a toast in the Host, both with **Open logs**. A panic the app
-survived followed by a clean quit shows nothing, and neither does a forced quit.
+in the Launcher's top bar, a toast in the Host (once its window is first shown, so a
+Host started hidden at sign-in still says it), both with **Open logs**. A panic the app
+survived followed by a clean quit shows nothing, and neither does a forced quit without
+a panic; a forced quit after a panic the app survived is reported as a crash.
 Release builds strip symbols, so their backtraces are mostly addresses; the message,
 place, thread and version are still there.
 
 ## Secrets
 
 Every line goes through `lodestone_trace::scrub_line`: tokens (JWTs, `lsk_` keys,
-Microsoft tokens, long mixed strings), `Bearer`/`Basic` credentials, secret query
-parameters, `name=value`, `name: value` and JSON pairs named like secrets, the word
-after `--accessToken` and other secret flags, and everything after `Authorization:`. The
-callers leave secrets out in the first place: they log ids, names and errors, never
-frames, bodies, headers, full URLs or the game's command line.
+Microsoft tokens, long mixed strings) wherever they are in a line, `Bearer`/`Basic`
+credentials, secret query parameters (also when percent-encoded JSON holds one), invite
+and friend links, `name=value`, `name: value` and JSON pairs named like secrets (quoted
+values whole), the value after `--accessToken` and other secret flags, and everything
+after `Authorization:`. Control characters are written as escapes (`\u{1b}`), so a
+core's error message can't drive a terminal that shows the log. The same scrubbed text
+goes to the trace bus's `log.*` events. The scrubber is a heuristic, a last line of
+defence: the callers leave secrets out in the first place, logging ids, names and
+errors, never frames, bodies, headers, full URLs or the game's command line.
 
 ## Sending them
+
+The logs leave out tokens and passwords, but they hold Minecraft account names, server
+and core names and addresses, friends' server names and folder paths (with the
+computer's user name): send them privately, or look them over before posting them in a
+public issue.
 
 Open the logs folder and send `launcher.log` (and `launcher.log.1` if the problem was a
 while ago) with `last-crash.txt` if there is one; for the Host, `host.log` and the

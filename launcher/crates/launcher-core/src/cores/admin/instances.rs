@@ -572,7 +572,7 @@ impl AdminClient {
         let bytes = self
             .send_slow(Method::POST, &path, None, MAX_JSON_BYTES, SHARE_TIMEOUT)
             .await?;
-        serde_json::from_slice(&bytes).map_err(|err| CoreError::Invalid(err.to_string()))
+        self.decode(&Method::POST, &path, &bytes)
     }
 
     /// `DELETE /instance/{uuid}/share`. The link stops working for good.

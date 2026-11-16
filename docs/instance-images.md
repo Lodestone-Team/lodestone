@@ -4582,6 +4582,14 @@ Persistent logging for the Launcher and the Host (not an instance-images milesto
 - **Untrusted input.** An event frame or stream frame the client can't read logs the
   serde error with the values it quotes left out (`invalid type: string "…"`, escaped
   quotes inside a value included), never the frame. Every line is scrubbed of secrets (`lodestone_trace::scrub_line`).
+- **Untrusted replies.** A core reply (an image upload's answer, an image export's key,
+  a server made from an image) the client can't read is logged once where it is decided,
+  with the method, path, host, type and the serde error, never the body.
+- **Unreachable hosts.** A request that couldn't reach its host (an image sync against
+  a core that is off, a download) is logged once per outage, and again when the host
+  answers.
 - **The shared crate** (`crates/lodestone-image`) is unchanged. `crates/lodestone-trace`
-  gains `scrub_line`, an additive function.
+  gains `scrub_line`, an additive function; `is_secret_name` also reads `-` as `_`, and
+  `scrub`/`scrub_str` also blank percent-encoded secrets and `invite`/`link` values in
+  query strings (stricter, nothing removed).
 

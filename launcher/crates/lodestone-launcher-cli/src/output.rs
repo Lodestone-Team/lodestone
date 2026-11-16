@@ -24,15 +24,33 @@ pub fn result(mode: Mode, value: &Value) {
     };
 }
 
-/// `content.history` for people: one line per image, newest first.
-/// `logs tail` for people: the log's lines as they are in the file.
+/// `logs tail` for people: the log's lines as they are in the file, with control
+/// characters written visibly in case a file holds some (the Launcher escapes them
+/// when it writes; an older or edited file may not).
 pub fn lines(value: &Value) {
     let mut out = std::io::stdout().lock();
     for line in value["lines"].as_array().into_iter().flatten() {
-        let _ = writeln!(out, "{}", line.as_str().unwrap_or_default());
+        let _ = writeln!(out, "{}", visible(line.as_str().unwrap_or_default()));
     }
 }
 
+/// `line` with control characters (but tabs) and Unicode's direction controls as
+/// escapes (`\u{1b}`), so printing it can't drive the terminal.
+fn visible(line: &str) -> String {
+    line.chars()
+        .map(|c| {
+            let hidden = (c.is_control() && c != '\t')
+                || matches!(c, '\u{200e}' | '\u{200f}' | '\u{061c}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}');
+            if hidden {
+                format!("\\u{{{:x}}}", c as u32)
+            } else {
+                c.to_string()
+            }
+        })
+        .collect()
+}
+
+/// `content.history` for people: one line per image, newest first.
 pub fn history(value: &Value) {
     let _ = write!(std::io::stdout().lock(), "{}", history_text(value));
 }
@@ -280,6 +298,14 @@ pub fn trace_line(event: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn log_lines_print_their_controls_visibly() {
+        assert_eq!(
+            visible("a\u{1b}]52;c;x\u{7}\rb\u{202e}\tc"),
+            "a\\u{1b}]52;c;x\\u{7}\\u{d}b\\u{202e}\tc"
+        );
+    }
 
     /// A pipe whose reader went away.
     struct Closed;

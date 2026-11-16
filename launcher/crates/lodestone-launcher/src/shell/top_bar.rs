@@ -154,11 +154,14 @@ pub fn render(
         )
         .child(
             side()
+                .min_w_0()
                 .flex()
                 .flex_row()
                 .items_center()
                 .justify_end()
-                .children(crash_notice(shell, cx))
+                .when(crash_notice_fits(shell, window, cx), |side| {
+                    side.children(crash_notice(shell, cx))
+                })
                 .children(update_notice(shell, cx))
                 // Room for the window's buttons, which `window_controls` draws above
                 // everything else, with a gap before them.
@@ -286,13 +289,36 @@ pub(crate) fn controls_room(
     window: &Window,
     cx: &App,
 ) -> Option<impl IntoElement + use<>> {
-    let width = if cfg!(target_os = "windows") {
+    Some(div().flex_none().w(controls_width(side, window, cx)?))
+}
+
+/// The room [`controls_room`] leaves on `side`, if any.
+fn controls_width(side: Side, window: &Window, cx: &App) -> Option<gpui::Pixels> {
+    if cfg!(target_os = "windows") {
         (side == Side::Right).then_some(gpui::px(caption::BUTTONS_WIDTH + caption::GAP))
     } else {
         window_frame::controls_width(side, window, cx)
             .map(|buttons| buttons + gpui::px(FRAME_BUTTONS_GAP))
-    }?;
-    Some(div().flex_none().w(width))
+    }
+}
+
+/// Whether the crash notice fits in the bar's right side, beside the update notice
+/// when that shows, at the window's width and zoom. Without room it waits (it stays
+/// until put away) for a wider window, rather than push into the centred logo.
+fn crash_notice_fits(shell: &LauncherShell, window: &Window, cx: &App) -> bool {
+    /// In rems: the logo and the DEV badge, the crash notice at its shortest (the dot,
+    /// "Open logs" and ×), and the update notice.
+    const LOGO: f32 = 13.0;
+    const CRASH: f32 = 11.0;
+    const UPDATE: f32 = 17.0;
+    let rem = window.rem_size();
+    let controls = controls_width(Side::Right, window, cx).map_or(0.0, |w| w / rem);
+    let side = (window.viewport_size().width / rem - LOGO) / 2.0 - controls;
+    let update = matches!(
+        shell.updater().read(cx).state(),
+        UpdateState::Ready { .. } | UpdateState::Available(_)
+    );
+    side >= CRASH + if update { UPDATE } else { 0.0 }
 }
 
 /// The window's own buttons, where the launcher draws them in place of a title bar's:
@@ -333,7 +359,8 @@ pub fn window_controls(window: &Window, cx: &App) -> Vec<AnyElement> {
 
 /// "The launcher closed unexpectedly last time", with "Open logs" (which shows the
 /// logs folder and puts the notice away) and a dismiss button, after a crash. Calm:
-/// a grey dot, shown once.
+/// a grey dot, shown once. In a narrow window (or a longer language) the sentence
+/// shortens with an ellipsis, whole in its tooltip, so the centred logo keeps its room.
 fn crash_notice(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> Option<AnyElement> {
     shell.crash_notice.as_ref()?;
     let label = t(M::CrashNotice);
@@ -344,7 +371,7 @@ fn crash_notice(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> Optio
             .accessible(Role::Status, "crash-notice", label)
             .flex()
             .flex_row()
-            .flex_none()
+            .min_w_0()
             .items_center()
             .gap_2()
             .mr_2()
@@ -358,31 +385,44 @@ fn crash_notice(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> Optio
             // as the update notice: not part of the caption
             .occlude()
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .child(div().size(px(6.)).rounded_full().bg(colors::GRAY_400))
             .child(
                 div()
+                    .flex_none()
+                    .size(px(6.))
+                    .rounded_full()
+                    .bg(colors::GRAY_400),
+            )
+            .child(
+                div()
+                    .id("crash-notice-text")
+                    .min_w_0()
                     .text_size(theme::text_size(text::SMALL))
                     .text_color(crate::theme::ink::text())
-                    .whitespace_nowrap()
+                    .truncate()
+                    .tooltip(crate::components::text_tooltip(label))
                     .child(label),
             )
             .child(
-                Button::new("crash-open-logs", t(M::OpenLogs))
-                    .size(ButtonSize::Slim)
-                    .pill()
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        crate::logs::open_folder(cx);
-                        this.crash_notice = None;
-                        cx.notify();
-                    })),
+                div().flex_none().child(
+                    Button::new("crash-open-logs", t(M::OpenLogs))
+                        .size(ButtonSize::Slim)
+                        .pill()
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            crate::logs::open_folder(cx);
+                            this.crash_notice = None;
+                            cx.notify();
+                        })),
+                ),
             )
             .child(
-                IconButton::new("crash-notice-dismiss", Icon::Xmark)
-                    .label(t(M::DismissCrashNotice))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.crash_notice = None;
-                        cx.notify();
-                    })),
+                div().flex_none().child(
+                    IconButton::new("crash-notice-dismiss", Icon::Xmark)
+                        .label(t(M::DismissCrashNotice))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.crash_notice = None;
+                            cx.notify();
+                        })),
+                ),
             )
             .into_any_element(),
     )

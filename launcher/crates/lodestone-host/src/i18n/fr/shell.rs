@@ -6,7 +6,7 @@ pub fn text(message: M) -> &'static str {
         M::RestartingCore => "Lodestone Core s’est arrêté. Redémarrage…",
         M::CoreFailed => "Lodestone Core n’a pas pu démarrer",
         M::CoreLog => "La fin de son journal :",
-        M::OpenLogFolder => "Ouvrir le dossier du journal",
+        M::OpenLogFolder => "Ouvrir le dossier des journaux",
         M::StoppingCore => "Arrêt de vos serveurs…",
         M::SigningIn => "Connexion…",
         M::Username => "Nom d’utilisateur",

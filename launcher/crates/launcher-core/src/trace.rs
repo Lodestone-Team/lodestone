@@ -22,10 +22,16 @@
 //!
 //! Failures also go to the log file ([`crate::logging`]), whether traces are on or
 //! not: [`emit`] logs an event that [`is_failure`] picks at warn, a few a minute per
-//! topic.
+//! topic. A request that couldn't reach its host is logged once per outage: the
+//! first failure, then nothing for that host until it answers again (a saved core
+//! that is off is polled every few seconds, and that's normal).
 
 use std::{
-    sync::{Arc, OnceLock},
+    collections::BTreeSet,
+    sync::{
+        Arc, Mutex, OnceLock,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Instant,
 };
 
@@ -62,30 +68,100 @@ pub fn emit(topic: &str, data: impl FnOnce() -> Value) {
     static LIVE: OnceLock<Filter> = OnceLock::new();
     static THROTTLE: crate::logging::Throttle = crate::logging::Throttle::new();
     let bus = bus();
-    // `log.*` events are the logger's own records.
-    let may_log = may_fail(topic)
+    let enabled = || log::log_enabled!(target: crate::logging::TRACE_TARGET, log::Level::Warn);
+    // `log.*` events are the logger's own records. A downloaded file (live only) is
+    // only looked at to end an outage.
+    let may_log = (may_fail(topic)
         && !topic.starts_with("log.")
         && !LIVE
             .get_or_init(|| Filter::new(LIVE_ONLY.iter().copied()))
             .matches(topic)
-        && log::log_enabled!(target: crate::logging::TRACE_TARGET, log::Level::Warn);
+        && enabled())
+        || (topic == "download.file" && OUTAGES.any() && enabled());
     if !may_log {
         bus.emit(topic, data);
         return;
     }
     let data = data();
+    let host = data["host"].as_str().filter(|host| !host.is_empty());
+    let unreachable = topic.ends_with(".error") && host.is_some();
     if is_failure(topic, &data) {
         let mut scrubbed = data.clone();
         lodestone_trace::scrub(&mut scrubbed);
-        THROTTLE.log(
-            topic,
-            log::Level::Warn,
-            crate::logging::TRACE_TARGET,
-            format_args!("{topic} {scrubbed}"),
-        );
+        match host {
+            Some(host) if unreachable => {
+                if OUTAGES.begin(host) {
+                    log::warn!(
+                        target: crate::logging::TRACE_TARGET,
+                        "{topic} {scrubbed} (more failed requests to {host} aren't logged until it answers)"
+                    );
+                }
+            }
+            _ => THROTTLE.log(
+                topic,
+                log::Level::Warn,
+                crate::logging::TRACE_TARGET,
+                format_args!("{topic} {scrubbed}"),
+            ),
+        }
+    } else if let Some(host) = host
+        && (topic.ends_with(".response") || topic == "download.file")
+        && OUTAGES.end(host)
+    {
+        log::info!(target: crate::logging::TRACE_TARGET, "{host} answers again");
     }
     // The bus scrubs what it keeps.
     bus.emit(topic, || data);
+}
+
+/// The hosts whose requests are failing, so a failure is logged once per outage.
+static OUTAGES: Outages = Outages::new();
+
+/// Hosts that couldn't be reached since they last answered. Bounded: past
+/// [`Outages::MAX`] hosts, a new one is logged every time rather than remembered.
+struct Outages {
+    hosts: Mutex<BTreeSet<String>>,
+    /// Some host is in `hosts`: a success needs looking at.
+    any: AtomicBool,
+}
+
+impl Outages {
+    const MAX: usize = 256;
+
+    const fn new() -> Self {
+        Self {
+            hosts: Mutex::new(BTreeSet::new()),
+            any: AtomicBool::new(false),
+        }
+    }
+
+    fn any(&self) -> bool {
+        self.any.load(Ordering::Relaxed)
+    }
+
+    /// A request to `host` failed: whether that starts an outage (it was answering).
+    fn begin(&self, host: &str) -> bool {
+        let mut hosts = self.hosts.lock().unwrap_or_else(|p| p.into_inner());
+        if hosts.contains(host) {
+            return false;
+        }
+        if hosts.len() < Self::MAX {
+            hosts.insert(host.to_string());
+            self.any.store(true, Ordering::Relaxed);
+        }
+        true
+    }
+
+    /// `host` answered: whether that ends an outage.
+    fn end(&self, host: &str) -> bool {
+        if !self.any() {
+            return false;
+        }
+        let mut hosts = self.hosts.lock().unwrap_or_else(|p| p.into_inner());
+        let ended = hosts.remove(host);
+        self.any.store(!hosts.is_empty(), Ordering::Relaxed);
+        ended
+    }
 }
 
 /// Whether events on `topic` can be failures ([`is_failure`]): errors, failed things,
@@ -313,6 +389,25 @@ mod tests {
         for topic in ["ui.click", "ui.pointer", "nav.page", "game.launch"] {
             assert!(!may_fail(topic), "{topic}");
         }
+    }
+
+    #[test]
+    fn an_outage_is_counted_once() {
+        let outages = Outages::new();
+        assert!(!outages.end("core.example"), "nothing to end");
+        assert!(outages.begin("core.example"));
+        assert!(!outages.begin("core.example"), "the same outage");
+        assert!(outages.begin("api.modrinth.com"), "another host");
+        assert!(outages.end("core.example"));
+        assert!(!outages.end("core.example"));
+        assert!(outages.any());
+        assert!(outages.end("api.modrinth.com"));
+        assert!(!outages.any());
+        assert!(outages.begin("core.example"), "a new outage");
+        for n in 0..Outages::MAX * 2 {
+            outages.begin(&format!("host-{n}"));
+        }
+        assert!(outages.hosts.lock().unwrap().len() <= Outages::MAX);
     }
 
     #[test]

@@ -7,7 +7,7 @@ crate::i18n::messages! {
         RestartingCore = "Lodestone Core stopped. Starting it again…",
         CoreFailed = "Lodestone Core couldn’t start",
         CoreLog = "The end of its log:",
-        OpenLogFolder = "Open the log folder",
+        OpenLogFolder = "Open logs folder",
         /// While quitting: the servers stop first.
         StoppingCore = "Stopping your servers…",
         SigningIn = "Signing in…",

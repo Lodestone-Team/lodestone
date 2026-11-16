@@ -78,6 +78,15 @@ fn a_panic_on_a_background_thread_is_logged_and_kept() {
         || serde_json::json!({ "host": "api.example", "error": "first failure", "token": "hunter3" }),
     );
     assert_eq!(rx.try_iter().count(), 1, "once on the bus");
+    // More failures to the same host are the same outage, until it answers.
+    launcher_core::trace::emit(
+        "core_http.error",
+        || serde_json::json!({ "host": "api.example", "error": "still failing" }),
+    );
+    launcher_core::trace::emit(
+        "http.response",
+        || serde_json::json!({ "host": "api.example", "status": 200 }),
+    );
     launcher_core::trace::bus().set_enabled(false);
     launcher_core::trace::emit(
         "http.error",
@@ -99,6 +108,55 @@ fn a_panic_on_a_background_thread_is_logged_and_kept() {
         !text.contains("hunter3") && !text.contains("ui.click"),
         "{text}"
     );
+    assert!(!text.contains("still failing"), "{text}");
+    assert!(text.contains("api.example answers again"), "{text}");
+
+    // A core that is off, polled: one line, however many requests fail.
+    let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = closed.local_addr().unwrap().port();
+    drop(closed);
+    let client = launcher_core::cores::CoreClient::new(
+        launcher_core::http::default_client().unwrap(),
+        url::Url::parse(&format!("http://127.0.0.1:{port}")).unwrap(),
+    );
+    for _ in 0..5 {
+        assert!(futures::executor::block_on(client.public_servers()).is_err());
+        assert!(futures::executor::block_on(client.info()).is_err());
+    }
+    logging::flush();
+    let text = fs::read_to_string(&log_file).unwrap();
+    assert_eq!(
+        text.matches("more failed requests to 127.0.0.1").count(),
+        1,
+        "{text}"
+    );
+
+    // A core reply the client can't read: the request and serde's error, never the
+    // body.
+    let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+    let port = server.server_addr().to_ip().unwrap().port();
+    let answer = std::thread::spawn(move || {
+        let request = server.recv().unwrap();
+        let body = r#"{"core_name": 7, "secret_body": "steve-was-here"}"#;
+        let _ = request.respond(tiny_http::Response::from_string(body));
+    });
+    let client = launcher_core::cores::CoreClient::new(
+        launcher_core::http::default_client().unwrap(),
+        url::Url::parse(&format!("http://127.0.0.1:{port}")).unwrap(),
+    );
+    let err = futures::executor::block_on(client.info()).unwrap_err();
+    assert!(
+        matches!(err, launcher_core::cores::CoreError::Invalid(_)),
+        "{err}"
+    );
+    answer.join().unwrap();
+    logging::flush();
+    let text = fs::read_to_string(&log_file).unwrap();
+    assert!(
+        text.contains("GET info on 127.0.0.1: the reply doesn't read as CoreInfo"),
+        "{text}"
+    );
+    assert!(!text.contains("steve-was-here"), "{text}");
 
     // An event the client can't read: the serde error is logged, never the frame.
     let frame =

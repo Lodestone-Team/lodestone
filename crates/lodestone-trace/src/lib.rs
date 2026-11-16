@@ -324,9 +324,9 @@ const SECRET_NAMES: &[&str] = &[
     "jwt",
 ];
 
-/// Whether a field called `name` holds a secret.
+/// Whether a field called `name` holds a secret. `-` counts as `_` (`X-Api-Key`).
 pub fn is_secret_name(name: &str) -> bool {
-    let name = name.to_ascii_lowercase();
+    let name = name.to_ascii_lowercase().replace('-', "_");
     SECRET_NAMES.iter().any(|secret| name.contains(secret))
 }
 
@@ -380,6 +380,9 @@ pub fn scrub_str(text: &str) -> Option<String> {
 }
 
 /// A URL (or path) with secret query parameters blanked, or `None` when it has none.
+/// A parameter is secret by its name (a secret's, `code`, `key`, or an `invite` or
+/// `link`, which carry invite links), or by its value once percent-decoded: a filter
+/// like `{"bearer_token":"lsk_…"}` goes whole.
 fn scrub_query(word: &str) -> Option<String> {
     let (base, query) = word.split_once('?')?;
     let mut changed = false;
@@ -388,7 +391,10 @@ fn scrub_query(word: &str) -> Option<String> {
         .map(|part| match part.split_once('=') {
             Some((name, value))
                 if !value.is_empty()
-                    && (is_secret_name(name) || name == "code" || name == "key") =>
+                    && !value.starts_with(REDACTED)
+                    && (is_secret_name(name)
+                        || matches!(name, "code" | "key" | "invite" | "link")
+                        || decoded_has_secret(value)) =>
             {
                 changed = true;
                 format!("{name}={REDACTED}")
@@ -399,15 +405,53 @@ fn scrub_query(word: &str) -> Option<String> {
     changed.then(|| format!("{base}?{}", parts.join("&")))
 }
 
-/// A line of text for a log file without the secrets in it: what [`scrub_str`] blanks
-/// (tokens, `Bearer`/`Basic` credentials, secret query parameters), and also
+/// Whether a query value holds a secret once percent-decoded.
+fn decoded_has_secret(value: &str) -> bool {
+    let decoded = percent_decode(value);
+    let text = decoded.as_deref().unwrap_or(value);
+    scrub_named_values(text).is_some()
+        || scrub_token_runs(text).is_some()
+        || scrub_links(text).is_some()
+}
+
+/// `text` with its `%XX` escapes decoded, or `None` when it has none.
+fn percent_decode(text: &str) -> Option<String> {
+    if !text.contains('%') {
+        return None;
+    }
+    let bytes = text.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut at = 0;
+    while at < bytes.len() {
+        let hex = |b: u8| (b as char).to_digit(16);
+        match (bytes[at], bytes.get(at + 1), bytes.get(at + 2)) {
+            (b'%', Some(&high), Some(&low)) if hex(high).is_some() && hex(low).is_some() => {
+                out.push((hex(high).unwrap_or(0) * 16 + hex(low).unwrap_or(0)) as u8);
+                at += 3;
+            }
+            (b, _, _) => {
+                out.push(b);
+                at += 1;
+            }
+        }
+    }
+    Some(String::from_utf8_lossy(&out).into_owned())
+}
+
+/// A line of text for a log file without the secrets in it:
 ///
-/// - the value of `name=value`, `name: value` and `"name": "value"` when the name is
-///   a secret's ([`is_secret_name`]), and of `code=` and `key=` unless it is a number
-///   (an exit code says nothing secret);
-/// - the word after a `--flag` named like a secret (`--accessToken …` on the game's
-///   command line);
-/// - everything after `Authorization:` on its line.
+/// - everything after `Authorization:` on its line;
+/// - secret query parameters ([`scrub_query`]) and the part after `#` of invite and
+///   friend links (`…/j/…#…`, `…/f/…#…`, `lhp2://…`);
+/// - the value after a name like a secret's ([`is_secret_name`]): `name=value`,
+///   `name: value`, `name = "two words"`, JSON's `"name": "value"` (escaped too), a
+///   pair `("authorization", "Bearer x")`, a `--flag value` (`--accessToken …` on the
+///   game's command line), and `code=`/`key=` unless the value is a number (an exit
+///   code says nothing secret). Numbers in JSON, flags and `null` are kept, as
+///   [`scrub`] keeps them;
+/// - the credential after `Bearer` (and `Basic`, when it looks like one);
+/// - tokens ([`looks_like_token`]) anywhere, glued to punctuation or not:
+///   `Some("eyJ…")`.
 ///
 /// Multi-line text is scrubbed line by line. Text without secrets comes back borrowed.
 /// This is a heuristic, a last line of defence: callers leave secrets out at the source.
@@ -437,136 +481,304 @@ pub fn scrub_line(text: &str) -> std::borrow::Cow<'_, str> {
 
 /// [`scrub_line`] for one line, or `None` when it has no secrets.
 fn scrub_one_line(line: &str) -> Option<String> {
-    let mut changed = false;
+    const PASSES: [fn(&str) -> Option<String>; 6] = [
+        scrub_authorization,
+        scrub_queries,
+        scrub_links,
+        scrub_named_values,
+        scrub_schemes,
+        scrub_token_runs,
+    ];
     let mut line = std::borrow::Cow::Borrowed(line);
-    if let Some(clean) = scrub_json_pairs(&line) {
-        line = std::borrow::Cow::Owned(clean);
-        changed = true;
-    }
-    const AUTHORIZATION: &str = "authorization:";
-    if let Some(at) = line.to_ascii_lowercase().find(AUTHORIZATION) {
-        let end = at + AUTHORIZATION.len();
-        let rest = line[end..].trim();
-        if !rest.is_empty() && rest != REDACTED {
-            line = std::borrow::Cow::Owned(format!("{} {REDACTED}", &line[..end]));
+    let mut changed = false;
+    for pass in PASSES {
+        if let Some(clean) = pass(&line) {
+            line = std::borrow::Cow::Owned(clean);
             changed = true;
         }
     }
-    let mut redact_next = false;
+    changed.then(|| line.into_owned())
+}
+
+/// Everything after `Authorization:` blanked.
+fn scrub_authorization(line: &str) -> Option<String> {
+    const AUTHORIZATION: &str = "authorization:";
+    let at = line.to_ascii_lowercase().find(AUTHORIZATION)?;
+    let end = at + AUTHORIZATION.len();
+    let rest = line[end..].trim();
+    (!rest.is_empty() && rest != REDACTED).then(|| format!("{} {REDACTED}", &line[..end]))
+}
+
+/// Each space-separated word's secret query parameters blanked.
+fn scrub_queries(line: &str) -> Option<String> {
+    map_words(line, scrub_query)
+}
+
+/// The secret part of invite and friend links blanked: what follows `#` in a link
+/// whose path is `/j/…` or `/f/…`, or in an `lhp2://` link.
+fn scrub_links(line: &str) -> Option<String> {
+    map_words(line, |word| {
+        let (base, fragment) = word.split_once('#')?;
+        let lower = base.to_ascii_lowercase();
+        let link = lower.contains("lhp2://")
+            || (lower.contains("://") && (lower.contains("/j/") || lower.contains("/f/")));
+        (link && !fragment.is_empty() && !fragment.starts_with(REDACTED))
+            .then(|| format!("{base}#{REDACTED}"))
+    })
+}
+
+/// `line` with each space-separated word that `f` changes replaced.
+fn map_words(line: &str, f: impl Fn(&str) -> Option<String>) -> Option<String> {
+    let mut changed = false;
     let words: Vec<String> = line
         .split(' ')
-        .map(|word| {
-            if word.is_empty() {
-                return String::new();
-            }
-            let out = if redact_next && !word.contains(REDACTED) {
-                changed = true;
-                REDACTED.to_string()
-            } else if let Some(clean) = scrub_word(word) {
+        .map(|word| match f(word) {
+            Some(clean) => {
                 changed = true;
                 clean
-            } else {
-                word.to_string()
-            };
-            redact_next = takes_secret_next(word);
-            out
+            }
+            None => word.to_string(),
         })
         .collect();
     changed.then(|| words.join(" "))
 }
 
-/// A word with its secret blanked: a token, a URL's secret query parameters, or the
-/// value of a secret `name=value`.
-fn scrub_word(word: &str) -> Option<String> {
-    if word.contains(REDACTED) {
-        return None;
-    }
-    if looks_like_token(word) {
-        return Some(REDACTED.into());
-    }
-    if let Some(clean) = scrub_query(word) {
-        return Some(clean);
-    }
-    let (name, value) = word.split_once('=')?;
-    let stem = name.trim_matches(|c: char| !(c.is_ascii_alphanumeric() || c == '_'));
-    let value_stem = value.trim_matches(|c: char| matches!(c, '"' | '\'' | ',' | ';' | ')'));
-    let plain = value_stem.is_empty() || matches!(value_stem, "true" | "false" | "null" | "None");
-    let secret = is_secret_name(stem)
-        || (matches!(stem, "code" | "key") && !value_stem.chars().all(|c| c.is_ascii_digit()));
-    (secret && !plain).then(|| format!("{name}={REDACTED}"))
+fn is_name_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_' || b == b'-'
 }
 
-/// Whether the word after `word` is a secret: after `Bearer` or `Basic`, a `--flag`
-/// named like a secret, or a `name:` that is.
-fn takes_secret_next(word: &str) -> bool {
-    if matches!(word.to_ascii_lowercase().as_str(), "bearer" | "basic") {
-        return true;
-    }
-    if let Some(flag) = word.strip_prefix('-') {
-        let flag = flag.trim_start_matches('-');
-        return !flag.is_empty() && !flag.contains('=') && is_secret_name(flag);
-    }
-    match word.strip_suffix(':') {
-        Some(name) => is_secret_name(name.trim_matches(|c: char| !c.is_ascii_alphanumeric())),
-        None => false,
-    }
-}
-
-/// JSON's `"name": "value"` pairs with a secret name, with their values blanked, or
-/// `None` when there are none. Numbers, flags and `null` are kept, as [`scrub`] does.
-fn scrub_json_pairs(line: &str) -> Option<String> {
-    /// The end (exclusive, after the closing quote) of the JSON string starting at
-    /// `start`, which is a `"`.
-    fn string_end(bytes: &[u8], start: usize) -> Option<usize> {
-        let mut at = start + 1;
-        while at < bytes.len() {
-            match bytes[at] {
-                b'\\' => at += 2,
-                b'"' => return Some(at + 1),
-                _ => at += 1,
+/// The values after names like secrets' blanked (see [`scrub_line`]). It finds each
+/// name on its own, so a stray quote earlier in the line changes nothing.
+fn scrub_named_values(line: &str) -> Option<String> {
+    let bytes = line.as_bytes();
+    let len = bytes.len();
+    let skip_spaces = |mut at: usize| {
+        while at < len && bytes[at] == b' ' {
+            at += 1;
+        }
+        at
+    };
+    let mut out = String::new();
+    let mut copied = 0;
+    let mut at = 0;
+    while at < len {
+        if !is_name_byte(bytes[at]) {
+            at += 1;
+            continue;
+        }
+        let start = at;
+        while at < len && is_name_byte(bytes[at]) {
+            at += 1;
+        }
+        let run = &line[start..at];
+        let flag = run.starts_with('-');
+        let name = run.trim_start_matches('-');
+        let numbered = matches!(name, "code" | "key");
+        if name.is_empty() || !(is_secret_name(name) || numbered) {
+            continue;
+        }
+        let quoted = start > 0 && matches!(bytes[start - 1], b'"' | b'\'');
+        // the name's closing quote, `"` or `\"` (JSON inside a Debug string)
+        let mut next = at;
+        if quoted {
+            if bytes.get(next) == Some(&b'\\') && bytes.get(next + 1) == Some(&b'"') {
+                next += 2;
+            } else if matches!(bytes.get(next), Some(b'"' | b'\'')) {
+                next += 1;
             }
         }
-        None
+        let before_separator = next;
+        next = skip_spaces(next);
+        let separator = bytes.get(next).copied();
+        let separated = match separator {
+            // not `::` (a Rust path) or `==`
+            Some(b'=' | b':') if bytes.get(next + 1) != separator.as_ref() => {
+                next += 1;
+                true
+            }
+            // a pair: `("authorization", "Bearer x")`, `["--accessToken", "x"]`
+            Some(b',') if quoted => {
+                next += 1;
+                true
+            }
+            // `--accessToken x`
+            _ => flag && next > before_separator,
+        };
+        // `code` and `key` count only as `code=…`, outside JSON
+        if !separated || (numbered && !is_secret_name(name) && (quoted || separator != Some(b'=')))
+        {
+            continue;
+        }
+        let value_start = skip_spaces(next);
+        let Some((value_end, inner, quote)) = value_at(line, value_start) else {
+            continue;
+        };
+        let plain = inner.is_empty()
+            || inner.starts_with(REDACTED)
+            || matches!(inner, "true" | "false" | "null" | "None")
+            || (quote.is_empty()
+                && inner.chars().all(|c| c.is_ascii_digit())
+                && (numbered || quoted));
+        if plain || (separator == Some(b',') && quote.is_empty()) {
+            continue;
+        }
+        // `authorization=Bearer abc`: the credential too
+        let value_end = if quote.is_empty()
+            && matches!(inner.to_ascii_lowercase().as_str(), "bearer" | "basic")
+        {
+            value_at(line, skip_spaces(value_end)).map_or(value_end, |(end, _, _)| end)
+        } else {
+            value_end
+        };
+        out.push_str(&line[copied..value_start]);
+        out.push_str(quote);
+        out.push_str(REDACTED);
+        out.push_str(quote);
+        copied = value_end;
+        at = value_end;
     }
+    (copied > 0).then(|| {
+        out.push_str(&line[copied..]);
+        out
+    })
+}
+
+/// The value starting at `start`: where it ends, what is inside its quotes, and the
+/// quote (`"`, `'`, `\"`, or none for a bare word). A quoted value runs to its closing
+/// quote (or the line's end), a bare one to a space or `,;)]}&"`.
+fn value_at(line: &str, start: usize) -> Option<(usize, &str, &'static str)> {
+    let bytes = line.as_bytes();
+    if start >= bytes.len() {
+        return None;
+    }
+    let quote: &'static str = match bytes[start] {
+        b'\\' if bytes.get(start + 1) == Some(&b'"') => "\\\"",
+        b'"' => "\"",
+        b'\'' => "'",
+        _ => "",
+    };
+    if quote.is_empty() {
+        if line[start..].starts_with(REDACTED) {
+            let end = start + REDACTED.len();
+            return Some((end, &line[start..end], quote));
+        }
+        let end = line[start..]
+            .find([' ', ',', ';', ')', ']', '}', '&', '"'])
+            .map_or(line.len(), |n| start + n);
+        return (end > start).then(|| (end, &line[start..end], quote));
+    }
+    let open = start + quote.len();
+    let mut at = open;
+    while at < bytes.len() {
+        if bytes[at..].starts_with(quote.as_bytes()) {
+            return Some((at + quote.len(), &line[open..at], quote));
+        }
+        // an escaped quote inside a `"` string doesn't end it
+        at += if quote == "\"" && bytes[at] == b'\\' {
+            2
+        } else {
+            1
+        };
+    }
+    let at = line.len();
+    Some((at, &line[open.min(at)..at], quote))
+}
+
+/// The credential after `Bearer` blanked, and after `Basic` when it looks like one
+/// (mixed-case base64, so `Basic settings` stays).
+fn scrub_schemes(line: &str) -> Option<String> {
+    let lower = line.to_ascii_lowercase();
     let bytes = line.as_bytes();
     let mut out = String::new();
     let mut copied = 0;
     let mut at = 0;
     while at < bytes.len() {
-        if bytes[at] != b'"' {
+        let scheme = ["bearer", "basic"]
+            .into_iter()
+            .find(|scheme| lower.as_bytes()[at..].starts_with(scheme.as_bytes()));
+        let Some(scheme) = scheme else {
             at += 1;
             continue;
-        }
-        let Some(name_end) = string_end(bytes, at) else {
-            break;
         };
-        let name = &line[at + 1..name_end - 1];
-        let mut next = name_end;
-        while next < bytes.len() && bytes[next] == b' ' {
-            next += 1;
-        }
-        if next >= bytes.len() || bytes[next] != b':' || !is_secret_name(name) {
-            at = name_end;
+        let end = at + scheme.len();
+        let whole =
+            (at == 0 || !bytes[at - 1].is_ascii_alphanumeric()) && bytes.get(end) == Some(&b' ');
+        if !whole || at < copied {
+            at = end;
             continue;
         }
-        next += 1;
-        while next < bytes.len() && bytes[next] == b' ' {
-            next += 1;
+        let value_start = (end..bytes.len())
+            .find(|&n| bytes[n] != b' ')
+            .unwrap_or(bytes.len());
+        let value_end = line[value_start..]
+            .find([' ', '"', '\'', ',', ';', ')', ']', '}'])
+            .map_or(line.len(), |n| value_start + n);
+        let value = &line[value_start..value_end];
+        let credential = !value.is_empty()
+            && !value.starts_with(REDACTED)
+            && (scheme == "bearer"
+                || (value.len() >= 8
+                    && value
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '/' | '='))
+                    && value.chars().any(|c| c.is_ascii_uppercase())
+                    && value.chars().any(|c| c.is_ascii_lowercase())));
+        if credential {
+            out.push_str(&line[copied..value_start]);
+            out.push_str(REDACTED);
+            copied = value_end;
         }
-        if next < bytes.len() && bytes[next] == b'"' {
-            let Some(value_end) = string_end(bytes, next) else {
+        at = value_end.max(end);
+    }
+    (copied > 0).then(|| {
+        out.push_str(&line[copied..]);
+        out
+    })
+}
+
+/// Characters a token is made of.
+fn is_token_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '+' | '*' | '!' | '~' | '$')
+}
+
+/// Tokens blanked wherever they are: each run of token characters is checked on its
+/// own, so `Some("eyJ…")` and `["--accessToken","eyJ…"]` lose theirs. An `lsk_` key
+/// inside a run (`%22lsk_…`) goes from where it starts. A path's part is only blanked
+/// for a known token shape, so a long file name stays.
+fn scrub_token_runs(line: &str) -> Option<String> {
+    let mut out = String::new();
+    let mut copied = 0;
+    let mut chars = line.char_indices().peekable();
+    while let Some((start, c)) = chars.next() {
+        if !is_token_char(c) {
+            continue;
+        }
+        let mut end = start + c.len_utf8();
+        while let Some(&(at, c)) = chars.peek() {
+            if !is_token_char(c) {
                 break;
-            };
-            let value = &line[next + 1..value_end - 1];
-            if !value.is_empty() && value != REDACTED {
-                out.push_str(&line[copied..next + 1]);
-                out.push_str(REDACTED);
-                out.push('"');
-                copied = value_end;
             }
-            at = value_end;
+            end = at + c.len_utf8();
+            chars.next();
+        }
+        // a sentence's full stop isn't part of a token
+        let run = line[start..end].trim_matches('.');
+        let start = start + line[start..end].find(run).unwrap_or(0);
+        let end = start + run.len();
+        let before = line[..start].chars().next_back();
+        let after = line[end..].chars().next();
+        let in_path = matches!(before, Some('/' | '\\')) || matches!(after, Some('/' | '\\'));
+        let from = if let Some(key) = run.find("lsk_").filter(|&n| run.len() - n >= 20) {
+            Some(start + key)
+        } else if is_known_token(run) || (!in_path && looks_like_token(run)) {
+            Some(start)
         } else {
-            at = next;
+            None
+        };
+        if let Some(from) = from {
+            out.push_str(&line[copied..from]);
+            out.push_str(REDACTED);
+            copied = end;
         }
     }
     (copied > 0).then(|| {
@@ -575,20 +787,26 @@ fn scrub_json_pairs(line: &str) -> Option<String> {
     })
 }
 
-/// Whether `word` looks like a token: a JWT, a Lodestone API key (`lsk_…`), a
-/// Microsoft token, or a long run of mixed letters and digits with no path in it.
-pub fn looks_like_token(word: &str) -> bool {
+/// A token of a known shape: a JWT, a Lodestone API key (`lsk_…`) or a Microsoft
+/// token.
+fn is_known_token(word: &str) -> bool {
     let word = word.trim_matches(|c: char| matches!(c, '"' | '\'' | ',' | ';' | '(' | ')'));
     if word.len() < 20 || word.chars().any(char::is_whitespace) {
         return false;
     }
-    if word.starts_with("lsk_") || word.starts_with("M.C") || word.starts_with("M.R3_") {
+    word.starts_with("lsk_")
+        || word.starts_with("M.C")
+        || word.starts_with("M.R3_")
+        || (word.starts_with("eyJ") && word.matches('.').count() == 2)
+}
+
+/// Whether `word` looks like a token: a JWT, a Lodestone API key (`lsk_…`), a
+/// Microsoft token, or a long run of mixed letters and digits with no path in it.
+pub fn looks_like_token(word: &str) -> bool {
+    if is_known_token(word) {
         return true;
     }
-    let jwt = word.starts_with("eyJ") && word.matches('.').count() == 2;
-    if jwt {
-        return true;
-    }
+    let word = word.trim_matches(|c: char| matches!(c, '"' | '\'' | ',' | ';' | '(' | ')'));
     if word.len() < 40 || word.contains('/') || word.contains("://") {
         return false;
     }
@@ -799,11 +1017,136 @@ mod tests {
                 "GET https://core.example/api?key=abc&x=1 failed",
                 "GET https://core.example/api?key=[redacted]&x=1 failed",
             ),
-            ("Token { access_token: \"abc\" }", "Token { access_token: [redacted] }"),
+            ("Token { access_token: \"abc\" }", "Token { access_token: \"[redacted]\" }"),
             ("sign-in code=AbCd1234 refused", "sign-in code=[redacted] refused"),
         ];
         for (input, expected) in cases {
             assert_eq!(scrub_line(input), expected, "{input}");
+        }
+    }
+
+    #[test]
+    fn secrets_glued_to_punctuation_or_after_stray_quotes_go_too() {
+        const JWT: &str = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOjF9.c2lnbmF0dXJlc2ln";
+        let cases = [
+            (
+                format!("Some(\"{JWT}\")"),
+                "Some(\"[redacted]\")".to_string(),
+            ),
+            (
+                format!("[\"--accessToken\",\"{JWT}\"]"),
+                "[\"--accessToken\",\"[redacted]\"]".to_string(),
+            ),
+            (
+                r#"args ["--accessToken", "abcDEF123xyz"]"#.to_string(),
+                r#"args ["--accessToken", "[redacted]"]"#.to_string(),
+            ),
+            (
+                format!("parse \"{{\"access_token\":\"{JWT}\"}}"),
+                "parse \"{\"access_token\":\"[redacted]\"}".to_string(),
+            ),
+            (
+                format!("body 5\" screen {{\"access_token\":\"{JWT}\"}}"),
+                "body 5\" screen {\"access_token\":\"[redacted]\"}".to_string(),
+            ),
+            (
+                r#"he said " then {"password":"hunter2"}"#.to_string(),
+                r#"he said " then {"password":"[redacted]"}"#.to_string(),
+            ),
+            (
+                format!("Err value: Reply {{ session: Some(\"{JWT}\") }}"),
+                "Err value: Reply { session: Some(\"[redacted]\") }".to_string(),
+            ),
+            (
+                r#"body "{\"refresh_token\":\"abc\",\"n\":1}""#.to_string(),
+                r#"body "{\"refresh_token\":\"[redacted]\",\"n\":1}""#.to_string(),
+            ),
+            (
+                "password = hunter2 ok".into(),
+                "password = [redacted] ok".into(),
+            ),
+            (
+                r#"password="hunter two" ok"#.into(),
+                r#"password="[redacted]" ok"#.into(),
+            ),
+            (
+                r#"access_token: "abc def" ok"#.into(),
+                r#"access_token: "[redacted]" ok"#.into(),
+            ),
+            (
+                "authorization=Bearer abc ok".into(),
+                "authorization=[redacted] ok".into(),
+            ),
+            (
+                "X-Api-Key: abc ok".into(),
+                "X-Api-Key: [redacted] ok".into(),
+            ),
+            (
+                r#"("authorization", "Bearer abc")"#.into(),
+                r#"("authorization", "[redacted]")"#.into(),
+            ),
+            (
+                r#"header "Bearer abc""#.into(),
+                r#"header "Bearer [redacted]""#.into(),
+            ),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(scrub_line(&input), expected, "{input}");
+        }
+    }
+
+    #[test]
+    fn encoded_and_linked_secrets_go() {
+        // the Events stream's URL, as tungstenite's trace prints its handshake
+        let key = "lsk_0a1b2c3d_ZXhhbXBsZXNlY3JldGtleXZhbHVl";
+        let line = format!(
+            "Request: \"GET /api/v1/events/all/stream?filter=%7B%22bearer_token%22%3A%22{key}%22%2C%22event_types%22%3A%5B%5D%7D HTTP/1.1\\r\\nHost: 127.0.0.1:16662\\r\\n\""
+        );
+        let clean = scrub_line(&line);
+        assert!(
+            !clean.contains("lsk_") && !clean.contains("ZXhh"),
+            "{clean}"
+        );
+        assert!(
+            clean.contains("stream?filter=[redacted] HTTP/1.1"),
+            "{clean}"
+        );
+        // invite and friend links
+        let hex = "0123456789abcdef".repeat(4);
+        for (input, expected) in [
+            (
+                format!("joining https://connect.lodestone.cc/j/ABCDEFGH#{hex}.{} failed", &hex[..32]),
+                "joining https://connect.lodestone.cc/j/ABCDEFGH#[redacted] failed".to_string(),
+            ),
+            (
+                format!("opened lodestone://join?invite=https%3A%2F%2Fconnect.lodestone.cc%2Fj%2FAB%23{hex}"),
+                "opened lodestone://join?invite=[redacted]".to_string(),
+            ),
+            (
+                format!("friend https://connect.lodestone.cc/f/xyz#{hex} added"),
+                "friend https://connect.lodestone.cc/f/xyz#[redacted] added".to_string(),
+            ),
+            (format!("lhp2://peer#{hex}"), "lhp2://peer#[redacted]".to_string()),
+        ] {
+            assert_eq!(scrub_line(&input), expected, "{input}");
+        }
+    }
+
+    #[test]
+    fn hostile_text_never_panics() {
+        for text in [
+            "é\"password\":\"ü",
+            "password=\"unterminated é",
+            "\\\"token\\\":\\\"",
+            "Bearer",
+            "Basic é",
+            "?=&=?%%%zz%e9",
+            "--token",
+            "lsk_",
+            "\"",
+            "token: é",
+        ] {
+            let _ = scrub_line(text);
         }
     }
 
@@ -815,6 +1158,10 @@ mod tests {
             "instance 7c1f3e8a-0b2d-4f6e-9a11-2d3c4b5a6978 has_token=true",
             "hash 3f786850e387550fdab836ed7e6dc881de23001b",
             "invalid type: map, expected a string at line 1 column 20",
+            "the basic settings were saved",
+            "unknown variant `Other` in launcher_core::cores::admin::events::token::Kind",
+            "kept /Users/steve/mods/SomeVeryLongModNameWithAVersion1-20-1-forge-47.jar",
+            "the token expired; signing in again",
             "",
         ] {
             let clean = scrub_line(plain);

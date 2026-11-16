@@ -24,6 +24,7 @@ mod session;
 mod throttle;
 
 use std::{
+    cell::Cell,
     io::{IsTerminal as _, Write as _},
     path::{Path, PathBuf},
     sync::{
@@ -39,6 +40,7 @@ use serde_json::json;
 
 pub use file::{KEEP, MAX_BYTES};
 pub use filter::Filter;
+pub use format::escape_controls;
 pub use session::{CRASH_FILE, Crash, SESSION_FILE};
 pub use throttle::{Allowed, Throttle};
 
@@ -116,6 +118,7 @@ pub struct Started {
 struct Installed {
     app: AppKind,
     dir: Option<PathBuf>,
+    run_id: String,
     env_override: bool,
     started: Started,
 }
@@ -171,6 +174,7 @@ pub fn install(config: Config) -> Started {
     let _ = INSTALLED.set(Installed {
         app: config.app,
         dir: config.dir,
+        run_id: run_id.clone(),
         env_override,
         started: started.clone(),
     });
@@ -258,7 +262,23 @@ pub fn end_session() {
     log::info!("{} quit", installed.app.name());
     flush();
     if let Some(dir) = &installed.dir {
-        session::end(dir);
+        session::end(dir, &installed.run_id);
+    }
+}
+
+/// The version a log names: "1.2.0 (build 812, 1a2b3c4)", or "(development build)"
+/// for one the publish script didn't make.
+pub fn version_label(version: &str, build: Option<crate::update::Build>) -> String {
+    match build {
+        Some(build) => match build.commit {
+            Some(commit) => format!(
+                "{version} (build {}, {})",
+                build.number,
+                crate::update::short_commit(commit)
+            ),
+            None => format!("{version} (build {})", build.number),
+        },
+        None => format!("{version} (development build)"),
     }
 }
 
@@ -290,6 +310,11 @@ pub fn serde_error(err: &serde_json::Error) -> String {
         }
     }
     out
+}
+
+/// Makes the logs folder if needed, the user's alone on Unix (as logging makes it).
+pub fn make_dir(dir: &Path) -> std::io::Result<()> {
+    file::private_dir(dir)
 }
 
 /// The log files in `dir` for `app`, newest first.
@@ -372,35 +397,53 @@ impl Logger {
         if self.echo {
             let _ = std::io::stderr().write_all(text.as_bytes());
         }
-        let mut file = self.file.lock().unwrap_or_else(|p| p.into_inner());
-        let Some(file) = file.as_mut() else {
-            return;
+        let wake = {
+            let mut file = self.lock_file();
+            let Some(file) = file.as_mut() else {
+                return;
+            };
+            file.write(text);
+            if flush {
+                file.flush();
+            }
+            !flush && !self.dirty.swap(true, Ordering::Relaxed)
         };
-        file.write(text);
-        if flush {
-            file.flush();
-        } else if !self.dirty.swap(true, Ordering::Relaxed)
-            && let Some(wake) = self.wake.get()
-        {
+        if wake && let Some(wake) = self.wake.get() {
             let _ = wake.lock().unwrap_or_else(|p| p.into_inner()).send(());
         }
     }
 
-    /// Writes a panic's report and flushes it, waiting at most 250 ms for the file
-    /// (another thread may be writing; this one may have panicked while writing).
+    /// The file, locked, with [`HOLDS_FILE`] set while the guard lives.
+    fn lock_file(&self) -> FileGuard<'_> {
+        let guard = self.file.lock().unwrap_or_else(|p| p.into_inner());
+        let _ = HOLDS_FILE.try_with(|holds| holds.set(true));
+        FileGuard(guard)
+    }
+
+    /// Writes a panic's report and flushes it, waiting for the file as long as another
+    /// thread writes. When this thread holds the file (it panicked while writing),
+    /// the log can't have it; the crash file still does.
     fn write_report(&self, report: &str) {
         let line = format::record(chrono::Utc::now(), log::Level::Error, "panic", report, None);
-        let deadline = Instant::now() + Duration::from_millis(250);
-        loop {
-            match self.file.try_lock() {
-                Ok(mut file) => return Self::write_now(&mut file, &line),
-                Err(std::sync::TryLockError::Poisoned(poisoned)) => {
-                    return Self::write_now(&mut poisoned.into_inner(), &line);
+        match HOLDS_FILE.try_with(Cell::get) {
+            Ok(false) => Self::write_now(&mut self.lock_file(), &line),
+            Ok(true) => {}
+            // The thread's storage is gone (it is ending): whether it holds the file is
+            // unknown, so it waits at most 250 ms.
+            Err(_) => {
+                let deadline = Instant::now() + Duration::from_millis(250);
+                loop {
+                    match self.file.try_lock() {
+                        Ok(mut file) => return Self::write_now(&mut file, &line),
+                        Err(std::sync::TryLockError::Poisoned(poisoned)) => {
+                            return Self::write_now(&mut poisoned.into_inner(), &line);
+                        }
+                        Err(std::sync::TryLockError::WouldBlock) if Instant::now() < deadline => {
+                            std::thread::sleep(Duration::from_millis(5));
+                        }
+                        Err(std::sync::TryLockError::WouldBlock) => return,
+                    }
                 }
-                Err(std::sync::TryLockError::WouldBlock) if Instant::now() < deadline => {
-                    std::thread::sleep(Duration::from_millis(5));
-                }
-                Err(std::sync::TryLockError::WouldBlock) => return,
             }
         }
     }
@@ -427,6 +470,34 @@ impl Logger {
                     log::Log::flush(self);
                 }
             });
+    }
+}
+
+thread_local! {
+    /// This thread holds the logger's file lock: a panic while writing mustn't wait
+    /// for it.
+    static HOLDS_FILE: Cell<bool> = const { Cell::new(false) };
+}
+
+/// The logger's file lock, which clears [`HOLDS_FILE`] when dropped.
+struct FileGuard<'a>(std::sync::MutexGuard<'a, Option<RotatingFile>>);
+
+impl std::ops::Deref for FileGuard<'_> {
+    type Target = Option<RotatingFile>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for FileGuard<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl Drop for FileGuard<'_> {
+    fn drop(&mut self) {
+        let _ = HOLDS_FILE.try_with(|holds| holds.set(false));
     }
 }
 
@@ -465,7 +536,13 @@ impl log::Log for Logger {
         if !to_file && !to_bus {
             return;
         }
-        let message = record.args().to_string();
+        // A caller's Display that fails mustn't panic the thread that logged.
+        let mut message = String::new();
+        if std::fmt::write(&mut message, *record.args()).is_err() {
+            message.push_str(" …[format error]");
+        }
+        // Scrubbed once, for the file and the bus alike.
+        let message = lodestone_trace::scrub_line(&message).into_owned();
         if to_file {
             let line = format::record(
                 chrono::Utc::now(),
@@ -491,7 +568,7 @@ impl log::Log for Logger {
 
     fn flush(&self) {
         self.dirty.store(false, Ordering::Relaxed);
-        if let Some(file) = self.file.lock().unwrap_or_else(|p| p.into_inner()).as_mut() {
+        if let Some(file) = self.lock_file().as_mut() {
             file.flush();
         }
     }
@@ -617,7 +694,7 @@ mod tests {
             &logger,
             log::Level::Error,
             "lodestone_ui::toast",
-            "bus check: Bearer abc",
+            "bus check: Bearer abc password=hunter2",
         );
         crate::trace::bus().unsubscribe(id);
         let event = rx
@@ -628,7 +705,47 @@ mod tests {
                     .is_some_and(|m| m.starts_with("bus check"))
             })
             .expect("the record on the bus");
-        assert_eq!(event.data["message"], "bus check: Bearer [redacted]");
+        assert_eq!(
+            event.data["message"],
+            "bus check: Bearer [redacted] password=[redacted]"
+        );
+    }
+
+    #[test]
+    fn a_failing_display_never_panics_the_logger() {
+        struct Failing;
+        impl std::fmt::Display for Failing {
+            fn fmt(&self, _: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                Err(std::fmt::Error)
+            }
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let logger = Logger::new(
+            Some(dir.path()),
+            "test.log",
+            Filter::defaults(LogLevel::Info),
+            false,
+        );
+        logger.log(
+            &log::Record::builder()
+                .level(log::Level::Warn)
+                .target("lodestone_launcher")
+                .args(format_args!("before {} after", Failing))
+                .build(),
+        );
+        let text = std::fs::read_to_string(dir.path().join("test.log")).unwrap();
+        assert!(text.contains("[format error]"), "{text}");
+    }
+
+    #[test]
+    fn version_labels_name_the_build() {
+        assert_eq!(version_label("1.0.0", None), "1.0.0 (development build)");
+        let build = crate::update::Build {
+            number: 812,
+            commit: Some("1a2b3c4d5e6f"),
+            dev: false,
+        };
+        assert!(version_label("1.0.0", Some(build)).starts_with("1.0.0 (build 812, 1a2b3c4"));
     }
 
     #[test]

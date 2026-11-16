@@ -436,6 +436,7 @@ pub fn text(message: M) -> &'static str {
         M::OpenPortKeywords => "redirection de port routeur UPnP pare-feu",
         M::ThemeKeywords => "sombre clair mode apparence couleurs",
         M::LogsSection => "Journaux",
+        M::LogFiles => "Fichiers journaux",
         M::LogsHint => {
             "Ce que le Host et son core ont fait, gardé sur cet ordinateur pour aider à comprendre un problème. {path}"
         }

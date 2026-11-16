@@ -52,9 +52,14 @@ pub struct HostApp {
     task: Option<Task<()>>,
     /// A warning for the next shell: why it is back on this computer's core.
     notice: Option<String>,
-    /// The last run crashed: said once, when the shell first shows
-    /// ([`launcher_core::logging::Started::previous_crash`]).
+    /// The last run crashed: said once, on the first shell, once the window has been
+    /// seen ([`launcher_core::logging::Started::previous_crash`]).
     crash_notice: Option<launcher_core::logging::Crash>,
+    /// The window has been active: a Host started hidden at sign-in hasn't been seen
+    /// until the person opens it, and a toast would run out before then.
+    window_seen: bool,
+    /// The shell's state, whose toasts say the crash.
+    crash_target: Option<gpui::WeakEntity<HostState>>,
 }
 
 /// GPUI's timer, for the claim's wait on the core's answer file.
@@ -100,15 +105,35 @@ impl HostApp {
             }
         });
         crate::prefs::Prefs::apply_theme(window.appearance(), cx);
+        let activation = cx.observe_window_activation(window, |this, window, cx| {
+            if window.is_window_active() && !this.window_seen {
+                this.window_seen = true;
+                this.say_crash(cx);
+            }
+        });
         Self {
             supervisor,
             phase: Phase::Core,
             root_focus: cx.focus_handle(),
             _focus_lost: None,
-            _subscriptions: vec![subscription, appearance],
+            _subscriptions: vec![subscription, appearance, activation],
             task: None,
             notice: None,
             crash_notice: crash_notice(),
+            // the development screenshots' offscreen window is never active
+            window_seen: window.is_window_active() || made_up_crash(),
+            crash_target: None,
+        }
+    }
+
+    /// Says on the shell that the last run crashed, once: when there is a shell and
+    /// the window has been seen.
+    fn say_crash(&mut self, cx: &mut Context<Self>) {
+        let Some(state) = self.crash_target.as_ref().and_then(|s| s.upgrade()) else {
+            return;
+        };
+        if let Some(toast) = crash_toast(&mut self.crash_notice, self.window_seen) {
+            state.update(cx, |state, cx| state.toast(toast, cx));
         }
     }
 
@@ -202,9 +227,8 @@ impl HostApp {
                 state.friends = Some(cx.new(|cx| crate::friends::FriendSharing::new(weak, cx)));
             });
         }
-        if let Some(toast) = crash_toast(&mut self.crash_notice) {
-            state.update(cx, |state, cx| state.toast(toast, cx));
-        }
+        self.crash_target = Some(state.downgrade());
+        self.say_crash(cx);
         // after being signed out of another core
         if let Some(notice) = self.notice.take() {
             state.update(cx, |state, cx| {
@@ -424,12 +448,17 @@ impl Render for HostApp {
     }
 }
 
-/// The toast that says the last run crashed, with "Open logs", for the first shell
-/// shown after it; `None` for every shell after that (`notice` is taken).
+/// The toast that says the last run crashed, with "Open logs", once the window has
+/// been `seen`; `None` before (the notice is kept) and for every shell after it (the
+/// notice is taken).
 fn crash_toast(
     notice: &mut Option<launcher_core::logging::Crash>,
+    seen: bool,
 ) -> Option<lodestone_ui::components::Toast> {
     use crate::i18n::{ShellMsg, t};
+    if !seen {
+        return None;
+    }
     notice.take()?;
     Some(
         lodestone_ui::components::Toast::info(t(ShellMsg::ClosedUnexpectedly))
@@ -441,8 +470,7 @@ fn crash_toast(
 /// The crash the last run ended with, if it did. `--crash-notice` (the `screenshot`
 /// feature) makes one up, for the development screenshots.
 fn crash_notice() -> Option<launcher_core::logging::Crash> {
-    #[cfg(feature = "screenshot")]
-    if std::env::args().any(|arg| arg == "--crash-notice") {
+    if made_up_crash() {
         return Some(launcher_core::logging::Crash {
             at: "2026-11-16T08:30:12Z".into(),
             summary: "a made-up crash".into(),
@@ -450,6 +478,11 @@ fn crash_notice() -> Option<launcher_core::logging::Crash> {
         });
     }
     launcher_core::logging::started().and_then(|started| started.previous_crash)
+}
+
+/// `--crash-notice`, with the `screenshot` feature.
+fn made_up_crash() -> bool {
+    cfg!(feature = "screenshot") && std::env::args().any(|arg| arg == "--crash-notice")
 }
 
 #[cfg(test)]
@@ -465,7 +498,10 @@ mod tests {
             summary: "a made-up crash".into(),
             file: std::env::temp_dir().join("last-crash.txt"),
         });
-        let toast = crash_toast(&mut notice).expect("a toast after a crash");
+        // started hidden at sign-in: nothing until the window is seen
+        assert!(crash_toast(&mut notice, false).is_none());
+        assert!(notice.is_some(), "kept for later");
+        let toast = crash_toast(&mut notice, true).expect("a toast after a crash");
         let text: &str = toast.text.as_ref();
         assert_eq!(
             text,
@@ -473,9 +509,9 @@ mod tests {
         );
         assert_eq!(toast.level, lodestone_ui::components::ToastLevel::Info);
         assert!(notice.is_none(), "taken");
-        assert!(crash_toast(&mut notice).is_none(), "said once");
+        assert!(crash_toast(&mut notice, true).is_none(), "said once");
         assert!(
-            crash_toast(&mut None).is_none(),
+            crash_toast(&mut None, true).is_none(),
             "nothing after a clean exit"
         );
     }

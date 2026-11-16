@@ -310,7 +310,7 @@ impl AdminClient {
                 MODRINTH_TIMEOUT,
             )
             .await?;
-        serde_json::from_slice(&bytes).map_err(|err| CoreError::Invalid(err.to_string()))
+        self.decode(&Method::GET, &search.path(), &bytes)
     }
 
     /// `GET /modrinth/project/{id or slug}`.
@@ -336,7 +336,7 @@ impl AdminClient {
                 MODRINTH_TIMEOUT,
             )
             .await?;
-        serde_json::from_slice(&bytes).map_err(|err| CoreError::Invalid(err.to_string()))
+        self.decode(&Method::GET, &path, &bytes)
     }
 
     /// `GET /modrinth/version/{id}`.
@@ -438,7 +438,7 @@ impl AdminClient {
                 MODPACK_TIMEOUT,
             )
             .await?;
-        serde_json::from_slice(&bytes).map_err(|err| CoreError::Invalid(err.to_string()))
+        self.decode(&Method::POST, "modpack/inspect", &bytes)
     }
 
     /// `POST /modpack/upload` (multipart, field `file`): an `.mrpack` from this
@@ -458,7 +458,7 @@ impl AdminClient {
                 MODPACK_TIMEOUT,
             )
             .await?;
-        serde_json::from_slice(&bytes).map_err(|err| CoreError::Invalid(err.to_string()))
+        self.decode(&Method::POST, "modpack/upload", &bytes)
     }
 }
 
@@ -679,7 +679,7 @@ impl AdminClient {
                 MODRINTH_TIMEOUT,
             )
             .await?;
-        serde_json::from_slice(&bytes).map_err(|err| CoreError::Invalid(err.to_string()))
+        self.decode(&Method::POST, "instance/{uuid}/modpack/check", &bytes)
     }
 }
 
@@ -721,7 +721,11 @@ impl AdminClient {
                 MODPACK_TIMEOUT,
             )
             .await?;
-        serde_json::from_slice(&bytes).map_err(|err| CoreError::Invalid(err.to_string()))
+        self.decode(
+            &Method::POST,
+            &format!("instance/{{uuid}}/modpack/{route}"),
+            &bytes,
+        )
     }
 }
 
@@ -1039,7 +1043,7 @@ impl AdminClient {
                 MODRINTH_TIMEOUT,
             )
             .await?;
-        serde_json::from_slice(&bytes).map_err(|err| CoreError::Invalid(err.to_string()))
+        self.decode(&Method::GET, "instance/{uuid}/mods", &bytes)
     }
 
     /// `POST /instance/{uuid}/mods/install`: a Modrinth version (and its required
@@ -1060,7 +1064,7 @@ impl AdminClient {
                 INSTALL_TIMEOUT,
             )
             .await?;
-        serde_json::from_slice(&bytes).map_err(|err| CoreError::Invalid(err.to_string()))
+        self.decode(&Method::POST, "instance/{uuid}/mods/install", &bytes)
     }
 
     /// `POST /instance/{uuid}/mods/upload[?overwrite=true]`: jars into the mods or
@@ -1085,7 +1089,7 @@ impl AdminClient {
                 INSTALL_TIMEOUT,
             )
             .await?;
-        serde_json::from_slice(&bytes).map_err(|err| CoreError::Invalid(err.to_string()))
+        self.decode(&Method::POST, "instance/{uuid}/mods/upload", &bytes)
     }
 
     /// `PUT /instance/{uuid}/mods/{file}/enable` or `…/disable`.
@@ -1151,7 +1155,7 @@ impl AdminClient {
                 INSTALL_TIMEOUT,
             )
             .await?;
-        serde_json::from_slice(&bytes).map_err(|err| CoreError::Invalid(err.to_string()))
+        self.decode(&Method::GET, "instance/{uuid}/mods/client_pack", &bytes)
     }
 
     /// `GET /file/{key}`: a file a download key names (the client pack). Needs no

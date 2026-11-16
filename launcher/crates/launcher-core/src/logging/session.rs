@@ -8,7 +8,12 @@
 //! marker replaces the old one.
 //!
 //! A panic the app survived (a background thread's, say) followed by a clean quit
-//! shows nothing, and neither does a force quit or a power cut without a panic.
+//! shows nothing, and neither does a forced quit or a power cut without a panic. A
+//! forced quit after a panic the app survived is reported as a crash: the crash file
+//! names the run, and its marker is still there.
+//!
+//! Two processes on one logs folder (a dev build beside the installed app) each
+//! remove only their own marker.
 
 use std::{
     fs,
@@ -63,9 +68,17 @@ pub fn begin(dir: &Path, run_id: &str, version: &str) -> Option<Crash> {
     crash
 }
 
-/// Ends the run: a clean quit.
-pub fn end(dir: &Path) {
-    let _ = fs::remove_file(dir.join(SESSION_FILE));
+/// Ends run `run_id`: a clean quit. The marker is removed only when it is this run's,
+/// so another process's stays.
+pub fn end(dir: &Path, run_id: &str) {
+    let path = dir.join(SESSION_FILE);
+    let ours = fs::read(&path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<Marker>(&bytes).ok())
+        .is_some_and(|marker| marker.run_id == run_id);
+    if ours {
+        let _ = fs::remove_file(path);
+    }
 }
 
 /// The crash file's first line for a run.
@@ -99,15 +112,21 @@ fn crash_of(dir: &Path, run_id: &str) -> Option<Crash> {
     Some(Crash { at, summary, file })
 }
 
-/// Writes `bytes` to a temporary file beside `path`, then renames it into place.
+/// Writes `bytes` to a temporary file beside `path`, then renames it into place. On
+/// Unix the file is the user's alone, like the logs.
 pub fn write_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write as _;
     if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir)?;
+        super::file::private_dir(dir)?;
     }
     let mut temp = path.as_os_str().to_owned();
     temp.push(format!(".{}.tmp", std::process::id()));
     let temp = PathBuf::from(temp);
-    fs::write(&temp, bytes)?;
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    options.open(&temp)?.write_all(bytes)?;
     fs::rename(&temp, path).inspect_err(|_| {
         let _ = fs::remove_file(&temp);
     })
@@ -149,9 +168,36 @@ mod tests {
         begin(dir.path(), "a", "1.0.0");
         // a panic the app survived, then a clean quit
         crash(dir.path(), "a");
-        end(dir.path());
+        end(dir.path(), "a");
         assert!(!dir.path().join(SESSION_FILE).exists());
         assert_eq!(begin(dir.path(), "b", "1.0.0"), None);
+    }
+
+    #[test]
+    fn a_quit_leaves_another_runs_marker() {
+        let dir = tempfile::tempdir().unwrap();
+        begin(dir.path(), "a", "1.0.0");
+        // run b started beside a (or after a restart that a was slow to finish)
+        begin(dir.path(), "b", "1.0.0");
+        end(dir.path(), "a");
+        assert!(dir.path().join(SESSION_FILE).exists(), "b's marker stays");
+        crash(dir.path(), "b");
+        assert!(
+            begin(dir.path(), "c", "1.0.0").is_some(),
+            "b's crash is noticed"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn markers_are_the_users_alone() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = tempfile::tempdir().unwrap();
+        let logs = dir.path().join("logs");
+        begin(&logs, "a", "1.0.0");
+        let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&logs.join(SESSION_FILE)), 0o600);
+        assert_eq!(mode(&logs), 0o700);
     }
 
     #[test]

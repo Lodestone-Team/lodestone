@@ -9,6 +9,20 @@ use super::LogLevel;
 /// `lodestone_host`, `lodestone_ui`, …) and `launcher_core`/`launcher_control`.
 const OWN: [&str; 2] = ["lodestone", "launcher"];
 
+/// Network crates whose trace records print whole requests: tungstenite's handshake
+/// (`Request: …` with a stream's URL and its key), hyper's and h2's headers. They stop
+/// at debug whatever the filter says, so a log made with `LODESTONE_LOG=trace` is
+/// still safe to send.
+const REQUEST_DUMPERS: [&str; 7] = [
+    "tungstenite",
+    "tokio_tungstenite",
+    "hyper",
+    "h2",
+    "reqwest",
+    "zed_reqwest",
+    "rustls",
+];
+
 /// Levels by target prefix. The longest prefix that matches a record's target decides;
 /// without one, `default` does.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -69,6 +83,13 @@ impl Filter {
 
     /// Whether a record at `level` from `target` passes.
     pub fn enabled(&self, level: Level, target: &str) -> bool {
+        if level == Level::Trace
+            && REQUEST_DUMPERS
+                .iter()
+                .any(|name| crate_of(target).starts_with(name))
+        {
+            return false;
+        }
         let limit = self
             .directives
             .iter()
@@ -77,6 +98,11 @@ impl Filter {
             .map_or(self.default, |(_, level)| *level);
         level <= limit
     }
+}
+
+/// The crate a target is in: `hyper_util` for `hyper_util::client`.
+fn crate_of(target: &str) -> &str {
+    target.split("::").next().unwrap_or(target)
 }
 
 fn parse_level(text: &str) -> Result<LevelFilter, String> {
@@ -126,6 +152,16 @@ mod tests {
         assert!(filter.enabled(Level::Debug, "launcher_core::update"));
         assert!(!filter.enabled(Level::Warn, "launcher_core::cores"));
         assert_eq!(Filter::parse("debug").unwrap().default, LevelFilter::Debug);
+    }
+
+    #[test]
+    fn request_dumping_crates_stop_at_debug() {
+        let filter = Filter::parse("trace").unwrap();
+        assert!(!filter.enabled(Level::Trace, "tungstenite::handshake::client"));
+        assert!(!filter.enabled(Level::Trace, "hyper_util::client::legacy"));
+        assert!(filter.enabled(Level::Debug, "tungstenite::handshake::client"));
+        assert!(filter.enabled(Level::Trace, "lodestone_host::app"));
+        assert!(filter.enabled(Level::Trace, "http_client"), "not h2");
     }
 
     #[test]

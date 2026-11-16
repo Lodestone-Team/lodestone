@@ -338,6 +338,8 @@ crate::i18n::messages! {
         ThemeKeywords = "dark light mode appearance colors",
         /// Settings › Updates: the log files.
         LogsSection = "Logs",
+        /// Settings › Updates › Logs: the row with the logs folder.
+        LogFiles = "Log files",
         /// {path} is the logs folder.
         LogsHint = "What the Host and its core did, kept on this computer to help look into a problem. {path}",
         /// How much goes into the Host's log.

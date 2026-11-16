@@ -125,6 +125,13 @@ impl Updater {
         }
     }
 
+    /// "Update ready", for the offscreen scenes.
+    #[cfg(feature = "screenshot")]
+    pub fn preview_ready(&mut self, cx: &mut Context<Self>) {
+        self.state = UpdateState::Ready { build: 9999 };
+        cx.notify();
+    }
+
     pub fn state(&self) -> &UpdateState {
         &self.state
     }

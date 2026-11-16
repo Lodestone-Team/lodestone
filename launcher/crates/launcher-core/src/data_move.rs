@@ -167,7 +167,8 @@ pub fn run(
 
     // Same drive: one rename, when the target doesn't exist yet (an empty folder is
     // removed first). A file open in the data folder makes Windows refuse it; then
-    // it is copied like across drives.
+    // it is copied like across drives. Moving the default folder is always such a
+    // copy on Windows: its logs/launcher.log is open (the logs stay behind anyway).
     if try_rename(from, to) {
         // The running launcher's socket; the restarted one makes its own.
         let _ = fs::remove_file(to.join(SOCKET_FILE));

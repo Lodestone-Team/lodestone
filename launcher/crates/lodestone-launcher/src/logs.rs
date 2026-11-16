@@ -38,21 +38,11 @@ pub fn start(scene: bool) -> Started {
     })
 }
 
-/// "1.2.0 (build 812, 1a2b3c4)", or "(development build)" for one the publish script
-/// didn't make.
 fn version() -> String {
-    let version = env!("CARGO_PKG_VERSION");
-    match launcher_core::update::Build::current() {
-        Some(build) => match build.commit {
-            Some(commit) => format!(
-                "{version} (build {}, {})",
-                build.number,
-                launcher_core::update::short_commit(commit)
-            ),
-            None => format!("{version} (build {})", build.number),
-        },
-        None => format!("{version} (development build)"),
-    }
+    logging::version_label(
+        env!("CARGO_PKG_VERSION"),
+        launcher_core::update::Build::current(),
+    )
 }
 
 /// The logs folder: the one logging writes to, or where it would be.
@@ -68,7 +58,7 @@ pub fn open_folder(cx: &mut App) {
     let Some(dir) = dir() else {
         return;
     };
-    if let Err(err) = std::fs::create_dir_all(&dir) {
+    if let Err(err) = logging::make_dir(&dir) {
         log::warn!("couldn't make the logs folder: {err}");
     }
     logging::flush();

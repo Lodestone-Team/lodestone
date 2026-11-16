@@ -378,6 +378,7 @@ pub fn text(message: M) -> &'static str {
         M::OpenPortKeywords => "連接埠轉送 路由器 UPnP 防火牆",
         M::ThemeKeywords => "深色 淺色 模式 外觀 顏色",
         M::LogsSection => "日誌",
+        M::LogFiles => "日誌檔案",
         M::LogsHint => "Host 和它的核心做過的事，保存在這台電腦上，方便排查問題。{path}",
         M::LogDetail => "日誌詳細程度",
         M::LogDetailHint => "「偵錯」會寫入更多內容，方便排查問題。立即生效。",

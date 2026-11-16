@@ -537,7 +537,7 @@ impl CoreClient {
     ) -> Result<T, CoreError> {
         let response = self
             .send(
-                method,
+                method.clone(),
                 path,
                 auth,
                 body,
@@ -547,7 +547,34 @@ impl CoreClient {
             )
             .await?;
         check(&response, auth)?;
-        serde_json::from_slice(&response.body).map_err(|err| CoreError::Invalid(err.to_string()))
+        self.decode(&method, path, &response.body)
+    }
+
+    /// A reply read as `T`. One that doesn't read (a newer core's field or value this
+    /// client doesn't know) is logged here, where it is decided, with the request and
+    /// the serde error but never the body; the caller only shows the error.
+    pub(super) fn decode<T: serde::de::DeserializeOwned>(
+        &self,
+        method: &Method,
+        path: &str,
+        body: &[u8],
+    ) -> Result<T, CoreError> {
+        static THROTTLE: crate::logging::Throttle = crate::logging::Throttle::new();
+        serde_json::from_slice(body).map_err(|err| {
+            let path = path.split('?').next().unwrap_or_default();
+            THROTTLE.log(
+                &format!("{method} {path}"),
+                log::Level::Warn,
+                module_path!(),
+                format_args!(
+                    "{method} {path} on {}: the reply doesn't read as {}: {}",
+                    self.host(),
+                    short_type_name(std::any::type_name::<T>()),
+                    crate::logging::serde_error(&err)
+                ),
+            );
+            CoreError::Invalid(err.to_string())
+        })
     }
 
     /// `GET /info`: the core's name, id and version. Needs no sign-in.
@@ -939,6 +966,26 @@ pub(super) fn check(response: &RawResponse, auth: Auth<'_>) -> Result<(), CoreEr
 fn is_certificate_error(err: &anyhow::Error) -> bool {
     let lower = format!("{err:#}").to_ascii_lowercase();
     lower.contains("certificate") || lower.contains("unknownissuer")
+}
+
+/// A type's name without its modules: `Vec<ModrinthVersion>`.
+fn short_type_name(name: &str) -> String {
+    let mut out = String::new();
+    let mut word = String::new();
+    let mut chars = name.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == ':' && chars.peek() == Some(&':') {
+            chars.next();
+            word.clear();
+        } else if c.is_alphanumeric() || c == '_' {
+            word.push(c);
+        } else {
+            out.push_str(&word);
+            word.clear();
+            out.push(c);
+        }
+    }
+    out + &word
 }
 
 #[cfg(test)]
