@@ -148,14 +148,21 @@ impl Default for BackupPolicy {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum JobKind {
+    /// A snapshot.
     #[default]
     Backup,
+    /// A snapshot's restore.
     Restore,
+    /// A world backup (`super::world_backups`).
+    WorldBackup,
+    /// A world backup's restore.
+    WorldRestore,
     #[serde(other)]
     Unknown,
 }
 
-/// The backup or restore of the server that is running (`RunningJob`).
+/// The job of the server that is running (`RunningJob`): a snapshot, a world backup or
+/// either's restore, which share one lock per server.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RunningJob {
     #[serde(default)]
@@ -280,7 +287,7 @@ fn update_body(name: Option<Option<&str>>, pinned: Option<bool>) -> Value {
 
 impl AdminClient {
     /// A JSON request with [`BACKUP_JOB_TIMEOUT`].
-    async fn json_slow<T: DeserializeOwned>(
+    pub(super) async fn json_slow<T: DeserializeOwned>(
         &self,
         method: Method,
         path: &str,
