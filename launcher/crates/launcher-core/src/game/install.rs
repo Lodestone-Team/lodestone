@@ -755,10 +755,7 @@ impl Installer {
             .await;
         if let Err(err) = record.save(record_path) {
             // Only the next launch's speed depends on it.
-            log::warn!(
-                "saving {}: {err}",
-                record_path.display()
-            );
+            log::warn!("saving {}: {err}", record_path.display());
         }
         Ok(result?)
     }

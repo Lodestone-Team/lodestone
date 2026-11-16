@@ -948,10 +948,14 @@ pub fn text(message: M) -> &'static str {
             "Supprimer les sauvegardes de mondes des instances supprimées\u{a0}?"
         }
         M::LogsSetting => "Journaux",
-        M::LogsHint => "Ce que le lanceur a fait, gardé sur cet ordinateur pour aider à comprendre un problème. {path}",
+        M::LogsHint => {
+            "Ce que le lanceur a fait, gardé sur cet ordinateur pour aider à comprendre un problème. {path}"
+        }
         M::OpenLogsFolder => "Ouvrir le dossier des journaux",
         M::LogDetail => "Détail des journaux",
-        M::LogDetailHint => "Débogage en écrit plus, pour comprendre un problème. Le changement est immédiat.",
+        M::LogDetailHint => {
+            "Débogage en écrit plus, pour comprendre un problème. Le changement est immédiat."
+        }
         M::LogInfo => "Info",
         M::LogDebug => "Débogage",
         M::LogLevelFromEnv => "LODESTONE_LOG fixe le détail tant que le lanceur est lancé avec.",

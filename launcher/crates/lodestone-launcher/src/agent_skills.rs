@@ -91,7 +91,9 @@ pub fn prompt(skills: &Path, build: Option<Build>, custom_data_dir: Option<&Path
     );
     steps.push(
         "Start debugging: watch what the launcher does with `lodestone-launcher-cli trace watch` \
-         (and `play logs` for the game's output), ask me what went wrong, and reproduce it."
+         (and `play logs` for the game's output), read what it logged before with \
+         `lodestone-launcher-cli logs tail --level warn` (`logs path` shows the files and the \
+         last crash's report), ask me what went wrong, and reproduce it."
             .to_string(),
     );
     let mut text = String::from(

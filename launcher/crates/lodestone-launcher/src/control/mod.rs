@@ -29,6 +29,7 @@ mod friends;
 mod import;
 mod instances;
 mod jobs;
+mod logs;
 mod perf;
 mod servers;
 mod settings;
@@ -906,6 +907,17 @@ pub const METHODS: &[Method] = &[
         "What the window shows now (page, tab, instance, dialog, size, zoom), games and running jobs.",
         trace::snapshot,
     ),
+    // the log file
+    method(
+        "logs.path",
+        "Where the launcher's log files are, with their sizes; the crash file; whether LODESTONE_LOG sets the level.",
+        logs::path,
+    ),
+    method(
+        "logs.tail",
+        "The last `lines` (200; at most 2000) lines of the log, only `level` (error, warn, info, debug) and worse when given.",
+        logs::tail,
+    ),
     // perf
     method(
         "perf.show",
@@ -1626,7 +1638,8 @@ pub fn disconnect(connection: u64, cx: &mut App) {
 /// while access is read-only, a trace method while traces are off, or game output
 /// while game logs are off.
 pub fn refusal(method: &str, cli: &CliSettings) -> Option<ErrorObject> {
-    if method.starts_with("trace.") && !cli.traces {
+    // the log file says as much as the traces
+    if (method.starts_with("trace.") || method.starts_with("logs.")) && !cli.traces {
         return Some(api_error(
             codes::PERMISSION_DENIED,
             "Debug traces are off in Settings → Developer.",
@@ -1715,6 +1728,8 @@ pub const READ_METHODS: &[&str] = &[
     "trace.subscribe",
     "trace.unsubscribe",
     "trace.snapshot",
+    "logs.path",
+    "logs.tail",
     "perf.show",
     "perf.watch",
 ];
@@ -2004,7 +2019,13 @@ mod tests {
             game_logs: false,
             ..CliSettings::default()
         };
-        for name in ["trace.topics", "trace.subscribe", "trace.snapshot"] {
+        for name in [
+            "trace.topics",
+            "trace.subscribe",
+            "trace.snapshot",
+            "logs.path",
+            "logs.tail",
+        ] {
             assert_eq!(refusal(name, &off).unwrap().code, codes::PERMISSION_DENIED);
         }
         assert_eq!(

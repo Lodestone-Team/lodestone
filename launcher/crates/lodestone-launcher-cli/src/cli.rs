@@ -158,6 +158,29 @@ pub enum Command {
     /// The launcher's memory, CPU, threads and open files, how its window draws, a
     /// running game's memory and CPU, and what it holds. `perf` alone is `perf show`.
     Perf(PerfArgs),
+    /// The launcher's own log file (launcher.log, rotated at 5 MB to .1 … .5) and the
+    /// last crash's report. Not a game's log: that is `play logs`.
+    #[command(name = "logs", subcommand)]
+    AppLogs(AppLogs),
+}
+
+#[derive(Subcommand, Debug)]
+pub enum AppLogs {
+    /// Where the log files are, with their sizes. Works without a running launcher.
+    #[command(after_help = "Examples:\n  lodestone-launcher-cli logs path")]
+    Path,
+    /// The log's last lines (of the running launcher; the lines hold no secrets).
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli logs tail\n  lodestone-launcher-cli logs tail -n 50 --level warn"
+    )]
+    Tail {
+        /// How many lines (at most 2000).
+        #[arg(short = 'n', long, default_value_t = 200)]
+        lines: usize,
+        /// Only records this severe or more: error, warn, info or debug.
+        #[arg(long)]
+        level: Option<String>,
+    },
 }
 
 #[derive(Args, Debug)]

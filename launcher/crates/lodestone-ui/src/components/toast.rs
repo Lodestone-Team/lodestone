@@ -431,7 +431,10 @@ mod tests {
     fn only_error_toasts_are_logged() {
         assert_eq!(
             log_line(true, "Couldn't save the instance"),
-            Some((log::Level::Warn, "shown as an error: Couldn't save the instance".into()))
+            Some((
+                log::Level::Warn,
+                "shown as an error: Couldn't save the instance".into()
+            ))
         );
         assert_eq!(log_line(false, "Saved"), None);
     }

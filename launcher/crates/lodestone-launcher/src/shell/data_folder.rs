@@ -254,10 +254,7 @@ pub fn finish_pending_move() {
     };
     match launcher_core::data_move::finish_pending(&location.default, &location.dir) {
         launcher_core::data_move::Finished::Removed(path) => {
-            log::info!(
-                "removed the old data folder {}",
-                path.display()
-            );
+            log::info!("removed the old data folder {}", path.display());
         }
         launcher_core::data_move::Finished::Failed { path, error } => {
             log::warn!(

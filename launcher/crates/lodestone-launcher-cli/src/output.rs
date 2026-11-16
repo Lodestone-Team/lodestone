@@ -25,6 +25,14 @@ pub fn result(mode: Mode, value: &Value) {
 }
 
 /// `content.history` for people: one line per image, newest first.
+/// `logs tail` for people: the log's lines as they are in the file.
+pub fn lines(value: &Value) {
+    let mut out = std::io::stdout().lock();
+    for line in value["lines"].as_array().into_iter().flatten() {
+        let _ = writeln!(out, "{}", line.as_str().unwrap_or_default());
+    }
+}
+
 pub fn history(value: &Value) {
     let _ = write!(std::io::stdout().lock(), "{}", history_text(value));
 }

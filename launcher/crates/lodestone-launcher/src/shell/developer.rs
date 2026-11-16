@@ -64,7 +64,8 @@ fn diagnostics(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> [Setti
                 Some(&level),
                 from_env,
                 move |level, _, cx| {
-                    let saved = accounts.update(cx, |accounts, cx| accounts.set_log_level(level, cx));
+                    let saved =
+                        accounts.update(cx, |accounts, cx| accounts.set_log_level(level, cx));
                     shell_entity
                         .update(cx, |shell, cx| shell.show_save_error(saved, cx))
                         .ok();

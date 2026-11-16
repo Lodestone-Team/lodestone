@@ -17,8 +17,8 @@ pub fn dir() -> PathBuf {
 /// (`screenshot`) log to their own Host folder when `LODESTONE_HOST_DATA_DIR` names
 /// one, and otherwise only to the terminal.
 pub fn start(screenshot: bool) -> Started {
-    let own_folder = std::env::var_os(crate::core_process::env::HOST_DATA)
-        .is_some_and(|dir| !dir.is_empty());
+    let own_folder =
+        std::env::var_os(crate::core_process::env::HOST_DATA).is_some_and(|dir| !dir.is_empty());
     let logs = (!screenshot || own_folder).then(dir);
     let level = if logs.is_some() {
         crate::prefs::load_saved().log_level

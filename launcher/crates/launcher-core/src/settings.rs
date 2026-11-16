@@ -464,14 +464,26 @@ mod tests {
         use crate::logging::LogLevel;
         let developer: DeveloperSettings = serde_json::from_value(json!({})).unwrap();
         assert_eq!(developer.log_level, LogLevel::Info);
-        assert!(serde_json::to_value(&developer).unwrap().get("log_level").is_none());
+        assert!(
+            serde_json::to_value(&developer)
+                .unwrap()
+                .get("log_level")
+                .is_none()
+        );
         let debug: DeveloperSettings =
             serde_json::from_value(json!({"log_level": "debug"})).unwrap();
         assert_eq!(debug.log_level, LogLevel::Debug);
-        assert_eq!(serde_json::to_value(&debug).unwrap()["log_level"], json!("debug"));
+        assert_eq!(
+            serde_json::to_value(&debug).unwrap()["log_level"],
+            json!("debug")
+        );
         let newer: DeveloperSettings =
             serde_json::from_value(json!({"log_level": "trace"})).unwrap();
-        assert_eq!(newer.log_level, LogLevel::Info, "a newer build's value reads as info");
+        assert_eq!(
+            newer.log_level,
+            LogLevel::Info,
+            "a newer build's value reads as info"
+        );
     }
 
     #[test]

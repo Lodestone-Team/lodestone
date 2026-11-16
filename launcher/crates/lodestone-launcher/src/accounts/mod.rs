@@ -699,10 +699,7 @@ fn decode_cached(path: &std::path::Path) -> Option<Arc<RenderImage>> {
 pub fn create(cx: &mut App) -> Entity<Accounts> {
     let data_dir = DataDir::locate().unwrap_or_else(|| {
         let dir = std::env::temp_dir().join(launcher_core::paths::APP_DIR_NAME);
-        log::warn!(
-            "no home directory; keeping data in {}",
-            dir.display()
-        );
+        log::warn!("no home directory; keeping data in {}", dir.display());
         DataDir::at(dir)
     });
     let http = launcher_core::http::default_client().expect("could not start the HTTP client");

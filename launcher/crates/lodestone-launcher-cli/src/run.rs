@@ -66,6 +66,9 @@ fn run(cli: &Cli, mode: Mode) -> Result<(), ErrorObject> {
         Ok(line)
     };
     let plan = plan::plan(&cli.command, &mut read_line)?;
+    if plan == Plan::LogsPath {
+        return logs_path(mode);
+    }
     if plan == Plan::Schema {
         let schema = crate::schema::schema();
         match mode {
@@ -78,6 +81,43 @@ fn run(cli: &Cli, mode: Mode) -> Result<(), ErrorObject> {
         return Ok(());
     }
     connected::run(plan, &cli.global, mode)
+}
+
+/// `logs path`: the launcher's logs folder and its files, found the way the launcher
+/// finds it (the default data folder's `logs/`, which stays put when the data moves).
+fn logs_path(mode: Mode) -> Result<(), ErrorObject> {
+    let location = launcher_control::paths::locate().ok_or_else(|| {
+        ErrorObject::new(
+            launcher_control::codes::NOT_FOUND,
+            "No home folder, so the launcher's data folder is unknown.",
+        )
+    })?;
+    let dir = launcher_control::paths::logs_dir(&location.default);
+    let files: Vec<serde_json::Value> = std::fs::read_dir(&dir)
+        .map(|entries| {
+            let mut files: Vec<(String, u64)> = entries
+                .flatten()
+                .filter_map(|entry| {
+                    let meta = entry.metadata().ok()?;
+                    meta.is_file()
+                        .then(|| (entry.file_name().to_string_lossy().into_owned(), meta.len()))
+                })
+                .collect();
+            files.sort();
+            files
+                .into_iter()
+                .map(|(name, bytes)| serde_json::json!({ "name": name, "bytes": bytes }))
+                .collect()
+        })
+        .unwrap_or_default();
+    let value = serde_json::json!({
+        "dir": dir,
+        "file": dir.join("launcher.log"),
+        "crash_file": dir.join("last-crash.txt"),
+        "files": files,
+    });
+    output::result(mode, &value);
+    Ok(())
 }
 
 /// Asks on the terminal; only when both stdin and stderr are one.
@@ -133,6 +173,7 @@ mod connected {
             Plan::Events { params, count } => events(&mut client, global, mode, params, count),
             Plan::Trace { params, count } => trace(&mut client, global, mode, params, count),
             Plan::PerfWatch { count } => perf_watch(&mut client, global, mode, count),
+            Plan::LogsPath => Ok(()),
         }
     }
 
@@ -238,6 +279,7 @@ mod connected {
                 Ok(value) => {
                     match (mode, method) {
                         (Mode::Human, "content.history") => output::history(&value),
+                        (Mode::Human, "logs.tail") => output::lines(&value),
                         _ => output::result(mode, &value),
                     }
                     return Ok(());

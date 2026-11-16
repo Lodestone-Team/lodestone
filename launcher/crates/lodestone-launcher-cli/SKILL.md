@@ -52,8 +52,8 @@ refuses them. `ping` and `status` report them as
   `"data": {"access": "read_only", "method": "..."}`. `meta.methods` marks each method's
   `read_only`. Tell the user what you wanted to do and that read-only access is on;
   don't retry.
-- **Debug traces** off: `trace ...` fails with `permission_denied`, and nothing is
-  recorded.
+- **Debug traces** off: `trace ...` and `logs tail` fail with `permission_denied`, and
+  nothing is recorded on the trace bus (the log file still is).
 - **Game logs** off: `play logs` and `events --topics log` fail with
   `permission_denied`; other event streams leave the game's lines out.
 
@@ -600,7 +600,13 @@ lodestone-launcher-cli trace watch --backlog 100 --count 100 # the last 100 even
 lodestone-launcher-cli trace watch ui nav settings.change    # clicks, keys, dialogs, navigation, settings
 lodestone-launcher-cli trace watch '*.error' log.warn --backlog 200
 lodestone-launcher-cli trace watch game.log --backlog 0 --timeout 60   # console lines, live only
+lodestone-launcher-cli logs tail --level warn -n 100         # what the launcher logged before, warnings and errors
+lodestone-launcher-cli logs path                             # the log files and last-crash.txt (no launcher needed)
 ```
+
+The log file (`launcher.log`, kept across restarts) is where to look for something
+that happened before you connected, or a crash: `last-crash.txt` has the last panic's
+message, place, thread and backtrace. Its lines are scrubbed of secrets.
 
 Performance ("the launcher is slow", "it uses a lot of memory", "the game stutters"):
 

@@ -121,6 +121,8 @@ struct Installed {
 }
 
 static LOGGER: OnceLock<Logger> = OnceLock::new();
+/// The setting's level is Debug (see [`level`]).
+static DEBUG: AtomicBool = AtomicBool::new(false);
 static INSTALLED: OnceLock<Installed> = OnceLock::new();
 
 /// Sets logging up for the process: the logger, the panic hook, the run's marker and
@@ -138,6 +140,7 @@ pub fn install(config: Config) -> Started {
         _ => (None, None),
     };
     let env_override = env.is_some();
+    DEBUG.store(config.level == LogLevel::Debug, Ordering::Relaxed);
     let logger = LOGGER.get_or_init(|| {
         Logger::new(
             config.dir.as_deref(),
@@ -202,9 +205,19 @@ pub fn set_level(level: LogLevel) {
     if installed.env_override {
         return;
     }
+    DEBUG.store(level == LogLevel::Debug, Ordering::Relaxed);
     if let Some(logger) = LOGGER.get() {
         logger.set_filter(Filter::defaults(level));
         log::info!("log detail is now {level:?}");
+    }
+}
+
+/// The setting's level, as last given ([`ENV`] may set the filter instead).
+pub fn level() -> LogLevel {
+    if DEBUG.load(Ordering::Relaxed) {
+        LogLevel::Debug
+    } else {
+        LogLevel::Info
     }
 }
 

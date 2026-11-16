@@ -279,7 +279,10 @@ mod tests {
         }
         let fine = [
             ("job.finished", json!({ "state": "succeeded" })),
-            ("job.finished", json!({ "state": "cancelled", "error": { "code": -32800 } })),
+            (
+                "job.finished",
+                json!({ "state": "cancelled", "error": { "code": -32800 } }),
+            ),
             ("storage.move", json!({ "error": null, "done": 3 })),
             ("http.response", json!({ "status": 404 })),
             ("game.exit", json!({ "crashed": false, "code": 0 })),

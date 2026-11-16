@@ -341,7 +341,10 @@ pub fn read(text: &str) -> Result<ClientEvent, serde_json::Error> {
             "frame",
             log::Level::Warn,
             module_path!(),
-            format_args!("couldn't read an event from the core ({} bytes): {err}", text.len()),
+            format_args!(
+                "couldn't read an event from the core ({} bytes): {err}",
+                text.len()
+            ),
         );
     })
 }

@@ -202,7 +202,10 @@ impl Images {
         for header in &listing.content {
             if !linked.contains(&header.id) {
                 if let Err(err) = self.store().delete_manifest(folder, &header.id) {
-                    log::warn!("couldn't delete the unlinked content image {}: {err}", header.id);
+                    log::warn!(
+                        "couldn't delete the unlinked content image {}: {err}",
+                        header.id
+                    );
                 }
             }
         }

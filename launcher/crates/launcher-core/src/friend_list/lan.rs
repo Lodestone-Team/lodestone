@@ -95,9 +95,7 @@ impl Friends {
                 Some(identity) => return Ok(identity),
                 // sealed with keys this list doesn't have (a new identity), or damaged:
                 // a new certificate, which the state then lists in its place
-                None => log::warn!(
-                    "the LAN worlds certificate is unreadable; making a new one"
-                ),
+                None => log::warn!("the LAN worlds certificate is unreadable; making a new one"),
             }
         }
         let identity = CoreIdentity::generate()?;
