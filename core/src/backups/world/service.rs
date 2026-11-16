@@ -177,7 +177,9 @@ impl WorldBackupService {
         &self.store
     }
 
-    /// At startup: deletes the part files and temporary sidecars a crash left. Blocking.
+    /// At startup, before the core serves requests: deletes the part files and temporary
+    /// sidecars a crash left. It would delete a running backup's, so nothing may run yet.
+    /// Blocking.
     pub fn sweep(&self) {
         self.store.sweep();
     }

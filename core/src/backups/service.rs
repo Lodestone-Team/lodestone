@@ -1006,7 +1006,7 @@ impl BackupService {
                 .map_err(|e| {
                     err(
                         ErrorKind::NotFound,
-                        format!("The backup's image can't be read: {e}"),
+                        format!("The snapshot's image can't be read: {e}"),
                     )
                 })?;
             let content = image
@@ -1144,7 +1144,7 @@ impl BackupService {
                                 warn!("Failed to delete the image {} of {uuid}: {e}", record.image);
                                 failure.get_or_insert_with(|| {
                                     Error::from(eyre!(
-                                        "Failed to delete the backup {}: {e}",
+                                        "Failed to delete the snapshot {}: {e}",
                                         record.id
                                     ))
                                 });
@@ -1430,7 +1430,7 @@ impl BackupService {
             )
         };
 
-        phase.report(95.0, Some("Saving the backup"));
+        phase.report(95.0, Some("Saving the snapshot"));
         let saved = self
             .save(
                 &uuid,
@@ -1575,7 +1575,7 @@ impl BackupService {
             images.save_manifest(id.as_ref(), &to_save).map_err(|e| {
                 err(
                     ErrorKind::Internal,
-                    format!("Failed to save the backup's image: {e}"),
+                    format!("Failed to save the snapshot's image: {e}"),
                 )
             })?;
             store.save_records(&id, &records)
@@ -1889,7 +1889,7 @@ impl BackupService {
             _mods: Some(mods),
         };
         if !was_running {
-            guards.stopped = Some(instance.lock_stopped("restoring a backup").await?);
+            guards.stopped = Some(instance.lock_stopped("restoring a snapshot").await?);
         }
         // the restore keeps using this policy: the check holds only for what it excludes
         let policy_exclude = self.policy(&uuid).await?.exclude;
@@ -2136,7 +2136,7 @@ impl BackupService {
         let uuid = instance.uuid().await;
         let root = instance.path().await;
         if was_running {
-            guards.stopped = Some(instance.lock_stopped("restoring a backup").await?);
+            guards.stopped = Some(instance.lock_stopped("restoring a snapshot").await?);
         }
         // the content image first, so the safety backup links to the content as it is; then
         // the restore holds the content until its own image is recorded
@@ -2558,7 +2558,7 @@ impl BackupService {
                 .map(|f| f.entry.size)
                 .fold(0, u64::saturating_add);
             // held against the core's other large writes at the same time
-            let _space = large_writes.require(&tmp_dir, total, "to download the backup")?;
+            let _space = large_writes.require(&tmp_dir, total, "to download the snapshot")?;
             std::fs::create_dir_all(&tmp_dir).context("Failed to create the temporary folder")?;
             let temp_dir =
                 tempfile::tempdir_in(&tmp_dir).context("Failed to create a temporary folder")?;
@@ -2584,7 +2584,7 @@ impl BackupService {
                     .map_err(|e| {
                         err(
                             ErrorKind::Internal,
-                            format!("The backup's copy of {} can't be read: {e}", file.disk),
+                            format!("The snapshot's copy of {} can't be read: {e}", file.disk),
                         )
                     })?;
             }
@@ -2647,7 +2647,7 @@ impl BackupService {
             let _space = large_writes.require(
                 &tmp_dir,
                 prepared.carried_bytes()?,
-                "to export the backup",
+                "to export the snapshot",
             )?;
             std::fs::create_dir_all(&tmp_dir).context("Failed to create the temporary folder")?;
             let temp_dir =

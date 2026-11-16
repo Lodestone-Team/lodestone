@@ -1268,9 +1268,11 @@ pub fn prepare(
         content.label = Some(label(server_name, backup));
         content.parent = None;
         content.seal();
-        content
-            .validate()
-            .map_err(|e| internal(format!("The backup's content image can't be exported: {e}")))?;
+        content.validate().map_err(|e| {
+            internal(format!(
+                "The snapshot's content image can't be exported: {e}"
+            ))
+        })?;
     }
     image.content = content.as_ref().map(|c| c.id.clone());
     image.label = Some(label(server_name, backup));
@@ -1283,7 +1285,7 @@ pub fn prepare(
     image.validate().map_err(|e| Error {
         kind: ErrorKind::Conflict,
         source: color_eyre::eyre::eyre!(
-            "This backup can't be exported: {e}. Its backup excludes may leave no room for what an export takes out"
+            "This snapshot can't be exported: {e}. Its excludes may leave no room for what an export takes out"
         ),
     })?;
     left_out.sort();

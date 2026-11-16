@@ -4121,8 +4121,16 @@ open. The code is `core/src/backups/world/` (`store.rs`, `writer.rs`, `reader.rs
   cancelled restore its staging folder.
 - **Deleting a server** deletes `world-backups/<uuid>/` beside its snapshots, while the job
   lock is held.
-- **Snapshot wording.** The core's snapshot messages and the Host's text say "snapshot"
-  ("Taking a snapshot of …", "Restored snapshot “…”"); routes, types and message keys keep
-  their backup names.
+- **Startup.** The sweep of part files and temporary sidecars runs after the snapshots'
+  recovery and is awaited before the core serves requests, so it can never remove the part
+  file of a backup started meanwhile.
+- **Snapshot wording.** The core's snapshot messages (progress, refusals, free-space
+  reasons, completions) and the Host's text say "snapshot" ("Taking a snapshot of …",
+  "Saving the snapshot", "This snapshot doesn't know …", "Restored snapshot “…”"); the
+  texts world backups share with snapshots are neutral ("Names can be at most …", "The
+  server stopped while it was being copied"). Routes, types, message keys and log lines
+  keep their backup names.
+- **Renaming** is a route (`PATCH …/world-backups/{id}`) for API clients only: the Host
+  renames neither snapshots nor world backups, and its admin client has no call for it.
 - **Not in scope.** Uploading or importing a world zip from elsewhere, scheduled world
   backups, pruning, a cancel for snapshot jobs. `crates/lodestone-image` is unchanged.

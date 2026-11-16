@@ -1430,9 +1430,12 @@ pub async fn run_with(
         path_to_world_backups(),
     ));
     {
-        // world zips a stopped core was writing
+        // world zips a stopped core was writing; awaited before serving, so it can't
+        // remove the part file of a backup someone starts meanwhile
         let world_backups = world_backups.clone();
-        tokio::task::spawn_blocking(move || world_backups.sweep());
+        if let Err(e) = tokio::task::spawn_blocking(move || world_backups.sweep()).await {
+            error!("World backup clean-up failed: {e}");
+        }
     }
     let shared_state = AppState {
         server_setup: Arc::new(server_setup::Installers),

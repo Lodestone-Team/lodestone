@@ -408,7 +408,7 @@ fn a_world_restore_needs_a_world() {
     let ctx = env.ctx(Flavour::Vanilla, &[]);
     for scope in [RestoreScope::World, RestoreScope::WorldAndMods] {
         let error = plan(&env.images, &ctx, &everything(&image, None), scope).unwrap_err();
-        assert_eq!(error.source.to_string(), "This backup has no world");
+        assert_eq!(error.source.to_string(), "This snapshot has no world");
     }
     // a level the image doesn't have
     let error = plan(
@@ -418,7 +418,7 @@ fn a_world_restore_needs_a_world() {
         RestoreScope::World,
     )
     .unwrap_err();
-    assert_eq!(error.source.to_string(), "This backup has no world");
+    assert_eq!(error.source.to_string(), "This snapshot has no world");
     env.plan(&everything(&image, None), RestoreScope::Everything, &ctx);
 }
 
@@ -1155,7 +1155,7 @@ fn stage_all_and_damaged_backups() {
     let error = stage_all(&env.images, &files, &dest, &mut |_, _| {}, NEVER).unwrap_err();
     assert_eq!(
         error.source.to_string(),
-        "The backup's copy of world/level.dat is missing or damaged"
+        "The snapshot's copy of world/level.dat is missing or damaged"
     );
     assert!(!dest.exists());
     let plan_ = env.plan(

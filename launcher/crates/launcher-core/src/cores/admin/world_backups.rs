@@ -1,7 +1,9 @@
 //! A server's world backups (`core/src/handlers/world_backups.rs`): plain `.zip` files
 //! of its world, beside its snapshots ([`super::backups`]). The list with the job
-//! running and the space used, making one, renaming, deleting, restoring one into the
-//! stopped server, downloading the stored zip, and cancelling a world job.
+//! running and the space used, making one, deleting, restoring one into the stopped
+//! server, downloading the stored zip, and cancelling a world job: what the Host's
+//! Snapshots tab does. The core's rename route (`PATCH`) is left to API clients, as the
+//! Host doesn't rename snapshots either.
 //!
 //! Making and restoring run in the background, as snapshots do: the request returns the
 //! job's `task_id`, and the progression's end (`WorldBackupCompleted`,
@@ -15,7 +17,6 @@ use std::path::Path;
 
 use http_client::Method;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 use super::backups::{MAX_BACKUP_DOWNLOAD_BYTES, RunningJob};
 use super::{AdminClient, events::snowflake, segment};
@@ -152,18 +153,6 @@ impl AdminClient {
             .json_slow(Method::POST, &world_backups(uuid), &body)
             .await?;
         Ok(started.task_id)
-    }
-
-    /// `PATCH /instance/{uuid}/world-backups/{id}`: renames it (`None` removes the name).
-    pub async fn rename_world_backup(
-        &self,
-        uuid: &str,
-        id: &str,
-        name: Option<&str>,
-    ) -> Result<WorldBackupInfo, CoreError> {
-        let body = serde_json::json!({ "name": name.map_or(Value::Null, Value::from) });
-        self.json(Method::PATCH, &world_backup(uuid, id), Some(body))
-            .await
     }
 
     /// `DELETE /instance/{uuid}/world-backups/{id}`.

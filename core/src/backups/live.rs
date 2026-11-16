@@ -249,7 +249,7 @@ where
             SaveWait::NotRunning => {
                 return Err(err(
                     ErrorKind::Conflict,
-                    "The server stopped while it was being backed up",
+                    "The server stopped while it was being copied",
                 ))
             }
             SaveWait::Cancelled => return Err(cancelled()),
@@ -270,7 +270,7 @@ where
             Err(err(
                 ErrorKind::Internal,
                 format!(
-                    "The backup was stopped because saving was paused for more than {} minutes",
+                    "The copy was stopped because saving was paused for more than {} minutes",
                     limits.save_off_cap.as_secs() / 60
                 ),
             ))
@@ -291,7 +291,7 @@ async fn write_marker(marker: &Path) -> Result<(), Error> {
     if let Some(parent) = marker.parent() {
         tokio::fs::create_dir_all(parent)
             .await
-            .context("Failed to create the server's backup folder")?;
+            .context("Failed to create the save-off marker's folder")?;
     }
     let now = chrono::Utc::now().timestamp().to_string();
     tokio::fs::write(marker, now)
@@ -585,7 +585,7 @@ pub(crate) mod tests {
         let result = run(&server, vec![], &marker, Limits::default()).await;
         assert_eq!(
             result.unwrap_err().source.to_string(),
-            "The server stopped while it was being backed up"
+            "The server stopped while it was being copied"
         );
         assert_eq!(server.commands().last().unwrap(), "save-on");
     }

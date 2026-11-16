@@ -147,7 +147,7 @@ pub fn image_layout(image: &Image, level: Option<&str>, split: bool) -> Result<D
     let layout = ServerLayout::new(level, others, split).map_err(|e| {
         err(
             ErrorKind::Internal,
-            format!("The backup's worlds can't be placed on a server: {e}"),
+            format!("The snapshot's worlds can't be placed on a server: {e}"),
         )
     })?;
     Ok(DiskLayout::Server(layout))
@@ -219,11 +219,11 @@ impl RestorePlan {
 /// handler asks first, before it stops the server.
 pub fn check_scope(scope: RestoreScope, has_level: bool, has_content: bool) -> Result<(), Error> {
     if scope != RestoreScope::Everything && !has_level {
-        return Err(bad_request("This backup has no world"));
+        return Err(bad_request("This snapshot has no world"));
     }
     if scope == RestoreScope::WorldAndMods && !has_content {
         return Err(bad_request(
-            "This backup doesn't know the content it ran with, so its mods can't be restored",
+            "This snapshot doesn't know the content it ran with, so its mods can't be restored",
         ));
     }
     Ok(())
@@ -286,7 +286,7 @@ pub fn plan(
             err(
                 ErrorKind::Internal,
                 format!(
-                    "The backup's {} can't be placed on this server: {e}",
+                    "The snapshot's {} can't be placed on this server: {e}",
                     entry.path
                 ),
             )
@@ -595,13 +595,13 @@ pub fn pin_config_json(text: &str, pin: &Pin) -> Result<String, Error> {
     let mut value: serde_json::Value = serde_json::from_str(text).map_err(|e| {
         err(
             ErrorKind::Internal,
-            format!("The backup's server settings can't be read: {e}"),
+            format!("The snapshot's server settings can't be read: {e}"),
         )
     })?;
     let object = value.as_object_mut().ok_or_else(|| {
         err(
             ErrorKind::Internal,
-            "The backup's server settings can't be read",
+            "The snapshot's server settings can't be read",
         )
     })?;
     if let Some(name) = &pin.name {
@@ -667,7 +667,7 @@ pub fn pin_settings(dir: &Path, pin: &Pin) -> Result<(), Error> {
     let config = dir.join(CONFIG_FILE);
     if config.is_file() {
         let text =
-            fs::read_to_string(&config).context("Failed to read the backup's server settings")?;
+            fs::read_to_string(&config).context("Failed to read the snapshot's server settings")?;
         write_synced(&config, pin_config_json(&text, pin)?.as_bytes())
             .context("Failed to write the server settings")?;
     }
@@ -716,7 +716,7 @@ fn write_files(
             return Err(err(
                 ErrorKind::Internal,
                 format!(
-                    "The backup's {} has a path that can't be placed",
+                    "The snapshot's {} has a path that can't be placed",
                     file.entry.path
                 ),
             ));
@@ -740,12 +740,15 @@ fn write_files(
                 StoreError::Missing(_) | StoreError::Damaged(_) | StoreError::WrongSize { .. } => {
                     err(
                         ErrorKind::Internal,
-                        format!("The backup's copy of {} is missing or damaged", file.disk),
+                        format!("The snapshot's copy of {} is missing or damaged", file.disk),
                     )
                 }
                 other => err(
                     ErrorKind::Internal,
-                    format!("Failed to read the backup's copy of {}: {other}", file.disk),
+                    format!(
+                        "Failed to read the snapshot's copy of {}: {other}",
+                        file.disk
+                    ),
                 ),
             })?;
         let out = writer
@@ -1729,7 +1732,7 @@ pub fn all_files(image: &Image, layout: &DiskLayout) -> Result<Vec<Target>, Erro
             err(
                 ErrorKind::Internal,
                 format!(
-                    "The backup's {} can't be placed on a server: {e}",
+                    "The snapshot's {} can't be placed on a server: {e}",
                     entry.path
                 ),
             )
