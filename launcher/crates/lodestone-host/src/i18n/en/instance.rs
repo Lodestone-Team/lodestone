@@ -85,10 +85,10 @@ crate::i18n::messages! {
         /// {state} is the server's new state, such as Running.
         EventState = "The server is now {state}",
         /// {names} is a list of player names.
-        EventJoined = "{names} joined",
-        EventLeft = "{names} left",
+        EventJoined = "Joined",
+        EventLeft = "Left",
         /// {user} is who did it.
-        EventBy = "by {user}",
+        EventBy = "By",
         /// The Mods (or Plugins) tab (`ModsTab.tsx`, `InstalledMods.tsx`, `ModrinthSearch.tsx`, `ModrinthProjectView.tsx`).
         ModsUnsupported = "This server doesn’t support mods or plugins. Fabric, Forge, Paper and Spigot servers do.",
         ModsNoRead = "You don’t have permission to read this server’s files.",
@@ -312,6 +312,8 @@ crate::i18n::messages! {
         FriendsMinecraftKey = "Minecraft accounts",
         /// A badge: the server is shared with the friend.
         FriendsShared = "Shared",
+        /// Before the server's new state, a badge.
+        EventStateLead = "The server is now",
     }
 
     pub enum InstancePlural {

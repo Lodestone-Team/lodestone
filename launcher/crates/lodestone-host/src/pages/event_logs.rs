@@ -17,11 +17,11 @@ use launcher_core::cores::admin::{
 };
 use lodestone_ui::{
     components::{
-        Icon, LoadingDots,
+        Icon, LoadingDots, ObjectChip,
         settings::{card, content_width},
     },
     i18n::format,
-    theme::{colors, fonts, ink, leading, line_height, px, text},
+    theme::{colors, fonts, ink, leading, line_height, px, text, weights},
 };
 
 use crate::{
@@ -40,8 +40,27 @@ pub struct LogLine {
     pub millis: i64,
     pub level: EventLevel,
     pub text: String,
+    /// What the line shows, laid out: a state as a badge, players as chips.
+    pub what: What,
     /// Who caused it, when a user did.
     pub by: Option<String>,
+}
+
+/// A log line's content, beyond its plain [`LogLine::text`].
+#[derive(Clone, Debug, PartialEq)]
+pub enum What {
+    /// A message as it is (a warning's or an error's).
+    Text,
+    /// The server's new state.
+    State(InstanceState),
+    /// Players who joined, or left.
+    Joined(Vec<String>),
+    Left(Vec<String>),
+    /// A player's chat message.
+    Chat {
+        player: String,
+        message: String,
+    },
 }
 
 fn state_name(state: InstanceState) -> &'static str {
@@ -73,12 +92,16 @@ pub fn lines_of(event: &ClientEvent, uuid: &str) -> Vec<LogLine> {
         CausedBy::User { user_name, .. } => Some(user_name.clone()),
         _ => None,
     };
-    let line = |level: EventLevel, text: String| LogLine {
+    let line = |level: EventLevel, text: String, what: What| LogLine {
         snowflake: event.snowflake,
         millis: event.millis(),
         level,
         text,
+        what,
         by: by.clone(),
+    };
+    let list = |players: &[Player]| -> Vec<String> {
+        players.iter().map(|p| p.name().to_string()).collect()
     };
     match &inner.instance_event_inner {
         InstanceEventInner::StateTransition { to } => {
@@ -87,13 +110,17 @@ pub fn lines_of(event: &ClientEvent, uuid: &str) -> Vec<LogLine> {
             } else {
                 EventLevel::Info
             };
-            vec![line(level, tr!(M::EventState, state = state_name(*to)))]
+            vec![line(
+                level,
+                tr!(M::EventState, state = state_name(*to)),
+                What::State(*to),
+            )]
         }
         InstanceEventInner::InstanceWarning { message } => {
-            vec![line(EventLevel::Warning, message.clone())]
+            vec![line(EventLevel::Warning, message.clone(), What::Text)]
         }
         InstanceEventInner::InstanceError { message } => {
-            vec![line(EventLevel::Error, message.clone())]
+            vec![line(EventLevel::Error, message.clone(), What::Text)]
         }
         InstanceEventInner::PlayerChange {
             players_joined,
@@ -104,13 +131,23 @@ pub fn lines_of(event: &ClientEvent, uuid: &str) -> Vec<LogLine> {
             if !players_joined.is_empty() {
                 lines.push(line(
                     EventLevel::Info,
-                    tr!(M::EventJoined, names = names(players_joined)),
+                    lodestone_ui::components::readable::key_value(
+                        t(M::EventJoined),
+                        &names(players_joined),
+                    )
+                    .to_string(),
+                    What::Joined(list(players_joined)),
                 ));
             }
             if !players_left.is_empty() {
                 lines.push(line(
                     EventLevel::Info,
-                    tr!(M::EventLeft, names = names(players_left)),
+                    lodestone_ui::components::readable::key_value(
+                        t(M::EventLeft),
+                        &names(players_left),
+                    )
+                    .to_string(),
+                    What::Left(list(players_left)),
                 ));
             }
             lines
@@ -121,6 +158,10 @@ pub fn lines_of(event: &ClientEvent, uuid: &str) -> Vec<LogLine> {
         } => vec![line(
             EventLevel::Info,
             format!("<{player}> {player_message}"),
+            What::Chat {
+                player: player.clone(),
+                message: player_message.clone(),
+            },
         )],
         _ => Vec::new(),
     }
@@ -207,6 +248,64 @@ fn when(millis: i64) -> String {
     }
 }
 
+/// Players' names as a wrapping row of chips.
+fn player_chips(index: usize, names: &[String]) -> impl IntoElement + use<> {
+    div()
+        .flex()
+        .flex_row()
+        .flex_wrap()
+        .gap(px(6.))
+        .children(names.iter().enumerate().map(|(n, name)| {
+            ObjectChip::new(name.clone())
+                .icon(Icon::User)
+                .id(SharedString::from(format!("event-{index}-player-{n}")))
+        }))
+}
+
+/// What a line shows: a state as a badge, players as chips under what they did, a
+/// chat message after its player.
+fn content(index: usize, line: &LogLine) -> AnyElement {
+    let headed = |heading: &str, names: &[String]| {
+        div()
+            .flex()
+            .flex_row()
+            .flex_wrap()
+            .items_center()
+            .gap(px(8.))
+            .child(heading.to_string())
+            .child(player_chips(index, names))
+            .into_any_element()
+    };
+    match &line.what {
+        What::Text => div()
+            .child(SharedString::from(line.text.clone()))
+            .into_any_element(),
+        What::State(state) => div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(px(8.))
+            .child(t(M::EventStateLead))
+            .child(crate::shell::sidebar::state_badge(*state))
+            .into_any_element(),
+        What::Joined(names) => headed(t(M::EventJoined), names),
+        What::Left(names) => headed(t(M::EventLeft), names),
+        What::Chat { player, message } => div()
+            .flex()
+            .flex_row()
+            .flex_wrap()
+            .items_center()
+            .gap(px(8.))
+            .child(
+                ObjectChip::new(player.clone())
+                    .icon(Icon::User)
+                    .id(SharedString::from(format!("event-{index}-chat"))),
+            )
+            .child(SharedString::from(message.clone()))
+            .into_any_element(),
+    }
+}
+
 fn row(index: usize, line: &LogLine) -> AnyElement {
     let (icon, color) = match line.level {
         EventLevel::Error => (Icon::CircleExclamation, colors::RED_200),
@@ -241,13 +340,21 @@ fn row(index: usize, line: &LogLine) -> AnyElement {
                 } else {
                     color
                 })
-                .child(SharedString::from(line.text.clone()))
+                .child(content(index, line))
                 .when_some(line.by.clone(), |this, by| {
                     this.child(
                         div()
+                            .flex()
+                            .flex_row()
+                            .gap(px(4.))
                             .text_size(text::SMALL)
-                            .text_color(ink::muted())
-                            .child(tr!(M::EventBy, user = by)),
+                            .child(div().text_color(ink::faint()).child(t(M::EventBy)))
+                            .child(
+                                div()
+                                    .font_weight(weights::MEDIUMBOLD.face())
+                                    .text_color(ink::secondary())
+                                    .child(by),
+                            ),
                     )
                 }),
         )

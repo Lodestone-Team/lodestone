@@ -67,9 +67,9 @@ pub fn text(message: M) -> &'static str {
         M::EventLogsEmpty => "还没有任何事件",
         M::EventLogsFailed => "无法加载事件：{error}",
         M::EventState => "服务器现在为{state}",
-        M::EventJoined => "{names} 加入了",
-        M::EventLeft => "{names} 离开了",
-        M::EventBy => "由 {user}",
+        M::EventJoined => "已加入",
+        M::EventLeft => "已离开",
+        M::EventBy => "操作者",
         M::ModsUnsupported => {
             "此服务器不支持模组或插件。Fabric、Forge、Paper 和 Spigot 服务器支持。"
         }
@@ -285,6 +285,7 @@ pub fn text(message: M) -> &'static str {
         M::ModsThisServer => "此服务器",
         M::FriendsMinecraftKey => "Minecraft 账户",
         M::FriendsShared => "已共享",
+        M::EventStateLead => "服务器现在",
     }
 }
 

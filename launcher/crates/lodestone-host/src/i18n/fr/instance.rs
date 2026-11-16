@@ -89,9 +89,9 @@ pub fn text(message: M) -> &'static str {
         M::EventLogsEmpty => "Rien ne s’est encore passé",
         M::EventLogsFailed => "Impossible de charger les événements : {error}",
         M::EventState => "Le serveur est maintenant : {state}",
-        M::EventJoined => "{names} a rejoint",
-        M::EventLeft => "{names} est parti",
-        M::EventBy => "par {user}",
+        M::EventJoined => "Arrivés",
+        M::EventLeft => "Partis",
+        M::EventBy => "Par",
         M::ModsUnsupported => {
             "Ce serveur ne prend pas en charge les mods ni les plugins. Les serveurs Fabric, Forge, Paper et Spigot, si."
         }
@@ -333,6 +333,7 @@ pub fn text(message: M) -> &'static str {
         M::ModsThisServer => "Ce serveur",
         M::FriendsMinecraftKey => "Comptes Minecraft",
         M::FriendsShared => "Partagé",
+        M::EventStateLead => "Le serveur est maintenant",
     }
 }
 
