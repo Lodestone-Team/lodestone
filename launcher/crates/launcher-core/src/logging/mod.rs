@@ -262,6 +262,31 @@ pub fn end_session() {
     }
 }
 
+/// A serde error about untrusted input, without the values it quotes: serde writes a
+/// value it couldn't use in double quotes (`invalid type: string "steve"`), which can be
+/// a player's name or a console line. Names from the format itself (variants and
+/// fields, in backticks) and the line and column stay, which is what a fix needs.
+pub fn serde_error(err: &serde_json::Error) -> String {
+    let text = err.to_string();
+    let mut out = String::with_capacity(text.len());
+    let mut quoted = false;
+    for c in text.chars() {
+        match (c, quoted) {
+            ('"', false) => {
+                quoted = true;
+                out.push_str("\"…");
+            }
+            ('"', true) => {
+                quoted = false;
+                out.push('"');
+            }
+            (_, true) => {}
+            (c, false) => out.push(c),
+        }
+    }
+    out
+}
+
 /// The log files in `dir` for `app`, newest first.
 pub fn files(dir: &Path, app: AppKind) -> Vec<PathBuf> {
     RotatingFile::files(dir, app.file_name())
@@ -618,6 +643,20 @@ mod tests {
         let warnings = tail(&path, 10, Some(log::Level::Warn)).unwrap();
         assert_eq!(warnings.len(), 2, "{warnings:?}");
         assert!(warnings[0].ends_with("two") && warnings[1] == "  more of two");
+    }
+
+    #[test]
+    fn serde_errors_lose_the_values_they_quote() {
+        let err = serde_json::from_str::<u64>(r#""steve""#).unwrap_err();
+        let text = serde_error(&err);
+        assert!(!text.contains("steve"), "{text}");
+        assert!(text.contains("invalid type: string \"…\""), "{text}");
+        #[derive(Debug, serde::Deserialize)]
+        enum Kind {
+            Known,
+        }
+        let err = serde_json::from_str::<Kind>(r#""Other""#).unwrap_err();
+        assert!(serde_error(&err).contains("`Other`"), "variant names stay");
     }
 
     #[test]

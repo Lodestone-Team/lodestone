@@ -387,7 +387,7 @@ impl super::AdminClient {
             .filter_map(|event| {
                 serde_json::from_value(event)
                     .inspect_err(|err| {
-                        first_error.get_or_insert_with(|| err.to_string());
+                        first_error.get_or_insert_with(|| crate::logging::serde_error(err));
                     })
                     .ok()
             })

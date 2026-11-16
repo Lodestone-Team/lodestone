@@ -223,7 +223,10 @@ pub fn parse_frame(text: &str, instance: &str) -> Option<LiveMessage> {
                 "frame",
                 log::Level::Warn,
                 module_path!(),
-                format_args!("couldn't read a frame of {instance}'s stream: {err}"),
+                format_args!(
+                    "couldn't read a frame of {instance}'s stream: {}",
+                    crate::logging::serde_error(&err)
+                ),
             );
             return None;
         }
