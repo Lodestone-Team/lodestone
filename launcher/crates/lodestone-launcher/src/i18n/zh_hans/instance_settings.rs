@@ -179,9 +179,6 @@ pub fn text(message: M) -> &'static str {
         M::SnapshotAfterPlayHint => {
             "游玩后复制整个实例文件夹。跟随“设置 › 实例默认设置”，默认关闭，除非你开启。"
         }
-        M::SnapshotAfterPlayDefaultHint => {
-            "每次游戏结束后复制整个实例文件夹，适用于未自行设置的实例。默认关闭，除非你开启。"
-        }
         M::SnapshotKeepHint => {
             "启动器自动拍摄的快照会保留一段时间：最近 {last} 个、{days} 天内每天一个、{weeks} 周内每周一个。你自己拍摄的快照会一直保留，直到你删除。"
         }

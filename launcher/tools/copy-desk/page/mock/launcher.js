@@ -960,7 +960,7 @@
   function settingsDefaults(ctx) {
     return [h("div.lx-h3-sub", sh("DefaultsLead")), h("div.lx-sec", card(
       srow(sh("AutoConfigure"), sh("AutoConfigureHint"), toggle(true)),
-      srow(is("SnapshotAfterPlay"), is("SnapshotAfterPlayDefaultHint"), toggle(false)),
+      srow(is("SnapshotAfterPlay"), null, toggle(false)),
       srow(sh("Memory"), [sh("MemoryDefaultHint", { min: "512 MB", max: "4 GB" }), " ", is("TotalMemory", { computer: "This Mac", size: "16 GB" })], [field("512", null, { cls: "lx-num" }), h("span.lx-muted", sh("MegabytesUnit")), tx("\u2013"), field("4096"), h("span.lx-muted", sh("MegabytesUnit"))],
         { below: ctx.state.settingsUnsaved === "error" ? h("div", { style: { color: "#ff8a8a", fontSize: "13.5px", marginTop: "4px" } }, sh("MemoryError", { error: "" }), is("MemoryMinAboveMax"), " ", is("MemoryFormat"), " ", is("MemoryTooHigh", { computer: "this Mac", os: "macOS" })) : null }),
       srow(sh("Window"), null, [field("854"), tx("\u00d7"), field("480"), h("span.lx-muted", sh("Fullscreen")), toggle(false)], { below: ctx.state.settingsUnsaved === "error" ? h("div", { style: { color: "#ff8a8a", fontSize: "13.5px" } }, is("WindowSizeInvalid")) : h("div.lx-srow-hint", is("WindowFullscreen", { size: "854 \u00d7 480" })) }),

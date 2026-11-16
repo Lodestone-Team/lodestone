@@ -186,9 +186,6 @@ pub fn text(message: M) -> &'static str {
         M::SnapshotAfterPlayHint => {
             "Copie tout le dossier de l’instance après chaque partie. Suit Paramètres › Paramètres par défaut des instances, où c’est désactivé sauf si vous l’activez."
         }
-        M::SnapshotAfterPlayDefaultHint => {
-            "Copie tout le dossier de l’instance après chaque partie, pour les instances qui ne le règlent pas elles-mêmes. Désactivé sauf si vous l’activez."
-        }
         M::SnapshotKeepHint => {
             "Les instantanés pris par le Launcher sont gardés un temps\u{a0}: les {last} derniers, un par jour pendant {days} jours et un par semaine pendant {weeks} semaines. Les vôtres restent jusqu’à ce que vous les supprimiez."
         }
