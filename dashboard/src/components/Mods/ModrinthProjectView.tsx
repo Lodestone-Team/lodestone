@@ -577,7 +577,7 @@ export default function ModrinthProjectView({
   onCreateFromModpack:
     ((projectId: string, versionId: string | null) => void) | null;
 }) {
-  const { t, rich, formatNumber } = useI18n();
+  const { t, rich } = useI18n();
   const { data: project, error, isPending } = useModrinthProject(projectId);
 
   const backButton = (
@@ -656,7 +656,9 @@ export default function ModrinthProjectView({
               {
                 label: t('values.key.downloads'),
                 value: (
-                  <span title={formatNumber(project.downloads)}>
+                  <span
+                    title={t('mods.downloads', { count: project.downloads })}
+                  >
                     <Num
                       value={formatCompact(project.downloads)}
                       className="text-gray-300"
@@ -667,7 +669,9 @@ export default function ModrinthProjectView({
               {
                 label: t('values.key.followers'),
                 value: (
-                  <span title={formatNumber(project.followers)}>
+                  <span
+                    title={t('mods.followers', { count: project.followers })}
+                  >
                     <Num
                       value={formatCompact(project.followers)}
                       className="text-gray-300"

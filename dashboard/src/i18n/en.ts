@@ -759,10 +759,7 @@ export const en = {
   'server.details.name': 'Name',
   'server.details.description': 'Description',
   'server.details.uuid': 'UUID',
-  'server.details.game': 'Game',
   'server.details.version': 'Version',
-  /** the mod loader, e.g. "Fabric 0.15.3" */
-  'server.details.loader': 'Loader',
   'server.details.port': 'Port',
   'server.details.state': 'State',
   'server.details.players': 'Players',
@@ -1594,11 +1591,6 @@ export const en = {
   'values.key.thisVersion': 'This version',
   'values.key.thisServer': 'This server',
   'values.key.downloaded': 'Downloaded',
-  'values.key.uptime': 'Uptime',
-  'values.key.host': 'Host',
-  'values.key.system': 'System',
-  'values.key.uuid': 'UUID',
-  'values.key.status': 'Status',
   'values.key.cpuLoad': 'CPU load',
   'values.key.memoryUsed': 'Memory used',
   /** the menu’s header when several files are ticked */

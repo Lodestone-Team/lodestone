@@ -121,8 +121,6 @@ function makeI18n(language: Language) {
       opts?: { bytes?: boolean }
     ) => format.formatFractionParts(language, done, total, opts),
     formatCompact: (n: number) => format.formatCompact(language, n),
-    formatList: (items: string[], type?: 'conjunction' | 'disjunction') =>
-      format.formatList(language, items, type),
   };
 }
 

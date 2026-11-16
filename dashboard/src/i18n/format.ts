@@ -192,12 +192,3 @@ export function formatFractionParts(
 /** A count as "1.2K", "12.3万" in the language. */
 export const formatCompact = (language: Language, n: number) =>
   formatNumber(language, n, { notation: 'compact', maximumFractionDigits: 1 });
-
-/** "a, b and c" in the language */
-export function formatList(
-  language: Language,
-  items: string[],
-  type: 'conjunction' | 'disjunction' = 'conjunction'
-): string {
-  return new Intl.ListFormat(language, { style: 'long', type }).format(items);
-}
