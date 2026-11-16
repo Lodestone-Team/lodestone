@@ -726,7 +726,8 @@ pub mod pill {
     /// The fill behind a pill's text.
     pub fn bg(tone: Tone) -> Color {
         match tone {
-            Tone::Neutral => colors::GRAY_750,
+            // not gray-750, which the light theme draws as its card surface
+            Tone::Neutral => colors::GRAY_700,
             Tone::Info => colors::BLUE_FADED.opacity(25),
             Tone::Success => colors::GREEN_FADED.opacity(25),
             Tone::Warning => colors::YELLOW_FADED.opacity(25),
