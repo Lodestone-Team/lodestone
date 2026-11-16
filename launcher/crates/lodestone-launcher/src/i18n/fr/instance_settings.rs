@@ -179,13 +179,7 @@ pub fn text(message: M) -> &'static str {
         M::ImportServerTitle => "Nouvelle instance depuis le monde d’un serveur",
         M::CreateInstanceButton => "Créer l’instance",
         M::SnapshotGameRunning => "Arrêtez d’abord le jeu.",
-        M::SnapshotsHint => {
-            "Des copies de tout le dossier de l’instance, pour revenir en arrière ou partager."
-        }
         M::SnapshotAfterPlay => "Prendre un instantané après chaque partie",
-        M::SnapshotAfterPlayHint => {
-            "Copie tout le dossier de l’instance après chaque partie. Suit Paramètres › Paramètres par défaut des instances, où c’est désactivé sauf si vous l’activez."
-        }
         M::SnapshotKeepHint => {
             "Les instantanés pris par le Launcher sont gardés un temps\u{a0}: les {last} derniers, un par jour pendant {days} jours et un par semaine pendant {weeks} semaines. Les vôtres restent jusqu’à ce que vous les supprimiez."
         }
@@ -494,9 +488,6 @@ pub fn text(message: M) -> &'static str {
         }
         M::ExportNotDownloadable => {
             "Ceux-ci ne peuvent pas être téléchargés, donc la personne qui importe le fichier ne les aura pas\u{a0}: {files}."
-        }
-        M::SnapshotAfterPlayOwnHint => {
-            "Copie tout le dossier de l’instance après chaque partie. Réglé pour cette instance."
         }
         M::DeleteUnreadableNote => "Elles sont supprimées définitivement.",
         M::WorldBackups => "Sauvegardes de mondes",

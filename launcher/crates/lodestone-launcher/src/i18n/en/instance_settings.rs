@@ -209,10 +209,8 @@ crate::i18n::messages! {
         ImportServerTitle = "New instance from a server’s world",
         CreateInstanceButton = "Create instance",
         SnapshotGameRunning = "Stop the game first.",
-        SnapshotsHint = "Copies of the whole instance folder to go back to or share.",
         /// The Settings tab's toggle; also Settings › Instance defaults' default.
         SnapshotAfterPlay = "Take a snapshot after each play session",
-        SnapshotAfterPlayHint = "Copies the whole instance folder after you play. Follows Settings › Instance defaults, where it is off unless you turn it on.",
         /// {last}, {days} and {weeks} are numbers.
         SnapshotKeepHint = "Snapshots the Launcher takes on its own are kept for a while: the last {last}, one a day for {days} days and one a week for {weeks} weeks. Yours stay until you delete them.",
         /// Badges on a snapshot's row.
@@ -527,7 +525,6 @@ crate::i18n::messages! {
         ImportNoRoom = "The disk doesn't have room for it: it needs {size}, 1 GB of it to spare, and {free} is free.",
         ImportSpaceFree = "Needs {size} of disk space, 1 GB of it to spare; {free} is free.",
         ExportNotDownloadable = "These can't be downloaded, so whoever imports the file won't get them: {files}.",
-        SnapshotAfterPlayOwnHint = "Copies the whole instance folder after you play. Set for this instance.",
         DeleteUnreadableNote = "They are deleted for good.",
         /// Settings › Snapshots: the section of zips of single worlds.
         WorldBackups = "World backups",
