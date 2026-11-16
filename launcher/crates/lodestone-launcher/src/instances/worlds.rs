@@ -3188,7 +3188,8 @@ mod job_tests {
         s.view.read_with(&cx, |view, _| {
             let listed = view.world_backups("New World");
             assert_eq!(listed.len(), before + 2);
-            assert_eq!(listed[0].name, "From the CLI");
+            // Made in the same second as the tab's: the ids' random part orders them.
+            assert!(listed.iter().any(|b| b.name == "From the CLI"));
         });
     }
 }

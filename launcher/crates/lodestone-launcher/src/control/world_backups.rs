@@ -471,8 +471,8 @@ mod tests {
     /// wants back.
     #[test]
     fn a_world_no_longer_in_the_instance_is_found_among_its_backups() {
-        let temp = tempfile::tempdir().unwrap();
-        let dirs = InstanceDirs::new(temp.path());
+        // An instance with no worlds on disk: they were all deleted.
+        let dirs = InstanceDirs::new(std::env::temp_dir().join("lodestone-no-such-instance"));
         let list = [
             backup("20261115-120000-0001", "New World", Some("Hardcore run")),
             backup("20261115-120000-0002", "Other", Some("Islands")),

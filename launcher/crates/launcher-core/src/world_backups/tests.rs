@@ -946,7 +946,7 @@ fn a_restore_that_leaves_the_world_as_it_was_deletes_its_safety_backup() {
         )
         .unwrap_err();
     assert!(matches!(err, WorldBackupError::Cancelled), "{err:?}");
-    assert_eq!(s.list(), [backup.clone()]);
+    assert_eq!(s.list(), std::slice::from_ref(&backup));
     assert_eq!(
         files(&s.backup_dir()).len(),
         2,
@@ -962,7 +962,7 @@ fn a_restore_that_leaves_the_world_as_it_was_deletes_its_safety_backup() {
         ..Faults::default()
     });
     assert!(s.restore(&backup.id, RestoreTo::InPlace).is_err());
-    assert_eq!(s.list(), [backup.clone()]);
+    assert_eq!(s.list(), std::slice::from_ref(&backup));
     assert_eq!(s.world_files("World"), now);
 
     // A game session that began while it unpacked.
@@ -974,7 +974,7 @@ fn a_restore_that_leaves_the_world_as_it_was_deletes_its_safety_backup() {
     let err = s.restore(&backup.id, RestoreTo::InPlace).unwrap_err();
     assert!(matches!(err, WorldBackupError::Running), "{err:?}");
     slot.session_over();
-    assert_eq!(s.list(), [backup.clone()]);
+    assert_eq!(s.list(), std::slice::from_ref(&backup));
     assert_eq!(s.world_files("World"), now);
     assert!(
         !std::fs::read_dir(s.store.dir(&s.id))
