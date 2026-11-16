@@ -22,8 +22,9 @@
 //! through it, but its rollback refuses to, so a failure could never be undone.
 //!
 //! **As a new world** ([`RestoreTo::NewWorld`]) unpacks it into
-//! `saves/.lodestone-restore-staging-<16>/` (one disk with `saves`, even a linked one), then
-//! renames it beside the others as "`<world>` (restored `<date>`)", replacing nothing.
+//! `saves/.lodestone-restore-staging-<instance>-<16>/` (one disk with `saves`, even a
+//! linked one), then renames it beside the others as "`<world>` (restored `<date>`)", in a
+//! folder free in `saves/` and the backups' folder, replacing nothing.
 
 use std::collections::HashSet;
 use std::fs;
@@ -301,7 +302,7 @@ impl WorldBackups {
             // `saves` is a link to another drive. The name is hidden from world lists and
             // snapshots, and what a crash leaves the startup sweep deletes
             // ([`WorldBackups::sweep`]).
-            let staging = saves.join(format!("{STAGING_PREFIX}{}", swap::random_suffix()));
+            let staging = saves.join(super::staging_name(instance));
             fs::create_dir(&staging).map_err(WorldBackupError::io(
                 "Failed to create the restore's staging folder",
             ))?;
@@ -310,8 +311,11 @@ impl WorldBackups {
                 let unpacked = staging.join("world");
                 worlds::zip::extract_into(&found.zip, &checked, &unpacked, progress, cancel)?;
                 let today = worlds::date(std::time::SystemTime::now());
-                let folder = worlds::unused(
-                    &saves,
+                // Free among the world backups' folders too: a deleted world's backups
+                // stay under its folder, and a new world given that folder would take
+                // them over.
+                let folder = worlds::unused_in(
+                    &[&saves, &self.root.join(instance)],
                     &worlds::folder_name(&format!("{} (restored {today})", record.folder)),
                 );
                 crate::fsx::rename(&unpacked, saves.join(&folder))

@@ -226,6 +226,7 @@ pub const SCENES: &[&str] = &[
     "world-backup-create",
     "world-backup-restore",
     "world-backup-restore-new",
+    "world-backup-restored",
 ];
 
 /// Keys pressed once a scene has settled, before the screenshot, to show where

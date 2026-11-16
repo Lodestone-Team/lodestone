@@ -771,8 +771,12 @@ impl Images {
             std::fs::create_dir_all(&saves)
                 .map_err(ImageError::io("Failed to create the saves folder"))?;
             let today = crate::worlds::date(std::time::SystemTime::now());
-            let folder = crate::worlds::unused(
-                &saves,
+            // Free among the world backups' folders too (see `WorldBackups::restore`).
+            let backups = crate::paths::DataDir::at(self.data_root.clone())
+                .world_backups_dir()
+                .join(instance);
+            let folder = crate::worlds::unused_in(
+                &[&saves, &backups],
                 &crate::worlds::folder_name(&format!("{world} (restored {today})")),
             );
             let staged = staging.join(CLIENT_GAME_FOLDER).join("saves").join(world);

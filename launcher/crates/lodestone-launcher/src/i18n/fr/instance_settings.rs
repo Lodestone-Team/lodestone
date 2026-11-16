@@ -530,6 +530,9 @@ pub fn text(message: M) -> &'static str {
         M::SavingWorld => "Enregistrement du monde tel qu’il est…",
         M::UnpackingWorldBackup => "Décompression de la sauvegarde de monde…",
         M::WorldRestored => "{world} est restauré.",
+        M::WorldRestoredSafety => {
+            "Le monde tel qu’il était est dans la sauvegarde de monde «\u{a0}{name}\u{a0}»."
+        }
         M::WorldRestoredAsNew => "Restauré comme nouveau monde, {folder}.",
         M::DeleteWorldBackupTitle => "Supprimer cette sauvegarde de monde\u{a0}?",
         M::DeleteWorldBackupBody => "«\u{a0}{name}\u{a0}» est placé dans {trash}.",

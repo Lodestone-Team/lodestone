@@ -89,7 +89,7 @@ fn world_zips_with_colliding_names_are_rejected() {
         let path = temp.path().join(name);
         write_zip(&path, entries);
         let before = tree(&worlds::saves_dir(&dirs));
-        let err = worlds::import_zip(&dirs, &path, &progress, &cancel).unwrap_err();
+        let err = worlds::import_zip(&dirs, &path, &[], &progress, &cancel).unwrap_err();
         assert!(matches!(err, WorldError::Conflict(_)), "{name}: {err:?}");
         assert!(err.to_string().contains(expected), "{name}: {err}");
         assert_eq!(tree(&worlds::saves_dir(&dirs)), before, "{name} left files");
@@ -160,7 +160,7 @@ fn world_zips_with_colliding_names_are_rejected() {
         ],
     );
     assert_eq!(
-        worlds::import_zip(&dirs, &fine, &progress, &cancel).unwrap(),
+        worlds::import_zip(&dirs, &fine, &[], &progress, &cancel).unwrap(),
         "Fine"
     );
     let dir = worlds::saves_dir(&dirs).join("Fine");
@@ -283,7 +283,7 @@ fn world_zips_export_import_and_checks() {
     assert_eq!(checked.prefix, "World/");
     assert_eq!(checked.folder_hint, "World");
     assert_eq!(checked.summary.name.as_deref(), Some("Fixture World"));
-    let imported = worlds::import_zip(&dirs, &out, &progress, &cancel).unwrap();
+    let imported = worlds::import_zip(&dirs, &out, &[], &progress, &cancel).unwrap();
     assert_eq!(imported, "World (2)");
     assert!(
         worlds::saves_dir(&dirs)
@@ -306,7 +306,7 @@ fn world_zips_export_import_and_checks() {
         worlds::zip::check(&root, worlds::Shape::Import, worlds::Limits::default()).unwrap();
     assert_eq!(checked.prefix, "");
     assert_eq!(
-        worlds::import_zip(&dirs, &root, &progress, &cancel).unwrap(),
+        worlds::import_zip(&dirs, &root, &[], &progress, &cancel).unwrap(),
         "Flat Root"
     );
     let flat = worlds::saves_dir(&dirs).join("Flat Root");
@@ -317,7 +317,7 @@ fn world_zips_export_import_and_checks() {
         let path = temp.path().join(name);
         write_zip(&path, entries);
         let before = tree(&worlds::saves_dir(&dirs));
-        let err = worlds::import_zip(&dirs, &path, &progress, &cancel).unwrap_err();
+        let err = worlds::import_zip(&dirs, &path, &[], &progress, &cancel).unwrap_err();
         assert!(err.to_string().contains(expected), "{name}: {err}");
         assert_eq!(tree(&worlds::saves_dir(&dirs)), before, "{name} left files");
     };
@@ -385,7 +385,7 @@ fn crafted_world_zips_never_write_outside_the_world() {
     zip.add_symlink("Link/region", "../../../..", options)
         .unwrap();
     zip.finish().unwrap();
-    let folder = worlds::import_zip(&dirs, &path, &progress, &cancel).unwrap();
+    let folder = worlds::import_zip(&dirs, &path, &[], &progress, &cancel).unwrap();
     assert!(fs::symlink_metadata(saves.join(&folder).join("region")).is_err());
 
     // The local header names a file outside the world, the central directory one
@@ -404,7 +404,7 @@ fn crafted_world_zips_never_write_outside_the_world() {
         "../../../../../../escape123.dat",
         false,
     );
-    let folder = worlds::import_zip(&dirs, &path, &progress, &cancel).unwrap();
+    let folder = worlds::import_zip(&dirs, &path, &[], &progress, &cancel).unwrap();
     assert_eq!(
         fs::read(saves.join(folder).join("data/aaaaaaaaaaaaaaaa.dat")).unwrap(),
         b"data"
@@ -423,9 +423,22 @@ fn crafted_world_zips_never_write_outside_the_world() {
         ],
     );
     patch_zip(&path, "r.0.0.mcb", "r.0.0.mca", true);
-    let folder = worlds::import_zip(&dirs, &path, &progress, &cancel).unwrap();
+    let folder = worlds::import_zip(&dirs, &path, &[], &progress, &cancel).unwrap();
     let region = saves.join(folder).join("region");
     assert_eq!(fs::read_dir(&region).unwrap().count(), 1);
     let bytes = fs::read(region.join("r.0.0.mca")).unwrap();
     assert!(bytes == b"AAAA" || bytes == b"BBBB");
+}
+
+#[test]
+fn an_import_never_takes_a_folder_world_backups_use() {
+    let (temp, dirs) = instance();
+    let (progress, cancel) = progress();
+    let path = temp.path().join("Gone.zip");
+    write_zip(&path, &[("Gone/level.dat", LEVEL_DAT)]);
+    // A deleted world's backups stay under its folder.
+    let backups = temp.path().join("world-backups/inst");
+    fs::create_dir_all(backups.join("Gone")).unwrap();
+    let folder = worlds::import_zip(&dirs, &path, &[&backups], &progress, &cancel).unwrap();
+    assert_eq!(folder, "Gone (2)");
 }

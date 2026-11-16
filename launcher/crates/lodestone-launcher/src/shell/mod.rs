@@ -3540,6 +3540,102 @@ mod mod_finder_tests {
         assert!(!dialog.read_with(cx, |dialog, _| dialog.busy()));
     }
 
+    /// While another job writes the instance's files, backing up and restoring are
+    /// refused at once rather than waiting for its lock with Cancel doing nothing; a
+    /// delete still runs.
+    #[test]
+    fn world_backup_work_waits_for_no_other_job() {
+        use crate::instances::world_backups::WorldBackupRequest;
+        use launcher_core::world_backups::RestoreTo;
+        let mut cx = TestAppContext::single();
+        cx.update(crate::components::init);
+        let (shell, cx) = cx.add_window_view(|_, cx| {
+            let accounts = crate::preview::accounts("signed-out", cx);
+            let instances = crate::preview::instances("sidebar-groups", &accounts, cx);
+            LauncherShell::new(accounts, instances, cx)
+        });
+        cx.run_until_parked();
+        let id = shell.read_with(cx, |shell, cx| {
+            shell.instances.read(cx).list()[0].id.clone()
+        });
+        let other_job = shell.read_with(cx, |shell, cx| {
+            shell.instances.read(cx).mark_files_busy(&id)
+        });
+        let backup: launcher_core::world_backups::WorldBackup =
+            serde_json::from_value(serde_json::json!({
+                "version": 1, "id": "20261115-120000-abcd", "instance_created": 0,
+                "instance_name": "x", "folder": "W", "name": "Mine", "kind": "manual",
+                "created": 0, "bytes": 1, "world_bytes": 1, "files": 1,
+            }))
+            .unwrap();
+        let busy_message: gpui::SharedString =
+            crate::i18n::t(crate::i18n::InstancesMsg::FilesBusy).into();
+        for to in [RestoreTo::NewWorld, RestoreTo::InPlace] {
+            shell.update(cx, |shell, cx| {
+                shell.open_world_backup(
+                    WorldBackupRequest::Restore {
+                        instance: id.clone(),
+                        backup: backup.clone(),
+                        to,
+                    },
+                    cx,
+                )
+            });
+            cx.run_until_parked();
+            let dialog =
+                shell.read_with(cx, |shell, _| shell.world_backup_dialog().cloned().unwrap());
+            if to == RestoreTo::InPlace {
+                // Waits for its confirmation.
+                dialog.update(cx, |dialog, cx| dialog.test_go(cx));
+            }
+            assert_eq!(
+                dialog.read_with(cx, |dialog, _| dialog.test_failed()),
+                Some(busy_message.clone()),
+                "{to:?}"
+            );
+            assert!(!dialog.read_with(cx, |dialog, _| dialog.busy()));
+            shell.update(cx, |shell, cx| shell.close_modal(cx));
+            cx.run_until_parked();
+        }
+        shell.update(cx, |shell, cx| {
+            shell.open_world_backup(
+                WorldBackupRequest::BackUp {
+                    instance: id.clone(),
+                    world: Some("Castle".into()),
+                },
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        let dialog = shell.read_with(cx, |shell, _| shell.world_backup_dialog().cloned().unwrap());
+        dialog.update(cx, |dialog, cx| dialog.test_go(cx));
+        assert_eq!(
+            dialog.read_with(cx, |dialog, _| dialog.test_failed()),
+            Some(busy_message.clone())
+        );
+        shell.update(cx, |shell, cx| shell.close_modal(cx));
+        cx.run_until_parked();
+        // A delete isn't refused (here it fails: there is no such backup).
+        shell.update(cx, |shell, cx| {
+            shell.open_world_backup(
+                WorldBackupRequest::Delete {
+                    instance: id.clone(),
+                    backup: backup.clone(),
+                },
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        let dialog = shell.read_with(cx, |shell, _| shell.world_backup_dialog().cloned().unwrap());
+        dialog.update(cx, |dialog, cx| dialog.test_go(cx));
+        cx.run_until_parked();
+        assert_ne!(
+            dialog.read_with(cx, |dialog, _| dialog.test_failed()),
+            Some(busy_message)
+        );
+        drop(other_job);
+    }
+
     /// A snapshot dialog that is taking, restoring or importing isn't closed by a dialog
     /// that arrives on its own (a downloaded world's import, another job's error): that
     /// one waits, and shows once the work has ended and the dialog closed.

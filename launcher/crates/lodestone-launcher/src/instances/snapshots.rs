@@ -73,7 +73,8 @@ pub fn badge(record: &SnapshotRecord) -> Option<M> {
 
 /// "Monday 14:30 · Survival Island, Castle Build · 412 MB, 38 MB new": a snapshot's
 /// details, its worlds by their own names (as the restore dialog and the Worlds tab show
-/// them), else by their folders. Worlds of one name ("New World", the game's default) are told apart by their folders.
+/// them), else by their folders. Worlds of one name ("New World", the game's default) are
+/// told apart by their folders.
 pub fn details(record: &SnapshotRecord) -> String {
     let mut parts = vec![when(record.created)];
     if !record.worlds.is_empty() {

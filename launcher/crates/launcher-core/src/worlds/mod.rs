@@ -251,11 +251,6 @@ pub fn folder_name(name: &str) -> String {
     }
 }
 
-/// `base`, or `base (2)`, `base (3)`… whichever isn't taken in `dir`.
-pub(crate) fn unused(dir: &Path, base: &str) -> String {
-    unused_in(&[dir], base)
-}
-
 pub(crate) fn random_suffix() -> String {
     format!("{:016x}", u64::from_le_bytes(crate::random_bytes()))
 }
@@ -343,7 +338,7 @@ pub fn rename_in(
 }
 
 /// `base`, or `base (2)`, `base (3)`… whichever isn't taken in any of `dirs`.
-fn unused_in(dirs: &[&Path], base: &str) -> String {
+pub(crate) fn unused_in(dirs: &[&Path], base: &str) -> String {
     (1..)
         .map(|n| {
             if n == 1 {
@@ -468,10 +463,13 @@ pub(crate) fn set_level_name(dir: &Path, name: &str) {
 }
 
 /// Imports a world zip into `saves/`: checked whole first, unpacked into a hidden folder
-/// there and renamed into place. Returns the new folder.
+/// there and renamed into place, in a folder free in `saves/` and in each of `taken` (the
+/// instance's world backups folder, [`crate::world_backups::WorldBackups::folders_of`],
+/// whose folders a new world must not take over). Returns the new folder.
 pub fn import_zip(
     dirs: &InstanceDirs,
     path: &Path,
+    taken: &[&Path],
     progress: &Progress,
     cancel: &CancelToken,
 ) -> Result<String, WorldError> {
@@ -483,7 +481,9 @@ pub fn import_zip(
     zip::extract_into(path, &checked, &staging, progress, &|| {
         cancel.is_cancelled()
     })?;
-    let folder = unused(&saves, &folder_name(&checked.folder_hint));
+    let mut free_in: Vec<&Path> = vec![&saves];
+    free_in.extend_from_slice(taken);
+    let folder = unused_in(&free_in, &folder_name(&checked.folder_hint));
     let target = saves.join(&folder);
     if let Err(e) = crate::fsx::rename(&staging, &target) {
         let _ = fs::remove_dir_all(&staging);

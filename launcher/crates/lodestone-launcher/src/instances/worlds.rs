@@ -899,12 +899,15 @@ impl WorldsView {
             self.set_message(t(M::ZipsOnly), true, cx);
             return;
         }
+        let zips = self.instances.read(cx).world_backups();
         self.run(
             JobLabel::Importing,
             move |dirs, progress, cancel| {
+                let backups = zips.folders_of(&id_of(dirs));
+                let taken: Vec<&Path> = backups.as_deref().into_iter().collect();
                 let mut imported = Vec::new();
                 for path in &paths {
-                    let folder = worlds::import_zip(dirs, path, progress, cancel).map_err(
+                    let folder = worlds::import_zip(dirs, path, &taken, progress, cancel).map_err(
                         |err| match err {
                             WorldError::Cancelled => WorldError::Cancelled,
                             other => WorldError::Invalid(tr!(

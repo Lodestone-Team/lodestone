@@ -225,6 +225,16 @@ fn a_world_put_back_as_a_copy_replaces_nothing() {
         .restore_world_copy(s.id(), &record.id, "World", NEVER)
         .unwrap();
     assert_ne!(again, folder);
+    // A folder a deleted world's world backups are under is never taken (it would take
+    // them over).
+    let today = crate::worlds::date(std::time::SystemTime::now());
+    let backups = s.data.world_backups_dir().join(s.id());
+    std::fs::create_dir_all(backups.join(format!("World (restored {today}) (3)"))).unwrap();
+    let third = s
+        .images
+        .restore_world_copy(s.id(), &record.id, "World", NEVER)
+        .unwrap();
+    assert_eq!(third, format!("World (restored {today}) (4)"));
 }
 
 #[test]

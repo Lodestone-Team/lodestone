@@ -471,22 +471,45 @@ fn the_sweep_clears_crash_leftovers_and_keeps_orphan_zips() {
         .unwrap()
         .set_modified(SystemTime::now() - Duration::from_secs(2 * 60 * 60))
         .unwrap();
+    // a .json being written when the Launcher died
+    let temp_json = dir.join(format!("{}0123456789abcdef", crate::storage::TEMP_PREFIX));
+    std::fs::write(&temp_json, b"{").unwrap();
+    // a safety backup of a world without level.dat, whose .json was never written
+    let bare = dir.join("20260101-000000-abce.zip");
+    write_zip(&bare, &[("World/region/r.0.0.mca", b"region")]);
     // a restore as a new world's staging folder, left by a crash
-    let staging = s.game("saves/.lodestone-restore-staging-0123456789abcdef");
+    let staging = s.game(&format!(
+        "saves/.lodestone-restore-staging-{}-0123456789abcdef",
+        s.id
+    ));
     std::fs::create_dir_all(staging.join("world/region")).unwrap();
     std::fs::write(staging.join("world/level.dat"), LEVEL_DAT).unwrap();
+    // another instance's, in a saves folder they share: its restore may be running
+    let theirs = s.game(&format!(
+        "saves/.lodestone-restore-staging-{}x-0123456789abcdef",
+        s.id
+    ));
+    std::fs::create_dir_all(&theirs).unwrap();
     let mut changes = s.backups.watch();
     s.backups.sweep();
     assert!(!old_part.exists());
     assert!(!new_part.exists());
+    assert!(!temp_json.exists());
     assert!(!staging.exists());
+    assert!(theirs.exists());
     assert!(
         s.game("saves/World/level.dat").is_file(),
         "worlds untouched"
     );
     assert!(!dir.join("20260101-000000-0000.json").exists());
     let listed = s.list();
-    assert_eq!(listed.len(), 2);
+    assert_eq!(listed.len(), 3);
+    let bare = listed
+        .iter()
+        .find(|b| b.id == "20260101-000000-abce")
+        .unwrap();
+    assert_eq!(bare.level_name, None);
+    assert_eq!(bare.files, 1);
     let adopted = listed
         .iter()
         .find(|b| b.id == "20260101-000000-abcd")
@@ -879,6 +902,37 @@ fn a_crash_during_the_swap_is_undone_at_the_next_start() {
     assert_eq!(s.world_files("World"), at_backup);
 }
 
+/// An instance without world backups is swept too.
+#[test]
+fn the_sweep_clears_staging_folders_of_instances_without_backups() {
+    let s = Setup::new();
+    let staging = s.game(&format!(
+        "saves/.lodestone-restore-staging-{}-0123456789abcdef",
+        s.id
+    ));
+    std::fs::create_dir_all(&staging).unwrap();
+    assert!(!s.backup_dir().exists());
+    s.backups.sweep();
+    assert!(!staging.exists());
+    assert!(s.game("saves/World/level.dat").is_file());
+}
+
+/// A deleted world's backups stay under its folder; a world restored as a new one never
+/// takes that folder, so it never takes them over.
+#[test]
+fn a_world_restored_as_a_new_one_never_takes_a_deleted_worlds_backups() {
+    let s = Setup::new();
+    let backup = s.back_up("World", None);
+    let today = worlds::date(SystemTime::now());
+    let copy = format!("World (restored {today})");
+    // A world of that folder was backed up, then deleted.
+    std::fs::create_dir_all(s.backup_dir().join(&copy)).unwrap();
+    let restored = s.restore(&backup.id, RestoreTo::NewWorld).unwrap();
+    assert_eq!(restored.folder, format!("{copy} (2)"));
+    assert_eq!(s.backups.folders_of(&s.id).unwrap(), s.backup_dir());
+    assert!(s.backups.folders_of("../x").is_none());
+}
+
 #[test]
 fn restoring_as_a_new_world_places_a_copy_beside_it() {
     let s = Setup::new();
@@ -1151,22 +1205,31 @@ fn ids_are_unique_across_worlds_and_grow_within_a_second() {
     std::fs::create_dir_all(dir.join("A")).unwrap();
     std::fs::create_dir_all(dir.join("B")).unwrap();
     let created = 1_794_645_624; // 2026-11-14 08:40:24 UTC
-    let first = new_id(dir, created);
+    let first = new_id(dir, created, None);
     assert!(first.starts_with("20261114-084024-"), "{first}");
     assert!(snapshots::valid_record_id(&first));
     std::fs::write(dir.join("A").join(format!("{first}.zip")), b"").unwrap();
-    let second = new_id(dir, created);
+    let second = new_id(dir, created, None);
     assert!(second > first, "{second} after {first}");
     // Another world's backup of the same second counts too.
     std::fs::write(dir.join("B").join(format!("{second}.json")), b"").unwrap();
-    let third = new_id(dir, created);
+    let third = new_id(dir, created, None);
     assert!(third > second);
     // At the top of the range, any free one.
     std::fs::write(dir.join("A/20261114-084024-ffff.zip"), b"").unwrap();
-    let fourth = new_id(dir, created);
+    let fourth = new_id(dir, created, None);
     assert!(![first, second, third, "20261114-084024-ffff".into()].contains(&fourth));
     // Another second starts again.
-    assert!(new_id(dir, created + 1).starts_with("20261114-084025-"));
+    assert!(new_id(dir, created + 1, None).starts_with("20261114-084025-"));
+    // The last id handed out counts though its backup was deleted; one of another
+    // second doesn't.
+    let empty = temp.path().join("empty");
+    let issued = "20261114-084024-0005";
+    assert_eq!(
+        new_id(&empty, created, Some(issued)),
+        "20261114-084024-0006"
+    );
+    assert!(new_id(&empty, created + 1, Some(issued)).starts_with("20261114-084025-"));
 }
 
 /// Two backups made in one second list the later first.

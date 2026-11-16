@@ -462,6 +462,7 @@ pub fn text(message: M) -> &'static str {
         M::SavingWorld => "正在保存世界现在的样子…",
         M::UnpackingWorldBackup => "正在解压世界备份…",
         M::WorldRestored => "已恢复 {world}。",
+        M::WorldRestoredSafety => "原来的世界保存在世界备份“{name}”中。",
         M::WorldRestoredAsNew => "已恢复为新世界 {folder}。",
         M::DeleteWorldBackupTitle => "删除这个世界备份？",
         M::DeleteWorldBackupBody => "“{name}”会移到{trash}。",

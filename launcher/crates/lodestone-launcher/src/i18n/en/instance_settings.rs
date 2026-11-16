@@ -564,6 +564,8 @@ crate::i18n::messages! {
         SavingWorld = "Saving the world as it is now…",
         UnpackingWorldBackup = "Unpacking the world backup…",
         WorldRestored = "Restored {world}.",
+        /// Said after WorldRestored. {name} is the world backup made of the world just before.
+        WorldRestoredSafety = "The world as it was is in the world backup “{name}”.",
         /// {folder} is the new world's folder.
         WorldRestoredAsNew = "Restored as a new world, {folder}.",
         DeleteWorldBackupTitle = "Delete this world backup?",

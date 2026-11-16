@@ -10,9 +10,11 @@
 //! Windows or macOS, or hide as an invisible character. Links are never followed nor
 //! written, and `session.lock` and Lodestone's working files (`.lodestone-…`) never go in.
 //!
-//! [`check`] reads only the zip's central directory (and `level.dat`), the list every
-//! later step uses (a local header naming another path is never read), and refuses the whole zip for any
-//! name it can't take, rather than leaving a file out without a word. [`extract_into`]
+//! [`check`] reads only the zip's end records and central directory (and `level.dat`),
+//! the list every later step uses (a local header naming another path is never read),
+//! and refuses the whole zip for any name it can't take, rather than leaving a file out
+//! without a word. Opening a zip never scans its body ([`open_archive`]), so checking a
+//! large backup costs about as much as a small one. [`extract_into`]
 //! then never trusts a size the zip states: each file is copied up to its stated size
 //! plus one byte, and one that is larger refuses the zip.
 //!
@@ -68,6 +70,10 @@ pub enum Shape {
     /// `level.dat` at the root or one folder down, entries elsewhere ignored: a world
     /// someone shared, which may come from any tool.
     Import,
+    /// Like [`Shape::OneWorldFolder`], with `level.dat` optional (its summary empty when
+    /// missing): a backup the startup sweep found without its details, which may be the
+    /// safety backup of a world that had none, kept so it can be listed and deleted.
+    OneFolder,
 }
 
 /// What [`write_zip`] wrote.
@@ -106,6 +112,8 @@ pub struct CheckedZip {
     /// The bytes its files say they unpack to.
     pub declared_bytes: u64,
     entries: Vec<Planned>,
+    /// The shape it was checked as, which [`extract_into`] opens it as again.
+    shape: Shape,
 }
 
 impl CheckedZip {
@@ -380,6 +388,12 @@ fn open_listed(path: &Path) -> Result<File, WorldError> {
 /// How much of a file is copied between two checks of Cancel (and progress updates).
 const COPY_CHUNK: usize = 8 * 1024 * 1024;
 
+/// Files this large or larger are written with zip64 sizes. Below `u32::MAX` with room to
+/// spare: a deflated file that doesn't compress (Distant Horizons' database, say) comes
+/// out a little larger than it went in, and one just under 4 GiB would otherwise overflow
+/// its 32-bit sizes and fail every backup of its world. Zip64 costs 20 bytes a file.
+const LARGE_FILE_FROM: u64 = 2 << 30;
+
 fn zip_time(time: Option<SystemTime>) -> zip::DateTime {
     use chrono::{Datelike as _, Timelike as _};
     time.map(chrono::DateTime::<chrono::Local>::from)
@@ -479,7 +493,7 @@ pub fn write_planned(
             let options = base
                 .compression_method(method)
                 .last_modified_time(zip_time(metadata.modified().ok()))
-                .large_file(metadata.len() >= u32::MAX as u64);
+                .large_file(metadata.len() >= LARGE_FILE_FROM);
             zip.start_file(format!("{prefix}/{relative}"), options)
                 .map_err(zip_err)?;
             // In chunks, asking `stop` between them, so Cancel works in a large file too.
@@ -555,13 +569,42 @@ fn unsafe_zip(err: impl std::fmt::Display) -> WorldError {
     )
 }
 
+/// Opens the zip at `path` for reading its central directory. Its archive starts at the
+/// file's first byte, as every zip Lodestone writes does: `zip`'s default instead finds
+/// the start by scanning the file from its first byte to the central directory, reading
+/// the whole zip just to open it (seconds for a backup of a few GiB, minutes from a hard
+/// drive, with neither progress nor Cancel). Only a zip to import, which may come from
+/// any tool, falls back to that scan when it has something before its archive (a
+/// self-extracting stub).
+fn open_archive(
+    path: &Path,
+    shape: Shape,
+) -> Result<zip::ZipArchive<io::BufReader<File>>, WorldError> {
+    let open = || {
+        File::open(path)
+            .map(io::BufReader::new)
+            .map_err(io_error(path))
+    };
+    match open_at_start(open()?) {
+        Err(_) if shape == Shape::Import => zip::ZipArchive::new(open()?).map_err(zip_error(path)),
+        opened => opened.map_err(zip_error(path)),
+    }
+}
+
+/// `reader`'s zip, taken to start at its first byte ([`open_archive`]).
+fn open_at_start<R: io::Read + io::Seek>(reader: R) -> zip::result::ZipResult<zip::ZipArchive<R>> {
+    let config = zip::read::Config {
+        archive_offset: zip::read::ArchiveOffset::Known(0),
+    };
+    zip::ZipArchive::with_config(config, reader)
+}
+
 /// Opens the world zip at `path` and checks every entry (see the module): its size and
 /// entry count against `limits`, encryption, each name, two names one file on a disk that
 /// ignores case, a file that is also a folder, and the world's layout for `shape`. Reads
 /// `level.dat`, nothing else.
 pub fn check(path: &Path, shape: Shape, limits: Limits) -> Result<CheckedZip, WorldError> {
-    let file = File::open(path).map_err(io_error(path))?;
-    let mut archive = zip::ZipArchive::new(io::BufReader::new(file)).map_err(zip_error(path))?;
+    let mut archive = open_archive(path, shape)?;
     if archive.len() > limits.max_entries {
         return Err(WorldError::Invalid(format!(
             "The zip has more than {} files.",
@@ -616,7 +659,7 @@ pub fn check(path: &Path, shape: Shape, limits: Limits) -> Result<CheckedZip, Wo
     }
 
     let prefix = match shape {
-        Shape::OneWorldFolder => {
+        Shape::OneWorldFolder | Shape::OneFolder => {
             let mut tops = raws.iter().map(|r| r.name.split('/').next().unwrap_or(""));
             let Some(top) = tops.next() else {
                 return Err(WorldError::Invalid("That zip is empty.".into()));
@@ -629,9 +672,10 @@ pub fn check(path: &Path, shape: Shape, limits: Limits) -> Result<CheckedZip, Wo
                     "That zip isn't one world: its files aren't all in one folder.".into(),
                 ));
             }
-            if !raws
-                .iter()
-                .any(|r| !r.is_dir && r.name == format!("{top}/level.dat"))
+            if shape == Shape::OneWorldFolder
+                && !raws
+                    .iter()
+                    .any(|r| !r.is_dir && r.name == format!("{top}/level.dat"))
             {
                 return Err(WorldError::Invalid(
                     "That zip isn't a world: its folder has no level.dat.".into(),
@@ -734,20 +778,29 @@ pub fn check(path: &Path, shape: Shape, limits: Limits) -> Result<CheckedZip, Wo
 
     let level = entries
         .iter()
-        .find(|e| !e.is_dir && e.relative == "level.dat")
-        .ok_or_else(|| WorldError::Invalid("The zip's level.dat is missing.".into()))?;
-    if level.size > MAX_LEVEL_DAT_BYTES {
-        return Err(WorldError::Invalid("Its level.dat is too large.".into()));
-    }
-    let mut bytes = Vec::new();
-    let mut entry = archive.by_index(level.index).map_err(zip_error(path))?;
-    (&mut entry)
-        .take(MAX_LEVEL_DAT_BYTES)
-        .read_to_end(&mut bytes)
-        .map_err(|e| WorldError::Invalid(format!("Its level.dat can't be read: {e}")))?;
-    drop(entry);
-    let summary = level::summarize(&bytes)
-        .map_err(|e| WorldError::Invalid(format!("Its level.dat can't be read: {e}")))?;
+        .find(|e| !e.is_dir && e.relative == "level.dat");
+    let summary = match (level, shape) {
+        (None, Shape::OneFolder) => LevelSummary::default(),
+        (None, _) => {
+            return Err(WorldError::Invalid(
+                "The zip's level.dat is missing.".into(),
+            ));
+        }
+        (Some(level), _) => {
+            if level.size > MAX_LEVEL_DAT_BYTES {
+                return Err(WorldError::Invalid("Its level.dat is too large.".into()));
+            }
+            let mut bytes = Vec::new();
+            let mut entry = archive.by_index(level.index).map_err(zip_error(path))?;
+            (&mut entry)
+                .take(MAX_LEVEL_DAT_BYTES)
+                .read_to_end(&mut bytes)
+                .map_err(|e| WorldError::Invalid(format!("Its level.dat can't be read: {e}")))?;
+            drop(entry);
+            level::summarize(&bytes)
+                .map_err(|e| WorldError::Invalid(format!("Its level.dat can't be read: {e}")))?
+        }
+    };
     let folder_hint = match prefix.strip_suffix('/') {
         Some(folder) => folder.to_string(),
         None => path
@@ -768,6 +821,7 @@ pub fn check(path: &Path, shape: Shape, limits: Limits) -> Result<CheckedZip, Wo
         folder_hint,
         declared_bytes,
         entries,
+        shape,
     })
 }
 
@@ -792,9 +846,7 @@ pub fn extract_into(
         _ => io_error(dest)(e),
     })?;
     let result = (|| {
-        let file = File::open(path).map_err(io_error(path))?;
-        let mut archive =
-            zip::ZipArchive::new(io::BufReader::new(file)).map_err(zip_error(path))?;
+        let mut archive = open_archive(path, zip.shape)?;
         let mut budget = zip.declared_bytes;
         let mut done = ProgressSnapshot {
             files_total: zip.entries.iter().filter(|e| !e.is_dir).count() as u64,
@@ -943,6 +995,93 @@ mod tests {
     fn refused(entries: &[(&str, &[u8])], shape: Shape, expected: &str) {
         let err = checked(entries, shape).unwrap_err();
         assert!(err.to_string().contains(expected), "{entries:?}: {err}");
+    }
+
+    /// A reader that counts the bytes read through it.
+    struct Counting<R> {
+        inner: R,
+        read: std::rc::Rc<std::cell::Cell<u64>>,
+    }
+
+    impl<R: Read> Read for Counting<R> {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            let n = self.inner.read(buf)?;
+            self.read.set(self.read.get() + n as u64);
+            Ok(n)
+        }
+    }
+
+    impl<R: io::Seek> io::Seek for Counting<R> {
+        fn seek(&mut self, pos: io::SeekFrom) -> io::Result<u64> {
+            self.inner.seek(pos)
+        }
+    }
+
+    #[test]
+    fn opening_a_zip_reads_its_end_not_its_files() {
+        let temp = tempfile::tempdir().unwrap();
+        let src = temp.path().join("World");
+        world(&src);
+        // Region files are stored as they are, so the zip is at least this large.
+        fs::write(src.join("region/r.1.0.mca"), vec![7u8; 32 << 20]).unwrap();
+        let out = temp.path().join("w.zip");
+        write_zip(&src, "World", &out, &Progress::default(), &|| Ok(())).unwrap();
+        assert!(fs::metadata(&out).unwrap().len() > 32 << 20);
+
+        let read = std::rc::Rc::new(std::cell::Cell::new(0));
+        let reader = Counting {
+            inner: io::BufReader::new(File::open(&out).unwrap()),
+            read: read.clone(),
+        };
+        let archive = open_at_start(reader).unwrap();
+        assert!(archive.len() >= 4, "{} entries", archive.len());
+        assert!(read.get() < 1 << 20, "read {} bytes to open", read.get());
+        // And the whole check, level.dat included, reads the same way.
+        check(&out, Shape::OneWorldFolder, Limits::default()).unwrap();
+    }
+
+    #[test]
+    fn only_an_import_may_have_something_before_its_zip() {
+        let temp = tempfile::tempdir().unwrap();
+        let plain = temp.path().join("plain.zip");
+        write(&plain, &[("W/level.dat", LEVEL_DAT)]);
+        let stubbed = temp.path().join("stubbed.zip");
+        let mut bytes = b"a self-extracting stub".to_vec();
+        bytes.extend(fs::read(&plain).unwrap());
+        fs::write(&stubbed, bytes).unwrap();
+
+        let imported = check(&stubbed, Shape::Import, Limits::default()).unwrap();
+        assert_eq!(imported.folder_hint, "W");
+        let unpacked = temp.path().join("unpacked");
+        extract_into(
+            &stubbed,
+            &imported,
+            &unpacked,
+            &Progress::default(),
+            &|| false,
+        )
+        .unwrap();
+        assert_eq!(fs::read(unpacked.join("level.dat")).unwrap(), LEVEL_DAT);
+        // Lodestone's own zips start at their first byte; one that doesn't was changed.
+        assert!(check(&stubbed, Shape::OneWorldFolder, Limits::default()).is_err());
+    }
+
+    #[test]
+    fn a_found_backup_may_lack_level_dat() {
+        let entries: &[(&str, &[u8])] = &[("W/region/r.0.0.mca", b"region")];
+        refused(entries, Shape::OneWorldFolder, "no level.dat");
+        let found = checked(entries, Shape::OneFolder).unwrap();
+        assert_eq!(found.summary, LevelSummary::default());
+        assert_eq!(found.files().collect::<Vec<_>>(), ["region/r.0.0.mca"]);
+        // Still one folder.
+        refused(
+            &[("W/a", b"a"), ("X/b", b"b")],
+            Shape::OneFolder,
+            "aren't all in one folder",
+        );
+        // A level.dat it has is still read.
+        let with = checked(&[("W/level.dat", LEVEL_DAT)], Shape::OneFolder).unwrap();
+        assert!(with.summary.name.is_some());
     }
 
     #[test]

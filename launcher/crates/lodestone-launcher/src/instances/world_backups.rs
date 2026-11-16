@@ -324,6 +324,21 @@ impl WorldBackupDialog {
         };
     }
 
+    /// Presses the dialog's main button, for the shell's tests.
+    #[cfg(all(test, feature = "screenshot"))]
+    pub(crate) fn test_go(&mut self, cx: &mut Context<Self>) {
+        self.go(cx);
+    }
+
+    /// Why the dialog's work failed, if it did, for the shell's tests.
+    #[cfg(all(test, feature = "screenshot"))]
+    pub(crate) fn test_failed(&self) -> Option<SharedString> {
+        match &self.state {
+            State::Failed(why) => Some(why.clone()),
+            _ => None,
+        }
+    }
+
     /// Ends the dialog on `message`, for the offscreen screenshots.
     #[cfg(feature = "screenshot")]
     pub fn preview_done(&mut self, message: impl Into<SharedString>) {
@@ -346,21 +361,18 @@ impl WorldBackupDialog {
             return;
         }
         let id = self.request.instance().to_string();
-        if self.game_running(cx) && !matches!(self.request, WorldBackupRequest::Delete { .. }) {
+        let deleting = matches!(self.request, WorldBackupRequest::Delete { .. });
+        if self.game_running(cx) && !deleting {
             self.state = State::Failed(t(M::SnapshotGameRunning).into());
             return cx.notify();
         }
-        let in_place = matches!(
-            self.request,
-            WorldBackupRequest::Restore {
-                to: RestoreTo::InPlace,
-                ..
-            }
-        );
         let instances = self.instances.read(cx);
-        // An install or a modpack update writing the files meanwhile: a restore's swap
-        // would lose what it writes.
-        if in_place && instances.files_or_pack_busy(&id) {
+        // Another job writing the instance's files (an install, a modpack update, the
+        // Worlds tab's or another dialog's job): a restore's swap would lose what it
+        // writes, a backup could zip a file mid-write, and either would wait for the
+        // instance's lock meanwhile with Cancel doing nothing. Refused instead, as Take a
+        // snapshot is. A delete only waits for a moment.
+        if !deleting && instances.files_or_pack_busy(&id) {
             self.state = State::Failed(t(crate::i18n::InstancesMsg::FilesBusy).into());
             return cx.notify();
         }
@@ -420,6 +432,15 @@ impl WorldBackupDialog {
                         RestoreTo::InPlace => {
                             let mut message =
                                 tr!(M::WorldRestored, world = display_text(backup.world_name()));
+                            // Where the newer progress went, as the Worlds tab's snapshot
+                            // restore names its safety snapshot.
+                            if let Some(safety) = &restored.safety {
+                                message.push(' ');
+                                message.push_str(&tr!(
+                                    M::WorldRestoredSafety,
+                                    name = shown_name(safety)
+                                ));
+                            }
                             // Files written into the world meanwhile, moved aside: said here,
                             // as a snapshot's restore says it.
                             if let Some(kept) = &restored.kept_aside {
@@ -449,7 +470,6 @@ impl WorldBackupDialog {
         self.state = State::Working;
         let job = cx.background_spawn(async move { work() });
         let instances = self.instances.clone();
-        let deleting = matches!(self.request, WorldBackupRequest::Delete { .. });
         self._work = Some(cx.spawn(async move |this, cx| {
             let result = job.await;
             if result.is_ok() {

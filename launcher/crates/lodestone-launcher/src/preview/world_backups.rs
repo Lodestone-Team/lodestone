@@ -142,6 +142,36 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             }
             return;
         }
+        // An in-place restore as it ends: where the world as it was went.
+        "world-backup-restored" => {
+            let Some(backup) = named("Before the dragon fight") else {
+                return;
+            };
+            let world = backup.world_name().to_string();
+            shell.open_world_backup(
+                WorldBackupRequest::Restore {
+                    instance: id,
+                    backup,
+                    to: RestoreTo::InPlace,
+                },
+                cx,
+            );
+            if let Some(dialog) = shell.world_backup_dialog() {
+                dialog.update(cx, |dialog, cx| {
+                    let safety = tr!(
+                        M::WorldBackupBeforeRestoring,
+                        name = "Before the dragon fight"
+                    );
+                    dialog.preview_done(format!(
+                        "{} {}",
+                        tr!(M::WorldRestored, world = world),
+                        tr!(M::WorldRestoredSafety, name = safety)
+                    ));
+                    cx.notify();
+                });
+            }
+            return;
+        }
         _ => return,
     };
     shell.open_world_backup(request, cx);

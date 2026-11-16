@@ -211,6 +211,10 @@ pub struct WorldBackups {
     root: PathBuf,
     images: Arc<Images>,
     watchers: Mutex<Vec<UnboundedSender<String>>>,
+    /// The last backup id handed out per instance ([`new_id`]), so a backup made in the
+    /// second of one just deleted never takes the deleted one's id, which a list not yet
+    /// refreshed or a script may still hold.
+    issued: Mutex<HashMap<String, String>>,
     /// The free space tests pretend the disks have.
     #[cfg(test)]
     pub(crate) fake_free: Mutex<Option<u64>>,
@@ -308,6 +312,7 @@ impl WorldBackups {
             root: data.world_backups_dir(),
             images,
             watchers: Mutex::default(),
+            issued: Mutex::default(),
             #[cfg(test)]
             fake_free: Mutex::default(),
             #[cfg(test)]
@@ -510,7 +515,16 @@ impl WorldBackups {
             dir.display()
         )))?;
         let created = unix_now();
-        let id = new_id(&self.root.join(instance), created);
+        let id = {
+            let mut issued = self.issued.lock().unwrap_or_else(|e| e.into_inner());
+            let id = new_id(
+                &self.root.join(instance),
+                created,
+                issued.get(instance).map(String::as_str),
+            );
+            issued.insert(instance.to_string(), id.clone());
+            id
+        };
         let zip = dir.join(format!("{id}.zip"));
         // A session that begins, or the game opening the world (one this Launcher didn't
         // start), stops the zip at the next file: it would read the world mid-write. The
@@ -573,6 +587,16 @@ impl WorldBackups {
         let _ = fs::remove_file(zip.with_extension("json"));
         prune(zip.parent());
         self.changed(instance);
+    }
+
+    /// The folder holding `instance`'s world backups, one folder per world folder (it may
+    /// not exist). A world the Launcher places itself (an import, a restore as a new
+    /// world) takes a folder name free here too, so it never takes over a deleted world's
+    /// backups. `None` for an id the store can't name.
+    pub fn folders_of(&self, instance: &str) -> Option<PathBuf> {
+        self.images
+            .accepts(instance)
+            .then(|| self.root.join(instance))
     }
 
     /// Renames the world `folder` of `instance` to `name` ([`worlds::rename`]) and moves
@@ -692,11 +716,18 @@ impl WorldBackups {
     }
 
     /// Deletes for good every deleted instance's world backups (see the module), each
-    /// instance's under its record lock. Blocking.
+    /// instance's under its record lock, taken only for ids that have some. Blocking.
     pub fn clean_deleted(&self) -> Result<CleanedWorldBackups, WorldBackupError> {
         let mut cleaned = CleanedWorldBackups::default();
+        // Looked at first without locks, so a long job of a live instance with nothing to
+        // clean doesn't hold the clean-up up.
+        let owners = Owners::of(self.instances());
         for id in read_names(&self.root) {
-            if !self.images.accepts(&id) {
+            if !self.images.accepts(&id)
+                || !found_in(&self.root, &id)
+                    .iter()
+                    .any(|found| owners.deleted(&id, found.backup.instance_created))
+            {
                 continue;
             }
             self.images
@@ -724,15 +755,21 @@ impl WorldBackups {
     }
 
     /// Tidies up after crashes, each instance id under its record lock: deletes `.part`
-    /// files (a zip is only written under that lock, so none is being written), `.json`
-    /// files without their zip and the staging folders a restore as a new world left in
-    /// the instance's `saves/`, and keeps a zip found without its `.json` (the crash came
-    /// between them; it is the user's copy) as a manual backup of its live instance. Run
-    /// in the background when the Launcher starts, by the one Launcher using the data
-    /// folder. Errors are logged.
+    /// files (a zip is only written under that lock, so none is being written), the temp
+    /// files of a `.json` being written, `.json` files without their zip and the staging
+    /// folders a restore as a new world left in the instance's `saves/` (its own only: a
+    /// linked `saves/` may be another instance's too), and keeps a zip found without its
+    /// `.json` (the crash came between them; it is the user's copy) as a manual backup of
+    /// its live instance. Every live instance is swept, with world backups or not. Run in
+    /// the background when the Launcher starts, by the one Launcher using the data folder.
+    /// Errors are logged.
     pub fn sweep(&self) {
         let owners = Owners::of(self.instances());
-        for id in read_names(&self.root) {
+        let mut ids: Vec<String> = read_names(&self.root);
+        ids.extend(owners.live.keys().cloned());
+        ids.sort();
+        ids.dedup();
+        for id in ids {
             if !self.images.accepts(&id) {
                 continue;
             }
@@ -757,7 +794,9 @@ impl WorldBackups {
             let folder_dir = dir.join(&folder);
             for name in read_names(&folder_dir) {
                 let path = folder_dir.join(&name);
-                if name.starts_with('.') && name.ends_with(".part") {
+                if (name.starts_with('.') && name.ends_with(".part"))
+                    || name.starts_with(storage::TEMP_PREFIX)
+                {
                     let _ = fs::remove_file(&path);
                 } else if let Some(stem) = name.strip_suffix(".json") {
                     if snapshots::valid_record_id(stem)
@@ -790,13 +829,13 @@ impl WorldBackups {
             }
             prune(Some(&folder_dir));
         }
-        // A restore as a new world's staging folder: copies from a zip, nothing else.
+        // This instance's restores as a new world left their staging folders: copies from
+        // a zip, nothing else.
         if live.is_some() {
             let saves = worlds::saves_dir(&InstanceDirs::new(self.instances().dir(id)));
             for name in read_names(&saves) {
                 let path = saves.join(&name);
-                if name.starts_with(crate::images::swap::STAGING_PREFIX)
-                    && fs::symlink_metadata(&path).is_ok_and(|m| m.is_dir())
+                if is_staging_of(&name, id) && fs::symlink_metadata(&path).is_ok_and(|m| m.is_dir())
                 {
                     let _ = fs::remove_dir_all(&path);
                 }
@@ -828,6 +867,27 @@ impl WorldBackups {
         }
         usage
     }
+}
+
+/// The name of a staging folder in `saves/` for restoring a world backup of `instance`
+/// as a new world. It names the instance so the sweep of another instance sharing a
+/// linked `saves/` never deletes it mid-restore; hidden from world lists and snapshots by
+/// its `.lodestone-` start.
+pub(crate) fn staging_name(instance: &str) -> String {
+    format!(
+        "{}{instance}-{}",
+        crate::images::swap::STAGING_PREFIX,
+        crate::images::swap::random_suffix()
+    )
+}
+
+/// Whether `name` is a [`staging_name`] of `instance`: the instance's id and then exactly
+/// the random suffix, so an id that starts another id never matches the other's.
+fn is_staging_of(name: &str, instance: &str) -> bool {
+    name.strip_prefix(crate::images::swap::STAGING_PREFIX)
+        .and_then(|rest| rest.strip_prefix(instance))
+        .and_then(|rest| rest.strip_prefix('-'))
+        .is_some_and(|suffix| suffix.len() == 16 && suffix.bytes().all(|b| b.is_ascii_hexdigit()))
 }
 
 /// The backups in the instance id's folder under `root`, by world folder, whatever
@@ -877,27 +937,29 @@ fn found_in(root: &Path, instance: &str) -> Vec<Found> {
 /// A new backup id for the instance whose backups are in `dir`, made at `created`: unique
 /// among all its worlds' backups (whichever instance made them), so an id alone finds one
 /// backup, and after every id of the same second, so newest first (by `created`, then
-/// id) never puts the older of two backups made in one second first. The caller holds the
-/// record lock.
-fn new_id(dir: &Path, created: i64) -> String {
+/// id) never puts the older of two backups made in one second first. `issued` is the last
+/// id this Launcher handed out for the instance, counted as taken though its backup may
+/// be gone. The caller holds the record lock.
+fn new_id(dir: &Path, created: i64, issued: Option<&str>) -> String {
     let time = chrono::DateTime::from_timestamp(created, 0)
         .unwrap_or_default()
         .format("%Y%m%d-%H%M%S")
         .to_string();
     let prefix = format!("{time}-");
     let mut taken = HashSet::new();
+    let as_n = |id: &str| {
+        id.strip_prefix(&prefix)
+            .filter(|suffix| suffix.len() == 4)
+            .and_then(|suffix| u16::from_str_radix(suffix, 16).ok())
+    };
+    taken.extend(issued.and_then(as_n));
     for folder in read_names(dir) {
         for name in read_names(&dir.join(folder)) {
             let id = name
                 .strip_suffix(".zip")
                 .or_else(|| name.strip_suffix(".json"))
                 .unwrap_or(&name);
-            if let Some(suffix) = id.strip_prefix(&prefix)
-                && suffix.len() == 4
-                && let Ok(n) = u16::from_str_radix(suffix, 16)
-            {
-                taken.insert(n);
-            }
+            taken.extend(as_n(id));
         }
     }
     let next = match taken.iter().max() {
@@ -992,7 +1054,8 @@ fn write_sidecar(path: &Path, backup: &WorldBackup) -> Result<(), WorldBackupErr
 }
 
 /// A `.json` for a zip found without one: a manual backup named [`labels::WORLD_BACKUP`],
-/// what its world's `level.dat` says, made when the zip was written.
+/// what its world's `level.dat` says (nothing when it has none), made when the zip was
+/// written.
 fn adopt(
     zip: &Path,
     id: &str,
@@ -1000,7 +1063,9 @@ fn adopt(
     instance_created: u64,
     instance_name: &str,
 ) -> Result<WorldBackup, WorldError> {
-    let checked = worlds::zip::check(zip, Shape::OneWorldFolder, Limits::default())?;
+    // `level.dat` optional: the safety backup of a world that had none is kept too, so it
+    // can be listed and deleted rather than counted by Storage with no row to delete it.
+    let checked = worlds::zip::check(zip, Shape::OneFolder, Limits::default())?;
     let created = written_at(zip).unwrap_or(0);
     Ok(WorldBackup {
         version: VERSION,

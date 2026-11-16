@@ -274,42 +274,80 @@ struct CreateParams {
     name: Option<String>,
 }
 
-/// `world_backups.create`: zips a world.
+/// `world_backups.create`: zips a world. The world is found in the background (it reads
+/// every world's `level.dat`), then the job starts on the window's thread.
 pub fn create(call: Call, cx: &mut App) -> Reply {
     let params: CreateParams = params!(call);
-    let target = tri!(super::worlds::target(&call, cx));
-    tri!(super::snapshots::idle(
-        &target.control,
-        &target.instance,
-        cx
-    ));
-    let instances = target.control.instances.read(cx);
+    let instance = tri!(call.control.instance_param(&call, cx));
+    let reference = tri!(
+        call.params
+            .get("world")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .ok_or_else(|| api_error(
+                codes::INVALID_PARAMS,
+                "Name the world: its folder or its name.",
+            ))
+    );
+    let dirs = call.control.instances.read(cx).content_dirs(&instance.id);
+    let found = cx.background_spawn(async move { super::worlds::find_world(&dirs, &reference) });
+    cx.spawn(async move |cx| {
+        let world = found.await?;
+        cx.update(|cx| create_found(call, instance, world, params, cx))
+            .await
+    })
+}
+
+/// [`create`] once the world is found.
+fn create_found(
+    call: Call,
+    instance: Instance,
+    world: launcher_core::worlds::World,
+    params: CreateParams,
+    cx: &mut App,
+) -> Reply {
+    tri!(super::snapshots::idle(&call.control, &instance, cx));
+    let instances = call.control.instances.read(cx);
+    tri!(files_idle(instances, &instance));
     let backups = instances.world_backups();
     // Play waits until it is done.
-    let busy = instances.mark_files_busy(&target.instance.id);
-    let label = format!("Backing up {}", target.world.name());
-    let (instance, folder) = (target.instance.id.clone(), target.world.folder.clone());
-    let id = instance.clone();
+    let busy = instances.mark_files_busy(&instance.id);
+    let label = format!("Backing up {}", world.name());
+    let (id, folder) = (instance.id.clone(), world.folder.clone());
+    let refreshed = id.clone();
     job(
         &call,
         label,
-        &target.instance,
+        &instance,
         move |progress, cancel| {
             let _busy = busy;
             let made = backups
-                .create(
-                    &instance,
-                    &folder,
-                    params.name.as_deref(),
-                    progress,
-                    &|| cancel.is_cancelled(),
-                )
+                .create(&id, &folder, params.name.as_deref(), progress, &|| {
+                    cancel.is_cancelled()
+                })
                 .map_err(backup_error)?;
-            Ok(record_json(&backups, &instance, &made))
+            Ok(record_json(&backups, &id, &made))
         },
-        move |control, cx| refresh(control, &id, cx),
+        move |control, cx| refresh(control, &refreshed, cx),
         cx,
     )
+}
+
+/// Refuses while another job writes the instance's files (an install, a modpack update, a
+/// job of the window): a backup could zip a file mid-write and a restore's swap would lose
+/// what it writes, and either would wait for the instance's lock meanwhile, with
+/// `jobs.cancel` doing nothing until it got it.
+fn files_idle(
+    instances: &crate::instances::Instances,
+    instance: &Instance,
+) -> Result<(), ErrorObject> {
+    if instances.files_or_pack_busy(&instance.id) {
+        return Err(api_error(
+            codes::BUSY,
+            "Another job is changing the instance's files; try again when it is done.",
+        ));
+    }
+    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -369,13 +407,7 @@ fn restore_found(
     }
     tri!(super::snapshots::idle(&call.control, &instance, cx));
     let instances = call.control.instances.read(cx);
-    // An install or a modpack update writing the instance's files meanwhile.
-    if to == RestoreTo::InPlace && instances.files_or_pack_busy(&instance.id) {
-        return ready(Err(api_error(
-            codes::BUSY,
-            "Another job is changing the instance's files; try again when it is done.",
-        )));
-    }
+    tri!(files_idle(instances, &instance));
     let backups = instances.world_backups();
     let busy = instances.mark_files_busy(&instance.id);
     let label = format!("Restoring {} from {}", backup.world_name(), backup.name);
