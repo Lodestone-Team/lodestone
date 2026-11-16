@@ -211,11 +211,29 @@ pub fn load_saved() -> PrefsData {
     load(&crate::core_process::host_dir().join("settings.json"))
 }
 
+/// The saved settings, or the defaults when there are none or they don't read. That
+/// is logged (at the start before the logger's, nothing is: [`Prefs::init`] reads
+/// them again once it is set), without the file's values.
 fn load(path: &Path) -> PrefsData {
-    std::fs::read(path)
-        .ok()
-        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-        .unwrap_or_default()
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return PrefsData::default(),
+        Err(err) => {
+            log::warn!(
+                "couldn't read {}: {err}; using the default settings",
+                path.display()
+            );
+            return PrefsData::default();
+        }
+    };
+    serde_json::from_slice(&bytes).unwrap_or_else(|err| {
+        log::warn!(
+            "{} doesn't read ({}); using the default settings",
+            path.display(),
+            launcher_core::logging::serde_error(&err)
+        );
+        PrefsData::default()
+    })
 }
 
 fn save(path: &Path, data: &PrefsData) -> std::io::Result<()> {

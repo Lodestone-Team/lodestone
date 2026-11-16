@@ -538,7 +538,12 @@ pub fn install_pair(exe: &Path, core: &Path) -> Result<(), String> {
         .and_then(|()| update::install(&staged_exe, exe))
         .map_err(|err| err.to_string());
     if result.is_err() && had_core {
-        let _ = std::fs::rename(&backup, core);
+        if let Err(err) = std::fs::rename(&backup, core) {
+            log::error!(
+                "couldn't put the previous core back ({err}); it is at {}",
+                backup.display()
+            );
+        }
     } else {
         let _ = std::fs::remove_file(&backup);
     }

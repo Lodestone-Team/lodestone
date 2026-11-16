@@ -42,6 +42,7 @@ use serde_json::json;
 pub use file::{KEEP, MAX_BYTES};
 pub use filter::Filter;
 pub use format::escape_controls;
+pub use panic::LOGGED_PER_MINUTE;
 pub use session::{CRASH_FILE, Crash, PREVIOUS_CRASH_FILE, SESSION_FILE};
 pub use throttle::{Allowed, Throttle};
 

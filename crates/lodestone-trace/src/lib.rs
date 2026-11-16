@@ -323,11 +323,12 @@ const SECRET_NAMES: &[&str] = &[
     "private_key",
     "passphrase",
     "jwt",
+    "device_code",
 ];
 
-/// Short names that are secrets only on their own (`pass=…`), not inside a longer
-/// word (`passed`, `bypass`).
-const SECRET_WORDS: &[&str] = &["pass", "pwd"];
+/// Short names that are secrets only on their own (`pass=…`, `session=…`), not inside
+/// a longer word (`passed`, `bypass`, `in_session`).
+const SECRET_WORDS: &[&str] = &["pass", "pwd", "session"];
 
 /// Whether a field called `name` holds a secret. Case, `-` and `_` don't matter
 /// (`X-Api-Key`, `privateKey`, `private_key`).
@@ -536,13 +537,24 @@ fn scrub_one_line(line: &str) -> Option<String> {
         scrub_base64_runs,
         scrub_token_runs,
     ];
+    // A pass can uncover what an earlier one couldn't see (a named value glued to a URL
+    // whose password follows): the passes run again until nothing changes, a few times
+    // at most, so the line comes back scrubbed in one call.
+    const MAX_ROUNDS: usize = 4;
     let mut line = std::borrow::Cow::Borrowed(line);
     let mut changed = false;
-    for pass in PASSES {
-        if let Some(clean) = pass(&line) {
-            line = std::borrow::Cow::Owned(clean);
-            changed = true;
+    for _ in 0..MAX_ROUNDS {
+        let mut round_changed = false;
+        for pass in PASSES {
+            if let Some(clean) = pass(&line) {
+                line = std::borrow::Cow::Owned(clean);
+                round_changed = true;
+            }
         }
+        if !round_changed {
+            break;
+        }
+        changed = true;
     }
     changed.then(|| line.into_owned())
 }
@@ -658,6 +670,16 @@ fn scrub_named_values(line: &str) -> Option<String> {
                 next += 1;
                 true
             }
+            // a tuple struct's Debug: `Secret("…")`
+            Some(b'(')
+                if !quoted
+                    && next == before_separator
+                    && is_secret_name(name)
+                    && bytes.get(next + 1) == Some(&b'"') =>
+            {
+                next += 1;
+                true
+            }
             // a pair: `("authorization", "Bearer x")`, `["--accessToken", "x"]`
             Some(b',') if quoted => {
                 next += 1;
@@ -666,15 +688,23 @@ fn scrub_named_values(line: &str) -> Option<String> {
             // `--accessToken x`
             _ => flag && next > before_separator,
         };
-        // `code` and `key` count only as `code=…`, outside JSON
-        if !separated || (numbered && !is_secret_name(name) && (quoted || separator != Some(b'=')))
-        {
+        // `code` and `key` count as `code=…` outside JSON; elsewhere (`key: …`,
+        // `"key": "…"`) only a value shaped like a generated key does
+        let loose = numbered && !is_secret_name(name) && (quoted || separator != Some(b'='));
+        if !separated {
             continue;
         }
-        let value_start = skip_spaces(next);
+        let mut value_start = skip_spaces(next);
+        // `token: Some("…")`: the value inside
+        if line[value_start..].starts_with("Some(\"") {
+            value_start += "Some(".len();
+        }
         let Some((value_end, inner, quote)) = value_at(line, value_start) else {
             continue;
         };
+        if loose && !looks_like_key(inner) {
+            continue;
+        }
         let plain = inner.is_empty()
             || inner.starts_with(REDACTED)
             || matches!(inner, "true" | "false" | "null" | "None")
@@ -692,11 +722,16 @@ fn scrub_named_values(line: &str) -> Option<String> {
             copied = len;
             break;
         }
-        // `authorization=Bearer abc`: the credential too
-        let value_end = if quote.is_empty()
-            && matches!(inner.to_ascii_lowercase().as_str(), "bearer" | "basic")
-        {
+        // `authorization=Bearer abc`: the credential too; `identityToken: XBL3.0
+        // x=uhs;token`: the whole word after it, `;` and all
+        let scheme = inner.to_ascii_lowercase();
+        let value_end = if quote.is_empty() && matches!(scheme.as_str(), "bearer" | "basic") {
             value_at(line, skip_spaces(value_end)).map_or(value_end, |(end, _, _)| end)
+        } else if quote.is_empty() && scheme == "xbl3.0" {
+            let next = skip_spaces(value_end);
+            line[next..]
+                .find([' ', '\t', '"', ',', ')', ']', '}'])
+                .map_or(line.len(), |n| next + n)
         } else {
             value_end
         };
@@ -711,6 +746,17 @@ fn scrub_named_values(line: &str) -> Option<String> {
         out.push_str(&line[copied..]);
         out
     })
+}
+
+/// Whether a bare `key`'s value looks like a generated key rather than a word: 16 or
+/// more letters and digits (with `-` and `_`), both letters and digits among them.
+fn looks_like_key(value: &str) -> bool {
+    value.len() >= 16
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+        && value.chars().any(|c| c.is_ascii_digit())
+        && value.chars().any(|c| c.is_ascii_alphabetic())
 }
 
 /// The value starting at `start`: where it ends, what is inside its quotes, and the
@@ -1158,6 +1204,21 @@ mod tests {
             ),
             ("Token { access_token: \"abc\" }", "Token { access_token: \"[redacted]\" }"),
             ("sign-in code=AbCd1234 refused", "sign-in code=[redacted] refused"),
+            // a core's download key, a device code, a session, with no secret shape
+            ("key: Ab3dE5gH7jK9mN1pQ3sT5vW7yZ9bC1dE ok", "key: [redacted] ok"),
+            (r#"{"key":"Ab3dE5gH7jK9mN1pQ3sT5vW7yZ9bC1dE"}"#, r#"{"key":"[redacted]"}"#),
+            (
+                "ClientPack { key: \"Ab3dE5gH7jK9mN1pQ3sT5vW7yZ9bC1dE\", size: 3 }",
+                "ClientPack { key: \"[redacted]\", size: 3 }",
+            ),
+            ("device_code=Ab3dE5gH7jK9mN1p ok", "device_code=[redacted] ok"),
+            ("session=abc123 ok", "session=[redacted] ok"),
+            (r#"{"session":"abc"}"#, r#"{"session":"[redacted]"}"#),
+            ("Secret(\"hunter2\") ok", "Secret(\"[redacted]\") ok"),
+            ("token: Some(\"abc\") ok", "token: Some(\"[redacted]\") ok"),
+            ("identityToken: XBL3.0 x=1234;abcdef ok", "identityToken: [redacted] ok"),
+            // words that aren't keys stay
+            ("key: settings ok, key=7, in_session: 3", "key: settings ok, key=7, in_session: 3"),
             (
                 "url https://alice:hunter2pass@example.com/path",
                 "url https://alice:[redacted]@example.com/path",
@@ -1238,6 +1299,10 @@ mod tests {
         r#"{"path":"file/Ab3dE5gH7jK9mN1pQ3sT5vW7yZ9bC1dE"}"#,
         "refresh failed: EwBYA+pvBAAUKods63Ys1fGlwiccIFJ+qE1hANsAAZmYz5Hb3Ug5R/WabcDEF123/xyzXYZ789==.",
         r#"{"token": 123456}"#,
+        // a named value glued to a URL whose password follows
+        "code={lhp2://;lhp2://u:hunter2@h",
+        "key: Ab3dE5gH7jK9mN1pQ3sT5vW7yZ9bC1dE",
+        "identityToken: XBL3.0 x=1234;abcdef",
     ];
 
     #[test]

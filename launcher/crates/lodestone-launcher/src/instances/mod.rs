@@ -520,6 +520,9 @@ pub struct Instances {
     total_memory: Option<u64>,
     machine: Platform,
     notice: Option<SharedString>,
+    /// The instance folders the last reload logged as left out, so a reload (which
+    /// follows many operations) logs them only when they change.
+    broken_logged: Vec<std::path::PathBuf>,
     versions_task: Option<Task<()>>,
     /// The launcher's settings: the global instance settings and the sidebar's
     /// folded groups.
@@ -731,16 +734,27 @@ impl Instances {
             async {}
         })
         .detach();
+        // A clean quit, so the next start shows no crash notice. Added after the
+        // settling (quit handlers run in the order they were added), so what that logs
+        // is flushed with the quit line.
+        cx.on_app_quit(|_, _| {
+            launcher_core::logging::end_session();
+            async {}
+        })
+        .detach();
         // Copies of images that are gone, and the oldest past the limit.
         let hero_cache = launcher_core::hero_cache::HeroCache::new(&data_dir);
         let pruning = hero_cache.clone();
         cx.background_spawn(async move { pruning.prune() }).detach();
         let (settings, settings_notice) = match launcher_settings::load(&data_dir.settings_file()) {
             Ok(settings) => (settings, None),
-            Err(err) => (
-                Settings::default(),
-                Some(SharedString::from(err.to_string())),
-            ),
+            Err(err) => {
+                log::warn!("{err}; using the default settings");
+                (
+                    Settings::default(),
+                    Some(SharedString::from(err.to_string())),
+                )
+            }
         };
         crate::i18n::apply(settings.language);
         crate::theme::zoom::set(settings.zoom);
@@ -762,6 +776,7 @@ impl Instances {
             total_memory: platform::total_memory(),
             machine: Platform::current(),
             notice: None,
+            broken_logged: Vec::new(),
             versions_task: None,
             settings,
             icons: HashMap::new(),
@@ -866,6 +881,13 @@ impl Instances {
     pub fn reload(&mut self, cx: &mut Context<Self>) {
         let (list, broken) = self.store.list();
         self.list = list;
+        let dirs: Vec<_> = broken.iter().map(|b| b.dir.clone()).collect();
+        if dirs != self.broken_logged {
+            for line in broken_lines(&broken) {
+                log::warn!("{line}");
+            }
+            self.broken_logged = dirs;
+        }
         self.notice = (!broken.is_empty()).then(|| {
             trn!(
                 P::BrokenFolders,
@@ -948,7 +970,10 @@ impl Instances {
                 }
                 Ok(())
             }
-            Err(err) => Err(err.to_string()),
+            Err(err) => {
+                log::warn!("couldn't save the settings: {err}");
+                Err(err.to_string())
+            }
         }
     }
 
@@ -2760,7 +2785,10 @@ impl Instances {
         // it exits still counts; the play time is added when it exits.
         match self.store.record_start(&started_id, started_unix) {
             Ok(instance) => self.update_listed(instance, cx),
-            Err(err) => self.notice = Some(tr!(M::CouldntSavePlayed, error = err).into()),
+            Err(err) => {
+                log::warn!("couldn't save when {started_id} was last played: {err}");
+                self.notice = Some(tr!(M::CouldntSavePlayed, error = err).into());
+            }
         }
         cx.notify();
     }
@@ -2792,6 +2820,7 @@ impl Instances {
             .store
             .record_play(id, started_unix, started.elapsed().as_secs())
         {
+            log::warn!("couldn't save the play time of {id}: {err}");
             self.notice = Some(tr!(M::CouldntSavePlayTime, error = err).into());
         }
         let name = self
@@ -3217,9 +3246,58 @@ pub(crate) fn game_change(before: &Instance, after: &Instance) -> Option<GameCha
     }
 }
 
+/// Most broken instance folders named in the log at once.
+const MAX_BROKEN_LOGGED: usize = 10;
+
+/// The log's lines for instance folders left out of the list because their
+/// `instance.json` doesn't load: each folder's error, up to [`MAX_BROKEN_LOGGED`].
+fn broken_lines(broken: &[launcher_core::instances::BrokenInstance]) -> Vec<String> {
+    let mut lines: Vec<String> = broken
+        .iter()
+        .take(MAX_BROKEN_LOGGED)
+        .map(|b| format!("left an instance out of the list: {}", b.error))
+        .collect();
+    if broken.len() > MAX_BROKEN_LOGGED {
+        lines.push(format!(
+            "and {} more instance folders that don't load",
+            broken.len() - MAX_BROKEN_LOGGED
+        ));
+    }
+    lines
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A folder whose instance.json doesn't load is named in the log, with why.
+    #[test]
+    fn broken_instance_folders_are_logged() {
+        let error = |n: usize| launcher_core::instances::BrokenInstance {
+            dir: format!("/data/instances/i{n}").into(),
+            error: launcher_core::storage::StorageError::Corrupt {
+                path: format!("/data/instances/i{n}/instance.json").into(),
+                reason: "EOF while parsing an object at line 3 column 0".into(),
+            },
+        };
+        let lines = broken_lines(&[error(1)]);
+        assert_eq!(
+            lines,
+            vec![
+                "left an instance out of the list: /data/instances/i1/instance.json is not a \
+                 valid launcher file: EOF while parsing an object at line 3 column 0"
+                    .to_string()
+            ]
+        );
+        let many: Vec<_> = (0..12).map(error).collect();
+        let lines = broken_lines(&many);
+        assert_eq!(lines.len(), MAX_BROKEN_LOGGED + 1);
+        assert_eq!(
+            lines.last().unwrap(),
+            "and 2 more instance folders that don't load"
+        );
+        assert!(broken_lines(&[]).is_empty());
+    }
 
     #[test]
     fn failures_shown_in_dialogs_are_logged() {

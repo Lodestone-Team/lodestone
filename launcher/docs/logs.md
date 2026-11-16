@@ -112,9 +112,14 @@ that cannot unwind", is added to it; once the file passes 64 KB, panics the run
 survived make way, and it keeps the run's first report and its newest, so the panic that
 ended the run is always there). A run's first panic moves the report it replaces
 to `previous-crash.txt`, so a crash the start just reported isn't lost to a panic the
-new run survived. A message is cut at 16 KB, and only a run's first three panics carry
+new run survived; two threads panicking at once write in turn, the first into the new
+file. A message is cut at 16 KB, and only a run's first three panics carry
 a backtrace (a panic someone catches, around a library a LAN device can upset, is
-reported too). The app marks a run in `logs/session.json` and
+reported too). The log takes five reports a minute from one place in the code (a task
+that panics on every connection would rotate the first report away) and says how many
+it left out; the crash file takes every one. Control characters in a report are written
+as escapes (`\u{1b}`) in the crash file as in the log, so `cat last-crash.txt` can't
+run a terminal escape. The app marks a run in `logs/session.json` and
 removes the mark when it quits cleanly; at the next start, a mark still there whose run
 `last-crash.txt` names means a crash nobody saw end, and the app says so once: a notice
 in the Launcher's top bar (beside the update notice when both fit, in its place when

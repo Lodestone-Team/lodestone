@@ -4602,12 +4602,23 @@ Persistent logging for the Launcher and the Host (not an instance-images milesto
   a core that is off) is logged once per outage, and again when the host answers; a host
   that fails and answers by turns is logged once a minute at most. Game file downloads
   are logged by the downloader, not from the trace bus.
+- **Notices nobody sees are logged.** A problem the Launcher keeps as a notice (an
+  accounts file moved aside as corrupt or too new, an instance folder left out of the
+  list because its `instance.json` doesn't load, a settings file that doesn't load or
+  save (the Host's too), a play time that couldn't be saved) is logged where it is
+  decided, an instance folder once per change of the list. A file that doesn't load is
+  named with serde's error without its values (`storage::load` now builds that text for
+  every launcher file). Images still recording when the Launcher quits (after 6 s) are
+  logged.
 - **The shared crate** (`crates/lodestone-image`) is unchanged. `crates/lodestone-trace`
   gains `scrub_line`, an additive function; `is_secret_name` ignores case, `-` and `_`
-  (`privateKey`) and knows `passphrase`, `pass` and `pwd` (the last two as whole
-  names), and `scrub`/`scrub_str` also blank percent-encoded secrets, `invite`/`link`
-  values in query strings and download keys, relative `file/…` ones included (stricter,
-  nothing removed).
+  (`privateKey`) and knows `passphrase`, `device_code`, `pass`, `pwd` and `session`
+  (the last three as whole names), and `scrub`/`scrub_str` also blank percent-encoded
+  secrets, `invite`/`link` values in query strings and download keys, relative `file/…`
+  ones included (stricter, nothing removed). `scrub_line` also blanks a bare `key`'s
+  value shaped like a generated key (16 or more letters and digits) after `key:` or in
+  JSON, a secret-named tuple's `Secret("…")`, a value inside `Some("…")`, and the whole
+  `XBL3.0 x=…;…` after a secret name, and runs its passes until nothing changes.
 
 ### ML decisions
 

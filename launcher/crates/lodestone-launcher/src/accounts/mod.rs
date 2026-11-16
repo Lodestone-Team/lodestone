@@ -334,6 +334,7 @@ impl Accounts {
 
     fn report(&mut self, result: Result<(), impl std::fmt::Display>) {
         if let Err(err) = result {
+            log::warn!("couldn't save the accounts: {err}");
             self.notice = Some(tr!(M::CouldntSaveAccounts, error = err).into());
         }
     }
@@ -408,6 +409,10 @@ impl Accounts {
                         if this.store.active().is_some_and(|a| a.id == account.id) {
                             this.switch(&account.id, cx);
                         }
+                        log::warn!(
+                            "couldn't remove the sign-in of {}: {err:#}",
+                            account.username
+                        );
                         this.notice = Some(
                             tr!(
                                 M::CouldntRemoveSignIn,
