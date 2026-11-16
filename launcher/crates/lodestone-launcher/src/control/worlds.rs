@@ -125,18 +125,34 @@ pub(super) fn target(call: &Call, cx: &App) -> Result<Target, ErrorObject> {
 /// The Worlds tab's lock.
 fn can_change(target: &Target, cx: &App) -> Result<(), ErrorObject> {
     target.control.idle(&target.instance, cx)?;
-    if let Some(job) = target
+    // A world backup being made or restored reads or writes a world: one moved, renamed
+    // or changed meanwhile would cut the zip short, or be restored over.
+    for (kind, what) in [("worlds", "worlds"), ("world_backups", "world backups")] {
+        if let Some(job) = target
+            .control
+            .jobs
+            .borrow()
+            .running_for(kind, &target.instance.id)
+        {
+            return Err(api_error(
+                codes::BUSY,
+                format!(
+                    "Job {job} is working on {}'s {what}; wait for it.",
+                    target.instance.name
+                ),
+            ));
+        }
+    }
+    // The window's jobs (a world backup made in Settings, a restore, an install).
+    if target
         .control
-        .jobs
-        .borrow()
-        .running_for("worlds", &target.instance.id)
+        .instances
+        .read(cx)
+        .files_or_pack_busy(&target.instance.id)
     {
         return Err(api_error(
             codes::BUSY,
-            format!(
-                "Job {job} is working on {}'s worlds; wait for it.",
-                target.instance.name
-            ),
+            "Another job is changing the instance's files; try again when it is done.",
         ));
     }
     Ok(())

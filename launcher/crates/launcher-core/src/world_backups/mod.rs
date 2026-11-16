@@ -37,7 +37,7 @@ use std::{
     fs, io,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
-    time::{Duration, SystemTime},
+    time::SystemTime,
 };
 
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
@@ -59,8 +59,6 @@ use crate::{
 pub const MAX_SIDECAR_BYTES: u64 = 64 * 1024;
 /// A name is cut to this many characters.
 pub const MAX_NAME_CHARS: usize = 200;
-/// A `.part` older than this is a crash's, and the sweep deletes it.
-const STALE_PART: Duration = Duration::from_secs(60 * 60);
 const VERSION: u32 = 1;
 
 /// How a world backup was made.
@@ -142,7 +140,7 @@ pub struct CleanedWorldBackups {
 /// The world backups' share of the data folder, for Settings › Storage.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 pub struct WorldBackupsUsage {
-    /// Everything in the world backups folder.
+    /// Everything in the world backups folder (filled in by Storage's scan).
     pub bytes: u64,
     /// Live instances' backups.
     pub backups: usize,
@@ -512,19 +510,24 @@ impl WorldBackups {
             dir.display()
         )))?;
         let created = unix_now();
-        let id = loop {
-            let id = snapshots::new_record_id(created, &[]);
-            if !dir.join(format!("{id}.zip")).exists() && !dir.join(format!("{id}.json")).exists() {
-                break id;
-            }
-        };
+        let id = new_id(&self.root.join(instance), created);
         let zip = dir.join(format!("{id}.zip"));
         // A session that begins, or the game opening the world (one this Launcher didn't
-        // start), stops the zip at the next file: it would read the world mid-write.
+        // start), stops the zip at the next file: it would read the world mid-write. The
+        // world's lock is looked at every 250 ms at most (opening it per file would cost a
+        // call per file, and a game opening the world at that instant would find it
+        // taken); the rest is cheap and asked every time.
+        let lock_checked = std::cell::Cell::new(std::time::Instant::now());
         let stop = || {
             if cancel() {
-                Err(WorldError::Cancelled)
-            } else if slot.in_session() || worlds::open_in_game(&saves, Some(&only)).is_some() {
+                return Err(WorldError::Cancelled);
+            }
+            let mut running = slot.in_session();
+            if !running && lock_checked.get().elapsed() >= LOCK_CHECK_EVERY {
+                lock_checked.set(std::time::Instant::now());
+                running = worlds::open_in_game(&saves, Some(&only)).is_some();
+            }
+            if running {
                 Err(WorldError::Invalid(RUNNING.into()))
             } else {
                 Ok(())
@@ -574,10 +577,12 @@ impl WorldBackups {
 
     /// Renames the world `folder` of `instance` to `name` ([`worlds::rename`]) and moves
     /// its world backups with it, under the instance's record lock: its backups stay its
-    /// own, and a world later given the old folder name never takes them. The new folder is
-    /// a name free in both `saves/` and the world backups' folder. If the backups can't be
-    /// moved, the world is put back as it was. Refused while a game session runs. Returns
-    /// the world's folder now. Blocking.
+    /// own, and a world later given the old folder name never takes them. Only this
+    /// instance's backups move: a deleted instance that had the same id keeps its backups
+    /// under the old folder, as its world was named. The new folder is a name free in both
+    /// `saves/` and the world backups' folder. If the backups can't be moved, the world is
+    /// put back as it was. Refused while a game session runs. Returns the world's folder
+    /// now. Blocking.
     pub fn rename_world(
         &self,
         instance: &str,
@@ -588,32 +593,66 @@ impl WorldBackups {
             if locked.slot.in_session() {
                 return Err(WorldBackupError::Running);
             }
+            let created = self.instance(instance)?.created;
             let dirs = InstanceDirs::new(&locked.dir);
             let world = worlds::world_dir(&dirs, folder)?;
             let backups = self.root.join(instance);
             let from_backups = backups.join(folder);
-            let has_backups = fs::symlink_metadata(&from_backups).is_ok_and(|m| m.is_dir());
-            let renamed = worlds::rename_in(&dirs, folder, name, &[&backups], |from, to| {
-                if !has_backups {
+            // This instance's backups of the world, by file name (the zip first).
+            let mine: Vec<String> = self
+                .owned(instance, created)
+                .filter(|f| f.backup.folder == folder)
+                .flat_map(|f| {
+                    [
+                        format!("{}.zip", f.backup.id),
+                        format!("{}.json", f.backup.id),
+                    ]
+                })
+                .collect();
+            // The whole folder moves in one rename when it holds nothing else.
+            let whole = !mine.is_empty()
+                && read_names(&from_backups)
+                    .iter()
+                    .all(|name| mine.contains(name));
+            let move_backups = |from: &Path, to: &Path| -> io::Result<()> {
+                if mine.is_empty() {
+                    return Ok(());
+                }
+                if whole {
                     return crate::fsx::rename(from, to);
                 }
+                fs::create_dir_all(to)?;
+                for (done, name) in mine.iter().enumerate() {
+                    if let Err(e) = crate::fsx::rename(from.join(name), to.join(name)) {
+                        for back in mine[..done].iter().rev() {
+                            let _ = crate::fsx::rename(to.join(back), from.join(back));
+                        }
+                        let _ = fs::remove_dir(to);
+                        return Err(e);
+                    }
+                }
+                // Gone when it held only these after all (another's deleted meanwhile).
+                let _ = fs::remove_dir(from);
+                Ok(())
+            };
+            let renamed = worlds::rename_in(&dirs, folder, name, &[&backups], |from, to| {
                 let to_name = to.file_name().map(PathBuf::from).unwrap_or_default();
                 let from_name = from.file_name().map(PathBuf::from).unwrap_or_default();
                 if from == world {
                     // Forward: the world, then its backups; the world back if they can't.
                     crate::fsx::rename(from, to)?;
-                    if let Err(e) = crate::fsx::rename(&from_backups, backups.join(&to_name)) {
+                    if let Err(e) = move_backups(&from_backups, &backups.join(&to_name)) {
                         let _ = crate::fsx::rename(to, from);
                         return Err(e);
                     }
                     Ok(())
                 } else {
                     // Putting it back (its level.dat couldn't be renamed): both again.
-                    crate::fsx::rename(backups.join(&from_name), backups.join(&to_name))?;
+                    move_backups(&backups.join(&from_name), &backups.join(&to_name))?;
                     crate::fsx::rename(from, to)
                 }
             })?;
-            if renamed != folder && has_backups {
+            if renamed != folder && !mine.is_empty() {
                 self.changed(instance);
             }
             Ok(renamed)
@@ -685,10 +724,12 @@ impl WorldBackups {
     }
 
     /// Tidies up after crashes, each instance id under its record lock: deletes `.part`
-    /// files older than an hour and `.json` files without their zip, and keeps a zip found
-    /// without its `.json` (the crash came between them; it is the user's copy) as a
-    /// manual backup of its live instance. Run in the background when the Launcher
-    /// starts. Errors are logged.
+    /// files (a zip is only written under that lock, so none is being written), `.json`
+    /// files without their zip and the staging folders a restore as a new world left in
+    /// the instance's `saves/`, and keeps a zip found without its `.json` (the crash came
+    /// between them; it is the user's copy) as a manual backup of its live instance. Run
+    /// in the background when the Launcher starts, by the one Launcher using the data
+    /// folder. Errors are logged.
     pub fn sweep(&self) {
         let owners = Owners::of(self.instances());
         for id in read_names(&self.root) {
@@ -717,12 +758,7 @@ impl WorldBackups {
             for name in read_names(&folder_dir) {
                 let path = folder_dir.join(&name);
                 if name.starts_with('.') && name.ends_with(".part") {
-                    let old = fs::metadata(&path)
-                        .and_then(|m| m.modified())
-                        .is_ok_and(|t| t.elapsed().is_ok_and(|age| age > STALE_PART));
-                    if old {
-                        let _ = fs::remove_file(&path);
-                    }
+                    let _ = fs::remove_file(&path);
                 } else if let Some(stem) = name.strip_suffix(".json") {
                     if snapshots::valid_record_id(stem)
                         && !folder_dir.join(format!("{stem}.zip")).exists()
@@ -754,18 +790,28 @@ impl WorldBackups {
             }
             prune(Some(&folder_dir));
         }
+        // A restore as a new world's staging folder: copies from a zip, nothing else.
+        if live.is_some() {
+            let saves = worlds::saves_dir(&InstanceDirs::new(self.instances().dir(id)));
+            for name in read_names(&saves) {
+                let path = saves.join(&name);
+                if name.starts_with(crate::images::swap::STAGING_PREFIX)
+                    && fs::symlink_metadata(&path).is_ok_and(|m| m.is_dir())
+                {
+                    let _ = fs::remove_dir_all(&path);
+                }
+            }
+        }
         kept
     }
 
     /// The world backups' share of the data folder `data` (Settings › Storage), whose
-    /// instances are `instances`, read without locks.
+    /// instances are `instances`, read without locks. `bytes` is left at 0: Storage sizes
+    /// the folder itself, with its scan's Cancel.
     pub fn usage(data: &DataDir, instances: &[Instance]) -> WorldBackupsUsage {
         let root = data.world_backups_dir();
         let owners = Owners::listed(&data.instances_dir(), instances);
-        let mut usage = WorldBackupsUsage {
-            bytes: worlds::folder_size(&root),
-            ..WorldBackupsUsage::default()
-        };
+        let mut usage = WorldBackupsUsage::default();
         for id in read_names(&root) {
             for found in found_in(&root, &id) {
                 if owners.deleted(&id, found.backup.instance_created) {
@@ -827,6 +873,51 @@ fn found_in(root: &Path, instance: &str) -> Vec<Found> {
     });
     found
 }
+
+/// A new backup id for the instance whose backups are in `dir`, made at `created`: unique
+/// among all its worlds' backups (whichever instance made them), so an id alone finds one
+/// backup, and after every id of the same second, so newest first (by `created`, then
+/// id) never puts the older of two backups made in one second first. The caller holds the
+/// record lock.
+fn new_id(dir: &Path, created: i64) -> String {
+    let time = chrono::DateTime::from_timestamp(created, 0)
+        .unwrap_or_default()
+        .format("%Y%m%d-%H%M%S")
+        .to_string();
+    let prefix = format!("{time}-");
+    let mut taken = HashSet::new();
+    for folder in read_names(dir) {
+        for name in read_names(&dir.join(folder)) {
+            let id = name
+                .strip_suffix(".zip")
+                .or_else(|| name.strip_suffix(".json"))
+                .unwrap_or(&name);
+            if let Some(suffix) = id.strip_prefix(&prefix)
+                && suffix.len() == 4
+                && let Ok(n) = u16::from_str_radix(suffix, 16)
+            {
+                taken.insert(n);
+            }
+        }
+    }
+    let next = match taken.iter().max() {
+        // Random within the second's first backup, leaving room to count up.
+        None => Some(u16::from_le_bytes(crate::random_bytes()) & 0x7fff),
+        Some(max) => max.checked_add(1),
+    };
+    let suffix = next.unwrap_or_else(|| {
+        loop {
+            let n = u16::from_le_bytes(crate::random_bytes());
+            if !taken.contains(&n) {
+                break n;
+            }
+        }
+    });
+    format!("{prefix}{suffix:04x}")
+}
+
+/// How often a zip being made looks at whether the game opened the world.
+const LOCK_CHECK_EVERY: std::time::Duration = std::time::Duration::from_millis(250);
 
 /// The message a zip stopped by the game carries until it is turned into
 /// [`WorldBackupError::Running`].

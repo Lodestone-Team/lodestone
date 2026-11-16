@@ -98,7 +98,7 @@ pub fn text(message: M) -> &'static str {
         M::Position => "{index} sur {count}",
         M::CopyImage => "Copier l’image",
         M::RestoringFromSnapshot => "Restauration du monde depuis l’instantané",
-        M::WorldBackupsHeading => "Sauvegardes de monde",
+        M::WorldBackupsHeading => "Sauvegardes de mondes",
         M::NoWorldBackupsYet => {
             "Aucune sauvegarde de ce monde pour l’instant. Sauvegarder en crée une."
         }

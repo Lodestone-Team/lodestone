@@ -3087,9 +3087,7 @@ impl InstanceSettings {
                 );
             }
             index += 1;
-            section = section
-                .child(world_label(index, world, about.join(" · ")))
-                .card(rows);
+            section = section.labelled_card(world_label(index, world, about.join(" · ")), rows);
         }
         section
     }

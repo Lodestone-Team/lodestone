@@ -1595,7 +1595,7 @@
     unsavedWhere: ST("Unsaved changes dialog", "instance this defaults"),
     bg: ST("Background picker", "image slideshow"),
     storage: ST("Settings \u203a Storage", "counted counting error gameRunning freed noDeleted"),
-    storageWhich: ST("Storage confirm (which)", "fromButton GameFiles Runtimes Cache OldLogs AllLogs Leftovers Snapshots"),
+    storageWhich: ST("Storage confirm (which)", "fromButton GameFiles Runtimes Cache OldLogs AllLogs Leftovers Snapshots WorldBackups"),
     storageMove: ST("Move data dialog", "confirm back moving failed"),
     settingsUnsaved: ST("Settings \u203a Instance defaults", "no yes error"),
     sharedMain: ST("Shared settings main instance", "set none"),

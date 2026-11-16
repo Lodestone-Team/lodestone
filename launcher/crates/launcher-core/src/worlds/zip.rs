@@ -10,8 +10,8 @@
 //! Windows or macOS, or hide as an invisible character. Links are never followed nor
 //! written, and `session.lock` and Lodestone's working files (`.lodestone-…`) never go in.
 //!
-//! [`check`] reads only the zip's central directory, the list every later step uses (a
-//! local header naming another path is never read), and refuses the whole zip for any
+//! [`check`] reads only the zip's central directory (and `level.dat`), the list every
+//! later step uses (a local header naming another path is never read), and refuses the whole zip for any
 //! name it can't take, rather than leaving a file out without a word. [`extract_into`]
 //! then never trusts a size the zip states: each file is copied up to its stated size
 //! plus one byte, and one that is larger refuses the zip.
@@ -198,6 +198,10 @@ impl ZipPlan {
 /// followed. A folder whose name is left out is left out whole. A name is taken only when
 /// [`check`] would take it in the zip.
 ///
+/// Of two names that differ only in letter case (a disk that keeps case apart can hold
+/// both), the later in sorted order is left out, with what is in it: [`check`] refuses
+/// such a zip, so it could never be restored.
+///
 /// A folder that holds only names the zip doesn't take is left out too, rather than going
 /// in empty: restoring in place carries such a folder back whole from the world on disk,
 /// which it couldn't do were the zip to place an empty folder of that name there.
@@ -280,6 +284,43 @@ pub fn plan(dir: &Path, prefix: &str) -> Result<ZipPlan, WorldError> {
                 hold_back(&child);
                 leave_out(&mut found, child);
             }
+        }
+    }
+    // Two names one file on a disk that ignores case (only a disk that keeps case apart
+    // can hold both): the later is left out, with everything in it, since `check` would
+    // refuse the zip on every restore.
+    found.entries.sort_by(|a, b| a.relative.cmp(&b.relative));
+    let canonical: Vec<CanonicalPath> = found
+        .entries
+        .iter()
+        .filter_map(|e| world_path(&e.relative).ok())
+        .collect();
+    if canonical.len() == found.entries.len() {
+        let later: HashSet<String> = case_collisions(canonical.iter())
+            .into_iter()
+            .map(|(_, later)| later.as_str()["saves/w/".len()..].to_string())
+            .collect();
+        let under_later = |relative: &str| {
+            let mut rest = relative;
+            while let Some((parent, _)) = rest.rsplit_once('/') {
+                if later.contains(parent) {
+                    return true;
+                }
+                rest = parent;
+            }
+            false
+        };
+        let mut dropped = Vec::new();
+        found.entries.retain(|e| {
+            let gone = later.contains(&e.relative) || under_later(&e.relative);
+            if gone && !under_later(&e.relative) {
+                dropped.push(e.relative.clone());
+            }
+            !gone
+        });
+        for relative in dropped {
+            hold_back(&relative);
+            leave_out(&mut found, relative);
         }
     }
     // A held-back folder stays when the zip takes something inside it: a file, or a folder
@@ -536,7 +577,8 @@ pub fn check(path: &Path, shape: Shape, limits: Limits) -> Result<CheckedZip, Wo
     let mut total = 0u64;
     let mut raws = Vec::new();
     for index in 0..archive.len() {
-        let entry = archive.by_index_raw(index).map_err(zip_error(path))?;
+        // The central directory's record only: no local header is read.
+        let entry = archive.by_index_data(index).map_err(zip_error(path))?;
         total = total.saturating_add(entry.size());
         if total > limits.max_bytes {
             return Err(too_large());
@@ -734,8 +776,8 @@ pub fn check(path: &Path, shape: Shape, limits: Limits) -> Result<CheckedZip, Wo
 /// to its stated size plus one byte (one that is larger refuses the zip). Everything is
 /// made durable as one batch ([`lodestone_image::store::durable`]): each file and folder
 /// handed to the drive as it is written, then one flush of the drive's cache at the end,
-/// rather than a flush of the cache per file. Cancel is asked before each entry. On any
-/// failure `dest` is removed. Returns the files placed, relative to `dest` with `/`.
+/// rather than a flush of the cache per file. Cancel is asked before each entry and every
+/// 8 MiB of a large one. On any failure `dest` is removed. Returns the files placed, relative to `dest` with `/`.
 pub fn extract_into(
     path: &Path,
     zip: &CheckedZip,
@@ -761,6 +803,7 @@ pub fn extract_into(
         };
         progress.set(done);
         let mut placed = Vec::new();
+        let mut buffer = vec![0u8; 1 << 20];
         // Every folder made, flushed once each at the end.
         let mut folders: std::collections::BTreeSet<PathBuf> = [dest.to_path_buf()].into();
         for planned in &zip.entries {
@@ -792,9 +835,37 @@ pub fn extract_into(
             // Never trust the size in the zip: at most what it says, plus one byte to see
             // a file that is larger.
             let limit = budget.min(planned.size).saturating_add(1);
-            let copied = io::copy(&mut (&mut entry).take(limit), &mut out).map_err(|e| {
-                WorldError::Invalid(format!("{} can't be unpacked: {e}", planned.relative))
-            })?;
+            let mut source = (&mut entry).take(limit);
+            // In large chunks (std's copy moves 8 KiB per call), asking Cancel and moving
+            // the bar between them, so a file of many gigabytes can be stopped too.
+            let mut copied = 0u64;
+            let mut since_check = 0usize;
+            loop {
+                let read = match source.read(&mut buffer) {
+                    Ok(0) => break,
+                    Ok(read) => read,
+                    Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                    Err(e) => {
+                        return Err(WorldError::Invalid(format!(
+                            "{} can't be unpacked: {e}",
+                            planned.relative
+                        )));
+                    }
+                };
+                io::Write::write_all(&mut out, &buffer[..read]).map_err(io_error(&target))?;
+                copied += read as u64;
+                since_check += read;
+                if since_check >= COPY_CHUNK {
+                    since_check = 0;
+                    progress.set(ProgressSnapshot {
+                        bytes_done: done.bytes_done + copied,
+                        ..done
+                    });
+                    if cancel() {
+                        return Err(WorldError::Cancelled);
+                    }
+                }
+            }
             if copied > planned.size || copied > budget {
                 return Err(WorldError::Invalid(format!(
                     "{} is larger than the zip says.",
@@ -1233,5 +1304,62 @@ mod tests {
             .is_err()
         );
         assert!(!out.exists());
+    }
+
+    /// Unpacking asks Cancel inside a large file too, and moves the bar while it copies.
+    #[test]
+    fn a_large_file_can_be_stopped_part_way_through_unpacking() {
+        let temp = tempfile::tempdir().unwrap();
+        let src = temp.path().join("World");
+        world(&src);
+        fs::write(src.join("region/r.9.9.mca"), vec![1u8; 3 * COPY_CHUNK]).unwrap();
+        let out = temp.path().join("w.zip");
+        write_zip(&src, "World", &out, &Progress::default(), &|| Ok(())).unwrap();
+        let checked = check(&out, Shape::OneWorldFolder, Limits::default()).unwrap();
+        let entries = checked.entries.len();
+        let asked = std::sync::atomic::AtomicUsize::new(0);
+        let progress = Progress::default();
+        let dest = temp.path().join("out");
+        let err = extract_into(&out, &checked, &dest, &progress, &|| {
+            // Every entry once, and then some: stopped inside the large file.
+            asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst) > entries
+        })
+        .unwrap_err();
+        assert!(matches!(err, WorldError::Cancelled), "{err:?}");
+        assert!(!dest.exists());
+        assert!(progress.snapshot().bytes_done >= COPY_CHUNK as u64);
+        // Not stopped, it unpacks whole.
+        extract_into(&out, &checked, &dest, &Progress::default(), &|| false).unwrap();
+        assert_eq!(
+            fs::read(dest.join("region/r.9.9.mca")).unwrap().len(),
+            3 * COPY_CHUNK
+        );
+    }
+
+    /// On a disk that keeps letter case apart a world can hold two names one other disks
+    /// take for one: the later is left out (and counted), so the zip passes the check.
+    #[test]
+    fn names_differing_only_in_case_keep_the_first() {
+        let temp = tempfile::tempdir().unwrap();
+        let src = temp.path().join("World");
+        world(&src);
+        fs::write(src.join("a.txt"), b"lower").unwrap();
+        fs::write(src.join("A.txt"), b"upper").unwrap();
+        fs::create_dir_all(src.join("Data")).unwrap();
+        fs::write(src.join("Data/x"), b"x").unwrap();
+        fs::create_dir_all(src.join("data")).unwrap();
+        fs::write(src.join("data/y"), b"y").unwrap();
+        let case_sensitive = fs::read_dir(&src).unwrap().count() == 7;
+        let out = temp.path().join("w.zip");
+        let written = write_zip(&src, "World", &out, &Progress::default(), &|| Ok(())).unwrap();
+        check(&out, Shape::OneWorldFolder, Limits::default()).unwrap();
+        if case_sensitive {
+            assert_eq!(written.left_out, ["a.txt", "data"]);
+            assert_eq!(written.left_out_count, 2);
+            assert!(written.files.contains(&"A.txt".to_string()));
+            assert!(written.files.contains(&"Data/x".to_string()));
+        } else {
+            assert_eq!(written.left_out_count, 0);
+        }
     }
 }

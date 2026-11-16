@@ -6,6 +6,7 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use super::*;
 use crate::game::loaders::{LoaderChoice, LoaderKind};
@@ -400,7 +401,8 @@ fn cleaning_deleted_instances_backups_leaves_live_and_broken_ones() {
     assert_eq!(deleted[0].instance_name, "Gone");
     let usage = WorldBackups::usage(&s.data, &s.store.list().0);
     assert_eq!((usage.backups, usage.deleted), (1, 1));
-    assert!(usage.deleted_bytes > 0 && usage.bytes > usage.deleted_bytes);
+    assert!(usage.deleted_bytes > 0);
+    assert_eq!(usage.bytes, 0, "Storage's scan sizes the folder");
 
     let cleaned = s.backups.clean_deleted().unwrap();
     assert_eq!(cleaned.backups, 1);
@@ -458,7 +460,7 @@ fn the_sweep_clears_crash_leftovers_and_keeps_orphan_zips() {
     std::fs::copy(&zip, &orphan).unwrap();
     // a .json whose zip is gone: a crash during a delete
     std::fs::write(dir.join("20260101-000000-0000.json"), b"{}").unwrap();
-    // .part files: one old (a crash), one new (another Launcher's? never touched)
+    // .part files, old or just written: under the record lock none is being written
     let old_part = dir.join(".x.zip.0000000000000000.part");
     let new_part = dir.join(".y.zip.0000000000000000.part");
     std::fs::write(&old_part, b"half").unwrap();
@@ -469,10 +471,19 @@ fn the_sweep_clears_crash_leftovers_and_keeps_orphan_zips() {
         .unwrap()
         .set_modified(SystemTime::now() - Duration::from_secs(2 * 60 * 60))
         .unwrap();
+    // a restore as a new world's staging folder, left by a crash
+    let staging = s.game("saves/.lodestone-restore-staging-0123456789abcdef");
+    std::fs::create_dir_all(staging.join("world/region")).unwrap();
+    std::fs::write(staging.join("world/level.dat"), LEVEL_DAT).unwrap();
     let mut changes = s.backups.watch();
     s.backups.sweep();
     assert!(!old_part.exists());
-    assert!(new_part.exists());
+    assert!(!new_part.exists());
+    assert!(!staging.exists());
+    assert!(
+        s.game("saves/World/level.dat").is_file(),
+        "worlds untouched"
+    );
     assert!(!dir.join("20260101-000000-0000.json").exists());
     let listed = s.list();
     assert_eq!(listed.len(), 2);
@@ -1129,4 +1140,146 @@ fn a_backup_under_a_folder_no_backup_takes_is_never_restored() {
     assert!(s.restore(&backup.id, RestoreTo::InPlace).is_err());
     assert!(s.restore(&backup.id, RestoreTo::NewWorld).is_err());
     assert!(!s.game("saves/aux").exists());
+}
+
+/// A backup id is unique among all the instance's worlds' backups, so an id alone finds
+/// one; and within one second each id comes after the last, so newest first holds.
+#[test]
+fn ids_are_unique_across_worlds_and_grow_within_a_second() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    std::fs::create_dir_all(dir.join("A")).unwrap();
+    std::fs::create_dir_all(dir.join("B")).unwrap();
+    let created = 1_794_645_624; // 2026-11-14 08:40:24 UTC
+    let first = new_id(dir, created);
+    assert!(first.starts_with("20261114-084024-"), "{first}");
+    assert!(snapshots::valid_record_id(&first));
+    std::fs::write(dir.join("A").join(format!("{first}.zip")), b"").unwrap();
+    let second = new_id(dir, created);
+    assert!(second > first, "{second} after {first}");
+    // Another world's backup of the same second counts too.
+    std::fs::write(dir.join("B").join(format!("{second}.json")), b"").unwrap();
+    let third = new_id(dir, created);
+    assert!(third > second);
+    // At the top of the range, any free one.
+    std::fs::write(dir.join("A/20261114-084024-ffff.zip"), b"").unwrap();
+    let fourth = new_id(dir, created);
+    assert!(![first, second, third, "20261114-084024-ffff".into()].contains(&fourth));
+    // Another second starts again.
+    assert!(new_id(dir, created + 1).starts_with("20261114-084025-"));
+}
+
+/// Two backups made in one second list the later first.
+#[test]
+fn backups_made_in_one_second_list_the_later_first() {
+    let s = Setup::new();
+    let made: Vec<WorldBackup> = (0..4)
+        .map(|n| {
+            s.back_up(
+                if n % 2 == 0 { "World" } else { "Other" },
+                Some(&format!("B{n}")),
+            )
+        })
+        .collect();
+    let listed = s.list();
+    for pair in made.windows(2) {
+        let at = |b: &WorldBackup| listed.iter().position(|l| l.id == b.id).unwrap();
+        if pair[0].created == pair[1].created {
+            assert!(at(&pair[1]) < at(&pair[0]), "{listed:?}");
+        }
+    }
+    let ids: std::collections::HashSet<_> = listed.iter().map(|b| &b.id).collect();
+    assert_eq!(ids.len(), 4);
+}
+
+/// A linked `saves` (shared saves, another drive): in place is refused before the safety
+/// backup, since a failed swap couldn't be undone through the link; as a new world works,
+/// staged in `saves` itself.
+#[cfg(unix)]
+#[test]
+fn a_linked_saves_folder_is_restored_as_a_new_world_only() {
+    let s = Setup::new();
+    let backup = s.back_up("World", None);
+    let elsewhere = s._temp.path().join("shared-saves");
+    std::fs::rename(s.game("saves"), &elsewhere).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, s.game("saves")).unwrap();
+    s.write("saves/World/region/r.0.0.mca", b"changed");
+    for faults in [
+        None,
+        Some(Faults {
+            fail_after: Some(0),
+            ..Faults::default()
+        }),
+        Some(Faults {
+            crash_after: Some(1),
+            ..Faults::default()
+        }),
+    ] {
+        *s.backups.faults.lock().unwrap() = faults;
+        let err = s.restore(&backup.id, RestoreTo::InPlace).unwrap_err();
+        assert!(err.to_string().contains("new world"), "{err}");
+        assert_eq!(s.list(), std::slice::from_ref(&backup), "no safety backup");
+        assert!(!s.images.restore_unfinished(&s.id));
+        assert_eq!(
+            s.world_files("World")["region/r.0.0.mca"],
+            b"changed".to_vec()
+        );
+    }
+    *s.backups.faults.lock().unwrap() = None;
+    let copy = s.restore(&backup.id, RestoreTo::NewWorld).unwrap();
+    assert_eq!(
+        s.world_files(&copy.folder)["region/r.0.0.mca"],
+        b"region v1".to_vec()
+    );
+    let names: Vec<String> = std::fs::read_dir(&elsewhere)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert!(
+        names.iter().all(|n| !n.starts_with('.')),
+        "no staging folder left: {names:?}"
+    );
+}
+
+/// A file the backup has where the world now has a folder holding something the restore
+/// carries (a link): refused before the safety backup, not by a failed swap.
+#[cfg(unix)]
+#[test]
+fn a_carried_link_under_a_file_the_backup_places_is_refused_first() {
+    let s = Setup::new();
+    s.write("saves/World/foo", b"a file");
+    let backup = s.back_up("World", None);
+    std::fs::remove_file(s.game("saves/World/foo")).unwrap();
+    s.write("saves/World/foo/kept.txt", b"kept");
+    std::os::unix::fs::symlink("/nowhere", s.game("saves/World/foo/l")).unwrap();
+    let err = s.restore(&backup.id, RestoreTo::InPlace).unwrap_err();
+    assert!(err.to_string().contains("foo/l"), "{err}");
+    assert_eq!(s.list(), [backup], "no safety backup");
+    assert!(s.game("saves/World/foo/kept.txt").is_file());
+}
+
+/// Renaming a world moves only this instance's backups: a deleted instance that had the
+/// same id keeps its own under the old folder, as its world was named.
+#[test]
+fn renaming_a_world_leaves_a_deleted_instances_backups() {
+    let s = Setup::new();
+    let created = s.store.get(&s.id).unwrap().created;
+    let old = s.back_up("World", Some("Old instance's"));
+    // A new instance reusing the id (its own created time) backs up its own "World".
+    s.set_created(created + 1000);
+    let mine = s.back_up("World", Some("Mine"));
+    let folder = s.backups.rename_world(&s.id, "World", "Castle").unwrap();
+    assert_eq!(folder, "Castle");
+    assert_eq!(s.list().len(), 1);
+    assert_eq!(s.list()[0].id, mine.id);
+    assert_eq!(s.list()[0].folder, "Castle");
+    let theirs = s.backup_dir().join("World");
+    assert!(theirs.join(format!("{}.zip", old.id)).is_file());
+    assert!(theirs.join(format!("{}.json", old.id)).is_file());
+    assert!(!theirs.join(format!("{}.zip", mine.id)).exists());
+    // The old instance back: its backup is of "World" still.
+    s.set_created(created);
+    assert_eq!(s.list().len(), 1);
+    assert_eq!(s.list()[0].id, old.id);
+    assert_eq!(s.list()[0].folder, "World");
 }

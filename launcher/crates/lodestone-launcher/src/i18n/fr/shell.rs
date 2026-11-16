@@ -91,7 +91,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::ReplaceWorldTitle => "Restaurer {name} depuis cet instantané\u{202F}?",
         M::ReplaceWorldBody => {
-            "{name} revient à son état de {when}. Un instantané de l’instance telle qu’elle est maintenant est pris d’abord et gardé 30\u{a0}jours."
+            "{name} revient à son état du moment ({when}). Un instantané de l’instance telle qu’elle est maintenant est pris d’abord et gardé 30\u{a0}jours."
         }
         M::BackUpAndReplace => "Prendre un instantané et restaurer",
         M::RemoveAccountTitle => "Retirer {name}\u{202F}?",

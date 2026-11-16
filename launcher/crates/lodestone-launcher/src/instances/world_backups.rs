@@ -218,7 +218,7 @@ pub struct WorldBackupDialog {
     chosen: Option<String>,
     name: Entity<TextInput>,
     /// Restore in place: whether the world is in the instance now (else nothing is saved
-    /// first).
+    /// first), as the instance's world backup list last read it.
     world_exists: bool,
     state: State,
     step: Arc<AtomicU8>,
@@ -252,10 +252,15 @@ impl WorldBackupDialog {
                 .with_automation_id("world-backup-name")
         });
         let dirs = instances.read(cx).content_dirs(request.instance());
+        // From the list's own read (done in the background), never a look at the disk on
+        // the window's thread; a list not read yet takes the world to be there.
         let world_exists = match &request {
-            WorldBackupRequest::Restore { backup, .. } => {
-                worlds::saves_dir(&dirs).join(&backup.folder).exists()
-            }
+            WorldBackupRequest::Restore {
+                instance, backup, ..
+            } => !instances
+                .read(cx)
+                .world_backup_gone(instance)
+                .is_some_and(|gone| gone.contains(&backup.folder)),
             _ => false,
         };
         let mut this = Self {
@@ -373,12 +378,7 @@ impl WorldBackupDialog {
                     return;
                 };
                 let name = self.name.read(cx).text().trim().to_string();
-                let shown = self
-                    .worlds
-                    .iter()
-                    .flatten()
-                    .find(|w| w.folder == folder)
-                    .map_or(folder.clone(), |w| w.name());
+                let shown = world_label(self.worlds.as_deref().unwrap_or_default(), &folder);
                 launcher_core::trace::emit(
                     "world_backup.create",
                     || serde_json::json!({ "instance": id }),
@@ -523,13 +523,9 @@ impl WorldBackupDialog {
         } else {
             match (&self.request, self.step.load(Ordering::Relaxed)) {
                 (WorldBackupRequest::BackUp { .. }, _) => {
-                    let name = self
-                        .worlds
-                        .iter()
-                        .flatten()
-                        .find(|w| Some(&w.folder) == self.chosen.as_ref())
-                        .map(World::name)
-                        .unwrap_or_default();
+                    let name = self.chosen.as_deref().map_or(String::new(), |folder| {
+                        world_label(self.worlds.as_deref().unwrap_or_default(), folder)
+                    });
                     tr!(M::BackingUpWorld, name = name)
                 }
                 (_, STEP_SAVING) => t(M::SavingWorld).to_string(),
@@ -583,7 +579,12 @@ impl WorldBackupDialog {
         if list.len() > 1 {
             let choices: Vec<(String, SharedString)> = list
                 .iter()
-                .map(|w| (w.folder.clone(), SharedString::from(w.name())))
+                .map(|w| {
+                    (
+                        w.folder.clone(),
+                        SharedString::from(world_label(list, &w.folder)),
+                    )
+                })
                 .collect();
             let entity = cx.entity();
             body = body.child(form_row(
@@ -604,6 +605,25 @@ impl WorldBackupDialog {
         }
         body.child(form_row(t(M::SnapshotName), self.name.clone()))
             .into_any_element()
+    }
+}
+
+/// How the world in `folder` is named in the dialog: its name, with its folder when
+/// another world of `list` has the same name (the game names every new world "New World",
+/// in folders "New World", "New World (1)"…), so a choice, its progress and its result
+/// always say which world. The folder alone when it isn't in `list`.
+fn world_label(list: &[World], folder: &str) -> String {
+    let Some(world) = list.iter().find(|w| w.folder == folder) else {
+        return folder.to_string();
+    };
+    let name = world.name();
+    if list
+        .iter()
+        .any(|other| other.folder != folder && other.name() == name)
+    {
+        format!("{name} ({folder})")
+    } else {
+        name
     }
 }
 

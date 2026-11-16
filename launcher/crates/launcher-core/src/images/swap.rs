@@ -302,6 +302,14 @@ impl Staged {
                     "the restore can't handle the path {path:?}"
                 )));
             }
+            // The swap would rename through a linked folder, but its rollback refuses to
+            // (it could move files out of somewhere else), so a failure or a crash there
+            // couldn't be undone.
+            if !no_links_above(root, path) {
+                return Err(ImageError::Invalid(format!(
+                    "a folder on the way to {path} is a link (or not a folder), which a restore can't go through; put the real folder back in its place and try again"
+                )));
+            }
             let on_disk = join_rel(root, path);
             let meta = fs::symlink_metadata(&on_disk).ok();
             if meta.as_ref().is_some_and(|m| m.file_type().is_symlink()) {
@@ -330,10 +338,14 @@ impl Staged {
         // name, the snapshot's copy would lose to it; elsewhere, it is a file the safety
         // snapshot couldn't take that the restore would overwrite. A carried path that
         // holds something placed (a link, or a file, where the restore places a folder)
-        // is one too, found here before anything is staged.
+        // is one too, found here before anything is staged, and so is one inside a folder
+        // on disk where the restore places a file of that name.
         if let Some(clash) = carried.iter().find(|path| {
             placed_set.contains(path.as_str())
                 || touched.contains(path.as_str())
+                || folders_of(std::iter::once(path.as_str()))
+                    .iter()
+                    .any(|folder| placed_set.contains(folder.as_str()))
                 || exists(&join_rel(&staging_dir, path))
         }) {
             return Err(ImageError::Invalid(format!(
@@ -759,7 +771,7 @@ fn remove_journal(path: &Path) {
 }
 
 /// Whether no folder on the way to `rel` under `base` is a link or a file.
-fn no_links_above(base: &Path, rel: &str) -> bool {
+pub(crate) fn no_links_above(base: &Path, rel: &str) -> bool {
     let mut current = base.to_path_buf();
     let parts: Vec<&str> = rel.split('/').collect();
     for part in &parts[..parts.len().saturating_sub(1)] {

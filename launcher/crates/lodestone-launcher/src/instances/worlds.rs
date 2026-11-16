@@ -2343,10 +2343,20 @@ impl WorldsView {
         for (index, backup) in zips.iter().enumerate() {
             let id = world_index * 1000 + index;
             let date = super::snapshots::when(backup.created);
-            let request = |make: fn(String, WorldBackup) -> WorldBackupRequest| {
+            // A restore changes the world, so the game must be stopped; deleting a zip only
+            // waits for the tab's own job, as in Settings.
+            let request = |make: fn(String, WorldBackup) -> WorldBackupRequest, changes_world| {
                 let (instance, backup) = (instance.clone(), backup.clone());
                 cx.listener(move |this, _, _, cx| {
-                    if this.can_change(cx) {
+                    let ready = if changes_world {
+                        this.can_change(cx)
+                    } else if this.job.is_some() {
+                        this.set_message(t(M::WaitForTask), true, cx);
+                        false
+                    } else {
+                        true
+                    };
+                    if ready {
                         cx.emit(WorldsEvent::WorldBackup(make(
                             instance.clone(),
                             backup.clone(),
@@ -2354,6 +2364,16 @@ impl WorldsView {
                     }
                 })
             };
+            let mut about = vec![
+                super::world_backups::shown_name(backup),
+                format::bytes(backup.bytes),
+            ];
+            if backup.left_out_count > 0 {
+                about.push(trn!(
+                    crate::i18n::InstanceSettingsPlural::WorldBackupLeftOut,
+                    backup.left_out_count as usize
+                ));
+            }
             let zip = reveal.zip_path(&instance, backup);
             list = list.child(
                 div()
@@ -2382,13 +2402,9 @@ impl WorldsView {
                                     .child(date),
                             )
                             .child(
-                                small(format!(
-                                    "{} · {}",
-                                    super::world_backups::shown_name(backup),
-                                    format::bytes(backup.bytes)
-                                ))
-                                .truncate()
-                                .text_color(crate::theme::ink::muted()),
+                                small(about.join(" · "))
+                                    .truncate()
+                                    .text_color(crate::theme::ink::muted()),
                             ),
                     )
                     .child(
@@ -2396,22 +2412,28 @@ impl WorldsView {
                             .variant(ButtonVariant::Secondary)
                             .size(ButtonSize::Slim)
                             .disabled(busy)
-                            .on_click(request(|instance, backup| WorldBackupRequest::Restore {
-                                instance,
-                                backup,
-                                to: RestoreTo::InPlace,
-                            })),
+                            .on_click(request(
+                                |instance, backup| WorldBackupRequest::Restore {
+                                    instance,
+                                    backup,
+                                    to: RestoreTo::InPlace,
+                                },
+                                true,
+                            )),
                     )
                     .child(
                         Button::new(("world-backup-restore-new", id), t(M::RestoreAsNewWorld))
                             .variant(ButtonVariant::Ghost)
                             .size(ButtonSize::Slim)
                             .disabled(busy)
-                            .on_click(request(|instance, backup| WorldBackupRequest::Restore {
-                                instance,
-                                backup,
-                                to: RestoreTo::NewWorld,
-                            })),
+                            .on_click(request(
+                                |instance, backup| WorldBackupRequest::Restore {
+                                    instance,
+                                    backup,
+                                    to: RestoreTo::NewWorld,
+                                },
+                                true,
+                            )),
                     )
                     .child(
                         Button::new(("world-backup-reveal", id), t(CommonMsg::ShowInFileManager))
@@ -2423,11 +2445,11 @@ impl WorldsView {
                         Button::new(("world-backup-delete", id), t(CommonMsg::Delete))
                             .variant(ButtonVariant::Ghost)
                             .size(ButtonSize::Slim)
-                            .disabled(busy)
-                            .on_click(request(|instance, backup| WorldBackupRequest::Delete {
-                                instance,
-                                backup,
-                            })),
+                            .disabled(self.job.is_some())
+                            .on_click(request(
+                                |instance, backup| WorldBackupRequest::Delete { instance, backup },
+                                false,
+                            )),
                     ),
             );
         }

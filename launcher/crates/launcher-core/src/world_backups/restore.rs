@@ -18,8 +18,12 @@
 //! are checked again. A crash is undone at the next start or by Play, as for snapshots.
 //! Only that world changes.
 //!
-//! **As a new world** ([`RestoreTo::NewWorld`]) unpacks it beside the others as
-//! "`<world>` (restored `<date>`)", replacing nothing.
+//! In place is refused when `saves` or a folder above it is a link: the swap could rename
+//! through it, but its rollback refuses to, so a failure could never be undone.
+//!
+//! **As a new world** ([`RestoreTo::NewWorld`]) unpacks it into
+//! `saves/.lodestone-restore-staging-<16>/` (one disk with `saves`, even a linked one), then
+//! renames it beside the others as "`<world>` (restored `<date>`)", replacing nothing.
 
 use std::collections::HashSet;
 use std::fs;
@@ -109,6 +113,15 @@ impl WorldBackups {
             let world = saves.join(&folder);
 
             let owned_path = format!("{CLIENT_GAME_FOLDER}/saves/{folder}");
+            // A linked `saves` (shared saves, or on another drive): the swap could rename
+            // through it but never undo that, so a failure or a crash would leave the
+            // instance unplayable. As a new world needs no undo.
+            if !swap::no_links_above(&locked.dir, &owned_path) {
+                return Err(WorldBackupError::Invalid(
+                    "The saves folder, or a folder above it, is a link, so the world can't be restored in place. Restore it as a new world, or put the real folder back in place of the link."
+                        .into(),
+                ));
+            }
             let in_world = |rel: &str| format!("{owned_path}/{rel}");
             let placed: Vec<String> = checked.files().map(in_world).collect();
             let folders: Vec<String> = checked.folders().map(in_world).collect();
@@ -284,10 +297,11 @@ impl WorldBackups {
             fs::create_dir_all(&saves)
                 .map_err(WorldBackupError::io("Failed to create the saves folder"))?;
             self.check_room(&saves, checked.declared_bytes)?;
-            // Staged where startup's clean-up finds what a crash left.
-            let staging = locked
-                .dir
-                .join(format!("{STAGING_PREFIX}{}", swap::random_suffix()));
+            // Staged in `saves/` itself, so placing it is a rename on one disk even when
+            // `saves` is a link to another drive. The name is hidden from world lists and
+            // snapshots, and what a crash leaves the startup sweep deletes
+            // ([`WorldBackups::sweep`]).
+            let staging = saves.join(format!("{STAGING_PREFIX}{}", swap::random_suffix()));
             fs::create_dir(&staging).map_err(WorldBackupError::io(
                 "Failed to create the restore's staging folder",
             ))?;
