@@ -4593,3 +4593,10 @@ Persistent logging for the Launcher and the Host (not an instance-images milesto
   `scrub`/`scrub_str` also blank percent-encoded secrets and `invite`/`link` values in
   query strings (stricter, nothing removed).
 
+### ML decisions
+
+Magic localhost for every server on the Launcher's Lodestone Host page was built
+alongside these milestones but is not part of instance images: `lodestone_image` and
+this format are unchanged (nothing added, renamed or removed). Its decisions (ports saved
+in `servers.json`, forwarders for servers on other hosts, a server on this computer at
+its own port) are in `launcher/docs/friends.md`, "Magic localhost for every server".
