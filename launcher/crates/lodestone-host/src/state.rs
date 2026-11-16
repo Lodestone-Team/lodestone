@@ -469,12 +469,19 @@ impl HostState {
                 self.connection = Connection::Reconnecting(reason.clone());
                 self.probe(reason, cx);
             }
-            LiveMessage::Frame(text) => {
-                if let Some(event) = launcher_core::cores::admin::events::parse(&text) {
+            LiveMessage::Frame(text) => match launcher_core::cores::admin::events::read(&text) {
+                Ok(event) => {
                     self.apply(&event, cx);
                     cx.emit(HostEvent::Core(Box::new(event)));
                 }
-            }
+                // An event this Host can't read (a newer core, or a shape it doesn't
+                // know) could be a server made or deleted: fetch the list again rather
+                // than miss it.
+                Err(err) => {
+                    eprintln!("Couldn't read an event from the core: {err}");
+                    self.reload(cx);
+                }
+            },
             LiveMessage::Ended(CoreError::SignedOut) => return self.signed_out(cx),
             LiveMessage::Ended(err) => {
                 self.connection = Connection::Reconnecting(err.to_string());
@@ -561,7 +568,13 @@ impl HostState {
                                 {
                                     list.push(created.info.clone());
                                 }
+                                // the list again from the core, so a server made while an
+                                // event was missed shows up too
+                                self.reload(cx);
                             }
+                            // a creation this Host followed ended without saying what it
+                            // made: the list says
+                            None if was_creating && *success => self.reload(cx),
                             Some(ProgressionEndValue::InstanceDelete { instance_uuid }) => {
                                 if let Some(list) = self.instances.as_mut() {
                                     list.retain(|i| &i.uuid != instance_uuid);
