@@ -12,7 +12,6 @@ pub fn text(message: M) -> &'static str {
         M::SearchInstalled => "Rechercher parmi les contenus installés",
         M::SearchModrinth => "Rechercher sur Modrinth",
         M::SearchCurseForge => "Rechercher sur CurseForge",
-        M::LookingForMore => "Envie de nouveautés ?",
         M::BrowseModrinth => "Parcourir Modrinth",
         M::BrowseCurseForge => "Parcourir CurseForge",
         M::BackToTop => "Revenir en haut",
@@ -88,7 +87,6 @@ pub fn text(message: M) -> &'static str {
             "Certains fichiers n’ont pas pu être associés à Modrinth\u{a0}: {error}"
         }
         M::ShadersOff => "Shaders désactivés",
-        M::NormalLook => "L’apparence normale de Minecraft.",
 
         M::ModsNeedLoader => "Les mods ont besoin d’un chargeur de mods",
         M::ShadersNeedLoader => "Les shaders ont besoin d’un chargeur de mods",
@@ -161,7 +159,7 @@ pub fn text(message: M) -> &'static str {
         M::EnvClientOnly => "Client uniquement",
         M::EnvServerToo => "Requis aussi sur le serveur",
         M::FilterEnvironmentHint => {
-            "Les mods client uniquement fonctionnent sur n’importe quel serveur ; les autres doivent aussi être installés sur le serveur."
+            "Les mods client uniquement fonctionnent sur n’importe quel serveur."
         }
         M::FilterOther => "Autres",
         M::FilterOpenSource => "Open source uniquement",

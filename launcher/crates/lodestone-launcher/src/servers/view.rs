@@ -1019,24 +1019,20 @@ impl Servers {
             .flex_col()
             .gap_2()
             .child(
-                section_header(
-                    "other-cores-title",
-                    t(M::OtherCoresTitle),
-                    Some(t(M::OtherCoresHint)),
-                )
-                // a server from someone's invite link, and a host by its address
-                .child(
-                    Button::new("join-friend", t(M::JoinAFriend))
-                        .size(ButtonSize::Slim)
-                        .icon(Icon::Plus)
-                        .on_click(cx.listener(|this, _, _, cx| this.open_join(None, cx))),
-                )
-                .child(
-                    Button::new("add-server", t(M::AddServer))
-                        .size(ButtonSize::Slim)
-                        .icon(Icon::Plus)
-                        .on_click(cx.listener(|this, _, _, cx| this.open_add(None, cx))),
-                ),
+                section_header("other-cores-title", t(M::OtherCoresTitle), None)
+                    // a server from someone's invite link, and a host by its address
+                    .child(
+                        Button::new("join-friend", t(M::JoinAFriend))
+                            .size(ButtonSize::Slim)
+                            .icon(Icon::Plus)
+                            .on_click(cx.listener(|this, _, _, cx| this.open_join(None, cx))),
+                    )
+                    .child(
+                        Button::new("add-server", t(M::AddServer))
+                            .size(ButtonSize::Slim)
+                            .icon(Icon::Plus)
+                            .on_click(cx.listener(|this, _, _, cx| this.open_add(None, cx))),
+                    ),
             )
             .when(empty, |this| {
                 this.child(

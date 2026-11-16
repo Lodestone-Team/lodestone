@@ -113,8 +113,8 @@ pub fn rail(
         .into_any_element()
 }
 
-/// A step's title and the line under it (`StepTitle`).
-pub fn title(title: &'static str, description: impl Into<SharedString>) -> AnyElement {
+/// A step's title and the line under it, if it has one (`StepTitle`).
+pub fn title(title: &'static str, description: Option<&'static str>) -> AnyElement {
     div()
         .flex()
         .flex_col()
@@ -127,12 +127,14 @@ pub fn title(title: &'static str, description: impl Into<SharedString>) -> AnyEl
                 .text_color(ink::text())
                 .child(title),
         )
-        .child(
-            div()
-                .text_size(text::MEDIUM)
-                .italic()
-                .text_color(ink::muted())
-                .child(description.into()),
-        )
+        .when_some(description, |this, description| {
+            this.child(
+                div()
+                    .text_size(text::MEDIUM)
+                    .italic()
+                    .text_color(ink::muted())
+                    .child(description),
+            )
+        })
         .into_any_element()
 }

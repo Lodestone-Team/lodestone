@@ -3,19 +3,15 @@ use crate::i18n::{InstanceMsg as M, InstancePlural as P};
 pub fn text(message: M) -> &'static str {
     match message {
         M::Automation => "自动化",
-        M::AutomationLead => "Lodestone 何时自动启动此服务器。",
         M::AutoStart => "自动启动",
         M::AutoStartHint => "Lodestone Core 启动时启动此服务器",
         M::RestartOnCrash => "崩溃后重启",
-        M::RestartOnCrashHint => "此服务器崩溃时重新启动它",
         M::NotAvailable => "暂时不可用",
         M::NotAvailableHint => "请至少启动此服务器一次",
         M::NoPermission => "没有权限",
         M::SettingsFailed => "无法加载设置：{error}",
         M::DangerZone => "危险区域",
-        M::DangerZoneLead => "这些设置可能对你的服务器造成不可逆的损害。",
         M::DeleteServer => "删除服务器",
-        M::DeleteServerHint => "永久删除此服务器及其数据",
         M::DeleteTitle => "删除服务器？",
         M::DeleteConfirm => "我明白，删除此服务器",
         M::DeleteCannotUndo => "此操作无法撤销。",
@@ -34,7 +30,7 @@ pub fn text(message: M) -> &'static str {
         M::ResourcePack => "资源包",
         M::ResourcePackLead => "玩家加入时会被要求下载的资源包。",
         M::PackUrl => "URL",
-        M::PackUrlHint => "资源包 zip 的直接链接。留空则不使用资源包。",
+        M::PackUrlHint => "资源包 .zip 的直接链接。",
         M::PackSha1 => "SHA-1",
         M::PackSha1Hint => "让玩家可以校验下载内容并缓存资源包。",
         M::PackSha1Error => "SHA-1 应为 40 个十六进制字符。",
@@ -51,9 +47,7 @@ pub fn text(message: M) -> &'static str {
         M::PackNotAUrl => "这不是有效的 URL。",
         M::PackUrlScheme => "URL 必须以 http:// 或 https:// 开头。",
         M::Eula => "Minecraft EULA",
-        M::EulaLead => "只有在你同意 Minecraft EULA 后，Minecraft 服务器才能运行。",
         M::EulaAccepted => "已接受",
-        M::EulaAcceptedHint => "你已为此服务器同意 Minecraft EULA。",
         M::EulaNotAccepted => "未接受",
         M::EulaNotAcceptedHint => "你同意 Minecraft EULA 之前，此服务器不会启动。",
         M::EulaRead => "阅读 EULA",
@@ -63,7 +57,7 @@ pub fn text(message: M) -> &'static str {
         M::EulaDialogTitle => "接受 Minecraft EULA",
         M::EulaDialogBody => "你同意 Minecraft 最终用户许可协议后，此服务器才会启动。你同意吗？",
         M::EulaAcceptAndStart => "我同意，启动服务器",
-        M::EventLogsLead => "此服务器发生的事件，最新的在前。核心会保留最近的事件。",
+        M::EventLogsLead => "只保留最近的事件。",
         M::EventLogsEmpty => "还没有任何事件",
         M::EventLogsFailed => "无法加载事件：{error}",
         M::EventState => "服务器现在为{state}",
@@ -222,12 +216,10 @@ pub fn text(message: M) -> &'static str {
         M::ModsIncompatibleBody => "它可能会导致服务器崩溃。",
         M::FriendsTitle => "好友",
         M::FriendsLead => {
-            "你在 Lodestone Launcher 中添加的好友可以看到你与他们共享的服务器，无需链接即可加入。在你勾选好友之前，不会共享任何内容。"
+            "你在 Lodestone Launcher 中添加的好友可以看到你与他们共享的服务器，无需链接即可加入。"
         }
         M::FriendsAddInLauncher => "在 Lodestone Launcher 中添加好友",
-        M::FriendsAddInLauncherHint => {
-            "你的好友列表由这台电脑上的 Lodestone Launcher 保存。在那里添加好友后，即可在这里与他们共享此服务器。"
-        }
+        M::FriendsAddInLauncherHint => "这台电脑上的 Lodestone Launcher 保存你的好友列表。",
         M::FriendsLoading => "正在加载好友…",
         M::FriendsShareWith => "共享此服务器",
         M::FriendsNotVerified => "未验证",
@@ -264,9 +256,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::FriendsCertificateRetireConfirm => "停用并获取新证书",
         M::FriendsCertificateRetired => "此核心的好友证书已停用",
-        M::FriendsCertificateRetiredHint => {
-            "好友现在看不到此核心。为它获取新证书，即可再次从这台电脑共享。"
-        }
+        M::FriendsCertificateRetiredHint => "好友现在看不到此核心。",
         M::FriendsCertificateNew => "获取新证书",
         M::FriendsCertificateManual => {
             "好友现在看不到此核心。此核心无法自行生成新证书：请退出 Lodestone Host，删除此文件，然后重新打开。"

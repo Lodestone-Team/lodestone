@@ -18,7 +18,6 @@ crate::i18n::messages! {
         SearchModrinth = "Search Modrinth",
         SearchCurseForge = "Search CurseForge",
         /// Below what's installed, with buttons that switch to a platform's view.
-        LookingForMore = "Looking for something new?",
         BrowseModrinth = "Browse Modrinth",
         BrowseCurseForge = "Browse CurseForge",
         /// The button that scrolls the list back to its top.
@@ -104,7 +103,6 @@ crate::i18n::messages! {
         CouldntReadFolder = "Couldn't read the {folder} folder: {error}",
         SomeFilesNotMatched = "Some files couldn't be matched to Modrinth: {error}",
         ShadersOff = "Shaders off",
-        NormalLook = "Minecraft's normal look.",
 
         // A vanilla instance: content that needs a mod loader.
         ModsNeedLoader = "Mods need a mod loader",
@@ -164,7 +162,7 @@ crate::i18n::messages! {
         EnvAny = "Any",
         EnvClientOnly = "Client only",
         EnvServerToo = "Needs the server too",
-        FilterEnvironmentHint = "Client-only mods work on any server; the others must be on the server as well.",
+        FilterEnvironmentHint = "Client-only mods work on any server.",
         FilterOther = "Other",
         FilterOpenSource = "Open source only",
         ClearFilters = "Clear filters",

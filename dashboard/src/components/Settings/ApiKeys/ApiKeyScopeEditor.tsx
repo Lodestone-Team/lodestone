@@ -38,7 +38,7 @@ export default function ApiKeyScopeEditor({
 
   const permissionList = (list: PermissionDescription[]) => (
     <div className="flex w-full flex-col gap-8">
-      {list.map(({ permission, titleKey, keyKey }) => {
+      {list.map(({ permission, titleKey, hintKey }) => {
         const current = value[permission];
         const grantable = Array.isArray(current)
           ? instanceUuids.some((uuid) =>
@@ -64,10 +64,16 @@ export default function ApiKeyScopeEditor({
               >
                 {t(titleKey)}
               </div>
-              <div className="overflow-hidden text-medium font-medium tracking-medium text-ellipsis text-white/50 italic">
-                {t(keyKey)}
-                {!grantable && ` ${t('settings.apiKeys.notYours')}`}
-              </div>
+              {(hintKey || !grantable) && (
+                <div className="overflow-hidden text-medium font-medium tracking-medium text-ellipsis text-white/50 italic">
+                  {[
+                    hintKey && t(hintKey),
+                    !grantable && t('settings.apiKeys.notYours'),
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                </div>
+              )}
             </div>
             {Array.isArray(current) &&
               (instanceUuids.length === 0 ? (

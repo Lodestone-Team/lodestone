@@ -308,7 +308,6 @@ impl CoresDialog {
         let mut rows = vec![
             SettingRow::new(t(CoreMsg::ThisComputerCore))
                 .key("core-local")
-                .hint(t(CoreMsg::ThisComputerHint))
                 .child(if self.on_local {
                     settings::tag(t(CoreMsg::CurrentCore), colors::GREEN).into_any_element()
                 } else {

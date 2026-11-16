@@ -79,9 +79,11 @@ export default function FormRadioField(props: RadioFieldProps) {
               {errorText || t('common.unknownError')}
             </div>
           ) : (
-            <div className="overflow-hidden text-medium font-medium tracking-medium text-ellipsis text-white/50">
-              {description}
-            </div>
+            description && (
+              <div className="overflow-hidden text-medium font-medium tracking-medium text-ellipsis text-white/50">
+                {description}
+              </div>
+            )
           )}
         </div>
         <div className="relative flex w-1/6 shrink-0 flex-row items-center justify-end gap-4">

@@ -134,7 +134,9 @@ pub fn text(message: M) -> &'static str {
         M::UnlinkNote => "Jouer ne rejoindra plus le serveur. Les mods restent.",
 
         M::ChangeSetting => "Modifier",
-        M::JavaMemoryLead => "Les valeurs par défaut viennent des paramètres du launcher.",
+        M::JavaMemoryLead => {
+            "La mémoire par défaut se règle dans Paramètres › Paramètres par défaut des instances."
+        }
         M::Memory => "Mémoire",
         M::Checking => "Vérification…",
         M::JavaTooOldBadge => "Trop ancien",
@@ -265,9 +267,7 @@ pub fn text(message: M) -> &'static str {
         M::Duplicate => "Dupliquer",
         M::Duplicating => "Duplication…",
         M::ChangeVersionOrLoader => "Une autre version ou un autre chargeur",
-        M::ChangeVersionOrLoaderHint => {
-            "Une instance garde la version et le chargeur choisis à sa création. Une copie peut en avoir d’autres."
-        }
+        M::ChangeVersionOrLoaderHint => "Crée une copie. Cette instance reste telle quelle.",
         M::CopyAs => "Copier avec une autre version ou un autre chargeur",
         M::CopyAsButton => "Copier…",
         M::CopyAsKeywords => {
@@ -350,9 +350,10 @@ pub fn text(message: M) -> &'static str {
         M::DeleteHint => "Y compris ses mondes et ses mods.",
         M::DeleteButton => "Supprimer…",
 
-        M::SharedLead => "Gardez vos réglages synchronisés entre vos instances.",
+        M::SharedLead => {
+            "Les touches, la vidéo, le son et les autres options du jeu, identiques dans chaque instance qui les partage."
+        }
         M::UseSharedSettings => "Utiliser les paramètres partagés",
-        M::SharingOff => "Cette instance garde ses propres options.",
         M::SharingFrom => "Reçoit les changements faits en jeu dans {name}.",
         M::SharingMain => "Les changements faits en jeu ici mettent à jour toutes les instances.",
         M::SharingNoMain => {
@@ -360,7 +361,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::MainInstance => "Instance principale",
         M::MainInstanceHint => {
-            "Les réglages modifiés en jeu dans votre instance principale sont copiés dans chaque instance qui les partage, à son prochain démarrage. Une seule instance est principale."
+            "Ses changements faits en jeu parviennent aux autres instances qui partagent les réglages à leur prochain démarrage."
         }
         M::IsMainInstance => "C’est votre instance principale",
         M::MakeMain => "Rendre principale",
@@ -450,11 +451,9 @@ pub fn text(message: M) -> &'static str {
         M::AddGroupThere => "Déjà dans l’instance ({count})",
         M::AddedModpacks => "Modpacks ajoutés",
         M::AddModpackRow => "Ajouter un modpack",
-        M::AddModpackHint => {
-            "Ajoutez les mods et configurations d’un modpack à cette instance, à côté des siens."
-        }
+        M::AddModpackHint => "Rien de ce que l’instance contient n’est remplacé.",
         M::AddModpackServerHint => {
-            "Ajoutez les mods d’un modpack, comme des optimisations côté client, à côté de ceux de {server}. Les mods du serveur restent tels quels."
+            "Pour des mods client, comme des optimisations. Les mods de {server} restent tels quels."
         }
         M::AddModpackEllipsis => "Ajouter un modpack…",
         M::RemoveAddedModpackNote => {

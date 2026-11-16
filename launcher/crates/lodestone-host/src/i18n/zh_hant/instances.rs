@@ -11,9 +11,6 @@ pub fn text(message: M) -> &'static str {
         M::StepAutoSettings => "自動化設定",
         M::StepSelectModpack => "選擇模組包",
         M::StepSelectVersion => "選擇版本",
-        M::BasicSettingsDescription => "伺服器的基本設定。",
-        M::ServerSettingsDescription => "設定你的伺服器。",
-        M::AutoSettingsDescription => "自動設定你的伺服器。",
         M::CheckFields => "請確認所有欄位都已正確填寫",
         M::CreateServer => "建立伺服器",
         M::CreateFailed => "建立伺服器時發生錯誤：{error}",
@@ -25,20 +22,16 @@ pub fn text(message: M) -> &'static str {
         M::EulaLink => "Minecraft EULA",
         M::EulaRequired => "只有在你同意 Minecraft EULA 後，Minecraft 伺服器才能執行。",
         M::FieldName => "名稱",
-        M::FieldNameDescription => "伺服器的名稱",
         M::FieldNameDefault => "我的伺服器",
         M::FieldDescription => "說明",
-        M::FieldDescriptionDescription => "伺服器的說明",
         M::FieldPort => "連接埠",
-        M::FieldPortDescription => "伺服器執行時使用的連接埠",
         M::FieldMinRam => "最小記憶體",
-        M::FieldMinRamDescription => "分配給伺服器的最小記憶體，單位為 MB",
+        M::FieldMinRamDescription => "單位為 MB。",
         M::FieldMaxRam => "最大記憶體",
-        M::FieldMaxRamDescription => "分配給伺服器的最大記憶體，單位為 MB",
+        M::FieldMaxRamDescription => "單位為 MB。",
         M::FieldAutoStart => "自動啟動",
-        M::FieldAutoStartDescription => "應用程式啟動時自動啟動伺服器",
+        M::FieldAutoStartDescription => "在 Lodestone Core 啟動時啟動。",
         M::FieldRestartOnCrash => "當機時重新啟動",
-        M::FieldRestartOnCrashDescription => "伺服器當機時自動重新啟動",
         M::Optional => "選填",
         M::ValidationRequired => "「{name}」為必填欄位",
         M::ValidationNumber => "「{name}」必須是數字",
@@ -53,7 +46,6 @@ pub fn text(message: M) -> &'static str {
         M::CommandLineReadOnly => "此核心已停用程式碼執行，此設定為唯讀。",
         M::CommandLineOwnerOnly => "只有擁有者可以變更此設定。",
         M::GameTypeTitle => "選擇遊戲",
-        M::GameTypeSubtitle => "你的伺服器要用來做什麼？",
         M::GameTypeNew => "新功能",
         M::GameTypeModpack => "Modrinth 模組包",
         M::GameTypeModpackDescription => "從 Modrinth 模組包建立 Fabric、Forge 或 NeoForge 伺服器",
@@ -70,12 +62,11 @@ pub fn text(message: M) -> &'static str {
         M::ImportStopFirst => "如果伺服器正在執行，請先停止它，才能完整複製世界。",
         M::ImportReading => "正在讀取資料夾",
         M::ImportReadFailed => "無法讀取資料夾：{error}",
-        M::ImportSettingsSubtitle => "確認 Lodestone 找到的內容，然後匯入。",
         M::ImportOtherSoftware => "Lodestone 會用使用相同外掛的軟體執行它。",
         M::ImportNotOffered => "Lodestone 不提供此軟體。請選擇用來執行它的軟體。",
         M::ImportSoftwareUnknown => "Lodestone 無法判斷此伺服器使用的軟體。請在下方選擇。",
         M::FieldSoftware => "伺服器軟體",
-        M::FieldSoftwareDescription => "執行伺服器的軟體。Lodestone 會重新安裝它。",
+        M::FieldSoftwareDescription => "Lodestone 會安裝自己的副本。",
         M::FieldVersion => "Minecraft 版本",
         M::FieldVersionDescription => "伺服器上次執行的版本",
         M::ImportLoadingVersions => "正在載入版本",
@@ -92,42 +83,35 @@ pub fn text(message: M) -> &'static str {
         M::StepChooseFile => "選擇檔案",
         M::StepImageSummary => "檔案內容",
         M::ImageFileTitle => "選擇 .lodeimg 檔案",
-        M::ImageFileSubtitle => {
-            "從 Lodestone Host 或 Lodestone Launcher 匯出的快照。在你建立伺服器之前，不會建立任何內容。"
-        }
+        M::ImageFileSubtitle => "在你建立伺服器之前，不會建立任何內容。",
         M::ImageBrowse => "選擇檔案…",
         M::ImageUploading => "正在讀取檔案…",
         M::ImageUploadFailed => "無法開啟檔案：{error}",
         M::ImageSummaryTitle => "檔案內容",
-        M::ImageSummarySubtitle => "檢查檔案內容，然後建立伺服器。",
         M::ImageKeepOperators => "保留檔案中的管理員",
         M::ImageKeepOperatorsHint => "管理員可以在伺服器上執行任何指令。",
         M::ImageCreate => "建立伺服器",
         M::ImageCreateFailed => "無法建立伺服器：{error}",
         M::CreateFailedLater => "無法建立伺服器",
         M::ImageNotLodeimg => "不是 .lodeimg 檔案",
-        M::GameVanillaDescription => "Mojang 官方的標準原版 Minecraft 伺服器。",
-        M::GameForgeDescription => "模組框架，可用來安裝模組並自訂你的 Minecraft 體驗。",
+        M::GameForgeDescription => "執行 Forge 模組。",
         M::GameNeoForgeDescription => {
             "社群維護的 Forge 分支，有自己的模組，適用於 Minecraft 1.20.2 及更新版本。"
         }
-        M::GameFabricDescription => "輕量級的 Minecraft 模組工具鏈。",
-        M::GamePaperDescription => "高效能的 Spigot 分支，旨在修正遊戲玩法與機制上的不一致。",
+        M::GameFabricDescription => "執行 Fabric 模組。",
+        M::GamePaperDescription => "執行 Bukkit 和 Spigot 外掛。",
         M::GameSpigotDescription => {
             "經過修改的 Minecraft 伺服器軟體，支援外掛程式，提供更佳的效能與更多自訂選項。"
         }
-        M::GameBedrockDescription => "Minecraft Bedrock Edition 伺服器。",
+        M::GameBedrockDescription => "只有 Bedrock Edition 玩家可以加入（手機、主機、Windows）。",
         M::GameOtherDescription => "未知的 Minecraft 變體：{name}",
         M::GameGenericDescription => "未知的遊戲：{name}",
         M::ModpackSourceTitle => "選擇模組包",
-        M::ModpackSourceDescription => {
-            "搜尋 Modrinth、貼上 Modrinth 連結，或上傳 .mrpack 檔案。支援 Fabric、Forge 和 NeoForge 模組包。"
-        }
+        M::ModpackSourceDescription => "僅支援 Fabric、Forge 和 NeoForge 模組包。",
         M::ModpackSearchPlaceholder => "搜尋模組包，或貼上 Modrinth 連結",
         M::ModpackUpload => "上傳 .mrpack",
         M::ModpackVersionTitle => "選擇版本",
         M::ModpackVersionUploaded => "已上傳的模組包。",
-        M::ModpackVersionDescription => "選擇要安裝的模組包版本。",
         M::ModpackDownloading => "正在下載模組包檔案以讀取其內容…",
         M::ModpackVersionHint => {
             "選擇一個版本以查看其內容。Lodestone 會下載該版本的模組包檔案來讀取；在你點擊「建立伺服器」之前，不會安裝任何內容。"
@@ -189,7 +173,6 @@ pub fn text(message: M) -> &'static str {
         M::DetailsRestartOnCrash => "當機後重新啟動",
         M::DetailsFolder => "資料夾",
         M::PerformanceTitle => "伺服器監控",
-        M::PerformanceLead => "此實例對你的 Lodestone Core 的資源使用量",
         M::CpuLoad => "CPU 負載",
         M::MemoryUsed => "已用記憶體",
         M::LoadingGraph => "正在載入圖表",
@@ -200,12 +183,10 @@ pub fn text(message: M) -> &'static str {
         M::GraphSeconds => "{seconds} 秒",
         M::GraphSecondsAgo => "{seconds} 秒前",
         M::PlayersTitle => "玩家清單",
-        M::PlayersLead => "目前在線上的所有玩家",
         M::PlayersSortByName => "名稱",
         M::PlayersLinkedUser => "連結此 Minecraft 帳戶的 Lodestone 使用者",
         M::PlayersNone => "沒有在線上的玩家",
         M::ShareTitle => "分享",
-        M::ShareLead => "從好友清單中選擇好友，或傳送連結給任何人",
         M::ShareFriendsHeading => "你的好友",
         M::ShareFriendsNote => {
             "不需要連結。伺服器執行時，他們會在 Lodestone Launcher 中你的名字下看到這個伺服器。"
@@ -215,7 +196,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::ShareLinkHeading => "或傳送邀請連結",
         M::ShareOff => {
-            "把連結傳給你想一起玩的人。他們在 Lodestone Launcher 中開啟後，遊戲會直接連線到這台電腦，無需連接埠轉送。"
+            "收到連結的人可以從 Lodestone Launcher 加入，直接連線到這台電腦，無需連接埠轉送。"
         }
         M::ShareStart => "透過連結分享",
         M::ShareStarting => "正在啟動…",
@@ -255,7 +236,6 @@ pub fn text(message: M) -> &'static str {
         M::ShareNewLinksMade => "已產生新的邀請連結。請傳給仍可加入的人。",
         M::ShareNewLinkFailed => "無法建立新連結：{error}",
         M::ShareShort => "分享",
-        M::ShareShortHint => "分享此伺服器",
         M::DetailsMinRam => "最小記憶體",
         M::DetailsMaxRam => "最大記憶體",
         M::ShareConnected => "已連線的人",

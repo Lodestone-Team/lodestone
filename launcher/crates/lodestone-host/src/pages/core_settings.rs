@@ -759,10 +759,7 @@ impl Render for CoreSettingsPage {
             }
             sections.extend(
                 query
-                    .section(
-                        t(CoreMsg::SectionPublic),
-                        Some(t(CoreMsg::SectionPublicLead).into()),
-                    )
+                    .section(t(CoreMsg::SectionPublic), None)
                     .card(rows)
                     .finish()
                     .map(IntoElement::into_any_element),
@@ -846,10 +843,7 @@ impl Render for CoreSettingsPage {
         );
         sections.extend(
             query
-                .section(
-                    t(CoreMsg::SectionDanger),
-                    Some(t(CoreMsg::SectionDangerLead).into()),
-                )
+                .section(t(CoreMsg::SectionDanger), None)
                 .card_with(danger, |card| {
                     card.border_color(colors::RED_FADED.opacity(50))
                 })

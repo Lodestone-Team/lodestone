@@ -129,7 +129,7 @@ pub fn text(message: M) -> &'static str {
         M::UnlinkNote => "“开始游戏”将不再加入该服务器，模组会保留。",
 
         M::ChangeSetting => "更改",
-        M::JavaMemoryLead => "默认值来自启动器设置。",
+        M::JavaMemoryLead => "内存的默认值在“设置 › 实例默认设置”中设定。",
         M::Memory => "内存",
         M::Checking => "正在检查…",
         M::JavaTooOldBadge => "版本过旧",
@@ -242,9 +242,7 @@ pub fn text(message: M) -> &'static str {
         M::Duplicate => "创建副本",
         M::Duplicating => "正在创建副本…",
         M::ChangeVersionOrLoader => "其他版本或加载器",
-        M::ChangeVersionOrLoaderHint => {
-            "实例会保留创建时的版本和加载器。副本可以使用其他版本或加载器。"
-        }
+        M::ChangeVersionOrLoaderHint => "会创建一个副本，此实例保持不变。",
         M::CopyAs => "以其他版本或加载器复制",
         M::CopyAsButton => "换版本复制…",
         M::CopyAsKeywords => "更改 切换 更新 升级 降级 版本 加载器 Fabric Forge NeoForge Quilt",
@@ -314,16 +312,13 @@ pub fn text(message: M) -> &'static str {
         M::DeleteInstance => "删除实例",
         M::DeleteHint => "包括其中的世界和模组。",
         M::DeleteButton => "删除…",
-        M::SharedLead => "让各实例的设置保持同步。",
+        M::SharedLead => "按键、视频、声音和其他游戏内选项，在每个共享它们的实例中保持一致。",
         M::UseSharedSettings => "使用共享设置",
-        M::SharingOff => "此实例保留自己的选项。",
         M::SharingFrom => "接收来自 {name} 的游戏内更改。",
         M::SharingMain => "此实例中游戏内的更改会同步到所有实例。",
         M::SharingNoMain => "没有主实例：共享值只能在设置中更改。",
         M::MainInstance => "主实例",
-        M::MainInstanceHint => {
-            "你在主实例游戏中更改的设置，会在其他共享设置的实例下次启动时复制过去。只能有一个主实例。"
-        }
+        M::MainInstanceHint => "它的游戏内更改会在其他共享设置的实例下次启动时同步过去。",
         M::IsMainInstance => "这是你的主实例",
         M::MakeMain => "设为主实例",
         M::StopGameToChange => "请先停止游戏再更改：游戏退出时会重写 options.txt。",
@@ -404,10 +399,8 @@ pub fn text(message: M) -> &'static str {
         M::AddGroupThere => "实例中已有（{count}）",
         M::AddedModpacks => "已添加的整合包",
         M::AddModpackRow => "添加整合包",
-        M::AddModpackHint => "将整合包的模组和配置添加到此实例中，与已有的放在一起。",
-        M::AddModpackServerHint => {
-            "将整合包的模组（例如客户端优化）添加到 {server} 的模组旁边。服务器的模组保持不变。"
-        }
+        M::AddModpackHint => "实例已有的内容都不会被替换。",
+        M::AddModpackServerHint => "用于客户端模组，例如优化模组。{server} 的模组保持不变。",
         M::AddModpackEllipsis => "添加整合包…",
         M::RemoveAddedModpackNote => "移除该整合包添加的文件。你修改过的文件会保留。",
         M::SnapshotsNotChanged => "无法更改快照",

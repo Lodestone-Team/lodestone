@@ -669,8 +669,6 @@ fn selected_card(
                         );
                     })),
             )
-            .id("sidebar-share-hint")
-            .tooltip(text_tooltip(t(crate::i18n::InstancesMsg::ShareShortHint)))
             .into_any_element()
     } else {
         let address = instance_address(state.settings.as_ref(), instance.port);

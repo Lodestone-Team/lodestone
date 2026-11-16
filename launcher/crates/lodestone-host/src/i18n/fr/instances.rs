@@ -11,9 +11,6 @@ pub fn text(message: M) -> &'static str {
         M::StepAutoSettings => "Automatisation",
         M::StepSelectModpack => "Choisir un modpack",
         M::StepSelectVersion => "Choisir une version",
-        M::BasicSettingsDescription => "Les paramètres de base de votre serveur.",
-        M::ServerSettingsDescription => "Configurez votre serveur.",
-        M::AutoSettingsDescription => "Configurez automatiquement votre serveur.",
         M::CheckFields => "Vérifiez que les champs sont correctement remplis",
         M::CreateServer => "Créer le serveur",
         M::CreateFailed => "Erreur lors de la création du serveur : {error}",
@@ -27,22 +24,16 @@ pub fn text(message: M) -> &'static str {
             "Un serveur Minecraft ne fonctionne qu’après votre accord avec le CLUF de Minecraft."
         }
         M::FieldName => "Nom",
-        M::FieldNameDescription => "Le nom du serveur",
         M::FieldNameDefault => "Mon serveur",
         M::FieldDescription => "Description",
-        M::FieldDescriptionDescription => "La description du serveur",
         M::FieldPort => "Port",
-        M::FieldPortDescription => "Le port sur lequel exécuter le serveur",
         M::FieldMinRam => "Mémoire minimale",
-        M::FieldMinRamDescription => "La quantité minimale de mémoire à allouer au serveur, en Mo",
+        M::FieldMinRamDescription => "En Mo.",
         M::FieldMaxRam => "Mémoire maximale",
-        M::FieldMaxRamDescription => "La quantité maximale de mémoire à allouer au serveur, en Mo",
+        M::FieldMaxRamDescription => "En Mo.",
         M::FieldAutoStart => "Démarrage automatique",
-        M::FieldAutoStartDescription => {
-            "Le serveur démarrera automatiquement au lancement de l’application"
-        }
+        M::FieldAutoStartDescription => "Démarre quand Lodestone Core démarre.",
         M::FieldRestartOnCrash => "Redémarrer en cas de plantage",
-        M::FieldRestartOnCrashDescription => "Le serveur redémarrera automatiquement s’il plante",
         M::Optional => "Facultatif",
         M::ValidationRequired => "Le champ {name} est obligatoire",
         M::ValidationNumber => "Le champ {name} doit être un nombre",
@@ -61,7 +52,6 @@ pub fn text(message: M) -> &'static str {
         }
         M::CommandLineOwnerOnly => "Seul le propriétaire peut modifier ce paramètre.",
         M::GameTypeTitle => "Choisissez un jeu",
-        M::GameTypeSubtitle => "À quoi servira votre serveur ?",
         M::GameTypeNew => "Nouveau",
         M::GameTypeModpack => "Modpack Modrinth",
         M::GameTypeModpackDescription => {
@@ -84,7 +74,6 @@ pub fn text(message: M) -> &'static str {
         }
         M::ImportReading => "Lecture du dossier",
         M::ImportReadFailed => "Impossible de lire le dossier : {error}",
-        M::ImportSettingsSubtitle => "Vérifiez ce que Lodestone a trouvé, puis importez.",
         M::ImportOtherSoftware => {
             "Lodestone le fait tourner avec un logiciel qui utilise les mêmes plugins."
         }
@@ -95,9 +84,7 @@ pub fn text(message: M) -> &'static str {
             "Lodestone n’a pas pu déterminer le logiciel de ce serveur. Choisissez-le ci-dessous."
         }
         M::FieldSoftware => "Logiciel serveur",
-        M::FieldSoftwareDescription => {
-            "Ce qui fait tourner le serveur. Lodestone l’installe à nouveau."
-        }
+        M::FieldSoftwareDescription => "Lodestone installe sa propre copie.",
         M::FieldVersion => "Version de Minecraft",
         M::FieldVersionDescription => "La dernière version utilisée par le serveur",
         M::ImportLoadingVersions => "Chargement des versions",
@@ -116,14 +103,11 @@ pub fn text(message: M) -> &'static str {
         M::StepChooseFile => "Choisir un fichier",
         M::StepImageSummary => "Son contenu",
         M::ImageFileTitle => "Choisir un fichier .lodeimg",
-        M::ImageFileSubtitle => {
-            "Un instantané exporté depuis Lodestone Host ou Lodestone Launcher. Rien n’est créé avant que vous ne créiez le serveur."
-        }
+        M::ImageFileSubtitle => "Rien n’est créé avant que vous ne créiez le serveur.",
         M::ImageBrowse => "Choisir un fichier…",
         M::ImageUploading => "Lecture du fichier…",
         M::ImageUploadFailed => "Impossible d’ouvrir le fichier : {error}",
         M::ImageSummaryTitle => "Contenu du fichier",
-        M::ImageSummarySubtitle => "Vérifiez le contenu du fichier, puis créez le serveur.",
         M::ImageKeepOperators => "Garder les opérateurs du fichier",
         M::ImageKeepOperatorsHint => {
             "Les opérateurs peuvent exécuter n’importe quelle commande sur le serveur."
@@ -132,32 +116,26 @@ pub fn text(message: M) -> &'static str {
         M::ImageCreateFailed => "Impossible de créer le serveur : {error}",
         M::CreateFailedLater => "Le serveur n’a pas pu être créé",
         M::ImageNotLodeimg => "Ce n’est pas un fichier .lodeimg",
-        M::GameVanillaDescription => "Serveur Minecraft vanilla standard de Mojang.",
-        M::GameForgeDescription => {
-            "Framework de modding pour installer des mods et personnaliser votre expérience Minecraft."
-        }
+        M::GameForgeDescription => "Fait tourner les mods Forge.",
         M::GameNeoForgeDescription => {
             "Fork communautaire de Forge, avec ses propres mods, pour Minecraft 1.20.2 et versions ultérieures."
         }
-        M::GameFabricDescription => "Chaîne d’outils de modding légère pour Minecraft.",
-        M::GamePaperDescription => {
-            "Fork de Spigot hautes performances qui vise à corriger les incohérences de gameplay et de mécaniques."
-        }
+        M::GameFabricDescription => "Fait tourner les mods Fabric.",
+        M::GamePaperDescription => "Fait tourner les plugins Bukkit et Spigot.",
         M::GameSpigotDescription => {
             "Logiciel de serveur Minecraft modifié, compatible avec les plugins, aux performances et options de personnalisation améliorées."
         }
-        M::GameBedrockDescription => "Serveur Minecraft Bedrock Edition.",
+        M::GameBedrockDescription => {
+            "Seuls les joueurs de Bedrock Edition peuvent rejoindre (téléphones, consoles, Windows)."
+        }
         M::GameOtherDescription => "Variante de Minecraft inconnue : {name}",
         M::GameGenericDescription => "Jeu inconnu : {name}",
         M::ModpackSourceTitle => "Choisissez un modpack",
-        M::ModpackSourceDescription => {
-            "Recherchez sur Modrinth, collez un lien Modrinth ou importez un fichier .mrpack. Les modpacks Fabric, Forge et NeoForge sont pris en charge."
-        }
+        M::ModpackSourceDescription => "Modpacks Fabric, Forge et NeoForge uniquement.",
         M::ModpackSearchPlaceholder => "Rechercher des modpacks ou coller un lien Modrinth",
         M::ModpackUpload => "Importer un .mrpack",
         M::ModpackVersionTitle => "Choisissez une version",
         M::ModpackVersionUploaded => "Le modpack importé.",
-        M::ModpackVersionDescription => "Choisissez la version du modpack à installer.",
         M::ModpackDownloading => "Téléchargement du fichier du modpack pour le lire…",
         M::ModpackVersionHint => {
             "Choisissez une version pour voir son contenu. Lodestone télécharge le fichier du modpack pour le lire ; rien n’est installé tant que vous n’avez pas cliqué sur Créer le serveur."
@@ -219,7 +197,6 @@ pub fn text(message: M) -> &'static str {
         M::DetailsRestartOnCrash => "Redémarrer après un plantage",
         M::DetailsFolder => "Dossier",
         M::PerformanceTitle => "Surveillance du serveur",
-        M::PerformanceLead => "Utilisation de votre Lodestone Core par l’instance",
         M::CpuLoad => "Charge CPU",
         M::MemoryUsed => "Mémoire utilisée",
         M::LoadingGraph => "Chargement du graphique",
@@ -230,14 +207,10 @@ pub fn text(message: M) -> &'static str {
         M::GraphSeconds => "{seconds} s",
         M::GraphSecondsAgo => "il y a {seconds} s",
         M::PlayersTitle => "Liste des joueurs",
-        M::PlayersLead => "Tous les joueurs actuellement en ligne",
         M::PlayersSortByName => "NOM",
         M::PlayersLinkedUser => "L’utilisateur Lodestone qui a associé ce compte Minecraft",
         M::PlayersNone => "Aucun joueur en ligne",
         M::ShareTitle => "Partager",
-        M::ShareLead => {
-            "Choisissez des amis dans votre liste d’amis, ou envoyez un lien à n’importe qui"
-        }
         M::ShareFriendsHeading => "Vos amis",
         M::ShareFriendsNote => {
             "Pas besoin de lien. Ils voient ce serveur dans Lodestone Launcher, sous votre nom, tant qu’il tourne."
@@ -247,7 +220,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::ShareLinkHeading => "Ou envoyez un lien d’invitation",
         M::ShareOff => {
-            "Envoyez un lien à qui vous voulez. Ces personnes l'ouvrent dans Lodestone Launcher, et leur jeu se connecte directement à cet ordinateur. Aucune redirection de port nécessaire."
+            "Toute personne à qui vous envoyez le lien rejoint depuis Lodestone Launcher, directement sur cet ordinateur. Aucune redirection de port nécessaire."
         }
         M::ShareStart => "Partager avec un lien",
         M::ShareStarting => "Démarrage…",
@@ -293,7 +266,6 @@ pub fn text(message: M) -> &'static str {
         }
         M::ShareNewLinkFailed => "Impossible de créer un nouveau lien : {error}",
         M::ShareShort => "Partager",
-        M::ShareShortHint => "Partager ce serveur",
         M::DetailsMinRam => "RAM min.",
         M::DetailsMaxRam => "RAM max.",
         M::ShareConnected => "Personnes connectées",

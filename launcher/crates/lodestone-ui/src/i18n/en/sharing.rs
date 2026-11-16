@@ -32,7 +32,7 @@ crate::i18n::messages! {
         ImageServerSoftware = "Server software",
         ImageServerSoftwareHint = "Paper runs plugins. A vanilla server runs Minecraft as it is.",
         ImageWorld = "World",
-        ImageWorldHint = "The world that becomes the server’s world.",
+        ImageWorldHint = "Only this world is copied to the server.",
         ImageNoWorld = "No world (a new one)",
         /// {size}: what is downloaded.
         ImageDownloads = "From Modrinth",

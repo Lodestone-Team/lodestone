@@ -26,7 +26,7 @@ pub fn text(message: M) -> &'static str {
             "Paper exécute des plugins. Un serveur vanilla exécute Minecraft tel quel."
         }
         M::ImageWorld => "Monde",
-        M::ImageWorldHint => "Le monde qui devient celui du serveur.",
+        M::ImageWorldHint => "Seul ce monde est copié sur le serveur.",
         M::ImageNoWorld => "Aucun monde (un nouveau)",
         M::ImageDownloads => "Depuis Modrinth",
         M::ImageDisk => "Espace disque",

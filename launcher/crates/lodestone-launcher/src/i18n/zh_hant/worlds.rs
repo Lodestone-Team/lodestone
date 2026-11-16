@@ -73,18 +73,16 @@ pub fn text(message: M) -> &'static str {
         M::OpenSavesFolder => "開啟 saves 資料夾",
         M::ReadingWorlds => "正在讀取世界",
         M::NoWorldsYet => "還沒有世界",
-        M::NoWorldsHint => {
-            "你在遊戲中建立的世界會顯示在這裡。你也可以匯入世界 zip 檔，或將其拖放到這裡。"
-        }
+        M::NoWorldsHint => "在遊戲中建立一個，或將世界 zip 檔拖放到這裡。",
 
         M::ReadingScreenshots => "正在讀取截圖",
         M::NoScreenshotsYet => "還沒有截圖",
-        M::NoScreenshotsHint => "在遊戲中按 F2 即可截圖，截圖會顯示在這裡。",
+        M::NoScreenshotsHint => "在遊戲中按 F2 即可截圖。",
         M::Position => "第 {index} 張，共 {count} 張",
         M::CopyImage => "複製圖片",
         M::RestoringFromSnapshot => "正在從快照還原世界",
         M::WorldBackupsHeading => "世界備份",
-        M::NoWorldBackupsYet => "這個世界還沒有世界備份。點選「備份」建立一個。",
+        M::NoWorldBackupsYet => "還沒有備份。",
         M::InSnapshots => "快照中",
         M::NoSnapshotsOfWorld => "還沒有快照包含這個世界。可以在設定 › 快照中拍攝。",
         M::RestoreEllipsis => "還原…",
@@ -94,7 +92,7 @@ pub fn text(message: M) -> &'static str {
 
 pub fn plural(message: P) -> [&'static str; 2] {
     match message {
-        P::ScreenshotsSummary => ["{count} 張截圖 · 在遊戲中按 F2 即可截圖"; 2],
+        P::ScreenshotsSummary => ["{count} 張截圖"; 2],
         P::WithOtherWorlds => ["另含 {count} 個世界"; 2],
     }
 }

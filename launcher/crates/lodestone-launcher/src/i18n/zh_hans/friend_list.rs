@@ -3,7 +3,7 @@ use crate::i18n::{FriendListMsg as M, FriendListPlural as P};
 pub fn text(message: M) -> &'static str {
     match message {
         M::Title => "好友",
-        M::Hint => "只需添加一次的好友。无需链接即可查看并加入他们与你共享的服务器。",
+        M::Hint => "无需邀请链接即可加入他们与你共享的服务器。",
         M::AddFriend => "添加好友",
         M::Refreshing => "正在查看好友状态…",
         M::You => "你",
@@ -49,9 +49,7 @@ pub fn text(message: M) -> &'static str {
         M::ShowServers => "显示服务器",
         M::AddTitle => "添加好友",
         M::SendLinkTitle => "给对方发送好友链接",
-        M::SendLinkBody => {
-            "创建一个链接并发给你的好友。对方打开后，回复会显示在服务器页面上，等你接受。"
-        }
+        M::SendLinkBody => "对方打开后，在这里的好友页面上接受其回复。",
         M::MakeLink => "创建链接",
         M::LinkWorksOnce => {
             "仅可使用一次，24 小时内有效。任何拿到这个链接的人都能请求成为你的好友，所以只发给对方本人。"
@@ -116,7 +114,7 @@ pub fn text(message: M) -> &'static str {
         M::RemoveFriend => "移除好友",
         M::ShareLan => "与好友分享局域网世界",
         M::ShareLanBody => {
-            "当你把单人世界对局域网开放时，好友会在这里看到它，并可在它开放期间通过 Lodestone Connect 加入。你对其隐藏的好友看不到它。"
+            "世界开放期间，好友可通过 Lodestone Connect 加入。你对其隐藏的好友看不到它。"
         }
         M::LanNoneOpen => {
             "目前没有对局域网开放的世界。在游戏中打开一个世界，然后选择“对局域网开放”。"
@@ -131,7 +129,6 @@ pub fn text(message: M) -> &'static str {
         M::LanWorld => "局域网世界",
         M::OpenNow => "现已开放",
         M::LanOpenStatus => "有一个开放中的局域网世界",
-        M::LanJoinNote => "仅在对方的游戏开放它时可以加入。",
         M::LanNeedsMicrosoft => "需要 Microsoft 账户：这个世界处于正版验证模式。",
         M::LanModded => "你需要相同的模组才能加入。",
     }

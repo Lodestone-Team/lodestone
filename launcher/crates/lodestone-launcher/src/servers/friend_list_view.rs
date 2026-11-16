@@ -1170,11 +1170,9 @@ impl Servers {
                 .into_iter()
                 .skip(usize::from(server.game_version.is_empty())),
         );
-        // what a friend needs to know before Play: while it's open, the account, the
-        // mods
+        // what a friend needs to know before Play: the account, the mods
         let mut lan_notes: Vec<&'static str> = Vec::new();
         if lan_host.is_some() {
-            lan_notes.push(t(M::LanJoinNote));
             if server.online_mode == Some(true) {
                 lan_notes.push(t(M::LanNeedsMicrosoft));
             }

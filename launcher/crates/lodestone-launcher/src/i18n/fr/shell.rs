@@ -168,7 +168,6 @@ pub fn text(message: M) -> &'static str {
         M::Accounts => "Comptes",
         M::Developer => "Développeur",
         M::DefaultsLead => "Chaque instance peut les modifier dans ses propres paramètres.",
-        M::SharedLead => "Gardez vos réglages synchronisés entre vos instances.",
         M::NoAccount => "Aucun compte",
         M::ManageAccounts => "Gérer les comptes",
         M::GroupAutomatically => "Grouper les instances automatiquement",
@@ -177,15 +176,14 @@ pub fn text(message: M) -> &'static str {
         }
         M::AutoConfigure => "Configurer automatiquement les nouvelles instances",
         M::AutoConfigureHint => {
-            "Laissez Lodestone régler automatiquement la mémoire, la sensibilité de la souris et d’autres réglages du jeu."
+            "Choisit la mémoire et les réglages vidéo selon cet ordinateur et les mods de l’instance, et copie vos commandes et votre langue depuis votre instance principale ou votre dernière partie."
         }
         M::WhenAGameStarts => "Au lancement d’un jeu",
         M::AfterLaunchStay => "Rester ouvert",
         M::AfterLaunchMinimize => "Réduire",
         M::AfterLaunchQuit => "Quitter",
-        M::AfterLaunchStayHint => "Le lanceur reste ouvert à côté du jeu.",
         M::AfterLaunchQuitHint => {
-            "Le lanceur se ferme dès que la fenêtre du jeu s’ouvre. Le jeu continue, mais son journal, son rapport de plantage et son temps de jeu ne sont pas enregistrés."
+            "Le jeu continue, mais son journal, son rapport de plantage et son temps de jeu ne sont pas enregistrés."
         }
         M::OfflineAccount => "Compte hors ligne",
         M::MicrosoftAccount => "Compte Microsoft",
@@ -217,11 +215,9 @@ pub fn text(message: M) -> &'static str {
         M::Value => "Valeur",
         M::SyncFrom => "Instance principale",
         M::SyncFromHint => {
-            "Les réglages que vous modifiez dans l’instance principale sont copiés automatiquement dans vos autres instances."
+            "Ses changements faits en jeu sont copiés dans vos autres instances à leur démarrage."
         }
-        M::SyncFromNoneHint => {
-            "Sans instance principale, les réglages partagés ne changent qu’ici."
-        }
+        M::SyncFromNoneHint => "Les réglages partagés ne changent qu’ici.",
         M::MainOfferTitle => "En faire l’instance principale\u{202F}?",
         M::MainSwitchTitle => "Changer d’instance principale\u{202F}?",
         M::MainOfferBody => {
@@ -237,7 +233,7 @@ pub fn text(message: M) -> &'static str {
         M::FirstTimeSetupSection => "Première configuration",
         M::ResetFirstTimeSetup => "Réinitialiser la première configuration",
         M::ResetFirstTimeSetupHint => {
-            "La prochaine nouvelle instance sera de nouveau proposée comme instance principale, et la désactivation du narrateur sera proposée au prochain démarrage, et la page Lodestone Host propose de nouveau Lodestone Host. L’instance principale actuelle est retirée\u{a0}; les valeurs partagées restent."
+            "Repose les questions sur l’instance principale, le narrateur et Lodestone Host. L’instance principale est retirée\u{a0}; les valeurs partagées restent."
         }
         M::FirstTimeSetupReset => {
             "La première configuration est réinitialisée. Créez une instance pour la voir."
@@ -255,7 +251,6 @@ pub fn text(message: M) -> &'static str {
         M::ServerListHint => "Bientôt disponible.",
         M::Source => "Source",
         M::WhatsShared => "Ce qui est partagé",
-        M::WhatsSharedLead => "Désactivez chaque catégorie que vous ne voulez pas partager.",
         M::CategoryControls => "Commandes",
         M::CategoryVideo => "Vidéo",
         M::CategorySound => "Son",
@@ -388,7 +383,7 @@ pub fn text(message: M) -> &'static str {
         M::ConnectSection => "Lodestone Connect",
         M::ConnectService => "Service Connect (relais)",
         M::ConnectServiceHint => {
-            "Pour les tests. La liste d’amis utilise ce service. Les liens d’invitation utilisent toujours le service qu’ils indiquent."
+            "La liste d’amis l’utilise. Les liens d’invitation utilisent toujours le service qu’ils indiquent."
         }
         M::ConnectServiceInUse => "Relais de dév.\u{a0}: {service}",
         M::ConnectServiceEnv => {
@@ -404,31 +399,29 @@ pub fn text(message: M) -> &'static str {
         M::ConnectServiceAddress => "Cette adresse n’est pas valide.",
         M::CodingAgentsSection => "Agents de programmation",
         M::CodingAgentsLead => {
-            "Claude Code, Codex et d’autres agents de programmation peuvent piloter le lanceur avec lodestone-launcher-cli. Le lanceur garde des guides pour eux dans son dossier de données."
+            "Des agents de programmation comme Claude Code et Codex peuvent piloter le lanceur avec lodestone-launcher-cli."
         }
         M::AgentSkills => "Compétences",
         M::AgentPrompt => "Configurer un agent de programmation",
         M::AgentPromptHint => {
-            "Collez ceci dans votre agent. Il installe lodestone-launcher-cli, lit les compétences, vérifie la connexion et commence le débogage avec vous."
+            "Collez-le dans votre agent. Il installe lodestone-launcher-cli, qui a besoin de Rust."
         }
         M::CopyPrompt => "Copier le prompt",
         M::CommandLineSection => "Ligne de commande",
         M::CommandLineLead => {
-            "lodestone-launcher-cli et les autres programmes que vous lancez joignent le lanceur par un socket dans son dossier de données. Seul votre compte utilisateur peut s’y connecter."
+            "Les programmes comme lodestone-launcher-cli se connectent par un socket que seul votre compte utilisateur peut utiliser."
         }
         M::AllowCli => "Autoriser les connexions en ligne de commande",
-        M::AllowCliHint => {
-            "Désactivé, le socket est fermé et les programmes connectés sont déconnectés."
-        }
+        M::AllowCliHint => "Le désactiver déconnecte les programmes connectés.",
         M::CliAccess => "Accès",
         M::CliAccessHint => {
-            "Lecture seule répond aux questions mais refuse tout ce qui modifie les instances, les réglages, les comptes ou les fichiers."
+            "Lecture seule refuse les modifications des instances, des réglages, des comptes ou des fichiers."
         }
         M::CliFullControl => "Contrôle total",
         M::CliReadOnly => "Lecture seule",
         M::DebugTraces => "Traces de débogage",
         M::DebugTracesHint => {
-            "Enregistre ce sur quoi vous cliquez et ce que fait le lanceur, pour lodestone-launcher-cli trace. Désactivé, rien n’est enregistré."
+            "Enregistre vos clics et ce que fait le lanceur, en mémoire uniquement, pour lodestone-launcher-cli trace."
         }
         M::CliGameLogs => "Journaux du jeu",
         M::CliGameLogsHint => "Les programmes peuvent lire la sortie de la console du jeu.",
@@ -447,7 +440,7 @@ pub fn text(message: M) -> &'static str {
         M::DiagnosticsSection => "Diagnostic",
         M::PerfMonitor => "Moniteur de performances",
         M::PerfMonitorHint => {
-            "Une petite fenêtre avec la mémoire, le processeur et les temps d’image du lanceur, et ceux d’un jeu en cours, mis à jour chaque seconde."
+            "La mémoire, le processeur et les temps d’image du lanceur, et la mémoire et le processeur d’un jeu en cours."
         }
         M::PerfOpen => "Ouvrir le moniteur",
         M::PerfLauncher => "Lanceur",
@@ -643,15 +636,8 @@ pub fn text(message: M) -> &'static str {
 
         M::UpdatesSection => "Mises à jour",
         M::UpdateAutomatically => "Mettre à jour automatiquement",
-        M::UpdateAutomaticallyHint => {
-            "Télécharge les nouveaux builds depuis GitHub en arrière-plan."
-        }
         M::BetaBuilds => "Builds bêta",
-        M::BetaBuildsHint => "Les builds bêta peuvent comporter des bugs.",
         M::DeveloperBuilds => "Builds de développeur",
-        M::DeveloperBuildsHint => {
-            "Pour les développeurs de Lodestone : met à jour vers des builds de développement, qui peuvent comporter des bugs."
-        }
         M::BuildNumber => "Build {build}",
         M::DevelopmentBuild => "Build de développement",
         M::UpdatesUnavailable => {
@@ -709,9 +695,7 @@ pub fn text(message: M) -> &'static str {
         M::SkinTintStrength => "Intensité de la teinte",
         M::SkinBlur => "Flou",
         M::SkinMaterial => "Matière",
-        M::SkinMaterialHint => {
-            "Laisse voir ce qui se trouve derrière le panneau : le fond de la fenêtre, la page ou une boîte de dialogue. Flou et Givré le montrent flouté."
-        }
+        M::SkinMaterialHint => "Laisse voir ce qui se trouve derrière le panneau.",
         M::SkinMaterialTranslucent => "Translucide",
         M::SkinMaterialBlur => "Flou",
         M::SkinMaterialFrost => "Givré",
@@ -775,7 +759,7 @@ pub fn text(message: M) -> &'static str {
         M::SkinApplyFix => "Appliquer la correction suggérée",
         M::SkinFixAll => "Tout corriger",
         M::SkinChecksPass => "Tout le texte est lisible ({count} vérifications).",
-        M::SkinChecksNote => "La lisibilité dépend du thème\u{a0}: ce sont des suggestions.",
+        M::SkinChecksNote => "Ce sont des suggestions.",
         M::SkinBanners => "Du thème",
         M::SkinBannerMissing => {
             "Le thème de cette bannière n’existe plus\u{a0}; celle par défaut s’affiche."
@@ -852,7 +836,7 @@ pub fn text(message: M) -> &'static str {
         M::StorageCacheAndLogs => "Cache et journaux",
         M::StorageDataFolder => "Dossier de données",
         M::StorageDataFolderHint => {
-            "L’endroit où Lodestone garde vos instances et mondes, comptes, réglages et fichiers du jeu."
+            "Vos instances et mondes, comptes, réglages et fichiers du jeu."
         }
         M::StorageMoveEllipsis => "Déplacer…",
         M::StorageMoveBackEllipsis => "Ramener…",

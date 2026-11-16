@@ -439,7 +439,10 @@ impl ImageFlow {
             .flex()
             .flex_col()
             .gap(px(12.))
-            .child(wizard::title(t(M::ImageFileTitle), t(M::ImageFileSubtitle)))
+            .child(wizard::title(
+                t(M::ImageFileTitle),
+                Some(t(M::ImageFileSubtitle)),
+            ))
             .child(
                 div().flex().flex_row().child(
                     Button::new("image-browse", t(M::ImageBrowse))
@@ -620,7 +623,7 @@ impl ImageFlow {
             let current = self.world.clone();
             fields::row(
                 t(S::ImageWorld),
-                t(S::ImageWorldHint),
+                Some(t(S::ImageWorldHint).into()),
                 false,
                 self.picker(
                     Menu::World,
@@ -651,7 +654,7 @@ impl ImageFlow {
             let current = self.server.clone();
             fields::row(
                 t(S::ImageServerSoftware),
-                t(S::ImageServerSoftwareHint),
+                Some(t(S::ImageServerSoftwareHint).into()),
                 false,
                 self.picker(
                     Menu::Server,
@@ -723,10 +726,10 @@ impl ImageFlow {
         });
 
         let error = |key: &str| self.errors.get(key).cloned();
-        let text_row = |name: M, description: M, input: &Entity<TextInput>, key: &str| {
+        let text_row = |name: M, input: &Entity<TextInput>, key: &str| {
             fields::row(
                 t(name),
-                t(description),
+                None,
                 false,
                 input.clone().into_any_element(),
                 error(key),
@@ -740,27 +743,14 @@ impl ImageFlow {
             .flex()
             .flex_col()
             .gap(px(16.))
-            .child(wizard::title(
-                t(M::ImageSummaryTitle),
-                t(M::ImageSummarySubtitle),
-            ))
+            .child(wizard::title(t(M::ImageSummaryTitle), None))
             .child(view)
             .child(fields::section(
                 software.into_iter().chain(world).chain(operators).collect(),
             ))
             .child(fields::section(vec![
-                text_row(
-                    M::FieldName,
-                    M::FieldNameDescription,
-                    &settings.name,
-                    "name",
-                ),
-                text_row(
-                    M::FieldPort,
-                    M::FieldPortDescription,
-                    &settings.port,
-                    "port",
-                ),
+                text_row(M::FieldName, &settings.name, "name"),
+                text_row(M::FieldPort, &settings.port, "port"),
             ]))
             .child(eula::eula_box(
                 self.eula,
