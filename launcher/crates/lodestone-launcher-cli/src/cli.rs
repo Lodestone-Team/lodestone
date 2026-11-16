@@ -169,7 +169,8 @@ pub enum AppLogs {
     /// Where the log files are, with their sizes. Works without a running launcher.
     #[command(after_help = "Examples:\n  lodestone-launcher-cli logs path")]
     Path,
-    /// The log's last lines (of the running launcher; the lines hold no secrets).
+    /// The log's last lines (the lines hold no secrets). Asks the running launcher, or
+    /// reads the file when none answers.
     #[command(
         after_help = "Examples:\n  lodestone-launcher-cli logs tail\n  lodestone-launcher-cli logs tail -n 50 --level warn"
     )]

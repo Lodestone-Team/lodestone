@@ -4581,17 +4581,26 @@ Persistent logging for the Launcher and the Host (not an instance-images milesto
   a manifest's contents, a frame or a player's file contents.
 - **Untrusted input.** An event frame or stream frame the client can't read logs the
   serde error with the values it quotes left out (`invalid type: string "…"`, escaped
-  quotes inside a value included), never the frame. Every line is scrubbed of secrets (`lodestone_trace::scrub_line`).
+  quotes inside a value included, and an unknown variant or field name unless it reads
+  as a name), never the frame. Every line is scrubbed of secrets, once
+  (`lodestone_trace::scrub_line`).
 - **Untrusted replies.** A core reply (an image upload's answer, an image export's key,
   a server made from an image) the client can't read is logged once where it is decided,
-  with the method, path, host, type and the serde error, never the body.
+  with the method, path, host, type and the serde error, never the body. The error the
+  caller gets (`CoreError::Invalid`) carries the same value-free text, so a toast or a
+  second log line can't carry the value either.
+- **Download keys.** An image, backup or world download through a core's
+  `GET /file/{key}` that fails leaves the key out of its error (a transport error names
+  the URL), and the scrubbers blank a `/file/…` key as a backstop.
 - **Unreachable hosts.** A request that couldn't reach its host (an image sync against
-  a core that is off, a download) is logged once per outage, and again when the host
-  answers.
+  a core that is off) is logged once per outage, and again when the host answers; a host
+  that fails and answers by turns is logged once a minute at most. Game file downloads
+  are logged by the downloader, not from the trace bus.
 - **The shared crate** (`crates/lodestone-image`) is unchanged. `crates/lodestone-trace`
-  gains `scrub_line`, an additive function; `is_secret_name` also reads `-` as `_`, and
-  `scrub`/`scrub_str` also blank percent-encoded secrets and `invite`/`link` values in
-  query strings (stricter, nothing removed).
+  gains `scrub_line`, an additive function; `is_secret_name` ignores case, `-` and `_`
+  (`privateKey`) and knows `passphrase`, `pass` and `pwd` (the last two as whole
+  names), and `scrub`/`scrub_str` also blank percent-encoded secrets, `invite`/`link`
+  values in query strings and download keys (stricter, nothing removed).
 
 ### ML decisions
 

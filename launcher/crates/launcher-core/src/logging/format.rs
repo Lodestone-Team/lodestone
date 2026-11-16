@@ -3,7 +3,8 @@
 //!
 //! The time is UTC (RFC 3339, milliseconds). A message's later lines are indented two
 //! spaces, so `grep` and `tail` stay line-based and a record's start is easy to find.
-//! Every message goes through [`lodestone_trace::scrub_line`] first, and control
+//! Messages come already scrubbed of secrets (the logger and the panic hook run
+//! [`lodestone_trace::scrub_line`] once, before the text goes anywhere), and control
 //! characters come out escaped ([`escape_controls`]): a core's error message can
 //! carry terminal escapes, which `logs tail` would otherwise run.
 
@@ -13,27 +14,25 @@ use log::Level;
 /// The longest message kept for an ordinary record; the rest is cut and counted.
 pub const MAX_MESSAGE: usize = 16 * 1024;
 
-/// The record's lines, ending in a newline. `limit` cuts a longer message (`None`
-/// keeps all of it: a panic's backtrace).
+/// The record's lines, ending in a newline. `message` is already scrubbed. `limit`
+/// cuts a longer message (`None` keeps all of it: a panic's report); `cut_before`
+/// counts what the caller cut before scrubbing.
 pub fn record(
     at: DateTime<Utc>,
     level: Level,
     target: &str,
     message: &str,
     limit: Option<usize>,
+    cut_before: usize,
 ) -> String {
-    let message = lodestone_trace::scrub_line(message);
-    let mut message: &str = &message;
-    let mut cut = 0;
+    let mut message = message;
+    let mut cut = cut_before;
     if let Some(limit) = limit
         && message.len() > limit
     {
-        let mut end = limit;
-        while !message.is_char_boundary(end) {
-            end -= 1;
-        }
-        cut = message.len() - end;
-        message = &message[..end];
+        let kept = truncate(message, limit);
+        cut += message.len() - kept.len();
+        message = kept;
     }
     let mut out = format!(
         "{} {:<5} {target}: ",
@@ -53,6 +52,18 @@ pub fn record(
     }
     out.push('\n');
     out
+}
+
+/// `text` cut to at most `max` bytes, at a character's boundary.
+pub fn truncate(text: &str, max: usize) -> &str {
+    if text.len() <= max {
+        return text;
+    }
+    let mut end = max;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    &text[..end]
 }
 
 /// One line with its control characters (but tabs) and Unicode's direction controls
@@ -77,17 +88,6 @@ pub fn escape_controls(line: &str) -> std::borrow::Cow<'_, str> {
     std::borrow::Cow::Owned(out)
 }
 
-/// The level of a line [`record`] wrote, or `None` for a continuation line or
-/// anything else.
-pub fn level_of(line: &str) -> Option<Level> {
-    if line.starts_with(' ') {
-        return None;
-    }
-    let mut words = line.split_whitespace();
-    words.next()?;
-    words.next()?.parse().ok()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -105,22 +105,26 @@ mod tests {
             "launcher_core::cores::live",
             "the stream ended",
             Some(MAX_MESSAGE),
+            0,
         );
         assert_eq!(
             line,
             "2026-11-16T08:30:12.345Z WARN  launcher_core::cores::live: the stream ended\n"
         );
-        assert_eq!(level_of(&line), Some(Level::Warn));
-        let line = record(at(), Level::Error, "x", "first\r\nsecond\n", None);
+        assert_eq!(
+            launcher_control::logs::severity_of(&line),
+            Some(Level::Warn as usize)
+        );
+        let line = record(at(), Level::Error, "x", "first\r\nsecond\n", None, 0);
         assert_eq!(line, "2026-11-16T08:30:12.345Z ERROR x: first\n  second\n");
-        assert_eq!(level_of("  second"), None);
+        assert_eq!(launcher_control::logs::severity_of("  second"), None);
     }
 
     #[test]
     fn control_characters_are_escaped() {
         let message =
             "\u{1b}]52;c;ZWNobyBoaQ==\u{7}\u{1b}[2K\rINFO  launcher_core: all good\u{202e}\tend";
-        let line = record(at(), Level::Warn, "x", message, Some(MAX_MESSAGE));
+        let line = record(at(), Level::Warn, "x", message, Some(MAX_MESSAGE), 0);
         assert_eq!(
             line,
             "2026-11-16T08:30:12.345Z WARN  x: \\u{1b}]52;c;ZWNobyBoaQ==\\u{7}\\u{1b}[2K\\u{d}INFO  launcher_core: all good\\u{202e}\tend\n"
@@ -135,22 +139,11 @@ mod tests {
     #[test]
     fn long_messages_are_cut() {
         let message = "é".repeat(MAX_MESSAGE);
-        let line = record(at(), Level::Info, "x", &message, Some(MAX_MESSAGE));
+        let line = record(at(), Level::Info, "x", &message, Some(MAX_MESSAGE), 0);
         assert!(line.len() < MAX_MESSAGE + 100);
         assert!(line.ends_with(&format!(" …[cut {} bytes]\n", MAX_MESSAGE)));
-    }
-
-    #[test]
-    fn secrets_never_reach_a_line() {
-        let line = record(
-            at(),
-            Level::Warn,
-            "lodestone_launcher::accounts",
-            "refresh failed: {\"access_token\":\"secret-one\"} password=secret-two\nAuthorization: Bearer secret-three",
-            Some(MAX_MESSAGE),
-        );
-        for secret in ["secret-one", "secret-two", "secret-three"] {
-            assert!(!line.contains(secret), "{line}");
-        }
+        let line = record(at(), Level::Info, "x", "short", Some(MAX_MESSAGE), 7);
+        assert!(line.ends_with("short …[cut 7 bytes]\n"), "{line}");
+        assert_eq!(truncate("éé", 3), "é");
     }
 }

@@ -1,6 +1,8 @@
 //! Keeps a failure that repeats (an event shape that changed, a core polled while it
 //! refuses, a download retried) from filling the log and rotating the useful lines
-//! away: a few lines per key a minute, then one line that says how many were left out.
+//! away: a few lines per key a minute. How many were left out is said by the next line
+//! with that key once the minute is over; when the failure stops, nothing says it (the
+//! last line kept is at most a minute older than the last one left out).
 
 use std::{
     collections::BTreeMap,

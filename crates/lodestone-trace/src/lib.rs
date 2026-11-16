@@ -321,13 +321,26 @@ const SECRET_NAMES: &[&str] = &[
     "apikey",
     "credential",
     "private_key",
+    "passphrase",
     "jwt",
 ];
 
-/// Whether a field called `name` holds a secret. `-` counts as `_` (`X-Api-Key`).
+/// Short names that are secrets only on their own (`pass=…`), not inside a longer
+/// word (`passed`, `bypass`).
+const SECRET_WORDS: &[&str] = &["pass", "pwd"];
+
+/// Whether a field called `name` holds a secret. Case, `-` and `_` don't matter
+/// (`X-Api-Key`, `privateKey`, `private_key`).
 pub fn is_secret_name(name: &str) -> bool {
-    let name = name.to_ascii_lowercase().replace('-', "_");
-    SECRET_NAMES.iter().any(|secret| name.contains(secret))
+    let name: String = name
+        .chars()
+        .filter(|c| !matches!(c, '-' | '_'))
+        .map(|c| c.to_ascii_lowercase())
+        .collect();
+    SECRET_WORDS.contains(&name.as_str())
+        || SECRET_NAMES
+            .iter()
+            .any(|secret| name.contains(&secret.replace('_', "")))
 }
 
 /// Blanks secrets in `value`, in place: fields named like secrets, strings that look
@@ -368,6 +381,9 @@ pub fn scrub_str(text: &str) -> Option<String> {
             } else if let Some(clean) = scrub_query(word) {
                 changed = true;
                 clean
+            } else if let Some(clean) = scrub_download_key(word) {
+                changed = true;
+                clean
             } else {
                 word.to_string()
             };
@@ -377,6 +393,16 @@ pub fn scrub_str(text: &str) -> Option<String> {
         })
         .collect();
     changed.then(|| words.join(" "))
+}
+
+/// A core's download link (`…/file/<key>`) with its key blanked: the key is all a
+/// download needs.
+fn scrub_download_key(word: &str) -> Option<String> {
+    let start = word.find("/file/")? + "/file/".len();
+    let end = word[start..]
+        .find(|c: char| !c.is_ascii_alphanumeric())
+        .map_or(word.len(), |n| start + n);
+    (end - start >= 16).then(|| format!("{}{REDACTED}{}", &word[..start], &word[end..]))
 }
 
 /// A URL (or path) with secret query parameters blanked, or `None` when it has none.
@@ -397,7 +423,11 @@ fn scrub_query(word: &str) -> Option<String> {
                         || decoded_has_secret(value)) =>
             {
                 changed = true;
-                format!("{name}={REDACTED}")
+                // what closes the URL in its sentence stays: `(…?token=x)`
+                let end = value
+                    .find([')', ']', '}', '>', '"', '\'', ',', ';'])
+                    .unwrap_or(value.len());
+                format!("{name}={REDACTED}{}", &value[end..])
             }
             _ => part.to_string(),
         })
@@ -440,21 +470,24 @@ fn percent_decode(text: &str) -> Option<String> {
 
 /// A line of text for a log file without the secrets in it:
 ///
-/// - everything after `Authorization:` on its line;
-/// - secret query parameters ([`scrub_query`]) and the part after `#` of invite and
-///   friend links (`…/j/…#…`, `…/f/…#…`, `lhp2://…`);
+/// - everything after `Authorization:` on its line, and every cookie after `Cookie:`;
+/// - secret query parameters ([`scrub_query`]), a URL's password
+///   (`https://user:[redacted]@host`) and the part after `#` of invite and friend links
+///   (`…/j/…#…`, `…/f/…#…`, `lhp2://…`);
 /// - the value after a name like a secret's ([`is_secret_name`]): `name=value`,
 ///   `name: value`, `name = "two words"`, JSON's `"name": "value"` (escaped too), a
 ///   pair `("authorization", "Bearer x")`, a `--flag value` (`--accessToken …` on the
 ///   game's command line), and `code=`/`key=` unless the value is a number (an exit
-///   code says nothing secret). Numbers in JSON, flags and `null` are kept, as
-///   [`scrub`] keeps them;
+///   code says nothing secret). A secret name's value goes whatever it is (a number
+///   too, as [`scrub`] blanks it); only `true`, `false`, `null` and `None` stay;
 /// - the credential after `Bearer` (and `Basic`, when it looks like one);
 /// - tokens ([`looks_like_token`]) anywhere, glued to punctuation or not:
-///   `Some("eyJ…")`.
+///   `Some("eyJ…")`, long base64 runs with `+` and `/` in them (Xbox tokens), and a
+///   core's download key after `/file/`.
 ///
-/// Multi-line text is scrubbed line by line. Text without secrets comes back borrowed.
-/// This is a heuristic, a last line of defence: callers leave secrets out at the source.
+/// Multi-line text is scrubbed line by line. Text without secrets comes back borrowed,
+/// and scrubbed text comes back the same: scrubbing twice changes nothing. This is a
+/// heuristic, a last line of defence: callers leave secrets out at the source.
 pub fn scrub_line(text: &str) -> std::borrow::Cow<'_, str> {
     let mut out = String::new();
     let mut changed = false;
@@ -481,12 +514,14 @@ pub fn scrub_line(text: &str) -> std::borrow::Cow<'_, str> {
 
 /// [`scrub_line`] for one line, or `None` when it has no secrets.
 fn scrub_one_line(line: &str) -> Option<String> {
-    const PASSES: [fn(&str) -> Option<String>; 6] = [
+    const PASSES: [fn(&str) -> Option<String>; 8] = [
         scrub_authorization,
         scrub_queries,
+        scrub_userinfo,
         scrub_links,
         scrub_named_values,
         scrub_schemes,
+        scrub_base64_runs,
         scrub_token_runs,
     ];
     let mut line = std::borrow::Cow::Borrowed(line);
@@ -512,6 +547,21 @@ fn scrub_authorization(line: &str) -> Option<String> {
 /// Each space-separated word's secret query parameters blanked.
 fn scrub_queries(line: &str) -> Option<String> {
     map_words(line, scrub_query)
+}
+
+/// A URL's password blanked, keeping the user name: `https://steve:[redacted]@host`.
+fn scrub_userinfo(line: &str) -> Option<String> {
+    map_words(line, |word| {
+        let start = word.find("://")? + 3;
+        let authority_end = word[start..]
+            .find(['/', '?', '#', '"', '\'', ')', ']'])
+            .map_or(word.len(), |n| start + n);
+        let at = start + word[start..authority_end].rfind('@')?;
+        let colon = start + word[start..at].find(':')?;
+        let password = &word[colon + 1..at];
+        (!password.is_empty() && password != REDACTED)
+            .then(|| format!("{}{REDACTED}{}", &word[..colon + 1], &word[at..]))
+    })
 }
 
 /// The secret part of invite and friend links blanked: what follows `#` in a link
@@ -553,7 +603,7 @@ fn scrub_named_values(line: &str) -> Option<String> {
     let bytes = line.as_bytes();
     let len = bytes.len();
     let skip_spaces = |mut at: usize| {
-        while at < len && bytes[at] == b' ' {
+        while at < len && matches!(bytes[at], b' ' | b'\t') {
             at += 1;
         }
         at
@@ -618,9 +668,17 @@ fn scrub_named_values(line: &str) -> Option<String> {
             || matches!(inner, "true" | "false" | "null" | "None")
             || (quote.is_empty()
                 && inner.chars().all(|c| c.is_ascii_digit())
-                && (numbered || quoted));
+                && numbered
+                && !is_secret_name(name));
         if plain || (separator == Some(b',') && quote.is_empty()) {
             continue;
+        }
+        // `Cookie: a=1; session=abc`: every cookie on the line
+        if !quoted && separator == Some(b':') && name.to_ascii_lowercase().ends_with("cookie") {
+            out.push_str(&line[copied..value_start]);
+            out.push_str(REDACTED);
+            copied = len;
+            break;
         }
         // `authorization=Bearer abc`: the credential too
         let value_end = if quote.is_empty()
@@ -663,7 +721,7 @@ fn value_at(line: &str, start: usize) -> Option<(usize, &str, &'static str)> {
             return Some((end, &line[start..end], quote));
         }
         let end = line[start..]
-            .find([' ', ',', ';', ')', ']', '}', '&', '"'])
+            .find([' ', '\t', ',', ';', ')', ']', '}', '&', '"'])
             .map_or(line.len(), |n| start + n);
         return (end > start).then(|| (end, &line[start..end], quote));
     }
@@ -701,17 +759,22 @@ fn scrub_schemes(line: &str) -> Option<String> {
             continue;
         };
         let end = at + scheme.len();
-        let whole =
-            (at == 0 || !bytes[at - 1].is_ascii_alphanumeric()) && bytes.get(end) == Some(&b' ');
+        let whole = (at == 0 || !bytes[at - 1].is_ascii_alphanumeric())
+            && matches!(bytes.get(end), Some(b' ' | b'\t'));
         if !whole || at < copied {
             at = end;
             continue;
         }
         let value_start = (end..bytes.len())
-            .find(|&n| bytes[n] != b' ')
+            .find(|&n| !matches!(bytes[n], b' ' | b'\t'))
             .unwrap_or(bytes.len());
+        // already blanked (this is the second time the line is scrubbed)
+        if line[value_start..].starts_with(REDACTED) {
+            at = value_start + REDACTED.len();
+            continue;
+        }
         let value_end = line[value_start..]
-            .find([' ', '"', '\'', ',', ';', ')', ']', '}'])
+            .find([' ', '\t', '"', '\'', ',', ';', ')', ']', '}'])
             .map_or(line.len(), |n| value_start + n);
         let value = &line[value_start..value_end];
         let credential = !value.is_empty()
@@ -729,6 +792,46 @@ fn scrub_schemes(line: &str) -> Option<String> {
             copied = value_end;
         }
         at = value_end.max(end);
+    }
+    (copied > 0).then(|| {
+        out.push_str(&line[copied..]);
+        out
+    })
+}
+
+/// Long base64 runs blanked, `/` and all: an Xbox Live token (`EwAoA+pv…/…==`) has
+/// `/` in it, which [`scrub_token_runs`] reads as a path. A run counts when it is at
+/// least 40 characters, has `+` in it (a path rarely does) and mixed letters and
+/// digits, and no `.` or `:` touches it (a URL or a file name).
+fn scrub_base64_runs(line: &str) -> Option<String> {
+    let is_base64 = |b: u8| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'/' | b'=');
+    let bytes = line.as_bytes();
+    let mut out = String::new();
+    let mut copied = 0;
+    let mut at = 0;
+    while at < bytes.len() {
+        if !is_base64(bytes[at]) {
+            at += 1;
+            continue;
+        }
+        let start = at;
+        while at < bytes.len() && is_base64(bytes[at]) {
+            at += 1;
+        }
+        let run = &line[start..at];
+        let touches = |b: Option<&u8>| matches!(b, Some(b'.' | b':'));
+        let base64 = run.len() >= 40
+            && run.contains('+')
+            && run.bytes().any(|b| b.is_ascii_uppercase())
+            && run.bytes().any(|b| b.is_ascii_lowercase())
+            && run.bytes().any(|b| b.is_ascii_digit())
+            && !touches(start.checked_sub(1).and_then(|n| bytes.get(n)))
+            && !touches(bytes.get(at));
+        if base64 {
+            out.push_str(&line[copied..start]);
+            out.push_str(REDACTED);
+            copied = at;
+        }
     }
     (copied > 0).then(|| {
         out.push_str(&line[copied..]);
@@ -768,9 +871,13 @@ fn scrub_token_runs(line: &str) -> Option<String> {
         let before = line[..start].chars().next_back();
         let after = line[end..].chars().next();
         let in_path = matches!(before, Some('/' | '\\')) || matches!(after, Some('/' | '\\'));
+        // a core's download link, `/api/v1/file/<key>`: the key is all it takes
+        let download_key = line[..start].ends_with("/file/")
+            && run.len() >= 16
+            && run.chars().all(|c| c.is_ascii_alphanumeric());
         let from = if let Some(key) = run.find("lsk_").filter(|&n| run.len() - n >= 20) {
             Some(start + key)
-        } else if is_known_token(run) || (!in_path && looks_like_token(run)) {
+        } else if download_key || is_known_token(run) || (!in_path && looks_like_token(run)) {
             Some(start)
         } else {
             None
@@ -969,6 +1076,17 @@ mod tests {
     }
 
     #[test]
+    fn download_keys_are_scrubbed() {
+        let mut value = json!({
+            "path": "/api/v1/file/Ab3dE5gH7jK9mN1pQ3sT5vW7yZ9bC1dE",
+            "other": "/api/v1/file/short",
+        });
+        scrub(&mut value);
+        assert_eq!(value["path"], "/api/v1/file/[redacted]");
+        assert_eq!(value["other"], "/api/v1/file/short");
+    }
+
+    #[test]
     fn events_and_state_are_scrubbed_on_the_way_in() {
         let bus = TraceBus::new(10, &[]);
         bus.emit("http.request", || json!({ "headers": { "cookie": "a=b" } }));
@@ -1019,9 +1137,76 @@ mod tests {
             ),
             ("Token { access_token: \"abc\" }", "Token { access_token: \"[redacted]\" }"),
             ("sign-in code=AbCd1234 refused", "sign-in code=[redacted] refused"),
+            (
+                "url https://alice:hunter2pass@example.com/path",
+                "url https://alice:[redacted]@example.com/path",
+            ),
+            (
+                "connecting to https://alice:hunter2@example.com/path",
+                "connecting to https://alice:[redacted]@example.com/path",
+            ),
+            (
+                "error sending request for url (https://api.minecraftservices.com/minecraft/profile?access_token=abcdef12345)",
+                "error sending request for url (https://api.minecraftservices.com/minecraft/profile?access_token=[redacted])",
+            ),
+            ("Cookie: a=1; session=abcdef123456", "Cookie: [redacted]"),
+            (r#"{"privateKey": "abc-short"}"#, r#"{"privateKey": "[redacted]"}"#),
+            (
+                "pass=xyz pwd=abc passphrase=hunter2",
+                "pass=[redacted] pwd=[redacted] passphrase=[redacted]",
+            ),
+            ("token\t= x ok", "token\t= [redacted] ok"),
+            ("sent Bearer\tabc ok", "sent Bearer\t[redacted] ok"),
+            (
+                "xbl EwAoA+pvBAAUKods63Ys1fGlwiccIFJ+qE1hANsAAZ/abcDEF123+ghiJKL456/xyzXYZ789== ok",
+                "xbl [redacted] ok",
+            ),
+            (
+                r#"{"token": 123456, "password": 98765, "code": 7}"#,
+                r#"{"token": [redacted], "password": [redacted], "code": 7}"#,
+            ),
+            (
+                "error sending request for url (https://core.example:16662/api/v1/file/Ab3dE5gH7jK9mN1pQ3sT5vW7yZ9bC1dE): client error (Connect)",
+                "error sending request for url (https://core.example:16662/api/v1/file/[redacted]): client error (Connect)",
+            ),
         ];
         for (input, expected) in cases {
             assert_eq!(scrub_line(input), expected, "{input}");
+        }
+    }
+
+    /// Every line the other tests scrub, for [`scrubbing_twice_changes_nothing`].
+    const PROBES: &[&str] = &[
+        "refresh failed: password=hunter2 user=steve",
+        "got access_token: abc123 for steve",
+        r#"body {"access_token":"abc","expires_in":3600,"has_token":true}"#,
+        "java -Xmx2G Main --username steve --accessToken abc.def --version 1.21",
+        "request headers Authorization: Bearer abc",
+        "sent Bearer xyz to the core",
+        "x Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOjF9.c2lnbmF0dXJlc2ln",
+        "header \"Bearer abc\"",
+        "authorization=Bearer abc ok",
+        r#"("authorization", "Bearer abc")"#,
+        "key lsk_0123abcd_ZXhhbXBsZXNlY3JldGtleXZhbHVl refused",
+        "GET https://core.example/api?key=abc&x=1 failed",
+        "(https://api.example/profile?access_token=abcdef12345)",
+        "url https://alice:hunter2@example.com/path",
+        "Cookie: a=1; session=abcdef123456",
+        "Token { access_token: \"abc\" }",
+        r#"body "{\"refresh_token\":\"abc\",\"n\":1}""#,
+        r#"password="hunter two" ok"#,
+        "xbl EwAoA+pvBAAUKods63Ys1fGlwiccIFJ+qE1hANsAAZ/abcDEF123+ghiJKL456/xyzXYZ789==",
+        "joining https://connect.lodestone.cc/j/ABCDEFGH#0123456789abcdef0123 failed",
+        "GET /api/v1/file/Ab3dE5gH7jK9mN1pQ3sT5vW7yZ9bC1dE",
+        r#"{"token": 123456}"#,
+    ];
+
+    #[test]
+    fn scrubbing_twice_changes_nothing() {
+        for probe in PROBES {
+            let once = scrub_line(probe).into_owned();
+            assert_ne!(once, *probe, "{probe} has a secret");
+            assert_eq!(scrub_line(&once), once, "{probe}");
         }
     }
 
@@ -1162,6 +1347,9 @@ mod tests {
             "unknown variant `Other` in launcher_core::cores::admin::events::token::Kind",
             "kept /Users/steve/mods/SomeVeryLongModNameWithAVersion1-20-1-forge-47.jar",
             "the token expired; signing in again",
+            "the tests passed, bypass off, compass ok",
+            "max_retries=3 key=5 code: 2",
+            "https://example.com:8080/path?page=2 (see https://example.com/a@b)",
             "",
         ] {
             let clean = scrub_line(plain);

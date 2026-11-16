@@ -24,15 +24,18 @@
 //! not: [`emit`] logs an event that [`is_failure`] picks at warn, a few a minute per
 //! topic. A request that couldn't reach its host is logged once per outage: the
 //! first failure, then nothing for that host until it answers again (a saved core
-//! that is off is polled every few seconds, and that's normal).
+//! that is off is polled every few seconds, and that's normal); a host that keeps
+//! failing and answering by turns (flaky Wi-Fi) gets one line a minute at most. Game
+//! file downloads (`download.*`) aren't logged from here: the downloader retries
+//! failed attempts, and logs a file it gave up on itself.
 
 use std::{
-    collections::BTreeSet,
+    collections::BTreeMap,
     sync::{
         Arc, Mutex, OnceLock,
         atomic::{AtomicBool, Ordering},
     },
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use futures::FutureExt as _;
@@ -69,15 +72,14 @@ pub fn emit(topic: &str, data: impl FnOnce() -> Value) {
     static THROTTLE: crate::logging::Throttle = crate::logging::Throttle::new();
     let bus = bus();
     let enabled = || log::log_enabled!(target: crate::logging::TRACE_TARGET, log::Level::Warn);
-    // `log.*` events are the logger's own records. A downloaded file (live only) is
-    // only looked at to end an outage.
-    let may_log = (may_fail(topic)
+    // `log.*` events are the logger's own records; game downloads log their own.
+    let may_log = may_fail(topic)
         && !topic.starts_with("log.")
+        && !topic.starts_with("download.")
         && !LIVE
             .get_or_init(|| Filter::new(LIVE_ONLY.iter().copied()))
             .matches(topic)
-        && enabled())
-        || (topic == "download.file" && OUTAGES.any() && enabled());
+        && enabled();
     if !may_log {
         bus.emit(topic, data);
         return;
@@ -88,15 +90,21 @@ pub fn emit(topic: &str, data: impl FnOnce() -> Value) {
     if is_failure(topic, &data) {
         let mut scrubbed = data.clone();
         lodestone_trace::scrub(&mut scrubbed);
-        match host {
-            Some(host) if unreachable => {
-                if OUTAGES.begin(host) {
-                    log::warn!(
-                        target: crate::logging::TRACE_TARGET,
-                        "{topic} {scrubbed} (more failed requests to {host} aren't logged until it answers)"
-                    );
-                }
-            }
+        let outage = host
+            .filter(|_| unreachable)
+            .map(|host| (host, OUTAGES.begin(host, Instant::now())));
+        match outage {
+            Some((host, Outage::Started)) => log::warn!(
+                target: crate::logging::TRACE_TARGET,
+                "{topic} {scrubbed} (more failed requests to {host} aren't logged until it answers)"
+            ),
+            Some((_, Outage::Quiet)) => {}
+            Some((host, Outage::Untracked)) => THROTTLE.log(
+                host,
+                log::Level::Warn,
+                crate::logging::TRACE_TARGET,
+                format_args!("{topic} {scrubbed}"),
+            ),
             _ => THROTTLE.log(
                 topic,
                 log::Level::Warn,
@@ -105,7 +113,7 @@ pub fn emit(topic: &str, data: impl FnOnce() -> Value) {
             ),
         }
     } else if let Some(host) = host
-        && (topic.ends_with(".response") || topic == "download.file")
+        && topic.ends_with(".response")
         && OUTAGES.end(host)
     {
         log::info!(target: crate::logging::TRACE_TARGET, "{host} answers again");
@@ -117,20 +125,43 @@ pub fn emit(topic: &str, data: impl FnOnce() -> Value) {
 /// The hosts whose requests are failing, so a failure is logged once per outage.
 static OUTAGES: Outages = Outages::new();
 
-/// Hosts that couldn't be reached since they last answered. Bounded: past
-/// [`Outages::MAX`] hosts, a new one is logged every time rather than remembered.
+/// What a failed request to a host means for the log.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Outage {
+    /// It was answering: log the failure, and "answers again" when it does.
+    Started,
+    /// Already failing, or its last outage was logged less than [`Outages::QUIET`]
+    /// ago: nothing now, nor when it answers.
+    Quiet,
+    /// Too many hosts to remember: log it through the throttle.
+    Untracked,
+}
+
+struct Host {
+    /// Its requests are failing.
+    down: bool,
+    /// This outage's start was logged, so its end is too.
+    logged: bool,
+    /// When an outage of it was last logged.
+    logged_at: Instant,
+}
+
+/// Hosts that couldn't be reached since they last answered, and hosts whose last
+/// outage was logged lately. Bounded at [`Outages::MAX`] hosts.
 struct Outages {
-    hosts: Mutex<BTreeSet<String>>,
-    /// Some host is in `hosts`: a success needs looking at.
+    hosts: Mutex<BTreeMap<String, Host>>,
+    /// Some host is down: a success needs looking at.
     any: AtomicBool,
 }
 
 impl Outages {
     const MAX: usize = 256;
+    /// A host's outages are logged at most this often.
+    const QUIET: Duration = Duration::from_secs(60);
 
     const fn new() -> Self {
         Self {
-            hosts: Mutex::new(BTreeSet::new()),
+            hosts: Mutex::new(BTreeMap::new()),
             any: AtomicBool::new(false),
         }
     }
@@ -139,28 +170,61 @@ impl Outages {
         self.any.load(Ordering::Relaxed)
     }
 
-    /// A request to `host` failed: whether that starts an outage (it was answering).
-    fn begin(&self, host: &str) -> bool {
+    /// A request to `host` failed at `now`.
+    fn begin(&self, host: &str, now: Instant) -> Outage {
         let mut hosts = self.hosts.lock().unwrap_or_else(|p| p.into_inner());
-        if hosts.contains(host) {
-            return false;
+        if !hosts.contains_key(host) && hosts.len() >= Self::MAX {
+            hosts.retain(|_, h| h.down || now.duration_since(h.logged_at) < Self::QUIET);
+            if hosts.len() >= Self::MAX {
+                return Outage::Untracked;
+            }
         }
-        if hosts.len() < Self::MAX {
-            hosts.insert(host.to_string());
-            self.any.store(true, Ordering::Relaxed);
+        self.any.store(true, Ordering::Relaxed);
+        match hosts.get_mut(host) {
+            Some(known) if known.down => Outage::Quiet,
+            Some(known) if now.duration_since(known.logged_at) < Self::QUIET => {
+                known.down = true;
+                known.logged = false;
+                Outage::Quiet
+            }
+            Some(known) => {
+                *known = Host {
+                    down: true,
+                    logged: true,
+                    logged_at: now,
+                };
+                Outage::Started
+            }
+            None => {
+                hosts.insert(
+                    host.to_string(),
+                    Host {
+                        down: true,
+                        logged: true,
+                        logged_at: now,
+                    },
+                );
+                Outage::Started
+            }
         }
-        true
     }
 
-    /// `host` answered: whether that ends an outage.
+    /// `host` answered: whether that ends an outage whose start was logged.
     fn end(&self, host: &str) -> bool {
         if !self.any() {
             return false;
         }
         let mut hosts = self.hosts.lock().unwrap_or_else(|p| p.into_inner());
-        let ended = hosts.remove(host);
-        self.any.store(!hosts.is_empty(), Ordering::Relaxed);
-        ended
+        let logged = match hosts.get_mut(host) {
+            Some(known) if known.down => {
+                known.down = false;
+                std::mem::take(&mut known.logged)
+            }
+            _ => false,
+        };
+        self.any
+            .store(hosts.values().any(|h| h.down), Ordering::Relaxed);
+        logged
     }
 }
 
@@ -394,20 +458,56 @@ mod tests {
     #[test]
     fn an_outage_is_counted_once() {
         let outages = Outages::new();
+        let now = Instant::now();
         assert!(!outages.end("core.example"), "nothing to end");
-        assert!(outages.begin("core.example"));
-        assert!(!outages.begin("core.example"), "the same outage");
-        assert!(outages.begin("api.modrinth.com"), "another host");
+        assert_eq!(outages.begin("core.example", now), Outage::Started);
+        assert_eq!(
+            outages.begin("core.example", now),
+            Outage::Quiet,
+            "the same outage"
+        );
+        assert_eq!(
+            outages.begin("api.modrinth.com", now),
+            Outage::Started,
+            "another host"
+        );
         assert!(outages.end("core.example"));
         assert!(!outages.end("core.example"));
         assert!(outages.any());
         assert!(outages.end("api.modrinth.com"));
         assert!(!outages.any());
-        assert!(outages.begin("core.example"), "a new outage");
+        let later = now + Outages::QUIET;
+        assert_eq!(
+            outages.begin("core.example", later),
+            Outage::Started,
+            "a new outage a minute on"
+        );
         for n in 0..Outages::MAX * 2 {
-            outages.begin(&format!("host-{n}"));
+            outages.begin(&format!("host-{n}"), later);
         }
         assert!(outages.hosts.lock().unwrap().len() <= Outages::MAX);
+        assert_eq!(
+            outages.begin("one-too-many", later),
+            Outage::Untracked,
+            "logged through the throttle"
+        );
+    }
+
+    #[test]
+    fn a_flaky_host_is_logged_once_a_minute() {
+        let outages = Outages::new();
+        let start = Instant::now();
+        let mut started = 0;
+        let mut ended = 0;
+        // error, success, error, success… for 59 s
+        for second in 0..59 {
+            let now = start + Duration::from_secs(second);
+            started += usize::from(outages.begin("resources.example", now) == Outage::Started);
+            ended += usize::from(outages.end("resources.example"));
+        }
+        assert_eq!((started, ended), (1, 1));
+        let later = start + Outages::QUIET;
+        assert_eq!(outages.begin("resources.example", later), Outage::Started);
     }
 
     #[test]

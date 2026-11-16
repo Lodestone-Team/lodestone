@@ -167,12 +167,25 @@ pub fn run(
 
     // Same drive: one rename, when the target doesn't exist yet (an empty folder is
     // removed first). A file open in the data folder makes Windows refuse it; then
-    // it is copied like across drives. Moving the default folder is always such a
-    // copy on Windows: its logs/launcher.log is open (the logs stay behind anyway).
-    if try_rename(from, to) {
-        // The running launcher's socket; the restarted one makes its own.
-        let _ = fs::remove_file(to.join(SOCKET_FILE));
-        keep_logs_behind(from, to, default);
+    // it is copied like across drives. The default folder holds the open log file,
+    // so the log is closed meanwhile (lines wait in memory) and its folder put back.
+    let moving_default = comparable(from) == comparable(default);
+    let renamed = {
+        let _released = moving_default.then(crate::logging::release_file);
+        try_rename(from, to).then(|| {
+            // The running launcher's socket; the restarted one makes its own.
+            let _ = fs::remove_file(to.join(SOCKET_FILE));
+            if moving_default {
+                keep_logs_behind(to, default)
+            } else {
+                Ok(())
+            }
+        })
+    };
+    if let Some(kept) = renamed {
+        if let Err(err) = kept {
+            log::warn!("couldn't keep the logs in the default data folder after a move: {err}");
+        }
         progress.total.store(1, Ordering::Relaxed);
         progress.done.store(1, Ordering::Relaxed);
         return point_at(request);
@@ -309,18 +322,15 @@ pub fn finish_pending(default: &Path, data_dir: &Path) -> Finished {
 }
 
 /// After the default directory was renamed to `to` as a whole, puts its logs back:
-/// they belong to the default directory ([`stays_behind`]). The running launcher keeps
-/// writing to the file it has open until it restarts.
-fn keep_logs_behind(from: &Path, to: &Path, default: &Path) {
+/// they belong to the default directory ([`stays_behind`]), where the running launcher
+/// reopens its log.
+fn keep_logs_behind(to: &Path, default: &Path) -> io::Result<()> {
     let logs = to.join(LOGS_DIR);
-    if comparable(from) != comparable(default) || !logs.is_dir() {
-        return;
+    if !logs.is_dir() {
+        return Ok(());
     }
-    let moved =
-        fs::create_dir_all(default).and_then(|()| fs::rename(&logs, default.join(LOGS_DIR)));
-    if let Err(err) = moved {
-        log::warn!("couldn't keep the logs in the default data folder after a move: {err}");
-    }
+    fs::create_dir_all(default)?;
+    fs::rename(&logs, default.join(LOGS_DIR))
 }
 
 /// Removes everything in `dir` except the top-level names `keep` accepts. Links are

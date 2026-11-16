@@ -65,11 +65,12 @@ traced, and payloads are scrubbed of anything that looks like a password, token 
 ## Logs
 
 `logs path` prints where the launcher's log file is (`launcher.log` in the default data
-folder's `logs/`, rotated at 5 MB to `.1` … `.5`) with the files' sizes and the last
-crash's report (`last-crash.txt`); it works without a running launcher. `logs tail [-n
-N] [--level warn]` prints the log's last lines from the running launcher. Lines are
-scrubbed of secrets when they are written. Like the traces, `logs.*` is refused while
-Settings → Developer → Debug traces is off. `launcher/docs/logs.md` has more.
+folder's `logs/`, rotated at 5 MB to `.1` … `.5`) with the log files' sizes and the
+crash reports (`last-crash.txt`, `previous-crash.txt`); it works without a running
+launcher. `logs tail [-n N] [--level warn]` prints the log's last lines from the running
+launcher, or reads the file itself when none answers (`read_without_launcher`). Lines
+are scrubbed of secrets when they are written, so `logs.*` needs only command-line
+access, not Debug traces. `launcher/docs/logs.md` has more.
 
 ## Performance
 

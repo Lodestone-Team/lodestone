@@ -96,6 +96,26 @@ impl CoreError {
             CoreError::Untrusted { .. } | CoreError::CertificateChanged { .. }
         )
     }
+
+    /// The error with `secret` blanked wherever its text has it: a transport error
+    /// names the URL it failed on, and a download link's key is in its path. The
+    /// error is shown, and logged, after the request is over.
+    pub(crate) fn without(self, secret: &str) -> Self {
+        let clean = |text: String| text.replace(secret, lodestone_trace::REDACTED);
+        match self {
+            CoreError::InvalidAddress(text) => CoreError::InvalidAddress(clean(text)),
+            CoreError::Unreachable(text) => CoreError::Unreachable(clean(text)),
+            CoreError::Forbidden(text) => CoreError::Forbidden(clean(text)),
+            CoreError::NotFound(text) => CoreError::NotFound(clean(text)),
+            CoreError::TooManyRequests(text) => CoreError::TooManyRequests(clean(text)),
+            CoreError::Server { status, message } => CoreError::Server {
+                status,
+                message: clean(message),
+            },
+            CoreError::Invalid(text) => CoreError::Invalid(clean(text)),
+            other => other,
+        }
+    }
 }
 
 /// What a 404 with an empty body is called: what a core answers for a route it doesn't
@@ -573,7 +593,9 @@ impl CoreClient {
                     crate::logging::serde_error(&err)
                 ),
             );
-            CoreError::Invalid(err.to_string())
+            // serde's own text quotes the value it choked on, which the caller may log
+            // or show: the same value-free text as the line above
+            CoreError::Invalid(crate::logging::serde_error(&err))
         })
     }
 

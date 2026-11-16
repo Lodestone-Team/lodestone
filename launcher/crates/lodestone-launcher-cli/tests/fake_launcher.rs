@@ -513,3 +513,48 @@ fn content_history_lists_images_newest_first() {
     let output = cli(&launcher.socket, &["content", "history", "x"], None);
     assert_eq!(stderr_error(&output).code, codes::NOT_FOUND);
 }
+
+#[test]
+fn logs_are_read_without_a_launcher() {
+    // A data folder with logs and no launcher: one that crashed, say.
+    let data = tempfile::tempdir().unwrap();
+    let logs = data.path().join("logs");
+    std::fs::create_dir(&logs).unwrap();
+    std::fs::write(
+        logs.join("launcher.log"),
+        "2026-11-16T08:00:00.000Z INFO  a: started\n2026-11-16T08:00:01.000Z ERROR panic: thread 'main' panicked\n  backtrace line\n",
+    )
+    .unwrap();
+    for name in ["last-crash.txt", "session.json", "launcher.log.rotating"] {
+        std::fs::write(logs.join(name), "x").unwrap();
+    }
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_lodestone-launcher-cli"))
+            .arg("--json")
+            .args(args)
+            .env(launcher_control::paths::DATA_DIR_ENV, data.path())
+            .stdin(Stdio::null())
+            .output()
+            .unwrap()
+    };
+    let output = run(&["logs", "tail", "--level", "warn"]);
+    assert!(output.status.success(), "{output:?}");
+    let value = stdout_json(&output);
+    assert_eq!(value["read_without_launcher"], true);
+    assert_eq!(
+        value["lines"],
+        json!([
+            "2026-11-16T08:00:01.000Z ERROR panic: thread 'main' panicked",
+            "  backtrace line"
+        ])
+    );
+    let output = run(&["logs", "path"]);
+    assert!(output.status.success(), "{output:?}");
+    let names: Vec<String> = stdout_json(&output)["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| f["name"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(names, ["launcher.log", "last-crash.txt"]);
+}

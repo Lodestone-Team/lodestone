@@ -46,8 +46,8 @@ pub const MAX_SOCKET_PATH: usize = 100;
 pub const LOCATION_FILE: &str = "data-location.json";
 
 /// The logs folder, in the default data directory: the launcher's log file
-/// (`launcher.log`, rotated to `.1` … `.5`), `last-crash.txt` and the running app's
-/// `session.json`. It stays there when the data folder moves, so it is always found,
+/// (`launcher.log`, rotated to `.1` … `.5`), `last-crash.txt`, `previous-crash.txt` and
+/// the running app's `session.json` ([`crate::logs`] reads them). It stays there when the data folder moves, so it is always found,
 /// even while a moved folder's drive isn't connected.
 pub const LOGS_DIR: &str = "logs";
 

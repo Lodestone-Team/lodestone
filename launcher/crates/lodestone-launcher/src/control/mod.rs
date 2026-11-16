@@ -1636,10 +1636,10 @@ pub fn disconnect(connection: u64, cx: &mut App) {
 
 /// Why `method` is refused under `cli`, if it is: a method that changes something
 /// while access is read-only, a trace method while traces are off, or game output
-/// while game logs are off.
+/// while game logs are off. `logs.*` needs only command-line access: its lines are
+/// scrubbed, and the same user can read the files anyway.
 pub fn refusal(method: &str, cli: &CliSettings) -> Option<ErrorObject> {
-    // the log file says as much as the traces
-    if (method.starts_with("trace.") || method.starts_with("logs.")) && !cli.traces {
+    if method.starts_with("trace.") && !cli.traces {
         return Some(api_error(
             codes::PERMISSION_DENIED,
             "Debug traces are off in Settings → Developer.",
@@ -2019,14 +2019,11 @@ mod tests {
             game_logs: false,
             ..CliSettings::default()
         };
-        for name in [
-            "trace.topics",
-            "trace.subscribe",
-            "trace.snapshot",
-            "logs.path",
-            "logs.tail",
-        ] {
+        for name in ["trace.topics", "trace.subscribe", "trace.snapshot"] {
             assert_eq!(refusal(name, &off).unwrap().code, codes::PERMISSION_DENIED);
+        }
+        for name in ["logs.path", "logs.tail"] {
+            assert!(refusal(name, &off).is_none(), "{name}");
         }
         assert_eq!(
             refusal("play.logs", &off).unwrap().code,

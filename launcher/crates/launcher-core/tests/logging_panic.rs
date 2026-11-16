@@ -3,7 +3,7 @@
 
 use std::{fs, thread};
 
-use launcher_core::logging::{self, AppKind, CRASH_FILE, Config, LogLevel};
+use launcher_core::logging::{self, AppKind, CRASH_FILE, Config, LogLevel, PREVIOUS_CRASH_FILE};
 
 #[test]
 fn a_panic_on_a_background_thread_is_logged_and_kept() {
@@ -14,6 +14,13 @@ fn a_panic_on_a_background_thread_is_logged_and_kept() {
     let location = launcher_control::paths::locate().unwrap();
     let dir = launcher_control::paths::logs_dir(&location.default);
     assert!(dir.starts_with(data.path()));
+    // an older run's crash, already reported
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(
+        dir.join(CRASH_FILE),
+        "run old 2026-11-15T08:00:00Z\nan older crash\n",
+    )
+    .unwrap();
 
     let started = logging::install(Config {
         app: AppKind::Launcher,
@@ -52,6 +59,9 @@ fn a_panic_on_a_background_thread_is_logged_and_kept() {
     assert!(header.starts_with("run ") && header.ends_with("Lodestone Launcher 9.9.9-test"));
     assert!(crash.contains("a timer made outside a runtime"));
     assert!(!crash.contains("hunter2"));
+    // the report it replaced is kept, so a crash just reported isn't lost
+    let previous = fs::read_to_string(dir.join(PREVIOUS_CRASH_FILE)).unwrap();
+    assert!(previous.contains("an older crash"), "{previous}");
 
     // A second panic in the same run (GPUI's "panic in a function that cannot
     // unwind" follows the first) is added to it.
@@ -59,6 +69,21 @@ fn a_panic_on_a_background_thread_is_logged_and_kept() {
     let crash = fs::read_to_string(dir.join(CRASH_FILE)).unwrap();
     assert!(crash.contains("a timer made outside a runtime") && crash.contains("the second panic"));
     assert!(crash.contains("thread '<unnamed>'"));
+    // A run's first few panics carry a backtrace; later ones only say where.
+    let _ = thread::spawn(|| panic!("the third panic")).join();
+    let _ = thread::spawn(|| panic!("the fourth panic")).join();
+    let crash = fs::read_to_string(dir.join(CRASH_FILE)).unwrap();
+    let fourth = &crash[crash.find("the fourth panic").unwrap()..];
+    assert!(
+        fourth.contains("(left out: this run's first 3 panics have one)"),
+        "{fourth}"
+    );
+    assert_eq!(crash.matches("\nbacktrace:\n").count(), 4);
+    assert!(
+        fs::read_to_string(dir.join(PREVIOUS_CRASH_FILE))
+            .unwrap()
+            .contains("an older crash")
+    );
 
     // The next start notices it, once; a clean quit after that shows nothing.
     let run_id = header.split(' ').nth(1).unwrap().to_string();
@@ -87,10 +112,15 @@ fn a_panic_on_a_background_thread_is_logged_and_kept() {
         "http.response",
         || serde_json::json!({ "host": "api.example", "status": 200 }),
     );
+    // Failing again within a minute of the last logged outage: a flaky host, quiet.
+    launcher_core::trace::emit(
+        "http.error",
+        || serde_json::json!({ "host": "api.example", "error": "flaky again" }),
+    );
     launcher_core::trace::bus().set_enabled(false);
     launcher_core::trace::emit(
         "http.error",
-        || serde_json::json!({ "host": "api.example", "error": "second failure" }),
+        || serde_json::json!({ "host": "api2.example", "error": "second failure" }),
     );
     launcher_core::trace::emit("ui.click", || serde_json::json!({ "id": "play" }));
     logging::flush();
@@ -108,7 +138,10 @@ fn a_panic_on_a_background_thread_is_logged_and_kept() {
         !text.contains("hunter3") && !text.contains("ui.click"),
         "{text}"
     );
-    assert!(!text.contains("still failing"), "{text}");
+    assert!(
+        !text.contains("still failing") && !text.contains("flaky again"),
+        "{text}"
+    );
     assert!(text.contains("api.example answers again"), "{text}");
 
     // A core that is off, polled: one line, however many requests fail.
@@ -137,7 +170,8 @@ fn a_panic_on_a_background_thread_is_logged_and_kept() {
     let port = server.server_addr().to_ip().unwrap().port();
     let answer = std::thread::spawn(move || {
         let request = server.recv().unwrap();
-        let body = r#"{"core_name": 7, "secret_body": "steve-was-here"}"#;
+        let body =
+            r#"{"version": "1", "uuid": "u", "core_name": "c", "is_setup": "steve-was-here"}"#;
         let _ = request.respond(tiny_http::Response::from_string(body));
     });
     let client = launcher_core::cores::CoreClient::new(
@@ -147,6 +181,12 @@ fn a_panic_on_a_background_thread_is_logged_and_kept() {
     let err = futures::executor::block_on(client.info()).unwrap_err();
     assert!(
         matches!(err, launcher_core::cores::CoreError::Invalid(_)),
+        "{err}"
+    );
+    // the error a caller shows or logs again leaves the value out too
+    assert!(!err.to_string().contains("steve-was-here"), "{err}");
+    assert!(
+        err.to_string().contains("invalid type: string \"…\""),
         "{err}"
     );
     answer.join().unwrap();

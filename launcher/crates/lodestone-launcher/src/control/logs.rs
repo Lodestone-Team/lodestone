@@ -1,6 +1,8 @@
 //! `logs.*`: the launcher's log file ([`launcher_core::logging`]) for
-//! `lodestone-launcher-cli logs`. Read-only, and refused like `trace.*` while Debug
-//! traces are off. The lines were scrubbed of secrets when they were written.
+//! `lodestone-launcher-cli logs`. Read-only, and open to any client the command line
+//! settings let in: the lines were scrubbed of secrets when they were written, and the
+//! same user can read the files themselves anyway (the CLI does when no launcher
+//! answers).
 
 use gpui::{App, AppContext as _};
 use launcher_core::logging::{self, AppKind};
@@ -29,7 +31,6 @@ pub fn path(_: Call, cx: &mut App) -> Reply {
 fn describe(dir: &std::path::Path, env_override: bool) -> Value {
     let files: Vec<Value> = logging::files(dir, AppKind::Launcher)
         .into_iter()
-        .chain(Some(dir.join(logging::CRASH_FILE)).filter(|p| p.is_file()))
         .filter_map(|path| {
             let meta = std::fs::metadata(&path).ok()?;
             let modified = meta
@@ -47,6 +48,7 @@ fn describe(dir: &std::path::Path, env_override: bool) -> Value {
         "dir": dir,
         "file": dir.join(AppKind::Launcher.file_name()),
         "crash_file": dir.join(logging::CRASH_FILE),
+        "previous_crash_file": dir.join(logging::PREVIOUS_CRASH_FILE),
         "level": logging::level(),
         "env_override": env_override,
         "rotate_at_bytes": logging::MAX_BYTES,

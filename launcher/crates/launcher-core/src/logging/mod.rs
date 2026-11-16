@@ -10,8 +10,9 @@
 //! - **Writes** are buffered: warnings and errors are flushed at once, the rest within
 //!   a second by a thread that sleeps while nothing is written, and a panic's report
 //!   synchronously ([`panic`]).
-//! - **Crashes**: the panic hook keeps the last one in `last-crash.txt`, and the next
-//!   start notices it ([`session`], [`Started::previous_crash`]).
+//! - **Crashes**: the panic hook keeps the last one in `last-crash.txt` (and the one
+//!   before in `previous-crash.txt`), and the next start notices it ([`session`],
+//!   [`Started::previous_crash`]).
 //!
 //! Records also go to the trace bus as `log.{level}`, as they did before there was a
 //! file; failures traced on the bus come back the other way ([`crate::trace::emit`]).
@@ -32,7 +33,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         mpsc,
     },
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use serde::{Deserialize, Serialize};
@@ -41,7 +42,7 @@ use serde_json::json;
 pub use file::{KEEP, MAX_BYTES};
 pub use filter::Filter;
 pub use format::escape_controls;
-pub use session::{CRASH_FILE, Crash, SESSION_FILE};
+pub use session::{CRASH_FILE, Crash, PREVIOUS_CRASH_FILE, SESSION_FILE};
 pub use throttle::{Allowed, Throttle};
 
 use file::RotatingFile;
@@ -246,10 +247,37 @@ pub fn started() -> Option<Started> {
     INSTALLED.get().map(|i| i.started.clone())
 }
 
-/// Writes what is buffered.
+/// Writes what is buffered, after making sure the file is still where it should be
+/// (someone may have moved it away to start afresh).
 pub fn flush() {
     if let Some(logger) = LOGGER.get() {
         log::Log::flush(logger);
+    }
+}
+
+/// Closes the log file until the guard is dropped, so its folder can be renamed:
+/// Windows refuses to rename a folder while a file in it is open. Lines logged
+/// meanwhile wait in memory (a little at most) and are written when it reopens.
+#[must_use = "the file reopens when the guard is dropped"]
+pub fn release_file() -> FileReleased {
+    if let Some(logger) = LOGGER.get()
+        && let Some(file) = logger.lock_file().as_mut()
+    {
+        file.release();
+    }
+    FileReleased(())
+}
+
+/// Reopens the log file when dropped ([`release_file`]).
+pub struct FileReleased(());
+
+impl Drop for FileReleased {
+    fn drop(&mut self) {
+        if let Some(logger) = LOGGER.get()
+            && let Some(file) = logger.lock_file().as_mut()
+        {
+            file.resume();
+        }
     }
 }
 
@@ -284,29 +312,73 @@ pub fn version_label(version: &str, build: Option<crate::update::Build>) -> Stri
 
 /// A serde error about untrusted input, without the values it quotes: serde writes a
 /// value it couldn't use in double quotes (`invalid type: string "steve"`), which can be
-/// a player's name or a console line. Names from the format itself (variants and
-/// fields, in backticks) and the line and column stay, which is what a fix needs.
+/// a player's name or a console line. Names in backticks stay when they look like
+/// names (letters, digits and `_`, at most 64): the format's own variants and fields,
+/// which is what a fix needs; an unknown variant or field is the input's own text, so
+/// anything else in backticks goes too. The line and column stay.
 pub fn serde_error(err: &serde_json::Error) -> String {
-    let text = err.to_string();
+    const MAX_NAME: usize = 64;
+    let plain = |name: &str| {
+        !name.is_empty()
+            && name.len() <= MAX_NAME
+            && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    };
+    let mut text = err.to_string();
+    // serde writes the input's unknown name with `{}`, backticks unescaped, so it runs
+    // to serde's own text after it, not to the next backtick.
+    for prefix in ["unknown variant `", "unknown field `"] {
+        let Some(start) = text.find(prefix).map(|n| n + prefix.len()) else {
+            continue;
+        };
+        let end = ["`, expected", "`, there are no"]
+            .iter()
+            .filter_map(|after| text[start..].rfind(after))
+            .max()
+            .or_else(|| text[start..].rfind('`'))
+            .map(|n| start + n);
+        if let Some(end) = end
+            && !plain(&text[start..end])
+        {
+            text.replace_range(start..end, "…");
+        }
+    }
     let mut out = String::with_capacity(text.len());
-    // serde writes the value with `{:?}`, so a quote inside it is escaped (`\"`): the
+    // serde writes a value with `{:?}`, so a quote inside it is escaped (`\"`): the
     // character after a backslash never ends the quoted part.
-    let mut quoted = false;
-    let mut escaped = false;
-    for c in text.chars() {
-        match (c, quoted) {
-            (_, true) if escaped => escaped = false,
-            ('\\', true) => escaped = true,
-            ('"', false) => {
-                quoted = true;
-                out.push_str("\"…");
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '"' => {
+                let mut escaped = false;
+                for c in chars.by_ref() {
+                    match c {
+                        _ if escaped => escaped = false,
+                        '\\' => escaped = true,
+                        '"' => break,
+                        _ => {}
+                    }
+                }
+                out.push_str("\"…\"");
             }
-            ('"', true) => {
-                quoted = false;
-                out.push('"');
+            '`' => {
+                let mut name = String::new();
+                let mut closed = false;
+                for c in chars.by_ref() {
+                    if c == '`' {
+                        closed = true;
+                        break;
+                    }
+                    name.push(c);
+                }
+                if closed && plain(&name) {
+                    out.push('`');
+                    out.push_str(&name);
+                    out.push('`');
+                } else {
+                    out.push_str("`…`");
+                }
             }
-            (_, true) => {}
-            (c, false) => out.push(c),
+            c => out.push(c),
         }
     }
     out
@@ -317,45 +389,20 @@ pub fn make_dir(dir: &Path) -> std::io::Result<()> {
     file::private_dir(dir)
 }
 
-/// The log files in `dir` for `app`, newest first.
+/// The files in the logs folder `dir` for `app`: its log, newest first, then the crash
+/// reports.
 pub fn files(dir: &Path, app: AppKind) -> Vec<PathBuf> {
-    RotatingFile::files(dir, app.file_name())
+    launcher_control::logs::files(dir, app.file_name())
 }
 
 /// The last `lines` records of `path` (and of `path.1` when `path` has fewer), at
-/// `min_level` or more severe when given; a record's continuation lines count as
-/// lines of their own and follow its level. Reads at most 1 MiB of each file.
+/// `min_level` or more severe when given ([`launcher_control::logs::tail`]).
 pub fn tail(
     path: &Path,
     lines: usize,
     min_level: Option<log::Level>,
 ) -> std::io::Result<Vec<String>> {
-    const MAX_READ: u64 = 1024 * 1024;
-    let mut text = file::read_tail(path, MAX_READ)?;
-    let rotated = {
-        let mut name = path.as_os_str().to_owned();
-        name.push(".1");
-        PathBuf::from(name)
-    };
-    if text.lines().count() < lines
-        && let Ok(older) = file::read_tail(&rotated, MAX_READ)
-    {
-        text = older + &text;
-    }
-    let mut keep = true;
-    let mut out: Vec<String> = text
-        .lines()
-        .filter(|line| {
-            if let Some(level) = format::level_of(line) {
-                keep = min_level.is_none_or(|min| level <= min);
-            }
-            keep
-        })
-        .map(str::to_string)
-        .collect();
-    let skip = out.len().saturating_sub(lines);
-    out.drain(..skip);
-    Ok(out)
+    launcher_control::logs::tail(path, lines, min_level.map(|level| level as usize))
 }
 
 /// The logger: the file (when there is one), stderr in a terminal, and the trace bus.
@@ -416,36 +463,26 @@ impl Logger {
     /// The file, locked, with [`HOLDS_FILE`] set while the guard lives.
     fn lock_file(&self) -> FileGuard<'_> {
         let guard = self.file.lock().unwrap_or_else(|p| p.into_inner());
-        let _ = HOLDS_FILE.try_with(|holds| holds.set(true));
+        HOLDS_FILE.with(|holds| holds.set(true));
         FileGuard(guard)
     }
 
-    /// Writes a panic's report and flushes it, waiting for the file as long as another
-    /// thread writes. When this thread holds the file (it panicked while writing),
-    /// the log can't have it; the crash file still does.
+    /// Writes a panic's report (already scrubbed) and flushes it, waiting for the file
+    /// as long as another thread writes. When this thread holds the file (it panicked
+    /// while writing), the log can't have it; the crash file still does.
     fn write_report(&self, report: &str) {
-        let line = format::record(chrono::Utc::now(), log::Level::Error, "panic", report, None);
-        match HOLDS_FILE.try_with(Cell::get) {
-            Ok(false) => Self::write_now(&mut self.lock_file(), &line),
-            Ok(true) => {}
-            // The thread's storage is gone (it is ending): whether it holds the file is
-            // unknown, so it waits at most 250 ms.
-            Err(_) => {
-                let deadline = Instant::now() + Duration::from_millis(250);
-                loop {
-                    match self.file.try_lock() {
-                        Ok(mut file) => return Self::write_now(&mut file, &line),
-                        Err(std::sync::TryLockError::Poisoned(poisoned)) => {
-                            return Self::write_now(&mut poisoned.into_inner(), &line);
-                        }
-                        Err(std::sync::TryLockError::WouldBlock) if Instant::now() < deadline => {
-                            std::thread::sleep(Duration::from_millis(5));
-                        }
-                        Err(std::sync::TryLockError::WouldBlock) => return,
-                    }
-                }
-            }
+        if HOLDS_FILE.with(Cell::get) {
+            return;
         }
+        let line = format::record(
+            chrono::Utc::now(),
+            log::Level::Error,
+            "panic",
+            report,
+            None,
+            0,
+        );
+        Self::write_now(&mut self.lock_file(), &line);
     }
 
     fn write_now(file: &mut Option<RotatingFile>, line: &str) {
@@ -475,7 +512,8 @@ impl Logger {
 
 thread_local! {
     /// This thread holds the logger's file lock: a panic while writing mustn't wait
-    /// for it.
+    /// for it. A `const` `Cell` has no destructor, so it can be read even while the
+    /// thread ends.
     static HOLDS_FILE: Cell<bool> = const { Cell::new(false) };
 }
 
@@ -497,7 +535,7 @@ impl std::ops::DerefMut for FileGuard<'_> {
 
 impl Drop for FileGuard<'_> {
     fn drop(&mut self) {
-        let _ = HOLDS_FILE.try_with(|holds| holds.set(false));
+        HOLDS_FILE.with(|holds| holds.set(false));
     }
 }
 
@@ -541,8 +579,13 @@ impl log::Log for Logger {
         if std::fmt::write(&mut message, *record.args()).is_err() {
             message.push_str(" …[format error]");
         }
-        // Scrubbed once, for the file and the bus alike.
-        let message = lodestone_trace::scrub_line(&message).into_owned();
+        // Scrubbed once, for the file and the bus alike. A huge message (a body in an
+        // error) is cut first, so scrubbing costs little on the thread that logged;
+        // twice what the file keeps, so a secret at the file's cut is still seen.
+        let whole = message.len();
+        let message = format::truncate(&message, 2 * format::MAX_MESSAGE);
+        let cut = whole - message.len();
+        let message = lodestone_trace::scrub_line(message).into_owned();
         if to_file {
             let line = format::record(
                 chrono::Utc::now(),
@@ -550,6 +593,7 @@ impl log::Log for Logger {
                 target,
                 &message,
                 Some(format::MAX_MESSAGE),
+                cut,
             );
             self.write(&line, level <= log::Level::Warn);
         }
@@ -569,6 +613,7 @@ impl log::Log for Logger {
     fn flush(&self) {
         self.dirty.store(false, Ordering::Relaxed);
         if let Some(file) = self.lock_file().as_mut() {
+            file.reattach();
             file.flush();
         }
     }
@@ -712,6 +757,56 @@ mod tests {
     }
 
     #[test]
+    fn a_line_is_scrubbed_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let logger = Logger::new(
+            Some(dir.path()),
+            "test.log",
+            Filter::defaults(LogLevel::Info),
+            false,
+        );
+        record(
+            &logger,
+            log::Level::Warn,
+            "lodestone_launcher",
+            "request failed: Bearer abc",
+        );
+        logger.write_report("thread 'x' panicked: Bearer [redacted]");
+        let text = std::fs::read_to_string(dir.path().join("test.log")).unwrap();
+        assert!(
+            text.contains("request failed: Bearer [redacted]\n"),
+            "{text}"
+        );
+        assert!(text.contains("panicked: Bearer [redacted]\n"), "{text}");
+        assert!(!text.contains("]]"), "{text}");
+    }
+
+    #[test]
+    fn a_huge_message_is_cut_before_it_is_scrubbed() {
+        let dir = tempfile::tempdir().unwrap();
+        let logger = Logger::new(
+            Some(dir.path()),
+            "test.log",
+            Filter::defaults(LogLevel::Info),
+            false,
+        );
+        let body = format!("password=hunter2 {}", "x ".repeat(2 * 1024 * 1024));
+        record(&logger, log::Level::Warn, "lodestone_launcher", &body);
+        let text = std::fs::read_to_string(dir.path().join("test.log")).unwrap();
+        assert!(text.len() < format::MAX_MESSAGE + 200, "{}", text.len());
+        assert!(!text.contains("hunter2"));
+        // what was cut before scrubbing counts too (scrubbing changed a few bytes)
+        let cut: usize = text
+            .trim_end()
+            .rsplit("…[cut ")
+            .next()
+            .and_then(|rest| rest.strip_suffix(" bytes]"))
+            .and_then(|n| n.parse().ok())
+            .expect("the cut is said");
+        assert!(cut.abs_diff(body.len() - format::MAX_MESSAGE) < 16, "{cut}");
+    }
+
+    #[test]
     fn a_failing_display_never_panics_the_logger() {
         struct Failing;
         impl std::fmt::Display for Failing {
@@ -749,22 +844,18 @@ mod tests {
     }
 
     #[test]
-    fn tails_read_the_last_records_across_a_rotation() {
+    fn tails_filter_by_the_logs_levels() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("app.log");
         std::fs::write(
-            dir.path().join("app.log.1"),
-            "2026-11-16T08:00:00.000Z INFO  a: one\n2026-11-16T08:00:01.000Z WARN  a: two\n  more of two\n",
+            &path,
+            "2026-11-16T08:00:00.000Z INFO  a: one\n2026-11-16T08:00:01.000Z WARN  a: two\n",
         )
         .unwrap();
-        std::fs::write(&path, "2026-11-16T08:00:02.000Z INFO  a: three\n").unwrap();
-        let all = tail(&path, 10, None).unwrap();
-        assert_eq!(all.len(), 4);
-        assert!(all[0].ends_with("one") && all[3].ends_with("three"));
-        assert_eq!(tail(&path, 1, None).unwrap().len(), 1);
         let warnings = tail(&path, 10, Some(log::Level::Warn)).unwrap();
-        assert_eq!(warnings.len(), 2, "{warnings:?}");
-        assert!(warnings[0].ends_with("two") && warnings[1] == "  more of two");
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].ends_with("two"));
+        assert_eq!(tail(&path, 10, Some(log::Level::Debug)).unwrap().len(), 2);
     }
 
     #[test]
@@ -787,6 +878,19 @@ mod tests {
         }
         let err = serde_json::from_str::<Kind>(r#""Other""#).unwrap_err();
         assert!(serde_error(&err).contains("`Other`"), "variant names stay");
+        assert!(
+            serde_error(&err).contains("`Known`"),
+            "{}",
+            serde_error(&err)
+        );
+        // an unknown variant is the input's own text: only a name-like one stays
+        for hostile in ["steve joined the game", "a`b", &"x".repeat(100)] {
+            let json = serde_json::to_string(hostile).unwrap();
+            let err = serde_json::from_str::<Kind>(&json).unwrap_err();
+            let text = serde_error(&err);
+            assert!(!text.contains("steve") && !text.contains("xxxx"), "{text}");
+            assert!(text.contains("expected `Known`"), "{text}");
+        }
     }
 
     #[test]

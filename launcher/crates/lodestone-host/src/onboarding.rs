@@ -103,7 +103,6 @@ fn input(label: ShellMsg, masked: bool, text_: &str, cx: &mut App) -> Entity<Tex
 /// While the core starts, restarts or stops, and when it couldn't start.
 pub fn core_status(
     status: &CoreStatus,
-    log_folder: std::path::PathBuf,
     retry: impl Fn(&mut Window, &mut App) + 'static,
 ) -> AnyElement {
     let waiting = |message: SharedString| {
@@ -155,12 +154,9 @@ pub fn core_status(
                         .on_click(move |_, window, cx| retry(window, cx)),
                 )
                 .child(
-                    Button::new("open-log", t(ShellMsg::OpenLogFolder)).on_click(
-                        move |_, _, cx| {
-                            let _ = std::fs::create_dir_all(&log_folder);
-                            cx.open_with_system(&log_folder);
-                        },
-                    ),
+                    // the Host's log and the core's are in one folder
+                    Button::new("open-log", t(ShellMsg::OpenLogFolder))
+                        .on_click(|_, _, cx| crate::logs::open_folder(cx)),
                 )
                 .into_any_element(),
         ])

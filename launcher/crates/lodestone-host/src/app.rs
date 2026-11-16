@@ -385,15 +385,8 @@ impl Render for HostApp {
                     Phase::Quitting => CoreStatus::Stopping,
                     _ => self.supervisor.read(cx).status.clone(),
                 };
-                let log_folder = self
-                    .supervisor
-                    .read(cx)
-                    .log_file
-                    .parent()
-                    .map(|p| p.to_path_buf())
-                    .unwrap_or_default();
                 let this = cx.entity().downgrade();
-                onboarding::core_status(&status, log_folder, move |_, cx| {
+                onboarding::core_status(&status, move |_, cx| {
                     this.update(cx, |this, cx| this.retry_core(cx)).ok();
                 })
             }

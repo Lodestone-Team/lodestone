@@ -7,7 +7,13 @@
 //! flushes warnings at once and the rest within a second.
 //!
 //! The logs hold account and server names, addresses and paths, so on Unix the
-//! folder is the user's alone (0700) and the files too (0600), wherever it is.
+//! folder is the user's alone (0700) and the files too (0600), wherever it is, as far
+//! as the drive allows (a network drive may refuse to change permissions; logging
+//! carries on).
+//!
+//! The file someone moved away (to the Trash, to start afresh) or deleted is noticed
+//! within a few seconds, and a new one is opened where it was ([`RotatingFile::reattach`]):
+//! otherwise the rest of the run would be written where nobody looks.
 
 use std::{
     fs::{self, File, OpenOptions},
@@ -19,7 +25,7 @@ use std::{
 /// The size a file is rotated at.
 pub const MAX_BYTES: u64 = 5 * 1024 * 1024;
 /// Rotated files kept: `.1` (the newest) to `.5`.
-pub const KEEP: usize = 5;
+pub const KEEP: usize = launcher_control::logs::KEEP;
 /// The write buffer.
 const BUFFER: usize = 32 * 1024;
 /// After a failed rotation (Windows: another program holds the file without sharing
@@ -27,6 +33,8 @@ const BUFFER: usize = 32 * 1024;
 const RETRY_AFTER: u64 = 1024 * 1024;
 /// After the file couldn't be opened, how long before trying again.
 const REOPEN_AFTER: Duration = Duration::from_secs(10);
+/// How often a write looks whether the open file is still at its path.
+const CHECK_EVERY: Duration = Duration::from_secs(5);
 
 pub struct RotatingFile {
     dir: PathBuf,
@@ -40,6 +48,12 @@ pub struct RotatingFile {
     rotate_at: u64,
     /// When the file last couldn't be opened.
     failed: Option<Instant>,
+    /// When a write last looked whether the file is still at its path.
+    checked: Instant,
+    /// The file is closed on purpose ([`Self::release`]): lines wait in `pending`.
+    released: bool,
+    /// Lines written while released, at most [`BUFFER`] bytes.
+    pending: String,
     /// Renames a file; a seam for tests, where the rename has to fail.
     rename: fn(&Path, &Path) -> io::Result<()>,
 }
@@ -60,6 +74,9 @@ impl RotatingFile {
             written: 0,
             rotate_at: max,
             failed: None,
+            checked: Instant::now(),
+            released: false,
+            pending: String::new(),
             rename: |from, to| fs::rename(from, to),
         };
         // A rotation that stopped halfway (the app quit in it) is finished first.
@@ -85,6 +102,7 @@ impl RotatingFile {
     }
 
     fn reopen(&mut self) {
+        self.checked = Instant::now();
         let opened = private_dir(&self.dir).and_then(|()| open_private(&self.path()));
         match opened {
             Ok(file) => {
@@ -102,6 +120,15 @@ impl RotatingFile {
 
     /// Appends `text` (whole lines), rotating first when it would pass the limit.
     pub fn write(&mut self, text: &str) {
+        if self.released {
+            if self.pending.len() + text.len() <= BUFFER {
+                self.pending.push_str(text);
+            }
+            return;
+        }
+        if self.checked.elapsed() >= CHECK_EVERY {
+            self.reattach();
+        }
         if self.out.is_none() {
             if self.failed.is_some_and(|at| at.elapsed() < REOPEN_AFTER) {
                 return;
@@ -125,6 +152,53 @@ impl RotatingFile {
         }
     }
 
+    /// Closes the file until [`Self::resume`], so its folder can be renamed (Windows
+    /// refuses while a file in it is open). Lines meanwhile wait in memory.
+    pub fn release(&mut self) {
+        self.flush();
+        self.out = None;
+        self.released = true;
+    }
+
+    /// Opens the file again after [`Self::release`] and writes what waited.
+    pub fn resume(&mut self) {
+        if !self.released {
+            return;
+        }
+        self.released = false;
+        self.reopen();
+        let pending = std::mem::take(&mut self.pending);
+        if !pending.is_empty() {
+            self.write(&pending);
+        }
+    }
+
+    /// When the open file is no longer at its path (moved to the Trash, deleted, its
+    /// folder renamed), opens a new one there; what was still buffered goes to the
+    /// new file.
+    pub fn reattach(&mut self) {
+        self.checked = Instant::now();
+        let Some(out) = &self.out else {
+            return;
+        };
+        if same_file(out.get_ref(), &self.path()) {
+            return;
+        }
+        let Some(out) = self.out.take() else {
+            return;
+        };
+        let buffered = match out.into_parts() {
+            (_, Ok(buffered)) => buffered,
+            (_, Err(_)) => Vec::new(),
+        };
+        self.reopen();
+        if let Some(out) = &mut self.out
+            && out.write_all(&buffered).is_ok()
+        {
+            self.written += buffered.len() as u64;
+        }
+    }
+
     /// Moves `name` to `name.1` and the older files up one, dropping the oldest. The
     /// file is closed first: Windows can't rename an open file. It is moved aside
     /// before anything older is touched, so when that fails (Windows: another program
@@ -133,7 +207,12 @@ impl RotatingFile {
     fn rotate(&mut self) {
         self.flush();
         self.out = None;
-        if (self.rename)(&self.path(), &self.staging()).is_ok() {
+        // A rotation that couldn't finish left its file staged: finish it first, and
+        // never write over it.
+        if self.staging().exists() {
+            self.shift_in_staging();
+        }
+        if !self.staging().exists() && (self.rename)(&self.path(), &self.staging()).is_ok() {
             self.shift_in_staging();
             self.reopen();
         } else {
@@ -154,14 +233,6 @@ impl RotatingFile {
         }
         let _ = (self.rename)(&self.staging(), &self.rotated(1));
     }
-
-    /// The files, newest first: `name`, `name.1`, … that exist.
-    pub fn files(dir: &Path, name: &str) -> Vec<PathBuf> {
-        std::iter::once(dir.join(name))
-            .chain((1..=KEEP).map(|n| dir.join(format!("{name}.{n}"))))
-            .filter(|path| path.is_file())
-            .collect()
-    }
 }
 
 impl Drop for RotatingFile {
@@ -170,15 +241,36 @@ impl Drop for RotatingFile {
     }
 }
 
-/// Creates `dir` if needed; on Unix it is made, or made again, the user's alone.
+/// Whether `file` is the file at `path`: on Unix the same device and inode, elsewhere
+/// only that something is there (Windows can't move an open file without sharing
+/// deletes, which the log allows, so a deleted or moved one shows as missing).
+fn same_file(file: &File, path: &Path) -> bool {
+    let Ok(at_path) = fs::metadata(path) else {
+        return false;
+    };
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt as _;
+        file.metadata()
+            .is_ok_and(|open| open.dev() == at_path.dev() && open.ino() == at_path.ino())
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (file, at_path);
+        true
+    }
+}
+
+/// Creates `dir` if needed; on Unix it is made, or made again, the user's alone when
+/// the drive allows it.
 pub fn private_dir(dir: &Path) -> io::Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::{DirBuilderExt as _, PermissionsExt as _};
         if dir.is_dir() {
-            let private = fs::Permissions::from_mode(0o700);
             if fs::metadata(dir)?.permissions().mode() & 0o777 != 0o700 {
-                fs::set_permissions(dir, private)?;
+                // a network or shared drive may refuse; writing still works there
+                let _ = fs::set_permissions(dir, fs::Permissions::from_mode(0o700));
             }
             return Ok(());
         }
@@ -200,32 +292,18 @@ fn open_private(path: &Path) -> io::Result<File> {
         use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
         options.mode(0o600);
         let file = options.open(path)?;
-        // a file from before (or made by another program) is made private too
-        if file.metadata()?.permissions().mode() & 0o077 != 0 {
-            file.set_permissions(fs::Permissions::from_mode(0o600))?;
+        // a file from before (or made by another program) is made private too, when
+        // the drive allows it
+        if file
+            .metadata()
+            .is_ok_and(|m| m.permissions().mode() & 0o077 != 0)
+        {
+            let _ = file.set_permissions(fs::Permissions::from_mode(0o600));
         }
         Ok(file)
     }
     #[cfg(not(unix))]
     options.open(path)
-}
-
-/// Reads the end of a file: at most `max` bytes, from the start of a line.
-pub fn read_tail(path: &Path, max: u64) -> io::Result<String> {
-    use std::io::{Read, Seek, SeekFrom};
-    let mut file = File::open(path)?;
-    let len = file.metadata()?.len();
-    let start = len.saturating_sub(max);
-    file.seek(SeekFrom::Start(start))?;
-    let mut bytes = Vec::new();
-    file.take(max).read_to_end(&mut bytes)?;
-    let mut text = String::from_utf8_lossy(&bytes).into_owned();
-    if start > 0
-        && let Some(newline) = text.find('\n')
-    {
-        text.drain(..=newline);
-    }
-    Ok(text)
 }
 
 #[cfg(test)]
@@ -241,7 +319,7 @@ mod tests {
             file.write(&format!("{n:<39}\n"));
         }
         file.flush();
-        let names: Vec<String> = RotatingFile::files(dir.path(), "app.log")
+        let names: Vec<String> = launcher_control::logs::files(dir.path(), "app.log")
             .iter()
             .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
             .collect();
@@ -333,6 +411,83 @@ mod tests {
         assert!(!dir.path().join("app.log.rotating").exists());
     }
 
+    #[test]
+    fn a_staged_file_is_never_written_over() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut file = RotatingFile::with_limits(dir.path(), "app.log", 100, 3);
+        // `.1` can't be moved (Windows: a viewer holds it), so the staged file stays
+        file.rename = |from, to| {
+            if from
+                .extension()
+                .is_some_and(|e| e == "rotating" || e == "1")
+            {
+                Err(io::Error::other("held by another program"))
+            } else {
+                fs::rename(from, to)
+            }
+        };
+        fs::write(dir.path().join("app.log.1"), "held\n").unwrap();
+        fs::write(dir.path().join("app.log.rotating"), "staged\n").unwrap();
+        for n in 0..10 {
+            file.write(&format!("{n:<39}\n"));
+        }
+        file.flush();
+        let read = |name: &str| fs::read_to_string(dir.path().join(name)).unwrap();
+        assert_eq!(read("app.log.rotating"), "staged\n");
+        assert_eq!(read("app.log.1"), "held\n");
+        assert_eq!(read("app.log").lines().count(), 10, "writing carried on");
+    }
+
+    #[test]
+    fn a_file_moved_away_is_opened_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut file = RotatingFile::with_limits(dir.path(), "app.log", 1000, 3);
+        file.write("before\n");
+        file.flush();
+        // moved to the Trash
+        let trash = dir.path().join("trashed.log");
+        fs::rename(dir.path().join("app.log"), &trash).unwrap();
+        file.write("buffered\n");
+        file.reattach();
+        file.write("after\n");
+        file.flush();
+        assert_eq!(fs::read_to_string(&trash).unwrap(), "before\n");
+        assert_eq!(
+            fs::read_to_string(dir.path().join("app.log")).unwrap(),
+            "buffered\nafter\n"
+        );
+        // the whole folder deleted
+        fs::remove_dir_all(dir.path()).unwrap();
+        file.reattach();
+        file.write("in a new folder\n");
+        file.flush();
+        assert_eq!(
+            fs::read_to_string(dir.path().join("app.log")).unwrap(),
+            "in a new folder\n"
+        );
+    }
+
+    #[test]
+    fn a_released_file_keeps_its_lines_for_later() {
+        let dir = tempfile::tempdir().unwrap();
+        let logs = dir.path().join("logs");
+        let mut file = RotatingFile::with_limits(&logs, "app.log", 1000, 3);
+        file.write("one\n");
+        file.release();
+        // the folder can be renamed now (Windows refuses while the file is open)
+        let moved = dir.path().join("moved");
+        fs::rename(&logs, &moved).unwrap();
+        file.write("two\n");
+        fs::rename(&moved, &logs).unwrap();
+        file.resume();
+        file.write("three\n");
+        file.flush();
+        assert_eq!(
+            fs::read_to_string(logs.join("app.log")).unwrap(),
+            "one\ntwo\nthree\n"
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn logs_are_the_users_alone() {
@@ -350,7 +505,7 @@ mod tests {
         file.flush();
         let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode(&logs), 0o700);
-        for path in RotatingFile::files(&logs, "app.log") {
+        for path in launcher_control::logs::files(&logs, "app.log") {
             assert_eq!(mode(&path), 0o600, "{}", path.display());
         }
         assert!(logs.join("app.log.1").exists(), "it rotated");
@@ -358,14 +513,5 @@ mod tests {
         let fresh = dir.path().join("fresh/logs");
         let _file = RotatingFile::with_limits(&fresh, "app.log", 100, 3);
         assert_eq!(mode(&fresh), 0o700);
-    }
-
-    #[test]
-    fn a_tail_starts_at_a_line() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("a.log");
-        fs::write(&path, "one\ntwo\nthree\n").unwrap();
-        assert_eq!(read_tail(&path, 9).unwrap(), "three\n");
-        assert_eq!(read_tail(&path, 100).unwrap(), "one\ntwo\nthree\n");
     }
 }

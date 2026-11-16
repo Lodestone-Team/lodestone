@@ -26,7 +26,9 @@ use serde::{Deserialize, Serialize};
 /// The marker of a running app.
 pub const SESSION_FILE: &str = "session.json";
 /// The last crash's report.
-pub const CRASH_FILE: &str = "last-crash.txt";
+pub const CRASH_FILE: &str = launcher_control::logs::CRASH_FILE;
+/// The report before it: a run's first panic moves [`CRASH_FILE`] here.
+pub const PREVIOUS_CRASH_FILE: &str = launcher_control::logs::PREVIOUS_CRASH_FILE;
 /// How much of the crash file is read back.
 const MAX_CRASH_READ: u64 = 64 * 1024;
 

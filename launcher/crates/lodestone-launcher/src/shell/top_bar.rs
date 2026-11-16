@@ -159,10 +159,14 @@ pub fn render(
                 .flex_row()
                 .items_center()
                 .justify_end()
-                .when(crash_notice_fits(shell, window, cx), |side| {
-                    side.children(crash_notice(shell, cx))
+                .map(|side| match crash_layout(shell, window, cx) {
+                    None => side.children(update_notice(shell, cx)),
+                    Some(CrashLayout::BesideUpdate) => side
+                        .children(crash_notice(shell, false, cx))
+                        .children(update_notice(shell, cx)),
+                    Some(CrashLayout::Alone) => side.children(crash_notice(shell, false, cx)),
+                    Some(CrashLayout::Compact) => side.children(crash_notice(shell, true, cx)),
                 })
-                .children(update_notice(shell, cx))
                 // Room for the window's buttons, which `window_controls` draws above
                 // everything else, with a gap before them.
                 .children(controls_room(Side::Right, window, cx)),
@@ -302,23 +306,53 @@ fn controls_width(side: Side, window: &Window, cx: &App) -> Option<gpui::Pixels>
     }
 }
 
-/// Whether the crash notice fits in the bar's right side, beside the update notice
-/// when that shows, at the window's width and zoom. Without room it waits (it stays
-/// until put away) for a wider window, rather than push into the centred logo.
-fn crash_notice_fits(shell: &LauncherShell, window: &Window, cx: &App) -> bool {
-    /// In rems: the logo and the DEV badge, the crash notice at its shortest (the dot,
-    /// "Open logs" and ×), and the update notice.
-    const LOGO: f32 = 13.0;
-    const CRASH: f32 = 11.0;
-    const UPDATE: f32 = 17.0;
+/// Where the crash notice goes in the bar's right side.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CrashLayout {
+    /// Beside the update notice (or alone, with no update to show).
+    BesideUpdate,
+    /// In place of the update notice, which comes back once the crash notice is put
+    /// away (Settings › Updates has it meanwhile).
+    Alone,
+    /// The dot and "Open logs" only, the sentence in its tooltip: the narrowest bar.
+    Compact,
+}
+
+/// The crash notice's place at the window's width and zoom, or `None` without one. It
+/// always shows: the run's marker was replaced at start, so a notice held back until
+/// the window grew would be lost if the app quit first (to update, say). It never
+/// pushes into the centred logo: it takes the update notice's place, then shortens.
+fn crash_layout(shell: &LauncherShell, window: &Window, cx: &App) -> Option<CrashLayout> {
+    shell.crash_notice.as_ref()?;
     let rem = window.rem_size();
     let controls = controls_width(Side::Right, window, cx).map_or(0.0, |w| w / rem);
-    let side = (window.viewport_size().width / rem - LOGO) / 2.0 - controls;
     let update = matches!(
         shell.updater().read(cx).state(),
         UpdateState::Ready { .. } | UpdateState::Available(_)
     );
-    side >= CRASH + if update { UPDATE } else { 0.0 }
+    Some(place_crash_notice(
+        window.viewport_size().width / rem,
+        controls,
+        update,
+    ))
+}
+
+/// [`crash_layout`] for a window `width` rems wide whose own buttons take `controls`
+/// rems on the right, with an update notice to show or not.
+fn place_crash_notice(width: f32, controls: f32, update: bool) -> CrashLayout {
+    /// In rems: the logo and the DEV badge, the crash notice at its shortest with its
+    /// sentence (the dot, "Open logs" and ×), and the update notice.
+    const LOGO: f32 = 13.0;
+    const CRASH: f32 = 11.0;
+    const UPDATE: f32 = 17.0;
+    let side = (width - LOGO) / 2.0 - controls;
+    if side >= CRASH + if update { UPDATE } else { 0.0 } {
+        CrashLayout::BesideUpdate
+    } else if side >= CRASH {
+        CrashLayout::Alone
+    } else {
+        CrashLayout::Compact
+    }
 }
 
 /// The window's own buttons, where the launcher draws them in place of a title bar's:
@@ -360,13 +394,22 @@ pub fn window_controls(window: &Window, cx: &App) -> Vec<AnyElement> {
 /// "The launcher closed unexpectedly last time", with "Open logs" (which shows the
 /// logs folder and puts the notice away) and a dismiss button, after a crash. Calm:
 /// a grey dot, shown once. In a narrow window (or a longer language) the sentence
-/// shortens with an ellipsis, whole in its tooltip, so the centred logo keeps its room.
-fn crash_notice(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> Option<AnyElement> {
+/// shortens with an ellipsis, whole in its tooltip, so the centred logo keeps its room;
+/// `compact` leaves out the sentence and the dismiss button ("Open logs" puts it away),
+/// and the pill's tooltip says it.
+fn crash_notice(
+    shell: &LauncherShell,
+    compact: bool,
+    cx: &mut Context<LauncherShell>,
+) -> Option<AnyElement> {
     shell.crash_notice.as_ref()?;
     let label = t(M::CrashNotice);
     Some(
         div()
             .id("crash-notice")
+            .when(compact, |pill| {
+                pill.tooltip(crate::components::text_tooltip(label))
+            })
             .debug_selector(|| "crash-notice".into())
             .accessible(Role::Status, "crash-notice", label)
             .flex()
@@ -392,16 +435,18 @@ fn crash_notice(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> Optio
                     .rounded_full()
                     .bg(colors::GRAY_400),
             )
-            .child(
-                div()
-                    .id("crash-notice-text")
-                    .min_w_0()
-                    .text_size(theme::text_size(text::SMALL))
-                    .text_color(crate::theme::ink::text())
-                    .truncate()
-                    .tooltip(crate::components::text_tooltip(label))
-                    .child(label),
-            )
+            .when(!compact, |pill| {
+                pill.child(
+                    div()
+                        .id("crash-notice-text")
+                        .min_w_0()
+                        .text_size(theme::text_size(text::SMALL))
+                        .text_color(crate::theme::ink::text())
+                        .truncate()
+                        .tooltip(crate::components::text_tooltip(label))
+                        .child(label),
+                )
+            })
             .child(
                 div().flex_none().child(
                     Button::new("crash-open-logs", t(M::OpenLogs))
@@ -414,16 +459,21 @@ fn crash_notice(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> Optio
                         })),
                 ),
             )
-            .child(
-                div().flex_none().child(
-                    IconButton::new("crash-notice-dismiss", Icon::Xmark)
-                        .label(t(M::DismissCrashNotice))
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.crash_notice = None;
-                            cx.notify();
-                        })),
-                ),
-            )
+            .when(!compact, |pill| {
+                pill.child(
+                    div().flex_none().child(
+                        // round and borderless, to sit inside the pill
+                        IconButton::new("crash-notice-dismiss", Icon::Xmark)
+                            .small()
+                            .round()
+                            .label(t(M::DismissCrashNotice))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.crash_notice = None;
+                                cx.notify();
+                            })),
+                    ),
+                )
+            })
             .into_any_element(),
     )
 }
@@ -494,6 +544,37 @@ fn update_notice(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> Opti
     )
 }
 
+#[cfg(test)]
+mod layout_tests {
+    use super::{CrashLayout, place_crash_notice};
+
+    #[test]
+    fn the_crash_notice_always_has_a_place() {
+        // Windows, the default 1200 px window at 100%: the caption buttons and their
+        // gap take 9.1 rem, so both notices don't fit
+        let windows_controls = (lodestone_ui::components::caption::BUTTONS_WIDTH
+            + lodestone_ui::components::caption::GAP)
+            / 16.0;
+        assert_eq!(
+            place_crash_notice(1200.0 / 16.0, windows_controls, true),
+            CrashLayout::Alone
+        );
+        assert_eq!(
+            place_crash_notice(1200.0 / 16.0, windows_controls, false),
+            CrashLayout::BesideUpdate
+        );
+        assert_eq!(
+            place_crash_notice(1600.0 / 16.0, windows_controls, true),
+            CrashLayout::BesideUpdate
+        );
+        // the narrowest window, zoomed in
+        assert_eq!(
+            place_crash_notice(720.0 / 16.0 / 1.6, windows_controls, true),
+            CrashLayout::Compact
+        );
+    }
+}
+
 #[cfg(all(test, feature = "screenshot"))]
 mod tests {
     use gpui::TestAppContext;
@@ -527,6 +608,15 @@ mod tests {
         });
         cx.run_until_parked();
         assert!(cx.debug_bounds("crash-notice").is_some(), "after a crash");
+
+        // with an update ready it takes the update notice's place when both don't fit
+        shell.update(cx, |shell, cx| {
+            shell
+                .updater()
+                .update(cx, |updater, cx| updater.preview_ready(cx));
+        });
+        cx.run_until_parked();
+        assert!(cx.debug_bounds("crash-notice").is_some(), "with an update");
 
         // as its × and "Open logs" do
         shell.update(cx, |shell, cx| {
