@@ -3008,6 +3008,7 @@ dependencies = [
  "lodestone_image",
  "lodestone_minecraft",
  "lodestone_trace",
+ "log",
  "md-5",
  "pulldown-cmark",
  "rand 0.9.4",

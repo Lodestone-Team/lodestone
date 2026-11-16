@@ -21,7 +21,7 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use launcher_control::paths::{LOCATION_FILE, SOCKET_FILE, write_location};
+use launcher_control::paths::{LOCATION_FILE, LOGS_DIR, SOCKET_FILE, write_location};
 use serde::{Deserialize, Serialize};
 
 use crate::disk::Cancel;
@@ -35,9 +35,12 @@ pub const CLEANUP_FILE: &str = "data-move-cleanup.json";
 const IGNORABLE: &[&str] = &[".DS_Store", "desktop.ini", "Thumbs.db"];
 
 /// Top-level names that are never moved: the location files, which belong to the
-/// default directory, and the control socket, which the running launcher owns.
+/// default directory, the control socket, which the running launcher owns, and the
+/// logs, which the running launcher writes and which stay findable in the default
+/// directory ([`LOGS_DIR`]).
 fn stays_behind(name: &str) -> bool {
     name == LOCATION_FILE
+        || name == LOGS_DIR
         || name == CLEANUP_FILE
         || name == SOCKET_FILE
         || name.starts_with(&format!("{LOCATION_FILE}."))
@@ -168,6 +171,7 @@ pub fn run(
     if try_rename(from, to) {
         // The running launcher's socket; the restarted one makes its own.
         let _ = fs::remove_file(to.join(SOCKET_FILE));
+        keep_logs_behind(from, to, default);
         progress.total.store(1, Ordering::Relaxed);
         progress.done.store(1, Ordering::Relaxed);
         return point_at(request);
@@ -300,6 +304,21 @@ pub fn finish_pending(default: &Path, data_dir: &Path) -> Finished {
             path: cleanup.remove,
             error: err.to_string(),
         },
+    }
+}
+
+/// After the default directory was renamed to `to` as a whole, puts its logs back:
+/// they belong to the default directory ([`stays_behind`]). The running launcher keeps
+/// writing to the file it has open until it restarts.
+fn keep_logs_behind(from: &Path, to: &Path, default: &Path) {
+    let logs = to.join(LOGS_DIR);
+    if comparable(from) != comparable(default) || !logs.is_dir() {
+        return;
+    }
+    let moved =
+        fs::create_dir_all(default).and_then(|()| fs::rename(&logs, default.join(LOGS_DIR)));
+    if let Err(err) = moved {
+        log::warn!("couldn't keep the logs in the default data folder after a move: {err}");
     }
 }
 
@@ -593,6 +612,8 @@ mod tests {
         fs::write(dir.join("settings.json"), "{}").unwrap();
         fs::write(world.join("level.dat"), vec![7u8; 3 << 20]).unwrap();
         fs::write(dir.join(SOCKET_FILE), "").unwrap();
+        fs::create_dir_all(dir.join(LOGS_DIR)).unwrap();
+        fs::write(dir.join(LOGS_DIR).join("launcher.log"), "a line\n").unwrap();
         let readonly = dir.join("instances/survival/instance.json");
         fs::write(&readonly, "{}").unwrap();
         let mut permissions = fs::metadata(&readonly).unwrap().permissions();
@@ -681,6 +702,7 @@ mod tests {
         .unwrap();
         assert_filled(&to);
         assert!(!to.join(SOCKET_FILE).exists(), "the socket stays behind");
+        assert!(!to.join(LOGS_DIR).exists(), "the logs stay behind");
         assert_eq!(
             launcher_control::paths::read_location(&w.default),
             Some(to.clone())
@@ -694,8 +716,11 @@ mod tests {
         let left: Vec<_> = fs::read_dir(&w.default)
             .unwrap()
             .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
             .collect();
-        assert_eq!(left, vec![LOCATION_FILE.to_string()]);
+        assert_eq!(left, vec![LOCATION_FILE.to_string(), LOGS_DIR.to_string()]);
+        assert!(w.default.join(LOGS_DIR).join("launcher.log").is_file());
         assert_eq!(finish_pending(&w.default, &to), Finished::Nothing);
 
         // And back to the default folder.
@@ -706,6 +731,7 @@ mod tests {
         )
         .unwrap();
         assert_filled(&w.default);
+        assert!(w.default.join(LOGS_DIR).join("launcher.log").is_file());
         assert_eq!(launcher_control::paths::read_location(&w.default), None);
         assert_eq!(
             finish_pending(&w.default, &w.default),

@@ -45,6 +45,17 @@ pub const MAX_SOCKET_PATH: usize = 100;
 /// to. After a move it is all the default directory keeps.
 pub const LOCATION_FILE: &str = "data-location.json";
 
+/// The logs folder, in the default data directory: the launcher's log file
+/// (`launcher.log`, rotated to `.1` … `.5`), `last-crash.txt` and the running app's
+/// `session.json`. It stays there when the data folder moves, so it is always found,
+/// even while a moved folder's drive isn't connected.
+pub const LOGS_DIR: &str = "logs";
+
+/// The logs folder for the default data directory `default` ([`DataDirLocation::default`]).
+pub fn logs_dir(default: &Path) -> PathBuf {
+    default.join(LOGS_DIR)
+}
+
 /// Why the data directory is where it is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DataDirSource {
@@ -192,6 +203,16 @@ mod tests {
         let location = locate_with(Some("".into()), Some(platform.path().into())).unwrap();
         assert_eq!(location.dir, platform.path().join("Lodestone Launcher"));
         assert_eq!(locate_with(None, None), None);
+    }
+
+    #[test]
+    fn logs_stay_in_the_default_dir() {
+        let platform = tempfile::tempdir().unwrap();
+        let moved = tempfile::tempdir().unwrap();
+        let default = platform.path().join("Lodestone Launcher");
+        write_location(&default, Some(moved.path())).unwrap();
+        let location = locate_with(None, Some(platform.path().into())).unwrap();
+        assert_eq!(logs_dir(&location.default), default.join("logs"));
     }
 
     #[test]
