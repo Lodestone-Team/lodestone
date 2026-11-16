@@ -994,7 +994,7 @@ pub(crate) fn new_record_id(created: i64, records: &[SnapshotRecord]) -> String 
 
 /// Whether `id` has a record id's shape (ASCII digits, `-`, lower-case hex; at most 32
 /// characters): it is passed on the command line and shown, never used as a path.
-fn valid_record_id(id: &str) -> bool {
+pub(crate) fn valid_record_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 32
         && id

@@ -464,7 +464,9 @@ pub fn import_zip(
     fs::create_dir_all(&saves).map_err(io_error(&saves))?;
     check_room(&saves, checked.declared_bytes, None)?;
     let staging = saves.join(format!(".lodestone-extract-{}", random_suffix()));
-    zip::extract_into(path, &checked, &staging, progress, cancel)?;
+    zip::extract_into(path, &checked, &staging, progress, &|| {
+        cancel.is_cancelled()
+    })?;
     let folder = unused(&saves, &folder_name(&checked.folder_hint));
     let target = saves.join(&folder);
     if let Err(e) = crate::fsx::rename(&staging, &target) {

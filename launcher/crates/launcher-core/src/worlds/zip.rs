@@ -31,7 +31,7 @@ use lodestone_minecraft::{
 };
 
 use super::{WorldError, io_error, random_suffix};
-use crate::game::download::{CancelToken, Progress, ProgressSnapshot};
+use crate::game::download::{Progress, ProgressSnapshot};
 
 /// A world zip may have at most this many entries, and this many bytes unpacked.
 pub const MAX_ZIP_ENTRIES: usize = 500_000;
@@ -558,7 +558,7 @@ pub fn extract_into(
     zip: &CheckedZip,
     dest: &Path,
     progress: &Progress,
-    cancel: &CancelToken,
+    cancel: &dyn Fn() -> bool,
 ) -> Result<Vec<String>, WorldError> {
     fs::create_dir(dest).map_err(|e| match e.kind() {
         io::ErrorKind::AlreadyExists => {
@@ -579,7 +579,7 @@ pub fn extract_into(
         progress.set(done);
         let mut placed = Vec::new();
         for planned in &zip.entries {
-            if cancel.is_cancelled() {
+            if cancel() {
                 return Err(WorldError::Cancelled);
             }
             let target = super::join_rel(dest, &planned.relative);
@@ -700,8 +700,7 @@ mod tests {
         assert_eq!(zip.prefix, "World/");
         assert_eq!(zip.declared_bytes, written.world_bytes);
         let dest = temp.path().join("Restored");
-        let placed =
-            extract_into(&out, &zip, &dest, &Progress::default(), &CancelToken::new()).unwrap();
+        let placed = extract_into(&out, &zip, &dest, &Progress::default(), &|| false).unwrap();
         assert_eq!(placed.len(), 3);
         assert_eq!(fs::read(dest.join("level.dat")).unwrap(), LEVEL_DAT);
         assert_eq!(
@@ -878,14 +877,8 @@ mod tests {
         shrink_stated_size(&path, "W/region/r.0.0.mca", 10);
         let checked = check(&path, Shape::OneWorldFolder, Limits::default()).unwrap();
         let dest = temp.path().join("out");
-        let err = extract_into(
-            &path,
-            &checked,
-            &dest,
-            &Progress::default(),
-            &CancelToken::new(),
-        )
-        .unwrap_err();
+        let err =
+            extract_into(&path, &checked, &dest, &Progress::default(), &|| false).unwrap_err();
         assert!(matches!(err, WorldError::Invalid(_)), "{err:?}");
         assert!(!dest.exists());
     }
@@ -896,22 +889,14 @@ mod tests {
         let path = temp.path().join("w.zip");
         write(&path, &[("W/level.dat", LEVEL_DAT), ("W/a", b"a")]);
         let checked = check(&path, Shape::OneWorldFolder, Limits::default()).unwrap();
-        let cancel = CancelToken::new();
-        cancel.cancel();
         let dest = temp.path().join("out");
-        let err = extract_into(&path, &checked, &dest, &Progress::default(), &cancel).unwrap_err();
+        let err = extract_into(&path, &checked, &dest, &Progress::default(), &|| true).unwrap_err();
         assert!(matches!(err, WorldError::Cancelled));
         assert!(!dest.exists());
         fs::create_dir(&dest).unwrap();
         fs::write(dest.join("mine"), b"keep").unwrap();
-        let err = extract_into(
-            &path,
-            &checked,
-            &dest,
-            &Progress::default(),
-            &CancelToken::new(),
-        )
-        .unwrap_err();
+        let err =
+            extract_into(&path, &checked, &dest, &Progress::default(), &|| false).unwrap_err();
         assert!(matches!(err, WorldError::Conflict(_)));
         assert_eq!(fs::read(dest.join("mine")).unwrap(), b"keep");
     }

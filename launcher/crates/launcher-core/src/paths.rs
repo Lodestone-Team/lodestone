@@ -101,6 +101,13 @@ impl DataDir {
     pub fn image_store_dir(&self) -> PathBuf {
         self.root.join("image-store")
     }
+
+    /// World backups: plain zips of one world each, outside the instances so snapshots,
+    /// exports and "Host this" never take them ([`crate::world_backups`]):
+    /// `<instance>/<world folder>/<id>.zip` with its `<id>.json`.
+    pub fn world_backups_dir(&self) -> PathBuf {
+        self.root.join("world-backups")
+    }
 }
 
 #[cfg(test)]

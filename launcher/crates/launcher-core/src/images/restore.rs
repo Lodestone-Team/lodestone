@@ -133,6 +133,18 @@ impl ContentDiff {
     }
 }
 
+/// An instance held for a change to its files that snapshots don't make (a world backup,
+/// and restoring one): its record lock and a counted write, so it never overlaps a
+/// snapshot, a restore or a record of the instance, and a data move waits for it or
+/// refuses it ([`Images::with_instance_locked`]).
+pub(crate) struct Locked {
+    pub(crate) slot: Arc<super::Slot>,
+    /// The instance's folder.
+    pub(crate) dir: PathBuf,
+    /// Where an in-place restore's journal goes, which startup's and Play's recovery read.
+    pub(crate) journal: PathBuf,
+}
+
 /// What an in-place restore did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Restored {
@@ -353,11 +365,7 @@ impl Images {
         let slot = self.slot(instance);
         let _record = slot.lock_record();
         let _writing = self.enter()?;
-        if slot.in_session() {
-            return Err(ImageError::Running);
-        }
-        self.recover_unfinished_locked(instance)?;
-        swap::empty_trash(&self.instances().dir(instance));
+        self.before_restore_locked(instance, &slot)?;
         let record = self
             .reconciled_locked(instance)?
             .into_iter()
@@ -665,6 +673,66 @@ impl Images {
             super::warn("images.record", &made.id, &e.to_string());
         }
         Ok(made)
+    }
+
+    /// Whether a game session of `instance` runs (from the check before its launch until it
+    /// ends).
+    pub fn in_session(&self, instance: &str) -> bool {
+        self.accepts(instance) && self.slot(instance).in_session()
+    }
+
+    /// Runs `f` holding `instance`'s record lock inside a counted write (see [`Locked`]).
+    /// Refused while the store is suspended (a data move), and for an id the store can't
+    /// name.
+    pub(crate) fn with_instance_locked<T, E: From<ImageError>>(
+        &self,
+        instance: &str,
+        f: impl FnOnce(&Locked) -> Result<T, E>,
+    ) -> Result<T, E> {
+        if !self.accepts(instance) {
+            return Err(
+                ImageError::Invalid("The image store can't name this instance".into()).into(),
+            );
+        }
+        let slot = self.slot(instance);
+        let _record = slot.lock_record();
+        let _writing = self.enter()?;
+        let locked = Locked {
+            slot: slot.clone(),
+            dir: self.instances().dir(instance),
+            journal: self
+                .store()
+                .instance_dir(instance)
+                .map_err(ImageError::from)?
+                .join(swap::JOURNAL_FILE),
+        };
+        f(&locked)
+    }
+
+    /// [`Self::with_instance_locked`] for an in-place restore that ends with the journaled
+    /// swap: refused while the game runs, and an unfinished restore is undone first, as
+    /// [`Self::restore`] does.
+    pub(crate) fn with_restore_locked<T, E: From<ImageError>>(
+        &self,
+        instance: &str,
+        f: impl FnOnce(&Locked) -> Result<T, E>,
+    ) -> Result<T, E> {
+        self.with_instance_locked(instance, |locked| {
+            self.before_restore_locked(instance, &locked.slot)?;
+            f(locked)
+        })
+    }
+
+    /// What every in-place restore does first, under the record lock: refuse while a game
+    /// session runs, undo an unfinished restore (rather than write a journal over the one
+    /// that knows what is aside), and clear the work folders recovery set aside.
+    fn before_restore_locked(&self, instance: &str, slot: &super::Slot) -> Result<(), ImageError> {
+        if slot.in_session() {
+            return Err(ImageError::Running);
+        }
+        self.recover_unfinished_locked(instance)?;
+        swap::empty_trash(&self.instances().dir(instance));
+        Ok(())
     }
 
     /// Puts the world `world` of the snapshot `id` back beside the instance's worlds, as a
