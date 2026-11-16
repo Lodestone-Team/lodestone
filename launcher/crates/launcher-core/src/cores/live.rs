@@ -214,7 +214,20 @@ fn snowflake_of(value: &Value) -> Option<i64> {
 
 /// What a frame of a live stream means for `instance`; `None` for anything else.
 pub fn parse_frame(text: &str, instance: &str) -> Option<LiveMessage> {
-    let event: WireEvent = serde_json::from_str(text).ok()?;
+    static UNREADABLE: crate::logging::Throttle = crate::logging::Throttle::new();
+    let event: WireEvent = match serde_json::from_str(text) {
+        Ok(event) => event,
+        // the serde error, never the frame (a console line)
+        Err(err) => {
+            UNREADABLE.log(
+                "frame",
+                log::Level::Warn,
+                module_path!(),
+                format_args!("couldn't read a frame of {instance}'s stream: {err}"),
+            );
+            return None;
+        }
+    };
     let WireInner::InstanceEvent(inner) = event.event_inner else {
         return None;
     };
@@ -504,6 +517,8 @@ fn run(
 ) {
     let stopped = || stop.load(Ordering::SeqCst) || tx.is_closed();
     let mut backoff = Duration::from_secs(1);
+    // logged when it changes, so a core that stays down is one line
+    let mut last_reason = String::new();
     while !stopped() {
         let reason = match connect(target, key, server, kind) {
             Ok(socket) => {
@@ -520,6 +535,7 @@ fn run(
                 | CoreError::Untrusted { .. }
                 | CoreError::CertificateChanged { .. }),
             ) => {
+                log::warn!("the core refused the {kind:?} stream for {server:?}: {err}");
                 let _ = tx.unbounded_send(LiveMessage::Ended(err));
                 return;
             }
@@ -527,6 +543,13 @@ fn run(
         };
         if stopped() {
             return;
+        }
+        if reason != last_reason {
+            log::info!(
+                "the {kind:?} stream for {server:?} ended ({reason}); reconnecting in {} s",
+                backoff.as_secs()
+            );
+            last_reason.clone_from(&reason);
         }
         if tx
             .unbounded_send(LiveMessage::Disconnected(reason))

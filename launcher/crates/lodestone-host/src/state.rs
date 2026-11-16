@@ -477,10 +477,8 @@ impl HostState {
                 // An event this Host can't read (a newer core, or a shape it doesn't
                 // know) could be a server made or deleted: fetch the list again rather
                 // than miss it.
-                Err(err) => {
-                    eprintln!("Couldn't read an event from the core: {err}");
-                    self.reload(cx);
-                }
+                // (`read` logged why)
+                Err(_) => self.reload(cx),
             },
             LiveMessage::Ended(CoreError::SignedOut) => return self.signed_out(cx),
             LiveMessage::Ended(err) => {

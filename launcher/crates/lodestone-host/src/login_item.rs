@@ -228,7 +228,7 @@ mod platform {
         };
         let outdated = [launch_agent_before_abandon(LABEL, exe)];
         if let Err(error) = entry_file::refresh(&path, &launch_agent(LABEL, exe), &outdated) {
-            eprintln!("could not update the launch agent: {error}");
+            log::warn!("couldn't update the launch agent: {error}");
         }
     }
 

@@ -332,11 +332,22 @@ pub fn parse(text: &str) -> Option<ClientEvent> {
     read(text).ok()
 }
 
-/// [`parse`], saying why a frame isn't an event this client can read (the serde error,
-/// for a log line; it never holds the frame's text).
+/// [`parse`], saying why a frame isn't an event this client can read. The serde error
+/// is logged (a few a minute), never the frame: an event can carry a server's console
+/// line or a player's name.
 pub fn read(text: &str) -> Result<ClientEvent, serde_json::Error> {
-    serde_json::from_str(text)
+    serde_json::from_str(text).inspect_err(|err| {
+        UNREADABLE.log(
+            "frame",
+            log::Level::Warn,
+            module_path!(),
+            format_args!("couldn't read an event from the core ({} bytes): {err}", text.len()),
+        );
+    })
 }
+
+/// Unreadable events, a few lines a minute.
+static UNREADABLE: crate::logging::Throttle = crate::logging::Throttle::new();
 
 impl super::AdminClient {
     /// `GET /events/all/buffer`: the events the core kept, oldest first.
@@ -366,10 +377,30 @@ impl super::AdminClient {
             .get(&format!("events/all/buffer?filter={encoded}"))
             .await?;
         // an event this build can't read is skipped, not the whole history
-        Ok(raw
+        let total = raw.len();
+        let mut first_error = None;
+        let events: Vec<ClientEvent> = raw
             .into_iter()
-            .filter_map(|event| serde_json::from_value(event).ok())
-            .collect())
+            .filter_map(|event| {
+                serde_json::from_value(event)
+                    .inspect_err(|err| {
+                        first_error.get_or_insert_with(|| err.to_string());
+                    })
+                    .ok()
+            })
+            .collect();
+        if let Some(err) = first_error {
+            UNREADABLE.log(
+                "history",
+                log::Level::Warn,
+                module_path!(),
+                format_args!(
+                    "skipped {} of the core's {total} past events this build can't read; the first: {err}",
+                    total - events.len()
+                ),
+            );
+        }
+        Ok(events)
     }
 }
 

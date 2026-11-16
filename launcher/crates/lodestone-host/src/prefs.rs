@@ -77,6 +77,9 @@ pub struct PrefsData {
     /// ([`launcher_core::cores::connect_service`]).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub connect_service: Option<String>,
+    /// Settings › Updates › Logs › "Log detail": how much the Host writes to its log
+    /// file ([`launcher_core::logging`]). `LODESTONE_LOG` wins over it.
+    pub log_level: launcher_core::logging::LogLevel,
 }
 
 impl PrefsData {
@@ -120,6 +123,7 @@ impl Default for PrefsData {
             file_list_width: None,
             editor_wrap: true,
             connect_service: None,
+            log_level: launcher_core::logging::LogLevel::Info,
         }
     }
 }
@@ -164,16 +168,22 @@ impl Prefs {
     /// Changes the settings, saves them, applies the language, zoom and theme, and
     /// redraws the windows.
     pub fn update(cx: &mut App, change: impl FnOnce(&mut PrefsData)) {
-        let language_before = cx.global::<Prefs>().data.language;
+        let (language_before, log_level_before) = {
+            let data = &cx.global::<Prefs>().data;
+            (data.language, data.log_level)
+        };
         let prefs = cx.global_mut::<Prefs>();
         change(&mut prefs.data);
         prefs.data.zoom = lodestone_ui::theme::zoom::clamp(prefs.data.zoom);
         if let Some(path) = &prefs.path
             && let Err(err) = save(path, &prefs.data)
         {
-            eprintln!("could not save {}: {err}", path.display());
+            log::warn!("couldn't save {}: {err}", path.display());
         }
         let data = prefs.data.clone();
+        if data.log_level != log_level_before {
+            launcher_core::logging::set_level(data.log_level);
+        }
         if data.language != language_before {
             lodestone_ui::i18n::apply(data.language);
             crate::set_menus(cx);
@@ -194,6 +204,11 @@ impl Prefs {
         lodestone_ui::theme::palette::set_light(light);
         changed
     }
+}
+
+/// The settings as saved, for before [`Prefs::init`] (the log level at start).
+pub fn load_saved() -> PrefsData {
+    load(&crate::core_process::host_dir().join("settings.json"))
 }
 
 fn load(path: &Path) -> PrefsData {

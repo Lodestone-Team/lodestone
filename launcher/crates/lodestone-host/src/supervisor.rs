@@ -214,6 +214,22 @@ impl Supervisor {
     }
 
     fn set_status(&mut self, status: CoreStatus, cx: &mut Context<Self>) {
+        match &status {
+            CoreStatus::Starting => log::info!("starting Lodestone Core"),
+            CoreStatus::Running { config } => log::info!(
+                "Lodestone Core is running on port {} ({})",
+                config.port,
+                config.program.display()
+            ),
+            CoreStatus::Restarting { reason, attempt } => {
+                log::warn!("{reason} Starting it again (quick exits in a row: {attempt}).")
+            }
+            CoreStatus::Failed { reason, .. } => {
+                log::error!("{reason} The Host stopped trying; core.log has the core's side.")
+            }
+            CoreStatus::Stopping => log::info!("stopping Lodestone Core"),
+            CoreStatus::Stopped => log::info!("Lodestone Core stopped"),
+        }
         self.status = status;
         cx.emit(SupervisorEvent::Status);
         cx.notify();

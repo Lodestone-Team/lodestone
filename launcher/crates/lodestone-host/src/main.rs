@@ -28,6 +28,8 @@ fn main() {
     if !screenshot && !single_instance::acquire(show_tx) {
         return;
     }
+    // The log file and the panic hook, before anything else can fail.
+    lodestone_host::logs::start(screenshot);
     // an older Host's sign-in entry, rewritten the way this one writes it
     if !screenshot {
         lodestone_host::login_item::refresh();

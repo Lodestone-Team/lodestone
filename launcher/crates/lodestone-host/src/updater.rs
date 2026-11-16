@@ -346,11 +346,11 @@ impl Updater {
             return;
         };
         if ready && let Err(err) = source.install() {
-            eprintln!("Lodestone Host couldn't install the update: {err}");
+            log::error!("couldn't install the update: {err}");
         }
         // Even when the install failed, the Host comes back (as the old build).
         if restart && let Err(err) = source.restart() {
-            eprintln!("Lodestone Host couldn't restart: {err}");
+            log::error!("couldn't restart after the update: {err}");
         }
     }
 }
