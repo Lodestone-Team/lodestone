@@ -33,6 +33,7 @@ use serde::{Deserialize, Serialize};
 use tokio::{
     net::{TcpListener, TcpSocket, TcpStream},
     runtime::Handle,
+    sync::{OwnedSemaphorePermit, Semaphore},
     task::{AbortHandle, JoinSet},
 };
 use url::Url;
@@ -46,10 +47,24 @@ use super::{
 
 /// The most servers of one core that keep a port: a hostile core can't fill the file.
 pub const MAX_PER_CORE: usize = 64;
+// The limits below fit the open-file limit of an app started from the Finder or the
+// Dock, 256 on macOS (launchd's soft limit, which nothing in the app raises). Each
+// forwarder takes one file while it listens and each relayed connection two, so at
+// most 48 + 48 × 2 = 144, which leaves the rest of the app (about 50 at rest) room.
 /// The most forwarders open at once, over every core.
-pub const MAX_FORWARDERS: usize = 256;
+pub const MAX_FORWARDERS: usize = 48;
 /// The most connections one forwarder relays at once; more are closed at once.
-pub const MAX_CONNECTIONS: usize = 32;
+pub const MAX_CONNECTIONS: usize = 16;
+/// The most connections every forwarder together relays at once; more are closed at
+/// once. A Minecraft server list pings each of its servers at the same time.
+pub const MAX_TOTAL_CONNECTIONS: usize = 48;
+/// The most threads the forwarders' runtime resolves names on. A lookup that hangs
+/// (a captive portal's DNS, say) keeps its thread until the system gives up, after the
+/// connection's [`CONNECT_TIMEOUT`]; more wait their turn instead of starting threads.
+const MAX_LOOKUP_THREADS: usize = 8;
+// launchd's 256, less the files the app holds at rest and room for its own work
+const _: () = assert!(MAX_FORWARDERS + 2 * MAX_TOTAL_CONNECTIONS <= 256 - 50 - 40);
+const _: () = assert!(MAX_CONNECTIONS <= MAX_TOTAL_CONNECTIONS);
 /// How long a forwarder waits for the server to answer (and for its name to resolve).
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// The longest server id kept.
@@ -165,6 +180,15 @@ pub fn sanitize(saved: &mut Vec<MagicPort>) -> bool {
     saved.len() != before
 }
 
+/// Drops the saved ports that are in `ports` (a server on this computer took one as its
+/// game port, say): the next [`update_ports`], given them as `taken`, picks those
+/// servers new ones. Returns whether anything went.
+pub fn release(saved: &mut Vec<MagicPort>, ports: &[u16]) -> bool {
+    let before = saved.len();
+    saved.retain(|entry| !ports.contains(&entry.port));
+    saved.len() != before
+}
+
 /// Brings the saved ports of the core at `core_url` up to date with its list, `servers`:
 /// a server with a game port and no saved port gets one, picked from [`magic_id`] away
 /// from `taken` (other cores' and friends' ports) and this core's; a saved port follows
@@ -259,12 +283,24 @@ pub type OnError = Arc<dyn Fn(&Target, &io::Error) + Send + Sync>;
 /// The forwarders' thread, with a current-thread Tokio runtime, started with the first
 /// forwarder. Dropping this stops the thread, and with it every listener and
 /// connection.
-#[derive(Default)]
 pub struct Forwarders {
     runtime: Option<RuntimeThread>,
     /// Whether forwarders may connect to this computer: only the tests' fake servers,
     /// which have nowhere else to listen.
     local_targets: bool,
+    /// The connections every forwarder may relay at once ([`MAX_TOTAL_CONNECTIONS`]):
+    /// each one holds a permit.
+    budget: Arc<Semaphore>,
+}
+
+impl Default for Forwarders {
+    fn default() -> Self {
+        Self {
+            runtime: None,
+            local_targets: false,
+            budget: Arc::new(Semaphore::new(MAX_TOTAL_CONNECTIONS)),
+        }
+    }
 }
 
 struct RuntimeThread {
@@ -282,8 +318,17 @@ impl Forwarders {
     #[cfg(test)]
     fn to_this_computer() -> Self {
         Self {
-            runtime: None,
             local_targets: true,
+            ..Self::default()
+        }
+    }
+
+    /// [`Self::to_this_computer`], relaying at most `connections` at once in all.
+    #[cfg(test)]
+    fn to_this_computer_with_budget(connections: usize) -> Self {
+        Self {
+            budget: Arc::new(Semaphore::new(connections)),
+            ..Self::to_this_computer()
         }
     }
 
@@ -298,6 +343,7 @@ impl Forwarders {
             .spawn(move || {
                 let runtime = match tokio::runtime::Builder::new_current_thread()
                     .enable_all()
+                    .max_blocking_threads(MAX_LOOKUP_THREADS)
                     .build()
                 {
                     Ok(runtime) => runtime,
@@ -311,6 +357,8 @@ impl Forwarders {
                 runtime.block_on(async {
                     let _ = stop_rx.await;
                 });
+                // without waiting for a name lookup that hangs
+                runtime.shutdown_background();
             })?;
         let handle = handle_rx
             .recv()
@@ -333,6 +381,7 @@ impl Forwarders {
         on_error: OnError,
     ) -> impl Future<Output = io::Result<Forwarder>> + Send + 'static {
         let local_targets = self.local_targets;
+        let budget = self.budget.clone();
         let started = self.handle().map(|handle| {
             let target = Arc::new(Mutex::new(target));
             let (ready_tx, ready_rx) = oneshot::channel::<io::Result<SocketAddr>>();
@@ -344,7 +393,13 @@ impl Forwarders {
                 match bound {
                     Ok((addr, listener)) => {
                         if ready_tx.send(Ok(addr)).is_ok() {
-                            accept_loop(listener, addr, task_target, local_targets, on_error).await;
+                            let relay = Relay {
+                                own: addr,
+                                local_targets,
+                                budget,
+                                on_error,
+                            };
+                            accept_loop(listener, task_target, relay).await;
                         }
                     }
                     Err(err) => {
@@ -424,13 +479,18 @@ impl Forwarder {
     }
 }
 
-async fn accept_loop(
-    listener: TcpListener,
+/// What one forwarder's connections share.
+#[derive(Clone)]
+struct Relay {
+    /// The forwarder's own address, never a target.
     own: SocketAddr,
-    target: Arc<Mutex<Target>>,
     local_targets: bool,
+    /// Every forwarder's connection permits.
+    budget: Arc<Semaphore>,
     on_error: OnError,
-) {
+}
+
+async fn accept_loop(listener: TcpListener, target: Arc<Mutex<Target>>, relay: Relay) {
     // owned by this task, so aborting it closes every connection
     let mut connections = JoinSet::new();
     loop {
@@ -447,26 +507,34 @@ async fn accept_loop(
             drop(socket);
             continue;
         }
+        // past every forwarder's budget, closed like past this one's
+        let Ok(permit) = relay.budget.clone().try_acquire_owned() else {
+            drop(socket);
+            continue;
+        };
         let target = target.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        connections.spawn(relay(socket, own, target, local_targets, on_error.clone()));
+        connections.spawn(relay.clone().run(socket, target, permit));
     }
 }
 
-async fn relay(
-    client: TcpStream,
-    own: SocketAddr,
-    target: Target,
-    local_targets: bool,
-    on_error: OnError,
-) {
-    let server = match connect(&target, own, local_targets).await {
-        Ok(server) => server,
-        Err(err) => {
-            // the client's connection closes: Minecraft says it can't connect
-            on_error(&target, &err);
-            return;
-        }
-    };
+impl Relay {
+    /// Passes `client` on to `target` until either side closes. `_permit` is this
+    /// connection's share of the budget, given back when it ends.
+    async fn run(self, client: TcpStream, target: Target, _permit: OwnedSemaphorePermit) {
+        let server = match connect(&target, self.own, self.local_targets).await {
+            Ok(server) => server,
+            Err(err) => {
+                // the client's connection closes: Minecraft says it can't connect
+                (self.on_error)(&target, &err);
+                return;
+            }
+        };
+        pipe(client, server).await;
+    }
+}
+
+/// Copies bytes both ways between a client and its server.
+async fn pipe(client: TcpStream, server: TcpStream) {
     let _ = client.set_nodelay(true);
     let _ = server.set_nodelay(true);
     let (mut client_read, mut client_write) = client.into_split();
@@ -666,6 +734,30 @@ mod tests {
         ));
         assert_eq!(saved.len(), 1);
         assert_eq!(saved[0].instance, "a");
+    }
+
+    /// A saved port that a server on this computer took as its game port afterwards
+    /// (its row shows `127.0.0.1:<that port>`) is given up, and the server gets
+    /// another, which then stays.
+    #[test]
+    fn a_port_this_computers_server_took_is_picked_again() {
+        let list = [server("a", Some(25565)), server("b", Some(25566))];
+        let mut saved = Vec::new();
+        update_ports(&mut saved, CORE, &list, true, &[]);
+        let (clash, kept) = (saved[0].port, saved[1].port);
+        assert!(!release(&mut saved, &[25565]));
+        assert!(release(&mut saved, &[clash]));
+        assert_eq!(saved.len(), 1);
+        // a list that only adds is enough: the server gets a port away from the clash
+        assert!(update_ports(&mut saved, CORE, &list, false, &[clash]));
+        let again = saved.iter().find(|e| e.instance == "a").unwrap();
+        assert_ne!(again.port, clash);
+        assert_ne!(again.port, kept);
+        assert!(GAME_PORTS.contains(&again.port));
+        assert_eq!(saved.iter().find(|e| e.instance == "b").unwrap().port, kept);
+        let after = saved.clone();
+        assert!(!update_ports(&mut saved, CORE, &list, false, &[clash]));
+        assert_eq!(saved, after);
     }
 
     #[test]
@@ -992,6 +1084,43 @@ mod tests {
         open.pop();
         tokio::time::sleep(Duration::from_millis(100)).await;
         let _again = talk(forwarder.port(), b"one").await;
+    }
+
+    /// Whether `client`'s connection was closed by the forwarder instead of relayed.
+    async fn refused(client: &mut TcpStream) -> bool {
+        let mut buf = [0u8; 1];
+        let ended = tokio::time::timeout(Duration::from_secs(5), client.read(&mut buf))
+            .await
+            .unwrap();
+        matches!(ended, Ok(0) | Err(_))
+    }
+
+    #[tokio::test]
+    async fn every_forwarder_shares_one_connection_budget() {
+        let (server, _task) = echo_server(b"one").await;
+        let mut forwarders = Forwarders::to_this_computer_with_budget(3);
+        let first = forwarders
+            .start(free_port(), loopback(server.port()), quiet())
+            .await
+            .unwrap();
+        let second = forwarders
+            .start(free_port(), loopback(server.port()), quiet())
+            .await
+            .unwrap();
+        let mut open = vec![
+            talk(first.port(), b"one").await,
+            talk(first.port(), b"one").await,
+            talk(second.port(), b"one").await,
+        ];
+        // each forwarder is under its own cap, but together they're at the budget
+        for port in [first.port(), second.port()] {
+            let mut extra = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+            assert!(refused(&mut extra).await, "port {port}");
+        }
+        // one closes: its permit goes back, to either forwarder
+        open.remove(0);
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let _again = talk(second.port(), b"one").await;
     }
 
     #[tokio::test]

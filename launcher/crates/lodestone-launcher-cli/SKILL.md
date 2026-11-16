@@ -453,7 +453,7 @@ lodestone-launcher-cli cores trust-certificate "Home core" --fingerprint AB:CD:â
 lodestone-launcher-cli cores sign-out "Home core"
 lodestone-launcher-cli cores claim-local                      # owner key for the core on this computer
 lodestone-launcher-cli cores claim-local --folder ~/core-data # its data folder isn't ~/.lodestone
-lodestone-launcher-cli servers list                         # magic_address: 127.0.0.1:<port> any Minecraft client joins
+lodestone-launcher-cli servers list                         # each server's Magic localhost (see below)
 lodestone-launcher-cli servers start Smp                     # needs this device signed in
 lodestone-launcher-cli servers stop Smp
 lodestone-launcher-cli servers create-instance Smp           # long; matching version, loader, mods
@@ -646,6 +646,15 @@ A job (`--no-wait`, `jobs get`, progress lines):
 Job `state`: `running`, `succeeded`, `failed`, `cancelled`. A waited command prints the
 job's `result` with `"job": <id>` added, for example `content install`:
 `{"installed": [{"title": "Sodium", "file": "sodium-fabric-0.6.0.jar"}], "removed": [], "skipped": [], "job": 3}`.
+
+A server in `servers list` carries its Magic localhost, the address any Minecraft
+client joins it at: `"magic_address": "127.0.0.1:34121"` (null when there is none: the
+core hides the server's port, no port is picked yet, or the launcher can't listen for
+it), `"magic_address_kind"`: `this_computer` (a core on this computer: the server's own
+port, while it runs) or `forwarded` (another host: a port the launcher passes on to it,
+while the server runs and the launcher is open), and `"magic_port_taken"`: the usual
+port when something else had it, so this address works only until the launcher closes
+(otherwise null).
 
 A log row (`play logs`, `--follow`, `log` events):
 `{"instance": "survival", "level": "INFO", "time": "14:02:11", "thread": "Render thread", "stream": "stdout", "text": "Sound engine started"}`.

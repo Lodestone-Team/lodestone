@@ -53,15 +53,22 @@ pub(super) fn copy_button(id: impl Into<SharedString>, value: String) -> Button 
 
 /// A Magic localhost line: `text`, which names the address and when it works, and a
 /// button (`id`) that copies `address`, for Minecraft's server list.
-/// The text wraps, and the button stays whole, in a narrow window.
+/// The text wraps, and the button stays whole, in a narrow window. The button's
+/// accessible name has the address ("Copy 127.0.0.1:25565"): a page of rows, each with
+/// a Copy button, would otherwise read "Copy" over and over.
 pub(super) fn magic_line(id: impl Into<SharedString>, text: String, address: String) -> gpui::Div {
+    let label = tr!(M::CopyMagicAddress, address = address);
     div()
         .flex()
         .flex_row()
         .items_center()
         .gap_2()
         .child(note(text).min_w_0().flex_shrink(1.))
-        .child(div().flex_none().child(copy_button(id, address)))
+        .child(
+            div()
+                .flex_none()
+                .child(copy_button(id, address).accessible_label(label)),
+        )
 }
 
 fn paragraph(value: impl Into<SharedString>) -> gpui::Div {

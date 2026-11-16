@@ -438,7 +438,9 @@ core (`magic_ports`: the server id, the port, and the server's game port so the 
 opens at startup), friends' in `friends.json` (`game_port`). Each kind avoids every port
 the other has saved, and new picks also avoid the game ports of the servers on this
 computer's cores (their rows show `127.0.0.1:<that port>`, which a forwarder there would
-answer instead, as the more specific bind). A complete list (signed in, and its public
+answer instead, as the more specific bind). A saved port that becomes such a game port
+later (a server on this computer made or changed afterwards) is given up and its server
+picks again, from its core's last list. A complete list (signed in, and its public
 half arrived too) drops the ports of servers it no longer lists; any other list only
 adds, so ports stay while signed out, and one failed public fetch can't close the
 forwarder of a public-only server someone is playing on. A card that moves to "On this
@@ -455,15 +457,20 @@ until it runs, as for friends.
 **Port in use.** Opening a forwarder probes its saved port and binds it, else any free
 port, exactly as a tunnel's game port does (`connect::bind_game`). The row shows the
 address actually in use with a yellow line under it, "Port … was in use, so this
-address is for this session only" (also in the row's screen-reader description, and
+address works only until Lodestone Launcher closes" (also in the row's screen-reader description, and
 `magic_port_taken` in `servers.list`), and the page says once per session "Port … was
 in use". The saved port stays for next time. A forwarder that can't listen at all (not
-even on a free port), or one past the cap of 256, shows no address on its row (and none
-in `servers.list`): nothing would answer it.
+even on a free port), or one past the cap of 48, shows no address on its row (and none
+in `servers.list`): nothing would answer it. One that couldn't listen is tried again a
+minute later, on the next list, as the cause usually passes (out of files for a moment).
 
-**Limits and safety.** At most 64 saved ports per core, 256 forwarders and 32
-connections per forwarder (more are closed at once); 10 seconds in all to resolve the
-host and connect to one of its addresses. A relayed connection ends as soon as either
+**Limits and safety.** At most 64 saved ports per core, 48 forwarders, and 16
+connections per forwarder and 48 over every forwarder (more are closed at once). They fit
+the open-file limit of an app started from the Finder or the Dock, 256 on macOS, which
+the app doesn't raise: a forwarder takes one file and a relayed connection two, so at
+most 144 with the ~50 the app holds at rest. 10 seconds in all to resolve the host and
+connect to one of its addresses; names resolve on at most 8 threads, so a lookup that
+hangs makes the others wait instead of piling up threads. A relayed connection ends as soon as either
 side closes (Minecraft never half-closes), so a host that vanishes without a word can't
 keep a slot once its client leaves; connections to the server keep TCP keepalive on.
 Saved entries are checked when read (port in range, a plain server id of at most 64

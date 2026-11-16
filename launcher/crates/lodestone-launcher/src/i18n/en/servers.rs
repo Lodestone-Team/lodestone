@@ -546,7 +546,10 @@ crate::i18n::messages! {
         /// Under the Magic localhost line when another program had the server's usual
         /// port, so the address shown works only until the launcher closes. {port} is
         /// the usual port, which the launcher tries again next time.
-        MagicPortTakenRow = "Port {port} was in use, so this address is for this session only",
+        MagicPortTakenRow = "Port {port} was in use, so this address works only until Lodestone Launcher closes",
+        /// The name screen readers give the Copy button beside a Magic localhost address.
+        /// {address} is 127.0.0.1:<port>.
+        CopyMagicAddress = "Copy {address}",
         /// {port} is the server's usual local port.
         FriendPortTaken = "Port {port} was in use",
         /// {address} is this session's 127.0.0.1:<port>; {port} the usual one.

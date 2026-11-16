@@ -32,10 +32,11 @@ pub struct MagicState {
     running: HashMap<String, Forwarder>,
     /// Forwarders being opened.
     starting: HashSet<String>,
-    /// Saved ports, by [`magic_id`], that couldn't be opened at all this session (not
-    /// even a free one instead), so they aren't tried on every refresh. Their rows show
-    /// no address: nothing would answer it.
-    failed: HashMap<String, u16>,
+    /// Saved ports, by [`magic_id`], that couldn't be opened at all (not even a free
+    /// one instead), and when, so they aren't tried on every refresh: again after
+    /// [`RETRY_AFTER`], as the cause usually passes (out of files for a moment, say).
+    /// Their rows show no address meanwhile: nothing would answer it.
+    failed: HashMap<String, (u16, Instant)>,
     /// Servers, by [`magic_id`], with a saved port but no forwarder: past
     /// [`MAX_FORWARDERS`], or a host that turned out to be this computer. Their rows
     /// show no address either.
@@ -45,6 +46,9 @@ pub struct MagicState {
     /// The offscreen screenshots' bound ports, by [`magic_id`]: no sockets there.
     preview_bound: HashMap<String, u16>,
 }
+
+/// How long a forwarder that couldn't listen waits before the next list tries again.
+const RETRY_AFTER: Duration = Duration::from_secs(60);
 
 /// How often a forwarder warns about one target it can't reach. Minecraft's server
 /// list asks every few seconds while it's open, so the rest are debug lines.
@@ -108,6 +112,7 @@ impl Servers {
             return;
         }
         self.forget_local_magic();
+        self.release_local_ports();
         let (wanted, unserved) = self.magic_wanted();
         self.magic.unserved = unserved;
         self.magic.running.retain(|id, forwarder| {
@@ -121,7 +126,12 @@ impl Servers {
                 forwarder.set_target(target);
                 continue;
             }
-            if self.magic.starting.contains(&id) || self.magic.failed.get(&id) == Some(&saved) {
+            let failed_lately = self
+                .magic
+                .failed
+                .get(&id)
+                .is_some_and(|(port, at)| *port == saved && at.elapsed() < RETRY_AFTER);
+            if self.magic.starting.contains(&id) || failed_lately {
                 continue;
             }
             self.magic.starting.insert(id.clone());
@@ -145,6 +155,7 @@ impl Servers {
         let still = self.magic_wanted().0.remove(&id);
         match (result, still) {
             (Ok(forwarder), Some((now, target))) if now == saved => {
+                self.magic.failed.remove(&id);
                 forwarder.set_target(target);
                 if let Some(taken) = forwarder.taken() {
                     log::info!(
@@ -161,7 +172,7 @@ impl Servers {
             }
             (Err(err), _) => {
                 log::warn!("Magic localhost: couldn't listen for {id} (port {saved}): {err}");
-                self.magic.failed.insert(id, saved);
+                self.magic.failed.insert(id, (saved, Instant::now()));
             }
             // removed, or given another port, meanwhile: this one closes
             _ => self.sync_magic(cx),
@@ -212,6 +223,55 @@ impl Servers {
         }
     }
 
+    /// A saved port that is now the game port of a server on this computer (a server
+    /// made or changed after the port was picked) would answer that server's row's
+    /// address instead of the server: Java's server socket shares the port, and the
+    /// forwarder's 127.0.0.1 bind is the more specific one. Such ports go, and their
+    /// servers get new ones away from it, from the core's last list.
+    fn release_local_ports(&mut self) {
+        let local = self.local_game_ports();
+        if local.is_empty() {
+            return;
+        }
+        let mut changed = false;
+        for index in 0..self.cores.len() {
+            if self.is_local_card(index)
+                || !magic_localhost::release(&mut self.cores[index].saved.magic_ports, &local)
+            {
+                continue;
+            }
+            log::info!(
+                "Magic localhost: a server on this computer took a port of {}'s, so its server gets another",
+                self.cores[index].saved.url
+            );
+            changed = true;
+            let taken = self.magic_taken(Some(index));
+            let core = &mut self.cores[index];
+            if let CoreStatus::Online(list) = &core.status {
+                magic_localhost::update_ports(
+                    &mut core.saved.magic_ports,
+                    &core.saved.url,
+                    &list.instances,
+                    false,
+                    &taken,
+                );
+            }
+        }
+        if changed {
+            self.save();
+        }
+    }
+
+    /// The game ports of the servers on this computer's cores, which their rows show as
+    /// their Magic localhost.
+    fn local_game_ports(&self) -> Vec<u16> {
+        (0..self.cores.len())
+            .filter(|&index| self.is_local_card(index))
+            .flat_map(|index| self.cores[index].servers().iter())
+            .filter_map(|s| u16::try_from(s.port?).ok())
+            .collect()
+    }
+
     /// The ports Magic localhost ports stay away from: every core's but `except`'s, and
     /// friends' servers' game ports.
     fn magic_taken(&self, except: Option<usize>) -> Vec<u16> {
@@ -231,12 +291,7 @@ impl Servers {
             .filter(|(index, _)| Some(*index) != except)
             .flat_map(|(_, core)| core.saved.magic_ports.iter().map(|e| e.port))
             .collect();
-        for (index, core) in self.cores.iter().enumerate() {
-            if self.is_local_card(index) {
-                let servers = core.servers().iter();
-                ports.extend(servers.filter_map(|s| u16::try_from(s.port?).ok()));
-            }
-        }
+        ports.extend(self.local_game_ports());
         ports
     }
 
@@ -264,7 +319,11 @@ impl Servers {
         let dead = matches!(address, MagicAddress::Forwarded { .. })
             && bound.is_none()
             && (self.magic.unserved.contains(&id)
-                || self.magic.failed.get(&id) == Some(&address.port()));
+                || self
+                    .magic
+                    .failed
+                    .get(&id)
+                    .is_some_and(|(port, _)| *port == address.port()));
         (!dead).then_some(address)
     }
 
