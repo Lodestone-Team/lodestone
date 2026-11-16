@@ -993,7 +993,9 @@ pub(crate) fn new_record_id(created: i64, records: &[SnapshotRecord]) -> String 
 }
 
 /// Whether `id` has a record id's shape (ASCII digits, `-`, lower-case hex; at most 32
-/// characters): it is passed on the command line and shown, never used as a path.
+/// characters): it is passed on the command line and shown, and a world backup's files are
+/// named after it (`<id>.zip`, `<id>.json`), so it must stay a safe file name on every
+/// disk.
 pub(crate) fn valid_record_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 32

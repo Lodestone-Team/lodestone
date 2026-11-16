@@ -15,6 +15,11 @@
 //! name it can't take, rather than leaving a file out without a word. [`extract_into`]
 //! then never trusts a size the zip states: each file is copied up to its stated size
 //! plus one byte, and one that is larger refuses the zip.
+//!
+//! Files that are already compressed (region files, whose chunks are zlib streams, and
+//! gzip NBT such as `level.dat`) are stored as they are rather than deflated again, which
+//! gains almost nothing and would make zipping a large world bound by one CPU core; every
+//! zip tool reads stored entries.
 
 use std::{
     collections::HashSet,
@@ -111,6 +116,14 @@ impl CheckedZip {
             .filter(|e| !e.is_dir)
             .map(|e| e.relative.as_str())
     }
+
+    /// The folders it creates, relative to the world folder (empty ones included).
+    pub fn folders(&self) -> impl Iterator<Item = &str> {
+        self.entries
+            .iter()
+            .filter(|e| e.is_dir)
+            .map(|e| e.relative.as_str())
+    }
 }
 
 fn zip_error(path: &Path) -> impl FnOnce(zip::result::ZipError) -> WorldError + '_ {
@@ -145,26 +158,52 @@ pub fn check_world_folder(folder: &str) -> Result<(), WorldError> {
     Ok(())
 }
 
-/// The files and folders under `dir` a zip takes, relative with `/`, and the names it
-/// leaves out. Links are never followed. A folder whose name is left out is left out
-/// whole. A name is taken only when [`check`] would take it in the zip, under `prefix/`.
-///
-/// A folder that holds only names the zip doesn't take is left out too, rather than going
-/// in empty: restoring in place carries such a folder back whole from the world on disk,
-/// which it couldn't do were the zip to place an empty folder of that name there.
-struct Collected {
-    entries: Vec<(String, PathBuf, bool)>,
+/// What a zip of a world folder will take ([`plan`]): the files and folders under it,
+/// relative with `/`, with each file's size, and the names it leaves out.
+#[derive(Debug, Clone, Default)]
+pub struct ZipPlan {
+    entries: Vec<Entry>,
     left_out: Vec<String>,
     left_out_count: u64,
 }
 
-fn collect(dir: &Path, prefix: &str) -> Result<Collected, WorldError> {
-    let mut found = Collected {
-        entries: Vec::new(),
-        left_out: Vec::new(),
-        left_out_count: 0,
-    };
-    fn leave_out(found: &mut Collected, name: String) {
+#[derive(Debug, Clone)]
+struct Entry {
+    relative: String,
+    path: PathBuf,
+    is_dir: bool,
+    /// The file's size when listed.
+    size: u64,
+}
+
+impl ZipPlan {
+    /// The files it takes, relative to the world folder.
+    pub fn files(&self) -> impl Iterator<Item = &str> {
+        self.entries
+            .iter()
+            .filter(|e| !e.is_dir)
+            .map(|e| e.relative.as_str())
+    }
+
+    /// The bytes of the files it takes, as listed.
+    pub fn bytes(&self) -> u64 {
+        self.entries
+            .iter()
+            .map(|e| e.size)
+            .fold(0, u64::saturating_add)
+    }
+}
+
+/// What a zip of the world folder `dir`, its files under `prefix/`, takes. Links are never
+/// followed. A folder whose name is left out is left out whole. A name is taken only when
+/// [`check`] would take it in the zip.
+///
+/// A folder that holds only names the zip doesn't take is left out too, rather than going
+/// in empty: restoring in place carries such a folder back whole from the world on disk,
+/// which it couldn't do were the zip to place an empty folder of that name there.
+pub fn plan(dir: &Path, prefix: &str) -> Result<ZipPlan, WorldError> {
+    let mut found = ZipPlan::default();
+    fn leave_out(found: &mut ZipPlan, name: String) {
         found.left_out_count += 1;
         if found.left_out.len() < MAX_LEFT_OUT_NAMES {
             found.left_out.push(name);
@@ -221,10 +260,22 @@ fn collect(dir: &Path, prefix: &str) -> Result<Collected, WorldError> {
                 continue;
             }
             if kind.is_dir() {
-                found.entries.push((child.clone(), entry.path(), true));
+                found.entries.push(Entry {
+                    relative: child.clone(),
+                    path: entry.path(),
+                    is_dir: true,
+                    size: 0,
+                });
                 stack.push((entry.path(), child));
             } else if kind.is_file() {
-                found.entries.push((child, entry.path(), false));
+                // The entry's own metadata: a link is never followed.
+                let size = entry.metadata().map_err(io_error(&entry.path()))?.len();
+                found.entries.push(Entry {
+                    relative: child,
+                    path: entry.path(),
+                    is_dir: false,
+                    size,
+                });
             } else {
                 hold_back(&child);
                 leave_out(&mut found, child);
@@ -234,11 +285,11 @@ fn collect(dir: &Path, prefix: &str) -> Result<Collected, WorldError> {
     // A held-back folder stays when the zip takes something inside it: a file, or a folder
     // that isn't held back itself.
     let mut keep: HashSet<String> = HashSet::new();
-    for (child, _, is_dir) in &found.entries {
-        if *is_dir && held_back.contains(child) {
+    for entry in &found.entries {
+        if entry.is_dir && held_back.contains(&entry.relative) {
             continue;
         }
-        let mut folder = child.as_str();
+        let mut folder = entry.relative.as_str();
         while let Some((parent, _)) = folder.rsplit_once('/') {
             if !keep.insert(parent.to_string()) {
                 break;
@@ -248,10 +299,45 @@ fn collect(dir: &Path, prefix: &str) -> Result<Collected, WorldError> {
     }
     found
         .entries
-        .retain(|(child, _, is_dir)| !is_dir || !held_back.contains(child) || keep.contains(child));
-    found.entries.sort_by(|a, b| a.0.cmp(&b.0));
+        .retain(|e| !e.is_dir || !held_back.contains(&e.relative) || keep.contains(&e.relative));
+    found.entries.sort_by(|a, b| a.relative.cmp(&b.relative));
     Ok(found)
 }
+
+/// Whether the file `name` is already compressed, so a zip stores it as it is: region
+/// files (zlib chunks), gzip NBT (`level.dat`, player data), images and gzip files.
+fn already_compressed(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    [
+        ".mca", ".mcc", ".mcr", ".dat", ".dat_old", ".png", ".gz", ".zip", ".jar",
+    ]
+    .iter()
+    .any(|ext| lower.ends_with(ext))
+}
+
+/// Opens the file at `path` for zipping, never through a link (one swapped in after the
+/// world was listed would put a file from outside the world in the zip) and never anything
+/// but a plain file (a pipe would make the zip wait forever).
+fn open_listed(path: &Path) -> Result<File, WorldError> {
+    let mut options = File::options();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    let file = options.open(path).map_err(io_error(path))?;
+    if !file.metadata().map_err(io_error(path))?.is_file() {
+        return Err(WorldError::Invalid(format!(
+            "{} changed while it was being zipped; try again.",
+            path.display()
+        )));
+    }
+    Ok(file)
+}
+
+/// How much of a file is copied between two checks of Cancel (and progress updates).
+const COPY_CHUNK: usize = 8 * 1024 * 1024;
 
 fn zip_time(time: Option<SystemTime>) -> zip::DateTime {
     use chrono::{Datelike as _, Timelike as _};
@@ -281,15 +367,23 @@ pub fn write_zip(
     progress: &Progress,
     stop: &dyn Fn() -> Result<(), WorldError>,
 ) -> Result<Written, WorldError> {
-    let collected = collect(dir, prefix)?;
-    let entries = &collected.entries;
-    let total_bytes: u64 = entries
-        .iter()
-        .filter(|(_, _, is_dir)| !is_dir)
-        .filter_map(|(_, path, _)| fs::symlink_metadata(path).ok())
-        .map(|m| m.len())
-        .sum();
-    let total_files = entries.iter().filter(|(_, _, d)| !d).count() as u64;
+    let planned = plan(dir, prefix)?;
+    write_planned(dir, prefix, planned, out, progress, stop)
+}
+
+/// [`write_zip`] of what [`plan`] listed. `stop` is also asked between chunks of a large
+/// file.
+pub fn write_planned(
+    dir: &Path,
+    prefix: &str,
+    planned: ZipPlan,
+    out: &Path,
+    progress: &Progress,
+    stop: &dyn Fn() -> Result<(), WorldError>,
+) -> Result<Written, WorldError> {
+    let entries = &planned.entries;
+    let total_bytes = planned.bytes();
+    let total_files = entries.iter().filter(|e| !e.is_dir).count() as u64;
     let mut done = ProgressSnapshot {
         files_total: total_files,
         bytes_total: total_bytes,
@@ -312,8 +406,7 @@ pub fn write_zip(
         let file = File::create(&tmp).map_err(io_error(&tmp))?;
         // Buffered: the zip writer's own writes (headers, stored entries) are small.
         let mut zip = zip::ZipWriter::new(io::BufWriter::with_capacity(1 << 20, file));
-        let base = zip::write::SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Deflated);
+        let base = zip::write::SimpleFileOptions::default();
         let zip_err = |err: zip::result::ZipError| {
             WorldError::Invalid(format!("couldn't write the zip: {err}"))
         };
@@ -322,25 +415,52 @@ pub fn write_zip(
             base.last_modified_time(zip_time(fs::metadata(dir).and_then(|m| m.modified()).ok())),
         )
         .map_err(zip_err)?;
-        for (relative, path, is_dir) in entries {
+        let mut buffer = vec![0u8; 256 * 1024];
+        for entry in entries {
             stop()?;
-            let metadata = fs::symlink_metadata(path).map_err(io_error(path))?;
-            let options = base
-                .last_modified_time(zip_time(metadata.modified().ok()))
-                .large_file(metadata.len() >= u32::MAX as u64);
-            if *is_dir {
-                zip.add_directory(format!("{prefix}/{relative}/"), options)
-                    .map_err(zip_err)?;
+            let (relative, path) = (&entry.relative, &entry.path);
+            if entry.is_dir {
+                let modified = fs::symlink_metadata(path).and_then(|m| m.modified()).ok();
+                zip.add_directory(
+                    format!("{prefix}/{relative}/"),
+                    base.last_modified_time(zip_time(modified)),
+                )
+                .map_err(zip_err)?;
                 continue;
             }
+            let mut source = open_listed(path)?;
+            let metadata = source.metadata().map_err(io_error(path))?;
+            let method = if already_compressed(relative) {
+                zip::CompressionMethod::Stored
+            } else {
+                zip::CompressionMethod::Deflated
+            };
+            let options = base
+                .compression_method(method)
+                .last_modified_time(zip_time(metadata.modified().ok()))
+                .large_file(metadata.len() >= u32::MAX as u64);
             zip.start_file(format!("{prefix}/{relative}"), options)
                 .map_err(zip_err)?;
-            let mut source =
-                io::BufReader::with_capacity(256 * 1024, File::open(path).map_err(io_error(path))?);
-            let copied = io::copy(&mut source, &mut zip).map_err(io_error(path))?;
+            // In chunks, asking `stop` between them, so Cancel works in a large file too.
+            let mut since_check = 0usize;
+            loop {
+                let read = match source.read(&mut buffer) {
+                    Ok(0) => break,
+                    Ok(read) => read,
+                    Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                    Err(e) => return Err(io_error(path)(e)),
+                };
+                io::Write::write_all(&mut zip, &buffer[..read]).map_err(io_error(&tmp))?;
+                done.bytes_done += read as u64;
+                since_check += read;
+                if since_check >= COPY_CHUNK {
+                    since_check = 0;
+                    progress.set(done);
+                    stop()?;
+                }
+            }
             files.push(relative.clone());
             done.files_done += 1;
-            done.bytes_done += copied;
             progress.set(done);
         }
         stop()?;
@@ -364,8 +484,8 @@ pub fn write_zip(
             bytes,
             world_bytes: done.bytes_done,
             files,
-            left_out: collected.left_out,
-            left_out_count: collected.left_out_count,
+            left_out: planned.left_out,
+            left_out_count: planned.left_out_count,
         }),
         Err(e) => {
             let _ = fs::remove_file(&tmp);
@@ -409,8 +529,8 @@ pub fn check(path: &Path, shape: Shape, limits: Limits) -> Result<CheckedZip, Wo
     }
     let too_large = || {
         WorldError::Invalid(format!(
-            "The zip's files are larger than {} GB unpacked.",
-            limits.max_bytes / 1_000_000_000
+            "The zip's files are larger than {} GiB unpacked.",
+            limits.max_bytes >> 30
         ))
     };
     let mut total = 0u64;
@@ -610,10 +730,12 @@ pub fn check(path: &Path, shape: Shape, limits: Limits) -> Result<CheckedZip, Wo
 }
 
 /// Unpacks the world of the checked zip at `path` into `dest`, a new folder (it must not
-/// exist; its parent must). Each file is created new (never over another), copied up to
-/// its stated size plus one byte (one that is larger refuses the zip), and flushed. Cancel
-/// is asked before each entry. On any failure `dest` is removed. Returns the files placed,
-/// relative to `dest` with `/`.
+/// exist; its parent must). Each file is created new (never over another) and copied up
+/// to its stated size plus one byte (one that is larger refuses the zip). Everything is
+/// made durable as one batch ([`lodestone_image::store::durable`]): each file and folder
+/// handed to the drive as it is written, then one flush of the drive's cache at the end,
+/// rather than a flush of the cache per file. Cancel is asked before each entry. On any
+/// failure `dest` is removed. Returns the files placed, relative to `dest` with `/`.
 pub fn extract_into(
     path: &Path,
     zip: &CheckedZip,
@@ -639,6 +761,8 @@ pub fn extract_into(
         };
         progress.set(done);
         let mut placed = Vec::new();
+        // Every folder made, flushed once each at the end.
+        let mut folders: std::collections::BTreeSet<PathBuf> = [dest.to_path_buf()].into();
         for planned in &zip.entries {
             if cancel() {
                 return Err(WorldError::Cancelled);
@@ -646,10 +770,12 @@ pub fn extract_into(
             let target = super::join_rel(dest, &planned.relative);
             if planned.is_dir {
                 fs::create_dir_all(&target).map_err(io_error(&target))?;
+                folders.insert(target);
                 continue;
             }
             if let Some(parent) = target.parent() {
                 fs::create_dir_all(parent).map_err(io_error(parent))?;
+                folders.insert(parent.to_path_buf());
             }
             let mut out = match File::options().write(true).create_new(true).open(&target) {
                 Ok(out) => out,
@@ -675,7 +801,7 @@ pub fn extract_into(
                     planned.relative
                 )));
             }
-            out.sync_all().map_err(io_error(&target))?;
+            lodestone_image::store::durable::write_out(&out).map_err(io_error(&target))?;
             budget -= copied;
             done.files_done += 1;
             done.bytes_done += copied;
@@ -687,6 +813,14 @@ pub fn extract_into(
                 "The zip's level.dat is missing.".into(),
             ));
         }
+        // A folder made inside another is listed in it: the deepest first.
+        for folder in folders.iter().rev() {
+            lodestone_image::store::durable::write_out_dir(folder).map_err(io_error(folder))?;
+        }
+        if let Some(parent) = dest.parent() {
+            lodestone_image::store::durable::write_out_dir(parent).map_err(io_error(parent))?;
+        }
+        lodestone_image::store::durable::full_flush(dest).map_err(io_error(dest))?;
         Ok(placed)
     })();
     if result.is_err() {
@@ -1013,5 +1147,91 @@ mod tests {
             extract_into(&path, &checked, &dest, &Progress::default(), &|| false).unwrap_err();
         assert!(matches!(err, WorldError::Conflict(_)));
         assert_eq!(fs::read(dest.join("mine")).unwrap(), b"keep");
+    }
+
+    /// Region files and gzip NBT are stored as they are; text is deflated.
+    #[test]
+    fn already_compressed_files_are_stored() {
+        let temp = tempfile::tempdir().unwrap();
+        let src = temp.path().join("World");
+        world(&src);
+        fs::write(src.join("stats.json"), "{}".repeat(1000)).unwrap();
+        let out = temp.path().join("w.zip");
+        write_zip(&src, "World", &out, &Progress::default(), &|| Ok(())).unwrap();
+        let mut archive = zip::ZipArchive::new(File::open(&out).unwrap()).unwrap();
+        let method = |archive: &mut zip::ZipArchive<File>, name: &str| {
+            archive.by_name(name).unwrap().compression()
+        };
+        assert_eq!(
+            method(&mut archive, "World/region/r.0.0.mca"),
+            zip::CompressionMethod::Stored
+        );
+        assert_eq!(
+            method(&mut archive, "World/level.dat"),
+            zip::CompressionMethod::Stored
+        );
+        assert_eq!(
+            method(&mut archive, "World/stats.json"),
+            zip::CompressionMethod::Deflated
+        );
+    }
+
+    /// Cancel is asked between chunks of a large file, not only between files.
+    #[test]
+    fn a_large_file_can_be_stopped_part_way() {
+        let temp = tempfile::tempdir().unwrap();
+        let src = temp.path().join("World");
+        world(&src);
+        fs::write(src.join("region/r.9.9.mca"), vec![1u8; 3 * COPY_CHUNK]).unwrap();
+        let out = temp.path().join("out/w.zip");
+        let asked = std::sync::atomic::AtomicUsize::new(0);
+        let entries = plan(&src, "World").unwrap().entries.len();
+        let err = write_zip(&src, "World", &out, &Progress::default(), &|| {
+            // Every entry once, and then some: stopped inside the large file.
+            if asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst) > entries {
+                Err(WorldError::Cancelled)
+            } else {
+                Ok(())
+            }
+        })
+        .unwrap_err();
+        assert!(matches!(err, WorldError::Cancelled));
+        assert_eq!(fs::read_dir(temp.path().join("out")).unwrap().count(), 0);
+    }
+
+    /// The folders a zip lists, empty ones too, are given to the restore.
+    #[test]
+    fn a_checked_zip_lists_its_folders() {
+        let temp = tempfile::tempdir().unwrap();
+        let src = temp.path().join("World");
+        world(&src);
+        fs::create_dir_all(src.join("datapacks")).unwrap();
+        let out = temp.path().join("w.zip");
+        write_zip(&src, "World", &out, &Progress::default(), &|| Ok(())).unwrap();
+        let checked = check(&out, Shape::OneWorldFolder, Limits::default()).unwrap();
+        let mut folders: Vec<&str> = checked.folders().collect();
+        folders.sort();
+        assert_eq!(folders, ["DIM-1", "DIM-1/region", "datapacks", "region"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_file_swapped_for_a_link_while_zipping_is_refused() {
+        let temp = tempfile::tempdir().unwrap();
+        let src = temp.path().join("World");
+        world(&src);
+        let planned = plan(&src, "World").unwrap();
+        let secret = temp.path().join("secret");
+        fs::write(&secret, b"secret").unwrap();
+        fs::remove_file(src.join("region/r.0.0.mca")).unwrap();
+        std::os::unix::fs::symlink(&secret, src.join("region/r.0.0.mca")).unwrap();
+        let out = temp.path().join("w.zip");
+        assert!(
+            write_planned(&src, "World", planned, &out, &Progress::default(), &|| Ok(
+                ()
+            ))
+            .is_err()
+        );
+        assert!(!out.exists());
     }
 }

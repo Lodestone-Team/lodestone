@@ -888,3 +888,245 @@ fn restoring_as_a_new_world_places_a_copy_beside_it() {
     assert_eq!(again.folder, format!("World (restored {today}) (2)"));
     assert_eq!(s.list().len(), 1);
 }
+
+/// Minecraft makes an empty `datapacks/` in every world: a folder the zip lists, empty, is
+/// the zip's whether the world on disk has it or not; one only on disk stays.
+#[test]
+fn empty_folders_restore_whether_in_the_backup_on_disk_or_both() {
+    let s = Setup::new();
+    for empty in ["datapacks", "DIM1/data", "poi"] {
+        std::fs::create_dir_all(s.game(&format!("saves/World/{empty}"))).unwrap();
+    }
+    let backup = s.back_up("World", None);
+    let at_backup = s.world_files("World");
+    // Only in the backup now, and only on disk.
+    std::fs::remove_dir_all(s.game("saves/World/DIM1")).unwrap();
+    std::fs::create_dir_all(s.game("saves/World/entities")).unwrap();
+    s.write("saves/World/region/r.0.0.mca", b"region v2");
+
+    let restored = s.restore(&backup.id, RestoreTo::InPlace).unwrap();
+    assert_eq!(s.world_files("World"), at_backup);
+    for folder in ["datapacks", "DIM1/data", "poi", "entities"] {
+        assert!(
+            s.game(&format!("saves/World/{folder}")).is_dir(),
+            "{folder}"
+        );
+    }
+    // The safety backup, empty folders and all, restores too.
+    let safety = restored.safety.unwrap();
+    s.restore(&safety.id, RestoreTo::InPlace).unwrap();
+    assert_eq!(
+        s.world_files("World")["region/r.0.0.mca"],
+        b"region v2".to_vec()
+    );
+}
+
+/// A restore that ends with the world as it was deletes the safety backup it made: each
+/// is a full-size zip, and world backups are never pruned. One that changed the world (or
+/// may have: a swap that couldn't be undone) keeps it.
+#[test]
+fn a_restore_that_leaves_the_world_as_it_was_deletes_its_safety_backup() {
+    let s = Setup::new();
+    let backup = s.back_up("World", None);
+    s.write("saves/World/region/r.0.0.mca", b"region v2");
+    let now = s.world_files("World");
+    let mut changes = s.backups.watch();
+
+    // Cancelled while unpacking.
+    let unpacking = AtomicBool::new(false);
+    let err = s
+        .backups
+        .restore(
+            &s.id,
+            &backup.id,
+            RestoreTo::InPlace,
+            &|step| unpacking.store(step == WorldStep::Unpacking, Ordering::SeqCst),
+            &Progress::default(),
+            &|| unpacking.load(Ordering::SeqCst),
+        )
+        .unwrap_err();
+    assert!(matches!(err, WorldBackupError::Cancelled), "{err:?}");
+    assert_eq!(s.list(), [backup.clone()]);
+    assert_eq!(
+        files(&s.backup_dir()).len(),
+        2,
+        "only the backup's zip and .json"
+    );
+    // The list followed: made, then deleted.
+    assert_eq!(changes.try_recv().ok().as_deref(), Some(s.id.as_str()));
+    assert_eq!(changes.try_recv().ok().as_deref(), Some(s.id.as_str()));
+
+    // Rolled back.
+    *s.backups.faults.lock().unwrap() = Some(Faults {
+        fail_after: Some(1),
+        ..Faults::default()
+    });
+    assert!(s.restore(&backup.id, RestoreTo::InPlace).is_err());
+    assert_eq!(s.list(), [backup.clone()]);
+    assert_eq!(s.world_files("World"), now);
+
+    // A game session that began while it unpacked.
+    let slot = s.images.slot(&s.id);
+    let started = slot.clone();
+    *s.backups.before_swap.lock().unwrap() = Some(Box::new(move || {
+        started.session.fetch_add(1, Ordering::SeqCst);
+    }));
+    let err = s.restore(&backup.id, RestoreTo::InPlace).unwrap_err();
+    assert!(matches!(err, WorldBackupError::Running), "{err:?}");
+    slot.session_over();
+    assert_eq!(s.list(), [backup.clone()]);
+    assert_eq!(s.world_files("World"), now);
+    assert!(
+        !std::fs::read_dir(s.store.dir(&s.id))
+            .unwrap()
+            .flatten()
+            .any(|e| e
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".lodestone-restore")),
+        "the staging folder is gone"
+    );
+
+    // A swap that couldn't be undone keeps it: the world may be half restored.
+    *s.backups.faults.lock().unwrap() = Some(Faults {
+        fail_after: Some(1),
+        break_rollback: true,
+        ..Faults::default()
+    });
+    assert!(s.restore(&backup.id, RestoreTo::InPlace).is_err());
+    assert_eq!(s.list().len(), 2);
+}
+
+/// A link where the backup places a folder is refused before the safety backup is made
+/// or anything is unpacked, and nothing is written through it.
+#[cfg(unix)]
+#[test]
+fn a_link_in_the_way_is_refused_before_the_safety_backup() {
+    let s = Setup::new();
+    let backup = s.back_up("World", None);
+    let elsewhere = s
+        .data
+        .world_backups_dir()
+        .parent()
+        .unwrap()
+        .join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    std::fs::remove_dir_all(s.game("saves/World/region")).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, s.game("saves/World/region")).unwrap();
+    let err = s.restore(&backup.id, RestoreTo::InPlace).unwrap_err();
+    assert!(err.to_string().contains("region"), "{err}");
+    assert_eq!(s.list(), [backup], "no safety backup");
+    assert_eq!(std::fs::read_dir(&elsewhere).unwrap().count(), 0);
+}
+
+/// Renaming a world in the Launcher takes its world backups along; a world later given
+/// the old folder name has none of them. The new folder is free in both places.
+#[test]
+fn renaming_a_world_moves_its_backups() {
+    let s = Setup::new();
+    let backup = s.back_up("World", None);
+    let mut changes = s.backups.watch();
+    let folder = s.backups.rename_world(&s.id, "World", "Base").unwrap();
+    assert_eq!(folder, "Base");
+    assert!(s.game("saves/Base/level.dat").is_file());
+    assert_eq!(changes.try_recv().ok().as_deref(), Some(s.id.as_str()));
+    let listed = s.list();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].id, backup.id);
+    assert_eq!(listed[0].folder, "Base");
+    assert!(!s.backup_dir().join("World").exists());
+
+    // A new world given the old name has no backups.
+    s.world("World", b"new world");
+    assert!(s.list().iter().all(|b| b.folder != "World"));
+
+    // A name only the backups' folder has is taken too.
+    std::fs::create_dir_all(s.backup_dir().join("Taken")).unwrap();
+    assert_eq!(
+        s.backups.rename_world(&s.id, "Base", "Taken").unwrap(),
+        "Taken (2)"
+    );
+    assert_eq!(s.list()[0].folder, "Taken (2)");
+    // Refused while the game runs.
+    let slot = s.images.slot(&s.id);
+    slot.session.fetch_add(1, Ordering::SeqCst);
+    assert!(matches!(
+        s.backups.rename_world(&s.id, "Taken (2)", "Again"),
+        Err(WorldBackupError::Running)
+    ));
+    slot.session_over();
+}
+
+/// A zip found without its `.json` that is older than the instance with that id was made
+/// by a deleted instance whose id was reused: it isn't given to the new one.
+#[test]
+fn the_sweep_never_gives_an_older_instances_zip_to_a_new_one() {
+    let s = Setup::new();
+    let backup = s.back_up("World", None);
+    let dir = s.backup_dir().join("World");
+    let orphan = dir.join("20200101-000000-abcd.zip");
+    std::fs::copy(dir.join(format!("{}.zip", backup.id)), &orphan).unwrap();
+    let created = s.store.get(&s.id).unwrap().created;
+    std::fs::File::options()
+        .write(true)
+        .open(&orphan)
+        .unwrap()
+        .set_modified(SystemTime::UNIX_EPOCH + Duration::from_secs(created - 1000))
+        .unwrap();
+    s.backups.sweep();
+    assert_eq!(s.list(), [backup]);
+    assert!(orphan.exists(), "left alone");
+}
+
+#[test]
+fn a_folder_without_level_dat_is_not_backed_up_by_hand() {
+    let s = Setup::new();
+    std::fs::remove_file(s.game("saves/World/level.dat")).unwrap();
+    let err = s
+        .backups
+        .create(&s.id, "World", None, &Progress::default(), NEVER)
+        .unwrap_err();
+    assert!(err.to_string().contains("level.dat"), "{err}");
+    assert!(s.list().is_empty());
+}
+
+/// On one disk, a restore needs room for the unpacked world and the safety backup at
+/// once, checked before the safety backup is made.
+#[test]
+fn a_restore_needs_room_for_both_copies_on_one_disk() {
+    let s = Setup::new();
+    let backup = s.back_up("World", None);
+    s.write("saves/World/region/r.0.0.mca", &vec![7u8; 100_000]);
+    let world = worlds::zip::plan(&s.game("saves/World"), "World")
+        .unwrap()
+        .bytes();
+    let both = worlds::SPARE_BYTES + backup.world_bytes + world;
+    *s.backups.fake_free.lock().unwrap() = Some(both - 1);
+    let err = s.restore(&backup.id, RestoreTo::InPlace).unwrap_err();
+    assert!(matches!(err, WorldBackupError::NoRoom { .. }), "{err:?}");
+    assert_eq!(s.list().len(), 1, "refused before the safety backup");
+    *s.backups.fake_free.lock().unwrap() = Some(both);
+    s.restore(&backup.id, RestoreTo::InPlace).unwrap();
+}
+
+/// A world backup's folder whose name no backup would be made under (planted in the data
+/// folder) is never restored.
+#[test]
+fn a_backup_under_a_folder_no_backup_takes_is_never_restored() {
+    let s = Setup::new();
+    let backup = s.back_up("World", None);
+    let planted = s.backup_dir().join("aux");
+    std::fs::create_dir_all(&planted).unwrap();
+    for ext in ["zip", "json"] {
+        std::fs::rename(
+            s.backup_dir()
+                .join("World")
+                .join(format!("{}.{ext}", backup.id)),
+            planted.join(format!("{}.{ext}", backup.id)),
+        )
+        .unwrap();
+    }
+    assert!(s.restore(&backup.id, RestoreTo::InPlace).is_err());
+    assert!(s.restore(&backup.id, RestoreTo::NewWorld).is_err());
+    assert!(!s.game("saves/aux").exists());
+}

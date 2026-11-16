@@ -276,6 +276,20 @@ pub fn rename_with(
     dirs: &InstanceDirs,
     folder: &str,
     name: &str,
+    move_dir: impl FnMut(&Path, &Path) -> io::Result<()>,
+) -> Result<String, WorldError> {
+    rename_in(dirs, folder, name, &[], move_dir)
+}
+
+/// Like [`rename_with`], with the new folder a name free in `saves/` and in each of
+/// `taken` too (the world backups' folder, whose world folders follow the world).
+/// `move_dir` is called with the world's folder and its new place, and again the other
+/// way round to put it back when its `level.dat` can't be renamed.
+pub fn rename_in(
+    dirs: &InstanceDirs,
+    folder: &str,
+    name: &str,
+    taken: &[&Path],
     mut move_dir: impl FnMut(&Path, &Path) -> io::Result<()>,
 ) -> Result<String, WorldError> {
     let dir = world_dir(dirs, folder)?;
@@ -296,7 +310,9 @@ pub fn rename_with(
         }
         return Ok(wanted);
     }
-    let new_folder = unused(&saves, &wanted);
+    let mut free_in: Vec<&Path> = vec![&saves];
+    free_in.extend_from_slice(taken);
+    let new_folder = unused_in(&free_in, &wanted);
     let target = saves.join(&new_folder);
     move_dir(&dir, &target).map_err(io_error(&dir))?;
     let written = match &renamed_level {

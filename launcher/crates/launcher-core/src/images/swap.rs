@@ -264,13 +264,29 @@ impl Staged {
         replaced: &HashSet<String>,
         placed: &[String],
     ) -> Result<Staged, ImageError> {
+        Self::with_folders(root, staging, owned, replaced, placed, &[])
+    }
+
+    /// [`Self::new`] for a restore that also places `folders` (relative paths), empty ones
+    /// included: a world backup's zip lists its folders. Such a folder on disk is replaced
+    /// by the staged one, not carried, even with nothing replaced or placed inside it.
+    pub(crate) fn with_folders(
+        root: &Path,
+        staging: String,
+        owned: &[String],
+        replaced: &HashSet<String>,
+        placed: &[String],
+        folders: &[String],
+    ) -> Result<Staged, ImageError> {
         let staging_dir = root.join(format!("{STAGING_PREFIX}{staging}"));
-        let touched = folders_of(
+        let mut touched = folders_of(
             replaced
                 .iter()
                 .map(String::as_str)
-                .chain(placed.iter().map(String::as_str)),
+                .chain(placed.iter().map(String::as_str))
+                .chain(folders.iter().map(String::as_str)),
         );
+        touched.extend(folders.iter().cloned());
         let placed_set: HashSet<&str> = placed.iter().map(String::as_str).collect();
         let mut entries = Vec::new();
         let mut carried = Vec::new();
@@ -298,7 +314,7 @@ impl Staged {
             }
             if meta.as_ref().is_some_and(|m| !m.is_dir()) && !replaced.contains(path) {
                 return Err(ImageError::Invalid(format!(
-                    "{path} isn't in the safety snapshot, so the restore won't replace it; close what holds it, or move it away, and try again"
+                    "{path} isn't in the safety snapshot or world backup, so the restore won't replace it; close what holds it, or move it away, and try again"
                 )));
             }
             entries.push(JournalEntry {
@@ -312,12 +328,16 @@ impl Staged {
         }
         // A carried path the staging also has: on a disk that takes two spellings for one
         // name, the snapshot's copy would lose to it; elsewhere, it is a file the safety
-        // snapshot couldn't take that the restore would overwrite.
+        // snapshot couldn't take that the restore would overwrite. A carried path that
+        // holds something placed (a link, or a file, where the restore places a folder)
+        // is one too, found here before anything is staged.
         if let Some(clash) = carried.iter().find(|path| {
-            placed_set.contains(path.as_str()) || exists(&join_rel(&staging_dir, path))
+            placed_set.contains(path.as_str())
+                || touched.contains(path.as_str())
+                || exists(&join_rel(&staging_dir, path))
         }) {
             return Err(ImageError::Invalid(format!(
-                "{clash} on disk isn't in the safety snapshot, or is spelled differently from the snapshot's copy (letter case or accents); rename or move it away, and try again"
+                "{clash} on disk isn't in the safety snapshot or world backup, or is spelled differently from the restored copy (letter case or accents); rename or move it away, and try again"
             )));
         }
         Ok(Staged {

@@ -51,6 +51,7 @@
 pub mod cdc;
 mod checked;
 pub mod chunklist;
+pub mod durable;
 pub mod encoding;
 pub mod excludes;
 pub(crate) mod fsx;

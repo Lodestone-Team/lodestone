@@ -675,12 +675,6 @@ impl Images {
         Ok(made)
     }
 
-    /// Whether a game session of `instance` runs (from the check before its launch until it
-    /// ends).
-    pub fn in_session(&self, instance: &str) -> bool {
-        self.accepts(instance) && self.slot(instance).in_session()
-    }
-
     /// Runs `f` holding `instance`'s record lock inside a counted write (see [`Locked`]).
     /// Refused while the store is suspended (a data move), and for an id the store can't
     /// name.

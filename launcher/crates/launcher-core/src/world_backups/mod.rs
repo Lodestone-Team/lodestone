@@ -248,6 +248,28 @@ impl Owners {
         Owners::listed(instances.root(), &instances.list().0)
     }
 
+    /// The owner of the one instance id `id`, reading only its record.
+    fn one(instances: &InstanceStore, id: &str) -> Owners {
+        let root = instances.root();
+        let mut owners = Owners {
+            live: HashMap::new(),
+            unknown: HashSet::new(),
+            blind: !root.is_dir(),
+        };
+        match instances.get(id) {
+            Ok(instance) => {
+                owners
+                    .live
+                    .insert(id.to_string(), (instance.created, instance.name));
+            }
+            Err(_) if fs::symlink_metadata(root.join(id)).is_ok() => {
+                owners.unknown.insert(id.to_string());
+            }
+            Err(_) => {}
+        }
+        owners
+    }
+
     /// The owners given the instances folder `root` and the instances read from it.
     fn listed(root: &Path, list: &[Instance]) -> Owners {
         let blind = !root.is_dir();
@@ -433,6 +455,7 @@ impl WorldBackups {
                     kind: WorldBackupKind::Manual,
                     restored: None,
                 },
+                None,
                 progress,
                 cancel,
             )?;
@@ -441,14 +464,22 @@ impl WorldBackups {
         })
     }
 
-    /// [`Self::create`] for a caller holding the record lock inside a counted write.
-    /// Returns the files zipped too.
+    /// [`Self::create`] for a caller holding the record lock inside a counted write, with
+    /// what [`worlds::zip::plan`] listed when the caller has it. Returns the files zipped
+    /// too.
+    ///
+    /// A manual backup of a folder without `level.dat` is refused: no restore could take
+    /// it. The safety backup before a restore is made anyway (the world may be broken, the
+    /// very reason for restoring), keeping the files the restore replaces; such a zip opens
+    /// with any zip tool.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn create_locked(
         &self,
         slot: &crate::images::Slot,
         instance: &str,
         folder: &str,
         making: Making,
+        plan: Option<worlds::zip::ZipPlan>,
         progress: &Progress,
         cancel: Cancel,
     ) -> Result<(WorldBackup, Vec<String>), WorldBackupError> {
@@ -459,13 +490,23 @@ impl WorldBackups {
         let dirs = InstanceDirs::new(self.instances().dir(instance));
         let world = worlds::world_dir(&dirs, folder)?;
         worlds::zip::check_world_folder(folder)?;
+        if making.kind == WorldBackupKind::Manual && !world.join("level.dat").is_file() {
+            return Err(WorldBackupError::Invalid(
+                "That world's folder has no level.dat, so a backup of it couldn't be restored."
+                    .into(),
+            ));
+        }
         let saves = worlds::saves_dir(&dirs);
         let only = [folder.to_string()];
         if worlds::open_in_game(&saves, Some(&only)).is_some() {
             return Err(WorldBackupError::Running);
         }
         let dir = self.folder_dir(instance, folder)?;
-        self.check_room(&dir, worlds::folder_size(&world))?;
+        let plan = match plan {
+            Some(plan) => plan,
+            None => worlds::zip::plan(&world, folder)?,
+        };
+        self.check_room(&dir, plan.bytes())?;
         fs::create_dir_all(&dir).map_err(WorldBackupError::io(format!(
             "Failed to create {}",
             dir.display()
@@ -489,8 +530,8 @@ impl WorldBackups {
                 Ok(())
             }
         };
-        let written =
-            worlds::zip::write_zip(&world, folder, &zip, progress, &stop).map_err(|e| match e {
+        let written = worlds::zip::write_planned(&world, folder, plan, &zip, progress, &stop)
+            .map_err(|e| match e {
                 WorldError::Invalid(why) if why == RUNNING => WorldBackupError::Running,
                 other => other.into(),
             })?;
@@ -519,6 +560,64 @@ impl WorldBackups {
             return Err(e);
         }
         Ok((backup, written.files))
+    }
+
+    /// Deletes a backup this process just made, for good (a restore that left the world as
+    /// it was deletes its safety backup). The caller holds the record lock.
+    fn remove_made(&self, instance: &str, backup: &WorldBackup) {
+        let zip = self.zip_path(instance, backup);
+        let _ = fs::remove_file(&zip);
+        let _ = fs::remove_file(zip.with_extension("json"));
+        prune(zip.parent());
+        self.changed(instance);
+    }
+
+    /// Renames the world `folder` of `instance` to `name` ([`worlds::rename`]) and moves
+    /// its world backups with it, under the instance's record lock: its backups stay its
+    /// own, and a world later given the old folder name never takes them. The new folder is
+    /// a name free in both `saves/` and the world backups' folder. If the backups can't be
+    /// moved, the world is put back as it was. Refused while a game session runs. Returns
+    /// the world's folder now. Blocking.
+    pub fn rename_world(
+        &self,
+        instance: &str,
+        folder: &str,
+        name: &str,
+    ) -> Result<String, WorldBackupError> {
+        self.images.with_instance_locked(instance, |locked| {
+            if locked.slot.in_session() {
+                return Err(WorldBackupError::Running);
+            }
+            let dirs = InstanceDirs::new(&locked.dir);
+            let world = worlds::world_dir(&dirs, folder)?;
+            let backups = self.root.join(instance);
+            let from_backups = backups.join(folder);
+            let has_backups = fs::symlink_metadata(&from_backups).is_ok_and(|m| m.is_dir());
+            let renamed = worlds::rename_in(&dirs, folder, name, &[&backups], |from, to| {
+                if !has_backups {
+                    return crate::fsx::rename(from, to);
+                }
+                let to_name = to.file_name().map(PathBuf::from).unwrap_or_default();
+                let from_name = from.file_name().map(PathBuf::from).unwrap_or_default();
+                if from == world {
+                    // Forward: the world, then its backups; the world back if they can't.
+                    crate::fsx::rename(from, to)?;
+                    if let Err(e) = crate::fsx::rename(&from_backups, backups.join(&to_name)) {
+                        let _ = crate::fsx::rename(to, from);
+                        return Err(e);
+                    }
+                    Ok(())
+                } else {
+                    // Putting it back (its level.dat couldn't be renamed): both again.
+                    crate::fsx::rename(backups.join(&from_name), backups.join(&to_name))?;
+                    crate::fsx::rename(from, to)
+                }
+            })?;
+            if renamed != folder && has_backups {
+                self.changed(instance);
+            }
+            Ok(renamed)
+        })
     }
 
     /// Moves the backup's zip to the Trash, then deletes its `.json`. Blocking.
@@ -564,7 +663,7 @@ impl WorldBackups {
             self.images
                 .with_instance_locked(&id, |_| -> Result<(), WorldBackupError> {
                     // Looked at again under the lock: an instance put back meanwhile keeps them.
-                    let owners = Owners::of(self.instances());
+                    let owners = Owners::one(self.instances(), &id);
                     for found in found_in(&self.root, &id) {
                         if !owners.deleted(&id, found.backup.instance_created) {
                             continue;
@@ -634,6 +733,8 @@ impl WorldBackups {
                     && snapshots::valid_record_id(stem)
                     && !folder_dir.join(format!("{stem}.json")).exists()
                     && let Some((created, instance_name)) = live
+                    // Written by this instance, not by a deleted one whose id it reuses.
+                    && written_at(&path).is_some_and(|at| at >= *created as i64)
                 {
                     match adopt(&path, stem, &folder, *created, instance_name) {
                         Ok(backup) => {
@@ -809,11 +910,7 @@ fn adopt(
     instance_name: &str,
 ) -> Result<WorldBackup, WorldError> {
     let checked = worlds::zip::check(zip, Shape::OneWorldFolder, Limits::default())?;
-    let created = fs::metadata(zip)
-        .and_then(|m| m.modified())
-        .ok()
-        .and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok())
-        .map_or(0, |d| d.as_secs() as i64);
+    let created = written_at(zip).unwrap_or(0);
     Ok(WorldBackup {
         version: VERSION,
         id: id.to_string(),
@@ -833,6 +930,44 @@ fn adopt(
         left_out: Vec::new(),
         left_out_count: 0,
     })
+}
+
+/// When the file at `path` was last written, in Unix seconds.
+fn written_at(path: &Path) -> Option<i64> {
+    fs::metadata(path)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs() as i64)
+}
+
+/// Whether `a` and `b` (or the nearest folders above them that exist) are on one disk.
+/// When that can't be told, they are taken to be: room is then checked for both at once.
+pub(crate) fn same_disk(a: &Path, b: &Path) -> bool {
+    let near = |p: &Path| p.ancestors().find(|d| d.is_dir()).map(Path::to_path_buf);
+    let (Some(a), Some(b)) = (near(a), near(b)) else {
+        return true;
+    };
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt as _;
+        match (fs::metadata(&a), fs::metadata(&b)) {
+            (Ok(a), Ok(b)) => a.dev() == b.dev(),
+            _ => true,
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let volume = |p: &Path| {
+            fs::canonicalize(p)
+                .ok()
+                .and_then(|p| p.components().next().map(|c| c.as_os_str().to_owned()))
+        };
+        match (volume(&a), volume(&b)) {
+            (Some(a), Some(b)) => a == b,
+            _ => true,
+        }
+    }
 }
 
 /// Removes a world's backup folder when it is empty now, and then its instance's.
