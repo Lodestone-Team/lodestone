@@ -28,7 +28,6 @@ use launcher_core::{
         install::DefaultJava,
         runtime::{self, JavaInfo},
     },
-    images::display_text,
     instances::{BackgroundMode, Instance, Loader, Memory, SlideshowSource, format_env},
     modpack::ModpackRecord,
 };
@@ -49,13 +48,12 @@ use crate::components::{
 };
 use crate::{
     components::{
-        Button, ButtonSize, ButtonVariant, Dropdown, Icon, IconButton, LoadingDots, TextInput,
-        Toggle, segmented,
+        Button, ButtonSize, ButtonVariant, Dropdown, Icon, IconButton, ListRow, LoadingDots,
+        TextInput, Toggle, segmented,
         settings::{
-            FindSetting, SearchRow, SearchSection, SectionNav, SettingRow, SettingsQuery,
-            SettingsSearch, SettingsSearchChanged, Toast, content_width, left_overlay, link,
-            muted_link, nav_width, popover_panel, section_list, section_menu_button, tag,
-            unsaved_bar, value,
+            FindSetting, SearchRow, SectionNav, SettingRow, SettingsQuery, SettingsSearch,
+            SettingsSearchChanged, Toast, content_width, left_overlay, link, muted_link, nav_width,
+            popover_panel, section_list, section_menu_button, tag, unsaved_bar, value,
         },
     },
     file_dialog,
@@ -206,6 +204,8 @@ pub struct InstanceSettings {
     /// "Delete them" (images that can't be read) was clicked and waits for the second
     /// click: they go for good.
     confirm_delete_unreadable: bool,
+    /// The snapshot whose "…" menu is open.
+    snapshot_menu: Option<String>,
     /// The icon picker, when it is open, and its tab.
     icon_picker: Option<IconTab>,
     /// The tile colour emoji icons are put on.
@@ -430,6 +430,7 @@ impl InstanceSettings {
             preparing_update: false,
             confirm_unlink: false,
             confirm_delete_unreadable: false,
+            snapshot_menu: None,
             icon_picker: None,
             emoji_tile: appearance::TILE_COLORS[1],
             background_picker: false,
@@ -2941,155 +2942,74 @@ fn note(text_: &'static str) -> AnyElement {
         .into_any_element()
 }
 
+/// A row action a "…" menu item runs after closing the menu.
+type ClickAction = Box<dyn Fn(&gpui::ClickEvent, &mut Window, &mut App)>;
+
 impl InstanceSettings {
-    /// The Snapshots section's first group: its heading, a card with the button that
-    /// backs up a world, then each world's backups under the world's name (worlds in the
-    /// order of their newest backup).
-    fn world_backup_group(
-        &mut self,
-        section: SearchSection,
+    /// A snapshot's "…": Restore… and Export….
+    fn render_snapshot_menu(
+        &self,
+        index: usize,
+        snapshot: &str,
+        name: &str,
+        restore: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+        export: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
         cx: &mut Context<Self>,
-    ) -> SearchSection {
-        use super::world_backups::{WorldBackupRequest, WorldBackupRequested};
-        use launcher_core::world_backups::RestoreTo;
-        let id = self.instance_id.clone();
-        let (list, gone, backups) = self.instances.update(cx, |instances, cx| {
-            let list = instances.world_backup_list(&id, cx).map(<[_]>::to_vec);
-            let gone = instances
-                .world_backup_gone(&id)
-                .cloned()
-                .unwrap_or_default();
-            (list, gone, instances.world_backups())
-        });
-        let back_up = Button::new("back-up-world", t(M::BackUpWorldEllipsis))
-            .variant(ButtonVariant::Secondary)
-            .size(ButtonSize::Slim)
-            .on_click(cx.listener(|this, _, _, cx| {
-                cx.emit(WorldBackupRequested(WorldBackupRequest::BackUp {
-                    instance: this.instance_id.clone(),
-                    world: None,
-                }))
-            }));
-        let mut first = vec![SettingRow::new(t(M::BackUpWorldTitle)).child(back_up)];
-        let list = list.unwrap_or_default();
-        if list.is_empty() {
-            first.push(SettingRow::new(t(M::NoWorldBackups)));
-        }
-        let mut section = section
-            .child(group_heading(
-                t(M::WorldBackups),
-                Some(t(M::WorldBackupsHint)),
-            ))
-            .card(first);
-        // Grouped by world folder, each group where its newest backup is.
-        let mut folders: Vec<&str> = Vec::new();
-        for backup in &list {
-            if !folders.contains(&backup.folder.as_str()) {
-                folders.push(&backup.folder);
-            }
-        }
-        let mut index: usize = 0;
-        for folder in folders {
-            let group: Vec<_> = list.iter().filter(|b| b.folder == folder).collect();
-            let world = display_text(group[0].world_name()).into_owned();
-            let mut about = Vec::new();
-            if world != folder {
-                about.push(folder.to_string());
-            }
-            if gone.contains(folder) {
-                about.push(t(M::WorldNotHere).to_string());
-            }
-            let mut rows = Vec::new();
-            for backup in group {
-                index += 1;
-                let request = |make: fn(
-                    String,
-                    launcher_core::world_backups::WorldBackup,
-                ) -> WorldBackupRequest| {
-                    let (instance, backup) = (id.clone(), backup.clone());
-                    cx.listener(move |_, _, _, cx| {
-                        cx.emit(WorldBackupRequested(make(instance.clone(), backup.clone())))
-                    })
+    ) -> impl IntoElement {
+        let open = self.snapshot_menu.as_deref() == Some(snapshot);
+        let toggle = {
+            let snapshot = snapshot.to_string();
+            cx.listener(move |this, _, _, cx| {
+                this.snapshot_menu = if this.snapshot_menu.as_deref() == Some(snapshot.as_str()) {
+                    None
+                } else {
+                    Some(snapshot.clone())
                 };
-                let mut details = vec![
-                    super::snapshots::when(backup.created),
-                    format::bytes(backup.bytes),
-                ];
-                if backup.left_out_count > 0 {
-                    details.push(trn!(P::WorldBackupLeftOut, backup.left_out_count as usize));
-                }
-                let zip = backups.zip_path(&id, backup);
-                rows.push(
-                    SettingRow::new(super::world_backups::shown_name(backup))
-                        .key(("world-backup-row", index))
-                        // Found by its world's name too.
-                        .keywords(world.clone())
-                        .hint(details.join(" · "))
-                        .child(
-                            div()
-                                .flex()
-                                .flex_row()
-                                .gap_1()
-                                .child(
-                                    Button::new(
-                                        ("world-backup-restore", index),
-                                        t(M::RestoreEllipsis),
-                                    )
-                                    .variant(ButtonVariant::Secondary)
-                                    .size(ButtonSize::Slim)
-                                    .on_click(request(
-                                        |instance, backup| WorldBackupRequest::Restore {
-                                            instance,
-                                            backup,
-                                            to: RestoreTo::InPlace,
-                                        },
-                                    )),
-                                )
-                                .child(
-                                    Button::new(
-                                        ("world-backup-restore-new", index),
-                                        t(M::RestoreAsNewWorld),
-                                    )
-                                    .variant(ButtonVariant::Ghost)
-                                    .size(ButtonSize::Slim)
-                                    .on_click(request(
-                                        |instance, backup| WorldBackupRequest::Restore {
-                                            instance,
-                                            backup,
-                                            to: RestoreTo::NewWorld,
-                                        },
-                                    )),
-                                )
-                                .child(
-                                    Button::new(
-                                        ("world-backup-reveal", index),
-                                        t(CommonMsg::ShowInFileManager),
-                                    )
-                                    .variant(ButtonVariant::Ghost)
-                                    .size(ButtonSize::Slim)
-                                    .on_click(move |_, _, cx| cx.reveal_path(&zip)),
-                                )
-                                .child(
-                                    Button::new(
-                                        ("world-backup-delete", index),
-                                        t(CommonMsg::Delete),
-                                    )
-                                    .variant(ButtonVariant::Ghost)
-                                    .size(ButtonSize::Slim)
-                                    .on_click(request(
-                                        |instance, backup| WorldBackupRequest::Delete {
-                                            instance,
-                                            backup,
-                                        },
-                                    )),
-                                ),
-                        ),
-                );
+                cx.notify();
+            })
+        };
+        let entity = cx.entity().downgrade();
+        let close_then = move |action: ClickAction| {
+            let entity = entity.clone();
+            move |event: &gpui::ClickEvent, window: &mut Window, cx: &mut App| {
+                entity
+                    .update(cx, |this, cx| {
+                        this.snapshot_menu = None;
+                        cx.notify();
+                    })
+                    .ok();
+                action(event, window, cx);
             }
-            index += 1;
-            section = section.labelled_card(world_label(index, world, about.join(" · ")), rows);
-        }
-        section
+        };
+        Dropdown::new(
+            IconButton::new(("snapshot-menu", index), Icon::Ellipsis)
+                .label(format!("{}: {}", t(CommonMsg::Menu), name))
+                .on_click(toggle),
+        )
+        .align_end()
+        .when(open, |this| {
+            let close = cx.listener(|this, _: &(), _, cx| {
+                this.snapshot_menu = None;
+                cx.notify();
+            });
+            let panel = popover_panel(SharedString::from(format!("snapshot-menu-list-{index}")))
+                .w(px(200.))
+                .child(
+                    ListRow::new(("snapshot-menu-restore", index), t(M::RestoreEllipsis))
+                        .icon(Icon::ClockRotateLeft)
+                        .on_click(close_then(Box::new(restore))),
+                )
+                .child(
+                    ListRow::new(("snapshot-menu-export", index), t(M::ExportEllipsis))
+                        .icon(Icon::Upload)
+                        .on_click(close_then(Box::new(export))),
+                );
+            this.popover(
+                SharedString::from(format!("snapshot-menu-popover-{index}")),
+                panel,
+                move |window, cx| close(&(), window, cx),
+            )
+        })
     }
 
     /// The instance's snapshots, newest first, with a button to take one.
@@ -3100,20 +3020,13 @@ impl InstanceSettings {
     ) -> Option<gpui::Div> {
         use super::snapshots::{SnapshotRequest, SnapshotRequested, badge, details};
         let id = self.instance_id.clone();
-        let (list, after_play, own_after_play, policy) =
-            self.instances.update(cx, |instances, cx| {
-                let list = instances.snapshot_list(&id, cx).cloned();
-                let after_play = instances.snapshot_after_play(&id);
-                let instance = instances.list().iter().find(|i| i.id == id).cloned();
-                let settings = instance.as_ref().and_then(|i| i.snapshots);
-                let policy = launcher_core::images::SnapshotPolicy::of(settings.as_ref());
-                (
-                    list,
-                    after_play,
-                    settings.and_then(|s| s.after_play),
-                    policy,
-                )
-            });
+        let (list, after_play, own_after_play) = self.instances.update(cx, |instances, cx| {
+            let list = instances.snapshot_list(&id, cx).cloned();
+            let after_play = instances.snapshot_after_play(&id);
+            let instance = instances.list().iter().find(|i| i.id == id).cloned();
+            let settings = instance.as_ref().and_then(|i| i.snapshots);
+            (list, after_play, settings.and_then(|s| s.after_play))
+        });
         let take = Button::new("take-snapshot", t(M::TakeSnapshotEllipsis))
             .variant(ButtonVariant::Secondary)
             .size(ButtonSize::Slim)
@@ -3122,7 +3035,7 @@ impl InstanceSettings {
                     this.instance_id.clone(),
                 )))
             }));
-        let mut items = vec![
+        let settings = vec![
             SettingRow::new(t(M::TakeSnapshotTitle)).child(take),
             SettingRow::new(t(M::SnapshotAfterPlay))
                 .when(own_after_play.is_some(), |row| {
@@ -3159,6 +3072,7 @@ impl InstanceSettings {
                         })),
                 ),
         ];
+        let mut items = Vec::new();
         match list {
             None => items.push(SettingRow::new(t(M::NoSnapshots))),
             Some(list) => {
@@ -3182,6 +3096,11 @@ impl InstanceSettings {
                             })
                         })
                     };
+                    let (restore, export, delete) = (
+                        request(SnapshotRequest::Restore),
+                        request(SnapshotRequest::Export),
+                        request(SnapshotRequest::Delete),
+                    );
                     let name = match badge(&record) {
                         Some(badge) => format!("{} · {}", record.name_shown(), t(badge)),
                         None => record.name_shown(),
@@ -3194,46 +3113,33 @@ impl InstanceSettings {
                                 div()
                                     .flex()
                                     .flex_row()
+                                    .items_center()
                                     .gap_1()
                                     .child(
-                                        Button::new(
-                                            ("snapshot-restore", index),
-                                            t(M::RestoreEllipsis),
-                                        )
-                                        .variant(ButtonVariant::Secondary)
-                                        .size(ButtonSize::Slim)
-                                        .on_click(request(SnapshotRequest::Restore)),
-                                    )
-                                    .child(
-                                        Button::new(
-                                            ("snapshot-export", index),
-                                            t(M::ExportEllipsis),
-                                        )
-                                        .variant(ButtonVariant::Secondary)
-                                        .size(ButtonSize::Slim)
-                                        .on_click(request(SnapshotRequest::Export)),
-                                    )
-                                    .child(
-                                        Button::new(
-                                            ("snapshot-pin", index),
-                                            t(if record.pinned {
+                                        IconButton::new(("snapshot-pin", index), Icon::Thumbtack)
+                                            .label(t(if record.pinned {
                                                 M::UnpinSnapshot
                                             } else {
                                                 M::PinSnapshot
-                                            }),
-                                        )
-                                        .variant(ButtonVariant::Ghost)
-                                        .size(ButtonSize::Slim)
-                                        .on_click(pin),
+                                            }))
+                                            .when(record.pinned, |button| {
+                                                button.color(crate::theme::accent::light())
+                                            })
+                                            .on_click(pin),
                                     )
+                                    .child(self.render_snapshot_menu(
+                                        index,
+                                        &record.id,
+                                        &record.name_shown(),
+                                        restore,
+                                        export,
+                                        cx,
+                                    ))
                                     .child(
-                                        Button::new(
-                                            ("snapshot-delete", index),
-                                            t(CommonMsg::Delete),
-                                        )
-                                        .variant(ButtonVariant::Ghost)
-                                        .size(ButtonSize::Slim)
-                                        .on_click(request(SnapshotRequest::Delete)),
+                                        IconButton::new(("snapshot-delete", index), Icon::TrashCan)
+                                            .label(t(CommonMsg::Delete))
+                                            .color(colors::RED_200)
+                                            .on_click(delete),
                                     ),
                             ),
                     );
@@ -3278,16 +3184,10 @@ impl InstanceSettings {
                 }
             }
         }
-        // How long automatic snapshots are kept: the section's grey lead, not a setting.
-        let keep = tr!(
-            M::SnapshotKeepHint,
-            last = policy.keep_last,
-            days = policy.keep_daily,
-            weeks = policy.keep_weekly
-        );
-        let section = query.section(t(M::InstanceSnapshots), None);
-        self.world_backup_group(section, cx)
-            .child(group_heading(t(M::SnapshotsGroup), Some(keep.as_str())))
+        query
+            .section(t(M::InstanceSnapshots), None)
+            .card(settings)
+            .child(group_heading(t(M::SnapshotsGroup), None))
             .card(items)
             .finish()
     }
@@ -3314,35 +3214,6 @@ fn group_heading(title: &'static str, lead: Option<&str>) -> AnyElement {
                     .text_size(theme::text_size(text::SMALL))
                     .text_color(crate::theme::ink::muted())
                     .child(lead.to_string()),
-            )
-        })
-        .into_any_element()
-}
-
-/// The name of the world whose backups the card below it lists, with its folder and
-/// whether it is gone: small, bold and grey, so it reads as a label of the card rather
-/// than one of its rows.
-fn world_label(index: usize, world: String, about: String) -> AnyElement {
-    div()
-        .id(("world-backup-world", index))
-        .flex()
-        .flex_row()
-        .items_baseline()
-        .gap_2()
-        .px_1()
-        .text_size(theme::text_size(text::SMALL))
-        .child(
-            div()
-                .font_weight(weights::BOLD.into())
-                .text_color(crate::theme::ink::secondary())
-                .child(world),
-        )
-        .when(!about.is_empty(), |this| {
-            this.child(
-                div()
-                    .truncate()
-                    .text_color(crate::theme::ink::muted())
-                    .child(about),
             )
         })
         .into_any_element()

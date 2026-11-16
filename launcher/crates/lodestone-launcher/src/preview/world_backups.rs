@@ -12,13 +12,13 @@ use launcher_core::{
 };
 
 use crate::{
-    i18n::{InstanceSettingsMsg as M, t, tr},
+    i18n::{InstanceSettingsMsg as M, tr},
     instances::world_backups::WorldBackupRequest,
     shell::{InstanceTab, LauncherShell},
 };
 
 pub fn is_scene(scene: &str) -> bool {
-    scene == "world-backups" || scene.starts_with("world-backup-")
+    scene.starts_with("world-backup-")
 }
 
 /// Fills `instance` with worlds and backs them up.
@@ -83,26 +83,6 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
     let list = backups.list(&id).unwrap_or_default();
     let named = |name: &str| list.iter().find(|b| b.name == name).cloned();
     let request = match scene {
-        "world-backups" => {
-            // The Settings tab is built again for the instance chosen above: wait for it.
-            cx.spawn(async move |shell, cx| {
-                cx.background_executor()
-                    .timer(std::time::Duration::from_millis(300))
-                    .await;
-                shell
-                    .update(cx, |shell, cx| {
-                        if let Some(settings) = shell.settings_view().cloned() {
-                            settings.update(cx, |settings, cx| {
-                                settings.preview_section(t(M::InstanceSnapshots));
-                                cx.notify();
-                            });
-                        }
-                    })
-                    .ok();
-            })
-            .detach();
-            return;
-        }
         "world-backup-create" => WorldBackupRequest::BackUp {
             instance: id,
             world: None,

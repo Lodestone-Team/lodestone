@@ -211,8 +211,6 @@ crate::i18n::messages! {
         SnapshotGameRunning = "Stop the game first.",
         /// The Settings tab's toggle; also Settings › Instance defaults' default.
         SnapshotAfterPlay = "Take a snapshot after each play session",
-        /// {last}, {days} and {weeks} are numbers.
-        SnapshotKeepHint = "Snapshots the Launcher takes on its own are kept for a while: the last {last}, one a day for {days} days and one a week for {weeks} weeks. Yours stay until you delete them.",
         /// Badges on a snapshot's row.
         BadgeAutomatic = "Automatic",
         BadgeAfterPlaying = "After playing",
@@ -526,17 +524,10 @@ crate::i18n::messages! {
         ImportSpaceFree = "Needs {size} of disk space, 1 GB of it to spare; {free} is free.",
         ExportNotDownloadable = "These can't be downloaded, so whoever imports the file won't get them: {files}.",
         DeleteUnreadableNote = "They are deleted for good.",
-        /// Settings › Snapshots: the section of zips of single worlds.
-        WorldBackups = "World backups",
-        WorldBackupsHint = "Zip copies of one world, kept until you delete them. They open anywhere.",
-        /// Settings › Snapshots: the heading of the snapshots, below the world backups.
-        SnapshotsGroup = "Snapshots of the whole instance",
+        /// Settings › Snapshots: the heading of the list of snapshots, below the snapshot settings.
+        SnapshotsGroup = "Saved snapshots",
         /// The row, and the dialog's title.
         BackUpWorldTitle = "Back up a world",
-        BackUpWorldEllipsis = "Back up a world…",
-        NoWorldBackups = "No world backups yet.",
-        /// Beside a world's name: its backups are kept, but the world was deleted or renamed.
-        WorldNotHere = "Not in this instance any more",
         RestoreAsNewWorld = "Restore as a new world",
         /// Back up a world: the label over the worlds to pick from.
         WorldBackupWorld = "World",

@@ -46,7 +46,6 @@ pub fn text(message: M) -> &'static str {
         M::Snapshot => "{version} (snapshot)",
         M::PlayedAt => "Joué\u{a0}: {time}",
         M::BackUp => "Sauvegarder",
-        M::BackupsAndSnapshots => "Sauvegardes et instantanés",
         M::Export => "Exporter…",
         M::DeleteWorld => "Supprimer…",
 

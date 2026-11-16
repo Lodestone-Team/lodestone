@@ -56,7 +56,10 @@ use crate::components::{
 };
 use crate::i18n::{CommonMsg, ContentMsg, WorldsMsg as M, WorldsPlural as P, format, t, tr, trn};
 use crate::{
-    components::{Button, ButtonSize, ButtonVariant, Icon, LoadingDots, TextInput, Toggle},
+    components::{
+        Button, ButtonSize, ButtonVariant, Dropdown, Icon, IconButton, ListRow, LoadingDots,
+        TextInput, Toggle, settings::popover_panel,
+    },
     file_dialog,
     theme::{self, colors, fonts, radius, text, weights},
 };
@@ -280,6 +283,8 @@ pub struct WorldsView {
     datapacks_task: Option<Task<()>>,
     /// The world being renamed, with its name field.
     renaming: Option<(String, Entity<TextInput>)>,
+    /// The world whose "…" menu is open.
+    world_menu: Option<String>,
     /// The shown instance's job.
     pub job: Option<Job>,
     /// The jobs of instances not shown, which go on meanwhile: a backup or restore
@@ -368,6 +373,7 @@ impl WorldsView {
             pack_search_task: None,
             datapacks_task: None,
             renaming: None,
+            world_menu: None,
             job: None,
             parked: Parked::default(),
             finished: HashMap::new(),
@@ -1444,6 +1450,12 @@ impl WorldsView {
         cx.notify();
     }
 
+    /// Opens a world's "…" menu, for the offscreen screenshots' `worlds-menu`.
+    pub fn preview_world_menu(&mut self, folder: &str, cx: &mut Context<Self>) {
+        self.world_menu = Some(folder.to_string());
+        cx.notify();
+    }
+
     /// Loads the lists right away, for the offscreen screenshots.
     pub fn preview_load(&mut self, cx: &mut Context<Self>) {
         let Some((_, dirs)) = self.dirs(cx) else {
@@ -1686,6 +1698,7 @@ impl WorldsView {
             .as_ref()
             .filter(|(f, _)| f == &folder)
             .map(|(_, input)| input.clone());
+        let renaming_this = renaming.is_some();
         let hardcore = world.summary.as_ref().is_some_and(|s| s.hardcore);
         let title: AnyElement = match renaming {
             Some(input) => div()
@@ -1740,25 +1753,52 @@ impl WorldsView {
             row_base(("world", index), index == 0)
                 .accessible(Role::Group, format!("world-{folder}"), name.clone())
                 .aria_description(description)
-                .child(icon)
                 .child(
                     div()
+                        .id(("world-open", index))
                         .flex()
-                        .flex_col()
+                        .flex_row()
+                        .items_center()
+                        .gap_3()
                         .flex_1()
                         .min_w_0()
-                        .gap_0p5()
-                        .child(title)
-                        .child(
-                            small_rich(RichText::new(details.join(" · ")))
-                                .truncate()
-                                .text_color(crate::theme::ink::muted()),
-                        )
-                        .when_some(world.problem.clone(), |this, problem| {
-                            this.child(
-                                small_rich(RichText::new(problem)).text_color(colors::YELLOW_300),
+                        .when(!renaming_this, |this| {
+                            let folder = folder.clone();
+                            this.accessible(
+                                Role::Button,
+                                format!("world-open-{folder}"),
+                                name.clone(),
                             )
-                        }),
+                            .aria_expanded(expanded)
+                            .keyboard_focus()
+                            .cursor_pointer()
+                            .on_click(cx.listener(
+                                move |this, _, _, cx| {
+                                    this.toggle_panel(folder.clone(), WorldPanel::Backups, cx)
+                                },
+                            ))
+                        })
+                        .child(icon)
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .flex_1()
+                                .min_w_0()
+                                .gap_0p5()
+                                .child(title)
+                                .child(
+                                    small_rich(RichText::new(details.join(" · ")))
+                                        .truncate()
+                                        .text_color(crate::theme::ink::muted()),
+                                )
+                                .when_some(world.problem.clone(), |this, problem| {
+                                    this.child(
+                                        small_rich(RichText::new(problem))
+                                            .text_color(colors::YELLOW_300),
+                                    )
+                                }),
+                        ),
                 )
                 .child(
                     div()
@@ -1767,114 +1807,11 @@ impl WorldsView {
                         .flex_none()
                         .items_center()
                         .gap_1()
+                        .child(self.render_world_menu(index, &folder, &name, pack_count, busy, cx))
                         .child(
-                            Button::new(("backup", index), t(M::BackUp))
-                                .variant(ButtonVariant::Secondary)
-                                .icon(Icon::Download)
-                                .size(ButtonSize::Slim)
-                                .disabled(busy)
-                                .on_click({
-                                    let (folder, name) = (folder.clone(), name.clone());
-                                    cx.listener(move |this, _, _, cx| {
-                                        this.back_up(folder.clone(), name.clone(), cx)
-                                    })
-                                }),
-                        )
-                        .child(
-                            Button::new(
-                                ("backups", index),
-                                match zips.len() + copies.len() {
-                                    0 => t(M::BackupsAndSnapshots).to_string(),
-                                    count => {
-                                        format!(
-                                            "{} {}",
-                                            t(M::BackupsAndSnapshots),
-                                            format::number(count as u64)
-                                        )
-                                    }
-                                },
-                            )
-                            .variant(if expanded {
-                                ButtonVariant::Primary
-                            } else {
-                                ButtonVariant::Ghost
-                            })
-                            .size(ButtonSize::Slim)
-                            .on_click({
-                                let folder = folder.clone();
-                                cx.listener(move |this, _, _, cx| {
-                                    this.toggle_panel(folder.clone(), WorldPanel::Backups, cx)
-                                })
-                            }),
-                        )
-                        .child(
-                            Button::new(
-                                ("datapacks", index),
-                                match pack_count {
-                                    Some(count) if count > 0 => format!(
-                                        "{} {}",
-                                        t(M::DataPacks),
-                                        format::number(count as u64)
-                                    ),
-                                    _ => t(M::DataPacks).to_string(),
-                                },
-                            )
-                            .variant(if packs_open {
-                                ButtonVariant::Primary
-                            } else {
-                                ButtonVariant::Ghost
-                            })
-                            .size(ButtonSize::Slim)
-                            .on_click({
-                                let folder = folder.clone();
-                                cx.listener(move |this, _, _, cx| {
-                                    this.toggle_panel(folder.clone(), WorldPanel::DataPacks, cx)
-                                })
-                            }),
-                        )
-                        .child(
-                            Button::new(("rename", index), t(CommonMsg::Rename))
-                                .variant(ButtonVariant::Ghost)
-                                .size(ButtonSize::Slim)
-                                .disabled(busy)
-                                .on_click({
-                                    let (folder, name) = (folder.clone(), name.clone());
-                                    cx.listener(move |this, _, _, cx| {
-                                        this.start_rename(folder.clone(), name.clone(), cx)
-                                    })
-                                }),
-                        )
-                        .child(
-                            Button::new(("export", index), t(M::Export))
-                                .variant(ButtonVariant::Ghost)
-                                .size(ButtonSize::Slim)
-                                .disabled(busy)
-                                .on_click({
-                                    let (folder, name) = (folder.clone(), name.clone());
-                                    cx.listener(move |this, _, _, cx| {
-                                        this.export_world(folder.clone(), name.clone(), cx)
-                                    })
-                                }),
-                        )
-                        .child(
-                            Button::new(("open-world", index), t(CommonMsg::OpenFolder))
-                                .variant(ButtonVariant::Ghost)
-                                .size(ButtonSize::Slim)
-                                .on_click({
-                                    let folder = folder.clone();
-                                    cx.listener(move |this, _, _, cx| {
-                                        if let Some((_, dirs)) = this.dirs(cx) {
-                                            cx.open_with_system(
-                                                &worlds::saves_dir(&dirs).join(&folder),
-                                            );
-                                        }
-                                    })
-                                }),
-                        )
-                        .child(
-                            Button::new(("delete-world", index), t(M::DeleteWorld))
-                                .variant(ButtonVariant::Danger)
-                                .size(ButtonSize::Slim)
+                            IconButton::new(("delete-world", index), Icon::TrashCan)
+                                .label(t(M::DeleteWorld))
+                                .color(colors::RED_200)
                                 .disabled(busy)
                                 .on_click({
                                     let (folder, name) = (folder.clone(), name.clone());
@@ -1897,6 +1834,99 @@ impl WorldsView {
             row = row.child(self.render_datapacks(&folder, &name, busy, cx));
         }
         row.into_any_element()
+    }
+
+    /// A world's "…": Data packs, Rename, Export… and Open folder.
+    fn render_world_menu(
+        &mut self,
+        index: usize,
+        folder: &str,
+        name: &str,
+        pack_count: Option<usize>,
+        busy: bool,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let open = self.world_menu.as_deref() == Some(folder);
+        let toggle = {
+            let folder = folder.to_string();
+            cx.listener(move |this, _, _, cx| {
+                this.world_menu = if this.world_menu.as_deref() == Some(folder.as_str()) {
+                    None
+                } else {
+                    Some(folder.clone())
+                };
+                cx.notify();
+            })
+        };
+        Dropdown::new(
+            IconButton::new(("world-menu", index), Icon::Ellipsis)
+                .label(format!("{}: {}", t(CommonMsg::Menu), name))
+                .on_click(toggle),
+        )
+        .align_end()
+        .when(open, |this| {
+            let close = cx.listener(|this, _: &(), _, cx| {
+                this.world_menu = None;
+                cx.notify();
+            });
+            let packs = match pack_count {
+                Some(count) if count > 0 => {
+                    format!("{} {}", t(M::DataPacks), format::number(count as u64))
+                }
+                _ => t(M::DataPacks).to_string(),
+            };
+            let (f1, f2, f3, f4) = (
+                folder.to_string(),
+                folder.to_string(),
+                folder.to_string(),
+                folder.to_string(),
+            );
+            let (n2, n3) = (name.to_string(), name.to_string());
+            let panel = popover_panel(("world-menu-list", index))
+                .w(px(220.))
+                .child(
+                    ListRow::new(("world-menu-datapacks", index), packs)
+                        .icon(Icon::PuzzlePiece)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.world_menu = None;
+                            this.toggle_panel(f1.clone(), WorldPanel::DataPacks, cx);
+                        })),
+                )
+                .child(
+                    ListRow::new(("world-menu-rename", index), t(CommonMsg::Rename))
+                        .icon(Icon::Pen)
+                        .disabled(busy)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.world_menu = None;
+                            this.start_rename(f2.clone(), n2.clone(), cx);
+                        })),
+                )
+                .child(
+                    ListRow::new(("world-menu-export", index), t(M::Export))
+                        .icon(Icon::Upload)
+                        .disabled(busy)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.world_menu = None;
+                            this.export_world(f3.clone(), n3.clone(), cx);
+                        })),
+                )
+                .child(
+                    ListRow::new(("world-menu-open", index), t(CommonMsg::OpenFolder))
+                        .icon(Icon::ArrowUpRightFromSquare)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.world_menu = None;
+                            if let Some((_, dirs)) = this.dirs(cx) {
+                                cx.open_with_system(&worlds::saves_dir(&dirs).join(&f4));
+                            }
+                            cx.notify();
+                        })),
+                );
+            this.popover(
+                SharedString::from(format!("world-menu-popover-{index}")),
+                panel,
+                move |window, cx| close(&(), window, cx),
+            )
+        })
     }
 
     /// The panel below a world: its data packs, and a Modrinth search.
@@ -2338,7 +2368,28 @@ impl WorldsView {
             .bg(colors::GRAY_850)
             .border_t_1()
             .border_color(colors::GRAY_FADED.opacity(15))
-            .child(heading(t(M::WorldBackupsHeading)));
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .justify_between()
+                    .gap_2()
+                    .child(heading(t(M::WorldBackupsHeading)))
+                    .child(
+                        Button::new(("backup", world_index), t(M::BackUp))
+                            .variant(ButtonVariant::Secondary)
+                            .icon(Icon::Download)
+                            .size(ButtonSize::Slim)
+                            .disabled(busy)
+                            .on_click({
+                                let (folder, name) = (folder.to_string(), name.to_string());
+                                cx.listener(move |this, _, _, cx| {
+                                    this.back_up(folder.clone(), name.clone(), cx)
+                                })
+                            }),
+                    ),
+            );
         if zips.is_empty() {
             list = list.child(empty(t(M::NoWorldBackupsYet)));
         }

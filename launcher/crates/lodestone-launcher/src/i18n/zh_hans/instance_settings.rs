@@ -175,9 +175,6 @@ pub fn text(message: M) -> &'static str {
         M::CreateInstanceButton => "创建实例",
         M::SnapshotGameRunning => "请先停止游戏。",
         M::SnapshotAfterPlay => "每次游戏结束后拍摄快照",
-        M::SnapshotKeepHint => {
-            "启动器自动拍摄的快照会保留一段时间：最近 {last} 个、{days} 天内每天一个、{weeks} 周内每周一个。你自己拍摄的快照会一直保留，直到你删除。"
-        }
         M::BadgeAutomatic => "自动",
         M::BadgeAfterPlaying => "游戏后",
         M::BadgeImported => "已导入",
@@ -430,13 +427,8 @@ pub fn text(message: M) -> &'static str {
         M::ImportSpaceFree => "需要 {size} 磁盘空间（含 1 GB 余量）；可用 {free}。",
         M::ExportNotDownloadable => "这些无法下载，因此导入该文件的人不会得到它们：{files}。",
         M::DeleteUnreadableNote => "它们将被永久删除。",
-        M::WorldBackups => "世界备份",
-        M::SnapshotsGroup => "整个实例的快照",
-        M::WorldBackupsHint => "单个世界的 zip 副本，会一直保留到你删除为止。在任何地方都能打开。",
+        M::SnapshotsGroup => "已保存的快照",
         M::BackUpWorldTitle => "备份世界",
-        M::BackUpWorldEllipsis => "备份世界…",
-        M::NoWorldBackups => "还没有世界备份。",
-        M::WorldNotHere => "已不在此实例中",
         M::RestoreAsNewWorld => "恢复为新世界",
         M::WorldBackupWorld => "世界",
         M::WorldBackupDefaultName => "世界备份",
