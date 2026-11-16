@@ -36,6 +36,7 @@
 
   // ---------- icons ----------
   const P = {
+    pin: '<path d="M5 2h6M6 2v3.5L4 9h8l-2-3.5V2M8 9v5"/>',
     chevL: '<path d="M15 5l-7 7 7 7"/>', chevR: '<path d="M9 5l7 7-7 7"/>', caret: '<path d="M6 9l6 6 6-6" fill="currentColor"/>',
     plus: '<path d="M12 5v14M5 12h14"/>', x: '<path d="M6 6l12 12M18 6L6 18"/>', check: '<path d="M5 12.5l4.5 4.5L19 7"/>',
     search: '<circle cx="11" cy="11" r="6"/><path d="M16 16l4 4"/>', dots: '<circle cx="6" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="18" cy="12" r="1.3" fill="currentColor"/>',
@@ -624,9 +625,9 @@
       rows.push(h("div.lx-row", h("span.lx-world-ic"),
         h("div.lx-row-main", h("div.lx-row-t", tx(name), hard ? badge(wd("Hardcore"), "red") : null, h("span.lx-row-v", tx(folder))),
           h("div.lx-row-s", join(wd("PlayedAt", { time: played }), mode === "Hardcore" ? wd("Hardcore") : wd(mode), cheats ? wd("Cheats") : null, snap ? wd("Snapshot", { version: ver }) : tx(ver), tx(size)))),
-        h("div.lx-row-a", btn(wd("BackUp"), { icon: "dl", sm: true }), gbtn([wd("BackupsAndSnapshots"), backups ? " " + backups : ""]), gbtn(cm("Rename")), gbtn(wd("Export")), gbtn(cm("OpenFolder")), btn(wd("DeleteWorld"), { kind: "d", sm: true, on: () => ctx.open("deleteWorld") }))));
+        h("div.lx-row-a", iconBtn("dots", null, cm("Menu")), iconBtn("trash", () => ctx.open("deleteWorld"), wd("DeleteWorld")))));
       if (idx === 0) rows.push(h("div", { style: { padding: "8px 18px 12px 88px", background: "var(--g875)" } },
-        h("div.lx-caps", { style: { margin: "4px 0 8px" } }, wd("WorldBackupsHeading")),
+        h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", margin: "4px 0 8px" } }, h("div.lx-caps", wd("WorldBackupsHeading")), btn(wd("BackUp"), { icon: "dl", sm: true })),
         [["Today, 03:04", is("WorldBackupDefaultName")], ["Yesterday, 21:40", tx("Before the dragon fight")]].map(([when, name]) => h("div", { style: { display: "flex", alignItems: "center", gap: "8px", padding: "6px 0" } }, h("span.lx-grow", tx(when), sep(), name), h("span.lx-muted", tx("39 MB")),
           btn(wd("RestoreEllipsis"), { sm: true, on: () => ctx.open("worldBackupRestore") }), gbtn(wd("RestoreAsNewWorld")), gbtn(cm("ShowInFileManager")), gbtn(cm("Delete"), () => ctx.open("worldBackupDelete")))),
         h("div.lx-muted", { style: { fontSize: "13px", marginTop: "6px" } }, wd("NoWorldBackupsYet")),
@@ -687,22 +688,14 @@
           ...[["Controls", 12, 2], ["Video", 9, 0], ["Sound", 14, 0], ["Accessibility", 20, 1], ["Language", 3, 0]].map(([c, s, o]) =>
             srow(is("Category" + c), [is("Category" + c + "Description"), sep(), is("SharedKey"), " ", tx(String(s)), o ? [" ", is("OverriddenKey"), " ", tx(String(o))] : null], gbtn(is("Show"))))),
         h("div.lx-scard", { style: { marginTop: "12px" } }, h("div", isp("ChangedInGame", { count: 2, names: "FOV, Brightness" })), h("div", { style: { display: "flex", gap: "8px" } }, btn(is("KeepForInstance"), { sm: true }), gbtn(is("Dismiss"))))],
-      snapshots: () => [h("div.lx-h3", is("WorldBackups")), h("div.lx-h3-sub", is("WorldBackupsHint")), card(
-        srow(is("BackUpWorldTitle"), null, btn(is("BackUpWorldEllipsis"), { sm: true, on: () => ctx.open("worldBackupCreate") })),
-        ctx.state.instSettings === "noSnapshots" ? srow(is("NoWorldBackups")) : null),
-        h("div.lx-caps", { style: { margin: "10px 4px 6px" } }, tx("Survival Island"), " ", h("span.lx-muted", tx("New World"))),
-        card(h("div.lx-row", h("div.lx-row-main", h("div.lx-row-t", tx("Before the dragon fight")), h("div.lx-row-s", tx("Today, 03:04"), sep(), tx("39 MB"))), h("div.lx-row-a", btn(is("RestoreEllipsis"), { sm: true, on: () => ctx.open("worldBackupRestore") }), gbtn(is("RestoreAsNewWorld")), gbtn(cm("ShowInFileManager")), gbtn(cm("Delete"), () => ctx.open("worldBackupDelete")))),
-        h("div.lx-row", h("div.lx-row-main", h("div.lx-row-t", is("WorldBackupBeforeRestoring", { name: "World backup" })), h("div.lx-row-s", tx("Yesterday, 21:40"), sep(), tx("38 MB"), sep(), isp("WorldBackupLeftOut", { count: 2 }))), h("div.lx-row-a", btn(is("RestoreEllipsis"), { sm: true }), gbtn(is("RestoreAsNewWorld")), gbtn(cm("ShowInFileManager")), gbtn(cm("Delete"))))),
-        h("div.lx-caps", { style: { margin: "10px 4px 6px" } }, tx("One Life"), " ", h("span.lx-muted", tx("Hardcore run"), sep(), is("WorldNotHere"))),
-        card(h("div.lx-row", h("div.lx-row-main", h("div.lx-row-t", is("WorldBackupDefaultName")), h("div.lx-row-s", tx("Nov 2, 2026"), sep(), tx("22 MB"))), h("div.lx-row-a", btn(is("RestoreEllipsis"), { sm: true }), gbtn(is("RestoreAsNewWorld")), gbtn(cm("ShowInFileManager")), gbtn(cm("Delete"))))),
-        h("div.lx-h3", { style: { marginTop: "16px" } }, is("SnapshotsGroup")), h("div.lx-h3-sub", is("SnapshotsHint")), card(
-        srow(is("SnapshotAfterPlay"), ctx.state.instSettings === "afterPlayOwn" ? is("SnapshotAfterPlayOwnHint") : is("SnapshotAfterPlayHint"), toggle(ctx.state.instSettings === "afterPlayOwn")),
-        h("div.lx-row", h("div.lx-row-main", h("div.lx-row-t", tx("Before 1.21 update")), h("div.lx-row-s", tx("Nov 8, 2026"), sep(), tx("World"), sep(), is("SnapshotSizes", { total: "412 MB", new: "38 MB" }))), h("div.lx-row-a", btn(is("RestoreEllipsis"), { sm: true, on: () => ctx.open("snapshotRestore") }), btn(is("ExportEllipsis"), { sm: true, on: () => ctx.open("snapshotExport") }), gbtn(is("PinSnapshot")), gbtn(cm("Delete"), () => ctx.open("snapshotDelete")))),
-        h("div.lx-row", h("div.lx-row-main", h("div.lx-row-t", tx("Before updating Sodium"), sep(), is("BadgeAutomatic")), h("div.lx-row-s", tx("Nov 9, 2026"), sep(), is("SnapshotSizes", { total: "410 MB", new: "2 MB" }))), h("div.lx-row-a", btn(is("RestoreEllipsis"), { sm: true }), btn(is("ExportEllipsis"), { sm: true }), gbtn(is("UnpinSnapshot")), gbtn(cm("Delete")))),
+      snapshots: () => [card(
+        srow(is("TakeSnapshotTitle"), null, btn(is("TakeSnapshotEllipsis"), { sm: true, on: () => ctx.open("snapshotTake") })),
+        srow(is("SnapshotAfterPlay"), null, toggle(ctx.state.instSettings === "afterPlayOwn"))),
+        h("div.lx-h3", { style: { marginTop: "16px" } }, is("SnapshotsGroup")), card(
+        h("div.lx-row", h("div.lx-row-main", h("div.lx-row-t", tx("Before 1.21 update")), h("div.lx-row-s", tx("Nov 8, 2026"), sep(), tx("World"), sep(), is("SnapshotSizes", { total: "412 MB", new: "38 MB" }))), h("div.lx-row-a", iconBtn("pin", null, is("PinSnapshot")), iconBtn("dots", () => ctx.open("snapshotRestore"), cm("Menu")), iconBtn("trash", () => ctx.open("snapshotDelete"), cm("Delete")))),
+        h("div.lx-row", h("div.lx-row-main", h("div.lx-row-t", tx("Before updating Sodium"), sep(), is("BadgeAutomatic")), h("div.lx-row-s", tx("Nov 9, 2026"), sep(), is("SnapshotSizes", { total: "410 MB", new: "2 MB" }))), h("div.lx-row-a", iconBtn("pin", null, is("UnpinSnapshot")), iconBtn("dots", null, cm("Menu")), iconBtn("trash", null, cm("Delete")))),
         h("div.lx-row", h("div.lx-row-main", h("div.lx-row-t", tx("After playing"), sep(), is("BadgeAfterPlaying"), sep(), is("BadgeImported"), sep(), is("BadgePinned")))),
-        srow(isp("UnreadableImages", { count: 1 }), is("UnreadableImagesHint"), gbtn(is("DeleteUnreadable"))),
-        h("div.lx-muted", is("SnapshotKeepHint", { last: 5, days: 7, weeks: 4 }))),
-        h("div", { style: { marginTop: "10px", display: "flex", gap: "8px" } }, btn(is("TakeSnapshotEllipsis"), { on: () => ctx.open("snapshotTake") })),
+        srow(isp("UnreadableImages", { count: 1 }), is("UnreadableImagesHint"), gbtn(is("DeleteUnreadable")))),
         ctx.state.instSettings === "noSnapshots" ? h("div.lx-muted", is("NoSnapshots")) : null],
       maint: () => card(
         srow(is("VerifyGameFiles"), is("VerifyHint"), btn(is("Verify"), { on: () => ctx.set("game", "verifying") }), { below: ctx.state.game === "verifying" ? h("div.lx-srow-hint", is("VerifyStarted")) : null }),
@@ -960,7 +953,7 @@
   function settingsDefaults(ctx) {
     return [h("div.lx-h3-sub", sh("DefaultsLead")), h("div.lx-sec", card(
       srow(sh("AutoConfigure"), sh("AutoConfigureHint"), toggle(true)),
-      srow(is("SnapshotAfterPlay"), is("SnapshotAfterPlayDefaultHint"), toggle(false)),
+      srow(is("SnapshotAfterPlay"), null, toggle(false)),
       srow(sh("Memory"), [sh("MemoryDefaultHint", { min: "512 MB", max: "4 GB" }), " ", is("TotalMemory", { computer: "This Mac", size: "16 GB" })], [field("512", null, { cls: "lx-num" }), h("span.lx-muted", sh("MegabytesUnit")), tx("\u2013"), field("4096"), h("span.lx-muted", sh("MegabytesUnit"))],
         { below: ctx.state.settingsUnsaved === "error" ? h("div", { style: { color: "#ff8a8a", fontSize: "13.5px", marginTop: "4px" } }, sh("MemoryError", { error: "" }), is("MemoryMinAboveMax"), " ", is("MemoryFormat"), " ", is("MemoryTooHigh", { computer: "this Mac", os: "macOS" })) : null }),
       srow(sh("Window"), null, [field("854"), tx("\u00d7"), field("480"), h("span.lx-muted", sh("Fullscreen")), toggle(false)], { below: ctx.state.settingsUnsaved === "error" ? h("div", { style: { color: "#ff8a8a", fontSize: "13.5px" } }, is("WindowSizeInvalid")) : h("div.lx-srow-hint", is("WindowFullscreen", { size: "854 \u00d7 480" })) }),
