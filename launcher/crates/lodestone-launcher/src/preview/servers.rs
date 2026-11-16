@@ -198,25 +198,36 @@ fn home(signed_in: bool) -> (SavedCore, CoreStatus, bool) {
         signed_in.then_some("peter"),
     );
     core.set_trusted(true);
+    // each at its own port, as Magic localhost shows them
+    let at = |port: u32, server: ServerInstance| ServerInstance {
+        port: Some(port),
+        ..server
+    };
     let instances = vec![
         smp(),
-        server(
-            "creative",
-            "Creative world",
-            "1.21.1",
-            ServerLoader::Vanilla,
-            None,
-            ServerState::Stopped,
-            None,
+        at(
+            25566,
+            server(
+                "creative",
+                "Creative world",
+                "1.21.1",
+                ServerLoader::Vanilla,
+                None,
+                ServerState::Stopped,
+                None,
+            ),
         ),
-        server(
-            "atm",
-            "All the Mods",
-            "1.20.1",
-            ServerLoader::Forge,
-            Some("1.20.1-47.4.28"),
-            ServerState::Stopped,
-            None,
+        at(
+            25567,
+            server(
+                "atm",
+                "All the Mods",
+                "1.20.1",
+                ServerLoader::Forge,
+                Some("1.20.1-47.4.28"),
+                ServerState::Stopped,
+                None,
+            ),
         ),
     ];
     (

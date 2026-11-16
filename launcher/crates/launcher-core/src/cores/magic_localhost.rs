@@ -23,7 +23,7 @@ use std::{
     collections::HashSet,
     future::Future,
     io,
-    net::SocketAddr,
+    net::{IpAddr, SocketAddr},
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -31,7 +31,7 @@ use std::{
 use futures::channel::oneshot;
 use serde::{Deserialize, Serialize};
 use tokio::{
-    net::{TcpListener, TcpStream},
+    net::{TcpListener, TcpSocket, TcpStream},
     runtime::Handle,
     task::{AbortHandle, JoinSet},
 };
@@ -168,9 +168,9 @@ pub fn sanitize(saved: &mut Vec<MagicPort>) -> bool {
 /// Brings the saved ports of the core at `core_url` up to date with its list, `servers`:
 /// a server with a game port and no saved port gets one, picked from [`magic_id`] away
 /// from `taken` (other cores' and friends' ports) and this core's; a saved port follows
-/// its server's game port. With `authoritative` (the list came signed in, so it has
-/// every server), servers no longer listed lose theirs; a public list only adds, so
-/// ports stay while signed out. Returns whether anything changed, for the caller to
+/// its server's game port. With `authoritative` (the list came signed in, its public
+/// half too, so it has every server), servers no longer listed lose theirs; any other
+/// list only adds, so ports stay while signed out or when the public half failed. Returns whether anything changed, for the caller to
 /// save.
 pub fn update_ports(
     saved: &mut Vec<MagicPort>,
@@ -225,15 +225,20 @@ pub struct Target {
 
 impl Target {
     /// The server at `port` on the core at `core_url`. `None` for port 0, and for a core
-    /// on this computer, whose servers need no forwarder (and a forwarder to itself
-    /// would loop).
+    /// on this computer by its address, whose servers need no forwarder (and a forwarder
+    /// to itself would loop). A name that only resolves to this computer is caught
+    /// when a connection resolves it ([`is_this_computer`]).
     pub fn new(core_url: &Url, port: u16) -> Option<Self> {
-        let host = match core_url.host()? {
-            url::Host::Domain(domain) => domain.to_string(),
-            url::Host::Ipv4(ip) => ip.to_string(),
-            url::Host::Ipv6(ip) => ip.to_string(),
+        let (host, here) = match core_url.host()? {
+            url::Host::Domain(domain) => {
+                let name = domain.trim_end_matches('.').to_ascii_lowercase();
+                let here = is_loopback_host(&name) || name.ends_with(".localhost");
+                (domain.to_string(), here)
+            }
+            url::Host::Ipv4(ip) => (ip.to_string(), is_this_computer(ip.into())),
+            url::Host::Ipv6(ip) => (ip.to_string(), is_this_computer(ip.into())),
         };
-        (port != 0 && !is_loopback_host(&host)).then_some(Self { host, port })
+        (port != 0 && !here).then_some(Self { host, port })
     }
 }
 
@@ -257,6 +262,9 @@ pub type OnError = Arc<dyn Fn(&Target, &io::Error) + Send + Sync>;
 #[derive(Default)]
 pub struct Forwarders {
     runtime: Option<RuntimeThread>,
+    /// Whether forwarders may connect to this computer: only the tests' fake servers,
+    /// which have nowhere else to listen.
+    local_targets: bool,
 }
 
 struct RuntimeThread {
@@ -268,6 +276,15 @@ struct RuntimeThread {
 impl Forwarders {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Forwarders that pass connections to servers on 127.0.0.1, for tests.
+    #[cfg(test)]
+    fn to_this_computer() -> Self {
+        Self {
+            runtime: None,
+            local_targets: true,
+        }
     }
 
     fn handle(&mut self) -> io::Result<Handle> {
@@ -315,6 +332,7 @@ impl Forwarders {
         target: Target,
         on_error: OnError,
     ) -> impl Future<Output = io::Result<Forwarder>> + Send + 'static {
+        let local_targets = self.local_targets;
         let started = self.handle().map(|handle| {
             let target = Arc::new(Mutex::new(target));
             let (ready_tx, ready_rx) = oneshot::channel::<io::Result<SocketAddr>>();
@@ -326,7 +344,7 @@ impl Forwarders {
                 match bound {
                     Ok((addr, listener)) => {
                         if ready_tx.send(Ok(addr)).is_ok() {
-                            accept_loop(listener, addr, task_target, on_error).await;
+                            accept_loop(listener, addr, task_target, local_targets, on_error).await;
                         }
                     }
                     Err(err) => {
@@ -384,7 +402,8 @@ impl Forwarder {
         self.addr.port()
     }
 
-    pub fn local_addr(&self) -> SocketAddr {
+    #[cfg(test)]
+    fn local_addr(&self) -> SocketAddr {
         self.addr
     }
 
@@ -409,6 +428,7 @@ async fn accept_loop(
     listener: TcpListener,
     own: SocketAddr,
     target: Arc<Mutex<Target>>,
+    local_targets: bool,
     on_error: OnError,
 ) {
     // owned by this task, so aborting it closes every connection
@@ -428,12 +448,18 @@ async fn accept_loop(
             continue;
         }
         let target = target.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        connections.spawn(relay(socket, own, target, on_error.clone()));
+        connections.spawn(relay(socket, own, target, local_targets, on_error.clone()));
     }
 }
 
-async fn relay(mut client: TcpStream, own: SocketAddr, target: Target, on_error: OnError) {
-    let mut server = match connect(&target, own).await {
+async fn relay(
+    client: TcpStream,
+    own: SocketAddr,
+    target: Target,
+    local_targets: bool,
+    on_error: OnError,
+) {
+    let server = match connect(&target, own, local_targets).await {
         Ok(server) => server,
         Err(err) => {
             // the client's connection closes: Minecraft says it can't connect
@@ -443,32 +469,56 @@ async fn relay(mut client: TcpStream, own: SocketAddr, target: Target, on_error:
     };
     let _ = client.set_nodelay(true);
     let _ = server.set_nodelay(true);
-    let _ = tokio::io::copy_bidirectional(&mut client, &mut server).await;
+    let (mut client_read, mut client_write) = client.into_split();
+    let (mut server_read, mut server_write) = server.into_split();
+    // Minecraft never half-closes a connection, so the relay ends when either side
+    // does: waiting for both would keep a connection whose host vanished without a
+    // word (asleep, off the network) for good, and with it one of the forwarder's
+    // MAX_CONNECTIONS slots, once its client left
+    let up = std::pin::pin!(tokio::io::copy(&mut client_read, &mut server_write));
+    let down = std::pin::pin!(tokio::io::copy(&mut server_read, &mut client_write));
+    let _ = futures::future::select(up, down).await;
 }
 
-/// Connects to `target`, resolving its name now so a changed address counts, and never
-/// to `own` (the forwarder itself, which would loop).
-async fn connect(target: &Target, own: SocketAddr) -> io::Result<TcpStream> {
-    let timed_out = || io::Error::new(io::ErrorKind::TimedOut, "no answer in time");
-    let addresses = tokio::time::timeout(
-        CONNECT_TIMEOUT,
-        tokio::net::lookup_host((target.host.as_str(), target.port)),
-    )
-    .await
-    .map_err(|_| timed_out())??;
-    let mut last = io::Error::new(io::ErrorKind::NotFound, "the name has no address");
-    for address in addresses.take(MAX_ADDRESSES) {
-        if address == own {
-            last = io::Error::other("the address is this forwarder's own");
-            continue;
+/// Whether `address` reaches this computer itself, where a forwarder never connects: a
+/// core here needs none, and another forwarder there would make a loop. 127.0.0.0/8,
+/// ::1, either written as an IPv4-mapped IPv6 address, and the unspecified addresses
+/// (connecting to 0.0.0.0 reaches this computer).
+fn is_this_computer(ip: IpAddr) -> bool {
+    let ip = ip.to_canonical();
+    ip.is_loopback() || ip.is_unspecified()
+}
+
+/// Connects to `target`, resolving its name now so a changed address counts. Never to
+/// this computer ([`is_this_computer`], unless `local_targets`, for tests) and never
+/// to `own` (the forwarder itself). One [`CONNECT_TIMEOUT`] covers the name and every
+/// address it tries, so a host that drops packets holds a slot for that long at most.
+/// The connection keeps TCP keepalive on, so a host that vanishes while nobody plays
+/// (a client that doesn't close, say) is noticed eventually and its slot freed.
+async fn connect(target: &Target, own: SocketAddr, local_targets: bool) -> io::Result<TcpStream> {
+    let attempt = async {
+        let addresses = tokio::net::lookup_host((target.host.as_str(), target.port)).await?;
+        let mut last = io::Error::new(io::ErrorKind::NotFound, "the name has no address");
+        for address in addresses.take(MAX_ADDRESSES) {
+            if address == own || (!local_targets && is_this_computer(address.ip())) {
+                last = io::Error::other("the address is this computer's own");
+                continue;
+            }
+            let socket = match address {
+                SocketAddr::V4(_) => TcpSocket::new_v4(),
+                SocketAddr::V6(_) => TcpSocket::new_v6(),
+            }?;
+            let _ = socket.set_keepalive(true);
+            match socket.connect(address).await {
+                Ok(stream) => return Ok(stream),
+                Err(err) => last = err,
+            }
         }
-        match tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect(address)).await {
-            Ok(Ok(stream)) => return Ok(stream),
-            Ok(Err(err)) => last = err,
-            Err(_) => last = timed_out(),
-        }
-    }
-    Err(last)
+        Err(last)
+    };
+    tokio::time::timeout(CONNECT_TIMEOUT, attempt)
+        .await
+        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "no answer in time"))?
 }
 
 #[cfg(test)]
@@ -742,8 +792,14 @@ mod tests {
         assert_eq!(Target::new(&url("https://192.168.1.42:16662"), 0), None);
         for local in [
             "http://127.0.0.1:16662",
+            "http://127.0.0.2:16662",
             "http://localhost:16662",
+            "http://LOCALHOST.:16662",
+            "http://core.localhost:16662",
             "http://[::1]:16662",
+            "http://0.0.0.0:16662",
+            "http://[::]:16662",
+            "http://[::ffff:127.0.0.1]:16662",
         ] {
             assert_eq!(Target::new(&url(local), 25565), None, "{local}");
         }
@@ -825,7 +881,7 @@ mod tests {
     #[tokio::test]
     async fn a_forwarder_relays_both_ways_on_loopback_only() {
         let (server, _task) = echo_server(b"one").await;
-        let mut forwarders = Forwarders::new();
+        let mut forwarders = Forwarders::to_this_computer();
         let saved = free_port();
         let forwarder = forwarders
             .start(saved, loopback(server.port()), quiet())
@@ -847,7 +903,7 @@ mod tests {
         let (server, _task) = echo_server(b"one").await;
         let holder = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let saved = holder.local_addr().unwrap().port();
-        let mut forwarders = Forwarders::new();
+        let mut forwarders = Forwarders::to_this_computer();
         let forwarder = forwarders
             .start(saved, loopback(server.port()), quiet())
             .await
@@ -863,7 +919,7 @@ mod tests {
     async fn a_new_target_takes_new_connections() {
         let (first, _a) = echo_server(b"one").await;
         let (second, _b) = echo_server(b"two").await;
-        let mut forwarders = Forwarders::new();
+        let mut forwarders = Forwarders::to_this_computer();
         let forwarder = forwarders
             .start(free_port(), loopback(first.port()), quiet())
             .await
@@ -881,7 +937,7 @@ mod tests {
     #[tokio::test]
     async fn dropping_a_forwarder_closes_it_and_its_connections() {
         let (server, _task) = echo_server(b"one").await;
-        let mut forwarders = Forwarders::new();
+        let mut forwarders = Forwarders::to_this_computer();
         let forwarder = forwarders
             .start(free_port(), loopback(server.port()), quiet())
             .await
@@ -900,7 +956,7 @@ mod tests {
     #[tokio::test]
     async fn dropping_the_forwarders_closes_everything() {
         let (server, _task) = echo_server(b"one").await;
-        let mut forwarders = Forwarders::new();
+        let mut forwarders = Forwarders::to_this_computer();
         let forwarder = forwarders
             .start(free_port(), loopback(server.port()), quiet())
             .await
@@ -915,7 +971,7 @@ mod tests {
     #[tokio::test]
     async fn connections_past_the_cap_are_closed() {
         let (server, _task) = echo_server(b"one").await;
-        let mut forwarders = Forwarders::new();
+        let mut forwarders = Forwarders::to_this_computer();
         let forwarder = forwarders
             .start(free_port(), loopback(server.port()), quiet())
             .await
@@ -946,7 +1002,7 @@ mod tests {
             seen.lock().unwrap().push((target.port, err.kind()));
         });
         let stopped = free_port();
-        let mut forwarders = Forwarders::new();
+        let mut forwarders = Forwarders::to_this_computer();
         let forwarder = forwarders
             .start(free_port(), loopback(stopped), on_error)
             .await
@@ -972,7 +1028,7 @@ mod tests {
         let seen = errors.clone();
         let on_error: OnError = Arc::new(move |_, err| seen.lock().unwrap().push(err.kind()));
         let saved = free_port();
-        let mut forwarders = Forwarders::new();
+        let mut forwarders = Forwarders::to_this_computer();
         let forwarder = forwarders
             .start(saved, loopback(saved), on_error)
             .await
@@ -980,5 +1036,93 @@ mod tests {
         assert_eq!(forwarder.port(), saved);
         assert!(closed(saved).await);
         assert!(!errors.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_forwarder_never_connects_to_this_computer() {
+        let (server, _task) = echo_server(b"one").await;
+        let errors = Arc::new(Mutex::new(Vec::new()));
+        let seen = errors.clone();
+        let on_error: OnError = Arc::new(move |_, err| seen.lock().unwrap().push(err.kind()));
+        // the app's forwarders, not the tests'
+        let mut forwarders = Forwarders::new();
+        for host in ["127.0.0.1", "0.0.0.0", "::ffff:127.0.0.1"] {
+            let target = Target {
+                host: host.into(),
+                port: server.port(),
+            };
+            let forwarder = forwarders
+                .start(free_port(), target, on_error.clone())
+                .await
+                .unwrap();
+            let mut client = TcpStream::connect(("127.0.0.1", forwarder.port()))
+                .await
+                .unwrap();
+            let mut buf = [0u8; 3];
+            let ended = tokio::time::timeout(Duration::from_secs(5), client.read(&mut buf))
+                .await
+                .unwrap();
+            // closed without the fake server's greeting
+            assert!(matches!(ended, Ok(0) | Err(_)), "{host}: {ended:?}");
+        }
+        assert_eq!(errors.lock().unwrap().len(), 3);
+    }
+
+    #[test]
+    fn this_computer_covers_mapped_and_unspecified_addresses() {
+        for here in [
+            "127.0.0.1",
+            "127.1.2.3",
+            "::1",
+            "0.0.0.0",
+            "::",
+            "::ffff:127.0.0.1",
+        ] {
+            assert!(is_this_computer(here.parse().unwrap()), "{here}");
+        }
+        for there in [
+            "192.168.1.42",
+            "10.0.0.1",
+            "2001:db8::1",
+            "::ffff:192.168.1.42",
+        ] {
+            assert!(!is_this_computer(there.parse().unwrap()), "{there}");
+        }
+    }
+
+    /// A relay ends when its client leaves, even when the server never closes or
+    /// answers (its host vanished without a word): otherwise each such connection
+    /// would keep one of the forwarder's slots for good.
+    #[tokio::test]
+    async fn a_relay_ends_when_its_client_leaves() {
+        // a fake server that greets each connection, then never reads or closes it
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let server = listener.local_addr().unwrap();
+        let _task = tokio::spawn(async move {
+            let mut held = Vec::new();
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let _ = socket.write_all(b"hi").await;
+                held.push(socket);
+            }
+        });
+        let mut forwarders = Forwarders::to_this_computer();
+        let forwarder = forwarders
+            .start(free_port(), loopback(server.port()), quiet())
+            .await
+            .unwrap();
+        // many more than the cap, one after another: each still gets through
+        for round in 0..MAX_CONNECTIONS * 3 {
+            let mut client = TcpStream::connect(("127.0.0.1", forwarder.port()))
+                .await
+                .unwrap();
+            let mut got = [0u8; 2];
+            tokio::time::timeout(Duration::from_secs(5), client.read_exact(&mut got))
+                .await
+                .unwrap_or_else(|_| panic!("round {round} timed out"))
+                .unwrap_or_else(|err| panic!("round {round}: {err}"));
+            assert_eq!(&got, b"hi");
+            drop(client);
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
     }
 }

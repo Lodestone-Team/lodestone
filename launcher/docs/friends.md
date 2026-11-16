@@ -416,7 +416,7 @@ Minecraft's server list keeps working. How it works depends on where the server 
   `127.0.0.1:<server port>`, "(while the server runs)". Nothing listens for it and nothing
   is saved. A core that hides a server's port shows no address.
 - **A server on another host**, added by address (signed in or not), gets a port of its
-  own, "(while Lodestone Launcher is open)". A forwarder listens there on 127.0.0.1 only
+  own, "(while the server runs and Lodestone Launcher is open)". A forwarder listens there on 127.0.0.1 only
   and passes each connection on to the core's host at the server's game port: the same
   place Play joins. It never uses a Lodestone Connect tunnel, since these hosts are
   reached directly, as Play reaches them.
@@ -436,8 +436,14 @@ address, because a core gets a new id each time it starts), a friend's server fr
 friend id. The first free choice is saved: host servers' in `servers.json`, under their
 core (`magic_ports`: the server id, the port, and the server's game port so the forwarder
 opens at startup), friends' in `friends.json` (`game_port`). Each kind avoids every port
-the other has saved. A signed-in list drops the ports of servers it no longer lists; a
-public list only adds, so ports stay while signed out.
+the other has saved, and new picks also avoid the game ports of the servers on this
+computer's cores (their rows show `127.0.0.1:<that port>`, which a forwarder there would
+answer instead, as the more specific bind). A complete list (signed in, and its public
+half arrived too) drops the ports of servers it no longer lists; any other list only
+adds, so ports stay while signed out, and one failed public fetch can't close the
+forwarder of a public-only server someone is playing on. A card that moves to "On this
+computer" (the scan found its core here, at an address that first looked like another
+host's) drops its saved ports and closes their forwarders when the scan finishes.
 
 **Lifetime.** The forwarders open from `servers.json` shortly after the Launcher starts
 and stay open while it runs, rather than on first use: an outside client connects
@@ -448,22 +454,35 @@ until it runs, as for friends.
 
 **Port in use.** Opening a forwarder probes its saved port and binds it, else any free
 port, exactly as a tunnel's game port does (`connect::bind_game`). The row shows the
-address actually in use, and the page says once per session "Port … was in use". The
-saved port stays for next time.
+address actually in use with a yellow line under it, "Port … was in use, so this
+address is for this session only" (also in the row's screen-reader description, and
+`magic_port_taken` in `servers.list`), and the page says once per session "Port … was
+in use". The saved port stays for next time. A forwarder that can't listen at all (not
+even on a free port), or one past the cap of 256, shows no address on its row (and none
+in `servers.list`): nothing would answer it.
 
 **Limits and safety.** At most 64 saved ports per core, 256 forwarders and 32
-connections per forwarder (more are closed at once); 10 seconds to resolve and connect.
+connections per forwarder (more are closed at once); 10 seconds in all to resolve the
+host and connect to one of its addresses. A relayed connection ends as soon as either
+side closes (Minecraft never half-closes), so a host that vanishes without a word can't
+keep a slot once its client leaves; connections to the server keep TCP keepalive on.
 Saved entries are checked when read (port in range, a plain server id of at most 64
 characters, a non-zero game port). A forwarder only ever forwards to its core's own host
 at the port the core names, which is where Play connects already, so it is not an open
-proxy; a core at a loopback address gets none (its servers are "on this computer"), and
-a connection never goes to the forwarder's own address. The host's name is resolved for
-each connection, so a changed address counts. Connections a forwarder couldn't pass on
-are logged (a refused one, a stopped server, at debug level only).
+proxy; a core at an address of this computer gets none (its servers are "on this
+computer": loopback, `localhost`, `*.localhost`, `0.0.0.0`, `::`, and IPv4-mapped
+loopback), and a connection never goes to an address of this computer either, so a name
+that resolves there can't chain forwarders into each other. The host's name is resolved
+for each connection, so a changed address counts. Connections a forwarder couldn't pass
+on are logged: a refused one (a stopped server) at debug level, any other failure as a
+warning at most once a minute for each host and port, then at debug level, since
+Minecraft's server list asks every few seconds.
 
 Known gaps: a core reached at a loopback address through an SSH tunnel counts as this
 computer, so its servers show `127.0.0.1:<server port>`; a server on this computer bound
-to one specific address (`server-ip`) doesn't answer on 127.0.0.1; and a server whose
+to one specific address (`server-ip`) doesn't answer on 127.0.0.1; a core added by a
+name that only resolves to this computer (a hosts-file alias) and that the scan doesn't
+find here shows a forwarded address whose connections are refused; and a server whose
 port changed is forwarded to the old port until the page fetches its list again.
 
 ## Mods

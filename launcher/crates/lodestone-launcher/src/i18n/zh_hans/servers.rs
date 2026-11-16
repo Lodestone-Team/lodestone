@@ -543,7 +543,10 @@ pub fn text(message: M) -> &'static str {
         M::FriendsSaveFailed => "无法保存好友的服务器",
         M::FriendAddress => "Magic localhost：{address}（连接时可用）",
         M::MagicAddressHere => "Magic localhost：{address}（服务器运行时可用）",
-        M::MagicAddressForwarded => "Magic localhost：{address}（Lodestone Launcher 打开时可用）",
+        M::MagicAddressForwarded => {
+            "Magic localhost：{address}（服务器运行且 Lodestone Launcher 打开时可用）"
+        }
+        M::MagicPortTakenRow => "端口 {port} 已被占用，所以这个地址只在本次可用",
         M::FriendPortTaken => "端口 {port} 已被占用",
         M::FriendPortTakenBody => {
             "这台电脑上的其他程序正在使用它，所以这次的地址是 {address}。下次 Lodestone Launcher 会再次尝试端口 {port}。"

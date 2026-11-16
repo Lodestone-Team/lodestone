@@ -542,7 +542,11 @@ crate::i18n::messages! {
         MagicAddressHere = "Magic localhost: {address} (while the server runs)",
         /// On the row of a server on another host. {address} is 127.0.0.1:<port>, the
         /// same every time: the launcher passes connections there on to the server.
-        MagicAddressForwarded = "Magic localhost: {address} (while Lodestone Launcher is open)",
+        MagicAddressForwarded = "Magic localhost: {address} (while the server runs and Lodestone Launcher is open)",
+        /// Under the Magic localhost line when another program had the server's usual
+        /// port, so the address shown works only until the launcher closes. {port} is
+        /// the usual port, which the launcher tries again next time.
+        MagicPortTakenRow = "Port {port} was in use, so this address is for this session only",
         /// {port} is the server's usual local port.
         FriendPortTaken = "Port {port} was in use",
         /// {address} is this session's 127.0.0.1:<port>; {port} the usual one.
