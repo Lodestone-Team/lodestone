@@ -347,16 +347,17 @@ lodestone-launcher-cli worlds delete Survival "Old World" --yes
 
 Snapshots are images in the launcher's image store of the whole instance folder: its
 worlds and other files (options, servers, screenshots), linked to the mods and configs
-they ran with, which are stored once however many snapshots use them. The launcher also takes them on its own before mod, modpack,
-server and loader version updates, before a restore (a safety snapshot), and after
-playing when the user turns that on. A failed snapshot stops a modpack update (the
-error says why; the window offers to update without one); a mod update goes on and its
-reply's `snapshot_failed` says why. Automatic ones are kept by the instance's policy;
-manual, imported and pinned ones are never deleted on their own. Logs, caches and the
-JVM's crash logs and dumps are never included. Nothing runs while the instance's game does (`busy`),
-including a game this launcher didn't start whose worlds are open (Minecraft 1.16 and
-later), except `restore --scope new`; a restore in place also waits (`busy`) while another
-job (a mod install, a modpack update) changes the instance's files.
+they ran with, which are stored once however many snapshots use them. The launcher also
+takes them on its own before mod, modpack, server and loader version updates, before a
+restore (a safety snapshot), and after playing when the user turns that on. A failed
+snapshot stops a modpack update (the error says why; the window offers to update without
+one); a mod update goes on and its reply's `snapshot_failed` says why. Automatic ones
+are kept by the instance's policy; manual, imported and pinned ones are never deleted on
+their own. Logs, caches and the JVM's crash logs and dumps are never included. Nothing
+runs while the instance's game does (`busy`), including a game this launcher didn't
+start whose worlds are open (Minecraft 1.16 and later), except `restore --scope new`; a
+restore in place also waits (`busy`) while another job (a mod install, a modpack update)
+changes the instance's files.
 
 What the replies say beyond the obvious:
 

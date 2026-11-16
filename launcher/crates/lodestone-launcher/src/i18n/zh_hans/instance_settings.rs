@@ -453,7 +453,7 @@ pub fn text(message: M) -> &'static str {
         M::BackingUpWorld => "正在备份 {name}…",
         M::WorldBackedUp => "已备份 {name}。",
         M::NoWorldsToBackUp => "此实例还没有世界。",
-        M::RestoreWorldTitle => "恢复 {world}？",
+        M::RestoreWorldTitle => "恢复 {world}",
         M::RestoreWorldBody => {
             "{world} 将回到“{name}”（{when}）时的状态。会先把世界现在的样子另存为一个世界备份。"
         }

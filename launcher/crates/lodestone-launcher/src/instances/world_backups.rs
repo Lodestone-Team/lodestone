@@ -369,10 +369,10 @@ impl WorldBackupDialog {
         let instances = self.instances.read(cx);
         // Another job writing the instance's files (an install, a modpack update, the
         // Worlds tab's or another dialog's job): a restore's swap would lose what it
-        // writes, a backup could zip a file mid-write, and either would wait for the
-        // instance's lock meanwhile with Cancel doing nothing. Refused instead, as Take a
-        // snapshot is. A delete only waits for a moment.
-        if !deleting && instances.files_or_pack_busy(&id) {
+        // writes, a backup could zip a file mid-write, and any of them, a delete too,
+        // would wait for the instance's lock meanwhile, for as long as that job runs, with
+        // Cancel doing nothing. Refused instead, as Take a snapshot is.
+        if instances.files_or_pack_busy(&id) {
             self.state = State::Failed(t(crate::i18n::InstancesMsg::FilesBusy).into());
             return cx.notify();
         }
@@ -541,16 +541,11 @@ impl WorldBackupDialog {
         let label = if self.stopping {
             t(crate::i18n::InstancesMsg::CancellingNote).to_string()
         } else {
-            match (&self.request, self.step.load(Ordering::Relaxed)) {
-                (WorldBackupRequest::BackUp { .. }, _) => {
-                    let name = self.chosen.as_deref().map_or(String::new(), |folder| {
-                        world_label(self.worlds.as_deref().unwrap_or_default(), folder)
-                    });
-                    tr!(M::BackingUpWorld, name = name)
-                }
-                (_, STEP_SAVING) => t(M::SavingWorld).to_string(),
-                _ => t(M::UnpackingWorldBackup).to_string(),
-            }
+            progress_label(&self.request, self.step.load(Ordering::Relaxed), || {
+                self.chosen.as_deref().map_or(String::new(), |folder| {
+                    world_label(self.worlds.as_deref().unwrap_or_default(), folder)
+                })
+            })
         };
         let now = self.progress.snapshot();
         let fraction = (now.bytes_total > 0)
@@ -761,6 +756,25 @@ impl Render for WorldBackupDialog {
     }
 }
 
+/// What the dialog says while `request` works, at `step` of a restore; `chosen` names the
+/// world being backed up.
+fn progress_label(
+    request: &WorldBackupRequest,
+    step: u8,
+    chosen: impl FnOnce() -> String,
+) -> String {
+    match (request, step) {
+        (WorldBackupRequest::BackUp { .. }, _) => tr!(M::BackingUpWorld, name = chosen()),
+        (WorldBackupRequest::Delete { backup, .. }, _) => tr!(
+            crate::i18n::WorldsMsg::MovingToTrash,
+            name = shown_name(backup),
+            trash = t(CommonMsg::TheTrash)
+        ),
+        (_, STEP_SAVING) => t(M::SavingWorld).to_string(),
+        _ => t(M::UnpackingWorldBackup).to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -785,6 +799,38 @@ mod tests {
             left_out: Vec::new(),
             left_out_count: 0,
         }
+    }
+
+    /// Each request says what it does while it works: a delete never reads like a restore.
+    #[test]
+    fn progress_says_what_runs() {
+        let manual = backup("Before the dragon fight", WorldBackupKind::Manual, None);
+        let delete = WorldBackupRequest::Delete {
+            instance: "pack".into(),
+            backup: manual.clone(),
+        };
+        let deleting = progress_label(&delete, STEP_NONE, String::new);
+        assert!(deleting.contains("Before the dragon fight"), "{deleting}");
+        assert_ne!(deleting, t(M::UnpackingWorldBackup));
+        assert_ne!(deleting, t(M::SavingWorld));
+        let restore = WorldBackupRequest::Restore {
+            instance: "pack".into(),
+            backup: manual,
+            to: RestoreTo::InPlace,
+        };
+        assert_eq!(
+            progress_label(&restore, STEP_SAVING, String::new),
+            t(M::SavingWorld)
+        );
+        assert_eq!(
+            progress_label(&restore, STEP_UNPACKING, String::new),
+            t(M::UnpackingWorldBackup)
+        );
+        let back_up = WorldBackupRequest::BackUp {
+            instance: "pack".into(),
+            world: None,
+        };
+        assert!(progress_label(&back_up, STEP_NONE, || "Island".into()).contains("Island"));
     }
 
     /// The names the Launcher gave are shown in the window's language, from how the backup

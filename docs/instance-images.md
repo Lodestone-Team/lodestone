@@ -1086,7 +1086,9 @@ Snapshots' "World backups" group and its dialog) and the Worlds tab.
   take them. The id has a snapshot record id's shape (`YYYYMMDD-HHMMSS-xxxx`, UTC). The
   zip's one top folder is the world's folder (`<world folder>/level.dat`, …), so it unzips
   into any `saves` folder. Files already compressed (`.mca`, `.mcc`, `.mcr`, `.dat`,
-  `.dat_old`, `.png`, `.gz`, `.zip`, `.jar`) are stored as they are; the rest deflated. The `.json` (`WorldBackup`, `version` 1, at most
+  `.dat_old`, `.nbt`, `.sqlite` with `-wal` and `-shm`, `.png`, `.jpg`, `.jpeg`, `.ogg`,
+  `.gz`, `.zip`, `.jar`, `.zst`, `.lz4`, `.xz`, `.7z`) and every file of 64 MiB or more
+  are stored as they are; the rest deflated. The `.json` (`WorldBackup`, `version` 1, at most
   64 KiB) has the id, the owner's `instance_created` and name, the world's folder, the
   name (the user's, cut to 200 characters, else "World backup"), the kind (`manual` or
   `before_restore`, with `restored`: the name of the backup whose restore it came before),
@@ -1187,9 +1189,9 @@ Snapshots' "World backups" group and its dialog) and the Worlds tab.
   (a pick of the worlds when there are several, a name), restores (in place after a
   confirmation naming the backup and saying the world as it is is saved first; as a new
   world at once) and deletes; while it works it can't be closed, and Cancel stops the
-  work. The Worlds tab's "Back up" is a tab job with Cancel, as are rename and delete,
-  which wait for any other job writing the instance (Settings' world backup dialog, an
-  install, a modpack update). A world's "Backups & snapshots" button (its number counts
+  work. The Worlds tab's "Back up" is a tab job with Cancel, as are rename and delete;
+  all three are refused, with the reason, while another job writes the instance
+  (Settings' world backup dialog, an install, a modpack update). A world's "Backups & snapshots" button (its number counts
   both sections) opens a panel with "World backups" (its zips, with the same buttons,
   which open the dialog) and "In snapshots" (the snapshots holding it); both list
   Restore… (in place, asking first) then Restore as a new world. The lists follow
@@ -4197,11 +4199,13 @@ developer's brief left them open. The developer decided: world backups are manua
   and Play already coordinate on. Restoring as a new world isn't
   refused by the core while the game runs (it replaces nothing, as `restore_world_copy`),
   but the dialog and the control API refuse it. The dialogs and the control API also
-  refuse making or restoring one (not deleting) while another job writes the
+  refuse making or restoring one while another job writes the
   instance's files (`files_or_pack_busy`: an install, a modpack update, a window job),
   as Take a snapshot does: a backup could zip a file mid-write, a swap would lose what
   the job writes, and the work would otherwise wait for the record lock with Cancel
-  doing nothing. Restoring in place is refused when
+  doing nothing. The dialog refuses deleting one then too, since the delete would sit
+  waiting for that lock, as long as the job runs; its progress line names the backup
+  being moved to the Trash. The control API's delete waits instead (a script can). Restoring in place is refused when
   `saves/` or a folder above it is a link (shared saves, another drive): the swap could
   rename through it, but its rollback refuses to (it could move files out of somewhere
   else), so a failed or crashed swap could never be undone and would leave the instance
@@ -4247,9 +4251,14 @@ developer's brief left them open. The developer decided: world backups are manua
   zip's stated unpacked size plus the world's size plus 1 GiB, once; otherwise the stated
   size and 1 GiB on the instance's disk and the world's size and 1 GiB on the backups'.
   All before the safety backup. As a new world: the stated size and 1 GiB.
-- **Zip contents and speed.** Files already compressed (region files, gzip NBT, images,
-  zips) are stored, the rest deflated: deflating region files gains almost nothing and
-  made backing up a large world bound by one core (about 70 MB/s). Cancel is asked
+- **Zip contents and speed.** Files already compressed (region files, gzip NBT, mods'
+  SQLite databases such as Distant Horizons' `DistantHorizons.sqlite` of chunks it
+  compressed itself, images, sound, archives) are stored, and so is any file of 64 MiB or
+  more whatever its name (a large file in a world is region-like data or a database, never
+  text); the rest is deflated. Deflating such files gains nothing and runs on one core
+  (about 60 to 70 MB/s: 8 s for 512 MiB, against 0.2 s stored), so a world with a 5 GiB
+  database would spend over a minute on every backup, and before every in-place restore,
+  whose safety backup runs first. Cancel is asked
   between 8 MiB chunks of a large file too. Files are opened without following links and
   must be plain files. Unpacking makes its files durable as one batch
   (`lodestone_image::store::durable`) rather than with a drive cache flush per file
@@ -4297,7 +4306,9 @@ developer's brief left them open. The developer decided: world backups are manua
   default scans the whole file from its first byte to find the start (about 4 s for a
   5 GiB backup from cache, minutes from a hard drive, with no progress or Cancel). Only a
   world import falls back to that scan, for a zip with something before it (a
-  self-extracting stub); a world backup with something before it is refused. `check`
+  self-extracting stub), and only when the file doesn't start with a zip record (a local
+  header, or an empty zip's end record): a damaged zip that starts like one is refused
+  without reading it through. A world backup with something before it is refused. `check`
   lists entries from the central directory alone (`by_index_data`), reading no local
   header. Files of 2 GiB or more are written with zip64 sizes: a deflated file just
   under 4 GiB that doesn't compress would otherwise overflow its 32-bit sizes and fail
@@ -4313,7 +4324,11 @@ developer's brief left them open. The developer decided: world backups are manua
   (deleting a zip doesn't touch the world). The restore confirmation's wording (whether
   the world is there) comes from the list's background read, not a look at the disk.
   Its done message names the safety backup ("The world as it was is in the world backup
-  “…”"), as the Worlds tab's snapshot restore names its safety snapshot.
+  “…”"), as the Worlds tab's snapshot restore names its safety snapshot; its title,
+  "Restore <world>", is not a question, as it stays over that message (as Restore
+  <snapshot> does). When the Worlds tab refuses a job because another one writes the
+  instance's files, it says so ("Wait for the instance's files to finish changing"), as
+  the dialog does, rather than to wait for a task it doesn't show.
   `worlds.delete`, `rename` and the other world changes in the control API are refused
   while a world backup job of the instance runs or the window's jobs write its files.
 - **Words.** "World backup" is the zip and "snapshot" the image everywhere in the

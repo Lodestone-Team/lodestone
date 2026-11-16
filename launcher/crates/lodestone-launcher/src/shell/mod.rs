@@ -3615,7 +3615,8 @@ mod mod_finder_tests {
         );
         shell.update(cx, |shell, cx| shell.close_modal(cx));
         cx.run_until_parked();
-        // A delete isn't refused (here it fails: there is no such backup).
+        // Nor a delete, which would otherwise wait for the instance's lock for as long as
+        // the other job runs.
         shell.update(cx, |shell, cx| {
             shell.open_world_backup(
                 WorldBackupRequest::Delete {
@@ -3629,7 +3630,7 @@ mod mod_finder_tests {
         let dialog = shell.read_with(cx, |shell, _| shell.world_backup_dialog().cloned().unwrap());
         dialog.update(cx, |dialog, cx| dialog.test_go(cx));
         cx.run_until_parked();
-        assert_ne!(
+        assert_eq!(
             dialog.read_with(cx, |dialog, _| dialog.test_failed()),
             Some(busy_message)
         );

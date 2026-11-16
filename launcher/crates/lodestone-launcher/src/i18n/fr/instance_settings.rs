@@ -519,7 +519,7 @@ pub fn text(message: M) -> &'static str {
         M::BackingUpWorld => "Sauvegarde de {name}…",
         M::WorldBackedUp => "{name} est sauvegardé.",
         M::NoWorldsToBackUp => "Cette instance n’a pas encore de monde.",
-        M::RestoreWorldTitle => "Restaurer {world}\u{a0}?",
+        M::RestoreWorldTitle => "Restaurer {world}",
         M::RestoreWorldBody => {
             "{world} revient à son état dans «\u{a0}{name}\u{a0}» ({when}). Le monde tel qu’il est maintenant est d’abord enregistré dans une autre sauvegarde de monde."
         }

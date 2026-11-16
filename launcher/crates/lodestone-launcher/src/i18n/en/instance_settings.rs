@@ -555,8 +555,8 @@ crate::i18n::messages! {
         BackingUpWorld = "Backing up {name}…",
         WorldBackedUp = "Backed up {name}.",
         NoWorldsToBackUp = "This instance has no worlds yet.",
-        /// {world} is the world's name.
-        RestoreWorldTitle = "Restore {world}?",
+        /// {world} is the world's name. A title, not a question: it stays once the restore ends.
+        RestoreWorldTitle = "Restore {world}",
         /// {name} is the world backup's name; {when} is when it was made: "today, 14:05".
         RestoreWorldBody = "{world} goes back to how it was in “{name}” ({when}). The world as it is now is saved first, as another world backup.",
         RestoreWorldGoneBody = "{world} isn't in this instance any more. It comes back as it was in “{name}” ({when}).",

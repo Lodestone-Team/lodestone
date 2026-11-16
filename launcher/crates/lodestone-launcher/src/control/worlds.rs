@@ -55,7 +55,7 @@ fn holding<'a>(records: &'a [SnapshotRecord], folder: &str) -> Vec<&'a SnapshotR
         .collect()
 }
 
-pub(super) fn world_error(err: WorldError) -> ErrorObject {
+fn world_error(err: WorldError) -> ErrorObject {
     let code = match &err {
         WorldError::NotFound(_) => codes::NOT_FOUND,
         WorldError::Conflict(_) => codes::CONFLICT,
@@ -92,14 +92,14 @@ pub(super) fn find_world(dirs: &InstanceDirs, reference: &str) -> Result<World, 
     }
 }
 
-pub(super) struct Target {
-    pub(super) control: std::rc::Rc<Control>,
-    pub(super) instance: Instance,
-    pub(super) dirs: InstanceDirs,
-    pub(super) world: World,
+struct Target {
+    control: std::rc::Rc<Control>,
+    instance: Instance,
+    dirs: InstanceDirs,
+    world: World,
 }
 
-pub(super) fn target(call: &Call, cx: &App) -> Result<Target, ErrorObject> {
+fn target(call: &Call, cx: &App) -> Result<Target, ErrorObject> {
     let control = call.control.clone();
     let instance = control.instance_param(call, cx)?;
     let dirs = control.instances.read(cx).content_dirs(&instance.id);

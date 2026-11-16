@@ -479,7 +479,8 @@ impl WorldsView {
             .as_deref()
             .is_some_and(|id| self.instances.read(cx).files_or_pack_busy(id));
         if busy && self.job.is_none() {
-            self.set_message(t(M::WaitForTask), true, cx);
+            // That job isn't shown here, so the message names the files, not a task.
+            self.set_message(t(crate::i18n::InstancesMsg::FilesBusy), true, cx);
         }
         busy && self.job.is_none()
     }

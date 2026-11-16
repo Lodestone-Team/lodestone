@@ -353,15 +353,43 @@ pub fn plan(dir: &Path, prefix: &str) -> Result<ZipPlan, WorldError> {
     Ok(found)
 }
 
-/// Whether the file `name` is already compressed, so a zip stores it as it is: region
-/// files (zlib chunks), gzip NBT (`level.dat`, player data), images and gzip files.
-fn already_compressed(name: &str) -> bool {
+/// Files this large or larger are stored as they are, whatever their name. A large file in
+/// a world is region-like data or a mod's database of chunks it compressed itself
+/// (Distant Horizons' `DistantHorizons.sqlite`, often several GiB), never text: deflating
+/// it gains nothing and runs on one core at about 60 MB/s, minutes for a few GiB.
+const STORE_FROM: u64 = 64 << 20;
+
+/// Whether a zip stores the file `name` of `len` bytes as it is rather than deflating it:
+/// files already compressed (region files' zlib chunks, gzip NBT such as `level.dat` and
+/// player data, mods' SQLite databases of compressed chunks, images, sound and archives),
+/// and any file of [`STORE_FROM`] or more.
+fn stored_as_is(name: &str, len: u64) -> bool {
     let lower = name.to_ascii_lowercase();
-    [
-        ".mca", ".mcc", ".mcr", ".dat", ".dat_old", ".png", ".gz", ".zip", ".jar",
-    ]
-    .iter()
-    .any(|ext| lower.ends_with(ext))
+    len >= STORE_FROM
+        || [
+            ".mca",
+            ".mcc",
+            ".mcr",
+            ".dat",
+            ".dat_old",
+            ".nbt",
+            ".png",
+            ".jpg",
+            ".jpeg",
+            ".ogg",
+            ".gz",
+            ".zip",
+            ".jar",
+            ".zst",
+            ".lz4",
+            ".xz",
+            ".7z",
+            ".sqlite",
+            ".sqlite-wal",
+            ".sqlite-shm",
+        ]
+        .iter()
+        .any(|ext| lower.ends_with(ext))
 }
 
 /// Opens the file at `path` for zipping, never through a link (one swapped in after the
@@ -485,7 +513,7 @@ pub fn write_planned(
             }
             let mut source = open_listed(path)?;
             let metadata = source.metadata().map_err(io_error(path))?;
-            let method = if already_compressed(relative) {
+            let method = if stored_as_is(relative, metadata.len()) {
                 zip::CompressionMethod::Stored
             } else {
                 zip::CompressionMethod::Deflated
@@ -569,26 +597,39 @@ fn unsafe_zip(err: impl std::fmt::Display) -> WorldError {
     )
 }
 
-/// Opens the zip at `path` for reading its central directory. Its archive starts at the
-/// file's first byte, as every zip Lodestone writes does: `zip`'s default instead finds
-/// the start by scanning the file from its first byte to the central directory, reading
-/// the whole zip just to open it (seconds for a backup of a few GiB, minutes from a hard
-/// drive, with neither progress nor Cancel). Only a zip to import, which may come from
-/// any tool, falls back to that scan when it has something before its archive (a
-/// self-extracting stub).
-fn open_archive(
+/// Opens the zip at `path`, read through `open` (a new reader each time it's called), for
+/// reading its central directory. Its archive starts at the file's first byte, as every
+/// zip Lodestone writes does: `zip`'s default instead finds the start by scanning the file
+/// from its first byte to the central directory, reading the whole zip just to open it
+/// (seconds for a backup of a few GiB, minutes from a hard drive, with neither progress
+/// nor Cancel). Only a zip to import, which may come from any tool, falls back to that
+/// scan, and only when something other than a zip record starts the file (a
+/// self-extracting stub): a damaged zip that starts like one is refused at once.
+fn open_archive<R: io::Read + io::Seek>(
     path: &Path,
+    open: &impl Fn() -> io::Result<R>,
     shape: Shape,
-) -> Result<zip::ZipArchive<io::BufReader<File>>, WorldError> {
-    let open = || {
-        File::open(path)
-            .map(io::BufReader::new)
-            .map_err(io_error(path))
-    };
+) -> Result<zip::ZipArchive<R>, WorldError> {
+    let open = || open().map_err(io_error(path));
     match open_at_start(open()?) {
-        Err(_) if shape == Shape::Import => zip::ZipArchive::new(open()?).map_err(zip_error(path)),
+        Err(err) => {
+            if shape == Shape::Import && !starts_as_zip(open()?) {
+                zip::ZipArchive::new(open()?).map_err(zip_error(path))
+            } else {
+                Err(zip_error(path)(err))
+            }
+        }
         opened => opened.map_err(zip_error(path)),
     }
+}
+
+/// Whether `reader` starts with a zip record: a file's local header, or the end record of
+/// an empty zip. Anything else (or a file too short for either) is something before the
+/// archive.
+fn starts_as_zip(mut reader: impl io::Read) -> bool {
+    let mut start = [0u8; 4];
+    reader.read_exact(&mut start).is_ok()
+        && matches!(&start, b"PK\x03\x04" | b"PK\x05\x06" | b"PK\x07\x08")
 }
 
 /// `reader`'s zip, taken to start at its first byte ([`open_archive`]).
@@ -604,7 +645,23 @@ fn open_at_start<R: io::Read + io::Seek>(reader: R) -> zip::result::ZipResult<zi
 /// ignores case, a file that is also a folder, and the world's layout for `shape`. Reads
 /// `level.dat`, nothing else.
 pub fn check(path: &Path, shape: Shape, limits: Limits) -> Result<CheckedZip, WorldError> {
-    let mut archive = open_archive(path, shape)?;
+    check_with(
+        path,
+        &|| File::open(path).map(io::BufReader::new),
+        shape,
+        limits,
+    )
+}
+
+/// [`check`], reading the zip through `open` (a new reader each time it's called), so a
+/// test can count what a check reads. `path` names the zip in errors.
+fn check_with<R: io::Read + io::Seek>(
+    path: &Path,
+    open: &impl Fn() -> io::Result<R>,
+    shape: Shape,
+    limits: Limits,
+) -> Result<CheckedZip, WorldError> {
+    let mut archive = open_archive(path, open, shape)?;
     if archive.len() > limits.max_entries {
         return Err(WorldError::Invalid(format!(
             "The zip has more than {} files.",
@@ -846,7 +903,11 @@ pub fn extract_into(
         _ => io_error(dest)(e),
     })?;
     let result = (|| {
-        let mut archive = open_archive(path, zip.shape)?;
+        let mut archive = open_archive(
+            path,
+            &|| File::open(path).map(io::BufReader::new),
+            zip.shape,
+        )?;
         let mut budget = zip.declared_bytes;
         let mut done = ProgressSnapshot {
             files_total: zip.entries.iter().filter(|e| !e.is_dir).count() as u64,
@@ -1028,16 +1089,53 @@ mod tests {
         write_zip(&src, "World", &out, &Progress::default(), &|| Ok(())).unwrap();
         assert!(fs::metadata(&out).unwrap().len() > 32 << 20);
 
+        // The whole check, level.dat included, for each shape, counting every byte read
+        // through every reader it opens.
+        for shape in [Shape::OneWorldFolder, Shape::OneFolder, Shape::Import] {
+            let read = std::rc::Rc::new(std::cell::Cell::new(0));
+            let open = || {
+                File::open(&out).map(|file| Counting {
+                    inner: io::BufReader::new(file),
+                    read: read.clone(),
+                })
+            };
+            let checked = check_with(&out, &open, shape, Limits::default()).unwrap();
+            assert!(
+                checked.entries.len() >= 4,
+                "{} entries",
+                checked.entries.len()
+            );
+            assert!(read.get() < 1 << 20, "{shape:?}: read {} bytes", read.get());
+        }
+    }
+
+    /// A damaged zip to import that starts like a zip is refused at once, not scanned from
+    /// its first byte looking for an archive further in.
+    #[test]
+    fn a_damaged_import_is_refused_without_a_scan() {
+        let temp = tempfile::tempdir().unwrap();
+        let src = temp.path().join("World");
+        world(&src);
+        fs::write(src.join("region/r.1.0.mca"), vec![7u8; 8 << 20]).unwrap();
+        let out = temp.path().join("w.zip");
+        write_zip(&src, "World", &out, &Progress::default(), &|| Ok(())).unwrap();
+        // Cut off its end records.
+        let len = fs::metadata(&out).unwrap().len();
+        File::options()
+            .write(true)
+            .open(&out)
+            .unwrap()
+            .set_len(len - 4096)
+            .unwrap();
         let read = std::rc::Rc::new(std::cell::Cell::new(0));
-        let reader = Counting {
-            inner: io::BufReader::new(File::open(&out).unwrap()),
-            read: read.clone(),
+        let open = || {
+            File::open(&out).map(|file| Counting {
+                inner: io::BufReader::new(file),
+                read: read.clone(),
+            })
         };
-        let archive = open_at_start(reader).unwrap();
-        assert!(archive.len() >= 4, "{} entries", archive.len());
-        assert!(read.get() < 1 << 20, "read {} bytes to open", read.get());
-        // And the whole check, level.dat included, reads the same way.
-        check(&out, Shape::OneWorldFolder, Limits::default()).unwrap();
+        assert!(check_with(&out, &open, Shape::Import, Limits::default()).is_err());
+        assert!(read.get() < 1 << 20, "read {} bytes", read.get());
     }
 
     #[test]
@@ -1359,13 +1457,15 @@ mod tests {
         assert_eq!(fs::read(dest.join("mine")).unwrap(), b"keep");
     }
 
-    /// Region files and gzip NBT are stored as they are; text is deflated.
+    /// Region files, gzip NBT and mods' databases are stored as they are; text is deflated.
     #[test]
     fn already_compressed_files_are_stored() {
         let temp = tempfile::tempdir().unwrap();
         let src = temp.path().join("World");
         world(&src);
         fs::write(src.join("stats.json"), "{}".repeat(1000)).unwrap();
+        fs::create_dir_all(src.join("data")).unwrap();
+        fs::write(src.join("data/DistantHorizons.sqlite"), vec![9u8; 4096]).unwrap();
         let out = temp.path().join("w.zip");
         write_zip(&src, "World", &out, &Progress::default(), &|| Ok(())).unwrap();
         let mut archive = zip::ZipArchive::new(File::open(&out).unwrap()).unwrap();
@@ -1381,9 +1481,24 @@ mod tests {
             zip::CompressionMethod::Stored
         );
         assert_eq!(
+            method(&mut archive, "World/data/DistantHorizons.sqlite"),
+            zip::CompressionMethod::Stored
+        );
+        assert_eq!(
             method(&mut archive, "World/stats.json"),
             zip::CompressionMethod::Deflated
         );
+    }
+
+    /// A large file is stored whatever its name: it's never text, and deflating it is
+    /// the slowest part of a backup.
+    #[test]
+    fn large_files_are_stored_whatever_their_name() {
+        assert!(!stored_as_is("data/mod.bin", STORE_FROM - 1));
+        assert!(stored_as_is("data/mod.bin", STORE_FROM));
+        assert!(stored_as_is("DIM-1/data/DistantHorizons.SQLITE", 10));
+        assert!(stored_as_is("data/DistantHorizons.sqlite-wal", 10));
+        assert!(!stored_as_is("stats/abc.json", 10));
     }
 
     /// Cancel is asked between chunks of a large file, not only between files.
