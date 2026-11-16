@@ -329,7 +329,13 @@ pub struct CreatedInstance {
 
 /// Reads a frame of the event stream. `None` for a frame that isn't an event.
 pub fn parse(text: &str) -> Option<ClientEvent> {
-    serde_json::from_str(text).ok()
+    read(text).ok()
+}
+
+/// [`parse`], saying why a frame isn't an event this client can read (the serde error,
+/// for a log line; it never holds the frame's text).
+pub fn read(text: &str) -> Result<ClientEvent, serde_json::Error> {
+    serde_json::from_str(text)
 }
 
 impl super::AdminClient {
