@@ -105,7 +105,6 @@ crate::i18n::messages! {
         ModsPlayersNeedToo = "Players need this too",
         ModsServerOnly = "Server only",
         ModsPlayersNeed = "Players need this",
-        ModsNeededBy = "Needed by {mods}",
         ModsUnknown = "Unknown",
         ModsUnknownModrinth = "Modrinth doesn’t say whether players need it. Check the mod’s page, and tick For players if they do.",
         ModsUnknownNotOnModrinth = "Not on Modrinth. Check the mod’s page, and tick For players if players need it.",
@@ -170,10 +169,7 @@ crate::i18n::messages! {
         ModsLoadFailedPlugin = "Couldn’t load the plugins: {error}",
         ModsEmptyMod = "No mods yet. Browse Modrinth or upload a .jar file.",
         ModsEmptyPlugin = "No plugins yet. Browse Modrinth or upload a .jar file.",
-        /// The client modpack panel (Fabric).
-        ModsLoader = "Fabric Loader {version}",
-        ModsLoaderNoVersion = "Fabric Loader",
-        ModsPlainFabric = "Players can join with plain Fabric (Minecraft {gameVersion}, {loader}).",
+        ModsPlainFabric = "Players can join with Fabric alone, at these versions.",
         ModsDownloadPack = "Download client modpack (.mrpack)",
         /// Folds the client pack's list of mods again, after ModsPackShowAll.
         ModsPackShowFewer = "Show fewer",
@@ -184,7 +180,7 @@ crate::i18n::messages! {
         ModsImportHint = "Import it into Prism Launcher, the Modrinth App or ATLauncher to get everything at the right versions.",
         /// Updating the server's modpack. {pack} is the modpack's name, {version},
         /// {from} and {to} its versions, {software} a loader and version ("NeoForge 21.1.209").
-        ModpackFrom = "This server runs the modpack {pack}.",
+        ModpackFrom = "This server runs this modpack.",
         ModpackCheck = "Check for an update",
         ModpackCheckFailed = "Couldn’t check for an update: {error}",
         ModpackUpToDate = "It’s the newest version.",
@@ -194,22 +190,20 @@ crate::i18n::messages! {
         ModpackNotMrpack = "{name} isn’t a .mrpack file.",
         ModpackPlanFailed = "Couldn’t prepare the update: {error}",
         ModpackDialogTitle = "Update the modpack?",
-        ModpackDialogIntro = "{pack} goes from {from} to {to}.",
         /// {change} is what made the entry a restore goes back to ("Added JEI").
-        ModpackDialogRestoreIntro = "The mods and configs go back to how they were after “{change}”.",
-        ModpackDialogReinstall = "The server moves to {software} and installs it again.",
-        ModpackDialogKept = "Files you changed stay as they are: {files}",
+        ModpackDialogRestoreIntro = "The mods and configs go back to how they were after this change.",
+        ModpackDialogReinstall = "The server moves to this game and loader and installs it again.",
+        ModpackDialogKept = "Stay as you changed them",
         ModpackDialogNothing = "No files change.",
         ModpackDialogStop = "Stop the server first: it can’t be updated while it runs.",
         ModpackDialogUnsupported = "This version can’t be used: {reason}",
         ModpackUpdate = "Update",
-        ModpackUpdated = "Updated {pack} to {version}.",
+        ModpackUpdated = "Updated to {version}",
         ModpackUpdateFailed = "Couldn’t update the modpack: {error}",
         ModpackUnknownVersion = "unknown version",
         /// The modpack's history (Mods tab): {version} is a modpack version, {change} what
         /// made a history entry ("Added JEI"), {date} when.
         ModpackWhatsNew = "What’s new",
-        ModpackOut = "{version} is out",
         ModpackHistory = "History",
         ModpackHistoryFailed = "Couldn’t load the modpack’s history: {error}",
         ModpackHistoryEmpty = "Nothing is recorded yet. Changes from now on can be undone.",
@@ -217,10 +211,9 @@ crate::i18n::messages! {
         ModpackRestore = "Restore",
         ModpackRestoreMissing = "Lodestone no longer has some of this version’s files.",
         ModpackRestoreTitle = "Restore this version?",
-        ModpackRestored = "Restored “{change}”.",
+        ModpackRestored = "Restored",
         ModpackRestoreFailed = "Couldn’t restore that version: {error}",
-        ModpackSince = "since {date}",
-        ModpackSinceTooltip = "This file is as it was after “{change}”.",
+        ModpackSinceTooltip = "Unchanged since: {change}",
         /// A Modrinth project.
         ModsProjectFailed = "Couldn’t load the project: {error}",
         ModsSource = "Source",
@@ -309,13 +302,19 @@ crate::i18n::messages! {
         MotdKeywords = "MOTD message of the day server description",
         /// More words a Settings search finds the row by (never shown).
         AutoStartKeywords = "boot startup launch automatically",
+        /// Over the Plugins tab's list, before its count.
+        ModsPluginsLabel = "Plugins",
+        /// A badge by the modpack's name when a newer version is out.
+        ModpackUpdateAvailable = "Update available",
+        /// A key: how many files a modpack change replaced.
+        ModpackReplacedKey = "Replaced",
+        /// A key: when a modpack history entry was recorded.
+        ModpackRecorded = "Recorded",
     }
 
     pub enum InstancePlural {
         ModsDownloads = ("{count} download", "{count} downloads"),
         ModsFollowers = ("{count} follower", "{count} followers"),
-        ModsCountMod = ("{count} mod in {directory}/", "{count} mods in {directory}/"),
-        ModsCountPlugin = ("{count} plugin in {directory}/", "{count} plugins in {directory}/"),
         ModsPackTitle = ("Players need {count} mod to join", "Players need {count} mods to join"),
         ModsImportHintJars = ("Import it into Prism Launcher, the Modrinth App or ATLauncher to get everything at the right versions. {count} mod isn’t on Modrinth, so its file is in the pack.", "Import it into Prism Launcher, the Modrinth App or ATLauncher to get everything at the right versions. {count} mods aren’t on Modrinth, so their files are in the pack."),
         /// Under the first few of a big client pack's mods: shows them all.
@@ -327,5 +326,7 @@ crate::i18n::messages! {
         ModpackRemoved = ("{count} file removed", "{count} files removed"),
         ModpackMoreChanges = ("and {count} more", "and {count} more"),
         FriendsConnectedCount = ("{count} friend connected now", "{count} friends connected now"),
+        /// A tooltip's heading, over the names of the mods that need this one, one a line.
+        ModsNeededBy = ("Needed by {count} mod", "Needed by {count} mods"),
     }
 }

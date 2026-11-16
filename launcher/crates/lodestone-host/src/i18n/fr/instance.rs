@@ -110,7 +110,6 @@ pub fn text(message: M) -> &'static str {
         M::ModsPlayersNeedToo => "Requis aussi pour les joueurs",
         M::ModsServerOnly => "Serveur uniquement",
         M::ModsPlayersNeed => "Requis pour les joueurs",
-        M::ModsNeededBy => "Requis par {mods}",
         M::ModsUnknown => "Inconnu",
         M::ModsUnknownModrinth => {
             "Modrinth n’indique pas si les joueurs en ont besoin. Consultez la page du mod, et cochez Pour les joueurs si c’est le cas."
@@ -191,11 +190,7 @@ pub fn text(message: M) -> &'static str {
         M::ModsEmptyPlugin => {
             "Aucun plugin installé pour l’instant. Parcourez Modrinth ou importez un fichier .jar."
         }
-        M::ModsLoader => "Fabric Loader {version}",
-        M::ModsLoaderNoVersion => "Fabric Loader",
-        M::ModsPlainFabric => {
-            "Les joueurs peuvent se connecter avec Fabric seul (Minecraft {gameVersion}, {loader})."
-        }
+        M::ModsPlainFabric => "Les joueurs peuvent rejoindre avec Fabric seul, dans ces versions.",
         M::ModsDownloadPack => "Télécharger le modpack client (.mrpack)",
         M::ModsPackShowFewer => "Afficher moins",
         M::ModsDownloadPackFailed => "Impossible de télécharger le modpack client : {error}",
@@ -204,7 +199,7 @@ pub fn text(message: M) -> &'static str {
         M::ModsImportHint => {
             "Importez-le dans Prism Launcher, l’application Modrinth ou ATLauncher pour tout obtenir dans les bonnes versions."
         }
-        M::ModpackFrom => "Ce serveur utilise le modpack {pack}.",
+        M::ModpackFrom => "Ce serveur utilise ce modpack.",
         M::ModpackCheck => "Rechercher une mise à jour",
         M::ModpackCheckFailed => "Impossible de rechercher une mise à jour : {error}",
         M::ModpackUpToDate => "C’est la version la plus récente.",
@@ -214,23 +209,21 @@ pub fn text(message: M) -> &'static str {
         M::ModpackNotMrpack => "{name} n’est pas un fichier .mrpack.",
         M::ModpackPlanFailed => "Impossible de préparer la mise à jour : {error}",
         M::ModpackDialogTitle => "Mettre à jour le modpack ?",
-        M::ModpackDialogIntro => "{pack} passe de {from} à {to}.",
         M::ModpackDialogRestoreIntro => {
-            "Les mods et les configurations reviennent à leur état après « {change} »."
+            "Les mods et les configurations reviennent à leur état après ce changement."
         }
-        M::ModpackDialogReinstall => "Le serveur passe à {software}, qui est réinstallé.",
-        M::ModpackDialogKept => "Les fichiers que vous avez modifiés restent tels quels : {files}",
+        M::ModpackDialogReinstall => "Le serveur passe à ce jeu et ce chargeur, et le réinstalle.",
+        M::ModpackDialogKept => "Restent tels que vous les avez modifiés",
         M::ModpackDialogNothing => "Aucun fichier ne change.",
         M::ModpackDialogStop => {
             "Arrêtez d’abord le serveur : il ne peut pas être mis à jour pendant qu’il tourne."
         }
         M::ModpackDialogUnsupported => "Cette version ne peut pas être utilisée : {reason}",
         M::ModpackUpdate => "Mettre à jour",
-        M::ModpackUpdated => "{pack} mis à jour vers {version}.",
+        M::ModpackUpdated => "Mis à jour vers {version}",
         M::ModpackUpdateFailed => "Impossible de mettre à jour le modpack : {error}",
         M::ModpackUnknownVersion => "version inconnue",
         M::ModpackWhatsNew => "Nouveautés",
-        M::ModpackOut => "{version} est disponible",
         M::ModpackHistory => "Historique",
         M::ModpackHistoryFailed => "Impossible de charger l’historique du modpack : {error}",
         M::ModpackHistoryEmpty => {
@@ -240,10 +233,9 @@ pub fn text(message: M) -> &'static str {
         M::ModpackRestore => "Restaurer",
         M::ModpackRestoreMissing => "Lodestone n’a plus certains fichiers de cette version.",
         M::ModpackRestoreTitle => "Restaurer cette version ?",
-        M::ModpackRestored => "« {change} » restauré.",
+        M::ModpackRestored => "Restauré",
         M::ModpackRestoreFailed => "Impossible de restaurer cette version : {error}",
-        M::ModpackSince => "depuis le {date}",
-        M::ModpackSinceTooltip => "Ce fichier est tel qu’il était après « {change} ».",
+        M::ModpackSinceTooltip => "Inchangé depuis : {change}",
         M::ModsProjectFailed => "Impossible de charger le projet : {error}",
         M::ModsSource => "Code source",
         M::ModsIssues => "Tickets",
@@ -345,6 +337,10 @@ pub fn text(message: M) -> &'static str {
         M::WhitelistKeywords => "liste blanche joueurs autorisés",
         M::MotdKeywords => "MOTD message du jour description du serveur",
         M::AutoStartKeywords => "démarrage lancement automatique",
+        M::ModsPluginsLabel => "Plugins",
+        M::ModpackUpdateAvailable => "Mise à jour disponible",
+        M::ModpackReplacedKey => "Remplacés",
+        M::ModpackRecorded => "Enregistré",
     }
 }
 
@@ -352,14 +348,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
     match message {
         P::ModsDownloads => ["{count} téléchargement", "{count} téléchargements"],
         P::ModsFollowers => ["{count} abonné", "{count} abonnés"],
-        P::ModsCountMod => [
-            "{count} mod dans {directory}/",
-            "{count} mods dans {directory}/",
-        ],
-        P::ModsCountPlugin => [
-            "{count} plugin dans {directory}/",
-            "{count} plugins dans {directory}/",
-        ],
         P::ModsPackTitle => [
             "Les joueurs ont besoin de {count} mod pour se connecter",
             "Les joueurs ont besoin de {count} mods pour se connecter",
@@ -379,5 +367,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::ModpackRemoved => ["{count} fichier supprimé", "{count} fichiers supprimés"],
         P::ModpackMoreChanges => ["et {count} autre", "et {count} autres"],
         P::FriendsConnectedCount => ["{count} ami connecté", "{count} amis connectés"],
+        P::ModsNeededBy => ["Requis par {count} mod", "Requis par {count} mods"],
     }
 }

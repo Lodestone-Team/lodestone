@@ -131,6 +131,8 @@ pub struct Button {
     align: Align,
     icon: Option<Icon>,
     icon_right: Option<Icon>,
+    /// A count after the label, as a [`CountBadge`](super::CountBadge).
+    count: Option<u64>,
     disabled: bool,
     loading: bool,
     full_width: bool,
@@ -152,6 +154,7 @@ impl Button {
             align: Align::default(),
             icon: None,
             icon_right: None,
+            count: None,
             disabled: false,
             loading: false,
             full_width: false,
@@ -191,6 +194,12 @@ impl Button {
 
     pub fn icon_right(mut self, icon: Icon) -> Self {
         self.icon_right = Some(icon);
+        self
+    }
+
+    /// A count after the label ("History 7"), in place of "(7)" in the label.
+    pub fn count(mut self, count: u64) -> Self {
+        self.count = Some(count);
         self
     }
 
@@ -411,6 +420,9 @@ impl RenderOnce for Button {
                 this.child(icon.render(icon_size, icon_color))
             })
             .child(label)
+            .when_some(self.count, |this, count| {
+                this.child(super::CountBadge::new(count))
+            })
             .when_some(self.icon_right, |this, icon| {
                 this.child(icon.render(icon_size, icon_color))
             })

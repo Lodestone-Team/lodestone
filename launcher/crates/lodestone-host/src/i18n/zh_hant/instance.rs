@@ -86,7 +86,6 @@ pub fn text(message: M) -> &'static str {
         M::ModsPlayersNeedToo => "玩家也需要安裝",
         M::ModsServerOnly => "僅限伺服器",
         M::ModsPlayersNeed => "玩家需要安裝",
-        M::ModsNeededBy => "{mods} 需要它",
         M::ModsUnknown => "未知",
         M::ModsUnknownModrinth => {
             "Modrinth 未說明玩家是否需要它，請查看該模組的頁面。如果玩家需要，請勾選「給玩家」。"
@@ -157,9 +156,7 @@ pub fn text(message: M) -> &'static str {
         M::ModsLoadFailedPlugin => "無法載入外掛：{error}",
         M::ModsEmptyMod => "尚未安裝任何模組。瀏覽 Modrinth 或上傳 .jar 檔案。",
         M::ModsEmptyPlugin => "尚未安裝任何外掛。瀏覽 Modrinth 或上傳 .jar 檔案。",
-        M::ModsLoader => "Fabric Loader {version}",
-        M::ModsLoaderNoVersion => "Fabric Loader",
-        M::ModsPlainFabric => "玩家只需原版 Fabric 即可加入（Minecraft {gameVersion}，{loader}）。",
+        M::ModsPlainFabric => "玩家只需安裝以下版本的 Fabric 即可加入。",
         M::ModsDownloadPack => "下載用戶端模組包（.mrpack）",
         M::ModsPackShowFewer => "收合",
         M::ModsDownloadPackFailed => "無法下載用戶端模組包：{error}",
@@ -168,7 +165,7 @@ pub fn text(message: M) -> &'static str {
         M::ModsImportHint => {
             "將其匯入 Prism Launcher、Modrinth App 或 ATLauncher，即可取得所有正確版本的內容。"
         }
-        M::ModpackFrom => "此伺服器使用模組包 {pack}。",
+        M::ModpackFrom => "此伺服器執行此模組包。",
         M::ModpackCheck => "檢查更新",
         M::ModpackCheckFailed => "無法檢查更新：{error}",
         M::ModpackUpToDate => "已是最新版本。",
@@ -178,19 +175,17 @@ pub fn text(message: M) -> &'static str {
         M::ModpackNotMrpack => "{name} 不是 .mrpack 檔案。",
         M::ModpackPlanFailed => "無法準備更新：{error}",
         M::ModpackDialogTitle => "更新模組包？",
-        M::ModpackDialogIntro => "{pack} 將從 {from} 更新到 {to}。",
-        M::ModpackDialogRestoreIntro => "模組和設定將回到「{change}」之後的樣子。",
-        M::ModpackDialogReinstall => "伺服器將改用 {software} 並重新安裝。",
-        M::ModpackDialogKept => "你修改過的檔案將保持不變：{files}",
+        M::ModpackDialogRestoreIntro => "模組和設定將還原到此變更之後的狀態。",
+        M::ModpackDialogReinstall => "伺服器將改用此遊戲版本和載入器，並重新安裝。",
+        M::ModpackDialogKept => "保留你的修改",
         M::ModpackDialogNothing => "沒有檔案會變更。",
         M::ModpackDialogStop => "請先停止伺服器：伺服器執行時無法更新。",
         M::ModpackDialogUnsupported => "無法使用此版本：{reason}",
         M::ModpackUpdate => "更新",
-        M::ModpackUpdated => "已將 {pack} 更新到 {version}。",
+        M::ModpackUpdated => "已更新到 {version}",
         M::ModpackUpdateFailed => "無法更新模組包：{error}",
         M::ModpackUnknownVersion => "未知版本",
         M::ModpackWhatsNew => "更新內容",
-        M::ModpackOut => "{version} 已發布",
         M::ModpackHistory => "歷史",
         M::ModpackHistoryFailed => "無法載入模組包的歷史：{error}",
         M::ModpackHistoryEmpty => "尚無記錄。之後的變更可以復原。",
@@ -198,10 +193,9 @@ pub fn text(message: M) -> &'static str {
         M::ModpackRestore => "還原",
         M::ModpackRestoreMissing => "Lodestone 已不再保有此版本的部分檔案。",
         M::ModpackRestoreTitle => "還原此版本？",
-        M::ModpackRestored => "已還原「{change}」。",
+        M::ModpackRestored => "已還原",
         M::ModpackRestoreFailed => "無法還原此版本：{error}",
-        M::ModpackSince => "自 {date} 起",
-        M::ModpackSinceTooltip => "此檔案保持「{change}」之後的樣子。",
+        M::ModpackSinceTooltip => "自此未變：{change}",
         M::ModsProjectFailed => "無法載入專案：{error}",
         M::ModsSource => "原始碼",
         M::ModsIssues => "問題回報",
@@ -293,6 +287,10 @@ pub fn text(message: M) -> &'static str {
         M::WhitelistKeywords => "白名單 玩家",
         M::MotdKeywords => "MOTD 伺服器描述 訊息",
         M::AutoStartKeywords => "開機 啟動 自動",
+        M::ModsPluginsLabel => "外掛",
+        M::ModpackUpdateAvailable => "有可用更新",
+        M::ModpackReplacedKey => "已取代",
+        M::ModpackRecorded => "記錄於",
     }
 }
 
@@ -300,14 +298,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
     match message {
         P::ModsDownloads => ["{count} 次下載", "{count} 次下載"],
         P::ModsFollowers => ["{count} 位追蹤者", "{count} 位追蹤者"],
-        P::ModsCountMod => [
-            "{directory}/ 中有 {count} 個模組",
-            "{directory}/ 中有 {count} 個模組",
-        ],
-        P::ModsCountPlugin => [
-            "{directory}/ 中有 {count} 個外掛",
-            "{directory}/ 中有 {count} 個外掛",
-        ],
         P::ModsPackTitle => [
             "玩家需要 {count} 個模組才能加入",
             "玩家需要 {count} 個模組才能加入",
@@ -324,5 +314,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::ModpackRemoved => ["已刪除 {count} 個檔案", "已刪除 {count} 個檔案"],
         P::ModpackMoreChanges => ["還有 {count} 個", "還有 {count} 個"],
         P::FriendsConnectedCount => ["{count} 位好友已連線", "{count} 位好友已連線"],
+        P::ModsNeededBy => ["{count} 個模組需要它", "{count} 個模組需要它"],
     }
 }
