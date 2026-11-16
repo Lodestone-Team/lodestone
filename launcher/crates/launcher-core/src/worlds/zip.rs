@@ -1669,7 +1669,8 @@ mod tests {
         fs::write(src.join("Data/x"), b"x").unwrap();
         fs::create_dir_all(src.join("data")).unwrap();
         fs::write(src.join("data/y"), b"y").unwrap();
-        let case_sensitive = fs::read_dir(&src).unwrap().count() == 7;
+        // A disk that keeps case apart still has the lower-case file's own bytes.
+        let case_sensitive = fs::read(src.join("a.txt")).unwrap() == b"lower";
         let out = temp.path().join("w.zip");
         let written = write_zip(&src, "World", &out, &Progress::default(), &|| Ok(())).unwrap();
         check(&out, Shape::OneWorldFolder, Limits::default()).unwrap();
