@@ -2127,8 +2127,8 @@ impl Servers {
                                 ServerLoader::Vanilla | ServerLoader::Paper | ServerLoader::Spigot
                             ) =>
                     {
-                        eprintln!(
-                            "Couldn't ask {} for its files ({err}); making a plain instance",
+                        log::warn!(
+                            "couldn't ask {} for its files ({err}); making a plain instance",
                             server.name
                         );
                         this.create_plain(&core_uuid, &server, cx)
@@ -2634,7 +2634,7 @@ impl Servers {
             let prepared = match prepared {
                 Ok(prepared) => prepared,
                 Err(err) if joins_anyway(&err, &instance, &dirs, link.view.is_some()) => {
-                    eprintln!("Couldn't ask {name} for its files ({err}); joining as it is");
+                    log::warn!("couldn't ask {name} for its files ({err}); joining as it is");
                     return Ok(ImageCheck::InStep);
                 }
                 Err(err) => return Err(err),

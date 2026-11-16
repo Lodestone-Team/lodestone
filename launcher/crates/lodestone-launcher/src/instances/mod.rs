@@ -2450,7 +2450,7 @@ impl Instances {
             }
             Err(err) => {
                 // Not saved: asked all the same, unless the player already agreed.
-                eprintln!("lodestone-launcher: saving the instance {id}: {err}");
+                log::warn!("saving the instance {id}: {err}");
                 let instance = self.store.get(id).ok();
                 let told = |reason| {
                     instance
@@ -2498,7 +2498,7 @@ impl Instances {
         match self.store.record_told_rosetta(id, pending.rosetta) {
             Ok(instance) => self.update_listed(instance, cx),
             // Only the answer is lost: asked again next time.
-            Err(err) => eprintln!("lodestone-launcher: saving the instance {id}: {err}"),
+            Err(err) => log::warn!("saving the instance {id}: {err}"),
         }
         self.start(
             id,

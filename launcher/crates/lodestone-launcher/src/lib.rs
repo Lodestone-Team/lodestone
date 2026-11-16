@@ -12,6 +12,7 @@ pub mod deep_link;
 pub mod i18n;
 pub mod images;
 pub mod instances;
+pub mod logs;
 pub mod markdown;
 pub mod perf;
 #[cfg(feature = "screenshot")]
@@ -54,6 +55,12 @@ pub fn init(cx: &mut App) {
     lodestone_ui::init(cx);
     lodestone_ui::components::settings::set_english_lookup(i18n::english_of);
     trace_hooks::install(cx);
+    // A clean quit: the next start shows no crash notice.
+    cx.on_app_quit(|_| {
+        launcher_core::logging::end_session();
+        async {}
+    })
+    .detach();
 
     cx.on_action(|_: &Quit, cx| cx.quit());
     bind_quit(cx);

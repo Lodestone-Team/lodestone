@@ -1523,8 +1523,8 @@ pub fn apply(cx: &mut App) {
             match served {
                 Ok(handle) => service.handle = Some(handle),
                 Err(err) => {
-                    eprintln!(
-                        "lodestone-launcher: no control socket, so lodestone-launcher-cli can't reach this launcher: {err}"
+                    log::warn!(
+                        "no control socket, so lodestone-launcher-cli can't reach this launcher: {err}"
                     );
                     error = Some(err);
                 }

@@ -252,6 +252,11 @@ pub struct DeveloperSettings {
     /// Left out of the file for connect.lodestone.cc.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub connect_service: Option<String>,
+    /// "Log detail": how much the launcher writes to its log file
+    /// ([`crate::logging`]). Info by default, and left out of the file then; a value
+    /// this build doesn't know reads as info. `LODESTONE_LOG` wins over it.
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub log_level: crate::logging::LogLevel,
     /// Developer options this build doesn't know, kept so that a newer build's
     /// options survive a save by this one (as [`Settings::other`] does for the whole
     /// file).
@@ -269,6 +274,7 @@ impl Default for DeveloperSettings {
             sign_in_as_minecraft_launcher: true,
             offline_accounts: false,
             connect_service: None,
+            log_level: crate::logging::LogLevel::Info,
             other: Map::new(),
         }
     }
@@ -451,6 +457,21 @@ mod tests {
                 "instance_defaults": {"max_ram": 3072, "later": true, "jvm_args": "", "game_args": "", "fullscreen": false},
             })
         );
+    }
+
+    #[test]
+    fn log_detail_is_info_by_default_and_written_only_when_debug() {
+        use crate::logging::LogLevel;
+        let developer: DeveloperSettings = serde_json::from_value(json!({})).unwrap();
+        assert_eq!(developer.log_level, LogLevel::Info);
+        assert!(serde_json::to_value(&developer).unwrap().get("log_level").is_none());
+        let debug: DeveloperSettings =
+            serde_json::from_value(json!({"log_level": "debug"})).unwrap();
+        assert_eq!(debug.log_level, LogLevel::Debug);
+        assert_eq!(serde_json::to_value(&debug).unwrap()["log_level"], json!("debug"));
+        let newer: DeveloperSettings =
+            serde_json::from_value(json!({"log_level": "trace"})).unwrap();
+        assert_eq!(newer.log_level, LogLevel::Info, "a newer build's value reads as info");
     }
 
     #[test]

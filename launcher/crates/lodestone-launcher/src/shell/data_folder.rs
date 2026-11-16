@@ -56,7 +56,7 @@ impl LauncherShell {
                 true
             }
             Err(err) => {
-                eprintln!("lodestone-launcher: couldn't restart: {err}");
+                log::error!("couldn't restart into the moved data folder: {err}");
                 false
             }
         }
@@ -254,14 +254,14 @@ pub fn finish_pending_move() {
     };
     match launcher_core::data_move::finish_pending(&location.default, &location.dir) {
         launcher_core::data_move::Finished::Removed(path) => {
-            eprintln!(
-                "lodestone-launcher: removed the old data folder {}",
+            log::info!(
+                "removed the old data folder {}",
                 path.display()
             );
         }
         launcher_core::data_move::Finished::Failed { path, error } => {
-            eprintln!(
-                "lodestone-launcher: couldn't remove all of the old data folder {} (trying again next start): {error}",
+            log::warn!(
+                "couldn't remove all of the old data folder {} (trying again next start): {error}",
                 path.display()
             );
         }
