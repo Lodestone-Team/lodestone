@@ -512,7 +512,6 @@ export const en = {
   'settings.core.openPort.portNotNumber': 'Port must be a number',
   'settings.core.openPort.portRequired': 'Port is required',
   'settings.core.openPort.portRange': 'Port must be between 1 and 65535',
-  'settings.core.openPort.opened': 'Port {port} opened',
   'settings.core.info.coreVersion': 'Core version',
   'settings.core.info.dashboardVersion': 'Dashboard version',
   'settings.core.info.os': 'OS',
@@ -535,7 +534,6 @@ export const en = {
   'settings.users.description': 'Accounts on this core and what each can do.',
   'settings.users.allUsers': 'All users',
   'settings.users.allMembers': 'All members',
-  'settings.users.allMembersCount': 'All members ({count})',
   'settings.users.createUser': 'Create new user',
   'settings.users.createTitle': 'Create a new user account',
   'settings.users.createLead': 'Starts with no permissions.',
@@ -543,7 +541,7 @@ export const en = {
   'settings.users.loadingUser': 'Loading the user',
   'settings.users.loadingServers': 'Loading servers',
   'settings.users.permissions': 'Permissions',
-  'settings.users.permissionsLead': 'What {username} can do on this core.',
+  'settings.users.permissionsLead': 'What this user can do on this core.',
   'settings.users.unsafePermissions': 'Unsafe permissions',
   'settings.users.unsafePermissionsLead':
     'Turn off safe mode to grant these to non-owners.',
@@ -658,16 +656,14 @@ export const en = {
   'settings.minecraft.ownEmpty':
     'No Minecraft account is linked. Sign in to this core in Lodestone Launcher to link one.',
   'settings.minecraft.userLead':
-    'The Minecraft accounts {username} linked from Lodestone Launcher.',
-  'settings.minecraft.userEmpty':
-    '{username} has no linked Minecraft accounts.',
+    'The Minecraft accounts this user linked from Lodestone Launcher.',
+  'settings.minecraft.userEmpty': 'No linked Minecraft accounts.',
   'settings.minecraft.tooOld':
     'This core is too old to link Minecraft accounts.',
-  'settings.minecraft.removeTitle': 'Remove Minecraft account',
-  /** {name} is the Minecraft player name */
+  /** the account is shown under it */
+  'settings.minecraft.removeTitle': 'Remove account link?',
   'settings.minecraft.removeBody':
-    'Remove the link to {name}? It can be linked again from Lodestone Launcher.',
-  'settings.minecraft.removed': 'Removed {name}',
+    'It can be linked again from Lodestone Launcher.',
 
   // API keys (profile page and user settings)
   'settings.apiKeys.title': 'API keys',
@@ -675,26 +671,16 @@ export const en = {
     'Let the CLI, scripts and agents act as you without your password.',
   'settings.apiKeys.ownEmpty': 'You have no API keys.',
   'settings.apiKeys.userLead':
-    'Keys {username} created. Revoking one cuts off what uses it.',
-  'settings.apiKeys.userEmpty': '{username} has no API keys.',
+    'Keys this user created. Revoking one cuts off what uses it.',
+  'settings.apiKeys.userEmpty': 'No API keys.',
   /** a button and the title of its dialog */
   'settings.apiKeys.create': 'Create API key',
-  'settings.apiKeys.created': 'Created API key "{name}"',
   'settings.apiKeys.loading': 'Loading API keys',
   'settings.apiKeys.revoke': 'Revoke',
-  'settings.apiKeys.revokeTitle': 'Revoke API key',
-  /** {display} is the start of the key, e.g. "lsk_ab12…" */
+  /** the key is shown under it */
+  'settings.apiKeys.revokeTitle': 'Revoke API key?',
   'settings.apiKeys.revokeBody':
-    'Revoke "{name}" ({display})? Anything using this key loses access at once. This can’t be undone.',
-  'settings.apiKeys.revoked': 'Revoked API key "{name}"',
-  /** {date} is a date, e.g. "Nov 8, 2026" */
-  'settings.apiKeys.createdOn': 'Created {date}',
-  'settings.apiKeys.expiresOn': 'Expires {date}',
-  'settings.apiKeys.expiredOn': 'Expired {date}',
-  'settings.apiKeys.expiresNever': 'Expires: Never',
-  /** {time} is a relative time, e.g. "3 minutes ago" */
-  'settings.apiKeys.lastUsed': 'Last used: {time}',
-  'settings.apiKeys.lastUsedNever': 'Last used: Never',
+    'Anything using this key loses access at once. This can’t be undone.',
   'settings.apiKeys.scope.full': 'Full access',
   /** the access of a key a Lodestone Launcher device uses */
   'settings.apiKeys.scope.launcher': 'Launcher: view, start and stop servers',
@@ -704,16 +690,8 @@ export const en = {
     'Launcher: view, start and stop servers, read the console',
   'settings.apiKeys.scope.launcherConsoleWrite':
     'Launcher: view, start and stop servers, send console commands',
-  /** {servers} is settings.apiKeys.scope.servers, {permissions} is settings.apiKeys.scope.permissions */
-  'settings.apiKeys.scope.custom': 'Custom: {servers}, {permissions}',
-  'settings.apiKeys.scope.servers': {
-    one: '{count} server',
-    other: '{count} servers',
-  },
-  'settings.apiKeys.scope.permissions': {
-    one: '{count} permission',
-    other: '{count} permissions',
-  },
+  /** a key’s access; its server and permission counts follow */
+  'settings.apiKeys.scope.custom': 'Custom',
   'settings.apiKeys.passwordSessionOnly':
     'API keys can only be managed when you sign in with your password, not with an API key.',
   // Create API key dialog
@@ -743,7 +721,8 @@ export const en = {
   'settings.apiKeys.unsafeSafeMode':
     'Safe mode is on, so the core refuses these to keys with custom access until safe mode is turned off in core settings.',
   // The new key dialog, shown once
-  'settings.apiKeys.newTitle': 'API key "{name}" created',
+  /** the key is shown under it */
+  'settings.apiKeys.newTitle': 'API key created',
   'settings.apiKeys.newCopyNow':
     'Copy this key now. You won’t be able to see it again.',
   'settings.apiKeys.newUseWithCli': 'Use it with the Lodestone CLI:',
@@ -1624,4 +1603,13 @@ export const en = {
   'values.key.memoryUsed': 'Memory used',
   /** the menu’s header when several files are ticked */
   'files.contextMenu.items': '{count} items',
+  /** a toast; the port follows as a fact */
+  'settings.core.openPort.toast': 'Port opened',
+  /** a toast outcome, under the player’s name */
+  'settings.minecraft.toast.removed': 'Link removed',
+  /** toast outcomes, under the key’s name */
+  'settings.apiKeys.toast.created': 'Created',
+  'settings.apiKeys.toast.revoked': 'Revoked',
+  /** a badge on a key past its expiry date */
+  'settings.apiKeys.expired': 'Expired',
 } as const;

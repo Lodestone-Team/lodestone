@@ -399,7 +399,6 @@ export const zhHant: Messages = {
   'settings.core.openPort.portNotNumber': '連接埠必須是數字',
   'settings.core.openPort.portRequired': '請輸入連接埠',
   'settings.core.openPort.portRange': '連接埠必須介於 1 到 65535 之間',
-  'settings.core.openPort.opened': '已開放連接埠 {port}',
   'settings.core.info.coreVersion': '核心版本',
   'settings.core.info.dashboardVersion': '控制面板版本',
   'settings.core.info.os': '作業系統',
@@ -419,7 +418,6 @@ export const zhHant: Messages = {
   'settings.users.description': '此核心上的帳戶及其權限。',
   'settings.users.allUsers': '所有使用者',
   'settings.users.allMembers': '所有成員',
-  'settings.users.allMembersCount': '所有成員（{count}）',
   'settings.users.createUser': '建立新使用者',
   'settings.users.createTitle': '建立新的使用者帳戶',
   'settings.users.createLead': '新使用者初始沒有任何權限。',
@@ -427,7 +425,7 @@ export const zhHant: Messages = {
   'settings.users.loadingUser': '正在載入該使用者',
   'settings.users.loadingServers': '正在載入伺服器',
   'settings.users.permissions': '權限',
-  'settings.users.permissionsLead': '{username} 在此核心上可以執行的操作。',
+  'settings.users.permissionsLead': '此使用者在此核心上可執行的操作。',
   'settings.users.unsafePermissions': '不安全的權限',
   'settings.users.unsafePermissionsLead': '關閉安全模式後才能授予非擁有者。',
 
@@ -522,35 +520,25 @@ export const zhHant: Messages = {
   'settings.minecraft.ownEmpty':
     '尚未連結 Minecraft 帳戶。在 Lodestone Launcher 中登入此核心即可連結。',
   'settings.minecraft.userLead':
-    '{username} 從 Lodestone Launcher 連結的 Minecraft 帳戶。',
-  'settings.minecraft.userEmpty': '{username} 沒有連結的 Minecraft 帳戶。',
+    '此使用者從 Lodestone Launcher 連結的 Minecraft 帳號。',
+  'settings.minecraft.userEmpty': '沒有連結的 Minecraft 帳號。',
   'settings.minecraft.tooOld': '此核心版本太舊，無法連結 Minecraft 帳戶。',
-  'settings.minecraft.removeTitle': '移除 Minecraft 帳戶',
-  'settings.minecraft.removeBody':
-    '要移除與 {name} 的連結嗎？之後可以從 Lodestone Launcher 重新連結。',
-  'settings.minecraft.removed': '已移除 {name}',
+  'settings.minecraft.removeTitle': '移除帳號連結？',
+  'settings.minecraft.removeBody': '之後可以在 Lodestone Launcher 中重新連結。',
 
   'settings.apiKeys.title': 'API 金鑰',
   'settings.apiKeys.ownLead':
     '讓 CLI、指令碼和代理程式無須密碼即可以你的身分操作。',
   'settings.apiKeys.ownEmpty': '你還沒有 API 金鑰。',
   'settings.apiKeys.userLead':
-    '{username} 建立的金鑰。撤銷後，使用它的程式會立即失去存取權。',
-  'settings.apiKeys.userEmpty': '{username} 沒有 API 金鑰。',
+    '此使用者建立的金鑰。撤銷後，使用它的程式將失去存取權限。',
+  'settings.apiKeys.userEmpty': '沒有 API 金鑰。',
   'settings.apiKeys.create': '建立 API 金鑰',
-  'settings.apiKeys.created': '已建立 API 金鑰「{name}」',
   'settings.apiKeys.loading': '正在載入 API 金鑰',
   'settings.apiKeys.revoke': '撤銷',
-  'settings.apiKeys.revokeTitle': '撤銷 API 金鑰',
+  'settings.apiKeys.revokeTitle': '撤銷 API 金鑰？',
   'settings.apiKeys.revokeBody':
-    '要撤銷「{name}」（{display}）嗎？使用此金鑰的所有程式將立即失去存取權。此操作無法復原。',
-  'settings.apiKeys.revoked': '已撤銷 API 金鑰「{name}」',
-  'settings.apiKeys.createdOn': '建立於 {date}',
-  'settings.apiKeys.expiresOn': '{date} 到期',
-  'settings.apiKeys.expiredOn': '已於 {date} 到期',
-  'settings.apiKeys.expiresNever': '到期時間：永不',
-  'settings.apiKeys.lastUsed': '上次使用：{time}',
-  'settings.apiKeys.lastUsedNever': '上次使用：從未',
+    '使用此金鑰的程式會立即失去存取權限。此操作無法復原。',
   'settings.apiKeys.scope.full': '完整存取',
   'settings.apiKeys.scope.launcher': 'Launcher：檢視、啟動和停止伺服器',
   'settings.apiKeys.scope.launcherConsole':
@@ -559,9 +547,7 @@ export const zhHant: Messages = {
     'Launcher：檢視、啟動和停止伺服器，讀取主控台',
   'settings.apiKeys.scope.launcherConsoleWrite':
     'Launcher：檢視、啟動和停止伺服器，傳送主控台指令',
-  'settings.apiKeys.scope.custom': '自訂：{servers}，{permissions}',
-  'settings.apiKeys.scope.servers': { other: '{count} 個伺服器' },
-  'settings.apiKeys.scope.permissions': { other: '{count} 項權限' },
+  'settings.apiKeys.scope.custom': '自訂',
   'settings.apiKeys.passwordSessionOnly':
     '只有使用密碼登入時才能管理 API 金鑰，使用 API 金鑰登入時無法管理。',
   'settings.apiKeys.createLead':
@@ -588,7 +574,7 @@ export const zhHant: Messages = {
   'settings.apiKeys.unsafe': '不安全的設定',
   'settings.apiKeys.unsafeSafeMode':
     '安全模式已開啟，因此在核心設定中關閉安全模式之前，核心會拒絕將這些權限授予自訂存取的金鑰。',
-  'settings.apiKeys.newTitle': '已建立 API 金鑰「{name}」',
+  'settings.apiKeys.newTitle': 'API 金鑰已建立',
   'settings.apiKeys.newCopyNow': '請立即複製此金鑰。之後將無法再次檢視。',
   'settings.apiKeys.newUseWithCli': '在 Lodestone CLI 中使用：',
   'settings.apiKeys.newStore':
@@ -1273,4 +1259,9 @@ export const zhHant: Messages = {
   'values.key.cpuLoad': 'CPU 負載',
   'values.key.memoryUsed': '已用記憶體',
   'files.contextMenu.items': '{count} 項',
+  'settings.core.openPort.toast': '連接埠已開啟',
+  'settings.minecraft.toast.removed': '連結已移除',
+  'settings.apiKeys.toast.created': '已建立',
+  'settings.apiKeys.toast.revoked': '已撤銷',
+  'settings.apiKeys.expired': '已過期',
 };

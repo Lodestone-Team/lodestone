@@ -398,7 +398,6 @@ export const zhHans: Messages = {
   'settings.core.openPort.portNotNumber': '端口必须是数字',
   'settings.core.openPort.portRequired': '请输入端口',
   'settings.core.openPort.portRange': '端口必须在 1 到 65535 之间',
-  'settings.core.openPort.opened': '已开放端口 {port}',
   'settings.core.info.coreVersion': '核心版本',
   'settings.core.info.dashboardVersion': '控制面板版本',
   'settings.core.info.os': '操作系统',
@@ -418,7 +417,6 @@ export const zhHans: Messages = {
   'settings.users.description': '此核心上的账户及其权限。',
   'settings.users.allUsers': '所有用户',
   'settings.users.allMembers': '所有成员',
-  'settings.users.allMembersCount': '所有成员（{count}）',
   'settings.users.createUser': '创建新用户',
   'settings.users.createTitle': '创建新用户账户',
   'settings.users.createLead': '新用户初始没有任何权限。',
@@ -426,7 +424,7 @@ export const zhHans: Messages = {
   'settings.users.loadingUser': '正在加载该用户',
   'settings.users.loadingServers': '正在加载服务器',
   'settings.users.permissions': '权限',
-  'settings.users.permissionsLead': '{username} 在此核心上可以执行的操作。',
+  'settings.users.permissionsLead': '此用户在此核心上可以执行的操作。',
   'settings.users.unsafePermissions': '不安全权限',
   'settings.users.unsafePermissionsLead': '关闭安全模式后才能授予非所有者。',
 
@@ -519,35 +517,25 @@ export const zhHans: Messages = {
   'settings.minecraft.ownEmpty':
     '尚未关联 Minecraft 账户。在 Lodestone Launcher 中登录此核心即可关联。',
   'settings.minecraft.userLead':
-    '{username} 从 Lodestone Launcher 关联的 Minecraft 账户。',
-  'settings.minecraft.userEmpty': '{username} 没有关联的 Minecraft 账户。',
+    '此用户从 Lodestone Launcher 关联的 Minecraft 账号。',
+  'settings.minecraft.userEmpty': '没有关联的 Minecraft 账号。',
   'settings.minecraft.tooOld': '此核心版本太旧，无法关联 Minecraft 账户。',
-  'settings.minecraft.removeTitle': '移除 Minecraft 账户',
-  'settings.minecraft.removeBody':
-    '移除与 {name} 的关联？之后可以从 Lodestone Launcher 重新关联。',
-  'settings.minecraft.removed': '已移除 {name}',
+  'settings.minecraft.removeTitle': '移除账号关联？',
+  'settings.minecraft.removeBody': '之后可以在 Lodestone Launcher 中重新关联。',
 
   'settings.apiKeys.title': 'API 密钥',
   'settings.apiKeys.ownLead':
     '让 CLI、脚本和智能体无需密码即可以你的身份操作。',
   'settings.apiKeys.ownEmpty': '你还没有 API 密钥。',
   'settings.apiKeys.userLead':
-    '{username} 创建的密钥。吊销后，使用它的程序会立即失去访问权限。',
-  'settings.apiKeys.userEmpty': '{username} 没有 API 密钥。',
+    '此用户创建的密钥。撤销后，使用它的程序将失去访问权限。',
+  'settings.apiKeys.userEmpty': '没有 API 密钥。',
   'settings.apiKeys.create': '创建 API 密钥',
-  'settings.apiKeys.created': '已创建 API 密钥“{name}”',
   'settings.apiKeys.loading': '正在加载 API 密钥',
   'settings.apiKeys.revoke': '吊销',
-  'settings.apiKeys.revokeTitle': '吊销 API 密钥',
+  'settings.apiKeys.revokeTitle': '撤销 API 密钥？',
   'settings.apiKeys.revokeBody':
-    '吊销“{name}”（{display}）？使用此密钥的所有程序将立即失去访问权限。此操作无法撤销。',
-  'settings.apiKeys.revoked': '已吊销 API 密钥“{name}”',
-  'settings.apiKeys.createdOn': '创建于 {date}',
-  'settings.apiKeys.expiresOn': '{date} 过期',
-  'settings.apiKeys.expiredOn': '已于 {date} 过期',
-  'settings.apiKeys.expiresNever': '过期时间：永不',
-  'settings.apiKeys.lastUsed': '上次使用：{time}',
-  'settings.apiKeys.lastUsedNever': '上次使用：从未',
+    '使用此密钥的程序会立即失去访问权限。此操作无法撤销。',
   'settings.apiKeys.scope.full': '完全访问',
   'settings.apiKeys.scope.launcher': 'Launcher：查看、启动和停止服务器',
   'settings.apiKeys.scope.launcherConsole':
@@ -556,9 +544,7 @@ export const zhHans: Messages = {
     'Launcher：查看、启动和停止服务器，读取控制台',
   'settings.apiKeys.scope.launcherConsoleWrite':
     'Launcher：查看、启动和停止服务器，发送控制台命令',
-  'settings.apiKeys.scope.custom': '自定义：{servers}，{permissions}',
-  'settings.apiKeys.scope.servers': { other: '{count} 个服务器' },
-  'settings.apiKeys.scope.permissions': { other: '{count} 项权限' },
+  'settings.apiKeys.scope.custom': '自定义',
   'settings.apiKeys.passwordSessionOnly':
     '只有使用密码登录时才能管理 API 密钥，使用 API 密钥登录时不行。',
   'settings.apiKeys.createLead':
@@ -585,7 +571,7 @@ export const zhHans: Messages = {
   'settings.apiKeys.unsafe': '不安全设置',
   'settings.apiKeys.unsafeSafeMode':
     '安全模式已开启，因此在核心设置中关闭安全模式之前，核心会拒绝为自定义访问的密钥授予这些权限。',
-  'settings.apiKeys.newTitle': '已创建 API 密钥“{name}”',
+  'settings.apiKeys.newTitle': 'API 密钥已创建',
   'settings.apiKeys.newCopyNow': '请立即复制此密钥。之后将无法再次查看。',
   'settings.apiKeys.newUseWithCli': '在 Lodestone CLI 中使用：',
   'settings.apiKeys.newStore':
@@ -1270,4 +1256,9 @@ export const zhHans: Messages = {
   'values.key.cpuLoad': 'CPU 负载',
   'values.key.memoryUsed': '已用内存',
   'files.contextMenu.items': '{count} 项',
+  'settings.core.openPort.toast': '端口已开放',
+  'settings.minecraft.toast.removed': '关联已移除',
+  'settings.apiKeys.toast.created': '已创建',
+  'settings.apiKeys.toast.revoked': '已撤销',
+  'settings.apiKeys.expired': '已过期',
 };

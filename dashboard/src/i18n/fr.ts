@@ -430,7 +430,6 @@ export const fr: Messages = {
   'settings.core.openPort.portRequired': 'Le port est requis',
   'settings.core.openPort.portRange':
     'Le port doit être compris entre 1 et 65535',
-  'settings.core.openPort.opened': 'Port {port} ouvert',
   'settings.core.info.coreVersion': 'Version du core',
   'settings.core.info.dashboardVersion': 'Version du tableau de bord',
   'settings.core.info.os': 'Système d’exploitation',
@@ -451,7 +450,6 @@ export const fr: Messages = {
   'settings.users.description': 'Les comptes de ce core et leurs droits.',
   'settings.users.allUsers': 'Tous les utilisateurs',
   'settings.users.allMembers': 'Tous les membres',
-  'settings.users.allMembersCount': 'Tous les membres ({count})',
   'settings.users.createUser': 'Nouvel utilisateur',
   'settings.users.createTitle': 'Créer un compte utilisateur',
   'settings.users.createLead': 'Commence sans aucune autorisation.',
@@ -459,7 +457,8 @@ export const fr: Messages = {
   'settings.users.loadingUser': 'Chargement de l’utilisateur',
   'settings.users.loadingServers': 'Chargement des serveurs',
   'settings.users.permissions': 'Autorisations',
-  'settings.users.permissionsLead': 'Ce que {username} peut faire sur ce core.',
+  'settings.users.permissionsLead':
+    'Ce que cet utilisateur peut faire sur ce core.',
   'settings.users.unsafePermissions': 'Autorisations à risque',
   'settings.users.unsafePermissionsLead':
     'Désactivez le mode sécurisé pour les accorder à d’autres utilisateurs.',
@@ -573,36 +572,27 @@ export const fr: Messages = {
   'settings.minecraft.ownEmpty':
     'Aucun compte Minecraft n’est lié. Connectez-vous à ce core dans Lodestone Launcher pour en lier un.',
   'settings.minecraft.userLead':
-    'Les comptes Minecraft que {username} a liés depuis Lodestone Launcher.',
-  'settings.minecraft.userEmpty': '{username} n’a lié aucun compte Minecraft.',
+    'Les comptes Minecraft que cet utilisateur a liés depuis Lodestone Launcher.',
+  'settings.minecraft.userEmpty': 'Aucun compte Minecraft lié.',
   'settings.minecraft.tooOld':
     'Ce core est trop ancien pour lier des comptes Minecraft.',
-  'settings.minecraft.removeTitle': 'Retirer le compte Minecraft',
+  'settings.minecraft.removeTitle': 'Retirer le lien du compte ?',
   'settings.minecraft.removeBody':
-    'Retirer le lien vers {name} ? Il pourra être lié à nouveau depuis Lodestone Launcher.',
-  'settings.minecraft.removed': '{name} retiré',
+    'Il peut être lié de nouveau depuis Lodestone Launcher.',
 
   'settings.apiKeys.title': 'Clés d’API',
   'settings.apiKeys.ownLead':
     'Permettent à la CLI, aux scripts et aux agents d’agir en votre nom sans votre mot de passe.',
   'settings.apiKeys.ownEmpty': 'Vous n’avez aucune clé d’API.',
   'settings.apiKeys.userLead':
-    'Clés créées par {username}. En révoquer une coupe l’accès de ce qui l’utilise.',
-  'settings.apiKeys.userEmpty': '{username} n’a aucune clé d’API.',
+    'Les clés que cet utilisateur a créées. En révoquer une coupe l’accès de ce qui l’utilise.',
+  'settings.apiKeys.userEmpty': 'Aucune clé d’API.',
   'settings.apiKeys.create': 'Créer une clé d’API',
-  'settings.apiKeys.created': 'Clé d’API « {name} » créée',
   'settings.apiKeys.loading': 'Chargement des clés d’API',
   'settings.apiKeys.revoke': 'Révoquer',
-  'settings.apiKeys.revokeTitle': 'Révoquer la clé d’API',
+  'settings.apiKeys.revokeTitle': 'Révoquer la clé d’API ?',
   'settings.apiKeys.revokeBody':
-    'Révoquer « {name} » ({display}) ? Tout ce qui utilise cette clé perd l’accès immédiatement. Cette action est irréversible.',
-  'settings.apiKeys.revoked': 'Clé d’API « {name} » révoquée',
-  'settings.apiKeys.createdOn': 'Créée le {date}',
-  'settings.apiKeys.expiresOn': 'Expire le {date}',
-  'settings.apiKeys.expiredOn': 'Expirée le {date}',
-  'settings.apiKeys.expiresNever': 'Expiration : jamais',
-  'settings.apiKeys.lastUsed': 'Dernière utilisation : {time}',
-  'settings.apiKeys.lastUsedNever': 'Dernière utilisation : jamais',
+    'Tout ce qui utilise cette clé perd l’accès immédiatement. Cette action est irréversible.',
   'settings.apiKeys.scope.full': 'Accès complet',
   'settings.apiKeys.scope.launcher':
     'Launcher : voir, démarrer et arrêter les serveurs',
@@ -612,15 +602,7 @@ export const fr: Messages = {
     'Launcher : voir, démarrer et arrêter les serveurs, lire la console',
   'settings.apiKeys.scope.launcherConsoleWrite':
     'Launcher : voir, démarrer et arrêter les serveurs, envoyer des commandes à la console',
-  'settings.apiKeys.scope.custom': 'Personnalisé : {servers}, {permissions}',
-  'settings.apiKeys.scope.servers': {
-    one: '{count} serveur',
-    other: '{count} serveurs',
-  },
-  'settings.apiKeys.scope.permissions': {
-    one: '{count} autorisation',
-    other: '{count} autorisations',
-  },
+  'settings.apiKeys.scope.custom': 'Personnalisé',
   'settings.apiKeys.passwordSessionOnly':
     'Les clés d’API ne peuvent être gérées que si vous vous connectez avec votre mot de passe, pas avec une clé d’API.',
   'settings.apiKeys.createLead':
@@ -649,7 +631,7 @@ export const fr: Messages = {
   'settings.apiKeys.unsafe': 'Paramètres à risque',
   'settings.apiKeys.unsafeSafeMode':
     'Le mode sécurisé est activé : le core refuse donc ces autorisations aux clés à accès personnalisé tant que le mode sécurisé n’est pas désactivé dans les paramètres du core.',
-  'settings.apiKeys.newTitle': 'Clé d’API « {name} » créée',
+  'settings.apiKeys.newTitle': 'Clé d’API créée',
   'settings.apiKeys.newCopyNow':
     'Copiez cette clé maintenant. Vous ne pourrez plus la voir.',
   'settings.apiKeys.newUseWithCli': 'Utilisez-la avec la CLI Lodestone :',
@@ -1433,4 +1415,9 @@ export const fr: Messages = {
   'values.key.cpuLoad': 'Charge du processeur',
   'values.key.memoryUsed': 'Mémoire utilisée',
   'files.contextMenu.items': '{count} éléments',
+  'settings.core.openPort.toast': 'Port ouvert',
+  'settings.minecraft.toast.removed': 'Lien retiré',
+  'settings.apiKeys.toast.created': 'Créée',
+  'settings.apiKeys.toast.revoked': 'Révoquée',
+  'settings.apiKeys.expired': 'Expirée',
 };
