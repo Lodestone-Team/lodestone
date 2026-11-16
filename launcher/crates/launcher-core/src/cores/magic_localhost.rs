@@ -194,8 +194,9 @@ pub fn release(saved: &mut Vec<MagicPort>, ports: &[u16]) -> bool {
 /// from `taken` (other cores' and friends' ports) and this core's; a saved port follows
 /// its server's game port. With `authoritative` (the list came signed in, its public
 /// half too, so it has every server), servers no longer listed lose theirs; any other
-/// list only adds, so ports stay while signed out or when the public half failed. Returns whether anything changed, for the caller to
-/// save.
+/// list only adds, so ports stay while signed out or when the public half failed, until
+/// the core has [`MAX_PER_CORE`]: then the oldest port of a server it doesn't list makes
+/// room for one it does. Returns whether anything changed, for the caller to save.
 pub fn update_ports(
     saved: &mut Vec<MagicPort>,
     core_url: &str,
@@ -220,8 +221,20 @@ pub fn update_ports(
             }
             continue;
         }
-        if !valid_instance(&server.uuid) || saved.len() >= MAX_PER_CORE {
+        if !valid_instance(&server.uuid) {
             continue;
+        }
+        if saved.len() >= MAX_PER_CORE {
+            // Full: the oldest saved port this list doesn't show makes room for a server
+            // it does, so a core whose servers come and go while you're signed out
+            // doesn't keep deleted servers' ports for good and leave its new ones none.
+            let Some(stale) = saved
+                .iter()
+                .position(|e| !servers.iter().any(|s| s.uuid == e.instance))
+            else {
+                continue;
+            };
+            saved.remove(stale);
         }
         let mut avoid: Vec<u16> = taken.to_vec();
         avoid.extend(saved.iter().map(|e| e.port));
@@ -237,6 +250,90 @@ pub fn update_ports(
         changed = true;
     }
     changed
+}
+
+/// A core on another host, for [`wanted_forwarders`].
+pub struct HostCore<'a> {
+    /// The core's address as saved, which [`magic_id`]s are made from.
+    pub saved_url: &'a str,
+    /// The address the forwarders connect to.
+    pub url: &'a Url,
+    pub saved: &'a [MagicPort],
+    /// The servers in the core's latest list, when one arrived this session.
+    pub listed: Option<&'a [ServerInstance]>,
+}
+
+/// A forwarder [`wanted_forwarders`] gives a server: its [`magic_id`], its saved port
+/// and where it forwards.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Wanted {
+    pub id: String,
+    pub port: u16,
+    pub target: Target,
+}
+
+/// Shares the [`MAX_FORWARDERS`] forwarders among the saved ports of `cores`. Returns
+/// the forwarders to open and the [`magic_id`]s of the servers with a saved port that get
+/// none (past the cap, or a host that is this computer), whose rows show no address.
+///
+/// The share is fair, so no core can shut out the others: a hostile core, or one that
+/// makes and deletes many servers, has as many saved ports as any other (up to
+/// [`MAX_PER_CORE`], more than the cap). Forwarders go round the cores one at a time,
+/// first to the servers each core's latest list shows (every saved one when no list
+/// arrived yet), then to the saved ports of servers it no longer lists, which a list
+/// you aren't signed in to never drops (they may be private servers, or deleted ones).
+pub fn wanted_forwarders(cores: &[HostCore]) -> (Vec<Wanted>, Vec<String>) {
+    let (mut listed, mut unlisted, mut unserved) = (Vec::new(), Vec::new(), Vec::new());
+    for core in cores {
+        let (mut shown, mut hidden) = (Vec::new(), Vec::new());
+        let entries = core.saved.iter().filter(|e| e.is_valid());
+        for entry in entries.take(MAX_PER_CORE) {
+            let id = magic_id(core.saved_url, &entry.instance);
+            let Some(target) = Target::new(core.url, entry.target) else {
+                unserved.push(id);
+                continue;
+            };
+            let wanted = Wanted {
+                id,
+                port: entry.port,
+                target,
+            };
+            let is_listed = core
+                .listed
+                .is_none_or(|list| list.iter().any(|s| s.uuid == entry.instance));
+            if is_listed {
+                shown.push(wanted);
+            } else {
+                hidden.push(wanted);
+            }
+        }
+        listed.push(shown);
+        unlisted.push(hidden);
+    }
+    let mut served = Vec::new();
+    for queues in [listed, unlisted] {
+        for wanted in round_robin(queues) {
+            if served.len() < MAX_FORWARDERS {
+                served.push(wanted);
+            } else {
+                unserved.push(wanted.id);
+            }
+        }
+    }
+    (served, unserved)
+}
+
+/// The first of each queue, then the second of each, and so on.
+fn round_robin<T>(queues: Vec<Vec<T>>) -> Vec<T> {
+    let mut queues: Vec<_> = queues.into_iter().map(Vec::into_iter).collect();
+    let mut out = Vec::new();
+    loop {
+        let before = out.len();
+        out.extend(queues.iter_mut().filter_map(Iterator::next));
+        if out.len() == before {
+            return out;
+        }
+    }
 }
 
 /// Where a forwarder sends its connections: the core's host, at the server's game port.
@@ -860,6 +957,183 @@ mod tests {
         let mut saved = Vec::new();
         update_ports(&mut saved, CORE, &[server("a/../b", Some(1))], true, &[]);
         assert!(saved.is_empty());
+    }
+
+    /// `count` servers named `<prefix>0`, `<prefix>1`, … with a game port.
+    fn servers(prefix: &str, count: usize) -> Vec<ServerInstance> {
+        (0..count)
+            .map(|i| server(&format!("{prefix}{i}"), Some(25565)))
+            .collect()
+    }
+
+    /// The saved ports a core at `url` gets for `list`, away from `taken`.
+    fn saved_for(url: &str, list: &[ServerInstance], taken: &[u16]) -> Vec<MagicPort> {
+        let mut saved = Vec::new();
+        update_ports(&mut saved, url, list, false, taken);
+        saved
+    }
+
+    fn served_of<'a>(served: &'a [Wanted], url: &str) -> Vec<&'a Wanted> {
+        let prefix = format!("core:{url}/");
+        served
+            .iter()
+            .filter(|w| w.id.starts_with(&prefix))
+            .collect()
+    }
+
+    /// A core added by address, maybe hostile, lists more servers than there are
+    /// forwarders, and sits before a friend's core: the friend's servers still get
+    /// theirs, and two big cores split the forwarders evenly.
+    #[test]
+    fn one_core_cant_take_every_forwarder() {
+        const HOSTILE: &str = "https://203.0.113.9:16662/";
+        const FRIEND: &str = "https://198.51.100.7:16662/";
+        let (hostile_url, friend_url) = (Url::parse(HOSTILE).unwrap(), Url::parse(FRIEND).unwrap());
+        let many = servers("h", MAX_PER_CORE);
+        let hostile = saved_for(HOSTILE, &many, &[]);
+        assert_eq!(hostile.len(), MAX_PER_CORE);
+        let taken: Vec<u16> = hostile.iter().map(|e| e.port).collect();
+        let few = servers("f", 3);
+        let friend = saved_for(FRIEND, &few, &taken);
+
+        let cores = [
+            HostCore {
+                saved_url: HOSTILE,
+                url: &hostile_url,
+                saved: &hostile,
+                listed: Some(many.as_slice()),
+            },
+            HostCore {
+                saved_url: FRIEND,
+                url: &friend_url,
+                saved: &friend,
+                listed: Some(few.as_slice()),
+            },
+        ];
+        let (served, unserved) = wanted_forwarders(&cores);
+        assert_eq!(served.len(), MAX_FORWARDERS);
+        assert_eq!(served_of(&served, FRIEND).len(), 3);
+        assert_eq!(served_of(&served, HOSTILE).len(), MAX_FORWARDERS - 3);
+        assert_eq!(unserved.len(), MAX_PER_CORE - (MAX_FORWARDERS - 3));
+        assert!(
+            unserved
+                .iter()
+                .all(|id| id.starts_with(&format!("core:{HOSTILE}/")))
+        );
+        let ports: HashSet<u16> = served.iter().map(|w| w.port).collect();
+        assert_eq!(ports.len(), served.len());
+
+        // two cores with more servers than forwarders get half each
+        let more = servers("g", MAX_PER_CORE);
+        let other = saved_for(FRIEND, &more, &taken);
+        let cores = [
+            HostCore {
+                saved: &hostile,
+                ..cores[0]
+            },
+            HostCore {
+                saved: &other,
+                listed: Some(more.as_slice()),
+                ..cores[1]
+            },
+        ];
+        let (served, _) = wanted_forwarders(&cores);
+        assert_eq!(served_of(&served, HOSTILE).len(), MAX_FORWARDERS / 2);
+        assert_eq!(served_of(&served, FRIEND).len(), MAX_FORWARDERS / 2);
+    }
+
+    /// Saved ports of servers a core's latest list no longer shows (deleted, or private
+    /// while signed out) only get the forwarders the listed servers of every core leave.
+    #[test]
+    fn listed_servers_come_before_stale_saved_ports() {
+        const STALE: &str = "https://203.0.113.9:16662/";
+        const BUSY: &str = "https://198.51.100.7:16662/";
+        let (stale_url, busy_url) = (Url::parse(STALE).unwrap(), Url::parse(BUSY).unwrap());
+        let old = servers("s", 40);
+        let stale = saved_for(STALE, &old, &[]);
+        let now = &old[..2];
+        let taken: Vec<u16> = stale.iter().map(|e| e.port).collect();
+        let busy_list = servers("b", MAX_FORWARDERS - 2);
+        let busy = saved_for(BUSY, &busy_list, &taken);
+        let mut cores = [
+            HostCore {
+                saved_url: STALE,
+                url: &stale_url,
+                saved: &stale,
+                listed: Some(now),
+            },
+            HostCore {
+                saved_url: BUSY,
+                url: &busy_url,
+                saved: &busy,
+                listed: Some(busy_list.as_slice()),
+            },
+        ];
+        let (served, unserved) = wanted_forwarders(&cores);
+        assert_eq!(served.len(), MAX_FORWARDERS);
+        assert_eq!(served_of(&served, BUSY).len(), MAX_FORWARDERS - 2);
+        let kept: Vec<&str> = served_of(&served, STALE)
+            .iter()
+            .map(|w| w.id.as_str())
+            .collect();
+        assert_eq!(kept, [magic_id(STALE, "s0"), magic_id(STALE, "s1")]);
+        assert_eq!(unserved.len(), 38);
+
+        // before any list arrives, every saved port counts as listed
+        cores[0].listed = None;
+        let (served, _) = wanted_forwarders(&cores);
+        assert_eq!(served_of(&served, STALE).len(), MAX_FORWARDERS / 2);
+        // with room to spare, stale ones get forwarders too
+        cores[1].saved = &[];
+        let (served, unserved) = wanted_forwarders(&cores);
+        cores[0].listed = Some(now);
+        assert_eq!(served.len(), 40);
+        assert!(unserved.is_empty());
+        let (served, _) = wanted_forwarders(&cores);
+        assert_eq!(served.len(), 40);
+    }
+
+    #[test]
+    fn a_core_on_this_computer_gets_no_forwarders() {
+        const HERE: &str = "https://127.0.0.1:16662/";
+        let url = Url::parse(HERE).unwrap();
+        let list = servers("a", 2);
+        let saved = saved_for(HERE, &list, &[]);
+        let (served, unserved) = wanted_forwarders(&[HostCore {
+            saved_url: HERE,
+            url: &url,
+            saved: &saved,
+            listed: Some(list.as_slice()),
+        }]);
+        assert!(served.is_empty());
+        assert_eq!(unserved, [magic_id(HERE, "a0"), magic_id(HERE, "a1")]);
+    }
+
+    /// A core you aren't signed in to never drops a port on its own, but once it has
+    /// [`MAX_PER_CORE`], the oldest port of a server it no longer lists makes room for a
+    /// new server it does, so servers made and deleted over time don't leave the new
+    /// ones without an address.
+    #[test]
+    fn a_full_core_makes_room_for_listed_servers() {
+        let first = servers("s", MAX_PER_CORE);
+        let mut saved = saved_for(CORE, &first, &[]);
+        let ports: Vec<u16> = saved.iter().map(|e| e.port).collect();
+        // s0 was deleted and "new" made; signed out, so the list isn't authoritative
+        let mut later: Vec<ServerInstance> = first[1..].to_vec();
+        later.push(server("new", Some(25565)));
+        assert!(update_ports(&mut saved, CORE, &later, false, &[]));
+        assert_eq!(saved.len(), MAX_PER_CORE);
+        assert!(saved.iter().all(|e| e.instance != "s0"));
+        assert!(saved.iter().any(|e| e.instance == "new"));
+        // everyone else kept their port
+        for (entry, port) in saved.iter().zip(&ports[1..]) {
+            assert_eq!(entry.port, *port);
+        }
+        // a list that shows every saved server has nothing to make room with
+        let mut full = later.clone();
+        full.push(server("another", Some(25565)));
+        assert!(!update_ports(&mut saved, CORE, &full, false, &[]));
+        assert!(saved.iter().all(|e| e.instance != "another"));
     }
 
     #[test]

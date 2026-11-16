@@ -443,7 +443,9 @@ later (a server on this computer made or changed afterwards) is given up and its
 picks again, from its core's last list. A complete list (signed in, and its public
 half arrived too) drops the ports of servers it no longer lists; any other list only
 adds, so ports stay while signed out, and one failed public fetch can't close the
-forwarder of a public-only server someone is playing on. A card that moves to "On this
+forwarder of a public-only server someone is playing on. Once a core has its 64, though,
+the oldest port of a server its list doesn't show makes room for a new server it does, so
+servers made and deleted while you're signed out don't leave the new ones without one. A card that moves to "On this
 computer" (the scan found its core here, at an address that first looked like another
 host's) drops its saved ports and closes their forwarders when the scan finishes.
 
@@ -460,9 +462,17 @@ address actually in use with a yellow line under it, "Port … was in use, so th
 address works only until Lodestone Launcher closes" (also in the row's screen-reader description, and
 `magic_port_taken` in `servers.list`), and the page says once per session "Port … was
 in use". The saved port stays for next time. A forwarder that can't listen at all (not
-even on a free port), or one past the cap of 48, shows no address on its row (and none
-in `servers.list`): nothing would answer it. One that couldn't listen is tried again a
+even on a free port), or one past its core's share of the 48, shows no address on its row
+(and none in `servers.list`): nothing would answer it. One that couldn't listen is tried again a
 minute later, on the next list, as the cause usually passes (out of files for a moment).
+
+**Sharing the forwarders.** A core has up to 64 saved ports and there are 48 forwarders,
+so they are shared fairly (`magic_localhost::wanted_forwarders`): they go round the cores
+one at a time, first to the servers each core's latest list shows (every saved one before
+a list arrives), then to the saved ports of servers it no longer lists (private ones while
+signed out, or deleted ones). A core added by address that lists dozens of servers, or
+one with many stale ports, gets at most what the other cores leave, so it can't take
+every forwarder and leave the other hosts' rows with no address.
 
 **Limits and safety.** At most 64 saved ports per core, 48 forwarders, and 16
 connections per forwarder and 48 over every forwarder (more are closed at once). They fit

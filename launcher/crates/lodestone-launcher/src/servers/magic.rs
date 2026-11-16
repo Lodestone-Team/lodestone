@@ -17,8 +17,7 @@ use launcher_core::cores::{
     ServerInstance,
     friends::game_address,
     magic_localhost::{
-        self, Forwarder, Forwarders, MAX_FORWARDERS, MAX_PER_CORE, MagicAddress, OnError, Target,
-        magic_id,
+        self, Forwarder, Forwarders, HostCore, MagicAddress, OnError, Target, magic_id,
     },
 };
 
@@ -37,9 +36,9 @@ pub struct MagicState {
     /// [`RETRY_AFTER`], as the cause usually passes (out of files for a moment, say).
     /// Their rows show no address meanwhile: nothing would answer it.
     failed: HashMap<String, (u16, Instant)>,
-    /// Servers, by [`magic_id`], with a saved port but no forwarder: past
-    /// [`MAX_FORWARDERS`], or a host that turned out to be this computer. Their rows
-    /// show no address either.
+    /// Servers, by [`magic_id`], with a saved port but no forwarder: past their core's
+    /// share of [`magic_localhost::MAX_FORWARDERS`], or a host that turned out to be
+    /// this computer. Their rows show no address either.
     unserved: HashSet<String>,
     /// The page said once that a saved port was in use.
     told_taken: bool,
@@ -81,27 +80,29 @@ fn log_errors() -> OnError {
 impl Servers {
     /// The forwarders every core not on this computer should have: by [`magic_id`], the
     /// saved port and where it forwards. Also the servers with a saved port that get
-    /// none.
+    /// none. [`magic_localhost::wanted_forwarders`] shares them fairly among the cores.
     fn magic_wanted(&self) -> (HashMap<String, (u16, Target)>, HashSet<String>) {
-        let (mut wanted, mut unserved) = (HashMap::new(), HashSet::new());
-        for (index, core) in self.cores.iter().enumerate() {
-            if self.is_local_card(index) {
-                continue;
-            }
-            let entries = core.saved.magic_ports.iter().filter(|e| e.is_valid());
-            for entry in entries.take(MAX_PER_CORE) {
-                let id = magic_id(&core.saved.url, &entry.instance);
-                match Target::new(&core.url, entry.target) {
-                    Some(target) if wanted.len() < MAX_FORWARDERS => {
-                        wanted.insert(id, (entry.port, target));
-                    }
-                    _ => {
-                        unserved.insert(id);
-                    }
+        let cores: Vec<HostCore> = (0..self.cores.len())
+            .filter(|&index| !self.is_local_card(index))
+            .map(|index| {
+                let core = &self.cores[index];
+                HostCore {
+                    saved_url: &core.saved.url,
+                    url: &core.url,
+                    saved: &core.saved.magic_ports,
+                    listed: match &core.status {
+                        CoreStatus::Online(list) => Some(list.instances.as_slice()),
+                        _ => None,
+                    },
                 }
-            }
-        }
-        (wanted, unserved)
+            })
+            .collect();
+        let (wanted, unserved) = magic_localhost::wanted_forwarders(&cores);
+        let wanted = wanted
+            .into_iter()
+            .map(|w| (w.id, (w.port, w.target)))
+            .collect();
+        (wanted, unserved.into_iter().collect())
     }
 
     /// Opens, points and closes the forwarders to match the saved ports. Opening one
