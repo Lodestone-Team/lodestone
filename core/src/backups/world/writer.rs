@@ -6,7 +6,9 @@
 //! ([`DiskLayout::from_disk`]), as a snapshot checks it: what images never record
 //! (`session.lock`, Lodestone's `.lodestone-*` working files) is skipped, and what a
 //! restore couldn't place back (a vanilla `DIM-1` inside a split level, a name that isn't
-//! UTF-8 or no canonical path holds), links and files that can't be read are left out and
+//! UTF-8 or no canonical path holds, the later of two names that are one file on a disk
+//! that ignores letter case), links, things that aren't plain files (fifos, sockets,
+//! devices: opening some of them blocks) and files that can't be read are left out and
 //! counted. Region files and other compressed formats are stored as they are, which keeps
 //! the time a running server's saving is paused short; the rest is deflated.
 //!
@@ -23,6 +25,7 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use color_eyre::eyre::eyre;
+use lodestone_image::paths::CaseTree;
 use lodestone_image::{DiskLayout, ServerLayout};
 use zip::write::SimpleFileOptions;
 use zip::CompressionMethod;
@@ -30,6 +33,7 @@ use zip::CompressionMethod;
 use crate::backups::store::{cancelled, err, Cancel};
 use crate::error::{Error, ErrorKind};
 use crate::util::disk::format_bytes;
+use crate::util::fs::open_no_follow;
 
 use super::reader::ZipLimits;
 
@@ -57,8 +61,8 @@ pub struct WorldPlan {
     pub file_count: u64,
     /// The files and folders the zip will have: its entries.
     pub entry_count: u64,
-    /// What the walk leaves out (links, folders that can't be listed, names the layout
-    /// can't place), and the first few of them by path.
+    /// What the walk leaves out (links, things that aren't plain files, folders that can't
+    /// be listed, names a restore can't place), and the first few of them by path.
     pub left_out: u64,
     pub left_out_sample: Vec<String>,
     /// The bounds the zip is kept within, so a restore can read it.
@@ -69,7 +73,8 @@ pub struct WorldPlan {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Written {
     pub file_count: u64,
-    /// Links, files that couldn't be read or vanished, and names the layout can't place.
+    /// Links, things that aren't plain files, files that couldn't be read or vanished, and
+    /// names a restore can't place.
     pub left_out: u64,
     /// The first few of those, by path.
     pub left_out_sample: Vec<String>,
@@ -85,8 +90,8 @@ enum Item {
         path: PathBuf,
         size: u64,
     },
-    /// What a backup can't hold: a link, a folder that can't be listed, a name the layout
-    /// can't place.
+    /// What a backup can't hold: a link, something that isn't a plain file, a folder that
+    /// can't be listed, a name a restore can't place.
     LeftOut(String),
 }
 
@@ -107,7 +112,7 @@ impl LeftOut {
 }
 
 /// The refusal of a world too large for a restore to read back.
-fn too_large(limits: &ZipLimits) -> Error {
+pub(super) fn too_large(limits: &ZipLimits) -> Error {
     err(
         ErrorKind::BadRequest,
         format!(
@@ -126,17 +131,12 @@ fn no_world() -> Error {
     )
 }
 
-/// Checks the server in `root` has a world to back up within `limits`: NotFound when it
-/// has no level with a `level.dat`; a level or split folder that is a link is refused, and
-/// so is a world too large to restore. Walks the world without reading it.
-pub fn check_world(root: &Path, layout: &ServerLayout, limits: ZipLimits) -> Result<(), Error> {
-    plan_world(root, layout, true, limits).map(|_| ())
-}
-
-/// The world's folders in `root` for `layout`, and what they hold. Checked as
-/// [`check_world`] checks; with `require_level_dat` false a world without a `level.dat`, or
-/// a split server's `_nether` and `_the_end` folders without their level, is taken too (a
-/// restore's safety backup keeps whatever the restore replaces).
+/// The world's folders in `root` for `layout`, and what they hold, from a walk that reads
+/// nothing: NotFound when there is no level with a `level.dat`, unless `require_level_dat`
+/// is false (a restore's safety backup keeps whatever the restore replaces, a world
+/// without a `level.dat` or a split server's `_nether` and `_the_end` folders without
+/// their level too); a level or split folder that is a link is refused, and so is a world
+/// too large to restore.
 pub fn plan_world(
     root: &Path,
     layout: &ServerLayout,
@@ -225,6 +225,9 @@ fn walk(
     visit: &mut dyn FnMut(Item) -> Result<(), Error>,
 ) -> Result<(), Error> {
     let disk = DiskLayout::Server(layout.clone());
+    // the canonical paths taken so far, so that of two which are one file on a disk that
+    // ignores letter case (as a restore checks), the later is left out
+    let mut names = CaseTree::new();
     let shown = |path: &Path| {
         path.strip_prefix(root)
             .unwrap_or(path)
@@ -261,7 +264,16 @@ fn walk(
             if entry.file_type().is_dir() {
                 // a folder is checked by a file inside it
                 match disk.from_disk(&format!("{rel}/x")) {
-                    Ok(Some(_)) => visit(Item::Dir(rel))?,
+                    Ok(Some(path)) => {
+                        let folder = path.as_str().strip_suffix("/x").unwrap_or(path.as_str());
+                        if names.insert(folder) {
+                            visit(Item::Dir(rel))?;
+                        } else {
+                            // one folder with an earlier one on some disks: all of it is out
+                            visit(Item::LeftOut(rel))?;
+                            entries.skip_current_dir();
+                        }
+                    }
                     // never recorded: nothing in it is either
                     Ok(None) => entries.skip_current_dir(),
                     // what is inside is checked (and counted) file by file
@@ -270,6 +282,10 @@ fn walk(
                 continue;
             }
             match disk.from_disk(&rel) {
+                // a fifo, a socket or a device: opening some of them blocks
+                Ok(Some(_)) if !entry.file_type().is_file() => visit(Item::LeftOut(rel))?,
+                // one file with an earlier one on some disks, which a restore refuses
+                Ok(Some(path)) if !names.insert(path.as_str()) => visit(Item::LeftOut(rel))?,
                 Ok(Some(_)) => {
                     let size = entry.metadata().map_or(0, |m| m.len());
                     visit(Item::File {
@@ -308,9 +324,13 @@ pub fn stored(name: &str) -> bool {
     })
 }
 
-/// Whether an entry of `size` bytes needs zip64's large file fields.
+/// Files this close to zip's 4 GiB limit when opened get zip64's large file fields all the
+/// same, so one a running server grows past it while it is copied doesn't fail the backup.
+const LARGE_FILE_MARGIN: u64 = 1 << 30;
+
+/// Whether an entry of `size` bytes (when opened) gets zip64's large file fields.
 pub fn needs_large_file(size: u64) -> bool {
-    size >= u64::from(u32::MAX)
+    size >= u64::from(u32::MAX) - LARGE_FILE_MARGIN
 }
 
 /// A file's time as a zip has it (to the even second, from 1980); `None` before that.
@@ -409,12 +429,17 @@ fn write_into(
                     .map_err(zip_error)?;
             }
             Item::File { rel, path, .. } => {
-                // gone, or can't be opened: left out
-                let Ok(mut source) = File::open(&path) else {
+                // gone, can't be opened, or no longer a plain file (a link or a fifo put in
+                // its place since the walk, which this open neither follows nor waits on):
+                // left out
+                let opened = open_no_follow(&path)
+                    .and_then(|file| Ok((file.metadata()?, file)))
+                    .ok()
+                    .filter(|(meta, _)| meta.is_file());
+                let Some((meta, mut source)) = opened else {
                     left_out.add(rel);
                     return Ok(());
                 };
-                let meta = source.metadata().map_err(io_error)?;
                 zip.start_file(
                     rel.as_str(),
                     file_options(&rel, meta.len(), meta.modified().ok()),

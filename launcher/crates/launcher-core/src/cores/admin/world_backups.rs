@@ -56,7 +56,8 @@ pub struct WorldBackupInfo {
     pub size: u64,
     #[serde(default)]
     pub file_count: u64,
-    /// Links and files that couldn't be read, left out.
+    /// What was left out: links, things that aren't plain files, files that couldn't be
+    /// read, and names that are one file with another on some disks.
     #[serde(default)]
     pub left_out_count: u64,
     #[serde(default)]

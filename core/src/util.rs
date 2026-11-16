@@ -855,6 +855,27 @@ pub mod fs {
 
     use crate::error::{Error, ErrorKind};
 
+    /// Opens `path` for reading without following a final symbolic link: `O_NOFOLLOW` (an
+    /// error for a link) and `O_NONBLOCK` (so a FIFO can't block the caller) on Unix, the
+    /// link itself on Windows (`FILE_FLAG_OPEN_REPARSE_POINT`), which then isn't a file.
+    /// Callers check through the handle that it is a regular file before reading it.
+    pub fn open_no_follow(path: &Path) -> std::io::Result<std::fs::File> {
+        let mut options = std::fs::OpenOptions::new();
+        options.read(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            // FILE_FLAG_OPEN_REPARSE_POINT
+            options.custom_flags(0x0020_0000);
+        }
+        options.open(path)
+    }
+
     pub async fn remove_file(file: impl AsRef<Path>) -> Result<(), Error> {
         let file = file.as_ref();
         if file.is_file() {

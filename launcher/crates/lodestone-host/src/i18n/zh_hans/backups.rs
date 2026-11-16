@@ -124,7 +124,9 @@ pub fn text(message: M) -> &'static str {
         M::WorldSizeVersion => "{size} · Minecraft {version}",
         M::WorldBeforeRestoreHint => "在恢复“{name}”之前创建。",
         M::WorldTagInconsistentHint => "服务器在复制前没有确认已保存世界。",
-        M::WorldLeftOutHint => "链接和无法读取的文件已被略过。",
+        M::WorldLeftOutHint => {
+            "链接、特殊文件、无法读取的文件以及在某些磁盘上名称冲突的文件已被略过。"
+        }
         M::WorldDownloadLabel => "下载 .zip",
         M::WorldDeleteLabel => "删除世界备份",
         M::WorldRestoreTitle => "从“{name}”恢复世界",

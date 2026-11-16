@@ -151,7 +151,7 @@ crate::i18n::messages! {
         /// The Before restore tag's tooltip; {name} is the world backup restored then.
         WorldBeforeRestoreHint = "Taken before restoring “{name}”.",
         WorldTagInconsistentHint = "The server didn’t confirm that it saved the world before the copy.",
-        WorldLeftOutHint = "Links and files that couldn’t be read were left out.",
+        WorldLeftOutHint = "Links, special files, files that couldn’t be read and names that clash on some disks were left out.",
         /// A world backup's actions.
         WorldDownloadLabel = "Download the .zip",
         WorldDeleteLabel = "Delete world backup",

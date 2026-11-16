@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::*;
+use crate::backups::world::reader::plan_restore_with;
 
 pub fn write(root: &Path, rel: &str, bytes: &[u8]) {
     let path = root.join(rel);
@@ -142,10 +143,8 @@ fn no_world_is_not_found() {
     // a restore's safety backup takes a level without a level.dat too
     let plan = plan_world(root, &vanilla(), false, ZipLimits::default()).unwrap();
     assert_eq!(plan.folders, ["world"]);
-    assert!(check_world(root, &vanilla(), ZipLimits::default()).is_err());
     write(root, "world/level.dat", b"x");
     plan_world(root, &vanilla(), true, ZipLimits::default()).unwrap();
-    check_world(root, &vanilla(), ZipLimits::default()).unwrap();
 }
 
 #[cfg(unix)]
@@ -232,7 +231,10 @@ fn compression_and_large_files() {
     for name in ["a.json", "mca", "readme.txt", "data.dat.json"] {
         assert!(!stored(name), "{name}");
     }
-    assert!(!needs_large_file(u64::from(u32::MAX) - 1));
+    // with a margin below 4 GiB, for a file that grows while it is copied
+    assert!(!needs_large_file(2 << 30));
+    assert!(needs_large_file(3 << 30));
+    assert!(needs_large_file(u64::from(u32::MAX) - 1));
     assert!(needs_large_file(u64::from(u32::MAX)));
     assert!(needs_large_file(5 << 30));
     // times before 1980 have no zip form; the entry is still written
@@ -244,7 +246,6 @@ fn compression_and_large_files() {
 /// takes a world, the reader takes its zip, and one entry or byte fewer refuses both.
 #[test]
 fn the_writer_keeps_within_what_the_reader_restores() {
-    use crate::backups::world::reader::plan_restore_with;
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("server");
     write(&root, "world/level.dat", b"level");
@@ -271,7 +272,6 @@ fn the_writer_keeps_within_what_the_reader_restores() {
             error.source
         );
         assert!(error.source.to_string().contains("Take a snapshot instead"));
-        assert!(check_world(&root, &vanilla(), smaller).is_err());
         assert!(plan_restore_with(&out, "world", &vanilla(), smaller).is_err());
     }
 
@@ -329,4 +329,88 @@ fn split_folders_without_their_level() {
     assert!(entries.keys().all(|name| !name.starts_with("world/")));
     // on vanilla those folders aren't the world's
     assert!(plan_world(&root, &vanilla(), false, ZipLimits::default()).is_err());
+}
+
+/// Writes `a` and `b` (file names in `folder`) and says whether the disk kept them apart.
+fn both_kept(folder: &Path, a: &str, b: &str) -> bool {
+    write(folder, a, a.as_bytes());
+    write(folder, b, b.as_bytes());
+    fs::read_dir(folder).unwrap().count() == 2
+}
+
+/// Of two names that are one file on a disk that ignores letter case, the later is left
+/// out, so the zip is one a restore takes (the reader refuses such pairs). `strasse` and
+/// `straße` are two files on macOS's and Windows' disks too, and one as Lodestone folds
+/// names; `Foo` and `foo` also run where the disk keeps them apart (Linux).
+#[test]
+fn names_that_are_one_file_on_some_disks_are_left_out() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("server");
+    write(&root, "world/level.dat", b"level");
+    let mut expected = Vec::new();
+    let data = root.join("world/data");
+    if both_kept(&data, "strasse.dat", "straße.dat") {
+        expected.push("world/data/straße.dat".to_string());
+    }
+    let pack = root.join("world/datapacks/p");
+    if both_kept(&pack, "Foo.json", "foo.json") {
+        expected.push("world/datapacks/p/foo.json".to_string());
+    }
+    let packs = root.join("world/plugins-data");
+    write(&packs, "Pack/a.json", b"a");
+    write(&packs, "pack/b.json", b"b");
+    if fs::read_dir(&packs).unwrap().count() == 2 {
+        // a folder: all of it is left out, counted once
+        expected.push("world/plugins-data/pack".to_string());
+    }
+    if expected.is_empty() {
+        eprintln!("this disk folds every pair the test makes; nothing to check");
+        return;
+    }
+    expected.sort();
+    let out = dir.path().join(".a.zip.part");
+    let (plan, written) = zip_world(&root, &vanilla(), &out).unwrap();
+    let mut sample = written.left_out_sample.clone();
+    sample.sort();
+    assert_eq!(sample, expected);
+    assert_eq!(written.left_out, expected.len() as u64);
+    assert_eq!(plan.left_out, written.left_out);
+    let entries = read_zip(&out);
+    for left_out in &expected {
+        assert!(entries
+            .keys()
+            .all(|name| !name.starts_with(left_out.as_str())));
+    }
+    assert!(entries.contains_key("world/data/strasse.dat"));
+    plan_restore_with(&out, "world", &vanilla(), ZipLimits::default()).unwrap();
+}
+
+/// A fifo (or socket, or device) in the world is left out and counted, never opened: an
+/// open of a fifo nobody writes to waits forever.
+#[cfg(unix)]
+#[test]
+fn a_fifo_is_left_out_without_blocking() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("server");
+    write(&root, "world/level.dat", b"level");
+    let fifo = root.join("world/pipe");
+    let c_path = std::ffi::CString::new(fifo.as_os_str().as_encoded_bytes()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(c_path.as_ptr(), 0o644) }, 0);
+    let out = dir.path().join(".a.zip.part");
+    let (done, finished) = std::sync::mpsc::channel();
+    let (root2, out2) = (root.clone(), out.clone());
+    std::thread::spawn(move || {
+        let _ = done.send(zip_world(&root2, &vanilla(), &out2).map(|(p, w)| (p.left_out, w)));
+    });
+    let (planned, written) = finished
+        .recv_timeout(std::time::Duration::from_secs(30))
+        .expect("the backup blocked on the fifo")
+        .unwrap();
+    assert_eq!(planned, 1);
+    assert_eq!(written.left_out, 1);
+    assert_eq!(written.left_out_sample, ["world/pipe"]);
+    assert_eq!(
+        read_zip(&out).keys().collect::<Vec<_>>(),
+        ["world/", "world/level.dat"]
+    );
 }

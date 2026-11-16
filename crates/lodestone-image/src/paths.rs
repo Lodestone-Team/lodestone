@@ -637,6 +637,61 @@ pub(crate) fn case_collisions_of<'p>(
     clashes
 }
 
+/// [`case_collisions`] one path at a time, for a caller that walks a disk and must decide
+/// on each path as it goes (a zip being written): [`CaseTree::insert`] refuses a path that
+/// is one file with a path inserted before, ignoring letter case. Memory is linear in the
+/// inserted paths' total length, as for [`case_collisions`].
+#[derive(Debug)]
+pub struct CaseTree {
+    /// (parent node, folded name) → (exact name, its node); node 0 is the root.
+    nodes: HashMap<(usize, String), (String, usize)>,
+    next_node: usize,
+}
+
+impl Default for CaseTree {
+    fn default() -> Self {
+        CaseTree {
+            nodes: HashMap::new(),
+            next_node: 1,
+        }
+    }
+}
+
+impl CaseTree {
+    pub fn new() -> CaseTree {
+        CaseTree::default()
+    }
+
+    /// Adds `path` (`/`-separated) and says true, or says false when it clashes with a
+    /// path added before (one file or folder on a disk that ignores letter case, spelled
+    /// differently), adding nothing. A path added twice exactly is no clash.
+    pub fn insert(&mut self, path: &str) -> bool {
+        let mut parent = 0;
+        let mut parts = path.split('/');
+        // a clash can only come before the first new part: everything after it is new too
+        for part in parts.by_ref() {
+            let key = (parent, fold(part));
+            match self.nodes.get(&key) {
+                Some((exact, _)) if exact != part => return false,
+                Some(&(_, node)) => parent = node,
+                None => {
+                    self.nodes.insert(key, (part.to_string(), self.next_node));
+                    parent = self.next_node;
+                    self.next_node += 1;
+                    break;
+                }
+            }
+        }
+        for part in parts {
+            self.nodes
+                .insert((parent, fold(part)), (part.to_string(), self.next_node));
+            parent = self.next_node;
+            self.next_node += 1;
+        }
+        true
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -772,6 +827,35 @@ mod tests {
             case_collisions_of(paths.iter().map(String::as_str)),
             [(0, 1)]
         );
+    }
+
+    #[test]
+    fn case_tree_refuses_what_case_collisions_reports() {
+        let paths = [
+            "world/data/Foo.json",
+            "world/data/foo.json",
+            "world/data/bar.json",
+            "world/Data/baz.json",
+            "world/data/Foo.json",
+            "world/region/r.0.0.mca",
+            "world/STRASSE",
+            "world/straße",
+        ];
+        let mut tree = CaseTree::new();
+        let accepted: Vec<bool> = paths.iter().map(|p| tree.insert(p)).collect();
+        assert_eq!(
+            accepted,
+            [true, false, true, false, true, true, true, false]
+        );
+        // the later path of each pair case_collisions reports is the one refused
+        let refused: Vec<usize> = case_collisions_of(paths)
+            .into_iter()
+            .map(|(_, later)| later)
+            .collect();
+        assert_eq!(refused, [1, 3, 7]);
+        // a refused path added nothing: its spelling stays refused, the first one accepted
+        assert!(!tree.insert("world/Data/new.json"));
+        assert!(tree.insert("world/data/new.json"));
     }
 
     #[test]

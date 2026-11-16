@@ -836,6 +836,18 @@ impl BackupService {
             .remove(uuid);
     }
 
+    /// [`Self::unregister`], only while the running job is `task_id`: a job ending after
+    /// it let go of the job lock never removes the next job's entry.
+    pub(crate) fn unregister_task(&self, uuid: &InstanceUuid, task_id: &str) {
+        let mut running = self.running.lock().unwrap_or_else(|e| e.into_inner());
+        if running
+            .get(uuid)
+            .is_some_and(|job| job.task_id() == task_id)
+        {
+            running.remove(uuid);
+        }
+    }
+
     /// Whether the server's last restore couldn't be undone, so it stays locked until the
     /// core restarts and repairs it.
     pub(crate) fn is_broken(&self, uuid: &InstanceUuid) -> bool {

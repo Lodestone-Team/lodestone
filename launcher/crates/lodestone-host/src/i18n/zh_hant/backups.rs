@@ -122,7 +122,9 @@ pub fn text(message: M) -> &'static str {
         M::WorldSizeVersion => "{size} · Minecraft {version}",
         M::WorldBeforeRestoreHint => "在還原「{name}」之前建立。",
         M::WorldTagInconsistentHint => "伺服器在複製前沒有確認已儲存世界。",
-        M::WorldLeftOutHint => "連結和無法讀取的檔案已被略過。",
+        M::WorldLeftOutHint => {
+            "連結、特殊檔案、無法讀取的檔案以及在某些磁碟上名稱衝突的檔案已被略過。"
+        }
         M::WorldDownloadLabel => "下載 .zip",
         M::WorldDeleteLabel => "刪除世界備份",
         M::WorldRestoreTitle => "從「{name}」還原世界",

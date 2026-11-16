@@ -1217,7 +1217,9 @@ async fn download(
     if let Ok(metadata) = file.metadata().await {
         response = response.header(CONTENT_LENGTH, metadata.len());
     }
-    let body = Body::from_stream(ReaderStream::new(file));
+    // large reads: each one is a trip to the blocking pool, and world backups and
+    // snapshot zips run to gigabytes
+    let body = Body::from_stream(ReaderStream::with_capacity(file, 256 * 1024));
     Ok(response
         .body(body)
         .context("Failed to build the download response")?)

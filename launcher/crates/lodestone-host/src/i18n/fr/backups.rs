@@ -154,7 +154,9 @@ pub fn text(message: M) -> &'static str {
         M::WorldTagInconsistentHint => {
             "Le serveur n’a pas confirmé avoir enregistré le monde avant la copie."
         }
-        M::WorldLeftOutHint => "Les liens et les fichiers illisibles ont été laissés de côté.",
+        M::WorldLeftOutHint => {
+            "Les liens, les fichiers spéciaux, les fichiers illisibles et les noms en conflit sur certains disques ont été laissés de côté."
+        }
         M::WorldDownloadLabel => "Télécharger le .zip",
         M::WorldDeleteLabel => "Supprimer la sauvegarde du monde",
         M::WorldRestoreTitle => "Restaurer le monde depuis « {name} »",

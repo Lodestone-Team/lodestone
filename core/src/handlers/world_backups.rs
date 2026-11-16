@@ -154,7 +154,11 @@ async fn restore_world_backup(
         .await?;
     let instance = minecraft(&state, &uuid)?;
     state.world_backups.store().dir(&uuid)?;
-    if instance.state().await != InstanceState::Stopped {
+    // a server in Error isn't running either, as for a snapshot's restore
+    if !matches!(
+        instance.state().await,
+        InstanceState::Stopped | InstanceState::Error
+    ) {
         return Err(Error {
             kind: ErrorKind::Conflict,
             source: eyre!("Stop the server before restoring a world backup"),

@@ -760,9 +760,9 @@ impl BackupsPage {
     }
 
     /// A World backups scene for the development screenshots' `--world-backup` (with
-    /// `--tab backups --demo`): `create`, `restore`, `restore-running` (the server runs), `restore-busy` (a job runs),
-    /// `delete`, `running` (a world backup at 37 % with its Cancel) or `download` (a row
-    /// downloading, at 55 %).
+    /// `--tab backups --demo`): `create`, `restore`, `restore-running` (the server runs),
+    /// `restore-busy` (a job runs), `delete`, `running` (a world backup at 37 % with its
+    /// Cancel) or `download` (a row downloading, at 55 %).
     #[cfg(feature = "screenshot")]
     pub fn world_backup_for_screenshot(&mut self, scene: &str, cx: &mut Context<Self>) {
         let Some(first) = self

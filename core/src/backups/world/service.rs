@@ -43,7 +43,7 @@ use super::types::{
     WorldBackupInfo, WorldBackupKind, WorldBackupList, WorldBackupRecord, WorldBackupUsage,
     WORLD_RECORD_VERSION,
 };
-use super::writer::{check_world, plan_world, world_tops, write_world_zip, WorldPlan};
+use super::writer::{plan_world, too_large, world_tops, write_world_zip, WorldPlan};
 
 fn conflict(message: impl Into<String>) -> Error {
     err(ErrorKind::Conflict, message)
@@ -145,23 +145,28 @@ impl From<Error> for Failed {
 /// A restore checked before anything is written ([`WorldBackupService::prepare_restore`]).
 pub(crate) struct PreparedRestore {
     pub plan: RestoreZipPlan,
-    /// What the restore replaces now, for the permission check.
+    /// What the restore replaces now, for the permission check; empty when there is none.
     pub current: Vec<(String, bool)>,
-    /// Whether the server has any of the world's folders now, so a safety backup is taken.
-    pub safety: bool,
+    /// What the safety backup will hold, when the server has any of the world's folders
+    /// now.
+    pub safety: Option<WorldPlan>,
 }
 
 /// Removes a world job from the service however its task ends, a panic included, so a
-/// dead job never keeps deletes refused.
+/// dead job never keeps deletes refused. Only its own entries, by task id: it may drop
+/// after the job lock is let go, when the server's next job has registered.
 struct JobCleanup {
     service: Arc<WorldBackupService>,
     uuid: InstanceUuid,
+    task_id: String,
 }
 
 impl Drop for JobCleanup {
     fn drop(&mut self) {
-        self.service.remove_job(&self.uuid);
-        self.service.backups.unregister(&self.uuid);
+        self.service.remove_job(&self.uuid, &self.task_id);
+        self.service
+            .backups
+            .unregister_task(&self.uuid, &self.task_id);
     }
 }
 
@@ -250,11 +255,12 @@ impl WorldBackupService {
             .insert(uuid.clone(), job);
     }
 
-    fn remove_job(&self, uuid: &InstanceUuid) {
-        self.jobs
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(uuid);
+    /// Removes the server's world job if it is `task_id`.
+    fn remove_job(&self, uuid: &InstanceUuid, task_id: &str) {
+        let mut jobs = self.jobs.lock().unwrap_or_else(|e| e.into_inner());
+        if jobs.get(uuid).is_some_and(|job| job.task_id == task_id) {
+            jobs.remove(uuid);
+        }
     }
 
     // -----------------------------------------------------------------------------------
@@ -396,13 +402,16 @@ impl WorldBackupService {
 
     /// Writes a world backup of `source` (see the module): the zip inside `live`'s save
     /// pause when given (the server runs), else as it is (the caller holds
-    /// `lock_stopped`), then its sidecar. `phase` gets 0..95 for the copy and the rest for
-    /// saving. On failure or cancellation (`token`) nothing is left.
+    /// `lock_stopped`), then its sidecar. `plan` is the world's plan when the caller has
+    /// just made it (under the same job lock), else it is planned here. `phase` gets
+    /// 0..95 for the copy and the rest for saving. On failure or cancellation (`token`)
+    /// nothing is left.
     pub(crate) async fn write_backup(
         &self,
         source: &WorldSource,
         live: Option<Live<'_>>,
         new: NewBackup,
+        plan: Option<WorldPlan>,
         phase: Phase,
         token: &CancellationToken,
     ) -> Result<WorldBackupRecord, Error> {
@@ -412,12 +421,15 @@ impl WorldBackupService {
         let part = self.store.part_path(&uuid, &id)?;
         let zip = self.store.zip_path(&uuid, &id)?;
         phase.report(0.0, Some("Looking at the world"));
-        // the copy re-walks inside the save pause; this sizes it and refuses a world too
-        // large to restore before anything is reserved or paused
-        let plan = {
-            let (root, layout) = (source.root.clone(), source.layout.clone());
-            let (require, limits) = (new.require_level_dat, self.limits);
-            blocking(move || plan_world(&root, &layout, require, limits)).await?
+        // the copy re-walks inside the save pause; the plan sizes it and refuses a world
+        // too large to restore before anything is reserved or paused
+        let plan = match plan {
+            Some(plan) => plan,
+            None => {
+                let (root, layout) = (source.root.clone(), source.layout.clone());
+                let (require, limits) = (new.require_level_dat, self.limits);
+                blocking(move || plan_world(&root, &layout, require, limits)).await?
+            }
         };
         let reserved = {
             let (large_writes, dir) = (self.images.large_writes.clone(), dir.clone());
@@ -586,8 +598,14 @@ impl WorldBackupService {
         let mut message = format!("Backed up the world of {server_name}");
         match record.left_out {
             0 => {}
-            1 => message.push_str(". 1 file couldn't be read or was a link"),
-            n => message.push_str(&format!(". {n} files couldn't be read or were links")),
+            1 => message.push_str(
+                ". 1 file was left out: a link, a special file, unreadable, or a name that \
+                 clashes on some disks",
+            ),
+            n => message.push_str(&format!(
+                ". {n} files were left out: links, special files, unreadable ones, or names \
+                 that clash on some disks"
+            )),
         }
         if record.live && !record.quiesced {
             message.push_str(
@@ -628,10 +646,11 @@ impl WorldBackupService {
         let server_name = instance.name().await;
         let ctx = InstanceContext::of(&instance, Vec::new()).await;
         let source = WorldSource::of(&ctx, server_name.clone())?;
-        {
+        // a world too large to restore, or none, is refused before the job starts
+        let plan = {
             let (root, layout, limits) = (source.root.clone(), source.layout.clone(), self.limits);
-            blocking(move || check_world(&root, &layout, limits)).await?;
-        }
+            blocking(move || plan_world(&root, &layout, true, limits)).await?
+        };
         let job = Job::new(
             state.event_broadcaster.clone(),
             JobKind::WorldBackup,
@@ -658,6 +677,7 @@ impl WorldBackupService {
         let cleanup = JobCleanup {
             service: self.clone(),
             uuid: uuid.clone(),
+            task_id: task_id.clone(),
         };
         self.backups.spawn(async move {
             let _cleanup = cleanup;
@@ -685,7 +705,14 @@ impl WorldBackupService {
                     limits: Limits::default(),
                 };
                 let result = this
-                    .write_backup(&source, Some(live), new, job.phase(0.0, 100.0), &token)
+                    .write_backup(
+                        &source,
+                        Some(live),
+                        new,
+                        Some(plan),
+                        job.phase(0.0, 100.0),
+                        &token,
+                    )
                     .await;
                 console(if result.is_ok() {
                     "World backup done"
@@ -694,8 +721,15 @@ impl WorldBackupService {
                 });
                 result
             } else {
-                this.write_backup(&source, None, new, job.phase(0.0, 100.0), &token)
-                    .await
+                this.write_backup(
+                    &source,
+                    None,
+                    new,
+                    Some(plan),
+                    job.phase(0.0, 100.0),
+                    &token,
+                )
+                .await
             };
             drop(guards);
             let (success, message, id) = match &result {
@@ -748,7 +782,8 @@ impl WorldBackupService {
             ));
         }
         let must_stop = || conflict("Stop the server before restoring a world backup");
-        if !matches!(instance.state().await, State::Stopped) {
+        // a server in Error isn't running either, as for a snapshot's restore
+        if !matches!(instance.state().await, State::Stopped | State::Error) {
             return Err(must_stop());
         }
         let job_guard = self.backups.lock_job(&uuid)?;
@@ -759,7 +794,9 @@ impl WorldBackupService {
         let server_name = instance.name().await;
         let ctx = InstanceContext::of(&instance, Vec::new()).await;
         let source = WorldSource::of(&ctx, server_name.clone())?;
-        let prepared = self.prepare_restore(&source, &record).await?;
+        let prepared = self
+            .prepare_restore(&source, &record, check.is_some())
+            .await?;
         if let Some(check) = &check {
             check(&prepared.plan, &prepared.current)?;
         }
@@ -791,6 +828,7 @@ impl WorldBackupService {
         let cleanup = JobCleanup {
             service: self.clone(),
             uuid: uuid.clone(),
+            task_id: task_id.clone(),
         };
         self.backups.spawn(async move {
             let _cleanup = cleanup;
@@ -839,14 +877,17 @@ impl WorldBackupService {
     }
 
     /// Plans a restore of `record` into the stopped server `source` and checks it before
-    /// anything is written, so a refusal is the route's response: the zip's plan; the
-    /// world's folders now (none may be a link or a file), for the permission check; that
-    /// the safety backup can hold everything the restore replaces and fits the limits; and
-    /// that the disks have room for the safety backup and the unpacked world together.
+    /// anything is written, so a refusal is the route's response: the zip's plan; that the
+    /// world's folders now are folders (none a link or a file); that the safety backup can
+    /// hold everything the restore replaces and fits the limits; that the disks have room
+    /// for the safety backup and the unpacked world together; and, with `list_current`
+    /// (for a permission check), what the restore replaces, listed only once the safety
+    /// plan has bounded it.
     pub(crate) async fn prepare_restore(
         &self,
         source: &WorldSource,
         record: &WorldBackupRecord,
+        list_current: bool,
     ) -> Result<PreparedRestore, Error> {
         let zip = self.store.zip_path(&source.uuid, &record.id)?;
         let (source, level, limits) = (source.clone(), record.level.clone(), self.limits);
@@ -856,7 +897,7 @@ impl WorldBackupService {
         );
         blocking(move || {
             let plan = plan_restore_with(&zip, &level, &source.layout, limits)?;
-            let current = current_paths(&source.root, &plan.tops)?;
+            check_tops(&source.root, &plan.tops)?;
             let safety = safety_plan(&source.root, &source.layout, limits)?;
             if let Some(safety) = &safety {
                 if safety.left_out > 0 {
@@ -870,10 +911,15 @@ impl WorldBackupService {
                 &backups_dir,
                 safety.as_ref().map_or(0, |s| s.total_bytes),
             )?;
+            let current = if list_current {
+                current_paths(&source.root, &plan.tops, limits)?
+            } else {
+                Vec::new()
+            };
             Ok(PreparedRestore {
                 plan,
                 current,
-                safety: safety.is_some(),
+                safety,
             })
         })
         .await
@@ -899,15 +945,16 @@ impl WorldBackupService {
         let uuid = source.uuid.clone();
         // the world as it is now, so the restore can be undone: whenever any of its folders
         // is there, even without a level.dat
-        let safety_id = if prepared.safety {
-            job.report(0.0, Some("Backing up the world as it is now"));
-            let label = backup_label(record);
-            let safety = self
-                .write_safety_backup(source, &label, job.phase(0.0, 40.0), token)
-                .await?;
-            Some(safety.id)
-        } else {
-            None
+        let safety_id = match prepared.safety {
+            Some(plan) => {
+                job.report(0.0, Some("Backing up the world as it is now"));
+                let label = backup_label(record);
+                let safety = self
+                    .write_safety_backup(source, &label, plan, job.phase(0.0, 40.0), token)
+                    .await?;
+                Some(safety.id)
+            }
+            None => None,
         };
         match self
             .unpack_and_swap(
@@ -1026,11 +1073,12 @@ impl WorldBackupService {
     }
 
     /// The safety world backup a restore takes of the stopped server's world, which may
-    /// have no `level.dat` (it is kept all the same).
+    /// have no `level.dat` (it is kept all the same), from the plan the restore checked.
     async fn write_safety_backup(
         &self,
         source: &WorldSource,
         label: &str,
+        plan: WorldPlan,
         phase: Phase,
         token: &CancellationToken,
     ) -> Result<WorldBackupRecord, Error> {
@@ -1044,6 +1092,7 @@ impl WorldBackupService {
                 require_level_dat: false,
                 refuse_left_out: true,
             },
+            Some(plan),
             phase,
             token,
         )
@@ -1062,9 +1111,9 @@ fn left_out_refusal(count: u64, sample: &[String]) -> Error {
         n => named.push_str(&format!(" and {n} others")),
     }
     conflict(format!(
-        "Couldn't include {named} in the safety world backup (links, files Lodestone can't \
-         read, or names it can't restore), and the restore would delete them. Move them out \
-         of the world's folders, or check that Lodestone can read them"
+        "Couldn't include {named} in the safety world backup (links, special files, files \
+         Lodestone can't read, or names it can't restore), and the restore would delete \
+         them. Move them out of the world's folders, or check that Lodestone can read them"
     ))
 }
 
@@ -1081,12 +1130,15 @@ fn safety_plan(
     }
     plan_world(root, layout, false, limits)
         .map(Some)
-        .map_err(|e| {
-            conflict(format!(
-                "The world as it is now can't be saved first, so the restore couldn't be undone. {}",
-                e.source
-            ))
-        })
+        .map_err(unsaveable)
+}
+
+/// The refusal of a restore whose safety backup can't be made: `e` says why.
+fn unsaveable(e: Error) -> Error {
+    conflict(format!(
+        "The world as it is now can't be saved first, so the restore couldn't be undone. {}",
+        e.source
+    ))
 }
 
 /// Checks the disks have room for a restore: `restore_bytes` unpacked beside the server in
@@ -1109,16 +1161,13 @@ fn check_room(
     Ok(())
 }
 
-/// The files and folders under `tops` in `root` now, by disk path, with whether each is a
-/// folder: what a restore replaces, for the permission check. A top that is a link or a
-/// file is refused here, before anything is walked (as `stage_folders` would refuse it);
-/// links inside are listed, not followed. Blocking.
-fn current_paths(root: &Path, tops: &[String]) -> Result<Vec<(String, bool)>, Error> {
-    let mut found = Vec::new();
+/// Refuses a restore when one of the world's folders it replaces (`tops` in `root`) is a
+/// link or a file, before anything walks through it (as `stage_folders` would refuse it).
+/// Blocking.
+fn check_tops(root: &Path, tops: &[String]) -> Result<(), Error> {
     for top in tops {
-        let dir = root.join(top);
-        match std::fs::symlink_metadata(&dir) {
-            Err(_) => continue,
+        match std::fs::symlink_metadata(root.join(top)) {
+            Err(_) => {}
             Ok(meta) if meta.file_type().is_symlink() => {
                 return Err(err(
                     ErrorKind::BadRequest,
@@ -1133,6 +1182,26 @@ fn current_paths(root: &Path, tops: &[String]) -> Result<Vec<(String, bool)>, Er
             }
             Ok(_) => {}
         }
+    }
+    Ok(())
+}
+
+/// The files and folders under `tops` in `root` now, by disk path, with whether each is a
+/// folder: what a restore replaces, for the permission check. Checked as [`check_tops`]
+/// checks; links inside are listed, not followed; more entries than `limits` allows are
+/// refused as a world too large to save first. Blocking.
+fn current_paths(
+    root: &Path,
+    tops: &[String],
+    limits: ZipLimits,
+) -> Result<Vec<(String, bool)>, Error> {
+    check_tops(root, tops)?;
+    let mut found = Vec::new();
+    for top in tops {
+        let dir = root.join(top);
+        if std::fs::symlink_metadata(&dir).is_err() {
+            continue;
+        }
         for entry in walkdir::WalkDir::new(&dir).follow_links(false) {
             let entry = entry.map_err(|e| {
                 err(
@@ -1143,6 +1212,9 @@ fn current_paths(root: &Path, tops: &[String]) -> Result<Vec<(String, bool)>, Er
             let Ok(rel) = entry.path().strip_prefix(root) else {
                 continue;
             };
+            if found.len() as u64 >= limits.max_entries {
+                return Err(unsaveable(too_large(&limits)));
+            }
             let rel = rel.to_string_lossy().replace('\\', "/");
             found.push((rel, entry.file_type().is_dir()));
         }

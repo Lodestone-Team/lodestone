@@ -79,6 +79,7 @@ impl Env {
                 source,
                 None,
                 manual(name),
+                None,
                 self.job(JobKind::WorldBackup).phase(0.0, 100.0),
                 &CancellationToken::new(),
             )
@@ -123,7 +124,7 @@ impl Env {
         record: &WorldBackupRecord,
         token: &CancellationToken,
     ) -> Result<Restored, Error> {
-        let prepared = self.service.prepare_restore(source, record).await?;
+        let prepared = self.service.prepare_restore(source, record, true).await?;
         self.service
             .restore_locked(
                 source,
@@ -214,6 +215,7 @@ async fn a_running_world_is_quiesced() {
                 limits: short(),
             }),
             manual("Live"),
+            None,
             env.job(JobKind::WorldBackup).phase(0.0, 100.0),
             &CancellationToken::new(),
         )
@@ -243,6 +245,7 @@ async fn a_running_world_is_quiesced() {
                 limits: short(),
             }),
             manual("Quiet"),
+            None,
             env.job(JobKind::WorldBackup).phase(0.0, 100.0),
             &CancellationToken::new(),
         )
@@ -271,6 +274,7 @@ async fn a_cancelled_or_failed_backup_leaves_nothing() {
                 limits: short(),
             }),
             manual("Cancelled"),
+            None,
             env.job(JobKind::WorldBackup).phase(0.0, 100.0),
             &token,
         )
@@ -292,6 +296,7 @@ async fn a_cancelled_or_failed_backup_leaves_nothing() {
             &env.source("world", false),
             None,
             manual("Cancelled"),
+            None,
             env.job(JobKind::WorldBackup).phase(0.0, 100.0),
             &token,
         )
@@ -307,6 +312,7 @@ async fn a_cancelled_or_failed_backup_leaves_nothing() {
             &env.source("survival", false),
             None,
             manual("None"),
+            None,
             env.job(JobKind::WorldBackup).phase(0.0, 100.0),
             &CancellationToken::new(),
         )
@@ -328,6 +334,7 @@ async fn no_room_is_refused() {
             &env.source("world", false),
             None,
             manual("Full"),
+            None,
             env.job(JobKind::WorldBackup).phase(0.0, 100.0),
             &CancellationToken::new(),
         )
@@ -478,7 +485,11 @@ async fn a_restore_that_fails_or_is_cancelled_leaves_the_world() {
 
     // a zip that changed since it was planned fails while it is unpacked
     let zip = env.service.store().zip_path(&uuid(), &first.id).unwrap();
-    let prepared = env.service.prepare_restore(&source, &first).await.unwrap();
+    let prepared = env
+        .service
+        .prepare_restore(&source, &first, true)
+        .await
+        .unwrap();
     fs::write(&zip, b"not a zip any more").unwrap();
     let error = env
         .service
@@ -548,7 +559,13 @@ async fn cancel_finds_only_its_own_task_and_stops_at_the_swap() {
     *cancellable.lock().unwrap() = true;
     env.service.cancel(&uuid(), "7").unwrap();
     assert!(token.is_cancelled());
-    env.service.remove_job(&uuid());
+    // only its own task's entry goes
+    env.service.remove_job(&uuid(), "8");
+    assert_eq!(
+        env.service.job_kind(&uuid(), "7"),
+        Some(JobKind::WorldRestore)
+    );
+    env.service.remove_job(&uuid(), "7");
     assert_eq!(env.service.job_kind(&uuid(), "7"), None);
 }
 
@@ -746,6 +763,7 @@ async fn a_world_too_large_to_restore_is_refused() {
             &source,
             None,
             manual("Large"),
+            None,
             env.job(JobKind::WorldBackup).phase(0.0, 100.0),
             &CancellationToken::new(),
         )
@@ -806,14 +824,14 @@ fn current_paths_refuses_linked_and_file_tops() {
     write(root, "elsewhere/a.txt", b"x");
     std::os::unix::fs::symlink(root.join("elsewhere"), root.join("world")).unwrap();
     let tops = ["world".to_string(), "world_nether".to_string()];
-    let error = current_paths(root, &tops).unwrap_err();
+    let error = current_paths(root, &tops, ZipLimits::default()).unwrap_err();
     assert!(matches!(error.kind, ErrorKind::BadRequest));
     fs::remove_file(root.join("world")).unwrap();
     write(root, "world/level.dat", b"x");
     write(root, "world_nether", b"a file");
-    assert!(current_paths(root, &tops).is_err());
+    assert!(current_paths(root, &tops, ZipLimits::default()).is_err());
     fs::remove_file(root.join("world_nether")).unwrap();
-    let found = current_paths(root, &tops).unwrap();
+    let found = current_paths(root, &tops, ZipLimits::default()).unwrap();
     assert_eq!(
         found,
         [
@@ -827,21 +845,22 @@ fn current_paths_refuses_linked_and_file_tops() {
 #[tokio::test]
 async fn a_world_job_is_removed_even_if_its_task_dies() {
     let env = env();
+    let job = env.job(JobKind::WorldBackup);
     env.service.add_job(
         &uuid(),
         WorldJob {
-            task_id: "1".to_string(),
+            task_id: job.task_id(),
             kind: JobKind::WorldBackup,
             cancel: CancellationToken::new(),
             cancellable: Arc::new(StdMutex::new(true)),
         },
     );
-    let job = env.job(JobKind::WorldBackup);
     job.begin();
     env.service.backups.register(&uuid(), &job);
     let cleanup = JobCleanup {
         service: env.service.clone(),
         uuid: uuid(),
+        task_id: job.task_id(),
     };
     let task = tokio::spawn(async move {
         let _cleanup = cleanup;
@@ -873,4 +892,133 @@ fn left_out_refusals_name_a_few() {
         .source
         .to_string()
         .starts_with("Couldn't include world/a, world/b and 5 others in"));
+}
+
+/// A fifo in the world is left out of a backup by hand (counted, never opened) and refuses
+/// a restore, naming it: its safety backup couldn't hold it. Neither waits on the fifo.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_fifo_in_the_world_never_blocks_a_backup_or_a_restore() {
+    let env = env();
+    let root = env.root();
+    vanilla_world(&root);
+    let source = env.source("world", false);
+    let first = env.back_up(&source, "First").await;
+    let fifo = root.join("world/data/pipe");
+    fs::create_dir_all(fifo.parent().unwrap()).unwrap();
+    let c_path = std::ffi::CString::new(fifo.as_os_str().as_encoded_bytes()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(c_path.as_ptr(), 0o644) }, 0);
+    async fn within<T>(what: impl std::future::Future<Output = T>) -> T {
+        tokio::time::timeout(std::time::Duration::from_secs(30), what)
+            .await
+            .expect("blocked on the fifo")
+    }
+
+    let second = within(env.service.write_backup(
+        &source,
+        None,
+        manual("Second"),
+        None,
+        env.job(JobKind::WorldBackup).phase(0.0, 100.0),
+        &CancellationToken::new(),
+    ))
+    .await
+    .unwrap();
+    assert_eq!(second.left_out, 1);
+
+    let before = env.server_files();
+    let error = within(env.restore(&source, &first, &CancellationToken::new()))
+        .await
+        .err()
+        .unwrap();
+    assert!(
+        matches!(error.kind, ErrorKind::Conflict),
+        "{}",
+        error.source
+    );
+    assert!(
+        error.source.to_string().contains("world/data/pipe"),
+        "{}",
+        error.source
+    );
+    assert_eq!(env.server_files(), before);
+    assert!(fs::symlink_metadata(&fifo).is_ok());
+    assert_eq!(env.service.list(&uuid()).await.unwrap().backups.len(), 2);
+}
+
+/// What a restore replaces is listed only for a permission check, after the safety plan
+/// has refused a world too large to save, and never past the limits.
+#[tokio::test]
+async fn what_a_restore_replaces_is_listed_only_when_checked_and_bounded() {
+    let env = env();
+    vanilla_world(&env.root());
+    let source = env.source("world", false);
+    let first = env.back_up(&source, "First").await;
+    let unchecked = env
+        .service
+        .prepare_restore(&source, &first, false)
+        .await
+        .unwrap();
+    assert!(unchecked.current.is_empty());
+    assert!(unchecked.safety.is_some());
+    let checked = env
+        .service
+        .prepare_restore(&source, &first, true)
+        .await
+        .unwrap();
+    assert!(checked
+        .current
+        .contains(&("world/level.dat".to_string(), false)));
+
+    // the listing stops at the limits, as the safety plan does
+    let count = checked.current.len() as u64;
+    let tops = ["world".to_string()];
+    let tight = |max_entries| ZipLimits {
+        max_entries,
+        max_bytes: u64::MAX,
+    };
+    assert_eq!(
+        current_paths(&env.root(), &tops, tight(count))
+            .unwrap()
+            .len() as u64,
+        count
+    );
+    let error = current_paths(&env.root(), &tops, tight(count - 1)).unwrap_err();
+    assert!(
+        matches!(error.kind, ErrorKind::Conflict),
+        "{}",
+        error.source
+    );
+    assert!(error.source.to_string().contains("Take a snapshot instead"));
+}
+
+/// A job's cleanup that runs after the next job of the server registered (it let go of
+/// the job lock first) leaves that job's entries alone.
+#[tokio::test]
+async fn a_late_cleanup_leaves_the_next_job_alone() {
+    let env = env();
+    let job_for = |task_id: &str| WorldJob {
+        task_id: task_id.to_string(),
+        kind: JobKind::WorldRestore,
+        cancel: CancellationToken::new(),
+        cancellable: Arc::new(StdMutex::new(true)),
+    };
+    let old = env.job(JobKind::WorldBackup);
+    let cleanup = JobCleanup {
+        service: env.service.clone(),
+        uuid: uuid(),
+        task_id: old.task_id(),
+    };
+    // the next job registers before the old one's cleanup drops
+    let next = env.job(JobKind::WorldRestore);
+    next.begin();
+    env.service.backups.register(&uuid(), &next);
+    env.service.add_job(&uuid(), job_for(&next.task_id()));
+    drop(cleanup);
+    assert!(env.service.world_job_running(&uuid()));
+    assert!(env.service.backups.restoring(&uuid()));
+    assert_eq!(
+        env.service.job_kind(&uuid(), &next.task_id()),
+        Some(JobKind::WorldRestore)
+    );
 }

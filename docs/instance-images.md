@@ -1086,9 +1086,10 @@ section above the snapshots (see "WB1 decisions").
   and Spigot its split `<level>_nether` and `<level>_the_end` folders, each under its own
   folder name, so the zip is a world any server or tool can use. Files are checked against
   the server's disk layout (`DiskLayout::from_disk`): what images never record
-  (`session.lock`, `.lodestone-*`) is skipped, and links, unreadable files and names the
-  layout can't place (a vanilla `DIM-1` inside a split level, a name that isn't UTF-8) are
-  left out and counted. The level must be one folder name and hold a `level.dat`, and the
+  (`session.lock`, `.lodestone-*`) is skipped, and links, things that aren't plain files
+  (fifos, sockets, devices), unreadable files and names a restore can't place (a vanilla
+  `DIM-1` inside a split level, a name that isn't UTF-8, the later of two names that are
+  one file on a case-insensitive disk) are left out and counted. The level must be one folder name and hold a `level.dat`, and the
   world must fit what a restore reads (below), so every backup made can be restored.
 - **Where it lives.** `<LODESTONE_PATH>/world-backups/<uuid>/<id>.zip` with a sidecar
   `<id>.json` (name, kind, time, level, the zip's top folders, server name, game version,
@@ -4099,7 +4100,14 @@ open. The code is `core/src/backups/world/` (`store.rs`, `writer.rs`, `reader.rs
   exactly, since they name files.
 - **What the zip leaves out.** Links, unreadable files and names the server layout can't
   place are counted (`left_out`) and the Host shows the count; `session.lock` and
-  `.lodestone-*` are skipped silently, as images do. Region files and other compressed
+  `.lodestone-*` are skipped silently, as images do. So are fifos, sockets and devices,
+  which are never opened (a fifo's open would wait forever; files are opened without
+  following links and without blocking, then checked to be plain files through the
+  handle). Of two canonical paths that are one file on a case-insensitive disk (possible
+  on Linux), the later in the walk's name order is left out, a folder with all it holds
+  (`lodestone_image::paths::CaseTree`), since the reader refuses such pairs: a backup made
+  on a case-sensitive disk still restores, and a restore whose safety backup would drop
+  one is refused like any other left-out path. Region files and other compressed
   formats (`.mca`, `.mcr`, `.mcc`, `.dat`, `.dat_old`, `.nbt`, `.png`, `.zip`, `.gz`,
   `.jar`) are Stored, everything else Deflated, which keeps the save-off window short.
 - **Restore mapping.** The zip's paths map through canonical paths
@@ -4122,7 +4130,10 @@ open. The code is `core/src/backups/world/` (`store.rs`, `writer.rs`, `reader.rs
   paths: checked from the walk before anything is written, and again by the safety backup
   itself (a file that can't be read as it is copied), which then leaves nothing. There is
   no override; the operator moves those paths out or fixes their permissions. Snapshots
-  refuse likewise ("Couldn't include … in the safety snapshot").
+  refuse likewise ("Couldn't include … in the safety snapshot"). What the restore
+  replaces is listed for the permission check only when the requester can't change
+  global files or code (so never for the owner), after the safety plan has bounded the
+  world, and never past the reader's entry limit.
 - **Within what a restore reads.** A world over the reader's bounds (64 GB uncompressed,
   1,000,000 files and folders) is refused before anything is reserved or paused (400,
   "Take a snapshot instead"), and a world that grows past them while it is copied stops
@@ -4145,8 +4156,10 @@ open. The code is `core/src/backups/world/` (`store.rs`, `writer.rs`, `reader.rs
   staging folder. The Host shows Cancel only to those with the permission that started
   the job, turns a world backup's Delete off while a world job runs, and its restore
   dialog's Restore while any job runs. A world job leaves the service however its task
-  ends (a drop guard), and a restore of a server whose last restore couldn't be undone
-  says to restart Lodestone rather than to stop the server.
+  ends (a drop guard that removes only its own entries, by task id, since it may run after
+  the next job took the lock), and a restore of a server whose last restore couldn't be
+  undone says to restart Lodestone rather than to stop the server. A server in the Error
+  state counts as stopped for a restore, as for a snapshot's.
 - **Names.** Two backups of a server finishing in the same second with the same random
   suffix never replace each other: under the record lock the final name is checked free
   and another id drawn if not. A `<id>.zip` that is a link is neither listed nor loaded.
@@ -4167,5 +4180,11 @@ open. The code is `core/src/backups/world/` (`store.rs`, `writer.rs`, `reader.rs
 - **Renaming** is a route (`PATCH …/world-backups/{id}`) for API clients only: the Host
   renames neither snapshots nor world backups, and its admin client has no call for it.
 - **Not in scope.** Uploading or importing a world zip from elsewhere, scheduled world
-  backups, pruning, a cancel for snapshot jobs. `crates/lodestone-image` is unchanged.
-  Extracting a world backup flushes each file only on unix, as a snapshot restore does.
+  backups, pruning, a cancel for snapshot jobs. `crates/lodestone-image` only gained
+  `paths::CaseTree` (additive). Extracting a world backup flushes each file only on unix,
+  as a snapshot restore does.
+- **Fewer walks.** The plan a request makes (a backup's check, a restore's safety plan) is
+  the one the job writes from, so a stopped world is walked once to plan and once to copy;
+  the copy's own walk is what takes region files a running server creates during its save
+  pause. Entries between 3 and 4 GiB get zip64's large file fields, so a file that grows
+  past 4 GiB while copied doesn't fail the backup. Downloads stream in 256 KiB reads.
