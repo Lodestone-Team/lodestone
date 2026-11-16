@@ -1310,14 +1310,6 @@ section above the snapshots (see "WB1 decisions").
 
 Nothing converts old data in any milestone.
 
-### ML decisions
-
-Magic localhost for every server on the Launcher's Lodestone Host page was built
-alongside these milestones but is not part of instance images: `lodestone_image` and
-this format are unchanged (nothing added, renamed or removed). Its decisions (ports saved
-in `servers.json`, forwarders for servers on other hosts, a server on this computer at
-its own port) are in `launcher/docs/friends.md`, "Magic localhost for every server".
-
 ### M2 decisions
 
 Decisions milestone 2 made where this document left the core's behaviour open. Each part
@@ -4570,3 +4562,11 @@ developer's brief left them open. The developer decided: world backups are manua
   `write_out_dir`, `full_flush`: public wrappers of the store's batch flush), an additive
   change. The Host's world backups ("WB1 decisions") added the same module, word for word,
   so the two apps share one.
+
+### ML decisions
+
+Magic localhost for every server on the Launcher's Lodestone Host page was built
+alongside these milestones but is not part of instance images: `lodestone_image` and
+this format are unchanged (nothing added, renamed or removed). Its decisions (ports saved
+in `servers.json`, forwarders for servers on other hosts, a server on this computer at
+its own port) are in `launcher/docs/friends.md`, "Magic localhost for every server".
