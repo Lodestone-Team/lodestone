@@ -299,7 +299,7 @@ async fn mods_backups_hand_edits_and_restoring_the_world_and_its_mods() {
     assert_eq!(restored.id, installed.id);
     assert_eq!(
         restored.label.as_deref(),
-        Some("Restored backup \u{201c}Base\u{201d}")
+        Some("Restored snapshot \u{201c}Base\u{201d}")
     );
     assert!(!core.pending());
     assert_one_layout(core._dir.path());
@@ -384,7 +384,7 @@ async fn the_modpack_lineage_and_backups() {
     let history = core.history().await;
     assert_eq!(
         history.entries[0].label,
-        "Restored backup \u{201c}On v2\u{201d}"
+        "Restored snapshot \u{201c}On v2\u{201d}"
     );
     assert!(history.entries[0].current);
     // every image so far is still listed: none was pruned

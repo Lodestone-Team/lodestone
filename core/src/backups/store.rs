@@ -104,11 +104,11 @@ pub fn check_backup_name(name: &str) -> Result<Option<String>, String> {
     }
     if name.chars().count() > MAX_NAME_LEN {
         return Err(format!(
-            "Backup names can be at most {MAX_NAME_LEN} characters long"
+            "Names can be at most {MAX_NAME_LEN} characters long"
         ));
     }
     if name.chars().any(char::is_control) {
-        return Err("Backup names can't have control characters".to_string());
+        return Err("Names can't have control characters".to_string());
     }
     Ok(Some(name.to_string()))
 }
@@ -200,7 +200,7 @@ impl Store {
         let records: Records = serde_json::from_slice(&bytes).map_err(|e| {
             err(
                 ErrorKind::Internal,
-                format!("The backup list {} can't be read: {e}", path.display()),
+                format!("The snapshot list {} can't be read: {e}", path.display()),
             )
         })?;
         if let Some(bad) = records
@@ -211,7 +211,7 @@ impl Store {
             return Err(err(
                 ErrorKind::Internal,
                 format!(
-                    "The backup list {} has an invalid backup {:?}",
+                    "The snapshot list {} has an invalid snapshot {:?}",
                     path.display(),
                     bad.id
                 ),
@@ -224,7 +224,7 @@ impl Store {
         let json = serde_json::to_vec_pretty(records).map_err(|e| {
             err(
                 ErrorKind::Internal,
-                format!("Failed to write the backups: {e}"),
+                format!("Failed to write the snapshots: {e}"),
             )
         })?;
         write_small_atomic(&self.records_path(uuid)?, &json)
@@ -246,7 +246,7 @@ impl Store {
             },
             Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(BackupPolicy::default()),
             Err(e) => Err(Error::from(
-                eyre!(e).wrap_err("Failed to read the backup policy"),
+                eyre!(e).wrap_err("Failed to read the snapshot policy"),
             )),
         }
     }

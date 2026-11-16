@@ -5,7 +5,7 @@ use crate::event_broadcaster::EventBroadcaster;
 use crate::migration::migrate;
 use crate::prelude::{
     init_app_state, lodestone_path, path_to_backups, path_to_global_settings, path_to_stores,
-    path_to_tmp, path_to_users, try_init_paths, VERSION,
+    path_to_tmp, path_to_users, path_to_world_backups, try_init_paths, VERSION,
 };
 use crate::traits::t_configurable::GameType;
 use crate::traits::t_server::State;
@@ -183,10 +183,16 @@ pub(crate) mod test_util {
             images.clone(),
             dir.join("instances"),
         ));
+        let world_backups = Arc::new(crate::backups::world::WorldBackupService::new(
+            backups.clone(),
+            images.clone(),
+            dir.join("world-backups"),
+        ));
         crate::AppState {
             remote_access,
             images,
             backups,
+            world_backups,
             instances: Arc::new(dashmap::DashMap::new()),
             users_manager: Arc::new(RwLock::new(users_manager)),
             events_buffer: Arc::new(Mutex::new(ringbuffer::AllocRingBuffer::new(512))),
@@ -350,8 +356,11 @@ pub struct AppState {
     /// Whether other devices may use the core, kept in sync by [`GlobalSettings`]; see
     /// [`remote_access`].
     remote_access: Arc<remote_access::RemoteAccess>,
-    /// Server backups: the store, its locks and the running backups and restores.
+    /// Server snapshots ("backups"): the store, its locks and the running backups and
+    /// restores.
     backups: Arc<backups::BackupService>,
+    /// Server world backups, plain zips beside the snapshots, sharing their job locks.
+    world_backups: Arc<backups::world::WorldBackupService>,
     /// Instance images: content images, and the collector of the backup folder they share.
     images: Arc<images::ImageService>,
     /// Picks and installs new servers' software; tests use a fake that needs no network.
@@ -438,6 +447,9 @@ fn api_router(shared_state: AppState) -> Router {
         ))
         .merge(handlers::trace::get_trace_routes(shared_state.clone()))
         .merge(handlers::backups::get_backup_routes(shared_state.clone()))
+        .merge(handlers::world_backups::get_world_backup_routes(
+            shared_state.clone(),
+        ))
         .layer(axum::middleware::from_fn(crate::trace::http_middleware))
         // inside CORS, so a dashboard on another origin can read why it was refused (and
         // preflights are answered); before every route, WebSocket upgrades included
@@ -1412,6 +1424,19 @@ pub async fn run_with(
     local_claims.clean_up().await;
     // backups a stopped core was writing for download, or that were never downloaded
     images::share::clear_leftovers(&handlers::backups::downloads_dir());
+    let world_backups = Arc::new(backups::world::WorldBackupService::new(
+        backups.clone(),
+        images.clone(),
+        path_to_world_backups(),
+    ));
+    {
+        // world zips a stopped core was writing; awaited before serving, so it can't
+        // remove the part file of a backup someone starts meanwhile
+        let world_backups = world_backups.clone();
+        if let Err(e) = tokio::task::spawn_blocking(move || world_backups.sweep()).await {
+            error!("World backup clean-up failed: {e}");
+        }
+    }
     let shared_state = AppState {
         server_setup: Arc::new(server_setup::Installers),
         image_uploads: Arc::new(images::share::uploads::Uploads::new(
@@ -1419,6 +1444,7 @@ pub async fn run_with(
             images.large_writes.clone(),
         )),
         backups: backups.clone(),
+        world_backups,
         images: images.clone(),
         remote_access: remote_access.clone(),
         local_claims: Arc::new(local_claims),

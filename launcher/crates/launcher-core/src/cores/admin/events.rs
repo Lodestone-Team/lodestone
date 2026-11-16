@@ -246,6 +246,14 @@ pub enum ProgressionStartValue {
     Restore {
         instance_uuid: String,
     },
+    /// A world backup of the server started (`super::world_backups`).
+    WorldBackup {
+        instance_uuid: String,
+    },
+    /// Restoring a world backup into the server started.
+    WorldRestore {
+        instance_uuid: String,
+    },
     #[serde(other)]
     Unknown,
 }
@@ -278,6 +286,28 @@ pub enum ProgressionEndValue {
         instance_uuid: String,
         #[serde(default)]
         backup_id: Option<String>,
+        success: bool,
+        #[serde(default)]
+        message: String,
+    },
+    /// A world backup ended: the world backup it made (none when it failed or was
+    /// cancelled).
+    WorldBackupCompleted {
+        instance_uuid: String,
+        #[serde(default)]
+        world_backup_id: Option<String>,
+        success: bool,
+        #[serde(default)]
+        message: String,
+    },
+    /// A world backup's restore ended: the one restored, and the safety world backup
+    /// taken first (none when the server had no world).
+    WorldRestoreCompleted {
+        instance_uuid: String,
+        #[serde(default)]
+        world_backup_id: Option<String>,
+        #[serde(default)]
+        safety_id: Option<String>,
         success: bool,
         #[serde(default)]
         message: String,
@@ -926,5 +956,46 @@ mod tests {
             Duration::from_secs(60),
         ));
         assert!(matches!(cancelled, Err(WaitError::Cancelled)));
+    }
+
+    /// The world jobs' progressions, as the core sends them
+    /// (`core/src/backups/world/service.rs`).
+    #[test]
+    fn reads_world_backup_progressions() {
+        let start: ProgressionStartValue =
+            serde_json::from_str(r#"{"type":"WorldRestore","instance_uuid":"i1"}"#).unwrap();
+        assert_eq!(
+            start,
+            ProgressionStartValue::WorldRestore {
+                instance_uuid: "i1".into()
+            }
+        );
+        let end: ProgressionEndValue = serde_json::from_str(
+            r#"{"type":"WorldRestoreCompleted","instance_uuid":"i1","world_backup_id":"20261112-101500-ab12",
+                "safety_id":null,"success":true,"message":"Restored the world of SMP"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            end,
+            ProgressionEndValue::WorldRestoreCompleted {
+                instance_uuid: "i1".into(),
+                world_backup_id: Some("20261112-101500-ab12".into()),
+                safety_id: None,
+                success: true,
+                message: "Restored the world of SMP".into(),
+            }
+        );
+        let end: ProgressionEndValue = serde_json::from_str(
+            r#"{"type":"WorldBackupCompleted","instance_uuid":"i1","success":false}"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            end,
+            ProgressionEndValue::WorldBackupCompleted {
+                world_backup_id: None,
+                success: false,
+                ..
+            }
+        ));
     }
 }

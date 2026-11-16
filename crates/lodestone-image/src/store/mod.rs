@@ -83,6 +83,34 @@ use encoding::{
 };
 pub use statcache::StatCache;
 
+/// Batched flushing for writers outside the store, such as the core's restores, which
+/// write many files and then need them all durable before a swap: hand each file and
+/// folder to the drive with [`flush::write_out`] and [`flush::write_out_dir`], then end the
+/// batch with one [`flush::full_flush`]. On Apple platforms that is a plain `fsync(2)` per
+/// file and one `F_FULLFSYNC`, instead of an `F_FULLFSYNC` (a whole drive cache flush) per
+/// file; see the store's own use of it for each platform.
+pub mod flush {
+    use std::fs::File;
+    use std::io;
+    use std::path::Path;
+
+    /// Hands a written file to the drive as part of a batch [`full_flush`] ends.
+    pub fn write_out(file: &File) -> io::Result<()> {
+        super::fsx::write_out(file)
+    }
+
+    /// Hands a folder's entries to the drive as part of a batch [`full_flush`] ends.
+    pub fn write_out_dir(dir: &Path) -> io::Result<()> {
+        super::fsx::write_out_dir(dir)
+    }
+
+    /// Ends a batch on the file system of the folder `dir`: every file and folder handed
+    /// to the drive since is then durable.
+    pub fn full_flush(dir: &Path) -> io::Result<()> {
+        super::fsx::full_flush(dir)
+    }
+}
+
 /// Temporary files older than this were left by a crash and are swept.
 pub const TEMP_MAX_AGE: Duration = Duration::from_secs(3600);
 /// A manifest is at most this long (a million entries fit).

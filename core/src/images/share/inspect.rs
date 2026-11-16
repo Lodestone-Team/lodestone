@@ -240,7 +240,7 @@ pub fn container_error(e: container::ContainerError) -> Error {
         },
         container::ContainerError::Store(e) => Error {
             kind: ErrorKind::Internal,
-            source: color_eyre::eyre::eyre!("The backup store failed: {e}"),
+            source: color_eyre::eyre::eyre!("The snapshot store failed: {e}"),
         },
         other => bad_request(format!("This isn't a file Lodestone can open: {other}")),
     }

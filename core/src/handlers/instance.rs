@@ -531,7 +531,7 @@ pub async fn delete_instance(
     // gone; both are held to the end
     let _job = state.backups.try_lock_job(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::Conflict,
-        source: eyre!("A backup or restore of this server is running"),
+        source: eyre!("A snapshot, world backup or restore of this server is running"),
     })?;
     let _stopped = minecraft.lock_stopped("deleting it").await?;
     let Some((_, instance)) = state.instances.remove(&uuid) else {
@@ -574,9 +574,13 @@ pub async fn delete_instance(
     let instance_path = instance.path().await;
     state.public_listing.forget(&uuid).await;
     let res = crate::util::fs::remove_dir_all(instance_path).await;
-    // the server's backups go with it (the Host's delete confirmation says so)
+    // the server's snapshots and world backups go with it (the Host's delete confirmation
+    // says so)
     if let Err(e) = state.backups.delete_server(&uuid).await {
         error!("Failed to delete the backups of {uuid}: {}", e.source);
+    }
+    if let Err(e) = state.world_backups.delete_server(&uuid).await {
+        error!("Failed to delete the world backups of {uuid}: {}", e.source);
     }
     match &res {
         Ok(_) => event_broadcaster.send(Event::new_progression_event_end(

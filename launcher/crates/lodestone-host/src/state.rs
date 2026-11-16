@@ -706,8 +706,8 @@ mod tests {
             )
             .is_none()
         );
-        // a backup restored as a new server: its page said so already
-        assert!(creation_toast(true, Some("Restored the backup as Copy"), None).is_none());
+        // a snapshot restored as a new server: its page said so already
+        assert!(creation_toast(true, Some("Restored the snapshot as Copy"), None).is_none());
         let failed = creation_toast(false, Some("Server creation failed: no room"), None).unwrap();
         assert_eq!(failed.level, ToastLevel::Error);
         assert_eq!(failed.text.as_ref(), "Server creation failed: no room");
