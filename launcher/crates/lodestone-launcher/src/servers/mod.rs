@@ -29,6 +29,7 @@ mod host_offer;
 pub mod lan;
 pub mod lan_share;
 pub mod local;
+mod magic;
 pub mod view;
 // What the control API (`crate::control`) does with cores and servers.
 pub(crate) mod control;
@@ -778,6 +779,8 @@ pub struct Servers {
     _instances_changed: Option<Subscription>,
     /// "Share LAN worlds with friends": the person's own open worlds.
     pub lan_share: lan_share::LanShare,
+    /// Magic localhost: every server's address on this computer.
+    magic: magic::MagicState,
     /// Games opening worlds to LAN, and exiting, for [`lan_share`].
     _instances_events: Option<Subscription>,
 }
@@ -829,6 +832,7 @@ impl Servers {
             host_download: None,
             _instances_changed: None,
             lan_share: lan_share::LanShare::default(),
+            magic: Default::default(),
             _instances_events: None,
         };
         this._instances_changed = Some(cx.observe(&this.instances, |this, _, cx| {
@@ -843,8 +847,11 @@ impl Servers {
             cx.background_executor()
                 .timer(std::time::Duration::from_millis(500))
                 .await;
-            this.update(cx, |this, cx| this.lan_share_apply_setting(cx))
-                .ok();
+            this.update(cx, |this, cx| {
+                this.lan_share_apply_setting(cx);
+                this.sync_magic(cx);
+            })
+            .ok();
         }));
         this.load(cx);
         this.load_friends();
@@ -1159,6 +1166,9 @@ impl Servers {
         }
         if changed {
             self.save();
+        }
+        if let Some(index) = self.core_index(&uuid) {
+            self.magic_listed(index, cx);
         }
         uuid
     }
@@ -1761,6 +1771,7 @@ impl Servers {
         self.revoke_local_key(&uuid, cx);
         let core = self.cores.remove(index);
         self.save();
+        self.sync_magic(cx);
         if core.signed_in() {
             self.forget_local_key(&core.saved.uuid, cx);
             self.forget_key(core.saved.uuid, cx);
