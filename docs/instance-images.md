@@ -1473,7 +1473,7 @@ of M2 adds its own subsection.
   compares by disk path with the Files API's rule for a server's files (protected files and
   Lodestone's own `.lodestone*` files need WriteGlobalFile, a restore as new too), and runs
   again on the stopped server when the plan changed since the request was checked. Everything and `world_and_mods` are content operations: they hold the
-  content gate from before the safety backup to the swap, and record "Restored backup “…”"
+  content gate from before the safety backup to the swap, and record "Restored snapshot “…”"
   after the server's settings are read again; a world restore doesn't touch content. Files
   API changes are refused while a restore runs (a job begun before it isn't stopped). The journal is
   `images/<uuid>/restore-journal.json`.
