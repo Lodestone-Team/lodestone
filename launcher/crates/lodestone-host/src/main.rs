@@ -28,6 +28,8 @@ fn main() {
     if !screenshot && !single_instance::acquire(show_tx) {
         return;
     }
+    // The log file and the panic hook, before anything else can fail.
+    lodestone_host::logs::start(screenshot);
     // an older Host's sign-in entry, rewritten the way this one writes it
     if !screenshot {
         lodestone_host::login_item::refresh();
@@ -96,7 +98,8 @@ fn main() {
 }
 
 /// `--screenshot <file.png> [--wait <seconds>] [--select-first] [--tab <tab>] [--toasts] [--demo]`
-/// `[--power-menu]` (the selected instance's power menu open)
+/// `[--power-menu]` (the selected instance's power menu open) `[--crash-notice]` (the
+/// notice after a crash)
 /// `[--friends <scene>] [--mods <scene>] [--backup-export <scene>] [--world-backup <scene>]`
 /// `[--settings-search <text>]`,
 /// with the `screenshot` feature: renders the window offscreen after the wait (10 s by

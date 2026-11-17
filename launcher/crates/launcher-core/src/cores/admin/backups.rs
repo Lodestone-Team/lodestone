@@ -296,14 +296,14 @@ impl AdminClient {
         let body = serde_json::to_vec(body).map_err(|err| CoreError::Invalid(err.to_string()))?;
         let bytes = self
             .send_slow(
-                method,
+                method.clone(),
                 path,
                 Some((body, "application/json".into())),
                 MAX_JSON_BYTES,
                 BACKUP_JOB_TIMEOUT,
             )
             .await?;
-        serde_json::from_slice(&bytes).map_err(|err| CoreError::Invalid(err.to_string()))
+        self.decode(&method, path, &bytes)
     }
 
     /// `GET /instance/{uuid}/backups`: the backups, newest first, with the schedule,

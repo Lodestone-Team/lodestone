@@ -54,6 +54,21 @@ fn smp(core: &ImageCore, mods: &[(&str, &[u8])]) {
     core.publish(&image, mods);
 }
 
+/// The Launcher's window polls these futures on its own executor, with no Tokio runtime
+/// (Create instance on the Lodestone Host page did and crashed): every timer must be made
+/// inside the HTTP client's runtime, so a caller that doesn't enter it still works.
+#[test]
+fn a_caller_without_a_runtime_gets_the_image_and_its_files() {
+    let core = ImageCore::start();
+    smp(&core, &[("mods/a.jar", b"mod a")]);
+    let (image, _) = source(&core, true);
+    let answer = block_on(image.image(&[], &|| {}, &CancelToken::new())).unwrap();
+    let ImageAnswer::View { image: first, .. } = answer else {
+        panic!("expected the whole view");
+    };
+    check_received(&first, Side::Client).unwrap();
+}
+
 #[test]
 fn views_deltas_and_current_answers_over_both_routes() {
     for signed_in in [true, false] {

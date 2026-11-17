@@ -468,7 +468,10 @@ impl ImportDialog {
                             QueueState::Done { id, notes }
                         }
                         Err(import::ImportError::Cancelled) => QueueState::Cancelled,
-                        Err(err) => QueueState::Failed(err.to_string().into()),
+                        Err(err) => {
+                            log::warn!("importing an instance failed: {err}");
+                            QueueState::Failed(err.to_string().into())
+                        }
                     };
                 }
                 this.advance(cx);

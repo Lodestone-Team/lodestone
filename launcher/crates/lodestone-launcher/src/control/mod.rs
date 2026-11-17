@@ -29,6 +29,7 @@ mod friends;
 mod import;
 mod instances;
 mod jobs;
+mod logs;
 mod perf;
 mod servers;
 mod settings;
@@ -906,6 +907,17 @@ pub const METHODS: &[Method] = &[
         "What the window shows now (page, tab, instance, dialog, size, zoom), games and running jobs.",
         trace::snapshot,
     ),
+    // the log file
+    method(
+        "logs.path",
+        "Where the launcher's log files are, with their sizes; the crash file; whether LODESTONE_LOG sets the level.",
+        logs::path,
+    ),
+    method(
+        "logs.tail",
+        "The last `lines` (200; at most 2000) lines of the log, only `level` (error, warn, info, debug) and worse when given.",
+        logs::tail,
+    ),
     // perf
     method(
         "perf.show",
@@ -1523,8 +1535,8 @@ pub fn apply(cx: &mut App) {
             match served {
                 Ok(handle) => service.handle = Some(handle),
                 Err(err) => {
-                    eprintln!(
-                        "lodestone-launcher: no control socket, so lodestone-launcher-cli can't reach this launcher: {err}"
+                    log::warn!(
+                        "no control socket, so lodestone-launcher-cli can't reach this launcher: {err}"
                     );
                     error = Some(err);
                 }
@@ -1624,7 +1636,8 @@ pub fn disconnect(connection: u64, cx: &mut App) {
 
 /// Why `method` is refused under `cli`, if it is: a method that changes something
 /// while access is read-only, a trace method while traces are off, or game output
-/// while game logs are off.
+/// while game logs are off. `logs.*` needs only command-line access: its lines are
+/// scrubbed, and the same user can read the files anyway.
 pub fn refusal(method: &str, cli: &CliSettings) -> Option<ErrorObject> {
     if method.starts_with("trace.") && !cli.traces {
         return Some(api_error(
@@ -1715,6 +1728,8 @@ pub const READ_METHODS: &[&str] = &[
     "trace.subscribe",
     "trace.unsubscribe",
     "trace.snapshot",
+    "logs.path",
+    "logs.tail",
     "perf.show",
     "perf.watch",
 ];
@@ -2006,6 +2021,9 @@ mod tests {
         };
         for name in ["trace.topics", "trace.subscribe", "trace.snapshot"] {
             assert_eq!(refusal(name, &off).unwrap().code, codes::PERMISSION_DENIED);
+        }
+        for name in ["logs.path", "logs.tail"] {
+            assert!(refusal(name, &off).is_none(), "{name}");
         }
         assert_eq!(
             refusal("play.logs", &off).unwrap().code,

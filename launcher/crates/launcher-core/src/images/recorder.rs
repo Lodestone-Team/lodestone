@@ -413,8 +413,15 @@ impl Images {
                 }
                 let _ = done.send(());
             });
-        if spawned.is_ok() {
-            let _ = wait.recv_timeout(max);
+        if spawned.is_ok()
+            && wait.recv_timeout(max) == Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+        {
+            // Cut off by the quit, the record is left to the check before the next
+            // launch, which finds the files "Changed by hand".
+            log::warn!(
+                "images still recording after {}s; going on without waiting",
+                max.as_secs()
+            );
         }
     }
 

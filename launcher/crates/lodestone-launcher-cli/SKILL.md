@@ -53,7 +53,7 @@ refuses them. `ping` and `status` report them as
   `read_only`. Tell the user what you wanted to do and that read-only access is on;
   don't retry.
 - **Debug traces** off: `trace ...` fails with `permission_denied`, and nothing is
-  recorded.
+  recorded on the trace bus (the log file still is, and `logs tail` still reads it).
 - **Game logs** off: `play logs` and `events --topics log` fail with
   `permission_denied`; other event streams leave the game's lines out.
 
@@ -453,7 +453,7 @@ lodestone-launcher-cli cores trust-certificate "Home core" --fingerprint AB:CD:â
 lodestone-launcher-cli cores sign-out "Home core"
 lodestone-launcher-cli cores claim-local                      # owner key for the core on this computer
 lodestone-launcher-cli cores claim-local --folder ~/core-data # its data folder isn't ~/.lodestone
-lodestone-launcher-cli servers list
+lodestone-launcher-cli servers list                         # each server's Magic localhost (see below)
 lodestone-launcher-cli servers start Smp                     # needs this device signed in
 lodestone-launcher-cli servers stop Smp
 lodestone-launcher-cli servers create-instance Smp           # long; matching version, loader, mods
@@ -600,7 +600,14 @@ lodestone-launcher-cli trace watch --backlog 100 --count 100 # the last 100 even
 lodestone-launcher-cli trace watch ui nav settings.change    # clicks, keys, dialogs, navigation, settings
 lodestone-launcher-cli trace watch '*.error' log.warn --backlog 200
 lodestone-launcher-cli trace watch game.log --backlog 0 --timeout 60   # console lines, live only
+lodestone-launcher-cli logs tail --level warn -n 100         # what the launcher logged before, warnings and errors (reads the file when no launcher answers)
+lodestone-launcher-cli logs path                             # the log files and crash reports (no launcher needed)
 ```
+
+The log file (`launcher.log`, kept across restarts) is where to look for something
+that happened before you connected, or a crash: `last-crash.txt` has the last panic's
+message, place, thread and backtrace (`previous-crash.txt` the one before). Its lines
+are scrubbed of secrets.
 
 Performance ("the launcher is slow", "it uses a lot of memory", "the game stutters"):
 
@@ -646,6 +653,15 @@ A job (`--no-wait`, `jobs get`, progress lines):
 Job `state`: `running`, `succeeded`, `failed`, `cancelled`. A waited command prints the
 job's `result` with `"job": <id>` added, for example `content install`:
 `{"installed": [{"title": "Sodium", "file": "sodium-fabric-0.6.0.jar"}], "removed": [], "skipped": [], "job": 3}`.
+
+A server in `servers list` carries its Magic localhost, the address any Minecraft
+client joins it at: `"magic_address": "127.0.0.1:34121"` (null when there is none: the
+core hides the server's port, no port is picked yet, or the launcher can't listen for
+it), `"magic_address_kind"`: `this_computer` (a core on this computer: the server's own
+port, while it runs) or `forwarded` (another host: a port the launcher passes on to it,
+while the server runs and the launcher is open), and `"magic_port_taken"`: the usual
+port when something else had it, so this address works only until the launcher closes
+(otherwise null).
 
 A log row (`play logs`, `--follow`, `log` events):
 `{"instance": "survival", "level": "INFO", "time": "14:02:11", "thread": "Render thread", "stream": "stdout", "text": "Sound engine started"}`.
