@@ -17,7 +17,10 @@ use gpui::{App, SharedString};
 use launcher_control::{ErrorObject, codes};
 use launcher_core::{
     Secret,
-    cores::{ServerInstance, client::display_address, live::LauncherScope, store::SavedCore},
+    cores::{
+        ServerInstance, client::display_address, live::LauncherScope,
+        magic_localhost::MagicAddress, store::SavedCore,
+    },
     instances::Instance,
 };
 use serde::Deserialize;
@@ -41,9 +44,24 @@ fn lower(value: impl std::fmt::Debug) -> String {
     format!("{value:?}").to_lowercase()
 }
 
+/// A server's Magic localhost: the address any Minecraft client joins it at on this
+/// computer, whether that is the server's own port or a forwarder's, and the saved port
+/// when something else had it so this session uses another.
+fn magic_fields(magic: Option<MagicAddress>) -> [(&'static str, Value); 3] {
+    let taken = match magic {
+        Some(MagicAddress::Forwarded { taken, .. }) => taken,
+        _ => None,
+    };
+    [
+        ("magic_address", json!(magic.map(|m| m.address()))),
+        ("magic_address_kind", json!(magic.map(|m| m.kind()))),
+        ("magic_port_taken", json!(taken)),
+    ]
+}
+
 fn server_json(core: &CoreEntry, server: &ServerInstance, servers: &Servers) -> Value {
     let row = (core.saved.uuid.clone(), server.uuid.clone());
-    json!({
+    let mut value = json!({
         "uuid": server.uuid,
         "name": server.name,
         "core": core.saved.uuid,
@@ -59,8 +77,12 @@ fn server_json(core: &CoreEntry, server: &ServerInstance, servers: &Servers) -> 
         "has_client_pack": server.has_client_pack,
         "listed": server.listed,
         "linked_instance": servers.linked_instance(&core.saved.uuid, &server.uuid),
-        "busy": servers.busy.get(&row).map(|b| b.label()),
-    })
+        "busy": servers.busy.get(&row).map(|b| b.caption()),
+    });
+    for (key, field) in magic_fields(servers.magic_address(core, server)) {
+        value[key] = field;
+    }
+    value
 }
 
 fn core_json(core: &CoreEntry, servers: &Servers, with_servers: bool) -> Value {
@@ -156,8 +178,7 @@ pub fn cores_list(call: Call, cx: &mut App) -> Reply {
             json!({
                 "cores": servers.cores.iter().map(|c| core_json(c, servers, true)).collect::<Vec<_>>(),
                 "notice": servers.notice.as_ref().map(|notice| {
-                    let (title, message) = notice.text();
-                    json!({ "title": title, "message": message })
+                    json!({ "title": notice.plain_title(), "message": notice.plain_message() })
                 }),
             })
         }))
@@ -439,10 +460,9 @@ pub fn cores_sign_out(call: Call, cx: &mut App) -> Reply {
 /// The page's notice, to tell a new one from the old, with its error code.
 fn notice_of(servers: &Servers) -> Option<(SharedString, SharedString, &'static str)> {
     servers.notice.as_ref().map(|notice| {
-        let (title, message) = notice.text();
         (
-            title.into(),
-            message.into(),
+            notice.plain_title().into(),
+            notice.plain_message().into(),
             notice.code.unwrap_or(codes::FAILED),
         )
     })
@@ -817,8 +837,7 @@ pub fn create_instance(call: Call, cx: &mut App) -> Reply {
                 "instance": outcome,
                 "summary": summary,
                 "notice": servers.notice.as_ref().map(|notice| {
-                    let (title, message) = notice.text();
-                    json!({ "title": title, "message": message })
+                    json!({ "title": notice.plain_title(), "message": notice.plain_message() })
                 }),
             })
         }))
@@ -1341,7 +1360,46 @@ pub fn prompts_answer(call: Call, cx: &mut App) -> Reply {
 
 #[cfg(test)]
 mod tests {
-    use super::server_name_problem;
+    use super::*;
+
+    #[test]
+    fn a_servers_magic_localhost_is_in_its_json() {
+        let json = |magic| {
+            Value::Object(
+                magic_fields(magic)
+                    .into_iter()
+                    .map(|(k, v)| (k.to_string(), v))
+                    .collect(),
+            )
+        };
+        assert_eq!(
+            json(Some(MagicAddress::ThisComputer { port: 25565 })),
+            json!({
+                "magic_address": "127.0.0.1:25565",
+                "magic_address_kind": "this_computer",
+                "magic_port_taken": null,
+            })
+        );
+        assert_eq!(
+            json(Some(MagicAddress::Forwarded {
+                port: 40123,
+                taken: Some(34121)
+            })),
+            json!({
+                "magic_address": "127.0.0.1:40123",
+                "magic_address_kind": "forwarded",
+                "magic_port_taken": 34121,
+            })
+        );
+        assert_eq!(
+            json(None),
+            json!({
+                "magic_address": null,
+                "magic_address_kind": null,
+                "magic_port_taken": null,
+            })
+        );
+    }
 
     #[test]
     fn a_server_name_the_core_would_refuse_is_caught_before_sending() {

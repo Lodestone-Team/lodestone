@@ -10,9 +10,9 @@ mod copy;
 
 use crate::theme::px;
 use gpui::{
-    App, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement, PathPromptOptions,
-    Render, SharedString, Subscription, Task, UniformListScrollHandle, Window, div, prelude::*,
-    uniform_list,
+    AnyElement, App, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement,
+    PathPromptOptions, Render, SharedString, Subscription, Task, UniformListScrollHandle, Window,
+    div, prelude::*, uniform_list,
 };
 use lodestone_minecraft::versions::mojang::{MojangVersion, MojangVersionType};
 
@@ -29,14 +29,15 @@ use crate::components::{
 };
 use crate::{
     components::{
-        Button, ButtonVariant, Dialog, Icon, LoadingDots, TextInput,
+        Button, ButtonVariant, Dialog, Fact, FactLine, FactValue, Icon, LoadingDots, Num,
+        ProductPhrase, TextInput,
         motion::Animated,
         settings::{popover_panel, select_button},
     },
     file_dialog,
     i18n::{
-        CommonMsg, ContentMsg, InstanceSettingsMsg as M, InstanceSettingsPlural as P, format, t,
-        tr, trn,
+        CommonMsg, ContentMsg, FactMsg, InstanceSettingsMsg as M, InstanceSettingsPlural as P,
+        format, t, tr, trn,
     },
     theme::{self, Color, colors, leading, radius, text, weights},
 };
@@ -572,7 +573,10 @@ fn version_row(index: usize, version: &MojangVersion, selected: bool) -> gpui::S
             version.id.clone(),
         )
         .aria_selected(selected)
-        .aria_description(format!("{} · {date}", kind_label(version.kind)))
+        .aria_description(format::list(&[
+            kind_label(version.kind).to_string(),
+            date.to_string(),
+        ]))
         .keyboard_focus()
         .flex()
         .flex_row()
@@ -624,38 +628,47 @@ fn version_row(index: usize, version: &MojangVersion, selected: bool) -> gpui::S
 /// A row of the form: its name in a column on the left, then the control.
 /// What a share code makes: its name, Minecraft and loader, and how much of each kind.
 fn code_preview(code: &ShareCode) -> impl IntoElement {
-    let game = match (code.loader.kind(), &code.loader_version) {
-        (Some(kind), Some(version)) => {
-            format!(
-                "Minecraft {} · {} {version}",
-                code.game_version,
-                kind.label()
+    // the game and its loader as phrases, never joined by a dot
+    let mut game = vec![
+        Fact::bare_named(t(FactMsg::Game), super::facts::game(&code.game_version)).priority(0),
+    ];
+    if let Some(kind) = code.loader.kind() {
+        game.push(
+            Fact::bare_named(
+                t(FactMsg::Loader),
+                ProductPhrase::new(kind.into(), code.loader_version.clone().unwrap_or_default()),
             )
-        }
-        (Some(kind), None) => format!("Minecraft {} · {}", code.game_version, kind.label()),
-        (None, _) => format!("Minecraft {}", code.game_version),
-    };
-    let counts = match &code.pack {
+            .priority(1),
+        );
+    }
+    let counts: AnyElement = match &code.pack {
         // "Gaycraft 5.0 from Modrinth + 2 changes"
         Some(pack) => {
             let pack = tr!(
                 M::CodePackPreview,
                 pack = super::share_dialog::pack_label(pack)
             );
-            match code.change_count() {
-                0 => pack,
-                count => format!("{pack} {}", trn!(P::CodePackChanges, count)),
-            }
+            div()
+                .text_size(theme::text_size(text::SMALL))
+                .text_color(crate::theme::ink::muted())
+                .child(match code.change_count() {
+                    0 => pack,
+                    count => format!("{pack} {}", trn!(P::CodePackChanges, count)),
+                })
+                .into_any_element()
         }
-        None => [
-            (ContentMsg::KindMods, ContentKind::Mod),
-            (ContentMsg::KindResourcePacks, ContentKind::ResourcePack),
-            (ContentMsg::KindShaders, ContentKind::ShaderPack),
-        ]
-        .into_iter()
-        .map(|(label, kind)| format!("{} {}", format::number(code.count(kind) as u64), t(label)))
-        .collect::<Vec<_>>()
-        .join(" · "),
+        // how many of each kind, as keyed counts
+        None => FactLine::row("code-preview-counts")
+            .facts(
+                [
+                    (ContentMsg::KindMods, ContentKind::Mod),
+                    (ContentMsg::KindResourcePacks, ContentKind::ResourcePack),
+                    (ContentMsg::KindShaders, ContentKind::ShaderPack),
+                ]
+                .into_iter()
+                .map(|(label, kind)| Fact::new(t(label), Num::count(code.count(kind) as u64))),
+            )
+            .into_any_element(),
     };
     div()
         .flex()
@@ -667,24 +680,15 @@ fn code_preview(code: &ShareCode) -> impl IntoElement {
         .border_1()
         .border_color(colors::FADE_700)
         .bg(colors::GRAY_800)
-        .child(
+        // the name the code gives, if any; the game line never stands in for it
+        .children(code.name.clone().map(|name| {
             div()
                 .font_weight(weights::BOLD.into())
                 .text_color(colors::GRAY_300)
-                .child(code.name.clone().unwrap_or_else(|| game.clone())),
-        )
-        .child(
-            div()
-                .text_size(theme::text_size(text::SMALL))
-                .text_color(colors::GRAY_400)
-                .child(game),
-        )
-        .child(
-            div()
-                .text_size(theme::text_size(text::SMALL))
-                .text_color(crate::theme::ink::muted())
-                .child(counts),
-        )
+                .child(name)
+        }))
+        .child(FactLine::row("code-preview-game").facts(game))
+        .child(counts)
 }
 
 /// A dialog field: its name in a fixed-width column on the left, the control filling the rest.
@@ -1130,43 +1134,47 @@ impl NewInstanceDialog {
                 .ok();
             }
         };
-        let label = match (&versions, chosen) {
-            (_, Some(version)) => div()
-                .flex()
-                .flex_row()
-                .items_baseline()
-                .gap_2()
-                .child(
-                    div()
-                        .font_weight(weights::BOLD.into())
-                        .child(version.id.clone()),
-                )
-                .child(
-                    div()
-                        .text_size(theme::text_size(text::SMALL))
-                        .text_color(crate::theme::ink::muted())
-                        .child(format!(
-                            "{} · {}",
-                            kind_label(version.kind),
-                            release_date(version.release_time.as_deref())
-                        )),
-                )
-                .into_any_element(),
-            (Versions::Failed(_), None) => div()
-                .text_color(colors::RED_200)
-                .child(t(M::ChooseGameVersion))
-                .into_any_element(),
-            (Versions::Ready(_), None) => div().child(t(M::ChooseVersion)).into_any_element(),
-            _ => div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap_2()
-                .text_color(crate::theme::ink::muted())
-                .child(LoadingDots)
-                .child(t(M::LoadingVersionList))
-                .into_any_element(),
-        };
+        let label =
+            match (&versions, chosen) {
+                (_, Some(version)) => div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .min_w_0()
+                    .child(
+                        div()
+                            .flex_none()
+                            .font_weight(weights::BOLD.into())
+                            .child(version.id.clone()),
+                    )
+                    // its kind, then when it was released, keyed
+                    .child(div().flex_1().min_w_0().child(
+                        FactLine::row("chosen-version-facts").facts([
+                            Fact::bare_named(t(FactMsg::Type), kind_label(version.kind)),
+                            Fact::icon(
+                                Icon::Clock,
+                                t(FactMsg::Released),
+                                FactValue::time(release_date(version.release_time.as_deref())),
+                            ),
+                        ]),
+                    ))
+                    .into_any_element(),
+                (Versions::Failed(_), None) => div()
+                    .text_color(colors::RED_200)
+                    .child(t(M::ChooseGameVersion))
+                    .into_any_element(),
+                (Versions::Ready(_), None) => div().child(t(M::ChooseVersion)).into_any_element(),
+                _ => div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .text_color(crate::theme::ink::muted())
+                    .child(LoadingDots)
+                    .child(t(M::LoadingVersionList))
+                    .into_any_element(),
+            };
         Dropdown::new(
             select_button("game-version-select", label)
                 .aria_label(t(M::MinecraftVersion))

@@ -359,6 +359,10 @@ pub fn apply(scene: &str, view: &mut WorldsView, cx: &mut Context<WorldsView>) {
     match scene {
         "worlds" => view.preview(Section::Worlds, None, None, cx),
         "worlds-backups" => view.preview(Section::Worlds, Some("New World"), None, cx),
+        "worlds-menu" => {
+            view.preview(Section::Worlds, None, None, cx);
+            view.preview_world_menu("New World", cx);
+        }
         "worlds-datapacks" => {
             let (hits, icons) = pack_hits();
             view.preview_datapacks("New World", "", hits, icons, cx);

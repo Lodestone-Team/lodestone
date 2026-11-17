@@ -86,7 +86,7 @@ const NotificationPanel = forwardRef(
                 <NotificationCard
                   key={notification.key}
                   level={notification.level}
-                  title={notification.title}
+                  content={notification.content}
                   message={notification.message}
                   timestamp={notification.timestamp}
                 />

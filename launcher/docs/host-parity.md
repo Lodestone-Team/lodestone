@@ -24,7 +24,8 @@ be built in parallel with little file overlap. Tick items (`[x]`) as you build t
   restarts a core that exits (giving up after 4 quick exits, showing the end of its
   log), and on Quit closes the core's stdin: the core stops its servers and exits
   (killed after 60 s, longer than the core's 45 s for its servers). If the Host dies, the system closes the pipe and the core stops
-  too. The core's output goes to `<host folder>/logs/core.log`.
+  too. The core's output goes to `<host folder>/logs/core.log`, beside the Host's own
+  `host.log` ([logs.md](logs.md)).
 - **The Host signs in as the owner without a password**, through the core's local
   claim (`core/src/local_claim.rs`), with `"session": true`: the Host proves it can
   write the core's data folder (only the same OS user can), and the core writes an
@@ -689,8 +690,8 @@ Conventions in the code that every area relies on:
   undone) → `DELETE /instance/{uuid}`; refetch list, deselect; error toast.
 - [x] Permission: `can_delete_instance` (global) and, for atom instances, owner (atom rule removed).
 - [x] No clone, rename-folder, import-existing, backup or export features exist in the dashboard.
-  - *Host:* The Host has backups (its Backups tab, §6.5); deleting a server deletes
-    its backups too, and the delete dialog says so.
+  - *Host:* The Host has snapshots and world backups (its Snapshots tab, §6.5); deleting
+    a server deletes them too, and the delete dialog says so.
 
 ---
 
@@ -979,22 +980,39 @@ Conventions in the code that every area relies on:
   changes, warnings, errors, players joining and leaving, and chat, newest first, from
   `GET /events/all/buffer` then the live event stream (at most 500 lines).
 
-### 6.5 Players / whitelist / ops / backups / scheduling  
-**Package: nobody (not in the dashboard); backups: the backups change.**
+### 6.5 Players / whitelist / ops / snapshots and world backups / scheduling  
+**Package: nobody (not in the dashboard); snapshots: the backups change; world backups: WB1.**
 
 - [x] Not present in the dashboard (only the read-only player list on Overview). Any such feature would
   come only through the core's settings manifest.
-  - *Host:* Players, whitelist and ops: not applicable, not in the dashboard. Backups
-    are the Host's own (the core's `/instance/{uuid}/backups` routes, §10.6b): a
-    **Backups** tab after Files (`pages/backups.rs`, `cores/admin/backups.rs`,
-    `i18n/*/backups.rs`), for Minecraft Java servers when the user may read their
-    files. It backs up now, keeps the schedule (on/off, how often, only when players
-    were on, and Fewer/Normal/More kept), shows the storage used and the list (tags:
-    Manual, Automatic, Before restore, Live, May be inconsistent, files skipped,
-    Pinned), and restores (everything or only the world, after a safety backup),
-    restores as a new server, downloads a zip, pins and deletes. Progress comes from
-    the job's progression events and the list (fetched again while a job runs, since
-    only owners and admins get updates). The dashboard has no backup UI.
+  - *Host:* Players, whitelist and ops: not applicable, not in the dashboard. Snapshots
+    and world backups are the Host's own: a **Snapshots** tab after Files
+    (`pages/backups.rs` with `pages/backups/world.rs`, `cores/admin/backups.rs` and
+    `cores/admin/world_backups.rs`, `i18n/*/backups.rs`), for Minecraft Java servers when
+    the user may read their files. The code keeps the backup names (routes, types, files);
+    the text says "snapshot". The tab has two sections:
+    - **World backups** (the core's `/instance/{uuid}/world-backups` routes, §10.6c):
+      plain `.zip` files of the world, its Nether and its End, made only when asked (no
+      schedule, nothing pruned). **Back up world…** asks for an optional name, then shows
+      the job's progress with Cancel. The list shows each one's name, when, size and game
+      version, and how it was made (by hand, or "Before restore" for the safety backup a
+      restore takes), with tags for "May be inconsistent" and files left out. Per row:
+      **Restore…** (a confirmation that the server must be stopped and that the current
+      world is backed up first; the restore runs into the stopped server with progress
+      and Cancel until the swap), **Download** (the stored zip, with progress and Cancel)
+      and **Delete**. Renaming is a core route only; the Host doesn't rename.
+    - **Snapshots** (the core's `/instance/{uuid}/backups` routes, §10.6b): images of the
+      whole server folder. It takes one now, keeps the schedule (on/off, how often, only
+      when players were on, and Fewer/Normal/More kept), shows the storage used and the
+      list (tags: Manual, Automatic, Before restore, Live, May be inconsistent, files
+      skipped, Pinned), and restores (everything or only the world, after a safety
+      snapshot), restores as a new server, downloads a zip, exports a `.lodeimg`, pins and
+      deletes.
+
+    Progress comes from the jobs' progression events and the lists (fetched again while a
+    job runs, since only owners and admins get updates). World jobs and snapshot jobs share
+    the server's one job lock, so either list's `running` shows whichever runs. The
+    dashboard has no backup UI.
 
 ### 6.6 Ports  
 **Package: C (through the settings manifest).**
@@ -1132,7 +1150,7 @@ Conventions in the code that every area relies on:
 
 - [x] No system-stats page (`/system/ram|disk|cpu` hooks and `SystemStat.tsx` exist but are unused
   **(dead)**), no core updater UI, no global event-log page, no extension management (extensions are removed), no backup UI (the Host has a
-  Backups tab, §6.5).
+  Snapshots tab, §6.5).
   Version/info appears only in Core › General › Information and the connection tooltip.
   - *Host:* Not applicable: not in the dashboard.
 
@@ -1387,6 +1405,24 @@ All paths are under `/api/v1`. Bodies are JSON unless noted. Types are in `dashb
 | GET | `/instance/{uuid}/backups/policy` | – | `BackupPolicy` |
 | PUT | `/instance/{uuid}/backups/policy` | `BackupPolicy` | `BackupPolicy` |
 
+These are the Snapshots tab's snapshots; the text calls them snapshots.
+
+### 10.6c World backups (Host only)
+
+Plain `.zip` files of a server's world, stored outside the server folder
+(`<LODESTONE_PATH>/world-backups/<uuid>/`). The permissions are the matching snapshot
+routes'.
+
+| Method | Path | Request | Response |
+|---|---|---|---|
+| GET | `/instance/{uuid}/world-backups` | – | `WorldBackupList {backups, running, usage}` |
+| POST | `/instance/{uuid}/world-backups` | `CreateWorldBackupRequest {name?}` | `{task_id}` |
+| PATCH | `/instance/{uuid}/world-backups/{id}` | `UpdateWorldBackupRequest {name?}` | `WorldBackupInfo` (not used by the Host) |
+| DELETE | `/instance/{uuid}/world-backups/{id}` | – | `{}` |
+| POST | `/instance/{uuid}/world-backups/{id}/restore` | – (the server must be stopped) | `{task_id}` |
+| POST | `/instance/{uuid}/world-backups/{id}/download` | – | `WorldBackupDownload {key, file_name, size}` → `/file/{key}` |
+| POST | `/instance/{uuid}/world-backups/tasks/{task_id}/cancel` | – | `{}` (409 once a restore swaps the world in) |
+
 ### 10.7 Macros / tasks (removed)
 
 These routes are gone from the core, with `/task/*`, `/history/*`, `/extension/*` and
@@ -1436,9 +1472,10 @@ Event variants the dashboard handles (everything else must at least be tolerated
   {progress_message, progress}`, `ProgressionEnd {success, message, inner: ProgressionEndValue
   (InstanceCreation & InstanceInfo | InstanceDelete {instance_uuid} | FSOperationCompleted {instance_uuid,
   success, message})}`.
-  - *Host:* As above, plus the backups' `Backup`/`Restore {instance_uuid}` starts and
+  - *Host:* As above, plus the snapshots' `Backup`/`Restore {instance_uuid}` starts and
     `BackupCompleted`/`RestoreCompleted {instance_uuid, backup_id, success, message}` ends,
-    which the Backups tab follows.
+    and the world backups' `WorldBackup`/`WorldRestore` starts and
+    `WorldBackupCompleted`/`WorldRestoreCompleted` ends, which the Snapshots tab follows.
 - [x] `FSEvent {operation, target}` (ignored).
   - *Host:* Tolerated and ignored.
 - [x] `GlobalSettingsChanged` (no payload).

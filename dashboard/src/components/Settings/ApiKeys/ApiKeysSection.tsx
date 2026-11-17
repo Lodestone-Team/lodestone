@@ -3,6 +3,8 @@ import { CreatedApiKey } from 'bindings/CreatedApiKey';
 import Button from 'components/Atoms/Button';
 import { apiKeyKeys, revokeOwnApiKey, useOwnApiKeys } from 'data/ApiKeys';
 import { useT } from 'i18n';
+import { ObjectChip } from 'components/Atoms/Values';
+import { ObjectToast } from 'components/Values';
 import { useState } from 'react';
 import { toast } from 'react-toastify';
 import ApiKeyList from './ApiKeyList';
@@ -32,7 +34,10 @@ export default function ApiKeysSection({ enabled }: { enabled: boolean }) {
           setCreated(newKey);
           setShowCreated(true);
           toast.success(
-            t('settings.apiKeys.created', { name: newKey.info.name })
+            <ObjectToast
+              object={<ObjectChip kind="apiKey" name={newKey.info.name} />}
+              outcome={t('settings.apiKeys.toast.created')}
+            />
           );
         }}
       />

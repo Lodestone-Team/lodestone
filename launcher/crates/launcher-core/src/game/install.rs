@@ -755,10 +755,7 @@ impl Installer {
             .await;
         if let Err(err) = record.save(record_path) {
             // Only the next launch's speed depends on it.
-            eprintln!(
-                "lodestone-launcher: saving {}: {err}",
-                record_path.display()
-            );
+            log::warn!("saving {}: {err}", record_path.display());
         }
         Ok(result?)
     }
@@ -868,8 +865,8 @@ impl Installer {
             .join(java_platform.runtime_key());
         let installed_before = |why: InstallError| match zulu::newest_installed(&builds) {
             Some(java) if verify == Verify::Recorded => {
-                eprintln!(
-                    "lodestone-launcher: using the Zulu 8 installed before ({}): {why}",
+                log::warn!(
+                    "using the Zulu 8 installed before ({}): {why}",
                     java.display()
                 );
                 Ok((java, java_platform.clone()))

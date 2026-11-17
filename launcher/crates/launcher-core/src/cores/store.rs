@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use super::magic_localhost::MagicPort;
 use super::models::{CoreProduct, LaunchedBy};
 use super::tls::{CertificatePin, same_fingerprint};
 use crate::{
@@ -56,6 +57,10 @@ pub struct SavedCore {
     /// certificate. Left out of the file otherwise.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub local_claim: bool,
+    /// The Magic localhost port on this computer of each of its servers (see
+    /// [`super::magic_localhost`]). Left out of the file while there are none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub magic_ports: Vec<MagicPort>,
 }
 
 /// What trust in a core is tied to: its id, its address and, for HTTPS cores with a

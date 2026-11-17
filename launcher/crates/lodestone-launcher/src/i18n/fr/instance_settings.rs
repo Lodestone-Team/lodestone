@@ -120,7 +120,7 @@ pub fn text(message: M) -> &'static str {
         M::DownloadingNewVersion => "Téléchargement de la nouvelle version…",
         M::CheckingModrinth => "Vérification sur Modrinth…",
         M::CheckingCurseForge => "Vérification sur CurseForge…",
-        M::UpdateTo => "Mettre à jour vers {version}…",
+        M::UpdateModpack => "Mettre à jour…",
         M::UpToDate => "À jour",
         M::CheckForUpdates => "Rechercher des mises à jour",
         M::ModrinthUnreachable => "Modrinth est injoignable.",
@@ -128,9 +128,9 @@ pub fn text(message: M) -> &'static str {
         M::StopGameFirst => "Arrêtez d’abord le jeu, ou attendez la fin de la mise à jour.",
         M::CouldntPrepareUpdate => "Impossible de préparer la mise à jour\u{a0}: {error}",
 
-        M::LinkedServerHint => "Sur {core}. Jouer le rejoint et synchronise ses mods.",
+        M::LinkedServerHint => "Jouer le rejoint et synchronise ses mods.",
         M::LinkedServerCoreRemoved => {
-            "Sur {core}, qui a été retiré de la page Lodestone Host. Ajoutez de nouveau cet hôte sur cette page pour rejoindre le serveur."
+            "Son hôte a été retiré de la page Lodestone Host. Ajoutez de nouveau l’hôte sur cette page pour rejoindre le serveur."
         }
         M::CoreRemoved => "Hôte retiré",
         M::Unlink => "Délier",
@@ -138,13 +138,16 @@ pub fn text(message: M) -> &'static str {
         M::UnlinkNote => "Jouer ne rejoindra plus le serveur. Les mods restent.",
 
         M::ChangeSetting => "Modifier",
-        M::JavaMemoryLead => "Les valeurs par défaut viennent des paramètres du launcher.",
+        M::JavaMemoryLead => {
+            "La mémoire par défaut se règle dans Paramètres › Paramètres par défaut des instances."
+        }
         M::Memory => "Mémoire",
         M::Checking => "Vérification…",
-        M::JavaFound => "Java {major} (version {version})",
-        M::JavaTooOld => {
-            "Java {major} (version {version}). Minecraft {game} demande Java {needed} ou plus récent."
-        }
+        M::JavaTooOldBadge => "Trop ancien",
+        M::JavaFitsBadge => "Convient",
+        M::JavaFoundKey => "Trouvé",
+        M::JavaVersion => "Java {version}",
+        M::JavaOrNewer => "Java {major} ou plus récent",
         M::MojangJavaVersion => "Java {major} de Mojang",
         M::MojangJava => "Java de Mojang",
         M::AzulZulu8 => "Azul Zulu\u{a0}8, fait pour Apple Silicon",
@@ -168,7 +171,6 @@ pub fn text(message: M) -> &'static str {
         M::NoSnapshots => "Aucun instantané pour l’instant.",
         M::SnapshotSizes => "{total}, dont {new} nouveaux",
         M::SnapshotNothingNew => "{total}, rien de nouveau",
-        M::SnapshotWithMods => "Avec les mods",
         M::PreparingFile => "Préparation du fichier…",
         M::DragToShare => "Faites glisser le fichier dans une autre app, ou\u{a0}:",
         M::SaveAsEllipsis => "Enregistrer sous…",
@@ -184,23 +186,7 @@ pub fn text(message: M) -> &'static str {
         M::ImportServerTitle => "Nouvelle instance depuis le monde d’un serveur",
         M::CreateInstanceButton => "Créer l’instance",
         M::SnapshotGameRunning => "Arrêtez d’abord le jeu.",
-        M::SnapshotsHint => {
-            "Des copies des mondes et fichiers de cette instance, pour revenir en arrière ou partager."
-        }
-        M::SnapshotIncludeEverything => "Inclure les mods et les configurations",
-        M::SnapshotIncludeEverythingHint => {
-            "Sans cela, l’instantané garde les mondes et les autres fichiers, et retient les mods avec lesquels ils tournaient."
-        }
         M::SnapshotAfterPlay => "Prendre un instantané après chaque partie",
-        M::SnapshotAfterPlayHint => {
-            "Copie les mondes après chaque partie. Suit Paramètres › Paramètres par défaut des instances, où c’est désactivé sauf si vous l’activez."
-        }
-        M::SnapshotAfterPlayDefaultHint => {
-            "Copie les mondes après chaque partie, pour les instances qui ne le règlent pas elles-mêmes. Désactivé sauf si vous l’activez."
-        }
-        M::SnapshotKeepHint => {
-            "Les instantanés pris par le Launcher sont gardés un temps\u{a0}: les {last} derniers, un par jour pendant {days} jours et un par semaine pendant {weeks} semaines. Les vôtres restent jusqu’à ce que vous les supprimiez."
-        }
         M::BadgeAutomatic => "Automatique",
         M::BadgeAfterPlaying => "Après une partie",
         M::BadgeImported => "Importé",
@@ -288,9 +274,7 @@ pub fn text(message: M) -> &'static str {
         M::Duplicate => "Dupliquer",
         M::Duplicating => "Duplication…",
         M::ChangeVersionOrLoader => "Une autre version ou un autre chargeur",
-        M::ChangeVersionOrLoaderHint => {
-            "Une instance garde la version et le chargeur choisis à sa création. Une copie peut en avoir d’autres."
-        }
+        M::ChangeVersionOrLoaderHint => "Crée une copie. Cette instance reste telle quelle.",
         M::CopyAs => "Copier avec une autre version ou un autre chargeur",
         M::CopyAsButton => "Copier…",
         M::CopyAsKeywords => {
@@ -373,9 +357,10 @@ pub fn text(message: M) -> &'static str {
         M::DeleteHint => "Y compris ses mondes et ses mods.",
         M::DeleteButton => "Supprimer…",
 
-        M::SharedLead => "Gardez vos réglages synchronisés entre vos instances.",
+        M::SharedLead => {
+            "Les touches, la vidéo, le son et les autres options du jeu, identiques dans chaque instance qui les partage."
+        }
         M::UseSharedSettings => "Utiliser les paramètres partagés",
-        M::SharingOff => "Cette instance garde ses propres options.",
         M::SharingFrom => "Reçoit les changements faits en jeu dans {name}.",
         M::SharingMain => "Les changements faits en jeu ici mettent à jour toutes les instances.",
         M::SharingNoMain => {
@@ -383,7 +368,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::MainInstance => "Instance principale",
         M::MainInstanceHint => {
-            "Les réglages modifiés en jeu dans votre instance principale sont copiés dans chaque instance qui les partage, à son prochain démarrage. Une seule instance est principale."
+            "Ses changements faits en jeu parviennent aux autres instances qui partagent les réglages à leur prochain démarrage."
         }
         M::IsMainInstance => "C’est votre instance principale",
         M::MakeMain => "Rendre principale",
@@ -391,6 +376,8 @@ pub fn text(message: M) -> &'static str {
             "Arrêtez le jeu pour modifier ceci\u{a0}: il réécrit options.txt en quittant."
         }
         M::NotShared => "Non partagé (Paramètres du launcher)",
+        M::SharedKey => "Partagés",
+        M::OverriddenKey => "Remplacés",
         M::ShareAll => "Tout partager",
         M::OverrideAll => "Tout remplacer",
         M::Show => "Afficher",
@@ -471,11 +458,9 @@ pub fn text(message: M) -> &'static str {
         M::AddGroupThere => "Déjà dans l’instance ({count})",
         M::AddedModpacks => "Modpacks ajoutés",
         M::AddModpackRow => "Ajouter un modpack",
-        M::AddModpackHint => {
-            "Ajoutez les mods et configurations d’un modpack à cette instance, à côté des siens."
-        }
+        M::AddModpackHint => "Rien de ce que l’instance contient n’est remplacé.",
         M::AddModpackServerHint => {
-            "Ajoutez les mods d’un modpack, comme des optimisations côté client, à côté de ceux de {server}. Les mods du serveur restent tels quels."
+            "Pour des mods client, comme des optimisations. Les mods de {server} restent tels quels."
         }
         M::AddModpackEllipsis => "Ajouter un modpack…",
         M::RemoveAddedModpackNote => {
@@ -510,10 +495,34 @@ pub fn text(message: M) -> &'static str {
         M::ExportNotDownloadable => {
             "Ceux-ci ne peuvent pas être téléchargés, donc la personne qui importe le fichier ne les aura pas\u{a0}: {files}."
         }
-        M::SnapshotAfterPlayOwnHint => {
-            "Copie les mondes après chaque partie. Réglé pour cette instance."
-        }
         M::DeleteUnreadableNote => "Elles sont supprimées définitivement.",
+        M::SnapshotsGroup => "Instantanés enregistrés",
+        M::BackUpWorldTitle => "Sauvegarder un monde",
+        M::RestoreAsNewWorld => "Restaurer comme nouveau monde",
+        M::WorldBackupWorld => "Monde",
+        M::WorldBackupDefaultName => "Sauvegarde de monde",
+        M::WorldBackupBeforeRestoring => "Avant la restauration de «\u{a0}{name}\u{a0}»",
+        M::BackUpButton => "Sauvegarder",
+        M::BackingUpWorld => "Sauvegarde de {name}…",
+        M::WorldBackedUp => "{name} est sauvegardé.",
+        M::NoWorldsToBackUp => "Cette instance n’a pas encore de monde.",
+        M::RestoreWorldTitle => "Restaurer {world}",
+        M::RestoreWorldBody => {
+            "{world} revient à son état dans «\u{a0}{name}\u{a0}» ({when}). Le monde tel qu’il est maintenant est d’abord enregistré dans une autre sauvegarde de monde."
+        }
+        M::RestoreWorldGoneBody => {
+            "{world} n’est plus dans cette instance. Il revient tel qu’il était dans «\u{a0}{name}\u{a0}» ({when})."
+        }
+        M::SaveAndRestore => "Enregistrer et restaurer",
+        M::SavingWorld => "Enregistrement du monde tel qu’il est…",
+        M::UnpackingWorldBackup => "Décompression de la sauvegarde de monde…",
+        M::WorldRestored => "{world} est restauré.",
+        M::WorldRestoredSafety => {
+            "Le monde tel qu’il était est dans la sauvegarde de monde «\u{a0}{name}\u{a0}»."
+        }
+        M::WorldRestoredAsNew => "Restauré comme nouveau monde, {folder}.",
+        M::DeleteWorldBackupTitle => "Supprimer cette sauvegarde de monde\u{a0}?",
+        M::DeleteWorldBackupBody => "«\u{a0}{name}\u{a0}» est placé dans {trash}.",
     }
 }
 
@@ -543,8 +552,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
             "{count} activés ou désactivés",
         ],
         P::CodePackChanges => ["+ {count} modification", "+ {count} modifications"],
-        P::SharedCount => ["{count}\u{a0}partagé", "{count}\u{a0}partagés"],
-        P::OverriddenCount => ["{count}\u{a0}remplacé", "{count}\u{a0}remplacés"],
         P::AndMore => [
             "{names} et {count}\u{a0}autre",
             "{names} et {count}\u{a0}autres",
@@ -600,6 +607,10 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::ImportFromServer => [
             "Une sauvegarde du serveur {server}\u{a0}: son monde, avec les mods que reçoivent ses joueurs. {count} fichier du serveur n’est pas repris (paramètres, opérateurs et plugins du serveur).",
             "Une sauvegarde du serveur {server}\u{a0}: son monde, avec les mods que reçoivent ses joueurs. {count} fichiers du serveur ne sont pas repris (paramètres, opérateurs et plugins du serveur).",
+        ],
+        P::WorldBackupLeftOut => [
+            "{count}\u{a0}fichier laissé de côté",
+            "{count}\u{a0}fichiers laissés de côté",
         ],
     }
 }

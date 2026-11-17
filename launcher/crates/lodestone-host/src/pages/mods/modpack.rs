@@ -21,13 +21,18 @@ use launcher_core::cores::admin::{
     },
 };
 use lodestone_ui::{
-    components::{Button, ButtonVariant, Icon, Toast, text_tooltip},
+    components::{
+        Button, ButtonVariant, DiffValue, Fact, FactLine, FactList, FactValue, Icon, ItemIcon,
+        Kind, NameGroup, NameItem, NameList, NameStyle, Num, ObjectCard, ObjectChip, ProductPhrase,
+        StatusBadge, Toast, VersionTag, VersionTone, readable::object_name, text_tooltip,
+    },
     i18n::format,
-    theme::{Color, colors, ink, leading, line_height, px, radius, text, weights},
+    theme::{Color, Tone, colors, ink, leading, line_height, px, radius, text, weights},
+    values::Product,
 };
 
 use super::{ModsPage, Prompt, installed::why_not, muted, warning};
-use crate::i18n::{InstanceMsg as M, InstancePlural as P, t, tr, trn};
+use crate::i18n::{FactMsg, InstanceMsg as M, InstancePlural as P, t, tr, trn};
 
 /// Where the check for a newer version stands.
 #[derive(Clone, Debug, Default)]
@@ -43,21 +48,20 @@ pub(super) enum ModpackCheck {
 /// How many changes an entry lists before "and N more".
 const CHANGES_SHOWN: usize = 40;
 
-/// "Name 1.2.3", or the name alone.
-fn origin_label(origin: &ModpackOrigin) -> String {
-    match &origin.version_number {
-        Some(version) => format!("{} {version}", origin.name),
-        None => origin.name.clone(),
-    }
-}
-
-/// At most `shown` paths, then "…".
-fn short_list(paths: &[String], shown: usize) -> String {
-    let mut list: Vec<&str> = paths.iter().take(shown).map(String::as_str).collect();
-    if paths.len() > shown {
-        list.push("…");
-    }
-    list.join(", ")
+/// The game and the loader a modpack version runs on, as plain phrases ("Minecraft
+/// 1.21.1", "Fabric 0.16.9"); no loader for a vanilla pack.
+fn software(
+    game: &str,
+    loader: &str,
+    version: Option<&str>,
+) -> (ProductPhrase, Option<ProductPhrase>) {
+    (
+        ProductPhrase::new(Product::Minecraft, game.to_string()),
+        ProductPhrase::from_name(
+            &loader_title(loader),
+            version.unwrap_or_default().to_string(),
+        ),
+    )
 }
 
 /// The sign and color of a change: `+` added, `↑` updated, `~` replaced, `−` removed.
@@ -68,6 +72,17 @@ fn change_mark(kind: ChangeKind) -> (&'static str, Color) {
         ChangeKind::Replaced => ("~", colors::YELLOW),
         ChangeKind::Removed | ChangeKind::Unknown => ("−", colors::RED_200),
     }
+}
+
+/// A count of changes as a fact: an icon whose tooltip says "Added: 3".
+fn change_fact(kind: ChangeKind, count: usize) -> Fact {
+    let (icon, key) = match kind {
+        ChangeKind::Added => (Icon::Plus, t(FactMsg::Added)),
+        ChangeKind::Updated => (Icon::ArrowUp, t(FactMsg::Updated)),
+        ChangeKind::Replaced => (Icon::ArrowsRotate, t(M::ModpackReplacedKey)),
+        ChangeKind::Removed | ChangeKind::Unknown => (Icon::Xmark, t(FactMsg::Removed)),
+    };
+    Fact::icon(icon, key, Num::count(count as u64))
 }
 
 /// A changelog (Markdown from Modrinth), in a box that scrolls when it is long.
@@ -260,7 +275,11 @@ impl ModsPage {
                 .unwrap_or_default();
             if !name.to_lowercase().ends_with(".mrpack") {
                 this.update(cx, |this, cx| {
-                    this.toast(Toast::error(tr!(M::ModpackNotMrpack, name = name)), cx)
+                    this.toast(
+                        Toast::error(t(M::ModpackNotMrpack))
+                            .object(ObjectChip::new(name).kind(Kind::File).mono()),
+                        cx,
+                    )
                 })
                 .ok();
                 return;
@@ -333,9 +352,9 @@ impl ModsPage {
                         // a restore's target is named by the entry it goes back to
                         let pack = plan.target.name.clone();
                         let mut lines = vec![if restore {
-                            tr!(M::ModpackRestored, change = pack)
+                            t(M::ModpackRestored).to_string()
                         } else {
-                            tr!(M::ModpackUpdated, pack = pack, version = version)
+                            t(M::ModpackUpdated).to_string()
                         }];
                         let counts: Vec<String> = [
                             (done.added, P::ModpackAdded),
@@ -346,12 +365,17 @@ impl ModsPage {
                         .filter(|(n, _)| *n > 0)
                         .map(|(n, message)| trn!(message, n as usize))
                         .collect();
-                        if !counts.is_empty() {
-                            lines.push(counts.join(", "));
-                        }
+                        lines.extend(counts);
                         lines.extend(done.skipped);
                         this.modpack_check = ModpackCheck::Idle;
-                        Toast::success(lines.join("\n"))
+                        if restore {
+                            Toast::success(lines.join("\n"))
+                                .object(ObjectChip::new(pack).icon(Icon::CodeCompare))
+                        } else {
+                            Toast::success(lines.join("\n"))
+                                .object(ObjectChip::new(pack).kind(Kind::Modpack))
+                                .version(VersionTag::new(version))
+                        }
                     }
                     Err(err) if restore => Toast::error(tr!(M::ModpackRestoreFailed, error = err)),
                     Err(err) => Toast::error(tr!(M::ModpackUpdateFailed, error = err)),
@@ -367,8 +391,8 @@ impl ModsPage {
         self.push(task);
     }
 
-    /// "since 3 Mar" for a file of the mods folder: when the entry its current file came
-    /// with was recorded. With the tooltip's text, which names that entry.
+    /// When the entry a file of the mods folder came with was recorded ("3 Mar"), with
+    /// the tooltip's text, which names that entry.
     pub(super) fn blame_label(&self, file_name: &str) -> Option<(String, String)> {
         let history = self.modpack_history.as_ref()?;
         // a server that never changed its pack has nothing to tell apart
@@ -378,7 +402,7 @@ impl ModsPage {
         let directory = self.list.as_ref().map_or("mods", |l| l.directory.as_str());
         let entry = history.blame_of(&format!("{directory}/{file_name}"))?;
         Some((
-            tr!(M::ModpackSince, date = entry_time(entry.time)?),
+            entry_time(entry.time)?,
             tr!(M::ModpackSinceTooltip, change = entry.label),
         ))
     }
@@ -390,27 +414,17 @@ impl ModsPage {
         let on_modrinth = !origin.project_id.is_empty();
         let status = match &self.modpack_check {
             ModpackCheck::Newest => Some(muted(t(M::ModpackUpToDate))),
-            ModpackCheck::Available(update) => Some(
-                div()
-                    .flex()
-                    .flex_row()
-                    .flex_wrap()
-                    .items_center()
-                    .gap(px(6.))
-                    .text_color(colors::GREEN)
-                    .child(div().size(px(6.)).rounded_full().bg(colors::GREEN))
-                    .child(tr!(M::ModpackOut, version = update.version_number))
-                    .when(update.changelog.is_some(), |this| {
-                        let open = self.update_changelog_open;
-                        this.child(whats_new_toggle("modpack-update-changelog", open).on_click(
-                            cx.listener(|this, _, _, cx| {
-                                this.update_changelog_open = !this.update_changelog_open;
-                                cx.notify();
-                            }),
-                        ))
-                    })
-                    .into_any_element(),
-            ),
+            ModpackCheck::Available(update) if update.changelog.is_some() => {
+                let open = self.update_changelog_open;
+                Some(
+                    whats_new_toggle("modpack-update-changelog", open)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.update_changelog_open = !this.update_changelog_open;
+                            cx.notify();
+                        }))
+                        .into_any_element(),
+                )
+            }
             ModpackCheck::Failed(error) => Some(
                 div()
                     .text_color(colors::RED_200)
@@ -419,6 +433,24 @@ impl ModsPage {
             ),
             _ => None,
         };
+        // the version it runs, and the newer one when one is out
+        let available = match &self.modpack_check {
+            ModpackCheck::Available(update) => Some(update.version_number.clone()),
+            _ => None,
+        };
+        let versions = FactLine::strip("modpack-versions")
+            .facts(
+                origin
+                    .version_number
+                    .clone()
+                    .map(|version| Fact::new(t(FactMsg::Installed), VersionTag::new(version))),
+            )
+            .facts(available.clone().map(|version| {
+                Fact::new(
+                    t(FactMsg::Available),
+                    VersionTag::new(version).tone(VersionTone::To),
+                )
+            }));
         let main_button = match &self.modpack_check {
             ModpackCheck::Available(update) if on_modrinth => {
                 let source = ModpackSource::Modrinth {
@@ -459,22 +491,20 @@ impl ModsPage {
                 .on_click(cx.listener(|this, _, _, cx| this.choose_modpack_file(cx))),
         );
         let entries = self.modpack_history.as_ref().map_or(0, |h| h.entries.len());
-        let history_button = Button::new(
-            "modpack-history",
-            if entries > 0 {
-                format!("{} ({entries})", t(M::ModpackHistory))
-            } else {
-                t(M::ModpackHistory).to_string()
-            },
-        )
-        .icon(Icon::CodeCompare)
-        .on_click(cx.listener(|this, _, _, cx| {
-            this.history_open = !this.history_open;
-            if this.history_open && this.modpack_history.is_none() {
-                this.load_modpack_history(cx);
-            }
-            cx.notify();
-        }));
+        let mut history_button = Button::new("modpack-history", t(M::ModpackHistory));
+        if entries > 0 {
+            history_button = history_button.count(entries as u64);
+        }
+        let history_button =
+            history_button
+                .icon(Icon::CodeCompare)
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.history_open = !this.history_open;
+                    if this.history_open && this.modpack_history.is_none() {
+                        this.load_modpack_history(cx);
+                    }
+                    cx.notify();
+                }));
         let header = div()
             .flex()
             .flex_row()
@@ -487,14 +517,28 @@ impl ModsPage {
                     .flex()
                     .flex_col()
                     .gap(px(4.))
+                    .gap(px(8.))
                     .child(
                         div()
-                            .text_size(text::H3)
-                            .font_weight(weights::BOLD.face())
-                            .text_color(ink::text())
-                            .child(origin_label(&origin)),
+                            .flex()
+                            .flex_row()
+                            .flex_wrap()
+                            .items_center()
+                            .gap(px(8.))
+                            .child(
+                                object_name(origin.name.clone())
+                                    .text_size(text::H3)
+                                    .font_weight(weights::BOLD.face()),
+                            )
+                            .when(available.is_some(), |this| {
+                                this.child(StatusBadge::new(
+                                    t(M::ModpackUpdateAvailable),
+                                    Tone::Info,
+                                ))
+                            }),
                     )
-                    .child(muted(tr!(M::ModpackFrom, pack = origin.name)))
+                    .child(muted(t(M::ModpackFrom)))
+                    .child(versions)
                     .children(status),
             )
             .child(
@@ -610,7 +654,13 @@ impl ModsPage {
             .when(!last, |this| {
                 this.child(div().flex_1().w(px(2.)).bg(ink::border()))
             });
-        let counts: Vec<AnyElement> = [
+        // what it changed, the game and loader it ran, and when it was recorded
+        let (game, loader) = software(
+            &entry.game_version,
+            &entry.loader,
+            entry.loader_version.as_deref(),
+        );
+        let facts: Vec<Fact> = [
             ChangeKind::Added,
             ChangeKind::Updated,
             ChangeKind::Replaced,
@@ -619,19 +669,15 @@ impl ModsPage {
         .into_iter()
         .filter_map(|kind| {
             let n = entry.count(kind);
-            (n > 0).then(|| {
-                let (sign, color) = change_mark(kind);
-                lodestone_ui::components::settings::tag(format!("{sign}{n}"), color)
-                    .into_any_element()
-            })
+            (n > 0).then(|| change_fact(kind, n).priority(2))
         })
+        .chain(Some(Fact::bare_named(game.key(), game).priority(1)))
+        .chain(loader.map(|loader| Fact::bare_named(loader.key(), loader).priority(1)))
+        .chain(
+            entry_time(entry.time)
+                .map(|time| Fact::new(t(M::ModpackRecorded), FactValue::time(time))),
+        )
         .collect();
-        let software = format!(
-            "Minecraft {} · {} {}",
-            entry.game_version,
-            loader_title(&entry.loader),
-            entry.loader_version.clone().unwrap_or_default()
-        );
         let restore = (!entry.current).then(|| {
             let missing = entry.missing > 0;
             let button = Button::new(
@@ -689,28 +735,12 @@ impl ModsPage {
                         })
                     })
             })
-            .child(
-                div()
-                    .font_weight(weights::BOLD.face())
-                    .text_color(ink::text())
-                    .child(entry.label.clone()),
-            )
+            .child(object_name(entry.label.clone()))
             .when(entry.current, |this| {
-                this.child(lodestone_ui::components::settings::tag(
-                    t(M::ModpackCurrent),
-                    colors::GREEN,
-                ))
-            })
-            .children(counts);
-        let details = div()
-            .flex()
-            .flex_row()
-            .flex_wrap()
-            .gap(px(8.))
-            .text_size(text::SMALL)
-            .text_color(ink::faint())
-            .children(entry_time(entry.time))
-            .child(software);
+                this.child(StatusBadge::new(t(M::ModpackCurrent), Tone::Success))
+            });
+        let details =
+            FactLine::row(SharedString::from(format!("modpack-entry-facts-{id}"))).facts(facts);
         let changes = open.then(|| self.change_list(entry));
         div()
             .flex()
@@ -736,6 +766,8 @@ impl ModsPage {
                                 div()
                                     .flex()
                                     .flex_col()
+                                    .flex_1()
+                                    .min_w_0()
                                     .gap(px(2.))
                                     .child(header)
                                     .child(details),
@@ -812,18 +844,64 @@ impl ModsPage {
             .and_then(|o| o.version_number)
             .unwrap_or_else(unknown);
         let target = &plan.target;
-        // a restore's target is named by the entry it goes back to
-        let intro = if restore {
-            tr!(M::ModpackDialogRestoreIntro, change = target.name)
+        let mut lines: Vec<AnyElement> = Vec::new();
+        // what changes: the pack (a restore's target is named by the entry it goes back
+        // to), then its version from and to
+        let to = target.version_number.clone().unwrap_or_else(unknown);
+        if restore {
+            lines.push(
+                ObjectCard::new(target.name.clone())
+                    .thumbnail(
+                        div()
+                            .size_full()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .bg(colors::GRAY_750)
+                            .child(Icon::CodeCompare.render(px(16.), colors::GRAY_500)),
+                    )
+                    .fact(Fact::bare_named(
+                        t(FactMsg::Version),
+                        VersionTag::new(to.clone()),
+                    ))
+                    .into_any_element(),
+            );
+            lines.push(
+                div()
+                    .child(t(M::ModpackDialogRestoreIntro))
+                    .into_any_element(),
+            );
         } else {
-            tr!(
-                M::ModpackDialogIntro,
-                pack = target.name,
-                from = current,
-                to = target.version_number.clone().unwrap_or_else(unknown)
-            )
-        };
-        let mut lines: Vec<AnyElement> = vec![div().child(intro).into_any_element()];
+            lines.push(
+                ObjectCard::new(target.name.clone())
+                    .kind(Kind::Modpack)
+                    .into_any_element(),
+            );
+        }
+        let mut facts = FactList::new("modpack-plan");
+        if !restore {
+            facts = facts.row(t(FactMsg::Version), DiffValue::versions(current, to));
+        }
+        if plan.reinstalls_server {
+            let (game, loader) = software(
+                &target.game_version,
+                &target.loader,
+                target.loader_version.as_deref(),
+            );
+            facts = facts.row(game.key(), game);
+            if let Some(loader) = loader {
+                facts = facts.row(loader.key(), loader);
+            }
+        }
+        for (n, key) in [
+            (plan.added.len(), t(FactMsg::Added)),
+            (plan.replaced.len(), t(M::ModpackReplacedKey)),
+            (plan.removed.len(), t(FactMsg::Removed)),
+        ] {
+            if n > 0 {
+                facts = facts.row(key, Num::count(n as u64));
+            }
+        }
         if let Some(reason) = &target.unsupported_reason {
             lines.push(
                 div()
@@ -833,44 +911,37 @@ impl ModsPage {
             );
         }
         if plan.reinstalls_server {
-            let software = format!(
-                "{} {} · Minecraft {}",
-                loader_title(&target.loader),
-                target.loader_version.clone().unwrap_or_default(),
-                target.game_version
-            );
-            lines.push(
-                div()
-                    .child(tr!(M::ModpackDialogReinstall, software = software))
-                    .into_any_element(),
-            );
+            lines.push(div().child(t(M::ModpackDialogReinstall)).into_any_element());
         }
-        let counts: Vec<String> = [
-            (plan.added.len(), P::ModpackAdded),
-            (plan.replaced.len(), P::ModpackReplaced),
-            (plan.removed.len(), P::ModpackRemoved),
-        ]
-        .into_iter()
-        .filter(|(n, _)| *n > 0)
-        .map(|(n, message)| trn!(message, n))
-        .collect();
-        lines.push(
-            div()
-                .child(if counts.is_empty() {
-                    t(M::ModpackDialogNothing).to_string()
-                } else {
-                    counts.join(", ")
-                })
-                .into_any_element(),
-        );
-        if !plan.removed.is_empty() {
-            lines.push(muted(short_list(&plan.removed, 8)));
+        lines.push(facts.into_any_element());
+        if plan.added.is_empty() && plan.replaced.is_empty() && plan.removed.is_empty() {
+            lines.push(div().child(t(M::ModpackDialogNothing)).into_any_element());
         }
-        if !plan.kept.is_empty() {
-            lines.push(muted(tr!(
-                M::ModpackDialogKept,
-                files = short_list(&plan.kept, 8)
-            )));
+        // the files removed, and the ones kept as the person changed them
+        let files = |heading: &str, paths: &[String], icon: ItemIcon| {
+            NameGroup::new(heading.to_string()).items(paths.iter().map(|path| {
+                NameItem::new(path.clone())
+                    .icon(icon)
+                    .style(NameStyle::Path)
+            }))
+        };
+        if !plan.removed.is_empty() || !plan.kept.is_empty() {
+            let mut list = NameList::new("modpack-plan-files").collapsed_after(5);
+            if !plan.removed.is_empty() {
+                list = list.group(files(
+                    t(FactMsg::Removed),
+                    &plan.removed,
+                    ItemIcon::Kind(Kind::File),
+                ));
+            }
+            if !plan.kept.is_empty() {
+                list = list.group(files(
+                    t(M::ModpackDialogKept),
+                    &plan.kept,
+                    ItemIcon::Kind(Kind::File),
+                ));
+            }
+            lines.push(list.into_any_element());
         }
         if let Some(note) = &plan.note {
             lines.push(muted(note.clone()));

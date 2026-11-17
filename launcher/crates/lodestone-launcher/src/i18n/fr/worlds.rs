@@ -15,8 +15,6 @@ pub fn text(message: M) -> &'static str {
         }
 
         M::BackingUp => "Sauvegarde de {name}",
-        M::RestoringBackup => "Restauration de la sauvegarde",
-        M::ReplacingWorld => "Remplacement du monde par la sauvegarde",
         M::MovingToTrash => "Déplacement de {name} dans {trash}",
         M::Renaming => "Renommage",
         M::Exporting => "Exportation de {name}",
@@ -48,14 +46,8 @@ pub fn text(message: M) -> &'static str {
         M::Snapshot => "{version} (snapshot)",
         M::PlayedAt => "Joué\u{a0}: {time}",
         M::BackUp => "Sauvegarder",
-        M::Backups => "Sauvegardes",
         M::Export => "Exporter…",
         M::DeleteWorld => "Supprimer…",
-        M::NoBackupsYet => {
-            "Aucun instantané de ce monde pour l’instant. «\u{a0}Sauvegarder\u{a0}» en prend un\u{a0}; Paramètres › Instantanés les liste tous."
-        }
-        M::RestoreAsCopy => "Restaurer une copie",
-        M::ReplaceWorld => "Remplacer le monde…",
 
         M::DataPacks => "Packs de données",
         M::ReadingDataPacks => "Lecture des packs de données",
@@ -97,26 +89,28 @@ pub fn text(message: M) -> &'static str {
         M::OpenSavesFolder => "Ouvrir le dossier saves",
         M::ReadingWorlds => "Lecture des mondes",
         M::NoWorldsYet => "Aucun monde pour l’instant",
-        M::NoWorldsHint => {
-            "Les mondes que vous créez dans le jeu apparaissent ici. Vous pouvez aussi importer un monde en zip, ou le déposer ici."
-        }
+        M::NoWorldsHint => "Créez-en un dans le jeu, ou déposez ici un monde en zip.",
 
         M::ReadingScreenshots => "Lecture des captures d’écran",
         M::NoScreenshotsYet => "Aucune capture d’écran pour l’instant",
-        M::NoScreenshotsHint => {
-            "Appuyez sur F2 dans le jeu pour en prendre une\u{202F}; elles apparaissent ici."
-        }
+        M::NoScreenshotsHint => "Appuyez sur F2 dans le jeu pour en prendre une.",
         M::Position => "{index} sur {count}",
         M::CopyImage => "Copier l’image",
+        M::RestoringFromSnapshot => "Restauration du monde depuis l’instantané",
+        M::WorldBackupsHeading => "Sauvegardes de mondes",
+        M::NoWorldBackupsYet => "Aucune sauvegarde pour l’instant.",
+        M::InSnapshots => "Dans les instantanés",
+        M::NoSnapshotsOfWorld => {
+            "Aucun instantané ne contient ce monde pour l’instant. Paramètres › Instantanés en prend."
+        }
+        M::RestoreEllipsis => "Restaurer…",
+        M::RestoreAsNewWorld => "Restaurer comme nouveau monde",
     }
 }
 
 pub fn plural(message: P) -> [&'static str; 2] {
     match message {
-        P::ScreenshotsSummary => [
-            "{count} capture d’écran · F2 dans le jeu en prend une",
-            "{count} captures d’écran · F2 dans le jeu en prend une",
-        ],
+        P::ScreenshotsSummary => ["{count} capture d’écran", "{count} captures d’écran"],
         P::WithOtherWorlds => [
             "avec {count}\u{a0}autre monde",
             "avec {count}\u{a0}autres mondes",

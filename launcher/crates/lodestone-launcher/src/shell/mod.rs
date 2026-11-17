@@ -26,6 +26,7 @@ use crate::skin::Skinned;
 use crate::theme::px;
 use launcher_core::ui_skin::SurfaceId;
 pub use launcher_settings::LauncherSettings;
+use lodestone_ui::values::truncate::sanitize;
 use settings_modal::SettingsModal;
 pub use settings_modal::SettingsPage;
 pub use shared_settings::SharedSettings;
@@ -54,11 +55,13 @@ use crate::{
         skin_dialog::{SkinDialog, SkinDialogDismissed},
     },
     components::{
-        Button, ButtonVariant, Dialog, DialogSlot, RichText, UnderDialogs, focus,
+        Button, ButtonVariant, CountBadge, Dialog, DialogSlot, DiffValue, Fact, FactList,
+        FactValue, ItemIcon, Kind, NameGroup, NameItem, NameList, Num, ObjectCard, ObjectChip,
+        ProductPhrase, RichText, UnderDialogs, ValueField, ValueKind, VersionTag, focus,
         settings::{FindSetting, SettingsSearch, Toast},
         window_frame,
     },
-    i18n::{CommonMsg, ShellMsg as M, ShellPlural as P, format, t, tr, trn},
+    i18n::{CommonMsg, FactMsg, ShellMsg as M, ShellPlural as P, t, tr, trn},
     instances::{
         CrashInfo, Instances, InstancesEvent,
         add_modpack::{AddModpackDialog, AddModpackDismissed},
@@ -131,15 +134,6 @@ pub(crate) fn loader_name(loader: Loader) -> &'static str {
     }
 }
 
-/// The instance's loader with its version, "Fabric 0.16.14", or "Vanilla" in the
-/// current language.
-pub(crate) fn loader_label(instance: &Instance) -> String {
-    match instance.loader.kind() {
-        Some(_) => instance.loader_label(),
-        None => t(M::Vanilla).to_string(),
-    }
-}
-
 /// The dialog over the window, if any.
 enum Modal {
     NewInstance {
@@ -149,6 +143,11 @@ enum Modal {
     /// Taking, putting back, sharing, deleting or importing a snapshot.
     Snapshot {
         dialog: Entity<crate::instances::snapshots::SnapshotDialog>,
+        _events: Subscription,
+    },
+    /// Making, restoring or deleting a world backup.
+    WorldBackup {
+        dialog: Entity<crate::instances::world_backups::WorldBackupDialog>,
         _events: Subscription,
     },
     /// "Import from another launcher".
@@ -183,6 +182,11 @@ enum Modal {
     LaunchFailed {
         title: SharedString,
         message: SharedString,
+        focus: FocusHandle,
+    },
+    /// A notice with its names and values set apart.
+    Report {
+        report: Box<crate::instances::report::Report>,
         focus: FocusHandle,
     },
     /// "Make {name} your main instance?", for a new instance with no main yet.
@@ -242,11 +246,11 @@ enum Modal {
         name: String,
         focus: FocusHandle,
     },
-    /// Replacing a world with one of its backups.
+    /// Restoring a world, in place, from a snapshot that holds it.
     ReplaceWorld {
         folder: String,
         name: String,
-        backup: crate::instances::worlds::Backup,
+        backup: crate::instances::worlds::SnapshotCopy,
         focus: FocusHandle,
     },
     /// What a modpack update will do, before it does it.
@@ -314,7 +318,7 @@ pub struct LauncherShell {
     /// Updating the launcher: Settings > General, and the top bar's notice.
     updater: Entity<Updater>,
     /// The Settings tab of the selected instance, rebuilt when the selection changes.
-    settings: Option<(Entity<InstanceSettings>, [Subscription; 8])>,
+    settings: Option<(Entity<InstanceSettings>, [Subscription; 9])>,
     page: Page,
     tab: InstanceTab,
     /// The launcher's Settings, a large dialog under the other dialogs.
@@ -367,6 +371,9 @@ pub struct LauncherShell {
     undo_toast: Toast,
     /// The notification that offers "Keep the narrator off", while it's shown.
     narrator_offer: Option<narrator_offer::NarratorOffer>,
+    /// The top bar's "closed unexpectedly last time", until it's dismissed: the last
+    /// run crashed ([`launcher_core::logging::Started::previous_crash`]).
+    pub crash_notice: Option<launcher_core::logging::Crash>,
     /// Shows it shortly after the window opens.
     narrator_offer_pending: Option<Task<()>>,
     _observe: Vec<Subscription>,
@@ -404,9 +411,20 @@ impl LauncherShell {
                 InstancesEvent::Exited { .. }
                 | InstancesEvent::ReachedMenu(_)
                 | InstancesEvent::ModsRefused(_) => {}
+                InstancesEvent::Report(report) => {
+                    let focus = cx.focus_handle();
+                    this.open_modal(
+                        Modal::Report {
+                            report: report.clone(),
+                            focus,
+                        },
+                        cx,
+                    );
+                }
                 InstancesEvent::LaunchFailed { title, message, .. }
                 | InstancesEvent::PlayFailed { title, message, .. }
                 | InstancesEvent::Notice { title, message, .. } => {
+                    crate::instances::log_shown(event);
                     let focus = cx.focus_handle();
                     this.open_modal(
                         Modal::LaunchFailed {
@@ -509,6 +527,9 @@ impl LauncherShell {
         let worlds = cx.new(|cx| WorldsView::new(instances.clone(), cx));
         observe.push(cx.subscribe(&worlds, |this, _, event, cx| {
             let modal = match event {
+                WorldsEvent::WorldBackup(request) => {
+                    return this.open_world_backup(request.clone(), cx);
+                }
                 WorldsEvent::Delete { folder, name } => Modal::DeleteWorld {
                     folder: folder.clone(),
                     name: name.clone(),
@@ -673,6 +694,7 @@ impl LauncherShell {
             undo_toast: Toast::default(),
             narrator_offer: None,
             narrator_offer_pending: None,
+            crash_notice: launcher_core::logging::started().and_then(|s| s.previous_crash),
             _observe: observe,
             // Redrawing the whole window takes the main thread about 10 ms, so it only
             // happens when a label changes ("2 hours ago" changes once an hour), not
@@ -878,7 +900,7 @@ impl LauncherShell {
         const SHOWN: usize = 6;
         let plan = &prompt.plan;
         let entity = cx.entity();
-        let list = |title: String, items: Vec<String>, color: theme::Color| {
+        let list = |title: &'static str, items: Vec<String>, color: theme::Color| {
             let more = items.len().saturating_sub(SHOWN);
             div()
                 .flex()
@@ -886,10 +908,15 @@ impl LauncherShell {
                 .gap_0p5()
                 .child(
                     div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap(px(6.))
                         .text_size(theme::text_size(text::SMALL))
                         .font_weight(weights::BOLD.into())
                         .text_color(color)
-                        .child(title),
+                        .child(title)
+                        .child(CountBadge::new(items.len() as u64)),
                 )
                 .children(items.into_iter().take(SHOWN).map(|item| {
                     div()
@@ -909,12 +936,11 @@ impl LauncherShell {
                     )
                 })
         };
-        let count = |n: usize| format::number(n as u64);
         let name = |path: &String| path.rsplit('/').next().unwrap_or(path).to_string();
         let mut groups = Vec::new();
         if !plan.updated.is_empty() {
             groups.push(list(
-                tr!(M::UpdatedFiles, count = count(plan.updated.len())),
+                t(M::UpdatedFiles),
                 plan.updated
                     .iter()
                     .map(|(old, new)| {
@@ -930,21 +956,21 @@ impl LauncherShell {
         }
         if !plan.added.is_empty() {
             groups.push(list(
-                tr!(M::AddedFiles, count = count(plan.added.len())),
+                t(M::AddedFiles),
                 plan.added.iter().map(name).collect(),
                 colors::GREEN_300,
             ));
         }
         if !plan.removed.is_empty() {
             groups.push(list(
-                tr!(M::RemovedFiles, count = count(plan.removed.len())),
+                t(M::RemovedFiles),
                 plan.removed.iter().map(name).collect(),
                 colors::RED_200,
             ));
         }
         if !plan.replaced_own.is_empty() {
             groups.push(list(
-                tr!(M::ReplacedOwnFiles, count = count(plan.replaced_own.len())),
+                t(M::ReplacedOwnFiles),
                 plan.replaced_own.clone(),
                 colors::YELLOW_300,
             ));
@@ -956,121 +982,131 @@ impl LauncherShell {
             .cloned()
             .collect();
         if !kept.is_empty() {
-            groups.push(list(
-                tr!(M::KeptFiles, count = count(kept.len())),
-                kept,
-                colors::GRAY_400,
-            ));
+            groups.push(list(t(M::KeptFiles), kept, colors::GRAY_400));
         }
         if !plan.overrides_written.is_empty() {
             groups.push(list(
-                tr!(M::WrittenFiles, count = count(plan.overrides_written.len())),
+                t(M::WrittenFiles),
                 plan.overrides_written.clone(),
                 colors::GRAY_400,
             ));
         }
-        let loader = match &plan.loader {
-            Some(loader) => format!("{} {}", loader.kind.label(), loader.version),
-            None => t(M::Vanilla).to_string(),
-        };
-        let summary = tr!(
-            M::ModpackSummary,
-            pack = plan.record.title,
-            from = if prompt.from_version.is_empty() {
-                "?"
-            } else {
-                &prompt.from_version
-            },
-            to = plan.record.version_number,
-            game = plan.game_version,
-            loader = loader,
-            size = format::bytes_binary(plan.download_size()),
-        );
-        Dialog::new(
-            "modpack-update",
-            tr!(M::UpdateTitle, name = prompt.instance_name),
-            focus,
-        )
-        .width(px(560.))
-        .on_close({
-            let entity = entity.clone();
-            move |_, cx| {
-                entity.update(cx, |this, cx| {
-                    this.discard_pending_update(cx);
-                    this.close_modal(cx)
-                })
-            }
-        })
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap_3()
-                .text_color(crate::theme::ink::secondary())
-                .child(div().whitespace_normal().child(summary))
-                .when(!plan.changes_files(), |this| {
-                    this.child(div().child(t(M::NoFilesChange)))
-                })
-                .child(
-                    div()
-                        .id("modpack-update-plan")
-                        .flex()
-                        .flex_col()
-                        .gap_2()
-                        .max_h(px(260.))
-                        .overflow_y_scroll()
-                        .px_3()
-                        .py_2()
-                        .rounded(radius::LG)
-                        .bg(colors::GRAY_900)
-                        .children(groups),
-                )
-                .child(
-                    div()
-                        .whitespace_normal()
-                        .text_size(theme::text_size(text::SMALL))
-                        .child(match &prompt.snapshot_failed {
-                            None => t(M::ModpackUpdateSafety).to_string(),
-                            Some(error) => tr!(M::ModpackUpdateNoSnapshot, error = error),
-                        }),
-                ),
-        )
-        .footer(
-            Button::new(
-                "confirm-modpack-update",
-                if prompt.snapshot_failed.is_some() {
-                    t(M::UpdateWithoutSnapshot)
-                } else {
-                    t(CommonMsg::Update)
-                },
+        // the pack's change, the game and loader it brings, and the download, as a
+        // table: the instance is the card above it
+        let pack_change: FactValue = if prompt.from_version.is_empty() {
+            VersionTag::new(plan.record.version_number.clone()).into()
+        } else {
+            DiffValue::versions(
+                prompt.from_version.clone(),
+                plan.record.version_number.clone(),
             )
-            .variant(ButtonVariant::Primary)
-            .on_click(cx.listener(|this, _, _, cx| {
-                let update = match this.modal.close(cx) {
-                    Some(Modal::ModpackUpdate { prompt, .. }) => {
-                        let mut prompt = (**prompt).clone();
-                        prompt.without_snapshot = prompt.snapshot_failed.is_some();
-                        Some(prompt)
-                    }
-                    _ => None,
-                };
-                this.show_queued_modal_soon(cx);
-                if let Some(prompt) = update {
-                    this.instances.update(cx, |instances, cx| {
-                        instances.apply_modpack_update(prompt, cx)
-                    });
+            .into()
+        };
+        let mut summary = FactList::new("modpack-update-summary")
+            .row(sanitize(&plan.record.title, 64), pack_change)
+            .row(
+                t(FactMsg::Game),
+                crate::instances::facts::game(&plan.game_version),
+            );
+        summary = match &plan.loader {
+            Some(loader) => summary.row(
+                t(FactMsg::Loader),
+                ProductPhrase::new(loader.kind.into(), loader.version.clone()),
+            ),
+            None => summary.row(t(FactMsg::Loader), FactValue::text(t(FactMsg::Vanilla))),
+        };
+        let summary = summary.row(t(FactMsg::Download), Num::bytes(plan.download_size()));
+        let card = self
+            .instances
+            .read(cx)
+            .list()
+            .iter()
+            .find(|instance| instance.id == prompt.instance_id)
+            .map(|instance| ObjectCard::new(instance.name.clone()).kind(Kind::Instance))
+            .unwrap_or_else(|| crate::instances::facts::named_card(&prompt.instance_name))
+            .compact(true);
+        Dialog::new("modpack-update", t(M::UpdateInstanceTitle), focus)
+            .width(px(560.))
+            .on_close({
+                let entity = entity.clone();
+                move |_, cx| {
+                    entity.update(cx, |this, cx| {
+                        this.discard_pending_update(cx);
+                        this.close_modal(cx)
+                    })
                 }
-            })),
-        )
-        .footer(
-            Button::new("cancel-modpack-update", t(CommonMsg::Cancel))
-                .variant(ButtonVariant::Secondary)
+            })
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_3()
+                    .text_color(crate::theme::ink::secondary())
+                    .child(card)
+                    .child(summary)
+                    .when(!plan.changes_files(), |this| {
+                        this.child(div().child(t(M::NoFilesChange)))
+                    })
+                    .child(
+                        div()
+                            .id("modpack-update-plan")
+                            .flex()
+                            .flex_col()
+                            .gap_2()
+                            .max_h(px(260.))
+                            .overflow_y_scroll()
+                            .px_3()
+                            .py_2()
+                            .rounded(radius::LG)
+                            .bg(colors::GRAY_900)
+                            .children(groups),
+                    )
+                    .child(
+                        div()
+                            .whitespace_normal()
+                            .text_size(theme::text_size(text::SMALL))
+                            .child(match &prompt.snapshot_failed {
+                                None => t(M::ModpackUpdateSafety).to_string(),
+                                Some(error) => tr!(M::ModpackUpdateNoSnapshot, error = error),
+                            }),
+                    ),
+            )
+            .footer(
+                Button::new(
+                    "confirm-modpack-update",
+                    if prompt.snapshot_failed.is_some() {
+                        t(M::UpdateWithoutSnapshot)
+                    } else {
+                        t(CommonMsg::Update)
+                    },
+                )
+                .variant(ButtonVariant::Primary)
                 .on_click(cx.listener(|this, _, _, cx| {
-                    this.discard_pending_update(cx);
-                    this.close_modal(cx)
+                    let update = match this.modal.close(cx) {
+                        Some(Modal::ModpackUpdate { prompt, .. }) => {
+                            let mut prompt = (**prompt).clone();
+                            prompt.without_snapshot = prompt.snapshot_failed.is_some();
+                            Some(prompt)
+                        }
+                        _ => None,
+                    };
+                    this.show_queued_modal_soon(cx);
+                    if let Some(prompt) = update {
+                        this.instances.update(cx, |instances, cx| {
+                            instances.apply_modpack_update(prompt, cx)
+                        });
+                    }
                 })),
-        )
-        .into_any_element()
+            )
+            .footer(
+                Button::new("cancel-modpack-update", t(CommonMsg::Cancel))
+                    .variant(ButtonVariant::Secondary)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.discard_pending_update(cx);
+                        this.close_modal(cx)
+                    })),
+            )
+            .into_any_element()
     }
 
     fn render_world_dialog(&self, modal: &Modal, cx: &mut Context<Self>) -> Option<AnyElement> {
@@ -1237,6 +1273,15 @@ impl LauncherShell {
                             this.open_snapshot(request.clone(), cx)
                         },
                     ),
+                    cx.subscribe(
+                        &settings,
+                        |this,
+                         _,
+                         crate::instances::world_backups::WorldBackupRequested(request),
+                         cx| {
+                            this.open_world_backup(request.clone(), cx)
+                        },
+                    ),
                 ];
                 self.settings = Some((settings, subscriptions));
             }
@@ -1293,6 +1338,15 @@ impl LauncherShell {
     ) {
         let focus = cx.focus_handle();
         self.open_modal(Modal::ToggleMod { prompt, focus }, cx);
+    }
+
+    /// The card naming the instance `id` under a dialog's title, with its game and
+    /// loader; its name alone when it is gone.
+    fn instance_card(&self, id: &str, name: &str, cx: &App) -> ObjectCard {
+        match self.instances.read(cx).list().iter().find(|i| i.id == id) {
+            Some(instance) => crate::instances::facts::card(instance),
+            None => crate::instances::facts::named_card(name),
+        }
     }
 
     /// Shows the launch error dialog, for the offscreen screenshots.
@@ -1428,8 +1482,8 @@ impl LauncherShell {
                 return;
             }
         }
-        let snapshot_busy =
-            matches!(current, Some(Modal::Snapshot { dialog, .. }) if dialog.read(cx).busy());
+        let snapshot_busy = matches!(current, Some(Modal::Snapshot { dialog, .. }) if dialog.read(cx).busy())
+            || matches!(current, Some(Modal::WorldBackup { dialog, .. }) if dialog.read(cx).busy());
         let wait = searching.is_some()
             || snapshot_busy
             || matches!(current, Some(Modal::ConfirmRosetta { .. }))
@@ -1766,13 +1820,7 @@ impl LauncherShell {
     /// Closes the dialog; it fades out.
     /// After "Move to Trash" in the Delete dialog: closes it, or shows why the instance
     /// couldn't be moved (in its own dialog if that one was closed meanwhile).
-    fn instance_deleted(
-        &mut self,
-        id: &str,
-        name: &str,
-        result: Result<(), String>,
-        cx: &mut Context<Self>,
-    ) {
+    fn instance_deleted(&mut self, id: &str, result: Result<(), String>, cx: &mut Context<Self>) {
         let showing = matches!(
             self.modal.current(),
             Some(Modal::DeleteInstance { id: shown, .. }) if shown == id
@@ -1796,7 +1844,7 @@ impl LauncherShell {
                 let focus = cx.focus_handle();
                 self.open_modal(
                     Modal::LaunchFailed {
-                        title: tr!(M::DeleteNamed, name = name).into(),
+                        title: t(M::DeleteInstanceTitle).into(),
                         message: err.into(),
                         focus,
                     },
@@ -1823,6 +1871,7 @@ impl LauncherShell {
             Some(Modal::NewInstance { dialog: open, .. }) => open.entity_id() == dialog,
             Some(Modal::Import { dialog: open, .. }) => open.entity_id() == dialog,
             Some(Modal::Snapshot { dialog: open, .. }) => open.entity_id() == dialog,
+            Some(Modal::WorldBackup { dialog: open, .. }) => open.entity_id() == dialog,
             Some(Modal::Share { dialog: open, .. }) => open.entity_id() == dialog,
             Some(Modal::AddModpack { dialog: open, .. }) => open.entity_id() == dialog,
             Some(Modal::SignIn { dialog: open, .. }) => open.entity_id() == dialog,
@@ -1946,6 +1995,40 @@ impl LauncherShell {
             },
             cx,
         );
+    }
+
+    /// Opens the world backup dialog for `request`.
+    pub fn open_world_backup(
+        &mut self,
+        request: crate::instances::world_backups::WorldBackupRequest,
+        cx: &mut Context<Self>,
+    ) {
+        use crate::instances::world_backups::{WorldBackupDialog, WorldBackupDismissed};
+        self.account_menu_open = false;
+        let instances = self.instances.clone();
+        let dialog = cx.new(|cx| WorldBackupDialog::new(instances, request, cx));
+        let subscription = cx.subscribe(&dialog, |this, dialog, _: &WorldBackupDismissed, cx| {
+            if this.is_open_dialog(dialog.entity_id()) {
+                this.close_modal(cx)
+            }
+        });
+        self.open_modal(
+            Modal::WorldBackup {
+                dialog,
+                _events: subscription,
+            },
+            cx,
+        );
+    }
+
+    /// The open world backup dialog, for the offscreen screenshots.
+    pub fn world_backup_dialog(
+        &self,
+    ) -> Option<&Entity<crate::instances::world_backups::WorldBackupDialog>> {
+        match self.modal.current() {
+            Some(Modal::WorldBackup { dialog, .. }) => Some(dialog),
+            _ => None,
+        }
     }
 
     /// The open snapshot dialog, for the offscreen screenshots.
@@ -2352,7 +2435,7 @@ impl LauncherShell {
         focus: FocusHandle,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        use crate::i18n::{ContentMsg as CM, ContentPlural as CP};
+        use crate::i18n::ContentMsg as CM;
         let name = prompt.name.clone();
         let enable = prompt.enable;
         let all: Vec<String> = std::iter::once(prompt.file_name.clone())
@@ -2372,41 +2455,36 @@ impl LauncherShell {
                 })
             }
         };
-        let list = div()
-            .flex()
-            .flex_col()
-            .gap_1()
-            .py_2()
-            .px_3()
-            .rounded(radius::LG)
-            .bg(colors::GRAY_900)
-            .text_color(crate::theme::ink::text())
-            .children(prompt.others.iter().map(|other| {
-                div()
-                    .flex()
-                    .flex_row()
-                    .gap_2()
-                    .child(div().text_color(crate::theme::ink::muted()).child("•"))
-                    .child(other.name.clone())
-            }));
-        let count = prompt.others.len();
+        // the mod in a card under the title; the mods it concerns, counted, under it
+        let heading = t(if enable {
+            CM::NeedsHeading
+        } else {
+            CM::NeededByHeading
+        });
+        let list =
+            NameList::new("toggle-mod-others").collapsed_after(5).group(
+                NameGroup::new(heading).items(prompt.others.iter().map(|other| {
+                    NameItem::new(other.name.clone()).icon(ItemIcon::Kind(Kind::Mod))
+                })),
+            );
+        let card = ObjectCard::new(name.clone()).kind(Kind::Mod).compact(true);
         let (id, title, lead, warning, all_label, only_label) = if enable {
             (
                 "enable-mod",
-                tr!(CM::EnableModTitle, name = name),
-                trn!(CP::Needs, count, name = name),
-                tr!(CM::EnableModOnlyWarning, name = name),
+                t(CM::EnableModTitle),
+                None,
+                t(CM::EnableModOnlyWarning),
                 t(CM::EnableModAll),
-                tr!(CM::EnableModOnly, name = name),
+                t(CM::EnableModOnly),
             )
         } else {
             (
                 "disable-mod",
-                tr!(CM::DisableModTitle, name = name),
-                trn!(CP::NeededBy, count, name = name),
-                tr!(CM::DisableModOnlyWarning, name = name),
+                t(CM::DisableModTitle),
+                Some(t(CM::NeededByBody)),
+                t(CM::DisableModOnlyWarning),
                 t(CM::DisableModAll),
-                tr!(CM::DisableModOnly, name = name),
+                t(CM::DisableModOnly),
             )
         };
         Dialog::new(id, title, focus)
@@ -2420,8 +2498,9 @@ impl LauncherShell {
                     .flex_col()
                     .gap_3()
                     .text_color(crate::theme::ink::secondary())
-                    .child(lead)
+                    .child(card)
                     .child(list)
+                    .children(lead)
                     .child(
                         div()
                             .text_size(theme::text_size(text::SMALL))
@@ -2454,6 +2533,7 @@ impl LauncherShell {
             Modal::NewInstance { dialog, .. } => dialog.clone().into_any_element(),
             Modal::Import { dialog, .. } => dialog.clone().into_any_element(),
             Modal::Snapshot { dialog, .. } => dialog.clone().into_any_element(),
+            Modal::WorldBackup { dialog, .. } => dialog.clone().into_any_element(),
             Modal::Share { dialog, .. } => dialog.clone().into_any_element(),
             Modal::AddModpack { dialog, .. } => dialog.clone().into_any_element(),
             Modal::ModFinder { finder, .. } => finder.clone().into_any_element(),
@@ -2471,43 +2551,48 @@ impl LauncherShell {
                     turned_off,
                     error: error.clone(),
                     can_find: self.can_find_mod(crash, cx),
+                    instance: self
+                        .instances
+                        .read(cx)
+                        .list()
+                        .iter()
+                        .find(|instance| instance.id == crash.instance_id)
+                        .cloned(),
                 },
                 close(cx),
                 cx,
             ),
             Modal::OfferMain { id, name, focus } => {
+                let card = self.instance_card(id, name, cx);
                 let id = id.clone();
-                Dialog::new(
-                    "offer-main",
-                    tr!(M::MainOfferTitle, name = name),
-                    focus.clone(),
-                )
-                .on_close(close(cx))
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap_2()
-                        .text_color(crate::theme::ink::secondary())
-                        .whitespace_normal()
-                        .child(t(M::MainOfferBody))
-                        .child(t(M::MainChangeLater)),
-                )
-                .footer(
-                    Button::new("offer-main-yes", t(M::MakeItMain))
-                        .variant(ButtonVariant::Primary)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.close_modal(cx);
-                            this.instances
-                                .update(cx, |instances, cx| instances.set_main(Some(&id), cx));
-                        })),
-                )
-                .footer(
-                    Button::new("offer-main-no", t(CommonMsg::NotNow))
-                        .variant(ButtonVariant::Secondary)
-                        .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx))),
-                )
-                .into_any_element()
+                Dialog::new("offer-main", t(M::MainOfferTitle), focus.clone())
+                    .on_close(close(cx))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_2()
+                            .text_color(crate::theme::ink::secondary())
+                            .whitespace_normal()
+                            .child(card)
+                            .child(t(M::MainOfferBody))
+                            .child(t(M::MainChangeLater)),
+                    )
+                    .footer(
+                        Button::new("offer-main-yes", t(M::MakeItMain))
+                            .variant(ButtonVariant::Primary)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.close_modal(cx);
+                                this.instances
+                                    .update(cx, |instances, cx| instances.set_main(Some(&id), cx));
+                            })),
+                    )
+                    .footer(
+                        Button::new("offer-main-no", t(CommonMsg::NotNow))
+                            .variant(ButtonVariant::Secondary)
+                            .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx))),
+                    )
+                    .into_any_element()
             }
             Modal::ConfirmMain {
                 id,
@@ -2515,34 +2600,44 @@ impl LauncherShell {
                 current,
                 focus,
             } => {
+                // the new main instance in a card; the one it replaces, once, in a row
+                let card = self.instance_card(id, name, cx);
+                let replaces = FactList::new("confirm-main-replaces").row(
+                    t(FactMsg::Replaces),
+                    ObjectChip::new(current.clone()).kind(Kind::Instance),
+                );
                 let id = id.clone();
-                Dialog::new(
-                    "confirm-main",
-                    tr!(M::MainOfferTitle, name = name),
-                    focus.clone(),
-                )
-                .on_close(close(cx))
-                .child(
-                    div()
-                        .text_color(crate::theme::ink::secondary())
-                        .whitespace_normal()
-                        .child(tr!(M::MainSwitchBody, current = current, name = name)),
-                )
-                .footer(
-                    Button::new("confirm-main-yes", tr!(M::MakeNameMain, name = name))
+                Dialog::new("confirm-main", t(M::MainSwitchTitle), focus.clone())
+                    .on_close(close(cx))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_3()
+                            .text_color(crate::theme::ink::secondary())
+                            .whitespace_normal()
+                            .child(card)
+                            .child(replaces)
+                            .child(t(M::MainSwitchBody)),
+                    )
+                    .footer(
+                        Button::new(
+                            "confirm-main-yes",
+                            t(crate::i18n::InstanceSettingsMsg::MakeMain),
+                        )
                         .variant(ButtonVariant::Primary)
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.close_modal(cx);
                             this.instances
                                 .update(cx, |instances, cx| instances.set_main(Some(&id), cx));
                         })),
-                )
-                .footer(
-                    Button::new("confirm-main-cancel", t(CommonMsg::Cancel))
-                        .variant(ButtonVariant::Secondary)
-                        .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx))),
-                )
-                .into_any_element()
+                    )
+                    .footer(
+                        Button::new("confirm-main-cancel", t(CommonMsg::Cancel))
+                            .variant(ButtonVariant::Secondary)
+                            .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx))),
+                    )
+                    .into_any_element()
             }
             Modal::ConfirmRosetta {
                 id,
@@ -2566,32 +2661,45 @@ impl LauncherShell {
                 let play = answer(true, id.clone(), cx);
                 let cancel = answer(false, id.clone(), cx);
                 let dismiss = answer(false, id.clone(), cx);
-                Dialog::new(
-                    "confirm-rosetta",
-                    tr!(IM::RosettaNoticeTitle, version = version),
-                    focus.clone(),
-                )
-                .on_close(dismiss)
-                .child(
-                    div()
-                        .text_color(crate::theme::ink::secondary())
-                        .whitespace_normal()
-                        .child(t(match reason {
-                            Rosetta::Version => IM::RosettaNoticeBody,
-                            Rosetta::JavaOverride => IM::RosettaNoticeBodyOverride,
-                        })),
-                )
-                .footer(
-                    Button::new("confirm-rosetta-play", t(M::Play))
-                        .variant(ButtonVariant::Primary)
-                        .on_click(move |_, window, cx| play(window, cx)),
-                )
-                .footer(
-                    Button::new("confirm-rosetta-cancel", t(CommonMsg::Cancel))
-                        .variant(ButtonVariant::Secondary)
-                        .on_click(move |_, window, cx| cancel(window, cx)),
-                )
-                .into_any_element()
+                // the instance in a card with its game, under a title that says what
+                // happens
+                let card = match self.instances.read(cx).list().iter().find(|i| i.id == *id) {
+                    Some(instance) => crate::instances::facts::card(instance),
+                    None => {
+                        ObjectCard::new(id.clone())
+                            .kind(Kind::Instance)
+                            .fact(Fact::bare_named(
+                                t(FactMsg::Game),
+                                crate::instances::facts::game(version),
+                            ))
+                    }
+                };
+                Dialog::new("confirm-rosetta", t(IM::RosettaNoticeTitle), focus.clone())
+                    .on_close(dismiss)
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_3()
+                            .text_color(crate::theme::ink::secondary())
+                            .whitespace_normal()
+                            .child(card)
+                            .child(t(match reason {
+                                Rosetta::Version => IM::RosettaNoticeBody,
+                                Rosetta::JavaOverride => IM::RosettaNoticeBodyOverride,
+                            })),
+                    )
+                    .footer(
+                        Button::new("confirm-rosetta-play", t(M::Play))
+                            .variant(ButtonVariant::Primary)
+                            .on_click(move |_, window, cx| play(window, cx)),
+                    )
+                    .footer(
+                        Button::new("confirm-rosetta-cancel", t(CommonMsg::Cancel))
+                            .variant(ButtonVariant::Secondary)
+                            .on_click(move |_, window, cx| cancel(window, cx)),
+                    )
+                    .into_any_element()
             }
             Modal::LaunchFailed {
                 title,
@@ -2619,6 +2727,12 @@ impl LauncherShell {
                         })),
                 )
                 .into_any_element(),
+            Modal::Report { report, focus } => {
+                Dialog::new("report", report.title.clone(), focus.clone())
+                    .on_close(close(cx))
+                    .child(report.render())
+                    .into_any_element()
+            }
             Modal::DeleteInstance {
                 id,
                 name,
@@ -2630,49 +2744,60 @@ impl LauncherShell {
                 // moving a large instance to the Trash takes a while
                 let deleting =
                     self.instances.read(cx).file_op(&id) == Some(crate::instances::FileOp::Delete);
-                Dialog::new(
-                    "delete-instance",
-                    tr!(M::DeleteNamed, name = name),
-                    focus.clone(),
-                )
-                .on_close(close(cx))
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap_2()
-                        .text_color(crate::theme::ink::secondary())
-                        .child(tr!(M::DeleteInstanceBody, trash = t(CommonMsg::TheTrash)))
-                        .when_some(error.clone(), |this, error| {
-                            this.child(div().text_color(colors::RED_200).child(error))
-                        }),
-                )
-                .footer(
-                    Button::new("confirm-delete-instance", t(CommonMsg::MoveToTrash))
-                        .variant(ButtonVariant::Danger)
-                        .disabled(deleting)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            let task = this
-                                .instances
-                                .update(cx, |instances, cx| instances.delete(&id, cx));
-                            let (id, name) = (id.clone(), name.clone());
-                            cx.spawn(async move |this, cx| {
-                                let result = task.await;
-                                this.update(cx, |this, cx| {
-                                    this.instance_deleted(&id, &name, result, cx)
+                // the instance in a card under the title, which names only the action
+                let card = self
+                    .instances
+                    .read(cx)
+                    .list()
+                    .iter()
+                    .find(|instance| instance.id == id)
+                    .map(crate::instances::facts::card)
+                    .unwrap_or_else(|| crate::instances::facts::named_card(&name));
+                Dialog::new("delete-instance", t(M::DeleteInstanceTitle), focus.clone())
+                    .on_close(close(cx))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_3()
+                            .text_color(crate::theme::ink::secondary())
+                            .child(card)
+                            .child(
+                                div().whitespace_normal().child(tr!(
+                                    M::DeleteInstanceBody,
+                                    trash = t(CommonMsg::TheTrash)
+                                )),
+                            )
+                            .when_some(error.clone(), |this, error| {
+                                this.child(div().text_color(colors::RED_200).child(error))
+                            }),
+                    )
+                    .footer(
+                        Button::new("confirm-delete-instance", t(CommonMsg::MoveToTrash))
+                            .variant(ButtonVariant::Danger)
+                            .disabled(deleting)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                let task = this
+                                    .instances
+                                    .update(cx, |instances, cx| instances.delete(&id, cx));
+                                let id = id.clone();
+                                cx.spawn(async move |this, cx| {
+                                    let result = task.await;
+                                    this.update(cx, |this, cx| {
+                                        this.instance_deleted(&id, result, cx)
+                                    })
+                                    .ok();
                                 })
-                                .ok();
-                            })
-                            .detach();
-                            cx.notify();
-                        })),
-                )
-                .footer(
-                    Button::new("cancel-delete-instance", t(CommonMsg::Cancel))
-                        .variant(ButtonVariant::Secondary)
-                        .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx))),
-                )
-                .into_any_element()
+                                .detach();
+                                cx.notify();
+                            })),
+                    )
+                    .footer(
+                        Button::new("cancel-delete-instance", t(CommonMsg::Cancel))
+                            .variant(ButtonVariant::Secondary)
+                            .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx))),
+                    )
+                    .into_any_element()
             }
             Modal::ToggleMod { prompt, focus } => self.render_toggle_mod(prompt, focus.clone(), cx),
             Modal::StorageClean { what, bytes, focus } => {
@@ -2705,33 +2830,43 @@ impl LauncherShell {
                 username,
                 focus,
             } => {
+                // the account in a card with its face and kind
+                let accounts = self.accounts.read(cx);
+                let account = accounts.accounts().iter().find(|a| a.id == *id);
+                let kind = match account.map(|a| a.kind) {
+                    Some(launcher_core::accounts::AccountKind::Offline) => t(M::OfflineAccount),
+                    _ => t(M::MicrosoftAccount),
+                };
+                let card = ObjectCard::new(username.clone())
+                    .thumbnail(account_box::avatar(accounts, account, px(32.)))
+                    .fact(Fact::bare_named(t(FactMsg::Type), kind));
                 let id = id.clone();
-                Dialog::new(
-                    "remove-account",
-                    tr!(M::RemoveAccountTitle, name = username),
-                    focus.clone(),
-                )
-                .on_close(close(cx))
-                .child(
-                    div()
-                        .text_color(crate::theme::ink::secondary())
-                        .child(tr!(M::RemoveAccountBody, keychain = t(CommonMsg::Keychain))),
-                )
-                .footer(
-                    Button::new("confirm-remove", t(M::RemoveAccount))
-                        .variant(ButtonVariant::Danger)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.accounts
-                                .update(cx, |accounts, cx| accounts.remove(&id, cx));
-                            this.close_modal(cx);
-                        })),
-                )
-                .footer(
-                    Button::new("cancel-remove", t(CommonMsg::Cancel))
-                        .variant(ButtonVariant::Secondary)
-                        .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx))),
-                )
-                .into_any_element()
+                Dialog::new("remove-account", t(M::RemoveAccountTitle), focus.clone())
+                    .on_close(close(cx))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_3()
+                            .text_color(crate::theme::ink::secondary())
+                            .child(card)
+                            .child(tr!(M::RemoveAccountBody, keychain = t(CommonMsg::Keychain))),
+                    )
+                    .footer(
+                        Button::new("confirm-remove", t(M::RemoveAccount))
+                            .variant(ButtonVariant::Danger)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.accounts
+                                    .update(cx, |accounts, cx| accounts.remove(&id, cx));
+                                this.close_modal(cx);
+                            })),
+                    )
+                    .footer(
+                        Button::new("cancel-remove", t(CommonMsg::Cancel))
+                            .variant(ButtonVariant::Secondary)
+                            .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx))),
+                    )
+                    .into_any_element()
             }
         })
     }
@@ -2766,6 +2901,8 @@ struct CrashState<'a> {
     error: Option<SharedString>,
     /// Whether to offer "Find it for me".
     can_find: bool,
+    /// The instance that crashed, for its card (`None` once it's gone).
+    instance: Option<Instance>,
 }
 
 /// The crash dialog's section on the mods the crash points at: one mod when the
@@ -2878,113 +3015,125 @@ fn render_crash(
     cx: &mut Context<LauncherShell>,
 ) -> AnyElement {
     let summary = &crash.summary;
-    let headline = match (&summary.description, crash.exit_code) {
-        (Some(description), _) => tr!(M::MinecraftCrashed, description = description),
-        (None, Some(code)) => tr!(M::MinecraftExitCode, code = code),
-        (None, None) => t(M::MinecraftStopped).to_string(),
+    let headline = match &summary.description {
+        Some(description) => tr!(M::MinecraftCrashed, description = description),
+        None => t(M::MinecraftStopped).to_string(),
     };
+    // the exit code, to copy, when the crash has no description of its own
+    let exit_code = crash
+        .exit_code
+        .filter(|_| summary.description.is_none())
+        .map(|code| {
+            ValueField::new("crash-exit-code", code.to_string())
+                .label(t(FactMsg::ExitCode))
+                .kind(ValueKind::Code)
+        });
+    // the instance in a card under the title, which names only what happened
+    let card = state
+        .instance
+        .as_ref()
+        .map(crate::instances::facts::card)
+        .unwrap_or_else(|| crate::instances::facts::named_card(&crash.instance_name));
     let report = crash.report.clone();
     let log_text = crash.log_text.clone();
     let copied = state.copied;
     let can_find = state.can_find;
     let suspects = render_suspects(crash, &state, cx);
     let finder_crash = crash.clone();
-    Dialog::new(
-        "crash",
-        tr!(M::CrashTitle, name = crash.instance_name),
-        focus,
-    )
-    .on_close(on_close)
-    .child(
-        div()
-            .flex()
-            .flex_col()
-            .gap_3()
-            .child(
-                div()
-                    .text_color(crate::theme::ink::secondary())
-                    .child(RichText::new(headline)),
+    Dialog::new("crash", t(M::CrashTitle), focus)
+        .on_close(on_close)
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_3()
+                .child(card)
+                .child(
+                    div()
+                        .text_color(crate::theme::ink::secondary())
+                        .child(RichText::new(headline)),
+                )
+                .children(exit_code)
+                .when_some(summary.exception.clone(), |this, exception| {
+                    this.child(
+                        div()
+                            .px_3()
+                            .py_2()
+                            .rounded(radius::LG)
+                            .bg(colors::GRAY_900)
+                            .border_1()
+                            .border_color(colors::RED_200.opacity(30))
+                            .font_family(fonts::mono())
+                            .text_size(theme::text_size(text::SMALL))
+                            .text_color(colors::RED_200)
+                            .child(RichText::new(exception)),
+                    )
+                })
+                .when(!summary.causes.is_empty(), |this| {
+                    this.child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .text_size(theme::text_size(text::SMALL))
+                                    .font_weight(weights::BOLD.into())
+                                    .text_color(crate::theme::ink::muted())
+                                    .child(t(M::LikelyCause).to_uppercase()),
+                            )
+                            .children(summary.causes.iter().map(|cause| {
+                                div()
+                                    .text_size(theme::text_size(text::MEDIUM))
+                                    .text_color(crate::theme::ink::text())
+                                    .child(cause_text(*cause))
+                            })),
+                    )
+                })
+                .children(suspects),
+        )
+        .when(can_find, |this| {
+            this.footer(
+                Button::new(
+                    "find-crashing-mod",
+                    t(crate::i18n::InstancesMsg::FindModButton),
+                )
+                .variant(ButtonVariant::Primary)
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.open_mod_finder(&finder_crash, window, cx)
+                })),
             )
-            .when_some(summary.exception.clone(), |this, exception| {
-                this.child(
-                    div()
-                        .px_3()
-                        .py_2()
-                        .rounded(radius::LG)
-                        .bg(colors::GRAY_900)
-                        .border_1()
-                        .border_color(colors::RED_200.opacity(30))
-                        .font_family(fonts::mono())
-                        .text_size(theme::text_size(text::SMALL))
-                        .text_color(colors::RED_200)
-                        .child(RichText::new(exception)),
-                )
-            })
-            .when(!summary.causes.is_empty(), |this| {
-                this.child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap_1()
-                        .child(
-                            div()
-                                .text_size(theme::text_size(text::SMALL))
-                                .font_weight(weights::BOLD.into())
-                                .text_color(crate::theme::ink::muted())
-                                .child(t(M::LikelyCause).to_uppercase()),
-                        )
-                        .children(summary.causes.iter().map(|cause| {
-                            div()
-                                .text_size(theme::text_size(text::MEDIUM))
-                                .text_color(crate::theme::ink::text())
-                                .child(cause_text(*cause))
-                        })),
-                )
-            })
-            .children(suspects),
-    )
-    .when(can_find, |this| {
-        this.footer(
+        })
+        .when_some(report, |this, report| {
+            this.footer(
+                Button::new("open-crash-report", t(M::OpenCrashReport))
+                    .variant(if can_find {
+                        ButtonVariant::Secondary
+                    } else {
+                        ButtonVariant::Primary
+                    })
+                    .on_click(move |_, _, cx| cx.open_with_system(&report)),
+            )
+        })
+        .footer(
             Button::new(
-                "find-crashing-mod",
-                t(crate::i18n::InstancesMsg::FindModButton),
+                "copy-crash-log",
+                if copied {
+                    t(CommonMsg::Copied)
+                } else {
+                    t(M::CopyLog)
+                },
             )
-            .variant(ButtonVariant::Primary)
-            .on_click(cx.listener(move |this, _, window, cx| {
-                this.open_mod_finder(&finder_crash, window, cx)
+            .variant(ButtonVariant::Secondary)
+            .on_click(cx.listener(move |this, _, _, cx| {
+                cx.write_to_clipboard(ClipboardItem::new_string(log_text.clone()));
+                if let Some(Modal::Crash { copied, .. }) = this.modal.current_mut() {
+                    *copied = true;
+                }
+                cx.notify();
             })),
         )
-    })
-    .when_some(report, |this, report| {
-        this.footer(
-            Button::new("open-crash-report", t(M::OpenCrashReport))
-                .variant(if can_find {
-                    ButtonVariant::Secondary
-                } else {
-                    ButtonVariant::Primary
-                })
-                .on_click(move |_, _, cx| cx.open_with_system(&report)),
-        )
-    })
-    .footer(
-        Button::new(
-            "copy-crash-log",
-            if copied {
-                t(CommonMsg::Copied)
-            } else {
-                t(M::CopyLog)
-            },
-        )
-        .variant(ButtonVariant::Secondary)
-        .on_click(cx.listener(move |this, _, _, cx| {
-            cx.write_to_clipboard(ClipboardItem::new_string(log_text.clone()));
-            if let Some(Modal::Crash { copied, .. }) = this.modal.current_mut() {
-                *copied = true;
-            }
-            cx.notify();
-        })),
-    )
-    .into_any_element()
+        .into_any_element()
 }
 
 impl LauncherShell {
@@ -3208,6 +3357,17 @@ impl Render for LauncherShell {
     }
 }
 
+/// What "When a game starts" does when a game's window opens. Never quit while the
+/// launcher is `busy` (another instance installing or starting, a modpack import, a
+/// "Find it for me" search whose tries are the games opening): quitting would stop
+/// that half way. The window is minimized instead, and comes back when the game exits.
+fn after_game_opens(after: AfterLaunch, busy: bool) -> AfterLaunch {
+    match after {
+        AfterLaunch::Quit if busy => AfterLaunch::Minimize,
+        after => after,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3243,17 +3403,6 @@ mod tests {
             assert_eq!(after_game_opens(after, true), after);
             assert_eq!(after_game_opens(after, false), after);
         }
-    }
-}
-
-/// What "When a game starts" does when a game's window opens. Never quit while the
-/// launcher is `busy` (another instance installing or starting, a modpack import, a
-/// "Find it for me" search whose tries are the games opening): quitting would stop
-/// that half way. The window is minimized instead, and comes back when the game exits.
-fn after_game_opens(after: AfterLaunch, busy: bool) -> AfterLaunch {
-    match after {
-        AfterLaunch::Quit if busy => AfterLaunch::Minimize,
-        after => after,
     }
 }
 
@@ -3382,6 +3531,206 @@ mod mod_finder_tests {
             assert!(!shell.modal.is_open());
             assert!(shell.queued_modals.is_empty());
         });
+    }
+
+    /// A world backup dialog at work isn't closed by a dialog that arrives on its own, and
+    /// can't be closed itself (no Escape or click outside); deleting is short and can be.
+    /// It opens on the world asked for, else the most recently played, and a restore as a
+    /// new world starts at once.
+    #[test]
+    fn a_busy_world_backup_dialog_is_never_replaced() {
+        use crate::instances::world_backups::WorldBackupRequest;
+        let mut cx = TestAppContext::single();
+        cx.update(crate::components::init);
+        let (shell, cx) = cx.add_window_view(|_, cx| {
+            let accounts = crate::preview::accounts("signed-out", cx);
+            let instances = crate::preview::instances("sidebar-groups", &accounts, cx);
+            LauncherShell::new(accounts, instances, cx)
+        });
+        cx.run_until_parked();
+        let id = shell.read_with(cx, |shell, cx| {
+            shell.instances.read(cx).list()[0].id.clone()
+        });
+        shell.update(cx, |shell, cx| {
+            shell.open_world_backup(
+                WorldBackupRequest::BackUp {
+                    instance: id.clone(),
+                    world: Some("Castle".into()),
+                },
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        let dialog = shell.read_with(cx, |shell, _| shell.world_backup_dialog().cloned().unwrap());
+        // the instance has no worlds: the one asked for stays chosen, and Back up waits
+        assert_eq!(
+            dialog.read_with(cx, |dialog, _| dialog.test_chosen()),
+            (Some(0), Some("Castle".into()))
+        );
+        dialog.update(cx, |dialog, _| dialog.test_set_working(true));
+        assert!(dialog.read_with(cx, |dialog, _| dialog.busy()));
+        shell.update(cx, |shell, cx| {
+            let focus = cx.focus_handle();
+            shell.open_modal(
+                Modal::LaunchFailed {
+                    title: "Couldn't download".into(),
+                    message: "offline".into(),
+                    focus,
+                },
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        shell.read_with(cx, |shell, _| {
+            assert!(shell.world_backup_dialog().is_some(), "still working");
+            assert_eq!(shell.queued_modals.len(), 1);
+        });
+        dialog.update(cx, |dialog, _| dialog.test_set_working(false));
+        shell.update(cx, |shell, cx| shell.close_modal(cx));
+        cx.run_until_parked();
+        assert_eq!(
+            shown_title(&shell, cx).as_deref(),
+            Some("Couldn't download")
+        );
+        shell.update(cx, |shell, cx| shell.close_modal(cx));
+
+        // Deleting is short: the dialog isn't busy while it runs.
+        let backup: launcher_core::world_backups::WorldBackup =
+            serde_json::from_value(serde_json::json!({
+                "version": 1, "id": "20261115-120000-abcd", "instance_created": 0,
+                "instance_name": "x", "folder": "W", "name": "Mine", "kind": "manual",
+                "created": 0, "bytes": 1, "world_bytes": 1, "files": 1,
+            }))
+            .unwrap();
+        shell.update(cx, |shell, cx| {
+            shell.open_world_backup(
+                WorldBackupRequest::Delete {
+                    instance: id.clone(),
+                    backup: backup.clone(),
+                },
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        let dialog = shell.read_with(cx, |shell, _| shell.world_backup_dialog().cloned().unwrap());
+        dialog.update(cx, |dialog, _| dialog.test_set_working(true));
+        assert!(!dialog.read_with(cx, |dialog, _| dialog.busy()));
+        shell.update(cx, |shell, cx| shell.close_modal(cx));
+        cx.run_until_parked();
+
+        // A restore as a new world starts at once (here it fails: there is no such
+        // backup), and says how it ended.
+        shell.update(cx, |shell, cx| {
+            shell.open_world_backup(
+                WorldBackupRequest::Restore {
+                    instance: id,
+                    backup,
+                    to: launcher_core::world_backups::RestoreTo::NewWorld,
+                },
+                cx,
+            )
+        });
+        let dialog = shell.read_with(cx, |shell, _| shell.world_backup_dialog().cloned().unwrap());
+        assert!(dialog.read_with(cx, |dialog, _| dialog.busy()));
+        cx.run_until_parked();
+        assert!(!dialog.read_with(cx, |dialog, _| dialog.busy()));
+    }
+
+    /// While another job writes the instance's files, backing up and restoring are
+    /// refused at once rather than waiting for its lock with Cancel doing nothing; a
+    /// delete still runs.
+    #[test]
+    fn world_backup_work_waits_for_no_other_job() {
+        use crate::instances::world_backups::WorldBackupRequest;
+        use launcher_core::world_backups::RestoreTo;
+        let mut cx = TestAppContext::single();
+        cx.update(crate::components::init);
+        let (shell, cx) = cx.add_window_view(|_, cx| {
+            let accounts = crate::preview::accounts("signed-out", cx);
+            let instances = crate::preview::instances("sidebar-groups", &accounts, cx);
+            LauncherShell::new(accounts, instances, cx)
+        });
+        cx.run_until_parked();
+        let id = shell.read_with(cx, |shell, cx| {
+            shell.instances.read(cx).list()[0].id.clone()
+        });
+        let other_job = shell.read_with(cx, |shell, cx| {
+            shell.instances.read(cx).mark_files_busy(&id)
+        });
+        let backup: launcher_core::world_backups::WorldBackup =
+            serde_json::from_value(serde_json::json!({
+                "version": 1, "id": "20261115-120000-abcd", "instance_created": 0,
+                "instance_name": "x", "folder": "W", "name": "Mine", "kind": "manual",
+                "created": 0, "bytes": 1, "world_bytes": 1, "files": 1,
+            }))
+            .unwrap();
+        let busy_message: gpui::SharedString =
+            crate::i18n::t(crate::i18n::InstancesMsg::FilesBusy).into();
+        for to in [RestoreTo::NewWorld, RestoreTo::InPlace] {
+            shell.update(cx, |shell, cx| {
+                shell.open_world_backup(
+                    WorldBackupRequest::Restore {
+                        instance: id.clone(),
+                        backup: backup.clone(),
+                        to,
+                    },
+                    cx,
+                )
+            });
+            cx.run_until_parked();
+            let dialog =
+                shell.read_with(cx, |shell, _| shell.world_backup_dialog().cloned().unwrap());
+            if to == RestoreTo::InPlace {
+                // Waits for its confirmation.
+                dialog.update(cx, |dialog, cx| dialog.test_go(cx));
+            }
+            assert_eq!(
+                dialog.read_with(cx, |dialog, _| dialog.test_failed()),
+                Some(busy_message.clone()),
+                "{to:?}"
+            );
+            assert!(!dialog.read_with(cx, |dialog, _| dialog.busy()));
+            shell.update(cx, |shell, cx| shell.close_modal(cx));
+            cx.run_until_parked();
+        }
+        shell.update(cx, |shell, cx| {
+            shell.open_world_backup(
+                WorldBackupRequest::BackUp {
+                    instance: id.clone(),
+                    world: Some("Castle".into()),
+                },
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        let dialog = shell.read_with(cx, |shell, _| shell.world_backup_dialog().cloned().unwrap());
+        dialog.update(cx, |dialog, cx| dialog.test_go(cx));
+        assert_eq!(
+            dialog.read_with(cx, |dialog, _| dialog.test_failed()),
+            Some(busy_message.clone())
+        );
+        shell.update(cx, |shell, cx| shell.close_modal(cx));
+        cx.run_until_parked();
+        // Nor a delete, which would otherwise wait for the instance's lock for as long as
+        // the other job runs.
+        shell.update(cx, |shell, cx| {
+            shell.open_world_backup(
+                WorldBackupRequest::Delete {
+                    instance: id.clone(),
+                    backup: backup.clone(),
+                },
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        let dialog = shell.read_with(cx, |shell, _| shell.world_backup_dialog().cloned().unwrap());
+        dialog.update(cx, |dialog, cx| dialog.test_go(cx));
+        cx.run_until_parked();
+        assert_eq!(
+            dialog.read_with(cx, |dialog, _| dialog.test_failed()),
+            Some(busy_message)
+        );
+        drop(other_job);
     }
 
     /// A snapshot dialog that is taking, restoring or importing isn't closed by a dialog

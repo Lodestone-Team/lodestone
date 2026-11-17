@@ -11,7 +11,7 @@ const SelectGameCard = ({
   badge,
 }: {
   title: string;
-  description: string;
+  description?: string | null;
   game_type: Game;
   className?: string;
   /** a short label beside the title, e.g. "New" */
@@ -46,9 +46,11 @@ const SelectGameCard = ({
           )}
         </div>
       </div>
-      <div className="mt-2 text-medium leading-5 font-medium text-white/50 italic">
-        {description}
-      </div>
+      {description && (
+        <div className="mt-2 text-medium leading-5 font-medium text-white/50 italic">
+          {description}
+        </div>
+      )}
     </button>
   );
 };

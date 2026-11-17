@@ -48,8 +48,9 @@ use crate::components::{
 };
 use crate::{
     components::{
-        Button, ButtonSize, ButtonVariant, Dropdown, Icon, IconButton, LoadingDots, TextInput,
-        Toggle, segmented,
+        Button, ButtonSize, ButtonVariant, DiffValue, Dropdown, Fact, FactLine, FactValue, Icon,
+        IconButton, ListRow, LoadingDots, StatusBadge, TextInput, Toggle, VersionTag, VersionTone,
+        segmented,
         settings::{
             FindSetting, SearchRow, SectionNav, SettingRow, SettingsQuery, SettingsSearch,
             SettingsSearchChanged, Toast, content_width, left_overlay, link, muted_link, nav_width,
@@ -58,11 +59,11 @@ use crate::{
     },
     file_dialog,
     i18n::{
-        CommonMsg, InstanceSettingsMsg as M, InstanceSettingsPlural as P, ShellMsg, Text, format,
-        t, tr, trn,
+        CommonMsg, FactMsg, InstanceSettingsMsg as M, InstanceSettingsPlural as P, ShellMsg, Text,
+        format, t, tr, trn,
     },
     servers::Servers,
-    theme::{self, colors, leading, radius, text, weights},
+    theme::{self, Tone, colors, leading, radius, text, weights},
 };
 
 /// Below this window width the list of sections opens from a button instead of
@@ -204,6 +205,8 @@ pub struct InstanceSettings {
     /// "Delete them" (images that can't be read) was clicked and waits for the second
     /// click: they go for good.
     confirm_delete_unreadable: bool,
+    /// The snapshot whose "…" menu is open.
+    snapshot_menu: Option<String>,
     /// The icon picker, when it is open, and its tab.
     icon_picker: Option<IconTab>,
     /// The tile colour emoji icons are put on.
@@ -246,6 +249,7 @@ impl EventEmitter<DeleteRequested> for InstanceSettings {}
 impl EventEmitter<HostRequested> for InstanceSettings {}
 impl EventEmitter<FindModRequested> for InstanceSettings {}
 impl EventEmitter<super::snapshots::SnapshotRequested> for InstanceSettings {}
+impl EventEmitter<super::world_backups::WorldBackupRequested> for InstanceSettings {}
 impl EventEmitter<ShareRequested> for InstanceSettings {}
 impl EventEmitter<AddModpackRequested> for InstanceSettings {}
 impl EventEmitter<CopyAsRequested> for InstanceSettings {}
@@ -411,6 +415,7 @@ impl InstanceSettings {
             preparing_update: false,
             confirm_unlink: false,
             confirm_delete_unreadable: false,
+            snapshot_menu: None,
             icon_picker: None,
             emoji_tile: appearance::TILE_COLORS[1],
             background_picker: false,
@@ -1887,11 +1892,9 @@ impl InstanceSettings {
             Some(server) => tr!(M::FromServerMods, server = server),
             None => t(M::FromMrpack).to_string(),
         };
-        let version = if record.version_number.is_empty() {
-            String::new()
-        } else {
-            format!(" {}", record.version_number)
-        };
+        // the version as a tag beside the pack's name, never joined to it
+        let version = (!record.version_number.is_empty())
+            .then(|| VersionTag::new(record.version_number.clone()));
         // A CurseForge pack's page is CurseForge's: its slug names nothing on Modrinth.
         let page = match &record.curseforge {
             Some(pack) => Some((M::ViewOnCurseForge, pack.page_url.clone()))
@@ -1927,48 +1930,83 @@ impl InstanceSettings {
                 .child(text_)
                 .into_any_element()
         };
-        let update: Option<AnyElement> =
-            if let Some((label, snapshot)) = update_job {
-                let percent = if snapshot.bytes_total > 0 {
-                    let done =
-                        (snapshot.bytes_done as f64 * 100.0 / snapshot.bytes_total as f64).round();
-                    format!(" · {}", format::percent(done as u64))
-                } else {
-                    String::new()
-                };
-                Some(working(format!("{label}{percent}")))
-            } else if self.preparing_update {
-                Some(working(t(M::DownloadingNewVersion).into()))
-            } else {
-                match (&self.modpack_versions, candidate) {
-                    (Load::Loading, _) => Some(working(t(checking).into())),
-                    (Load::Failed(err), _) => Some(status_text(err.clone(), colors::RED_200)),
-                    (Load::Ready(_), Some(newer)) => Some(
-                        Button::new("update-modpack", tr!(M::UpdateTo, version = newer.label()))
-                            .variant(ButtonVariant::Primary)
-                            .size(ButtonSize::Slim)
-                            .disabled(busy)
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.prepare_update(newer.clone(), cx)
-                            }))
-                            .into_any_element(),
-                    ),
-                    (Load::Ready(_), None) => {
-                        Some(status_text(t(M::UpToDate).into(), colors::GREEN_300))
-                    }
-                    (Load::NotLoaded, _) if record.updatable() => Some(
-                        Button::new("check-modpack", t(M::Check))
-                            .variant(ButtonVariant::Secondary)
-                            .size(ButtonSize::Slim)
-                            .on_click(cx.listener(|this, _, _, cx| this.check_modpack(cx)))
-                            .into_any_element(),
-                    ),
-                    (Load::NotLoaded, _) => None,
+        let update: Option<AnyElement> = if let Some((label, snapshot)) = update_job {
+            // the step, then the percent in a fixed tabular cell
+            let percent = (snapshot.bytes_total > 0).then(|| {
+                let done =
+                    (snapshot.bytes_done as f64 * 100.0 / snapshot.bytes_total as f64).round();
+                div()
+                    .flex_none()
+                    .min_w(px(40.))
+                    .text_size(theme::text_size(text::SMALL))
+                    .font_features(lodestone_ui::theme::fonts::tabular())
+                    .text_color(crate::theme::ink::secondary())
+                    .flex()
+                    .justify_end()
+                    .child(format::percent(done as u64))
+            });
+            Some(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .child(working(label))
+                    .children(percent)
+                    .into_any_element(),
+            )
+        } else if self.preparing_update {
+            Some(working(t(M::DownloadingNewVersion).into()))
+        } else {
+            match (&self.modpack_versions, candidate) {
+                (Load::Loading, _) => Some(working(t(checking).into())),
+                (Load::Failed(err), _) => Some(status_text(err.clone(), colors::RED_200)),
+                // the change beside a button that says only Update
+                (Load::Ready(_), Some(newer)) => Some(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_2()
+                        .child(if record.version_number.is_empty() {
+                            VersionTag::new(newer.label().to_string())
+                                .tone(VersionTone::To)
+                                .into_any_element()
+                        } else {
+                            DiffValue::versions(
+                                record.version_number.clone(),
+                                newer.label().to_string(),
+                            )
+                            .into_any_element()
+                        })
+                        .child(
+                            Button::new("update-modpack", t(M::UpdateModpack))
+                                .variant(ButtonVariant::Primary)
+                                .size(ButtonSize::Slim)
+                                .disabled(busy)
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.prepare_update(newer.clone(), cx)
+                                })),
+                        )
+                        .into_any_element(),
+                ),
+                (Load::Ready(_), None) => {
+                    Some(status_text(t(M::UpToDate).into(), colors::GREEN_300))
                 }
-            };
+                (Load::NotLoaded, _) if record.updatable() => Some(
+                    Button::new("check-modpack", t(M::Check))
+                        .variant(ButtonVariant::Secondary)
+                        .size(ButtonSize::Slim)
+                        .on_click(cx.listener(|this, _, _, cx| this.check_modpack(cx)))
+                        .into_any_element(),
+                ),
+                (Load::NotLoaded, _) => None,
+            }
+        };
         let mut rows = vec![
-            SettingRow::new(format!("{}{version}", record.title))
+            SettingRow::new(record.title.clone())
                 .hint(origin)
+                .when_some(version, |row, version| row.child(version))
                 .when_some(page, |row, (label, page)| {
                     row.child(
                         link("modpack-page", t(label)).on_press(move |_, _, cx| cx.open_url(&page)),
@@ -2000,15 +2038,14 @@ impl InstanceSettings {
         let mut rows = Vec::new();
         for (index, pack) in self.added.packs.iter().enumerate() {
             let record = &pack.record;
-            let title = if record.version_number.is_empty() {
-                record.title.clone()
-            } else {
-                format!("{} {}", record.title, record.version_number)
-            };
-            // keyed by the pack: two packs may have the same title
-            let mut row = SettingRow::new(title)
+            // keyed by the pack: two packs may have the same title; the version is a
+            // tag beside its name
+            let mut row = SettingRow::new(record.title.clone())
                 .key(SharedString::from(format!("added-modpack-{}", pack.id)))
-                .hint(trn!(P::AddedModpackFiles, record.files.len()));
+                .hint(trn!(P::AddedModpackFiles, record.files.len()))
+                .when(!record.version_number.is_empty(), |row| {
+                    row.child(VersionTag::new(record.version_number.clone()))
+                });
             let pack_id = pack.id.clone();
             row = if self.confirm_remove_added.as_deref() == Some(pack.id.as_str()) {
                 row.child(
@@ -2068,12 +2105,26 @@ impl InstanceSettings {
     /// The Linked server section, for an instance made for a server on a core.
     fn server_section(&self, query: &SettingsQuery, cx: &mut Context<Self>) -> Option<AnyElement> {
         let link = self.servers.read(cx).instance_link(&self.instance_id)?;
-        let hint = if link.core_known {
-            tr!(M::LinkedServerHint, core = link.core_name)
+        let hint = t(if link.core_known {
+            M::LinkedServerHint
         } else {
-            tr!(M::LinkedServerCoreRemoved, core = link.core_name)
-        };
-        let mut row = SettingRow::new(link.server_name.clone()).hint(hint);
+            M::LinkedServerCoreRemoved
+        });
+        // the host it is on, keyed Host, under the server's name
+        let host = crate::components::FactLine::row("linked-server-host").fact(
+            crate::components::Fact::new(
+                t(crate::i18n::FactMsg::Host),
+                crate::components::ObjectChip::new(lodestone_ui::values::truncate::sanitize(
+                    &link.core_name,
+                    64,
+                ))
+                .kind(crate::components::Kind::Computer)
+                .muted(),
+            ),
+        );
+        let mut row = SettingRow::new(link.server_name.clone())
+            .hint(hint)
+            .below(host);
         if !link.core_known {
             row = row.child(tag(t(M::CoreRemoved), colors::YELLOW));
         }
@@ -2512,28 +2563,57 @@ impl Render for InstanceSettings {
                             .map(|w| (w.into(), colors::YELLOW))),
                 )
             });
-        let java_note: Option<(SharedString, theme::Color)> = match &self.java_check {
-            JavaCheck::None => None,
-            JavaCheck::Checking => Some((t(M::Checking).into(), crate::theme::ink::muted())),
-            JavaCheck::Found(info) => match required_java {
-                Some(needed) if info.major < needed => Some((
-                    tr!(
-                        M::JavaTooOld,
-                        major = info.major,
-                        version = info.version,
-                        game = self.game_version,
-                        needed = needed
+        // a checked Java: whether it fits as a badge, then the Java found and the one
+        // the game needs as keyed facts, side by side
+        let (java_note, java_found): (Option<(SharedString, theme::Color)>, Option<AnyElement>) =
+            match &self.java_check {
+                JavaCheck::None => (None, None),
+                JavaCheck::Checking => (
+                    Some((t(M::Checking).into(), crate::theme::ink::muted())),
+                    None,
+                ),
+                JavaCheck::Found(info) => {
+                    let too_old = required_java.filter(|needed| info.major < *needed);
+                    let badge = match too_old {
+                        Some(_) => StatusBadge::new(t(M::JavaTooOldBadge), Tone::Warning)
+                            .icon(Icon::TriangleExclamation),
+                        None => StatusBadge::new(t(M::JavaFitsBadge), Tone::Success),
+                    };
+                    let mut facts = vec![Fact::new(
+                        t(M::JavaFoundKey),
+                        FactValue::text(tr!(M::JavaVersion, version = info.version)),
+                    )];
+                    if let Some(needed) = too_old {
+                        facts.push(Fact::new(
+                            t(FactMsg::Needed),
+                            FactValue::text(tr!(M::JavaOrNewer, major = needed)),
+                        ));
+                        facts.push(Fact::new(
+                            t(FactMsg::Game),
+                            crate::instances::facts::game(&self.game_version),
+                        ));
+                    }
+                    (
+                        None,
+                        Some(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .gap_2()
+                                .child(badge)
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .child(FactLine::row("java-check").facts(facts)),
+                                )
+                                .into_any_element(),
+                        ),
                     )
-                    .into(),
-                    colors::YELLOW,
-                )),
-                _ => Some((
-                    tr!(M::JavaFound, major = info.major, version = info.version).into(),
-                    colors::GREEN_300,
-                )),
-            },
-            JavaCheck::Failed(err) => Some((err.clone(), colors::RED_200)),
-        };
+                }
+                JavaCheck::Failed(err) => (Some((err.clone(), colors::RED_200)), None),
+            };
         // The Java that runs without an override. On Apple silicon it may not be the one
         // the version names: Zulu 8, Mojang's Java 17 for 1.17, or an Intel Java.
         let default_java = match default_java {
@@ -2570,6 +2650,7 @@ impl Render for InstanceSettings {
                         ),
                 )
                 .note_opt(java_note)
+                .when_some(java_found, |row, found| row.below(found))
             });
         push_section(
             &mut sections,
@@ -2655,7 +2736,7 @@ impl Render for InstanceSettings {
             ));
         }
 
-        // Snapshots.
+        // Snapshots: the world backups, then the snapshots of the whole instance.
         push_section(
             &mut sections,
             t(M::InstanceSnapshots).into(),
@@ -2973,7 +3054,76 @@ fn note(text_: &'static str) -> AnyElement {
         .into_any_element()
 }
 
+/// A row action a "…" menu item runs after closing the menu.
+type ClickAction = Box<dyn Fn(&gpui::ClickEvent, &mut Window, &mut App)>;
+
 impl InstanceSettings {
+    /// A snapshot's "…": Restore… and Export….
+    fn render_snapshot_menu(
+        &self,
+        index: usize,
+        snapshot: &str,
+        name: &str,
+        restore: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+        export: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let open = self.snapshot_menu.as_deref() == Some(snapshot);
+        let toggle = {
+            let snapshot = snapshot.to_string();
+            cx.listener(move |this, _, _, cx| {
+                this.snapshot_menu = if this.snapshot_menu.as_deref() == Some(snapshot.as_str()) {
+                    None
+                } else {
+                    Some(snapshot.clone())
+                };
+                cx.notify();
+            })
+        };
+        let entity = cx.entity().downgrade();
+        let close_then = move |action: ClickAction| {
+            let entity = entity.clone();
+            move |event: &gpui::ClickEvent, window: &mut Window, cx: &mut App| {
+                entity
+                    .update(cx, |this, cx| {
+                        this.snapshot_menu = None;
+                        cx.notify();
+                    })
+                    .ok();
+                action(event, window, cx);
+            }
+        };
+        Dropdown::new(
+            IconButton::new(("snapshot-menu", index), Icon::Ellipsis)
+                .label(format!("{}: {}", t(CommonMsg::Menu), name))
+                .on_click(toggle),
+        )
+        .align_end()
+        .when(open, |this| {
+            let close = cx.listener(|this, _: &(), _, cx| {
+                this.snapshot_menu = None;
+                cx.notify();
+            });
+            let panel = popover_panel(SharedString::from(format!("snapshot-menu-list-{index}")))
+                .w(px(200.))
+                .child(
+                    ListRow::new(("snapshot-menu-restore", index), t(M::RestoreEllipsis))
+                        .icon(Icon::ClockRotateLeft)
+                        .on_click(close_then(Box::new(restore))),
+                )
+                .child(
+                    ListRow::new(("snapshot-menu-export", index), t(M::ExportEllipsis))
+                        .icon(Icon::Upload)
+                        .on_click(close_then(Box::new(export))),
+                );
+            this.popover(
+                SharedString::from(format!("snapshot-menu-popover-{index}")),
+                panel,
+                move |window, cx| close(&(), window, cx),
+            )
+        })
+    }
+
     /// The instance's snapshots, newest first, with a button to take one.
     fn render_snapshots(
         &mut self,
@@ -2982,20 +3132,13 @@ impl InstanceSettings {
     ) -> Option<gpui::Div> {
         use super::snapshots::{SnapshotRequest, SnapshotRequested, badge, details};
         let id = self.instance_id.clone();
-        let (list, after_play, own_after_play, policy) =
-            self.instances.update(cx, |instances, cx| {
-                let list = instances.snapshot_list(&id, cx).cloned();
-                let after_play = instances.snapshot_after_play(&id);
-                let instance = instances.list().iter().find(|i| i.id == id).cloned();
-                let settings = instance.as_ref().and_then(|i| i.snapshots);
-                let policy = launcher_core::images::SnapshotPolicy::of(settings.as_ref());
-                (
-                    list,
-                    after_play,
-                    settings.and_then(|s| s.after_play),
-                    policy,
-                )
-            });
+        let (list, after_play, own_after_play) = self.instances.update(cx, |instances, cx| {
+            let list = instances.snapshot_list(&id, cx).cloned();
+            let after_play = instances.snapshot_after_play(&id);
+            let instance = instances.list().iter().find(|i| i.id == id).cloned();
+            let settings = instance.as_ref().and_then(|i| i.snapshots);
+            (list, after_play, settings.and_then(|s| s.after_play))
+        });
         let take = Button::new("take-snapshot", t(M::TakeSnapshotEllipsis))
             .variant(ButtonVariant::Secondary)
             .size(ButtonSize::Slim)
@@ -3004,16 +3147,9 @@ impl InstanceSettings {
                     this.instance_id.clone(),
                 )))
             }));
-        let mut items = vec![
-            SettingRow::new(t(M::TakeSnapshotTitle))
-                .hint(t(M::SnapshotsHint))
-                .child(take),
+        let settings = vec![
+            SettingRow::new(t(M::TakeSnapshotTitle)).child(take),
             SettingRow::new(t(M::SnapshotAfterPlay))
-                .hint(t(if own_after_play.is_some() {
-                    M::SnapshotAfterPlayOwnHint
-                } else {
-                    M::SnapshotAfterPlayHint
-                }))
                 .when(own_after_play.is_some(), |row| {
                     row.child(
                         muted_link("snapshot-after-play-default", t(M::UseDefault)).on_press(
@@ -3048,6 +3184,7 @@ impl InstanceSettings {
                         })),
                 ),
         ];
+        let mut items = Vec::new();
         match list {
             None => items.push(SettingRow::new(t(M::NoSnapshots))),
             Some(list) => {
@@ -3071,6 +3208,11 @@ impl InstanceSettings {
                             })
                         })
                     };
+                    let (restore, export, delete) = (
+                        request(SnapshotRequest::Restore),
+                        request(SnapshotRequest::Export),
+                        request(SnapshotRequest::Delete),
+                    );
                     let name = match badge(&record) {
                         Some(badge) => format!("{} · {}", record.name_shown(), t(badge)),
                         None => record.name_shown(),
@@ -3083,46 +3225,33 @@ impl InstanceSettings {
                                 div()
                                     .flex()
                                     .flex_row()
+                                    .items_center()
                                     .gap_1()
                                     .child(
-                                        Button::new(
-                                            ("snapshot-restore", index),
-                                            t(M::RestoreEllipsis),
-                                        )
-                                        .variant(ButtonVariant::Secondary)
-                                        .size(ButtonSize::Slim)
-                                        .on_click(request(SnapshotRequest::Restore)),
-                                    )
-                                    .child(
-                                        Button::new(
-                                            ("snapshot-export", index),
-                                            t(M::ExportEllipsis),
-                                        )
-                                        .variant(ButtonVariant::Secondary)
-                                        .size(ButtonSize::Slim)
-                                        .on_click(request(SnapshotRequest::Export)),
-                                    )
-                                    .child(
-                                        Button::new(
-                                            ("snapshot-pin", index),
-                                            t(if record.pinned {
+                                        IconButton::new(("snapshot-pin", index), Icon::Thumbtack)
+                                            .label(t(if record.pinned {
                                                 M::UnpinSnapshot
                                             } else {
                                                 M::PinSnapshot
-                                            }),
-                                        )
-                                        .variant(ButtonVariant::Ghost)
-                                        .size(ButtonSize::Slim)
-                                        .on_click(pin),
+                                            }))
+                                            .when(record.pinned, |button| {
+                                                button.color(crate::theme::accent::light())
+                                            })
+                                            .on_click(pin),
                                     )
+                                    .child(self.render_snapshot_menu(
+                                        index,
+                                        &record.id,
+                                        &record.name_shown(),
+                                        restore,
+                                        export,
+                                        cx,
+                                    ))
                                     .child(
-                                        Button::new(
-                                            ("snapshot-delete", index),
-                                            t(CommonMsg::Delete),
-                                        )
-                                        .variant(ButtonVariant::Ghost)
-                                        .size(ButtonSize::Slim)
-                                        .on_click(request(SnapshotRequest::Delete)),
+                                        IconButton::new(("snapshot-delete", index), Icon::TrashCan)
+                                            .label(t(CommonMsg::Delete))
+                                            .color(colors::RED_200)
+                                            .on_click(delete),
                                     ),
                             ),
                     );
@@ -3167,18 +3296,39 @@ impl InstanceSettings {
                 }
             }
         }
-        // How long automatic snapshots are kept: the section's grey lead, not a setting.
-        let keep = tr!(
-            M::SnapshotKeepHint,
-            last = policy.keep_last,
-            days = policy.keep_daily,
-            weeks = policy.keep_weekly
-        );
         query
-            .section(t(M::InstanceSnapshots), Some(keep.into()))
+            .section(t(M::InstanceSnapshots), None)
+            .card(settings)
+            .child(group_heading(t(M::SnapshotsGroup), None))
             .card(items)
             .finish()
     }
+}
+
+/// A heading inside a section, over a group of its cards, with a grey line under it.
+fn group_heading(title: &'static str, lead: Option<&str>) -> AnyElement {
+    div()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .pt_2()
+        .child(
+            div()
+                .text_size(theme::text_size(text::MEDIUM))
+                .font_weight(weights::BOLD.into())
+                .text_color(crate::theme::ink::text())
+                .child(title),
+        )
+        .when_some(lead, |this, lead| {
+            this.child(
+                div()
+                    .whitespace_normal()
+                    .text_size(theme::text_size(text::SMALL))
+                    .text_color(crate::theme::ink::muted())
+                    .child(lead.to_string()),
+            )
+        })
+        .into_any_element()
 }
 
 #[cfg(test)]

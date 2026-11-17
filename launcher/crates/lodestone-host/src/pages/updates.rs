@@ -12,16 +12,17 @@ use gpui::{
 };
 use lodestone_ui::{
     components::{
-        Button, ButtonVariant, Dialog, DialogSlot, Toggle,
+        Button, ButtonVariant, Dialog, DialogSlot, Fact, FactLine, FactValue, ProgressBlock,
+        StatusBadge, Toggle, segmented,
         settings::{SearchRow, SettingRow, SettingsSearch},
         window_layer,
     },
-    theme::{colors, ink, leading, text},
+    theme::{Tone, colors, ink, leading, px, text},
 };
 
 use super::parts;
 use crate::{
-    i18n::{CoreMsg, CorePlural, t, tr, trn},
+    i18n::{CoreMsg, CorePlural, FactMsg, ValueMsg, t, tr, trn},
     prefs::Prefs,
     state::HostState,
     updater::{UpdateState, Updater},
@@ -174,25 +175,18 @@ impl UpdatesPage {
                         .into_any_element(),
                 ),
             ),
-            UpdateState::Available(found) => (
-                tr!(CoreMsg::UpdateAvailable, build = found.build),
+            UpdateState::Available(_) => (
+                t(CoreMsg::UpdateAvailable).to_string(),
                 Some(
                     button("download-update", CoreMsg::DownloadUpdate, true)
                         .on_click(move |_, _, cx| this.update(cx, |u, cx| u.download_available(cx)))
                         .into_any_element(),
                 ),
             ),
-            UpdateState::Downloading { build, done, total } => (
-                tr!(
-                    CoreMsg::UpdateDownloading,
-                    build = build,
-                    percent =
-                        lodestone_ui::i18n::format::percent(UpdateState::percent(&done, total))
-                ),
-                None,
-            ),
-            UpdateState::Ready { build } => (
-                tr!(CoreMsg::UpdateReady, build = build),
+            // the download itself is a progress block under the version
+            UpdateState::Downloading { .. } => (t(ValueMsg::Downloading).to_string(), None),
+            UpdateState::Ready { .. } => (
+                t(CoreMsg::UpdateReady).to_string(),
                 Some(
                     button("restart-update", CoreMsg::RestartToUpdate, true)
                         .on_click(cx.listener(|this, _, _, cx| this.ask_restart(cx)))
@@ -219,19 +213,66 @@ impl Render for UpdatesPage {
             .as_ref()
             .map(|u| (u.read(cx).build, u.read(cx).commit))
             .unwrap_or_default();
+        // the version, the build and its commit, each keyed; and the new build while
+        // one is found, downloading or ready
+        let new_build = self
+            .updater
+            .as_ref()
+            .and_then(|u| match u.read(cx).state() {
+                UpdateState::Available(found) => Some(found.build),
+                UpdateState::Downloading { build, .. } | UpdateState::Ready { build } => {
+                    Some(*build)
+                }
+                _ => None,
+            });
+        let facts =
+            FactLine::strip("this-version")
+                .fact(Fact::new(
+                    t(FactMsg::Version),
+                    FactValue::mono(env!("CARGO_PKG_VERSION")),
+                ))
+                .fact(Fact::new(
+                    t(FactMsg::Build),
+                    match build {
+                        Some(build) => FactValue::mono(build.to_string()),
+                        None => t(CoreMsg::DevelopmentBuild).into(),
+                    },
+                ))
+                .facts(commit.map(|commit| {
+                    Fact::new(
+                        t(FactMsg::Commit),
+                        FactValue::mono(launcher_core::update::short_commit(commit).to_string()),
+                    )
+                }))
+                .facts(new_build.map(|build| {
+                    Fact::new(t(CoreMsg::NewBuild), FactValue::mono(build.to_string()))
+                }));
+        let progress = self
+            .updater
+            .as_ref()
+            .and_then(|u| match u.read(cx).state() {
+                UpdateState::Downloading { build, done, total } => {
+                    let percent = UpdateState::percent(done, *total);
+                    Some(
+                        ProgressBlock::new(
+                            "update-download",
+                            StatusBadge::new(t(ValueMsg::Downloading), Tone::Info),
+                            crate::APP_NAME,
+                        )
+                        .percent(percent.min(100) as u8)
+                        .stat(Fact::new(
+                            t(CoreMsg::NewBuild),
+                            FactValue::mono(build.to_string()),
+                        )),
+                    )
+                }
+                _ => None,
+            });
         let version = format!(
-            "{} {} · {}",
+            "{} {} {}",
             crate::APP_NAME,
             env!("CARGO_PKG_VERSION"),
-            match (build, commit) {
-                (Some(build), Some(commit)) => tr!(
-                    CoreMsg::BuildNumberCommit,
-                    build = build,
-                    commit = launcher_core::update::short_commit(commit)
-                ),
-                (Some(build), None) => tr!(CoreMsg::BuildNumber, build = build),
-                (None, _) => t(CoreMsg::DevelopmentBuild).to_string(),
-            }
+            build.map(|b| b.to_string()).unwrap_or_default()
         );
         let available = self
             .updater
@@ -290,12 +331,14 @@ impl Render for UpdatesPage {
                     SettingRow::new(t(CoreMsg::ThisVersion))
                         .hint(status)
                         .children_opt(action)
-                        .search_text(version.clone())
+                        .search_text(version)
                         .below(
                             div()
-                                .text_size(text::SMALL)
-                                .text_color(ink::muted())
-                                .child(version),
+                                .flex()
+                                .flex_col()
+                                .gap(px(12.))
+                                .child(facts)
+                                .children(progress),
                         ),
                     SettingRow::new(t(CoreMsg::UpdateAutomatically))
                         .hint(t(CoreMsg::UpdateAutomaticallyHint))
@@ -328,9 +371,19 @@ impl Render for UpdatesPage {
             )
             .finish()
             .map(IntoElement::into_any_element);
+        let logs = query
+            .section(t(CoreMsg::LogsSection), None)
+            .card(logs_rows(&prefs))
+            .finish()
+            .map(IntoElement::into_any_element);
         let page = parts::page(
             // the sections are built: the status counts what they show
-            query.status().into_iter().chain(updates).chain(developer),
+            query
+                .status()
+                .into_iter()
+                .chain(updates)
+                .chain(logs)
+                .chain(developer),
         )
         .text_color(colors::GRAY_300);
         let dialogs = self
@@ -342,6 +395,44 @@ impl Render for UpdatesPage {
             .child(page)
             .children(window_layer(window, dialogs))
     }
+}
+
+/// Logs: the folder (the Host's log and the core's), and how much the Host logs.
+fn logs_rows(prefs: &crate::prefs::PrefsData) -> [SettingRow; 2] {
+    use launcher_core::logging::LogLevel;
+    let from_env = launcher_core::logging::env_override();
+    let path = launcher_core::logging::logs_dir()
+        .unwrap_or_else(crate::logs::dir)
+        .display()
+        .to_string();
+    [
+        SettingRow::new(t(CoreMsg::LogFiles))
+            .hint(tr!(CoreMsg::LogsHint, path = path))
+            .child(
+                Button::new(
+                    "open-logs-folder",
+                    crate::i18n::t(crate::i18n::ShellMsg::OpenLogFolder),
+                )
+                .variant(ButtonVariant::Secondary)
+                .on_click(|_, _, cx| crate::logs::open_folder(cx)),
+            ),
+        SettingRow::new(t(CoreMsg::LogDetail))
+            .hint(if from_env {
+                t(CoreMsg::LogLevelFromEnv)
+            } else {
+                t(CoreMsg::LogDetailHint)
+            })
+            .child(segmented(
+                "log-detail",
+                vec![
+                    (LogLevel::Info, t(CoreMsg::LogInfo).into()),
+                    (LogLevel::Debug, t(CoreMsg::LogDebug).into()),
+                ],
+                Some(&prefs.log_level),
+                from_env,
+                |level, _, cx| Prefs::update(cx, |p| p.log_level = level),
+            )),
+    ]
 }
 
 /// `SettingRow::child` for an optional control.

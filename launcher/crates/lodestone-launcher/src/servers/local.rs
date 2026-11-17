@@ -264,6 +264,8 @@ impl Servers {
                     .into_iter()
                     .map(|(url, info)| FoundCore { url, info })
                     .collect();
+                // a card that moved to "On this computer" needs no forwarders
+                this.sync_magic(cx);
                 cx.notify();
             })
             .ok();
@@ -425,15 +427,27 @@ impl Servers {
         self.save();
         let name = claimed.info.core_name.clone();
         let created = claimed.created_owner.as_ref().map(|o| o.username.clone());
-        self.notice = Some(Notice::success(move || {
+        let made_owner = created.is_some();
+        let notice = Notice::success(move || {
             (
-                tr!(M::ConnectedAsOwner, name = name),
-                match &created {
-                    Some(username) => tr!(M::ConnectedMadeOwner, username = username),
-                    None => t(M::ConnectedOwnerKey).into(),
-                },
+                t(M::ConnectedAsOwner).into(),
+                t(if made_owner {
+                    M::ConnectedMadeOwner
+                } else {
+                    M::ConnectedOwnerKey
+                })
+                .into(),
             )
-        }));
+        })
+        .object(name, crate::components::Kind::Computer);
+        self.notice = Some(match created {
+            Some(username) => notice.value(
+                || t(M::OwnerAccount).into(),
+                username,
+                crate::components::ValueKind::Code,
+            ),
+            None => notice,
+        });
         self.refresh(index, cx);
         cx.notify();
         ClaimedCore {

@@ -1,5 +1,4 @@
 import Button from './Atoms/Button';
-import Label from './Atoms/Label';
 import GameIcon from './Atoms/GameIcon';
 import LoadingStatusIcon from './Atoms/LoadingStatusIcon';
 import { EventLevel } from 'bindings/EventLevel';
@@ -7,6 +6,8 @@ import { OngoingState } from 'data/NotificationContext';
 import ProgressBar from './Atoms/ProgressBar';
 import { Game } from 'bindings/Game';
 import { useT } from 'i18n';
+import { Fraction, StatusBadge } from './Atoms/Values';
+import { Fact } from './Values';
 
 const NotificationLevelToBgColorClass = (
   level: EventLevel,
@@ -52,7 +53,6 @@ export default function InstanceLoadingCard({
   progress_title: string;
 }) {
   const t = useT();
-  const stateColor = 'gray';
   const borderClass = 'outline-gray-300 ring-gray-500';
   const actionMessage = t('server.action.start');
   progress_percent = Math.min(0.99, progress_percent); // Prevents the progress bar from being full when the instance is still loading
@@ -84,10 +84,10 @@ export default function InstanceLoadingCard({
       <div className="flex min-w-0 grow flex-col">
         <h1 className="truncate text-gray-300">{name}</h1>
         <div className="flex flex-row items-center gap-x-2">
-          <h1 className={`text-${stateColor} -mx-1 truncate px-1`}>00/20</h1>
-          <Label size="small" color={stateColor}>
-            {t('common.state.Stopped')}
-          </Label>
+          <Fact label={t('values.key.players')} className="text-small">
+            <Fraction done={null} total={null} />
+          </Fact>
+          <StatusBadge tone="neutral">{t('common.state.Stopped')}</StatusBadge>
         </div>
       </div>
 

@@ -15,7 +15,7 @@ export default function UserApiKeys({ user }: { user: PublicUser }) {
   return (
     <SettingsSection
       title={t('settings.apiKeys.title')}
-      lead={t('settings.apiKeys.userLead', { username: user.username })}
+      lead={t('settings.apiKeys.userLead')}
     >
       <ApiKeyList
         keys={keys}
@@ -23,7 +23,7 @@ export default function UserApiKeys({ user }: { user: PublicUser }) {
         error={error}
         queryKey={apiKeyKeys.ofUser(user.uid)}
         revoke={(key) => revokeUserApiKey(user.uid, key.id)}
-        emptyText={t('settings.apiKeys.userEmpty', { username: user.username })}
+        emptyText={t('settings.apiKeys.userEmpty')}
       />
     </SettingsSection>
   );

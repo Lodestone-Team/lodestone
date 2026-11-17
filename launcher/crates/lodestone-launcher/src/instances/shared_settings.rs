@@ -25,7 +25,9 @@ use launcher_core::{
 use super::{Instances, shared_options_i18n};
 use crate::{
     components::{
-        Button, ButtonSize, ButtonVariant, Slider, TextInput, Toggle, segmented,
+        Button, ButtonSize, ButtonVariant, Icon, Num, Slider, TextInput, Toggle,
+        readable::key_value,
+        segmented,
         settings::{
             SearchRow, SettingRow, SettingsQuery, SettingsSearch, link, muted_link, tag, value,
         },
@@ -407,14 +409,37 @@ impl InstanceSharedSettings {
         let shared = self.state.profile.shares(category);
         let overridden = rows.iter().filter(|r| r.overridden).count();
         let with_value = rows.iter().filter(|r| r.shared.is_some()).count();
-        let summary = if !shared {
-            t(M::NotShared).to_string()
+        // how many values are shared and overridden, each a count after its icon,
+        // whose tooltip gives the key
+        let count = |icon: Icon, key: &'static str, n: usize| {
+            div()
+                .id(SharedString::from(format!(
+                    "shared-count-{category:?}-{key}"
+                )))
+                .tooltip(crate::components::text_tooltip(key_value(
+                    key,
+                    &format::number(n as u64),
+                )))
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(px(4.))
+                .child(icon.render(px(12.), colors::GRAY_500))
+                .child(Num::count(n as u64))
+        };
+        let summary: AnyElement = if !shared {
+            div().child(t(M::NotShared)).into_any_element()
         } else {
-            let mut parts = vec![trn!(P::SharedCount, with_value)];
-            if overridden > 0 {
-                parts.push(trn!(P::OverriddenCount, overridden));
-            }
-            parts.join(" · ")
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(px(12.))
+                .child(count(Icon::Link, t(M::SharedKey), with_value))
+                .when(overridden > 0, |this| {
+                    this.child(count(Icon::Pen, t(M::OverriddenKey), overridden))
+                })
+                .into_any_element()
         };
         let keys: Vec<String> = rows.iter().map(|r| r.key.clone()).collect();
         let all_overridden = !rows.is_empty() && overridden == rows.len();
@@ -632,22 +657,24 @@ impl Render for InstanceSharedSettings {
         let is_preferred = self.state.profile.preferred.as_deref() == Some(&self.instance_id);
         // Only what this version has: a value in its file, or a key it knows.
         let rows = self.visible_rows();
-        let changed = self.state.sharing.changed.clone();
+        // Only what the next launch will replace: a change to a setting with no shared
+        // value stays as it is.
+        let changed = self.state.sharing.replaced_next_launch(&self.state.profile);
 
         let source = if !enabled {
-            t(M::SharingOff).to_string()
+            None
         } else if is_preferred {
-            t(M::SharingMain).to_string()
+            Some(t(M::SharingMain).to_string())
         } else {
-            match &preferred_name {
+            Some(match &preferred_name {
                 Some(name) => tr!(M::SharingFrom, name = name),
                 None => t(M::SharingNoMain).to_string(),
-            }
+            })
         };
 
         let mut items: Vec<SearchRow> = vec![
             SettingRow::new(t(M::UseSharedSettings))
-                .hint(source)
+                .hint_opt(source)
                 .child(
                     Toggle::new("use-shared-settings", enabled)
                         .label(t(M::UseSharedSettings))

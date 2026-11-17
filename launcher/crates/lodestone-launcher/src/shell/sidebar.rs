@@ -1,4 +1,3 @@
-use crate::components::RichText;
 use crate::theme::px;
 use gpui::{
     AnyElement, Context, ElementId, ExternalPaths, IntoElement, ObjectFit, SharedString,
@@ -6,6 +5,7 @@ use gpui::{
 };
 use launcher_core::instances::{AutoGroup, Instance, last_played};
 use launcher_core::ui_skin::{FontPart, SurfaceId};
+use lodestone_ui::values::truncate::sanitize;
 
 use super::{LauncherShell, Page, account_box};
 use crate::components::{
@@ -14,7 +14,11 @@ use crate::components::{
 };
 use crate::skin::Skinned;
 use crate::{
-    components::{Align, Button, ButtonVariant, Icon, PlayButtonState},
+    components::{
+        Align, Button, ButtonVariant, Fact, FactLine, FactTooltip, FactValue, Icon,
+        PlayButtonState, ProductPhrase, VersionTag, readable::key_value,
+    },
+    i18n::FactMsg,
     i18n::{ShellMsg as M, format, t, tr},
     instances::{Ago, play_time},
     theme::{self, colors, layout, leading, radius, text, weights},
@@ -367,25 +371,25 @@ fn rail_instance(
     let active = instances.is_active(&id);
     let running = instances.is_running(&id);
     let icon = crate::instances::appearance::instance_icon(instances, instance, px(28.));
-    let tooltip: SharedString = match played_summary(instance) {
-        Some(played) => format!("{}\n{played}", instance.name).into(),
-        None => instance.name.clone().into(),
-    };
+    let mut tooltip = vec![(None, SharedString::from(instance.name.clone()))];
+    tooltip.extend(played_rows(instance));
     let element_id = match place {
         RowPlace::List => format!("instance-{id}"),
         RowPlace::LastPlayed => format!("last-played-{id}"),
     };
     let launching = instances.is_launching(&id);
-    let description: Option<String> = match (running, active) {
-        (true, _) if launching => Some(t(M::Launching).to_string()),
-        (true, _) => Some(t(M::Playing).to_string()),
-        _ => played_summary(instance),
+    let mut description: Vec<String> = match (running, active) {
+        (true, _) if launching => vec![t(M::Launching).to_string()],
+        (true, _) => vec![t(M::Playing).to_string()],
+        _ => played_rows(instance)
+            .into_iter()
+            .map(|(key, value)| key_value(key.as_deref().unwrap_or_default(), &value).into())
+            .collect(),
     };
     let linked = linked_to(shell, &id, cx);
-    let description: Option<SharedString> = match (description, &linked) {
-        (Some(description), Some(linked)) => Some(format!("{description} · {linked}").into()),
-        (description, linked) => description.or_else(|| linked.clone()).map(Into::into),
-    };
+    description.extend(linked.clone().unwrap_or_default());
+    let description: Option<SharedString> =
+        (!description.is_empty()).then(|| format::list(&description).into());
     let element_id = SharedString::from(element_id);
     div()
         .id(element_id.clone())
@@ -430,7 +434,7 @@ fn rail_instance(
                     }),
             )
         })
-        .tooltip(crate::components::text_tooltip(tooltip))
+        .tooltip(FactTooltip::builder(tooltip))
         .on_press(cx.listener(move |this, _, _, cx| this.select_instance(&id, cx)))
         .into_any_element()
 }
@@ -529,13 +533,23 @@ enum RowPlace {
     LastPlayed,
 }
 
-/// "Played 2 hours ago · 2 h 5 min in total", for an instance that has been played.
-fn played_summary(instance: &Instance) -> Option<String> {
-    let when = Ago::since(instance.last_played?).played();
-    Some(match instance.play_time {
-        0 => when,
-        seconds => tr!(M::PlayedInTotal, when = when, time = play_time(seconds)),
-    })
+/// Last played and Play time as tooltip rows (a key and a value), for an instance
+/// that has been played: two times told apart by their keys, not by word order.
+fn played_rows(instance: &Instance) -> Vec<(Option<SharedString>, SharedString)> {
+    let Some(when) = instance.last_played else {
+        return Vec::new();
+    };
+    let mut rows = vec![(
+        Some(t(FactMsg::LastPlayed).into()),
+        Ago::since(when).label().into(),
+    )];
+    if instance.play_time > 0 {
+        rows.push((
+            Some(t(FactMsg::PlayTime).into()),
+            play_time(instance.play_time).into(),
+        ));
+    }
+    rows
 }
 
 /// The size of an instance's icon in its sidebar row, in logical pixels.
@@ -651,19 +665,42 @@ fn instance_row(
     let running = instances.is_running(&id);
     let is_selected = on_instance_page && selected.as_deref() == Some(id.as_str());
     let icon = crate::instances::appearance::instance_icon(instances, instance, px(ROW_ICON));
-    let detail = match (place, instance.last_played) {
-        (RowPlace::LastPlayed, Some(when)) => Ago::since(when).label(),
-        _ => match instance.loader.kind() {
-            None => instance.game_version.clone(),
-            Some(kind) => format!("{} · {}", instance.game_version, kind.label()),
-        },
+    let detail: Vec<Fact> = match (place, instance.last_played) {
+        (RowPlace::LastPlayed, Some(when)) => vec![Fact::icon(
+            Icon::Clock,
+            t(FactMsg::LastPlayed),
+            FactValue::time(Ago::since(when).label()),
+        )],
+        _ => {
+            let mut facts = Vec::new();
+            // a friend's server: whose it is, first
+            if let Some(owner) = shell.servers.read(cx).instance_owner(&id) {
+                facts.push(
+                    Fact::icon(
+                        Icon::User,
+                        t(FactMsg::Owner),
+                        FactValue::text(sanitize(&owner, 64)),
+                    )
+                    .priority(2),
+                );
+            }
+            facts.push(
+                Fact::bare_named(
+                    t(FactMsg::Game),
+                    crate::instances::facts::game(&instance.game_version),
+                )
+                .priority(0),
+            );
+            if let Some(kind) = instance.loader.kind() {
+                facts.push(
+                    Fact::bare_named(t(FactMsg::Loader), ProductPhrase::new(kind.into(), ""))
+                        .priority(1),
+                );
+            }
+            facts
+        }
     };
-    // a friend's server: whose it is, first
-    let detail = match shell.servers.read(cx).instance_owner(&id) {
-        Some(owner) if place == RowPlace::List => format!("{owner} · {detail}"),
-        _ => detail,
-    };
-    let tooltip: Option<SharedString> = played_summary(instance).map(Into::into);
+    let tooltip = played_rows(instance);
     let element_id = match place {
         RowPlace::List => format!("instance-{id}"),
         RowPlace::LastPlayed => format!("last-played-{id}"),
@@ -677,17 +714,16 @@ fn instance_row(
         .then(|| instances.sidebar_banner(&id))
         .flatten();
     let banner_readability = crate::skin::look(cx).spec.banner.readability;
-    let mut description: String = if instances.is_launching(&id) {
-        format!("{detail} · {}", t(M::Launching))
+    let mut description: Vec<String> = detail.iter().map(|fact| fact.label().into()).collect();
+    if instances.is_launching(&id) {
+        description.push(t(M::Launching).into());
     } else if running {
-        format!("{detail} · {}", t(M::Playing))
-    } else {
-        detail.clone()
-    };
-    let linked = linked_to(shell, &id, cx);
-    if let Some(linked) = &linked {
-        description = format!("{description} · {linked}");
+        description.push(t(M::Playing).into());
     }
+    let linked = linked_to(shell, &id, cx);
+    description.extend(linked.clone().unwrap_or_default());
+    let description = format::list(&description);
+    let detail_id = SharedString::from(format!("{element_id}-facts"));
     let element_id = SharedString::from(element_id);
     let hovered = shell.sidebar_hover() == Some(&element_id);
     let overlay = icon_overlay(shell, instance, &element_id, hovered, ROW_ICON, cx);
@@ -761,13 +797,7 @@ fn instance_row(
                         .text_color(crate::skin::sidebar_inks().primary)
                         .child(instance.name.clone()),
                 )
-                .child(
-                    div()
-                        .truncate()
-                        .text_size(theme::text_size(text::SMALL))
-                        .text_color(crate::skin::sidebar_inks().muted)
-                        .child(detail),
-                ),
+                .child(FactLine::row(detail_id).facts(detail)),
         )
         .when(active, |this| {
             this.child(
@@ -782,23 +812,22 @@ fn instance_row(
                     }),
             )
         })
-        .when_some(tooltip, |this, tooltip| {
-            this.tooltip(crate::components::text_tooltip(tooltip))
+        .when(!tooltip.is_empty(), |this| {
+            this.tooltip(FactTooltip::builder(tooltip))
         })
         .on_press(cx.listener(move |this, _, _, cx| this.select_instance(&id, cx)))
         .into_any_element()
 }
 
-/// "Linked to Survival SMP on Peter's core", for an instance linked to a server (one
-/// on a Lodestone core, or a friend's shared server). Its icon carries Lodestone
-/// Host's mark, and assistive technology reads this.
-fn linked_to(shell: &LauncherShell, id: &str, cx: &Context<LauncherShell>) -> Option<String> {
+/// "Server: Survival SMP" and "Host: Peter's core", for an instance linked to a
+/// server (one on a Lodestone core, or a friend's shared server). Its icon carries
+/// Lodestone Host's mark, and assistive technology reads these.
+fn linked_to(shell: &LauncherShell, id: &str, cx: &Context<LauncherShell>) -> Option<Vec<String>> {
     let link = shell.servers.read(cx).instance_link(id)?;
-    Some(tr!(
-        M::LinkedTo,
-        server = link.server_name,
-        core = link.core_name
-    ))
+    Some(vec![
+        key_value(t(FactMsg::Server), &sanitize(&link.server_name, 64)).into(),
+        key_value(t(FactMsg::Host), &sanitize(&link.core_name, 64)).into(),
+    ])
 }
 
 /// The Lodestone Host mark on the bottom right corner of a linked instance's icon,
@@ -1156,12 +1185,21 @@ fn footer(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoEl
                 .line_height(theme::line_height(text::CAPTION, leading::NORMAL))
                 .font_weight(weights::MEDIUM.into())
                 .text_color(crate::skin::sidebar_inks().faint)
-                .truncate()
-                .child(RichText::new(tr!(
-                    M::AppVersion,
-                    version = env!("CARGO_PKG_VERSION")
-                ))),
+                .child(app_version()),
         )
+}
+
+/// "Lodestone Launcher" and its version as a tag, under the sidebar and the
+/// Settings pages.
+pub(super) fn app_version() -> impl IntoElement {
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap(px(6.))
+        .min_w_0()
+        .child(div().truncate().child(t(M::AppName)))
+        .child(VersionTag::new(env!("CARGO_PKG_VERSION")))
 }
 
 #[cfg(all(test, feature = "screenshot"))]

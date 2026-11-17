@@ -28,11 +28,12 @@ use crate::components::{
 };
 use crate::{
     components::{
-        Button, ButtonSize, ButtonVariant, Dropdown, Icon, ListRow, Scrollbar, TextInput,
+        Button, ButtonSize, ButtonVariant, Dropdown, Fact, FactLine, Icon, ListRow, Num, Scrollbar,
+        StatusBadge, TextInput,
         settings::{popover_panel, select_button},
     },
-    i18n::{CommonMsg, InstancesMsg as M, InstancesPlural as P, ShellMsg, format, t, tr, trn},
-    theme::{self, Color, colors, fonts, radius, text, weights},
+    i18n::{CommonMsg, InstancesMsg as M, ShellMsg, format, t, tr},
+    theme::{self, Color, Tone, colors, fonts, radius, text, weights},
 };
 
 /// The levels the filter chips toggle, with their ids and labels. TRACE goes with
@@ -83,15 +84,6 @@ struct Past {
     log: GameLog,
     /// The earlier lines of a very long file, which aren't shown.
     skipped: usize,
-}
-
-/// What a kind of file is called in the list.
-fn kind_label(kind: Kind) -> M {
-    match kind {
-        Kind::Log => M::LogKindLog,
-        Kind::CrashReport => M::LogKindCrash,
-        Kind::JvmCrash => M::LogKindJvm,
-    }
 }
 
 /// A file's line as a console row.
@@ -582,12 +574,14 @@ impl Render for Console {
                     .is_some_and(|past| past.file.path == file.path);
                 let pick = file.clone();
                 panel = panel.child(
+                    // the kind as an icon (a crash report stands out), the size as the
+                    // detail
                     ListRow::new(("log-source-file", i), file.name.clone())
-                        .detail(format!(
-                            "{} · {}",
-                            t(kind_label(file.kind)),
-                            format::bytes(file.size)
-                        ))
+                        .icon(match file.kind {
+                            Kind::Log => Icon::File,
+                            Kind::CrashReport | Kind::JvmCrash => Icon::TriangleExclamation,
+                        })
+                        .detail(format::bytes(file.size))
                         .selected(shown)
                         .on_click(
                             cx.listener(move |this, _, _, cx| this.open_file(pick.clone(), cx)),
@@ -777,28 +771,34 @@ impl Render for Console {
                     .on_scroll(cx.listener(Self::on_scroll))
                     .child(body),
             )
-            .child(
+            .child({
+                // the lines shown of the total as a keyed fraction, whether it follows
+                // new output as a badge, and the lines left out at the start
+                let mut facts = vec![Fact::new(
+                    t(M::LogLines),
+                    Num::fraction(count as u64, total as u64),
+                )];
+                if skipped > 0 {
+                    facts.push(Fact::new(
+                        t(M::LogLinesNotShown),
+                        Num::count(skipped as u64),
+                    ));
+                }
                 div()
-                    .text_size(theme::text_size(text::CAPTION))
-                    .font_weight(weights::BOLD.into())
-                    .text_color(crate::theme::ink::faint())
-                    .child({
-                        let lines = trn!(
-                            if self.follow && live {
-                                P::LinesShownFollowing
-                            } else {
-                                P::LinesShown
-                            },
-                            total,
-                            shown = super::thousands(count as u64)
-                        );
-                        if skipped > 0 {
-                            format!("{lines} · {}", trn!(P::LogLinesSkipped, skipped))
-                        } else {
-                            lines
-                        }
-                    }),
-            )
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .child(FactLine::row("log-footer").facts(facts)),
+                    )
+                    .when(self.follow && live, |this| {
+                        this.child(StatusBadge::new(t(M::LogFollowing), Tone::Info))
+                    })
+            })
     }
 }
 

@@ -27,6 +27,7 @@ pub mod http;
 pub mod images;
 pub mod import;
 pub mod instances;
+pub mod logging;
 pub mod markdown;
 pub mod mc_text;
 pub mod modpack;
@@ -44,6 +45,7 @@ pub mod trace;
 pub mod ui_skin;
 pub mod update;
 pub mod wording;
+pub mod world_backups;
 pub mod worlds;
 
 pub use secret::{MemorySecretStore, Secret, SecretStore};

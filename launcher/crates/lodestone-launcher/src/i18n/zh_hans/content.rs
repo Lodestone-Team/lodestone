@@ -15,17 +15,16 @@ pub fn text(message: M) -> &'static str {
         M::CurseForgeLinkUnavailable => {
             "这是 CurseForge 链接，而此 Lodestone Launcher 无法连接 CurseForge。"
         }
-        M::LookingForMore => "想找点新内容？",
         M::BrowseModrinth => "浏览 Modrinth",
         M::BrowseCurseForge => "浏览 CurseForge",
         M::BackToTop => "回到顶部",
         M::AlreadyInstalled => "已安装",
         M::ShowInstalled => "显示已安装",
-        M::InstalledCount => "已安装 · {count}",
-        M::EnabledCount => "已启用 · {count} · 重叠时以最上面的包为准",
-        M::AvailableCount => "可用 · {count}",
-        M::NoInstalledMatch => "已安装 · {count} · 没有匹配的已安装{kind}。",
-        M::OnlyTarget => "仅限 {target}",
+        M::Enabled => "已启用",
+        M::TopPackWins => "重叠时以最上面的包为准。",
+        M::Available => "可用",
+        M::NoInstalledMatch => "没有匹配的已安装{kind}。",
+        M::CompatibleOnly => "仅限兼容",
 
         M::StopGameFirst => "请先停止游戏：游戏退出时会重写这些文件。",
         M::WaitForInstall => "请等待安装完成。",
@@ -66,12 +65,10 @@ pub fn text(message: M) -> &'static str {
         M::UpdateAll => "全部更新（{count}）",
         M::AddFile => "添加文件…",
         M::AddFolder => "添加文件夹…",
-        M::ItemFolder => "{name} · 文件夹",
         M::Compatible => "兼容",
         M::OlderVersion => "旧版本",
         M::NewerVersion => "新版本",
         M::NotOnModrinth => "不在 Modrinth 上",
-        M::UpdateTo => "更新到 {version}",
         M::NoModsYet => "还没有模组。浏览 Modrinth，或将 .jar 文件拖放到这里。",
         M::NoResourcePacksYet => "还没有资源包。浏览 Modrinth，或将 .zip 文件或文件夹拖放到这里。",
         M::NoShaderPacksYet => "还没有光影包。浏览 Modrinth，或将 .zip 文件或文件夹拖放到这里。",
@@ -79,7 +76,6 @@ pub fn text(message: M) -> &'static str {
         M::CouldntReadFolder => "无法读取 {folder} 文件夹：{error}",
         M::SomeFilesNotMatched => "部分文件无法查询：{error}",
         M::ShadersOff => "关闭光影",
-        M::NormalLook => "Minecraft 的原始画面。",
 
         M::ModsNeedLoader => "模组需要模组加载器",
         M::ShadersNeedLoader => "光影需要模组加载器",
@@ -149,9 +145,7 @@ pub fn text(message: M) -> &'static str {
         M::EnvAny => "不限",
         M::EnvClientOnly => "仅客户端",
         M::EnvServerToo => "服务器也需安装",
-        M::FilterEnvironmentHint => {
-            "仅客户端的模组可在任何服务器上使用；其他模组也必须安装在服务器上。"
-        }
+        M::FilterEnvironmentHint => "仅客户端的模组可在任何服务器上使用。",
         M::FilterOther => "其他",
         M::FilterOpenSource => "仅开源",
         M::ClearFilters => "清除筛选",
@@ -212,12 +206,10 @@ pub fn text(message: M) -> &'static str {
         M::CatScreenshot => "截图",
         M::NothingOnCurseForge => "CurseForge 上没有匹配的结果。",
         M::PageOf => "第 {page} 页，共 {pages} 页",
-        M::ByAuthor => "作者：{author}",
         M::InstalledBadge => "已安装",
         M::OptionalOnServers => "服务器上可选",
         M::DownloadsCompact => "{count}次下载",
         M::FollowsCompact => "{count}人关注",
-        M::FollowersCompact => "{count}位关注者",
 
         M::LoadingProject => "正在加载项目",
         M::ViewOnModrinth => "在 Modrinth 上查看",
@@ -268,18 +260,21 @@ pub fn text(message: M) -> &'static str {
         M::WatchFolderPrompt => "监视此文件夹",
         M::CouldntAddDownload => "无法添加 {name}：{error}",
         M::AddedDownloads => "已添加 {names}。",
-        M::DisableModTitle => "要关闭 {name} 吗？",
+        M::DisableModTitle => "要关闭模组吗？",
         M::DisableModOnlyWarning => {
-            "如果只关闭 {name}，在它们也关闭或重新开启 {name} 之前，游戏将无法启动。"
+            "如果只关闭这个模组，游戏将无法启动，直到它们也被关闭，或这个模组重新开启。"
         }
         M::DisableModAll => "全部关闭",
-        M::DisableModOnly => "仅关闭 {name}",
-        M::EnableModTitle => "要开启 {name} 吗？",
+        M::DisableModOnly => "仅关闭这个模组",
+        M::EnableModTitle => "要开启模组吗？",
         M::EnableModOnlyWarning => {
-            "如果只开启 {name}，在它们也开启或再次关闭 {name} 之前，游戏将无法启动。"
+            "如果只开启这个模组，游戏将无法启动，直到它们也被开启，或这个模组再次关闭。"
         }
         M::EnableModAll => "全部开启",
-        M::EnableModOnly => "仅开启 {name}",
+        M::EnableModOnly => "仅开启这个模组",
+        M::NeededByHeading => "被以下模组需要",
+        M::NeededByBody => "没有它，这些模组将无法加载。",
+        M::NeedsHeading => "需要但已关闭",
 
         M::AddModpackContent => "添加整合包",
         M::NoSnapshotFirst => "未能先拍摄快照，请在游玩前到“设置 › 快照”中拍摄一个。\n{error}",
@@ -288,11 +283,6 @@ pub fn text(message: M) -> &'static str {
 
 pub fn plural(message: P) -> [&'static str; 2] {
     match message {
-        P::Downloads => ["{count} 次下载"; 2],
-        P::Follows => ["{count} 人关注"; 2],
-        P::Followers => ["{count} 位关注者"; 2],
-        P::Needs => ["{name} 需要以下 {count} 个已关闭的模组："; 2],
-        P::NeededBy => ["以下 {count} 个模组需要 {name}，没有它将无法加载："; 2],
         P::MoreVersions => ["Modrinth 上还有 {count} 个版本。"; 2],
         P::MoreFilesOnCurseForge => ["CurseForge 上还有 {count} 个文件。"; 2],
     }

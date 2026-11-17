@@ -68,10 +68,32 @@ pub enum Icon {
     ClockRotateLeft,
     /// A pinned backup, kept until it is unpinned.
     Thumbtack,
+    /// From-to values (mirrored right to left).
+    ArrowRight,
+    /// When something happened: last played, made.
+    Clock,
+    /// How long: play time, uptime.
+    Hourglass,
+    /// Followers.
+    Heart,
+    /// An address on the internet.
+    Globe,
+    /// Shows a hidden value.
+    Eye,
+    /// Hides a value again.
+    EyeSlash,
+    /// Skipped.
+    Forward,
+    /// A picture.
+    Image,
+    /// A key or a token.
+    Key,
+    /// A computer.
+    Desktop,
 }
 
 impl Icon {
-    pub const ALL: [Icon; 61] = [
+    pub const ALL: [Icon; 72] = [
         Icon::ArrowDown,
         Icon::ArrowLeft,
         Icon::ArrowUp,
@@ -133,6 +155,17 @@ impl Icon {
         Icon::PowerOff,
         Icon::ClockRotateLeft,
         Icon::Thumbtack,
+        Icon::ArrowRight,
+        Icon::Clock,
+        Icon::Hourglass,
+        Icon::Heart,
+        Icon::Globe,
+        Icon::Eye,
+        Icon::EyeSlash,
+        Icon::Forward,
+        Icon::Image,
+        Icon::Key,
+        Icon::Desktop,
     ];
 
     /// The asset path of the icon's SVG.
@@ -199,6 +232,17 @@ impl Icon {
             Icon::PowerOff => "icons/power-off.svg",
             Icon::ClockRotateLeft => "icons/clock-rotate-left.svg",
             Icon::Thumbtack => "icons/thumbtack.svg",
+            Icon::ArrowRight => "icons/arrow-right.svg",
+            Icon::Clock => "icons/clock.svg",
+            Icon::Hourglass => "icons/hourglass-half.svg",
+            Icon::Heart => "icons/heart.svg",
+            Icon::Globe => "icons/earth-americas.svg",
+            Icon::Eye => "icons/eye.svg",
+            Icon::EyeSlash => "icons/eye-slash.svg",
+            Icon::Forward => "icons/forward.svg",
+            Icon::Image => "icons/image.svg",
+            Icon::Key => "icons/key.svg",
+            Icon::Desktop => "icons/desktop.svg",
         }
     }
 
@@ -225,6 +269,8 @@ impl Icon {
             Icon::ArrowUpRightFromSquare => M::Open,
             Icon::CircleUp => M::Update,
             Icon::Xmark | Icon::WindowClose => M::Close,
+            Icon::Eye => return t(crate::i18n::ValueMsg::Reveal).into(),
+            Icon::EyeSlash => return t(crate::i18n::ValueMsg::Hide).into(),
             Icon::CaretDown
             | Icon::Cube
             | Icon::Expand
@@ -264,7 +310,16 @@ impl Icon {
             | Icon::Play
             | Icon::PowerOff
             | Icon::ClockRotateLeft
-            | Icon::Thumbtack => return format!("{self:?}").into(),
+            | Icon::Thumbtack
+            | Icon::ArrowRight
+            | Icon::Clock
+            | Icon::Hourglass
+            | Icon::Heart
+            | Icon::Globe
+            | Icon::Forward
+            | Icon::Image
+            | Icon::Key
+            | Icon::Desktop => return format!("{self:?}").into(),
         };
         t(message).into()
     }

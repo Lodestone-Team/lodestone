@@ -552,7 +552,7 @@ impl AdminClient {
                 EXPORT_TIMEOUT,
             )
             .await?;
-        serde_json::from_slice(&bytes).map_err(|err| CoreError::Invalid(err.to_string()))
+        self.decode(&Method::POST, &path, &bytes)
     }
 
     /// Exports the backup (see [`Self::export_backup_key`]) into `out`; what it left out,
@@ -712,8 +712,7 @@ impl AdminClient {
                 )
                 .await?;
             check(&response, auth)?;
-            serde_json::from_slice::<ImageUpload>(&response.body)
-                .map_err(|err| CoreError::Invalid(err.to_string()))
+            self.decode::<ImageUpload>(&Method::POST, "instance/image/upload", &response.body)
         };
         let answer = race_cancel(request, cancel).await;
         match ended(answer, cancel.is_cancelled())? {
@@ -755,7 +754,7 @@ impl AdminClient {
                 CREATE_TIMEOUT,
             )
             .await?;
-        serde_json::from_slice(&bytes).map_err(|err| CoreError::Invalid(err.to_string()))
+        self.decode(&Method::POST, "instance/create_from_image", &bytes)
     }
 }
 

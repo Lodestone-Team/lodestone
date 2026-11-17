@@ -306,7 +306,7 @@ fn fit_hero(width: f32, height: f32, scale_factor: f32, cx: &mut App) {
                     Some(std::mem::replace(&mut images.hero, image))
                 }
                 Err(err) => {
-                    eprintln!("lodestone-launcher: fitting the artwork to the banner: {err:#}");
+                    log::warn!("fitting the artwork to the banner: {err:#}");
                     None
                 }
             };
@@ -429,7 +429,7 @@ const MARK_PATH: &str = "images/lodestone_mark.svg";
 pub fn install(images: anyhow::Result<BundledImages>, cx: &mut App) {
     match images {
         Ok(images) => cx.set_global(images),
-        Err(err) => eprintln!("lodestone-launcher: decoding the bundled images: {err:#}"),
+        Err(err) => log::error!("decoding the bundled images: {err:#}"),
     }
 }
 

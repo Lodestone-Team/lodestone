@@ -7,6 +7,7 @@ mod auto_config;
 pub mod console;
 pub mod content;
 mod copy_as;
+pub mod facts;
 pub mod fields;
 mod files;
 pub mod import;
@@ -18,6 +19,7 @@ pub mod modpack_browser;
 pub mod modpacks;
 mod narrator;
 pub mod new_instance;
+pub mod report;
 pub mod settings;
 pub mod share_dialog;
 pub(crate) mod shared_options_i18n;
@@ -25,6 +27,7 @@ pub mod shared_settings;
 pub mod slideshow;
 pub mod snapshots;
 mod undo;
+pub mod world_backups;
 pub mod worlds;
 pub use files::FileOp;
 pub use undo::InstanceSnapshot;
@@ -59,6 +62,7 @@ use launcher_core::{
     instances::{Instance, InstanceStore},
     paths::DataDir,
     settings::{self as launcher_settings, InstanceDefaults, Settings},
+    world_backups::{WorldBackup, WorldBackups},
 };
 use lodestone_minecraft::versions::mojang::MojangVersion;
 
@@ -425,6 +429,9 @@ pub enum InstancesEvent {
         message: SharedString,
         about: About,
     },
+    /// The same with its names and values set apart: what it is about, keyed
+    /// facts, lists of names.
+    Report(Box<report::Report>),
     /// The instance's loader or Minecraft version was changed outside its Settings tab:
     /// by a modpack update, to match its linked server's pack, or by restoring a
     /// snapshot's mods. The user never changes them in place; a copy with another
@@ -462,6 +469,46 @@ pub enum InstancesEvent {
     },
 }
 
+impl InstancesEvent {
+    /// The log line for a failure or notice shown in a dialog: a modpack import that
+    /// failed, files a game still has open, a copy that couldn't be made. The dialog is
+    /// often the only sign of it. [`InstancesEvent::PlayFailed`] is left out: it is
+    /// logged as the trace bus's `game.failed` where it is decided.
+    pub fn log_line(&self) -> Option<(log::Level, String)> {
+        let (level, title, message, about) = match self {
+            InstancesEvent::LaunchFailed {
+                title,
+                message,
+                about,
+            } => (log::Level::Warn, title, message, about),
+            InstancesEvent::Notice {
+                title,
+                message,
+                about,
+            } => (log::Level::Info, title, message, about),
+            _ => return None,
+        };
+        let about = match about {
+            About::Nothing => String::new(),
+            About::Instance(id) => format!(" (instance {id})"),
+            About::Import(job) => format!(" (import job {job})"),
+        };
+        let shown = if level == log::Level::Warn {
+            "shown as an error"
+        } else {
+            "shown"
+        };
+        Some((level, format!("{shown}: {title}: {message}{about}")))
+    }
+}
+
+/// Logs what [`InstancesEvent::log_line`] picks.
+pub fn log_shown(event: &InstancesEvent) {
+    if let Some((level, line)) = event.log_line() {
+        log::log!(level, "{line}");
+    }
+}
+
 /// How long a game runs before it counts as having opened its window when the log
 /// never says so (an unusual version or a mod that changes the log).
 const WINDOW_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
@@ -478,6 +525,9 @@ pub struct Instances {
     total_memory: Option<u64>,
     machine: Platform,
     notice: Option<SharedString>,
+    /// The instance folders the last reload logged as left out, so a reload (which
+    /// follows many operations) logs them only when they change.
+    broken_logged: Vec<std::path::PathBuf>,
     versions_task: Option<Task<()>>,
     /// The launcher's settings: the global instance settings and the sidebar's
     /// folded groups.
@@ -586,6 +636,16 @@ pub struct Instances {
     /// The instances' content images: every action that changes an instance's content
     /// begins an operation here ([`Images::begin`]) in its background task.
     images: Arc<Images>,
+    /// Zips of single worlds, beside the snapshots.
+    world_backups: Arc<WorldBackups>,
+    /// Each instance's world backups, newest first, once read (see world_backups.rs).
+    world_backup_rows: HashMap<String, Vec<WorldBackup>>,
+    /// Of each instance's world backups read, the world folders no longer in `saves/`.
+    world_backup_gone: HashMap<String, std::collections::HashSet<String>>,
+    world_backup_tasks: HashMap<String, Task<()>>,
+    /// How many times each instance's world backups changed (`WorldBackups::watch`), so
+    /// the Worlds tab reads them again.
+    world_backup_revisions: HashMap<String, u64>,
     /// Counts changes to the shared game settings made in the launcher's Settings, so
     /// an instance's Settings tab shows the new values.
     shared_revision: u64,
@@ -664,6 +724,7 @@ impl Instances {
         );
         let store = InstanceStore::new(data_dir.instances_dir());
         let images = Images::open(&data_dir);
+        let world_backups = WorldBackups::open(&data_dir, images.clone());
         // A restore a crash interrupted is finished or undone before anything can be
         // played: on this thread, since it only renames folders (back, or to the trash
         // that the task below empties).
@@ -680,8 +741,11 @@ impl Instances {
         // backup zips are the user's files and stay where they are).
         let forgetting = images.clone();
         let old_store = data_dir.clone();
+        let sweeping = world_backups.clone();
         cx.background_spawn(async move {
             forgetting.empty_restore_trash(None);
+            // What a crash left of a world backup being made or deleted.
+            sweeping.sweep();
             if let Err(err) = forgetting.forget_deleted() {
                 log::warn!("Couldn't forget the images of deleted instances: {err}");
             }
@@ -698,16 +762,27 @@ impl Instances {
             async {}
         })
         .detach();
+        // A clean quit, so the next start shows no crash notice. Added after the
+        // settling (quit handlers run in the order they were added), so what that logs
+        // is flushed with the quit line.
+        cx.on_app_quit(|_, _| {
+            launcher_core::logging::end_session();
+            async {}
+        })
+        .detach();
         // Copies of images that are gone, and the oldest past the limit.
         let hero_cache = launcher_core::hero_cache::HeroCache::new(&data_dir);
         let pruning = hero_cache.clone();
         cx.background_spawn(async move { pruning.prune() }).detach();
         let (settings, settings_notice) = match launcher_settings::load(&data_dir.settings_file()) {
             Ok(settings) => (settings, None),
-            Err(err) => (
-                Settings::default(),
-                Some(SharedString::from(err.to_string())),
-            ),
+            Err(err) => {
+                log::warn!("{err}; using the default settings");
+                (
+                    Settings::default(),
+                    Some(SharedString::from(err.to_string())),
+                )
+            }
         };
         crate::i18n::apply(settings.language);
         crate::theme::zoom::set(settings.zoom);
@@ -729,6 +804,7 @@ impl Instances {
             total_memory: platform::total_memory(),
             machine: Platform::current(),
             notice: None,
+            broken_logged: Vec::new(),
             versions_task: None,
             settings,
             icons: HashMap::new(),
@@ -771,9 +847,15 @@ impl Instances {
             content_revisions: HashMap::new(),
             import_ticker: None,
             images,
+            world_backups,
+            world_backup_rows: HashMap::new(),
+            world_backup_gone: HashMap::new(),
+            world_backup_tasks: HashMap::new(),
+            world_backup_revisions: HashMap::new(),
         };
         this.reload(cx);
         this.follow_snapshot_changes(cx);
+        this.follow_world_backup_changes(cx);
         // Files left from an earlier run (snapshot exports, "Host this" uploads, "Download
         // this world" downloads) were made to be shared or read then: the dialog that
         // made them is gone. Renamed away at once (to a name no earlier run used), so one
@@ -827,6 +909,13 @@ impl Instances {
     pub fn reload(&mut self, cx: &mut Context<Self>) {
         let (list, broken) = self.store.list();
         self.list = list;
+        let dirs: Vec<_> = broken.iter().map(|b| b.dir.clone()).collect();
+        if dirs != self.broken_logged {
+            for line in broken_lines(&broken) {
+                log::warn!("{line}");
+            }
+            self.broken_logged = dirs;
+        }
         self.notice = (!broken.is_empty()).then(|| {
             trn!(
                 P::BrokenFolders,
@@ -909,7 +998,10 @@ impl Instances {
                 }
                 Ok(())
             }
-            Err(err) => Err(err.to_string()),
+            Err(err) => {
+                log::warn!("couldn't save the settings: {err}");
+                Err(err.to_string())
+            }
         }
     }
 
@@ -1922,7 +2014,7 @@ impl Instances {
 
     /// Has the Content tab offer Modrinth's projects while staying off the network:
     /// every request to it fails (the list says Modrinth couldn't be reached), for
-    /// the offscreen screenshots of "Looking for something new?".
+    /// the offscreen screenshots of the buttons below the installed list.
     pub fn preview_modrinth_unreachable(&mut self) {
         self.modrinth = Some(Arc::new(Modrinth::with_urls(
             Arc::new(http_client::BlockedHttpClient::new()),
@@ -2526,7 +2618,7 @@ impl Instances {
             }
             Err(err) => {
                 // Not saved: asked all the same, unless the player already agreed.
-                eprintln!("lodestone-launcher: saving the instance {id}: {err}");
+                log::warn!("saving the instance {id}: {err}");
                 let instance = self.store.get(id).ok();
                 let told = |reason| {
                     instance
@@ -2574,7 +2666,7 @@ impl Instances {
         match self.store.record_told_rosetta(id, pending.rosetta) {
             Ok(instance) => self.update_listed(instance, cx),
             // Only the answer is lost: asked again next time.
-            Err(err) => eprintln!("lodestone-launcher: saving the instance {id}: {err}"),
+            Err(err) => log::warn!("saving the instance {id}: {err}"),
         }
         self.start(
             id,
@@ -2796,7 +2888,10 @@ impl Instances {
         // it exits still counts; the play time is added when it exits.
         match self.store.record_start(&started_id, started_unix) {
             Ok(instance) => self.update_listed(instance, cx),
-            Err(err) => self.notice = Some(tr!(M::CouldntSavePlayed, error = err).into()),
+            Err(err) => {
+                log::warn!("couldn't save when {started_id} was last played: {err}");
+                self.notice = Some(tr!(M::CouldntSavePlayed, error = err).into());
+            }
         }
         cx.notify();
     }
@@ -2828,6 +2923,7 @@ impl Instances {
             .store
             .record_play(id, started_unix, started.elapsed().as_secs())
         {
+            log::warn!("couldn't save the play time of {id}: {err}");
             self.notice = Some(tr!(M::CouldntSavePlayTime, error = err).into());
         }
         let name = self
@@ -3253,9 +3349,96 @@ pub(crate) fn game_change(before: &Instance, after: &Instance) -> Option<GameCha
     }
 }
 
+/// Most broken instance folders named in the log at once.
+const MAX_BROKEN_LOGGED: usize = 10;
+
+/// The log's lines for instance folders left out of the list because their
+/// `instance.json` doesn't load: each folder's error, up to [`MAX_BROKEN_LOGGED`].
+fn broken_lines(broken: &[launcher_core::instances::BrokenInstance]) -> Vec<String> {
+    let mut lines: Vec<String> = broken
+        .iter()
+        .take(MAX_BROKEN_LOGGED)
+        .map(|b| format!("left an instance out of the list: {}", b.error))
+        .collect();
+    if broken.len() > MAX_BROKEN_LOGGED {
+        lines.push(format!(
+            "and {} more instance folders that don't load",
+            broken.len() - MAX_BROKEN_LOGGED
+        ));
+    }
+    lines
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A folder whose instance.json doesn't load is named in the log, with why.
+    #[test]
+    fn broken_instance_folders_are_logged() {
+        let error = |n: usize| launcher_core::instances::BrokenInstance {
+            dir: format!("/data/instances/i{n}").into(),
+            error: launcher_core::storage::StorageError::Corrupt {
+                path: format!("/data/instances/i{n}/instance.json").into(),
+                reason: "EOF while parsing an object at line 3 column 0".into(),
+            },
+        };
+        let lines = broken_lines(&[error(1)]);
+        assert_eq!(
+            lines,
+            vec![
+                "left an instance out of the list: /data/instances/i1/instance.json is not a \
+                 valid launcher file: EOF while parsing an object at line 3 column 0"
+                    .to_string()
+            ]
+        );
+        let many: Vec<_> = (0..12).map(error).collect();
+        let lines = broken_lines(&many);
+        assert_eq!(lines.len(), MAX_BROKEN_LOGGED + 1);
+        assert_eq!(
+            lines.last().unwrap(),
+            "and 2 more instance folders that don't load"
+        );
+        assert!(broken_lines(&[]).is_empty());
+    }
+
+    #[test]
+    fn failures_shown_in_dialogs_are_logged() {
+        let failed = InstancesEvent::LaunchFailed {
+            title: "Couldn't update the modpack".into(),
+            message: "The download stopped.".into(),
+            about: About::Instance("abc".into()),
+        };
+        assert_eq!(
+            failed.log_line(),
+            Some((
+                log::Level::Warn,
+                "shown as an error: Couldn't update the modpack: The download stopped. \
+                 (instance abc)"
+                    .into()
+            ))
+        );
+        let notice = InstancesEvent::Notice {
+            title: "Game files verified".into(),
+            message: "Nothing was missing.".into(),
+            about: About::Nothing,
+        };
+        assert_eq!(
+            notice.log_line(),
+            Some((
+                log::Level::Info,
+                "shown: Game files verified: Nothing was missing.".into()
+            ))
+        );
+        // Logged where it is decided, as `game.failed`.
+        let play = InstancesEvent::PlayFailed {
+            id: "abc".into(),
+            title: "Couldn't sign in".into(),
+            message: "offline".into(),
+        };
+        assert_eq!(play.log_line(), None);
+        assert_eq!(InstancesEvent::ReachedMenu("abc".into()).log_line(), None);
+    }
 
     #[test]
     fn says_how_long_ago() {

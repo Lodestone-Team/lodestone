@@ -8,6 +8,8 @@ import { useState } from 'react';
 import { toast } from 'react-toastify';
 import { isSha1, packUrlErrorKey } from 'utils/resourcePack';
 import { useI18n } from 'i18n';
+import { Bytes } from 'components/Atoms/Values';
+import { Fact } from 'components/Values';
 
 import { axiosWrapper, DISABLE_AUTOFILL, errorToString } from 'utils/util';
 import {
@@ -40,7 +42,7 @@ export function ResourcePackSetting({
   canEdit: boolean;
   disabledReason: string;
 }) {
-  const { t, formatBytes } = useI18n();
+  const { t } = useI18n();
   const queryClient = useQueryClient();
   const queryKey = ['instances', instance.uuid, 'resource_pack'];
   const { data: saved } = useQuery({
@@ -56,7 +58,8 @@ export function ResourcePackSetting({
   // the edits; `null` shows the saved pack
   const [edited, setDraft] = useState<ServerResourcePack | null>(null);
   const [busy, setBusy] = useState<'saving' | 'hashing' | null>(null);
-  const [hashNote, setHashNote] = useState<string | null>(null);
+  // the size of the pack the hash was computed from
+  const [hashedSize, setHashedSize] = useState<number | null>(null);
   if (!saved) return null;
   const draft = edited ?? saved;
 
@@ -96,7 +99,7 @@ export function ResourcePackSetting({
 
   const computeSha1 = async () => {
     setBusy('hashing');
-    setHashNote(null);
+    setHashedSize(null);
     try {
       const hash = await axiosWrapper<ResourcePackHash>({
         method: 'POST',
@@ -104,11 +107,7 @@ export function ResourcePackSetting({
         data: { url: draft.url.trim() },
       });
       setDraft({ ...draft, sha1: hash.sha1 });
-      setHashNote(
-        t('server.resourcePack.downloaded', {
-          size: formatBytes(hash.size, 1),
-        })
-      );
+      setHashedSize(hash.size);
     } catch (err) {
       toast.error(errorToString(err));
     } finally {
@@ -140,14 +139,22 @@ export function ResourcePackSetting({
             autoComplete={DISABLE_AUTOFILL}
             onChange={(e) => {
               setDraft({ ...draft, url: e.target.value });
-              setHashNote(null);
+              setHashedSize(null);
             }}
           />
         </SettingsRow>
         <SettingsRow
           label="SHA-1"
           htmlFor="resource-pack-sha1"
-          hint={hashNote ?? t('server.resourcePack.sha1Hint')}
+          hint={
+            hashedSize !== null ? (
+              <Fact label={t('values.key.downloaded')}>
+                <Bytes bytes={hashedSize} decimals={1} />
+              </Fact>
+            ) : (
+              t('server.resourcePack.sha1Hint')
+            )
+          }
           error={sha1Error}
           controlClassName="w-5/12"
         >

@@ -58,9 +58,19 @@ traces: clicks on its controls, the actions keys ran, dialogs, navigation, saved
 settings, HTTP requests (method, host, path, status, time), the game's launch, exit and
 console, jobs, and logged warnings and errors. The launcher keeps the last 2000 events in
 memory; busy topics (`game.log`, `download.file`, `perf.frame`, `log.debug`) are only
-sent while someone watches. Nothing is written to disk or sent anywhere, typed text is
-never traced, and payloads are scrubbed of anything that looks like a password, token
-or key.
+sent while someone watches. The bus itself writes nothing to disk or sends anything
+anywhere (failures it carries also go to the log file, below), typed text is never
+traced, and payloads are scrubbed of anything that looks like a password, token or key.
+
+## Logs
+
+`logs path` prints where the launcher's log file is (`launcher.log` in the default data
+folder's `logs/`, rotated at 5 MB to `.1` … `.5`) with the log files' sizes and the
+crash reports (`last-crash.txt`, `previous-crash.txt`); it works without a running
+launcher. `logs tail [-n N] [--level warn]` prints the log's last lines from the running
+launcher, or reads the file itself when none answers (`read_without_launcher`). Lines
+are scrubbed of secrets when they are written, so `logs.*` needs only command-line
+access, not Debug traces. `launcher/docs/logs.md` has more.
 
 ## Performance
 

@@ -10,7 +10,7 @@ use launcher_core::cores::admin::mods::ModrinthProjectType;
 
 use super::{ModsPage, Target};
 use crate::{
-    i18n::{InstanceMsg as M, t, tr},
+    i18n::{InstanceMsg as M, t},
     pages::create_instance::{ModrinthSearchEvent, ModrinthSearchView},
 };
 
@@ -27,11 +27,7 @@ impl Browse {
         cx: &mut Context<ModsPage>,
     ) -> Self {
         let plugin = target.is_plugin();
-        let label = tr!(
-            M::ModsOnlyCompatible,
-            gameVersion = target.game_version,
-            loader = target.loader.as_str()
-        );
+        let label = t(M::ModsOnlyCompatible).to_string();
         let (game_version, loader) = (
             target.game_version.clone(),
             target.loader.as_str().to_string(),

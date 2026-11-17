@@ -120,7 +120,7 @@ export const useEventStream = () => {
               StateTransition: ({ to }) => {
                 if (fresh) updateInstanceState(queryClient, uuid, to);
                 dispatch({
-                  title: t(`shell.event.state.${to}`, { name }),
+                  content: { type: 'state', server: name, state: to },
                   event,
                   type: 'add',
                   fresh,
@@ -129,7 +129,7 @@ export const useEventStream = () => {
               InstanceWarning: () => {
                 toast.error(t('shell.event.warningToast'));
                 dispatch({
-                  title: t('shell.event.warning', { name }),
+                  content: { type: 'warning', server: name },
                   event,
                   type: 'add',
                   fresh,
@@ -138,7 +138,7 @@ export const useEventStream = () => {
               InstanceError: () => {
                 if (fresh) updateInstanceState(queryClient, uuid, 'Error');
                 dispatch({
-                  title: t('shell.event.error', { name }),
+                  content: { type: 'error', server: name },
                   event,
                   type: 'add',
                   fresh,
@@ -152,28 +152,12 @@ export const useEventStream = () => {
                 if (fresh)
                   updateInstancePlayerList(queryClient, uuid, player_list);
 
-                // we don't need match statement on the type of player yet because there's only MinecraftPlayyer for now
-                const joined = players_joined.map((p) => p.name).join(', ');
-                const left = players_left.map((p) => p.name).join(', ');
-
-                const title =
-                  joined && left
-                    ? t('shell.event.playersJoinedAndLeft', {
-                        joined,
-                        left,
-                        name,
-                      })
-                    : joined
-                      ? t('shell.event.playersJoined', {
-                          players: joined,
-                          name,
-                        })
-                      : left
-                        ? t('shell.event.playersLeft', { players: left, name })
-                        : '';
-                if (title.length > 0)
+                // only Minecraft players exist so far, so no match on the kind
+                const joined = players_joined.map((p) => p.name);
+                const left = players_left.map((p) => p.name);
+                if (joined.length > 0 || left.length > 0)
                   dispatch({
-                    title,
+                    content: { type: 'players', server: name, joined, left },
                     event,
                     type: 'add',
                     fresh,
@@ -181,11 +165,12 @@ export const useEventStream = () => {
               },
               PlayerMessage: ({ player, player_message }) => {
                 dispatch({
-                  title: t('shell.event.playerMessage', {
+                  content: {
+                    type: 'chat',
+                    server: name,
                     player,
                     message: player_message,
-                    name,
-                  }),
+                  },
                   event,
                   type: 'add',
                   fresh,
@@ -193,11 +178,12 @@ export const useEventStream = () => {
               },
               ModpackUpdateAvailable: ({ modpack, version_number }) => {
                 dispatch({
-                  title: t('shell.event.modpackUpdate', {
+                  content: {
+                    type: 'modpack',
+                    server: name,
                     pack: modpack,
                     version: version_number,
-                    name,
-                  }),
+                  },
                   event,
                   type: 'add',
                   fresh,
@@ -257,7 +243,7 @@ export const useEventStream = () => {
               ApiKeyCreated: ({ name: keyName }) => {
                 refreshApiKeys(queryClient, uid, uid === selfUid);
                 dispatch({
-                  title: t('shell.event.apiKeyCreated', { name: keyName }),
+                  content: { type: 'apiKey', name: keyName, created: true },
                   event,
                   type: 'add',
                   fresh,
@@ -266,7 +252,7 @@ export const useEventStream = () => {
               ApiKeyRevoked: ({ name: keyName }) => {
                 refreshApiKeys(queryClient, uid, uid === selfUid);
                 dispatch({
-                  title: t('shell.event.apiKeyRevoked', { name: keyName }),
+                  content: { type: 'apiKey', name: keyName, created: false },
                   event,
                   type: 'add',
                   fresh,

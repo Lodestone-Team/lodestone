@@ -150,12 +150,12 @@ pub struct ExportedBackup {
 }
 
 /// The Minecraft server `uuid`. 404 when there is none (Docker containers included).
-fn minecraft(state: &AppState, uuid: &InstanceUuid) -> Result<MinecraftInstance, Error> {
+pub(super) fn minecraft(state: &AppState, uuid: &InstanceUuid) -> Result<MinecraftInstance, Error> {
     let GameInstance::MinecraftInstance(instance) = get_instance(state, uuid)?;
     Ok(instance)
 }
 
-fn denied(message: &str) -> Error {
+pub(super) fn denied(message: &str) -> Error {
     Error {
         kind: ErrorKind::PermissionDenied,
         source: eyre!("{message}"),
@@ -262,7 +262,7 @@ async fn put_policy(
 /// Whether a user without `WriteGlobalFile` may not have a restore add, change or remove
 /// `path` (relative to the server folder): the file API's rule for a server's files,
 /// Lodestone's own `.lodestone*` files included.
-fn restore_protected(path: &str, is_dir: bool) -> bool {
+pub(super) fn restore_protected(path: &str, is_dir: bool) -> bool {
     is_instance_protected(FsPath::new(""), FsPath::new(path), is_dir)
 }
 
@@ -284,7 +284,7 @@ fn check_restore_diff(state: &AppState, user: &User, diff: &RestoreDiff) -> Resu
             .any(|path| restore_protected(path, true));
     if touches_protected && can_write_global_files(state, user).is_err() {
         return Err(denied(
-            "Restoring this backup changes protected files (such as .jar files or the mods folder), which needs permission to change global files",
+            "Restoring this snapshot changes protected files (such as .jar files or the mods folder), which needs permission to change global files",
         ));
     }
     if diff
@@ -298,7 +298,7 @@ fn check_restore_diff(state: &AppState, user: &User, diff: &RestoreDiff) -> Resu
     Ok(())
 }
 
-fn can_write_global_files(state: &AppState, user: &User) -> Result<(), Error> {
+pub(super) fn can_write_global_files(state: &AppState, user: &User) -> Result<(), Error> {
     user.try_action(&UserAction::WriteGlobalFile, state.safe_mode())
 }
 
@@ -327,7 +327,7 @@ async fn restore_backup(
         if !request.stop {
             return Err(Error {
                 kind: ErrorKind::Conflict,
-                source: eyre!("Stop the server before restoring a backup"),
+                source: eyre!("Stop the server before restoring a snapshot"),
             });
         }
         requester
@@ -391,7 +391,7 @@ async fn restore_as_new(
     });
     if protected && can_write_global_files(&state, user).is_err() {
         return Err(denied(
-            "This backup has protected files (such as .jar files or the mods folder), so restoring it as a new server needs permission to change global files",
+            "This snapshot has protected files (such as .jar files or the mods folder), so restoring it as a new server needs permission to change global files",
         ));
     }
     if files
@@ -485,13 +485,13 @@ async fn download_backup(
     if !crate::backups::store::valid_backup_id(&id) {
         return Err(Error {
             kind: ErrorKind::NotFound,
-            source: eyre!("Backup not found"),
+            source: eyre!("Snapshot not found"),
         });
     }
     let file_name = format!("{}-backup-{id}.zip", sanitize_instance_dir_name(&name));
     let slot = take_backup_file_slot(&state, &requester, &downloads_dir()).await?;
     let (start, event_id) = Event::new_progression_event_start(
-        format!("Zipping a backup of {name} for download"),
+        format!("Zipping a snapshot of {name} for download"),
         None,
         None,
         requester.caused_by(),
@@ -589,7 +589,7 @@ async fn export_backup(
     if !crate::backups::store::valid_backup_id(&id) {
         return Err(Error {
             kind: ErrorKind::NotFound,
-            source: eyre!("Backup not found"),
+            source: eyre!("Snapshot not found"),
         });
     }
     let include_plugin_data = body
@@ -602,7 +602,7 @@ async fn export_backup(
     );
     let slot = take_backup_file_slot(&state, &requester, &downloads_dir()).await?;
     let (start, event_id) = Event::new_progression_event_start(
-        format!("Exporting a backup of {name}"),
+        format!("Exporting a snapshot of {name}"),
         Some(100.0),
         None,
         requester.caused_by(),

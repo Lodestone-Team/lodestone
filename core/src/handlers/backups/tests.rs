@@ -1346,7 +1346,7 @@ async fn the_world_and_its_mods_are_restored_and_recorded() {
     assert!(image
         .label
         .as_deref()
-        .is_some_and(|label| label.contains("Restored backup “Base”")));
+        .is_some_and(|label| label.contains("Restored snapshot “Base”")));
     // the content is the backup's again, so it is the same image
     assert_eq!(image.id, content.id);
 

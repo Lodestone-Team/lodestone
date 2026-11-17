@@ -19,8 +19,8 @@ use launcher_core::{
     game::download::CancelToken,
 };
 
-use super::{About, Instances, InstancesEvent, Versions, modpacks::ImportJob};
-use crate::i18n::{InstancesMsg as M, InstancesPlural as P, t, tr, trn};
+use super::{About, Instances, InstancesEvent, Versions, modpacks::ImportJob, report::Report};
+use crate::i18n::{InstancesMsg as M, t};
 
 impl Instances {
     /// What instance `id` has that a copy can take, read in the background. Mods
@@ -179,44 +179,19 @@ impl Instances {
                                 .insert(copy.id.clone(), outcome.blocked.clone());
                         }
                         this.reload(cx);
-                        let mut message = tr!(
-                            M::ModpackReadyMessage,
-                            version = copy.game_version,
-                            loader = super::loader_label(&copy),
-                        );
-                        let behind = &outcome.left_behind;
-                        if !behind.is_empty() {
-                            message = tr!(
-                                M::TwoSentences,
-                                first = message,
-                                second = trn!(
-                                    P::CopyModsLeftBehind,
-                                    behind.len(),
-                                    names = crate::i18n::format::list(behind)
-                                )
-                            );
-                        }
+                        // the copy in a card with its game and loader; the mods that
+                        // didn't come along are counted lists, not the end of a sentence
                         let missing: Vec<String> = outcome
                             .missing_dependencies
                             .iter()
                             .map(|(title, _)| title.clone())
                             .collect();
-                        if !missing.is_empty() {
-                            message = tr!(
-                                M::TwoSentences,
-                                first = message,
-                                second = trn!(
-                                    P::CopyDependenciesMissing,
-                                    missing.len(),
-                                    names = crate::i18n::format::list(&missing)
-                                )
-                            );
-                        }
-                        cx.emit(InstancesEvent::Notice {
-                            title: tr!(M::CopyReady, name = copy.name).into(),
-                            message: message.into(),
-                            about: About::Import(job_id),
-                        });
+                        let report = Report::new(t(M::CopyReady), About::Import(job_id))
+                            .instance(copy.clone())
+                            .body(t(M::PressPlayToDownload))
+                            .mods(t(M::StayedBehind), outcome.left_behind.clone())
+                            .mods(t(M::NeededNotInstalled), missing);
+                        cx.emit(InstancesEvent::Report(Box::new(report)));
                     }
                     Err(CopyAsError::Cancelled) => {}
                     Err(err) => cx.emit(InstancesEvent::LaunchFailed {

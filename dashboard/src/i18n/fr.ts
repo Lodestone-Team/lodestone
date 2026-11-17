@@ -98,13 +98,12 @@ export const fr: Messages = {
   'common.input.mustBeNumber': 'Doit être un nombre',
   'common.input.mustBeGreaterThan': 'Doit être supérieur à {min}',
   'common.input.mustBeLessThan': 'Doit être inférieur à {max}',
-  'common.combo.addCustom': 'Ajouter « {query} »',
+  'common.combo.addCustom': 'Ajouter {query}',
   'common.combo.nothingFound': 'Aucun résultat.',
   // Table
   'common.table.noData': 'Aucune donnée disponible pour le moment',
   // ClipboardTextfield: text that copies itself when clicked
   'common.clipboard.copyToClipboard': 'Copier dans le presse-papiers',
-  'common.clipboard.copiedText': '« {text} » copié',
   // The server resource pack URL check (utils/resourcePack.ts)
   'common.resourcePack.urlSpaces': 'L’URL ne peut pas contenir d’espaces.',
   'common.resourcePack.notAUrl': 'Ce n’est pas une URL.',
@@ -144,27 +143,25 @@ export const fr: Messages = {
   'shell.versionMismatch.title': 'Mise à jour requise !',
   'shell.versionMismatch.continue':
     'J’ai compris, continuer sans mettre à jour',
-  'shell.versionMismatch.coreVersion': 'Version du core :',
-  'shell.versionMismatch.dashboardVersion': 'Version du tableau de bord :',
   'shell.versionMismatch.incompatible':
     'Votre tableau de bord et votre core sont incompatibles !',
   'shell.versionMismatch.body':
     'Cela peut provoquer un comportement inattendu. Veuillez mettre à jour votre core vers la dernière version. Consultez {link} pour en savoir plus.',
   'shell.versionMismatch.wiki': 'le wiki',
-  'shell.versionMismatch.toast':
-    'Versions différentes ! Votre core est-il à jour ? Core : {core}, tableau de bord : {dashboard}',
+  'shell.versionMismatch.toastTitle': 'Les versions diffèrent',
+  'shell.versionMismatch.question': 'Votre core est-il obsolète ?',
   'shell.localCore.title': 'Nouveau core local détecté',
   'shell.localCore.body':
-    'Un core local qui n’est pas encore configuré a été détecté. Voulez-vous configurer {name} ?',
+    'Un core local qui n’est pas encore configuré a été détecté. Voulez-vous le configurer ?',
   'shell.localCore.setup': 'Configurer',
   'shell.localCore.skip': 'Ignorer',
   'shell.setupRequired.title': 'Configuration requise',
   'shell.setupRequired.body':
-    '{name} n’est pas encore configuré. Veuillez terminer la configuration.',
+    'Ce core n’est pas encore configuré. Veuillez terminer la configuration.',
   'shell.setupRequired.changeCore': 'Changer de core',
   'shell.coreError.title': 'Erreur de connexion au core',
   'shell.coreError.body':
-    'Une erreur s’est produite lors de la connexion à {address}. Veuillez choisir un autre core, actualiser la page ou simplement attendre que le core soit de nouveau en ligne.',
+    'Une erreur s’est produite lors de la connexion au core. Sélectionnez un autre core, actualisez la page ou attendez que le core soit de nouveau en ligne.',
   'shell.coreError.back': 'Retour au choix du core',
   'shell.coreError.continue': 'Continuer avec ce core',
 
@@ -208,28 +205,25 @@ export const fr: Messages = {
   'shell.notifications.loading': 'Chargement des notifications',
   'shell.notifications.empty': 'Aucune notification pour le moment !',
 
-  'shell.event.state.Starting': 'Le serveur {name} démarre !',
-  'shell.event.state.Running': 'Le serveur {name} a démarré !',
-  'shell.event.state.Stopping': 'Le serveur {name} s’arrête !',
-  'shell.event.state.Stopped': 'Le serveur {name} s’est arrêté !',
-  'shell.event.state.Error': 'Le serveur {name} a rencontré une erreur !',
   'shell.event.warningToast':
     'Avertissement : un serveur a émis un avertissement. Cela ne devrait pas arriver, veuillez le signaler aux développeurs.',
-  'shell.event.warning': 'Le serveur {name} a émis un avertissement',
-  'shell.event.error': 'Le serveur {name} a rencontré une erreur',
-  'shell.event.playersJoined': '{players} a rejoint {name}',
-  'shell.event.playersLeft': '{players} a quitté {name}',
-  'shell.event.playersJoinedAndLeft':
-    '{joined} a rejoint {name} et {left} a quitté {name}',
-  'shell.event.modpackUpdate': '{pack} {version} est disponible pour {name}',
-  'shell.event.playerMessage': '{player} a dit {message} sur {name}',
-  'shell.event.apiKeyCreated': 'Clé d’API « {name} » créée',
-  'shell.event.apiKeyRevoked': 'Clé d’API « {name} » révoquée',
+  'shell.event.outcome.Starting': 'Le serveur démarre',
+  'shell.event.outcome.Running': 'Serveur démarré',
+  'shell.event.outcome.Stopping': 'Le serveur s’arrête',
+  'shell.event.outcome.Stopped': 'Serveur arrêté',
+  'shell.event.outcome.Error': 'Le serveur a rencontré une erreur',
+  'shell.event.outcome.warning': 'Le serveur a émis un avertissement',
+  'shell.event.outcome.error': 'Le serveur a rencontré une erreur',
+  'shell.event.outcome.joined': 'Connectés',
+  'shell.event.outcome.left': 'Partis',
+  'shell.event.outcome.said': 'a dit',
+  'shell.event.outcome.modpackOut': 'Mise à jour disponible',
+  'shell.event.outcome.apiKeyCreated': 'Clé d’API créée',
+  'shell.event.outcome.apiKeyRevoked': 'Clé d’API révoquée',
   'shell.event.loadFailed': 'Impossible de charger les notifications : {error}',
 
   'shell.userMenu.guest': 'Invité',
   'shell.userMenu.account': 'Compte : {name}',
-  'shell.userMenu.signedInAs': 'Connecté en tant que {name}',
   'shell.userMenu.notSignedIn': 'Non connecté',
   'shell.userMenu.signOut': 'Se déconnecter',
   'shell.userMenu.signIn': 'Se connecter',
@@ -241,9 +235,8 @@ export const fr: Messages = {
     'Vous ne pouvez pas vous supprimer vous-même',
   'shell.userBox.cantDeleteSelf':
     'Vous ne pouvez pas vous supprimer vous-même.',
-  'shell.userBox.deleteTitle': 'Supprimer l’utilisateur',
-  'shell.userBox.deleteConfirm':
-    'Voulez-vous vraiment supprimer {name} ? Cette action est irréversible.',
+  'shell.userBox.deleteTitle': 'Supprimer l’utilisateur ?',
+  'shell.userBox.deleteConfirm': 'Cette action est irréversible.',
   'shell.userBox.deleteUser': 'Supprimer l’utilisateur',
   'shell.userBox.admin': 'Admin',
   'shell.userBox.owner': 'Propriétaire',
@@ -367,8 +360,6 @@ export const fr: Messages = {
   'settings.theme.dark': 'Sombre',
   'settings.theme.systemHint':
     'Suit le réglage clair ou sombre de votre appareil',
-  'settings.theme.lightHint': 'Toujours clair',
-  'settings.theme.darkHint': 'Toujours sombre',
 
   'settings.toc.label': 'Sections',
 
@@ -378,10 +369,8 @@ export const fr: Messages = {
   'settings.core.title': 'Général',
   'settings.core.section.core': 'Core',
   'settings.core.section.public': 'Serveurs publics',
-  'settings.core.section.publicLead': 'Visible sans connexion.',
   'settings.core.section.info': 'Informations',
   'settings.core.section.danger': 'Zone de danger',
-  'settings.core.section.dangerLead': 'À modifier avec prudence.',
   'settings.core.name.label': 'Nom du core',
   'settings.core.name.empty': 'Le nom ne peut pas être vide',
   'settings.core.name.tooLong': 'Le nom ne peut pas dépasser {max} caractères',
@@ -389,27 +378,28 @@ export const fr: Messages = {
   'settings.core.domain.tooLong':
     'Le domaine ne peut pas dépasser {max} caractères',
   'settings.core.domain.tooltip':
-    'C’est votre IP publique si vous avez configuré une redirection de port. Sinon, laissez tel quel.',
+    'Affiché par « Copier l’IP » et dans la vue d’ensemble du serveur. Si c’est vide, l’adresse du core est utilisée.',
   'settings.core.modpackChecks.label':
     'Rechercher les mises à jour des modpacks',
   'settings.core.modpackChecks.hint':
-    'Toutes les quelques heures, chercher sur Modrinth de nouvelles versions des modpacks dont les serveurs sont issus, et le signaler. « Rechercher une mise à jour » dans l’onglet Mods d’un serveur fonctionne toujours quand c’est désactivé.',
+    'Toutes les 6 heures, pour les serveurs issus d’un modpack Modrinth. L’onglet Mods d’un serveur peut toujours vérifier à la main.',
   'settings.core.listPublicly.label': 'Lister les serveurs publiquement',
   'settings.core.listPublicly.hint':
     'Toute personne qui peut joindre ce core voit les serveurs que vous rendez publics ci-dessous.',
   'settings.core.localClaim.label':
     'Autoriser les applications de cet ordinateur à obtenir l’accès propriétaire',
   'settings.core.localClaim.hint':
-    'Lodestone Launcher peut devenir propriétaire en prouvant qu’il peut écrire dans le dossier de données de ce core. Tout ce qui peut y écrire peut déjà modifier chaque utilisateur et réglage\u00a0: cela ne compte que sur un ordinateur partagé.',
+    'Lodestone Host et Launcher se connectent en tant que propriétaire grâce au dossier de données du core, sans mot de passe. Quand c’est désactivé, ils demandent le mot de passe.',
   'settings.core.safeMode.label': 'Mode sécurisé',
   'settings.core.safeMode.hint':
-    'Réserve l’accès administrateur de cette machine au propriétaire.',
+    'Seul le propriétaire peut utiliser les autorisations à risque, même si elles sont accordées à d’autres.',
   'settings.core.safeMode.offTitle': 'Désactiver le mode sécurisé ?',
   'settings.core.safeMode.offBody':
     'Voulez-vous vraiment désactiver le mode sécurisé ? Vous pourrez alors permettre à d’autres utilisateurs que vous d’exécuter des commandes potentiellement dangereuses. Assurez-vous de faire confiance à tous les utilisateurs à qui vous donnez ces autorisations.',
   'settings.core.turnOff': 'Désactiver',
   'settings.core.codeExecution.label': 'Exécution de code',
-  'settings.core.codeExecution.hint': 'Commandes Java personnalisées.',
+  'settings.core.codeExecution.hint':
+    'Commandes et arguments Java personnalisés, et ajout ou modification de fichiers de script.',
   'settings.core.codeExecution.locked':
     'Verrouillé par l’administrateur de ce core (LODESTONE_DISABLE_CODE_EXECUTION ou --disable-code-execution).',
   'settings.core.codeExecution.offTitle': 'Désactiver l’exécution de code ?',
@@ -437,7 +427,6 @@ export const fr: Messages = {
   'settings.core.openPort.portRequired': 'Le port est requis',
   'settings.core.openPort.portRange':
     'Le port doit être compris entre 1 et 65535',
-  'settings.core.openPort.opened': 'Port {port} ouvert',
   'settings.core.info.coreVersion': 'Version du core',
   'settings.core.info.dashboardVersion': 'Version du tableau de bord',
   'settings.core.info.os': 'Système d’exploitation',
@@ -455,10 +444,8 @@ export const fr: Messages = {
 
   'settings.users.documentTitle': 'Paramètres des utilisateurs',
   'settings.users.title': 'Utilisateurs',
-  'settings.users.description': 'Les comptes de ce core et leurs droits.',
   'settings.users.allUsers': 'Tous les utilisateurs',
   'settings.users.allMembers': 'Tous les membres',
-  'settings.users.allMembersCount': 'Tous les membres ({count})',
   'settings.users.createUser': 'Nouvel utilisateur',
   'settings.users.createTitle': 'Créer un compte utilisateur',
   'settings.users.createLead': 'Commence sans aucune autorisation.',
@@ -466,87 +453,43 @@ export const fr: Messages = {
   'settings.users.loadingUser': 'Chargement de l’utilisateur',
   'settings.users.loadingServers': 'Chargement des serveurs',
   'settings.users.permissions': 'Autorisations',
-  'settings.users.permissionsLead': 'Ce que {username} peut faire sur ce core.',
   'settings.users.unsafePermissions': 'Autorisations à risque',
   'settings.users.unsafePermissionsLead':
     'Désactivez le mode sécurisé pour les accorder à d’autres utilisateurs.',
 
   'settings.permission.can_create_instance.title': 'Créer des serveurs',
-  'settings.permission.can_create_instance.user':
-    'L’utilisateur peut créer de nouveaux serveurs.',
-  'settings.permission.can_create_instance.key':
-    'La clé peut créer de nouveaux serveurs.',
   'settings.permission.can_delete_instance.title': 'Supprimer des serveurs',
-  'settings.permission.can_delete_instance.user':
-    'L’utilisateur peut supprimer n’importe quel serveur.',
-  'settings.permission.can_delete_instance.key':
-    'La clé peut supprimer n’importe quel serveur.',
+  'settings.permission.can_delete_instance.hint':
+    'N’importe quel serveur de ce core.',
   'settings.permission.can_read_global_file.title': 'Lire les fichiers globaux',
-  'settings.permission.can_read_global_file.user':
-    'L’utilisateur peut lire n’importe quel fichier de l’ordinateur sur lequel Lodestone Core s’exécute.',
-  'settings.permission.can_read_global_file.key':
-    'La clé peut lire n’importe quel fichier de l’ordinateur sur lequel Lodestone Core s’exécute.',
+  'settings.permission.can_read_global_file.hint':
+    'N’importe quel fichier de l’ordinateur du core, y compris le fichier des utilisateurs. Cela suffit pour se connecter en tant que n’importe qui, même le propriétaire.',
   'settings.permission.can_view_instance.title': 'Voir les serveurs',
-  'settings.permission.can_view_instance.user':
-    'L’utilisateur peut voir ces serveurs.',
-  'settings.permission.can_view_instance.key': 'La clé peut voir ces serveurs.',
   'settings.permission.can_start_instance.title': 'Démarrer les serveurs',
-  'settings.permission.can_start_instance.user':
-    'L’utilisateur peut démarrer ces serveurs.',
-  'settings.permission.can_start_instance.key':
-    'La clé peut démarrer ces serveurs.',
   'settings.permission.can_stop_instance.title': 'Arrêter les serveurs',
-  'settings.permission.can_stop_instance.user':
-    'L’utilisateur peut arrêter ces serveurs.',
-  'settings.permission.can_stop_instance.key':
-    'La clé peut arrêter ces serveurs.',
   'settings.permission.can_access_instance_console.title':
     'Accéder à la console des serveurs',
-  'settings.permission.can_access_instance_console.user':
-    'L’utilisateur peut lire la console de ces serveurs et y envoyer des commandes. Cela donne de fait un accès opérateur au serveur.',
-  'settings.permission.can_access_instance_console.key':
-    'La clé peut lire la console de ces serveurs et y envoyer des commandes. Cela donne de fait un accès opérateur au serveur.',
+  'settings.permission.can_access_instance_console.hint':
+    'Y compris l’envoi de commandes : c’est de fait un accès opérateur.',
   'settings.permission.can_access_instance_setting.title':
     'Accéder aux paramètres des serveurs',
-  'settings.permission.can_access_instance_setting.user':
-    'L’utilisateur peut lire et modifier les paramètres de ces serveurs.',
-  'settings.permission.can_access_instance_setting.key':
-    'La clé peut lire et modifier les paramètres de ces serveurs.',
   'settings.permission.can_read_instance_resource.title':
     'Lire les ressources des serveurs',
-  'settings.permission.can_read_instance_resource.user':
-    'L’utilisateur peut lire les ressources (mondes, mods, etc.) de ces serveurs.',
-  'settings.permission.can_read_instance_resource.key':
-    'La clé peut lire les ressources (mondes, mods, etc.) de ces serveurs.',
+  'settings.permission.can_read_instance_resource.hint': 'Mondes, mods, etc.',
   'settings.permission.can_read_instance_file.title':
     'Lire les fichiers des serveurs',
-  'settings.permission.can_read_instance_file.user':
-    'L’utilisateur peut lire les fichiers de ces serveurs.',
-  'settings.permission.can_read_instance_file.key':
-    'La clé peut lire les fichiers de ces serveurs.',
   'settings.permission.can_write_instance_resource.title':
     'Modifier les ressources des serveurs',
-  'settings.permission.can_write_instance_resource.user':
-    'L’utilisateur peut modifier les ressources (mondes, mods, etc.) de ces serveurs.',
-  'settings.permission.can_write_instance_resource.key':
-    'La clé peut modifier les ressources (mondes, mods, etc.) de ces serveurs.',
+  'settings.permission.can_write_instance_resource.hint': 'Mondes, mods, etc.',
   'settings.permission.can_write_instance_file.title':
     'Modifier les fichiers des serveurs',
-  'settings.permission.can_write_instance_file.user':
-    'L’utilisateur peut modifier les fichiers de ces serveurs.',
-  'settings.permission.can_write_instance_file.key':
-    'La clé peut modifier les fichiers de ces serveurs.',
   'settings.permission.can_write_global_file.title':
     'Modifier les fichiers globaux',
-  'settings.permission.can_write_global_file.user':
-    'L’utilisateur peut modifier n’importe quel fichier de l’ordinateur sur lequel Lodestone Core s’exécute.',
-  'settings.permission.can_write_global_file.key':
-    'La clé peut modifier n’importe quel fichier de l’ordinateur sur lequel Lodestone Core s’exécute.',
+  'settings.permission.can_write_global_file.hint':
+    'N’importe quel fichier de l’ordinateur du core, ce qui suffit pour y exécuter n’importe quel programme.',
   'settings.permission.can_manage_permission.title': 'Gérer les autorisations',
-  'settings.permission.can_manage_permission.user':
-    'L’utilisateur peut gérer les autorisations des autres utilisateurs.',
-  'settings.permission.can_manage_permission.key':
-    'La clé peut gérer les autorisations des autres utilisateurs.',
+  'settings.permission.can_manage_permission.hint':
+    'Celles des autres utilisateurs, pas les siennes. Seul le propriétaire peut accorder les autorisations à risque.',
 
   'settings.profile.documentTitle': 'Profil utilisateur',
   'settings.profile.title': 'Profil',
@@ -579,37 +522,27 @@ export const fr: Messages = {
   'settings.minecraft.ownLead': 'Liés depuis Lodestone Launcher.',
   'settings.minecraft.ownEmpty':
     'Aucun compte Minecraft n’est lié. Connectez-vous à ce core dans Lodestone Launcher pour en lier un.',
-  'settings.minecraft.userLead':
-    'Les comptes Minecraft que {username} a liés depuis Lodestone Launcher.',
-  'settings.minecraft.userEmpty': '{username} n’a lié aucun compte Minecraft.',
+  'settings.minecraft.userLead': 'Liés depuis Lodestone Launcher.',
+  'settings.minecraft.userEmpty': 'Aucun compte Minecraft lié.',
   'settings.minecraft.tooOld':
     'Ce core est trop ancien pour lier des comptes Minecraft.',
-  'settings.minecraft.removeTitle': 'Retirer le compte Minecraft',
+  'settings.minecraft.removeTitle': 'Retirer le lien du compte ?',
   'settings.minecraft.removeBody':
-    'Retirer le lien vers {name} ? Il pourra être lié à nouveau depuis Lodestone Launcher.',
-  'settings.minecraft.removed': '{name} retiré',
+    'Il peut être lié de nouveau depuis Lodestone Launcher.',
 
   'settings.apiKeys.title': 'Clés d’API',
   'settings.apiKeys.ownLead':
     'Permettent à la CLI, aux scripts et aux agents d’agir en votre nom sans votre mot de passe.',
   'settings.apiKeys.ownEmpty': 'Vous n’avez aucune clé d’API.',
   'settings.apiKeys.userLead':
-    'Clés créées par {username}. En révoquer une coupe l’accès de ce qui l’utilise.',
-  'settings.apiKeys.userEmpty': '{username} n’a aucune clé d’API.',
+    'En révoquer une coupe l’accès de tout ce qui l’utilise.',
+  'settings.apiKeys.userEmpty': 'Aucune clé d’API.',
   'settings.apiKeys.create': 'Créer une clé d’API',
-  'settings.apiKeys.created': 'Clé d’API « {name} » créée',
   'settings.apiKeys.loading': 'Chargement des clés d’API',
   'settings.apiKeys.revoke': 'Révoquer',
-  'settings.apiKeys.revokeTitle': 'Révoquer la clé d’API',
+  'settings.apiKeys.revokeTitle': 'Révoquer la clé d’API ?',
   'settings.apiKeys.revokeBody':
-    'Révoquer « {name} » ({display}) ? Tout ce qui utilise cette clé perd l’accès immédiatement. Cette action est irréversible.',
-  'settings.apiKeys.revoked': 'Clé d’API « {name} » révoquée',
-  'settings.apiKeys.createdOn': 'Créée le {date}',
-  'settings.apiKeys.expiresOn': 'Expire le {date}',
-  'settings.apiKeys.expiredOn': 'Expirée le {date}',
-  'settings.apiKeys.expiresNever': 'Expiration : jamais',
-  'settings.apiKeys.lastUsed': 'Dernière utilisation : {time}',
-  'settings.apiKeys.lastUsedNever': 'Dernière utilisation : jamais',
+    'Tout ce qui utilise cette clé perd l’accès immédiatement. Cette action est irréversible.',
   'settings.apiKeys.scope.full': 'Accès complet',
   'settings.apiKeys.scope.launcher':
     'Launcher : voir, démarrer et arrêter les serveurs',
@@ -619,15 +552,7 @@ export const fr: Messages = {
     'Launcher : voir, démarrer et arrêter les serveurs, lire la console',
   'settings.apiKeys.scope.launcherConsoleWrite':
     'Launcher : voir, démarrer et arrêter les serveurs, envoyer des commandes à la console',
-  'settings.apiKeys.scope.custom': 'Personnalisé : {servers}, {permissions}',
-  'settings.apiKeys.scope.servers': {
-    one: '{count} serveur',
-    other: '{count} serveurs',
-  },
-  'settings.apiKeys.scope.permissions': {
-    one: '{count} autorisation',
-    other: '{count} autorisations',
-  },
+  'settings.apiKeys.scope.custom': 'Personnalisé',
   'settings.apiKeys.passwordSessionOnly':
     'Les clés d’API ne peuvent être gérées que si vous vous connectez avec votre mot de passe, pas avec une clé d’API.',
   'settings.apiKeys.createLead':
@@ -650,13 +575,13 @@ export const fr: Messages = {
   'settings.apiKeys.chooseOne': 'Choisissez au moins une autorisation.',
   'settings.apiKeys.createKey': 'Créer la clé',
   'settings.apiKeys.onlyYours':
-    'Une clé ne peut avoir que les autorisations que vous avez vous-même. Les autorisations et les serveurs que vous n’avez pas sont grisés.',
+    'Une clé ne peut avoir que les autorisations que vous avez vous-même.',
   'settings.apiKeys.notYours': 'Vous n’avez pas cette autorisation.',
   'settings.apiKeys.noServers': 'Vous ne voyez aucun serveur.',
   'settings.apiKeys.unsafe': 'Paramètres à risque',
   'settings.apiKeys.unsafeSafeMode':
     'Le mode sécurisé est activé : le core refuse donc ces autorisations aux clés à accès personnalisé tant que le mode sécurisé n’est pas désactivé dans les paramètres du core.',
-  'settings.apiKeys.newTitle': 'Clé d’API « {name} » créée',
+  'settings.apiKeys.newTitle': 'Clé d’API créée',
   'settings.apiKeys.newCopyNow':
     'Copiez cette clé maintenant. Vous ne pourrez plus la voir.',
   'settings.apiKeys.newUseWithCli': 'Utilisez-la avec la CLI Lodestone :',
@@ -686,35 +611,23 @@ export const fr: Messages = {
   'server.overview.pageTitle': 'Vue d’ensemble du serveur',
   'server.overview.noName': 'Sans nom',
   'server.overview.noDescription': 'Aucune description',
-  'server.overview.version': 'Version {version}',
-  'server.overview.playerCount': 'Joueurs {players}/{max}',
 
   // InstanceDetails
   'server.details.title': 'Détails',
   'server.details.name': 'Nom',
   'server.details.description': 'Description',
   'server.details.uuid': 'UUID',
-  'server.details.game': 'Jeu',
-  'server.details.minecraftVersion': 'Version de Minecraft',
   'server.details.version': 'Version',
-  'server.details.loader': 'Chargeur',
   'server.details.port': 'Port',
   'server.details.state': 'État',
   'server.details.players': 'Joueurs',
   'server.details.created': 'Créé le',
   'server.details.autoStart': 'Démarrage automatique',
   'server.details.restartOnCrash': 'Redémarrer après un plantage',
-  'server.details.ram': 'Mémoire min. / max.',
-  'server.details.ramValue': '{min} Mo / {max} Mo',
   'server.details.folder': 'Dossier',
-  'server.details.modpack': 'Créé à partir du modpack',
 
   // InstancePerformance
   'server.performance.title': 'Surveillance du serveur',
-  'server.performance.lead':
-    'Utilisation de votre Lodestone Core par l’instance',
-  'server.performance.cpuLoad': 'CHARGE CPU : {value} %',
-  'server.performance.memoryUsed': 'MÉMOIRE UTILISÉE : {value} Gio',
   'server.performance.loadingGraph': 'Chargement du graphique',
   'server.performance.cpuUsage': 'Utilisation du CPU',
   'server.performance.memoryUsage': 'Utilisation de la mémoire',
@@ -737,38 +650,30 @@ export const fr: Messages = {
   // InstanceSettings
   'server.settings.pageTitle': 'Paramètres du serveur',
   'server.settings.automation': 'Automatisation',
-  'server.settings.automationLead':
-    'Quand Lodestone démarre ce serveur de lui-même.',
   'server.settings.autoStart': 'Démarrage automatique',
-  'server.settings.autoStartHint':
-    'Démarrer ce serveur au démarrage de Lodestone Core',
+  'server.settings.autoStartHint': 'Au démarrage de Lodestone Core.',
   'server.settings.restartOnCrash': 'Redémarrer après un plantage',
-  'server.settings.restartOnCrashHint': 'Redémarrer ce serveur s’il plante',
   'server.settings.notAvailable': 'Indisponible pour le moment',
   'server.settings.notAvailableHint':
     'Essayez de démarrer ce serveur au moins une fois',
   'server.settings.noPermission': 'Pas d’autorisation',
   'server.settings.dangerZone': 'Zone dangereuse',
-  'server.settings.dangerZoneLead':
-    'Ces paramètres peuvent causer des dommages irréversibles à votre serveur.',
   'server.settings.deleteServer': 'Supprimer le serveur',
   'server.settings.deleteServerHint':
-    'Supprime définitivement ce serveur et ses données',
-  'server.settings.deleteTitle': 'Supprimer « {name} »',
+    'Ses mondes, ses instantanés et ses sauvegardes du monde sont aussi supprimés.',
+  'server.settings.deleteTitle': 'Supprimer le serveur ?',
   'server.settings.deleteConfirm': 'Je comprends, supprimer ce serveur',
   'server.settings.deleteCannotUndo': 'Cette action est irréversible.',
   'server.settings.deleteWarning':
-    '{cannotUndo} Les paramètres, mondes et sauvegardes de cette instance seront définitivement supprimés. Sauvegardez vos données importantes avant de continuer.',
+    '{cannotUndo} Ses paramètres, mondes et sauvegardes sont supprimés définitivement. Sauvegardez d’abord ce qui est important.',
 
   // SettingField
   'server.settingField.unknownType': 'Erreur d’envoi : type de valeur inconnu.',
 
   // PublicListingSetting
   'server.share.title': 'Partager',
-  'server.share.lead':
-    'Les personnes ayant le lien rejoignent depuis Lodestone Launcher',
   'server.share.off':
-    "Envoyez un lien à qui vous voulez. Ces personnes l'ouvrent dans Lodestone Launcher, et leur jeu se connecte directement à cet ordinateur. Aucune redirection de port nécessaire.",
+    'Vos amis ouvrent le lien dans Lodestone Launcher et se connectent directement à cet ordinateur. Aucune redirection de port nécessaire.',
   'server.share.start': 'Partager',
   'server.share.state.starting': 'Démarrage…',
   'server.share.state.sharing': 'Partagé',
@@ -784,17 +689,9 @@ export const fr: Messages = {
     "Toute personne ayant le lien peut rejoindre ce serveur pendant qu'il tourne. Les personnes sans Lodestone Launcher reçoivent un lien de téléchargement.",
   'server.share.hardNetwork':
     'Le routeur de ce réseau rend les connexions directes difficiles. Certaines personnes ne pourront peut-être pas rejoindre.',
-  'server.share.connected': {
-    one: '{count} personne connectée',
-    other: '{count} personnes connectées',
-  },
-  'server.share.joins': {
-    one: '({count} connexion jusqu’ici)',
-    other: '({count} connexions jusqu’ici)',
-  },
-  'server.share.peerLine': 'via {connection}, {ms} ms',
-  'server.share.connection.same_computer': 'cet ordinateur',
-  'server.share.connection.local_network': 'le réseau local',
+  'server.share.connected': 'Personnes connectées',
+  'server.share.connection.same_computer': 'Cet ordinateur',
+  'server.share.connection.local_network': 'Réseau local',
   'server.share.connection.ipv6': 'IPv6',
   'server.share.connection.internet': 'Internet',
   'server.share.stop': 'Arrêter le partage',
@@ -810,15 +707,15 @@ export const fr: Messages = {
   'server.publicListing.flag.address': 'Adresse pour rejoindre',
   'server.publicListing.flag.clientPack': 'Téléchargement des mods client',
   'server.publicListing.shownText':
-    'Sans se connecter, toute personne qui peut accéder à ce core voit {list} de ce serveur.',
-  'server.publicListing.shown.nameVersion': 'le nom et la version',
-  'server.publicListing.shown.status': 'l’état et le nombre de joueurs',
-  'server.publicListing.shown.address': 'l’adresse',
-  'server.publicListing.shown.clientPack': 'les mods client',
+    'Toute personne qui peut joindre ce core voit, sans se connecter :',
+  'server.publicListing.shown.nameVersion': 'Nom et version',
+  'server.publicListing.shown.status': 'Statut et nombre de joueurs',
+  'server.publicListing.shown.address': 'Adresse',
+  'server.publicListing.shown.clientPack': 'Mods client',
   'server.publicListing.turnOnFirst':
     'Activez d’abord « Lister les serveurs publiquement ».',
   'server.publicListing.hiddenWhileOff':
-    '{shown} Masqué tant que « Lister les serveurs publiquement » est désactivé.',
+    'Masqué tant que « Lister les serveurs publiquement » est désactivé.',
   'server.publicListing.notShown': 'Non visible sans se connecter.',
   'server.publicListing.noServers':
     'Aucun serveur Minecraft Java Edition pour l’instant.',
@@ -828,20 +725,17 @@ export const fr: Messages = {
   'server.resourcePack.lead':
     'Un pack que les joueurs sont invités à télécharger en rejoignant le serveur.',
   'server.resourcePack.url': 'URL',
-  'server.resourcePack.urlHint':
-    'Un lien direct vers le zip du pack. Laissez vide pour aucun pack.',
+  'server.resourcePack.urlHint': 'Un lien direct vers le .zip du pack.',
   'server.resourcePack.sha1Hint':
     'Permet aux joueurs de vérifier le téléchargement et de mettre le pack en cache.',
   'server.resourcePack.sha1Error':
     'Le SHA-1 comporte 40 caractères hexadécimaux.',
   'server.resourcePack.compute': 'Calculer',
-  'server.resourcePack.downloaded': '{size} téléchargés.',
   'server.resourcePack.required': 'Exiger le pack',
   'server.resourcePack.requiredHint':
     'Les joueurs qui le refusent sont déconnectés.',
   'server.resourcePack.prompt': 'Message',
-  'server.resourcePack.promptHint':
-    'Le message affiché quand le pack est proposé aux joueurs. Texte brut ou composant de texte JSON.',
+  'server.resourcePack.promptHint': 'Texte brut ou composant de texte JSON.',
   'server.resourcePack.remove': 'Retirer le pack',
   'server.resourcePack.saved': 'Pack de ressources enregistré',
   'server.resourcePack.savedRestart':
@@ -855,36 +749,28 @@ export const fr: Messages = {
   'server.card.power': 'Alimentation',
   'server.card.copyIp': 'Copier l’IP',
   'server.card.share': 'Partager',
-  'server.card.shareHint': 'Partager ce serveur avec un lien',
-  'server.card.online': '{players}/{max} en ligne',
 
   // InstanceCard : démarrer un serveur dont le CLUF de Minecraft n’est pas accepté
   'server.eula.title': 'Accepter le CLUF de Minecraft',
   'server.eula.body':
-    '{name} ne démarre qu’après votre accord avec le {link}. L’acceptez-vous ?',
+    'Le serveur ne démarre qu’après votre accord avec le {link}. L’acceptez-vous ?',
   'server.eula.accept': 'J’accepte, démarrer le serveur',
   'server.eula.acceptFailed':
     'Impossible d’accepter le CLUF de Minecraft : {error}',
 
   // InstanceLoadingPill
-  'server.loading.settingUp': 'Configuration… ({percent})',
+  'server.loading.settingUp': 'Configuration',
 
   // apis.ts
-  'server.api.deletedFile': 'Fichier supprimé : {name}',
-  'server.api.deletedDirectory': 'Dossier supprimé : {path}',
-  'server.api.downloadFailed': 'Échec du téléchargement de {name} : {error}',
   'server.api.uploading': {
     one: 'Importation de {count} fichier',
     other: 'Importation de {count} fichiers',
   },
-  'server.api.moveFailed': 'Échec du déplacement de {name} : {error}',
   'server.api.zipFailed': 'Échec du lancement de la compression : {error}',
   'server.api.zipping': {
     one: 'Compression de {count} élément…',
     other: 'Compression de {count} éléments…',
   },
-  'server.api.unzipFailed': 'Échec de la décompression de {name} : {error}',
-  'server.api.unzipping': 'Décompression de {name}…',
   'server.api.tooManyAttemptsSeconds': {
     one: 'Trop de tentatives de connexion échouées. Patientez {count} seconde, puis réessayez.',
     other:
@@ -922,11 +808,7 @@ export const fr: Messages = {
     'Vous n’avez pas l’autorisation d’accéder à cette console',
   'console.loading': 'Chargement de la console',
   'console.empty': 'Aucun message dans la console pour l’instant',
-  'console.hiddenLines': {
-    one: '{count} ligne plus ancienne masquée (affichage des {max} plus récentes)',
-    other:
-      '{count} lignes plus anciennes masquées (affichage des {max} plus récentes)',
-  },
+  'console.hiddenLines': 'Lignes plus anciennes masquées',
   'console.sendFailed': 'Impossible d’envoyer la commande : {error}',
 
   // ConsoleLine: one line of console output
@@ -949,12 +831,7 @@ export const fr: Messages = {
   'create.step.selectModpack': 'Choisir un modpack',
   'create.step.selectVersion': 'Choisir une version',
 
-  // InstanceCreateForm: the pages' subtitles, buttons and errors
-  'create.basicSettings.description':
-    'Les paramètres de base de votre serveur.',
-  'create.serverSettings.description': 'Configurez votre serveur.',
-  'create.autoSettings.description':
-    'Configurez automatiquement votre serveur.',
+  // InstanceCreateForm: the buttons and errors
   'create.checkFields': 'Vérifiez que les champs sont correctement remplis',
   'create.createServer': 'Créer le serveur',
   'create.createFailed': 'Erreur lors de la création du serveur : {error}',
@@ -967,24 +844,16 @@ export const fr: Messages = {
 
   // form.ts and ModpackCreateForm: the dashboard's own setup fields
   'create.field.name': 'Nom',
-  'create.field.nameDescription': 'Le nom du serveur',
   'create.field.nameDefault': 'Mon serveur',
   'create.field.description': 'Description',
-  'create.field.descriptionDescription': 'La description du serveur',
   'create.field.port': 'Port',
-  'create.field.portDescription': 'Le port sur lequel exécuter le serveur',
   'create.field.minRam': 'Mémoire minimale',
-  'create.field.minRamDescription':
-    'La quantité minimale de mémoire à allouer au serveur, en Mo',
+  'create.field.minRamDescription': 'En Mo.',
   'create.field.maxRam': 'Mémoire maximale',
-  'create.field.maxRamDescription':
-    'La quantité maximale de mémoire à allouer au serveur, en Mo',
+  'create.field.maxRamDescription': 'En Mo.',
   'create.field.autoStart': 'Démarrage automatique',
-  'create.field.autoStartDescription':
-    'Le serveur démarrera automatiquement au lancement de l’application',
+  'create.field.autoStartDescription': 'Au démarrage de Lodestone Core.',
   'create.field.restartOnCrash': 'Redémarrer en cas de plantage',
-  'create.field.restartOnCrashDescription':
-    'Le serveur redémarrera automatiquement s’il plante',
 
   // form.ts: validation of a setting; {name} is the setting's name (often sent by the core, untranslated)
   'create.validation.required': 'Le champ {name} est obligatoire',
@@ -999,33 +868,26 @@ export const fr: Messages = {
     'Le champ {name} doit correspondre à l’une des options proposées',
 
   // FormComboField: the options list of a field
-  'create.combo.add': 'Ajouter « {query} »',
+  'create.combo.add': 'Ajouter {query}',
   'create.combo.nothingFound': 'Aucun résultat.',
 
   // GameTypeSelectForm: the first step, picking a game
   'create.gameType.title': 'Choisissez un jeu',
-  'create.gameType.subtitle': 'À quoi servira votre serveur ?',
   'create.gameType.new': 'Nouveau',
   'create.gameType.modpack': 'Modpack Modrinth',
-  'create.gameType.modpackDescription':
-    'Créer un serveur Fabric, Forge ou NeoForge à partir d’un modpack Modrinth',
+  'create.gameType.modpackDescription': 'Fabric, Forge ou NeoForge.',
 
   // GameTypeMappings: games' titles and descriptions
   'create.game.genericTitle': '{name} (générique)',
-  'create.game.vanillaDescription':
-    'Serveur Minecraft vanilla standard de Mojang.',
-  'create.game.forgeDescription':
-    'Framework de modding pour installer des mods et personnaliser votre expérience Minecraft.',
+  'create.game.vanillaDescription': 'Vanilla, de Mojang. Sans mods ni plugins.',
+  'create.game.forgeDescription': 'Exécute les mods Forge.',
   'create.game.neoforgeDescription':
     'Fork communautaire de Forge, avec ses propres mods, pour Minecraft 1.20.2 et versions ultérieures.',
-  'create.game.fabricDescription':
-    'Chaîne d’outils de modding légère pour Minecraft.',
+  'create.game.fabricDescription': 'Exécute les mods Fabric.',
   'create.game.paperDescription':
-    'Fork de Spigot hautes performances qui vise à corriger les incohérences de gameplay et de mécaniques.',
-  'create.game.spigotDescription':
-    'Logiciel de serveur Minecraft modifié, compatible avec les plugins, aux performances et options de personnalisation améliorées.',
+    'Fork plus rapide de Spigot. Exécute les plugins.',
+  'create.game.spigotDescription': 'Exécute les plugins Bukkit et Spigot.',
   'create.game.otherDescription': 'Variante de Minecraft inconnue : {name}',
-  'create.game.bedrockDescription': 'Serveur Minecraft Bedrock Edition.',
   'create.game.genericDescription': 'Jeu inconnu : {name}',
 
   // CreateInstanceFlow: read by screen readers while the dialog loads
@@ -1033,20 +895,15 @@ export const fr: Messages = {
 
   // ModpackCreateForm: creating a server from a Modrinth modpack
   'create.modpack.sourceTitle': 'Choisissez un modpack',
-  'create.modpack.sourceDescription':
-    'Recherchez sur Modrinth, collez un lien Modrinth ou importez un fichier .mrpack. Les modpacks Fabric, Forge et NeoForge sont pris en charge.',
+  'create.modpack.sourceDescription': 'Modpacks Fabric, Forge et NeoForge.',
   'create.modpack.searchPlaceholder':
     'Rechercher des modpacks ou coller un lien Modrinth',
   'create.modpack.onlyFabric': 'Afficher uniquement les modpacks Fabric',
   'create.modpack.upload': 'Importer un .mrpack',
   'create.modpack.versionTitle': 'Choisissez une version',
   'create.modpack.versionUploaded': 'Le modpack importé.',
-  'create.modpack.versionDescription':
-    'Choisissez la version du modpack à installer.',
   'create.modpack.downloading':
     'Téléchargement du fichier du modpack pour le lire…',
-  'create.modpack.downloadingSize':
-    'Téléchargement du fichier du modpack ({size}) pour le lire…',
   'create.modpack.versionHint':
     'Choisissez une version pour voir son contenu. Lodestone télécharge le fichier du modpack pour le lire ; rien n’est installé tant que vous n’avez pas cliqué sur Créer le serveur.',
   'create.modpack.settingsTitle': 'Paramètres du serveur',
@@ -1057,15 +914,7 @@ export const fr: Messages = {
   'create.modpack.noVersions': 'Ce modpack n’a aucune version.',
   'create.modpack.select': 'Choisir',
   'create.modpack.selected': 'Choisie',
-  'create.modpack.showMore': {
-    one: 'Afficher plus ({count} restante)',
-    other: 'Afficher plus ({count} restantes)',
-  },
   // the summary of the picked version
-  'create.modpack.summary.modpack': 'Modpack',
-  'create.modpack.summary.loader': 'Chargeur',
-  'create.modpack.summary.serverFiles': 'Fichiers du serveur',
-  'create.modpack.summary.serverFilesValue': '{count} ({size} à télécharger)',
   'create.modpack.unsupported':
     'Ce modpack ne peut pas être utilisé : {reason}',
   // toasts and errors
@@ -1114,17 +963,17 @@ export const fr: Messages = {
     other: '{count} fichiers coupés dans le presse-papiers',
   },
   'files.zippingForDownload': 'Compression du dossier pour le téléchargement…',
-  'files.downloadFailed': 'Échec du téléchargement de {name} : {error}',
   'files.onlyFilesUnzip': 'Seuls les fichiers peuvent être extraits',
   'files.onlyFilesUpload': 'Seuls des fichiers peuvent être importés',
-  'files.delete.title': {
-    one: 'Supprimer le fichier',
-    other: 'Supprimer {count} fichiers',
-  },
   'files.delete.message':
     'Voulez-vous vraiment supprimer les éléments suivants ?',
-  'files.delete.directory': '(dossier)',
-  'files.delete.unknownType': '(type inconnu)',
+  'files.delete.titleOne': 'Supprimer le fichier ?',
+  'files.delete.titleMany': 'Supprimer les fichiers ?',
+  'files.toast.deleted': 'Supprimé',
+  'files.toast.downloadFailed': 'Impossible de télécharger',
+  'files.toast.moveFailed': 'Impossible de déplacer',
+  'files.toast.unzipFailed': 'Impossible de décompresser',
+  'files.toast.unzipping': 'Décompression…',
   'files.loadingFile': 'Chargement du fichier',
   'files.editor.title': 'Éditeur de fichiers',
   'files.editor.selectFile':
@@ -1149,17 +998,11 @@ export const fr: Messages = {
   // FileContextMenu: the right-click menu of the file list
   'files.contextMenu.cut': 'Couper',
   'files.contextMenu.paste': 'Coller',
-  'files.contextMenu.pasteInto': 'Coller dans {name}',
+  'files.contextMenu.pasteInto': 'Coller dans',
   'files.contextMenu.zip': 'Compresser',
-  'files.contextMenu.zipTo': 'Compresser en {archive}',
-  'files.contextMenu.zipFile': 'Compresser {name} en {archive}',
-  'files.contextMenu.zipFiles': {
-    one: 'Compresser {count} fichier en {archive}',
-    other: 'Compresser {count} fichiers en {archive}',
-  },
   'files.contextMenu.unzipHere': 'Extraire ici',
   'files.contextMenu.unzipHereSmart': 'Extraire ici (intelligent)',
-  'files.contextMenu.unzipTo': 'Extraire dans {name}',
+  'files.contextMenu.unzipTo': 'Décompresser dans un dossier',
   'files.contextMenu.copiedToClipboard': {
     one: '{count} élément copié dans le presse-papiers',
     other: '{count} éléments copiés dans le presse-papiers',
@@ -1179,7 +1022,7 @@ export const fr: Messages = {
   'files.createFolder.label': 'Nommez votre dossier',
   'files.createFolder.placeholder': 'Dossier sans titre',
   'files.createFolder.submit': 'Créer le dossier',
-  'files.nameTaken': '{name} existe déjà dans ce dossier',
+  'files.nameTaken': 'Un élément de ce nom existe déjà dans ce dossier',
   'files.rename.label': 'Nommez votre fichier',
   'files.rename.submit': 'Renommer le fichier',
 
@@ -1209,8 +1052,7 @@ export const fr: Messages = {
     'Rechercher des mods sur Modrinth, ou coller un lien Modrinth',
   'mods.browse.placeholder.plugin':
     'Rechercher des plugins sur Modrinth, ou coller un lien Modrinth',
-  'mods.browse.onlyCompatible':
-    'N’afficher que les versions pour {gameVersion} / {loader}',
+  'mods.browse.onlyCompatible': 'Seulement les versions compatibles',
 
   // common
   'mods.noWritePermission':
@@ -1218,7 +1060,7 @@ export const fr: Messages = {
   'mods.clientSide.playersNeedToo': 'Requis aussi pour les joueurs',
   'mods.clientSide.serverOnly': 'Serveur uniquement',
   'mods.clientRequirement.required': 'Requis pour les joueurs',
-  'mods.clientRequirement.neededBy': 'Requis par {mods}',
+  'mods.clientRequirement.neededBy': 'Requis par',
   'mods.clientRequirement.unknownModrinth':
     'Modrinth n’indique pas si les joueurs en ont besoin ; consultez la page du mod',
   'mods.clientRequirement.unknownNotOnModrinth':
@@ -1234,19 +1076,35 @@ export const fr: Messages = {
     'Les joueurs reçoivent déjà ce mod : Modrinth ou le mod indique qu’ils en ont besoin.',
   'mods.forPlayers.optional':
     'Modrinth indique que les joueurs peuvent rejoindre sans ce mod, mais sur Fabric, les mods de ce genre les en empêchent souvent : les joueurs le reçoivent donc. Décochez-le pour le retirer.',
-  'mods.forPlayers.marked':
-    'Les joueurs recevront {name} la prochaine fois qu’ils rejoindront',
-  'mods.forPlayers.unmarked':
-    'Les joueurs ne reçoivent plus {name} en rejoignant',
-  'mods.forPlayers.failed': 'Impossible de modifier {name} : {error}',
+  'mods.toast.marked': 'Les joueurs le reçoivent en se connectant',
+  'mods.toast.unmarked': 'Les joueurs ne le reçoivent plus',
+  'mods.toast.markFailed': 'Impossible de le modifier',
+  'mods.toast.enableFailed': 'Impossible de l’activer',
+  'mods.toast.disableFailed': 'Impossible de le désactiver',
+  'mods.toast.updated': 'Mis à jour',
+  'mods.toast.updateFailed': 'Impossible de mettre à jour',
+  'mods.toast.installed': 'Installé',
+  'mods.toast.installFailed': 'Impossible d’installer',
+  'mods.toast.deleted': 'Supprimé',
+  'mods.toast.deleteFailed': 'Impossible de supprimer',
+  'mods.toast.uploaded': 'Importés',
+  'mods.toast.notUploaded': 'Seuls les fichiers .jar peuvent être importés',
+  'mods.toast.notUploadedGroup': 'Non importés',
+  'mods.toast.someFailed': 'Certaines mises à jour ont échoué',
+  'mods.toast.failedGroup': 'Non mis à jour',
   'mods.versionType.release': 'stable',
   'mods.versionType.beta': 'bêta',
   'mods.versionType.alpha': 'alpha',
-  'mods.installResult.installed': 'Installé : {mods}',
-  'mods.installResult.removed': 'Retiré : {files}',
-  'mods.installResult.skipped': 'Ignoré : {projects}',
-  'mods.installResult.playersNeed': 'Les joueurs auront aussi besoin de {mods}',
-  'mods.byAuthor': 'par {author}',
+  'mods.installResult.group.installed': 'Installés',
+  'mods.installResult.group.removed': 'Supprimés',
+  'mods.installResult.group.skipped': 'Ignorés',
+  'mods.installResult.group.playersNeed': 'Les joueurs en ont aussi besoin',
+  'mods.projectType.mod': 'mod',
+  'mods.projectType.plugin': 'plugin',
+  'mods.projectType.modpack': 'modpack',
+  'mods.projectType.resourcepack': 'pack de ressources',
+  'mods.projectType.shader': 'shader',
+  'mods.projectType.datapack': 'pack de données',
   'mods.installedLabel': 'Installé',
   'mods.downloads': {
     one: '{count} téléchargement',
@@ -1273,41 +1131,22 @@ export const fr: Messages = {
   'mods.search.nextPage': 'Page suivante',
 
   // InstalledMods
-  'mods.installed.enableFailed': 'Impossible d’activer {name} : {error}',
-  'mods.installed.disableFailed': 'Impossible de désactiver {name} : {error}',
-  'mods.installed.updated': '{name} mis à jour vers {version}',
-  'mods.installed.updateFailed': 'Impossible de mettre à jour {name} : {error}',
-  'mods.installed.updateTo': 'Passer à {version}',
   'mods.installed.viewOnModrinth': 'Voir sur Modrinth',
   'mods.installed.deleteLabel': 'Supprimer {name}',
-  'mods.installed.uploaded': 'Importé : {names}',
+  'mods.installed.update': 'Mettre à jour',
   'mods.installed.uploadFailed': 'Échec de l’importation : {error}',
-  'mods.installed.onlyJars':
-    'Seuls les fichiers .jar peuvent être importés : {names}',
   'mods.installed.updatesInstalled': 'Mises à jour installées',
-  'mods.installed.someUpdatesFailed':
-    'Certaines mises à jour ont échoué : {failures}',
-  'mods.installed.deleted': '{name} supprimé',
-  'mods.installed.deleteFailed': 'Échec de la suppression : {error}',
   'mods.installed.deleteTitle.mod': 'Supprimer le mod ?',
   'mods.installed.deleteTitle.plugin': 'Supprimer le plugin ?',
   'mods.installed.deleteBody':
-    '{name} ({fileName}) sera supprimé du serveur. Cette action est irréversible.',
+    'Il est supprimé du serveur. Cette action est irréversible.',
   'mods.installed.overwriteTitle': 'Remplacer les fichiers existants ?',
   'mods.installed.overwrite': 'Remplacer',
   'mods.installed.overwriteBody':
-    '{message} Le remplacer par le fichier importé ?',
+    'Remplacer le fichier du serveur par celui importé ?',
   'mods.installed.overwriteDefault':
     'Un fichier du même nom est déjà installé.',
-  'mods.installed.count.mod': {
-    one: '{count} mod dans {directory}/',
-    other: '{count} mods dans {directory}/',
-  },
-  'mods.installed.count.plugin': {
-    one: '{count} plugin dans {directory}/',
-    other: '{count} plugins dans {directory}/',
-  },
-  'mods.installed.updateAll': 'Tout mettre à jour ({count})',
+  'mods.installed.updateAll': 'Tout mettre à jour',
   'mods.installed.checkUpdates': 'Rechercher des mises à jour',
   'mods.installed.upload': 'Importer',
   'mods.installed.loadFailed.mod': 'Impossible de charger les mods : {error}',
@@ -1319,16 +1158,13 @@ export const fr: Messages = {
   'mods.installed.empty.plugin':
     'Aucun plugin installé pour l’instant. Parcourez Modrinth ou importez un fichier .jar.',
 
-  'mods.modpack.from': 'Ce serveur utilise le modpack {pack}.',
   'mods.modpack.check': 'Rechercher une mise à jour',
   'mods.modpack.checkFailed':
     'Impossible de rechercher une mise à jour : {error}',
   'mods.modpack.upToDate': 'C’est la version la plus récente.',
+  'mods.modpack.updateAvailable': 'Mise à jour disponible',
   'mods.modpack.whatsNew': 'Nouveautés',
-  'mods.modpack.out': '{version} est disponible',
-  'mods.modpack.updateTo': 'Mettre à jour vers {version}',
   'mods.modpack.fromFile': 'Mettre à jour depuis un fichier',
-  'mods.modpack.notMrpack': '{name} n’est pas un fichier .mrpack.',
   'mods.modpack.planFailed': 'Impossible de préparer la mise à jour : {error}',
   'mods.modpack.history': 'Historique',
   'mods.modpack.historyFailed':
@@ -1342,59 +1178,38 @@ export const fr: Messages = {
   'mods.modpack.restoreTitle': 'Restaurer cette version ?',
   'mods.modpack.updateTitle': 'Mettre à jour le modpack ?',
   'mods.modpack.update': 'Mettre à jour',
-  'mods.modpack.restored': '« {change} » restauré.',
-  'mods.modpack.updated': '{pack} mis à jour vers {version}.',
+  'mods.modpack.notMrpack': 'Ce n’est pas un fichier .mrpack',
+  'mods.modpack.unsupported': 'Cette version ne peut pas être utilisée',
+  'mods.modpack.toast.updated': 'Mis à jour',
+  'mods.modpack.toast.restored': 'Restaurée',
+  'mods.modpack.count.added': 'Ajoutés',
+  'mods.modpack.count.updated': 'Mis à jour',
+  'mods.modpack.count.replaced': 'Remplacés',
+  'mods.modpack.count.removed': 'Supprimés',
+  'mods.modpack.files': 'Fichiers',
+  'mods.modpack.dialog.restoreBody':
+    'Les mods et les configurations reviennent à leur état d’alors.',
+  'mods.modpack.dialog.reinstall': 'Le logiciel du serveur est réinstallé.',
+  'mods.modpack.group.removed': 'Supprimés',
+  'mods.modpack.group.kept': 'Restent tels que vous les avez modifiés',
   'mods.modpack.restoreFailed':
     'Impossible de restaurer cette version : {error}',
   'mods.modpack.updateFailed':
     'Impossible de mettre à jour le modpack : {error}',
-  'mods.modpack.since': 'depuis le {date}',
-  'mods.modpack.sinceTooltip':
-    'Ce fichier est tel qu’il était après « {change} ».',
-  'mods.modpack.unknownVersion': 'version inconnue',
-  'mods.modpack.dialog.intro': '{pack} passe de {from} à {to}.',
-  'mods.modpack.dialog.restoreIntro':
-    'Les mods et les configurations reviennent à leur état après « {change} ».',
-  'mods.modpack.dialog.reinstall':
-    'Le serveur passe à {software}, qui est réinstallé.',
-  'mods.modpack.dialog.kept':
-    'Les fichiers que vous avez modifiés restent tels quels : {files}',
   'mods.modpack.dialog.nothing': 'Aucun fichier ne change.',
   'mods.modpack.dialog.stop':
     'Arrêtez d’abord le serveur : il ne peut pas être mis à jour pendant qu’il tourne.',
-  'mods.modpack.dialog.unsupported':
-    'Cette version ne peut pas être utilisée : {reason}',
-  'mods.modpack.added': {
-    one: '{count} fichier ajouté',
-    other: '{count} fichiers ajoutés',
-  },
-  'mods.modpack.replaced': {
-    one: '{count} fichier remplacé',
-    other: '{count} fichiers remplacés',
-  },
-  'mods.modpack.removed': {
-    one: '{count} fichier supprimé',
-    other: '{count} fichiers supprimés',
-  },
   'mods.modpack.moreChanges': {
     one: 'et {count} autre',
     other: 'et {count} autres',
   },
 
   // ClientPackPanel
-  'mods.clientPack.loader': 'Fabric Loader {version}',
-  'mods.clientPack.loaderNoVersion': 'Fabric Loader',
   'mods.clientPack.plainFabric':
-    'Les joueurs peuvent se connecter avec Fabric seul (Minecraft {gameVersion}, {loader}).',
-  'mods.clientPack.title': {
-    one: 'Les joueurs ont besoin de {count} mod pour se connecter',
-    other: 'Les joueurs ont besoin de {count} mods pour se connecter',
-  },
+    'Les joueurs peuvent se connecter avec Fabric seul.',
+  'mods.clientPack.title':
+    'Les joueurs ont besoin de ces mods pour se connecter',
   'mods.clientPack.download': 'Télécharger le modpack client (.mrpack)',
-  'mods.clientPack.showAll': {
-    one: 'Afficher {count} mod',
-    other: 'Afficher les {count} mods',
-  },
   'mods.clientPack.showFewer': 'Afficher moins',
   'mods.clientPack.downloadFailed':
     'Impossible de télécharger le modpack client : {error}',
@@ -1412,11 +1227,10 @@ export const fr: Messages = {
   'mods.project.link.source': 'Code source',
   'mods.project.link.issues': 'Tickets',
   'mods.project.link.wiki': 'Wiki',
-  'mods.project.serverSide': 'serveur : {value}',
-  'mods.project.side.required': 'requis',
-  'mods.project.side.optional': 'facultatif',
-  'mods.project.side.unsupported': 'non pris en charge',
-  'mods.project.side.unknown': 'inconnu',
+  'mods.project.side.required': 'Requis',
+  'mods.project.side.optional': 'Facultatif',
+  'mods.project.side.unsupported': 'Non pris en charge',
+  'mods.project.side.unknown': 'Inconnu',
   'mods.project.createFromModpack': 'Créer un serveur à partir de ce modpack',
   'mods.project.modpackNoPermission':
     'Ceci est un modpack. Vous n’avez pas l’autorisation de créer des serveurs.',
@@ -1432,23 +1246,85 @@ export const fr: Messages = {
   'mods.versions.showAll': 'Afficher toutes les versions',
   'mods.versions.loadFailed': 'Impossible de charger les versions : {error}',
   'mods.versions.loading': 'Chargement des versions',
-  'mods.versions.none': 'Aucune version pour {loader} {gameVersion}.',
-  'mods.versions.noneShowAll':
-    'Aucune version pour {loader} {gameVersion}. Activez « Afficher toutes les versions » pour voir les autres.',
-  'mods.versions.showMore': {
-    one: 'Afficher plus ({count} restante)',
-    other: 'Afficher plus ({count} restantes)',
-  },
-  'mods.version.moreGameVersions': {
-    one: '+{count} autre',
-    other: '+{count} autres',
-  },
-  'mods.version.notFor': 'Pas pour {loader} {gameVersion}',
+  'mods.versions.none': 'Aucune version pour ce serveur.',
+  'mods.versions.showAllHint':
+    'Activez « Afficher toutes les versions » pour voir les autres.',
+  'mods.version.notFor': 'Pas pour ce serveur',
   'mods.version.install': 'Installer',
-  'mods.version.installed': '{title} {version} installé',
-  'mods.version.installFailed': 'Impossible d’installer {title} : {error}',
   'mods.version.incompatibleTitle': 'Installer une version incompatible ?',
   'mods.version.installAnyway': 'Installer quand même',
-  'mods.version.incompatibleBody':
-    '{title} {version} est conçu pour {loaders} {gameVersions}, pas pour {loader} {gameVersion}. Le serveur risque de planter.',
+  'mods.version.incompatibleBody': 'Le serveur risque de planter.',
+  'values.kind.server': 'Serveur',
+  'values.kind.mod': 'Mod',
+  'values.kind.plugin': 'Plugin',
+  'values.kind.modpack': 'Modpack',
+  'values.kind.file': 'Fichier',
+  'values.kind.folder': 'Dossier',
+  'values.kind.archive': 'Archive',
+  'values.kind.user': 'Utilisateur',
+  'values.kind.account': 'Compte',
+  'values.kind.apiKey': 'Clé d’API',
+  'values.kind.player': 'Joueur',
+  'values.kind.core': 'Core',
+  'values.kind.resourcepack': 'Pack de ressources',
+  'values.kind.shader': 'Shader',
+  'values.kind.datapack': 'Pack de données',
+  'values.showMore': {
+    one: 'Afficher {count} de plus',
+    other: 'Afficher {count} de plus',
+  },
+  'values.diff.to': 'vers',
+  'values.differs': 'Différent',
+  'values.copy': 'Copier',
+  'values.copied': 'Copié',
+  'values.open': 'Ouvrir',
+  'values.show': 'Afficher',
+  'values.hide': 'Masquer',
+  'values.key.game': 'Jeu',
+  'values.key.loader': 'Loader',
+  'values.key.players': 'Joueurs',
+  'values.key.size': 'Taille',
+  'values.key.added': 'Ajouté',
+  'values.key.published': 'Publié',
+  'values.key.file': 'Fichier',
+  'values.key.folder': 'Dossier',
+  'values.key.author': 'Auteur',
+  'values.key.downloads': 'Téléchargements',
+  'values.key.followers': 'Abonnés',
+  'values.key.serverSide': 'Côté serveur',
+  'values.key.type': 'Type',
+  'values.key.address': 'Adresse',
+  'values.key.version': 'Version',
+  'values.key.installed': 'Installée',
+  'values.key.available': 'Disponible',
+  'values.key.prefix': 'Préfixe',
+  'values.key.created': 'Créée',
+  'values.key.expires': 'Expire',
+  'values.key.lastUsed': 'Dernière utilisation',
+  'values.key.servers': 'Serveurs',
+  'values.key.permissions': 'Autorisations',
+  'values.key.joins': 'Connexions',
+  'values.key.ping': 'Ping',
+  'values.key.showing': 'Affichées',
+  'values.key.minRam': 'Mémoire min.',
+  'values.key.maxRam': 'Mémoire max.',
+  'values.key.modpack': 'Modpack',
+  'values.key.cameWith': 'Arrivé avec',
+  'values.key.download': 'Téléchargement',
+  'values.key.serverFiles': 'Fichiers du serveur',
+  'values.key.port': 'Port',
+  'values.key.signedInAs': 'Connecté en tant que',
+  'values.key.core': 'Core',
+  'values.key.dashboard': 'Tableau de bord',
+  'values.key.thisVersion': 'Cette version',
+  'values.key.thisServer': 'Ce serveur',
+  'values.key.downloaded': 'Téléchargé',
+  'values.key.cpuLoad': 'Charge du processeur',
+  'values.key.memoryUsed': 'Mémoire utilisée',
+  'files.contextMenu.items': '{count} éléments',
+  'settings.core.openPort.toast': 'Port ouvert',
+  'settings.minecraft.toast.removed': 'Lien retiré',
+  'settings.apiKeys.toast.created': 'Créée',
+  'settings.apiKeys.toast.revoked': 'Révoquée',
+  'settings.apiKeys.expired': 'Expirée',
 };

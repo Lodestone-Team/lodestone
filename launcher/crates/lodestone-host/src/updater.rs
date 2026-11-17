@@ -220,6 +220,9 @@ impl Updater {
             let result = work.await;
             this.update(cx, |this, cx| {
                 this.work = None;
+                if let Err(err) = &result {
+                    log::warn!("checking for updates failed: {err}");
+                }
                 this.state = match result {
                     Err(err) => match downloaded {
                         // a failed check doesn't lose the download
@@ -293,7 +296,10 @@ impl Updater {
                             this.work = None;
                             this.state = match result {
                                 Ok(()) => UpdateState::Ready { build },
-                                Err(err) => UpdateState::Failed(err),
+                                Err(err) => {
+                                    log::warn!("downloading build {build} failed: {err}");
+                                    UpdateState::Failed(err)
+                                }
                             };
                             cx.notify();
                         })
@@ -346,11 +352,11 @@ impl Updater {
             return;
         };
         if ready && let Err(err) = source.install() {
-            eprintln!("Lodestone Host couldn't install the update: {err}");
+            log::error!("couldn't install the update: {err}");
         }
         // Even when the install failed, the Host comes back (as the old build).
         if restart && let Err(err) = source.restart() {
-            eprintln!("Lodestone Host couldn't restart: {err}");
+            log::error!("couldn't restart after the update: {err}");
         }
     }
 }
@@ -532,7 +538,12 @@ pub fn install_pair(exe: &Path, core: &Path) -> Result<(), String> {
         .and_then(|()| update::install(&staged_exe, exe))
         .map_err(|err| err.to_string());
     if result.is_err() && had_core {
-        let _ = std::fs::rename(&backup, core);
+        if let Err(err) = std::fs::rename(&backup, core) {
+            log::error!(
+                "couldn't put the previous core back ({err}); it is at {}",
+                backup.display()
+            );
+        }
     } else {
         let _ = std::fs::remove_file(&backup);
     }

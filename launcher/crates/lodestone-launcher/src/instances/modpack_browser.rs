@@ -23,7 +23,7 @@ use super::{
     Instances,
     content::{
         Load, RemoteIcon,
-        view::{badge, icon_box, pills, short_list, small, version_label},
+        view::{badge, icon_box, pills, small, version_label},
     },
 };
 use crate::components::{
@@ -31,7 +31,7 @@ use crate::components::{
     a11y::{Accessible, Role},
 };
 use crate::{
-    components::{LoadingDots, TextInput},
+    components::{FactLine, LoadingDots, TextInput},
     i18n::{ContentMsg as C, InstancesMsg as M, format, t, tr},
     theme::{self, colors, fonts, radius, text, weights},
 };
@@ -756,15 +756,13 @@ impl ModpackBrowser {
                                     .text_color(crate::theme::ink::text())
                                     .child(hit.name.clone()),
                             )
-                            .child(
-                                small(tr!(
-                                    M::ByAuthor,
-                                    author = author,
-                                    downloads = format::compact(hit.download_count.max(0.0) as u64)
-                                ))
-                                .truncate()
-                                .text_color(crate::theme::ink::muted()),
-                            ),
+                            .child(FactLine::row(("cf-pack-facts", index)).facts(
+                                crate::instances::facts::project_facts(
+                                    Some(&author),
+                                    Some(hit.download_count.max(0.0) as u64),
+                                    None,
+                                ),
+                            )),
                     ),
             );
         }
@@ -944,17 +942,15 @@ impl ModpackBrowser {
                                                     ))
                                                 }),
                                         )
-                                        .child(
-                                            small(format!(
-                                                "{} · {} · {} · {}",
-                                                short_list(&tags.game_versions, 2),
-                                                short_list(&loaders, 2),
-                                                published(&file.file_date),
-                                                format::bytes_binary(file.file_length)
-                                            ))
-                                            .truncate()
-                                            .text_color(crate::theme::ink::muted()),
-                                        ),
+                                        .child(FactLine::row(("cf-pack-file-facts", index)).facts(
+                                            crate::instances::facts::release_facts(
+                                                &tags.game_versions,
+                                                &loaders,
+                                                Some(published(&file.file_date)),
+                                                Some(file.file_length),
+                                                2,
+                                            ),
+                                        )),
                                 ),
                         );
                     }
@@ -1046,15 +1042,13 @@ impl ModpackBrowser {
                                     .text_color(crate::theme::ink::text())
                                     .child(hit.title.clone()),
                             )
-                            .child(
-                                small(tr!(
-                                    M::ByAuthor,
-                                    author = hit.author,
-                                    downloads = format::compact(hit.downloads)
-                                ))
-                                .truncate()
-                                .text_color(crate::theme::ink::muted()),
-                            ),
+                            .child(FactLine::row(("pack-facts", index)).facts(
+                                crate::instances::facts::project_facts(
+                                    Some(&hit.author),
+                                    Some(hit.downloads),
+                                    None,
+                                ),
+                            )),
                     ),
             );
         }
@@ -1215,17 +1209,15 @@ impl ModpackBrowser {
                                                 )
                                                 .child(badge(label, color)),
                                         )
-                                        .child(
-                                            small(format!(
-                                                "{} · {} · {} · {}",
-                                                short_list(&version.game_versions, 2),
-                                                short_list(&version.loaders, 2),
-                                                published(&version.date_published),
-                                                format::bytes_binary(size)
-                                            ))
-                                            .truncate()
-                                            .text_color(crate::theme::ink::muted()),
-                                        ),
+                                        .child(FactLine::row(("pack-version-facts", index)).facts(
+                                            crate::instances::facts::release_facts(
+                                                &version.game_versions,
+                                                &version.loaders,
+                                                Some(published(&version.date_published)),
+                                                Some(size),
+                                                2,
+                                            ),
+                                        )),
                                 ),
                         );
                     }

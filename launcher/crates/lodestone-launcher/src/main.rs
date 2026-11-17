@@ -27,13 +27,18 @@ fn main() {
         }
         return;
     }
-    // A data folder move finished before this restart: remove the old folder, in
-    // the background (it can be large). Not for the offscreen scenes, which use
-    // made-up data.
     #[cfg(feature = "screenshot")]
     let scene = lodestone_launcher::preview::requested_scene().is_some();
     #[cfg(not(feature = "screenshot"))]
     let scene = false;
+    // The log file and the panic hook, before anything else can fail. A build with the
+    // screenshot feature skips the single-instance check, so even without a scene it
+    // logs like one: never into the folder of a launcher running beside it, whose
+    // crash marker it would replace.
+    lodestone_launcher::logs::start(scene || cfg!(feature = "screenshot"));
+    // A data folder move finished before this restart: remove the old folder, in
+    // the background (it can be large). Not for the offscreen scenes, which use
+    // made-up data.
     if !scene {
         std::thread::spawn(lodestone_launcher::shell::data_folder::finish_pending_move);
     }
@@ -67,6 +72,9 @@ fn main() {
         if let Some(scene) = lodestone_launcher::preview::requested_scene() {
             if let Some(locale) = lodestone_launcher::preview::requested_locale() {
                 lodestone_launcher::i18n::force(locale);
+            }
+            if lodestone_launcher::preview::components::open(&scene, cx) {
+                return;
             }
             let width = lodestone_launcher::preview::window_width(&scene);
             let height = lodestone_launcher::preview::window_height(&scene);
@@ -112,7 +120,7 @@ fn main() {
         if lodestone_launcher::shell::data_folder::missing_data_folder().is_none() {
             gpui::AppContext::background_spawn(cx, async move {
                 if let Err(err) = lodestone_launcher::agent_skills::install(&data_dir) {
-                    eprintln!("lodestone-launcher: couldn't write the agent skills: {err}");
+                    log::warn!("couldn't write the agent skills: {err}");
                 }
             })
             .detach();

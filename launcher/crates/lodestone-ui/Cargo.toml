@@ -18,6 +18,8 @@ screenshot = ["dep:gpui_platform", "gpui_platform/test-support", "gpui_platform/
 accesskit.workspace = true
 anyhow.workspace = true
 chrono.workspace = true
+# The home folder, shown as `~` in paths (`values::truncate`, `PathText`).
+dirs.workspace = true
 futures.workspace = true
 gpui.workspace = true
 gpui_platform = { workspace = true, optional = true }

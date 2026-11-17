@@ -149,6 +149,7 @@ pub const SCENES: &[&str] = &[
     "modpack-added-settings",
     "worlds",
     "worlds-backups",
+    "worlds-menu",
     "worlds-datapacks",
     "screenshots",
     "screenshot-view",
@@ -201,6 +202,9 @@ pub const SCENES: &[&str] = &[
     "settings-search-defaults",
     "settings-defaults",
     "settings-search-memory",
+    "settings-developer-logs",
+    "crash-notice",
+    "crash-notice-update",
     "instance-settings-search",
     "instance-settings-search-narrow",
     "instance-settings-search-crash",
@@ -222,6 +226,10 @@ pub const SCENES: &[&str] = &[
     "snapshot-import-server-downloaded",
     "snapshot-import-server-done",
     "snapshot-import-pack-skipped",
+    "world-backup-create",
+    "world-backup-restore",
+    "world-backup-restore-new",
+    "world-backup-restored",
 ];
 
 /// Keys pressed once a scene has settled, before the screenshot, to show where
@@ -586,6 +594,7 @@ fn has_instances(scene: &str) -> bool {
         || scene == "share-code-pack"
         || is_worlds_scene(scene)
         || snapshots::is_scene(scene)
+        || world_backups::is_scene(scene)
         || scene.starts_with("copy-as")
         || scene == "instance-settings-game"
         || scene == "instance-settings-maintenance"
@@ -633,6 +642,7 @@ pub fn requested_scene() -> Option<String> {
     args.next()?;
     let scene = args.next()?;
     if !SCENES.contains(&scene.as_str())
+        && !components::is_scene(&scene)
         && !groups::is_scene(&scene)
         && !servers::SCENES.contains(&scene.as_str())
         && !server_detail::is_scene(&scene)
@@ -805,7 +815,10 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
                 }
                 if name == "Survival 1.20.1" && is_worlds_scene(scene) {
                     worlds::fill(&store.dir(&instance.id));
-                    snapshots::fill_worlds(&data_dir, &instance);
+                    world_backups::fill_worlds(&data_dir, &instance);
+                }
+                if name == "Survival 1.20.1" && world_backups::is_scene(scene) {
+                    world_backups::fill(&data_dir, &store, &instance);
                 }
                 if name == "Survival 1.20.1" && scene.starts_with("modpack-add") {
                     modpacks::fill_server(&store.dir(&instance.id), scene);
@@ -1030,6 +1043,7 @@ fn long_log() -> Vec<LogLine> {
     lines
 }
 
+pub mod components;
 mod content;
 mod friend_list;
 mod groups;
@@ -1039,6 +1053,7 @@ mod server_detail;
 mod servers;
 mod shared;
 mod snapshots;
+mod world_backups;
 mod worlds;
 
 pub use shared::{window_height, window_width};
@@ -1220,6 +1235,7 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             shell.preview_confirm_rosetta("1.8.9", reason, cx);
         }
         scene if snapshots::is_scene(scene) => snapshots::apply(scene, shell, cx),
+        scene if world_backups::is_scene(scene) => world_backups::apply(scene, shell, cx),
         scene if is_worlds_scene(scene) => {
             shell.select_tab(InstanceTab::Worlds, cx);
             let view = shell.worlds().clone();
@@ -1341,6 +1357,26 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             shell.select_tab(InstanceTab::Settings, cx);
             if let Some(settings) = shell.settings_view().cloned() {
                 settings.update(cx, |settings, cx| settings.preview_change(cx));
+            }
+        }
+        // Settings > Developer > Diagnostics: the logs folder and the log detail.
+        "settings-developer-logs" => {
+            preview_control(cx);
+            shell.open_settings(Some(crate::shell::SettingsPage::Developer), None, cx);
+            shell.preview_settings_search("log", cx);
+        }
+        // The top bar after a crash, and with "Update ready" beside it (try a narrow
+        // window: `--lang fr --zoom 1.6`).
+        "crash-notice" | "crash-notice-update" => {
+            shell.crash_notice = Some(launcher_core::logging::Crash {
+                at: "2026-11-16T08:30:12Z".into(),
+                summary: "a timer made outside a runtime".into(),
+                file: std::env::temp_dir().join("last-crash.txt"),
+            });
+            if scene == "crash-notice-update" {
+                shell
+                    .updater()
+                    .update(cx, |updater, cx| updater.preview_ready(cx));
             }
         }
         // A search typed in Settings: General by "update", nothing found, Instance
@@ -1852,6 +1888,12 @@ fn storage_report() -> launcher_core::disk::Report {
             snapshots: 7,
             removable: 3,
             retired_instances: 1,
+        },
+        world_backups: launcher_core::world_backups::WorldBackupsUsage {
+            bytes: 640 * MB,
+            backups: 9,
+            deleted: 2,
+            deleted_bytes: 120 * MB,
         },
         other: 400_000,
     }

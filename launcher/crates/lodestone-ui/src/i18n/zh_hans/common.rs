@@ -10,7 +10,7 @@ pub fn text(message: M) -> &'static str {
         M::Change => "更改…",
         M::Clear => "清除",
         M::SearchSettings => "搜索设置",
-        M::NoSettingsMatch => "没有与“{query}”匹配的设置",
+        M::NoSettingsMatch => "没有匹配的设置",
         M::ClearSearch => "清除搜索",
         M::Close => "关闭",
         M::Continue => "继续",

@@ -1,9 +1,15 @@
-import ClipboardTextfield from 'components/ClipboardTextfield';
-import Label from 'components/Atoms/Label';
 import { updateInstance } from 'data/InstanceList';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { useContext } from 'react';
-import { axiosPutSingleValue, stateToLabelColor } from 'utils/util';
+import { axiosPutSingleValue } from 'utils/util';
+import {
+  Fraction,
+  MonoText,
+  StatusBadge,
+  stateTone,
+} from 'components/Atoms/Values';
+import { CopyButton, FactStrip } from 'components/Values';
+import { instanceGamePhrase, instanceLoaderPhrase } from 'utils/values';
 import EditableTextfield from 'components/EditableTextfield';
 import { useQueryClient } from '@tanstack/react-query';
 import InstancePerformance from 'components/Instance/InstancePerformance';
@@ -47,9 +53,11 @@ const InstanceOverview = () => {
     );
   }
 
-  const labelColor = stateToLabelColor[instance.state];
-
-  // tablist is map from GameType to tabs
+  const loader = instanceLoaderPhrase(
+    instance.game_type,
+    instance.loader_version
+  );
+  const joinAddress = `${domain}:${instance.port}`;
 
   const setInstanceName = async (name: string) => {
     await axiosPutSingleValue<void>(`/instance/${uuid}/name`, name);
@@ -87,32 +95,54 @@ const InstanceOverview = () => {
               containerClassName="min-w-0"
             />
           </div>
-          <div className="-mt-2 flex flex-row flex-wrap items-center gap-4">
+          <div className="-mt-2 flex flex-row flex-wrap items-center gap-2">
             <GameIcon
               game_type={instance.game_type}
               icon_url={instance.icon_url}
               className="h-6 w-6"
             />
-            <Label size="large" color={labelColor}>
+            <StatusBadge tone={stateTone(instance.state)}>
               {t(`common.state.${instance.state}`)}
-            </Label>
-            <Label size="large" color={'blue'}>
-              {t('server.overview.version', { version: instance.version })}
-            </Label>
-            <Label size="large" color={'blue'}>
-              {t('server.overview.playerCount', {
-                players: instance.player_count ?? '',
-                max: instance.max_player_count ?? '',
-              })}
-            </Label>
-            <Label size="large" color={'blue'}>
-              <ClipboardTextfield
-                text={`${domain}:${instance.port}`}
-                color="blue"
-                iconLeft={false}
-              />
-            </Label>
+            </StatusBadge>
           </div>
+          <FactStrip
+            className="mt-1"
+            items={[
+              {
+                label: t('values.key.game'),
+                value: instanceGamePhrase(
+                  instance.game_type,
+                  instance.version || null
+                ),
+              },
+              ...(loader
+                ? [{ label: t('values.key.loader'), value: loader }]
+                : []),
+              {
+                label: t('values.key.players'),
+                value: (
+                  <Fraction
+                    done={instance.player_count}
+                    total={instance.max_player_count}
+                    className="text-gray-300"
+                  />
+                ),
+              },
+              {
+                label: t('values.key.address'),
+                value: (
+                  <>
+                    <MonoText
+                      text={joinAddress}
+                      truncate="end"
+                      className="text-small font-medium"
+                    />
+                    <CopyButton value={joinAddress} />
+                  </>
+                ),
+              },
+            ]}
+          />
           <div className="flex w-full flex-row items-center gap-2">
             <EditableTextfield
               initialText={instance.description}

@@ -9,6 +9,7 @@ use launcher_core::cores::{
         plan::{PackChanges, Summary},
     },
     local_claim::{ClaimError, LocalCredentials},
+    magic_localhost::MagicPort,
     store::SavedCore,
     tls::{CertificatePin, format_fingerprint},
     trust::{Advisory, ModrinthMatch},
@@ -73,6 +74,8 @@ pub const SCENES: &[&str] = &[
     "servers-shared-local",
     "servers-shared-local-gone",
     "servers-rows",
+    "servers-magic-localhost",
+    "servers-magic-port-taken",
     "servers-open-title",
     "servers-history-back",
     "servers-highlight",
@@ -195,25 +198,36 @@ fn home(signed_in: bool) -> (SavedCore, CoreStatus, bool) {
         signed_in.then_some("peter"),
     );
     core.set_trusted(true);
+    // each at its own port, as Magic localhost shows them
+    let at = |port: u32, server: ServerInstance| ServerInstance {
+        port: Some(port),
+        ..server
+    };
     let instances = vec![
         smp(),
-        server(
-            "creative",
-            "Creative world",
-            "1.21.1",
-            ServerLoader::Vanilla,
-            None,
-            ServerState::Stopped,
-            None,
+        at(
+            25566,
+            server(
+                "creative",
+                "Creative world",
+                "1.21.1",
+                ServerLoader::Vanilla,
+                None,
+                ServerState::Stopped,
+                None,
+            ),
         ),
-        server(
-            "atm",
-            "All the Mods",
-            "1.20.1",
-            ServerLoader::Forge,
-            Some("1.20.1-47.4.28"),
-            ServerState::Stopped,
-            None,
+        at(
+            25567,
+            server(
+                "atm",
+                "All the Mods",
+                "1.20.1",
+                ServerLoader::Forge,
+                Some("1.20.1-47.4.28"),
+                ServerState::Stopped,
+                None,
+            ),
         ),
     ];
     (
@@ -229,12 +243,19 @@ fn home(signed_in: bool) -> (SavedCore, CoreStatus, bool) {
 }
 
 fn friend_core() -> SavedCore {
-    pinned(saved(
+    let mut core = pinned(saved(
         "friend",
         "https://192.168.1.42:16662",
         "Alex's server box",
         None,
-    ))
+    ));
+    // Skyblock's Magic localhost port on this computer
+    core.magic_ports = vec![MagicPort {
+        instance: "skyblock".into(),
+        port: 34121,
+        target: 25565,
+    }];
+    core
 }
 
 fn friend() -> (SavedCore, CoreStatus, bool) {
@@ -319,7 +340,12 @@ fn apply_servers(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) 
             };
             servers.preview_local(found, Vec::new(), None);
         }
-        "servers" | "servers-ready" | "servers-core-menu" | "servers-core-menu-other" => {
+        "servers"
+        | "servers-ready"
+        | "servers-core-menu"
+        | "servers-core-menu-other"
+        | "servers-magic-localhost"
+        | "servers-magic-port-taken" => {
             servers.preview(
                 vec![
                     local_home(),
@@ -344,6 +370,10 @@ fn apply_servers(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) 
                 // the "…" menu of the Host here, or of Alex's core under "Other cores"
                 "servers-core-menu" => servers.preview_core_menu("home"),
                 "servers-core-menu-other" => servers.preview_core_menu("friend"),
+                // something else had Skyblock's port, so this session is at another
+                "servers-magic-port-taken" => {
+                    servers.preview_magic_bound("friend", "skyblock", 40123)
+                }
                 _ => {}
             }
         }
@@ -548,10 +578,7 @@ fn apply_servers(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) 
                 ],
                 Vec::new(),
             );
-            servers.preview_notice(
-                "Signed out of Peter's Lodestone Core",
-                &CoreError::SignedOut.to_string(),
-            );
+            servers.preview_signed_out("Peter's Lodestone Core");
         }
         "servers-certificate" => {
             servers.preview(

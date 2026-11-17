@@ -4,31 +4,35 @@ pub fn text(message: M) -> &'static str {
     match message {
         M::SectionCore => "核心",
         M::SectionPublic => "公开服务器",
-        M::SectionPublicLead => "无需登录即可查看。",
         M::SectionInfo => "信息",
         M::SectionDanger => "危险区域",
-        M::SectionDangerLead => "请谨慎更改。",
         M::CoreName => "核心名称",
         M::CoreNameEmpty => "名称不能为空",
         M::CoreNameTooLong => "名称不能超过 {max} 个字符",
         M::Domain => "公网域名或 IP",
         M::DomainTooLong => "域名不能超过 {max} 个字符",
-        M::DomainHint => "如果你已设置端口转发，这里填写你的公网 IP。否则请保持不变。",
+        M::DomainHint => {
+            "用于玩家复制来加入你服务器的地址。如果你设置了端口转发，请填写你的公网 IP 或域名；否则请留空。"
+        }
         M::ListPublicly => "公开列出服务器",
         M::ListPubliclyHint => "任何能访问此核心的人都能看到你在下方设为公开的服务器。",
         M::LocalClaim => "允许本机上的应用获取所有者权限",
         M::LocalClaimHint => {
-            "Lodestone Launcher 可以通过证明自己能写入此核心的数据文件夹来成为所有者。能写入该文件夹的程序本来就能修改所有用户和设置，所以这只在共用电脑上有影响。"
+            "Lodestone Host 和 Lodestone Launcher 通过证明自己能写入此核心的数据文件夹，以所有者身份登录。关闭后，它们会要求输入所有者的密码。能写入该文件夹的程序本来就能控制核心，所以这只在共用电脑上有影响。"
         }
         M::SafeMode => "安全模式",
-        M::SafeModeHint => "仅所有者可获得此计算机的管理权限。",
+        M::SafeModeHint => {
+            "开启时，只有所有者可以更改服务器的文件、世界和模组，使用这台电脑上其他位置的文件，或管理用户和权限，即使已授予这些权限。"
+        }
         M::SafeModeOffTitle => "关闭安全模式？",
         M::SafeModeOffBody => {
             "确定要关闭安全模式吗？这样你就可以让自己以外的用户运行可能有危险的命令。请确保你信任所有获得这些权限的用户。"
         }
         M::TurnOff => "关闭",
         M::CodeExecution => "代码执行",
-        M::CodeExecutionHint => "自定义 Java 命令。",
+        M::CodeExecutionHint => {
+            "自定义 Java 命令和参数，以及来自整合包、导入的服务器和 .lodeimg 文件的脚本。关闭后，使用自定义 Java 命令的服务器不会启动。"
+        }
         M::CodeExecutionLocked => {
             "已被此核心的管理员锁定（LODESTONE_DISABLE_CODE_EXECUTION 或 --disable-code-execution）。"
         }
@@ -57,7 +61,7 @@ pub fn text(message: M) -> &'static str {
         M::PortNotNumber => "端口必须是数字",
         M::PortRequired => "请输入端口",
         M::PortRange => "端口必须在 1 到 65535 之间",
-        M::PortOpened => "已开放端口 {port}",
+        M::PortOpened => "端口已打开",
         M::InfoCoreVersion => "核心版本",
         M::InfoHostVersion => "Lodestone Host 版本",
         M::InfoOs => "操作系统",
@@ -80,16 +84,14 @@ pub fn text(message: M) -> &'static str {
         M::FlagStatus => "状态和玩家",
         M::FlagAddress => "加入地址",
         M::FlagClientPack => "客户端模组下载",
-        M::ShownText => "任何能访问此核心的人无需登录即可看到此服务器的{list}。",
-        M::ShownNameVersion => "名称和版本",
-        M::ShownStatus => "状态和玩家数",
+        M::ShownText => "任何能访问此核心的人无需登录即可看到这些内容。",
+        M::ShownNameVersion => "名称",
+        M::ShownStatus => "状态",
         M::ShownAddress => "地址",
         M::ShownClientPack => "客户端模组",
         M::TurnOnFirst => "请先开启“公开列出服务器”。",
-        M::HiddenWhileOff => "{shown}“公开列出服务器”关闭时隐藏。",
-        M::NotShown => "未登录时不显示。",
+        M::HiddenWhileOff => "“公开列出服务器”关闭时隐藏。",
         M::NoJavaServers => "还没有 Minecraft Java Edition 服务器。",
-        M::UsersDescription => "此核心上的账户及其权限。",
         M::AllUsers => "所有用户",
         M::AllMembers => "所有成员",
         M::AllMembersCount => "所有成员（{count}）",
@@ -98,65 +100,52 @@ pub fn text(message: M) -> &'static str {
         M::CreateUserLead => "新用户初始没有任何权限。",
         M::LoadingUsers => "正在加载用户",
         M::Permissions => "权限",
-        M::PermissionsLead => "{username} 在此核心上可以执行的操作。",
         M::UnsafePermissions => "不安全权限",
-        M::UnsafePermissionsLead => "关闭安全模式后才能授予非所有者。",
+        M::UnsafePermissionsLead => {
+            "安全模式已开启，因此只有所有者可以使用这些权限。在“设置 › 常规”中关闭它即可授予。"
+        }
         M::UsersOwnerOnly => "只有所有者可以管理用户。",
         M::You => "你",
         M::Admin => "管理员",
         M::Owner => "所有者",
         M::ChangePasswordMenu => "修改密码",
         M::CantDeleteSelf => "你不能删除自己。",
-        M::DeleteUserTitle => "删除用户",
-        M::DeleteUserConfirm => "确定要删除 {name} 吗？此操作无法撤销。",
+        M::DeleteUserTitle => "删除用户？",
+        M::DeleteUserConfirm => "此用户的账户将被删除。此操作无法撤销。",
         M::DeleteUser => "删除用户",
         M::NoServersYet => "还没有服务器。",
         M::PermCreateInstance => "创建服务器",
-        M::PermCreateInstanceUser => "该用户可以创建新服务器。",
-        M::PermCreateInstanceKey => "该密钥可以创建新服务器。",
         M::PermDeleteInstance => "删除服务器",
-        M::PermDeleteInstanceUser => "该用户可以删除任何服务器。",
-        M::PermDeleteInstanceKey => "该密钥可以删除任何服务器。",
+        M::PermDeleteInstanceUser => "此核心上的任何服务器。",
+        M::PermDeleteInstanceKey => "此核心上的任何服务器。",
         M::PermReadGlobalFile => "读取全局文件",
         M::PermReadGlobalFileUser => "该用户可以读取运行 Lodestone Core 的计算机上的任何文件。",
         M::PermReadGlobalFileKey => "该密钥可以读取运行 Lodestone Core 的计算机上的任何文件。",
         M::PermViewInstance => "查看服务器",
-        M::PermViewInstanceUser => "该用户可以看到这些服务器。",
-        M::PermViewInstanceKey => "该密钥可以看到这些服务器。",
         M::PermStartInstance => "启动服务器",
-        M::PermStartInstanceUser => "该用户可以启动这些服务器。",
-        M::PermStartInstanceKey => "该密钥可以启动这些服务器。",
         M::PermStopInstance => "停止服务器",
-        M::PermStopInstanceUser => "该用户可以停止这些服务器。",
-        M::PermStopInstanceKey => "该密钥可以停止这些服务器。",
         M::PermConsole => "访问服务器控制台",
-        M::PermConsoleUser => {
-            "该用户可以读取这些服务器的控制台并向其发送命令。这实际上相当于授予服务器的管理员（OP）权限。"
-        }
-        M::PermConsoleKey => {
-            "该密钥可以读取这些服务器的控制台并向其发送命令。这实际上相当于授予服务器的管理员（OP）权限。"
-        }
+        M::PermConsoleUser => "包括发送命令，相当于管理员（OP）权限。",
+        M::PermConsoleKey => "包括发送命令，相当于管理员（OP）权限。",
         M::PermInstanceSettings => "访问服务器设置",
-        M::PermInstanceSettingsUser => "该用户可以读取和更改这些服务器的设置。",
-        M::PermInstanceSettingsKey => "该密钥可以读取和更改这些服务器的设置。",
+        M::PermInstanceSettingsUser => "包括更改设置。",
+        M::PermInstanceSettingsKey => "包括更改设置。",
         M::PermReadResource => "读取服务器资源",
-        M::PermReadResourceUser => "该用户可以读取这些服务器的资源（世界、模组等）。",
-        M::PermReadResourceKey => "该密钥可以读取这些服务器的资源（世界、模组等）。",
+        M::PermReadResourceUser => "世界、模组等。",
+        M::PermReadResourceKey => "世界、模组等。",
         M::PermReadFiles => "读取服务器文件",
-        M::PermReadFilesUser => "该用户可以读取这些服务器的文件。",
-        M::PermReadFilesKey => "该密钥可以读取这些服务器的文件。",
+        M::PermReadFilesUser => "这些服务器文件夹中的任何文件。",
+        M::PermReadFilesKey => "这些服务器文件夹中的任何文件。",
         M::PermWriteResource => "修改服务器资源",
-        M::PermWriteResourceUser => "该用户可以修改这些服务器的资源（世界、模组等）。",
-        M::PermWriteResourceKey => "该密钥可以修改这些服务器的资源（世界、模组等）。",
+        M::PermWriteResourceUser => "世界、模组等。",
+        M::PermWriteResourceKey => "世界、模组等。",
         M::PermWriteFiles => "修改服务器文件",
-        M::PermWriteFilesUser => "该用户可以修改这些服务器的文件。",
-        M::PermWriteFilesKey => "该密钥可以修改这些服务器的文件。",
+        M::PermWriteFilesUser => "这些服务器文件夹中的任何文件。",
+        M::PermWriteFilesKey => "这些服务器文件夹中的任何文件。",
         M::PermWriteGlobalFile => "修改全局文件",
         M::PermWriteGlobalFileUser => "该用户可以修改运行 Lodestone Core 的计算机上的任何文件。",
         M::PermWriteGlobalFileKey => "该密钥可以修改运行 Lodestone Core 的计算机上的任何文件。",
         M::PermManagePermission => "管理权限",
-        M::PermManagePermissionUser => "该用户可以管理其他用户的权限。",
-        M::PermManagePermissionKey => "该密钥可以管理其他用户的权限。",
         M::Username => "用户名",
         M::Password => "密码",
         M::OldPassword => "旧密码",
@@ -176,7 +165,7 @@ pub fn text(message: M) -> &'static str {
         M::ColoredConsole => "彩色控制台",
         M::Startup => "启动",
         M::StartAtLogin => "登录时打开 Lodestone Host",
-        M::StartAtLoginHint => "登录这台电脑时，它会在后台打开，并启动设为自动启动的服务器。",
+        M::StartAtLoginHint => "在后台打开，并启动设为自动启动的服务器。",
         M::StartAtLoginFailed => "无法更改启动设置：{error}",
         M::Language => "语言",
         M::LanguageAuto => "系统默认（{language}）",
@@ -185,36 +174,27 @@ pub fn text(message: M) -> &'static str {
         M::ThemeLight => "浅色",
         M::ThemeDark => "深色",
         M::ThemeSystemHint => "跟随电脑的浅色或深色设置",
-        M::ThemeLightHint => "始终使用浅色",
-        M::ThemeDarkHint => "始终使用深色",
         M::Zoom => "缩放",
         M::ZoomHint => "也可以用 {modifier} + 和 {modifier} −。",
         M::ApiKeys => "API 密钥",
         M::ApiKeysOwnLead => "让 CLI、脚本和智能体无需密码即可以你的身份操作。",
         M::ApiKeysOwnEmpty => "你还没有 API 密钥。",
-        M::ApiKeysUserLead => "{username} 创建的密钥。吊销后，使用它的程序会立即失去访问权限。",
-        M::ApiKeysUserEmpty => "{username} 没有 API 密钥。",
+        M::ApiKeysUserLead => "吊销密钥后，使用它的程序会立即失去访问权限。",
+        M::ApiKeysUserEmpty => "此用户没有 API 密钥。",
         M::CreateApiKey => "创建 API 密钥",
-        M::ApiKeyCreated => "已创建 API 密钥“{name}”",
+        M::ApiKeyCreated => "已创建 API 密钥",
         M::LoadingApiKeys => "正在加载 API 密钥",
         M::Revoke => "吊销",
-        M::RevokeTitle => "吊销 API 密钥",
-        M::RevokeBody => {
-            "吊销“{name}”（{display}）？使用此密钥的所有程序将立即失去访问权限。此操作无法撤销。"
-        }
-        M::ApiKeyRevoked => "已吊销 API 密钥“{name}”",
-        M::CreatedOn => "创建于 {date}",
-        M::ExpiresOn => "{date} 过期",
-        M::ExpiredOn => "已于 {date} 过期",
-        M::ExpiresNever => "过期时间：永不",
-        M::LastUsed => "上次使用：{time}",
-        M::LastUsedNever => "上次使用：从未",
+        M::RevokeTitle => "吊销 API 密钥？",
+        M::RevokeBody => "使用此密钥的一切将立即失去访问权限。此操作无法撤销。",
+        M::ApiKeyRevoked => "已吊销 API 密钥",
+        M::LastUsed => "上次使用",
         M::ScopeFull => "完全访问",
         M::ScopeLauncher => "Launcher：查看、启动和停止服务器",
         M::ScopeLauncherConsole => "Launcher：查看、启动和停止服务器，读取和使用控制台",
         M::ScopeLauncherConsoleRead => "Launcher：查看、启动和停止服务器，读取控制台",
         M::ScopeLauncherConsoleWrite => "Launcher：查看、启动和停止服务器，发送控制台命令",
-        M::ScopeCustom => "自定义：{servers}，{permissions}",
+        M::ScopeCustom => "自定义",
         M::PasswordSessionOnly => "只有使用密码登录时才能管理 API 密钥，使用 API 密钥登录时不行。",
         M::CreateApiKeyLead => "为每个密钥设置较短的有效期，并只授予所需的访问权限。",
         M::ApiKeyName => "名称",
@@ -238,7 +218,7 @@ pub fn text(message: M) -> &'static str {
         M::KeyUnsafeSafeMode => {
             "安全模式已开启，因此在核心设置中关闭安全模式之前，核心会拒绝为自定义访问的密钥授予这些权限。"
         }
-        M::NewKeyTitle => "已创建 API 密钥“{name}”",
+        M::NewKeyTitle => "已创建 API 密钥",
         M::NewKeyCopyNow => "请立即复制此密钥。之后将无法再次查看。",
         M::NewKeyUseWithCli => "在 Lodestone CLI 中使用：",
         M::NewKeyStore => {
@@ -251,54 +231,47 @@ pub fn text(message: M) -> &'static str {
         M::MinecraftOwnEmpty => {
             "尚未关联 Minecraft 账户。在 Lodestone Launcher 中登录此核心即可关联。"
         }
-        M::MinecraftUserLead => "{username} 从 Lodestone Launcher 关联的 Minecraft 账户。",
-        M::MinecraftUserEmpty => "{username} 没有关联的 Minecraft 账户。",
+        M::MinecraftUserLead => "从 Lodestone Launcher 关联。",
+        M::MinecraftUserEmpty => "此用户没有关联的 Minecraft 账户。",
         M::MinecraftTooOld => "此核心版本太旧，无法关联 Minecraft 账户。",
-        M::MinecraftRemoveTitle => "移除 Minecraft 账户",
-        M::MinecraftRemoveBody => "移除与 {name} 的关联？之后可以从 Lodestone Launcher 重新关联。",
-        M::MinecraftRemoved => "已移除 {name}",
+        M::MinecraftRemoveTitle => "移除账户关联？",
+        M::MinecraftRemoveBody => "之后可以从 Lodestone Launcher 重新关联。",
+        M::MinecraftRemoved => "已移除关联",
         M::Notifications => "通知",
         M::InProgress => "进行中",
         M::AllNotifications => "所有通知",
         M::LoadingNotifications => "正在加载通知",
         M::NoNotifications => "暂无通知！",
-        M::EventStarting => "服务器 {name} 正在启动！",
-        M::EventRunning => "服务器 {name} 已启动！",
-        M::EventStopping => "服务器 {name} 正在停止！",
-        M::EventStopped => "服务器 {name} 已停止！",
-        M::EventCrashed => "服务器 {name} 出现错误！",
+        M::EventStarting => "正在启动",
+        M::EventRunning => "已启动",
+        M::EventStopping => "正在停止",
+        M::EventStopped => "已停止",
+        M::EventCrashed => "遇到错误",
         M::WarningToast => "警告：某个服务器发出了警告。这不应该发生，请向开发者报告此问题。",
-        M::EventModpackUpdate => "{name} 的 {pack} {version} 已发布",
-        M::EventWarning => "服务器 {name} 发出了警告",
-        M::EventError => "服务器 {name} 出现错误",
-        M::PlayersJoined => "{players} 加入了 {name}",
-        M::PlayersLeft => "{players} 离开了 {name}",
-        M::PlayersJoinedAndLeft => "{joined} 加入了 {name}，{left} 离开了 {name}",
-        M::PlayerMessage => "{player} 在 {name} 上说：{message}",
-        M::EventApiKeyCreated => "已创建 API 密钥“{name}”",
-        M::EventApiKeyRevoked => "已吊销 API 密钥“{name}”",
+        M::EventModpackUpdate => "{pack} 的新版本",
+        M::EventWarning => "遇到警告",
+        M::EventError => "遇到错误",
+        M::PlayersLeft => "已离开",
+        M::EventApiKeyCreated => "已创建 API 密钥",
+        M::EventApiKeyRevoked => "已吊销 API 密钥",
         M::LoadFailed => "无法加载通知：{error}",
-        M::CoreFailedNotice => "Lodestone Core 无法启动：{error}",
         M::UpdatesTitle => "更新",
-        M::UpdatesLead => "这台电脑上的 Lodestone Host。Lodestone Core 随之更新。",
+        M::UpdatesLead => "这台电脑上的 Lodestone Host 及其 Lodestone Core。",
         M::ThisVersion => "此版本",
         M::UpdateAutomatically => "自动更新",
         M::UpdateAutomaticallyHint => "在后台下载新构建。",
         M::BetaBuilds => "测试版构建",
         M::BetaBuildsHint => "测试版构建可能有错误。",
         M::DeveloperBuilds => "开发者构建",
-        M::DeveloperBuildsHint => "供 Lodestone 开发者使用：更新到开发版构建，可能有错误。",
-        M::BuildNumber => "构建 {build}",
-        M::BuildNumberCommit => "构建 {build} · {commit}",
+        M::DeveloperBuildsHint => "更新到开发版构建，可能有错误。",
         M::DevelopmentBuild => "开发构建",
         M::UpdatesUnavailable => "此构建不会自动更新。从官网下载的 Lodestone Host 会自动更新。",
         M::UpdateNotChecked => "每隔几小时检查一次是否有新构建。",
         M::UpdateChecking => "正在检查新构建…",
         M::UpToDate => "当前已是最新构建。",
-        M::UpdateAvailable => "构建 {build} 现已可用。",
-        M::UpdateDownloading => "正在下载构建 {build}… {percent}",
+        M::UpdateAvailable => "有新的构建可用。",
         M::UpdateReady => {
-            "构建 {build} 已下载，重启后即可使用：你的服务器会停止，设为自动启动的服务器随后会再次启动。退出时也会安装。"
+            "新构建已下载。重启即可使用：你的服务器会先停止，设为自动启动的服务器随后会再次启动。退出时也会安装。"
         }
         M::RestartUpdateTitle => "重启以更新？",
         M::RestartUpdateBody => {
@@ -307,11 +280,9 @@ pub fn text(message: M) -> &'static str {
         M::RestartUpdateConfirm => "停止服务器并重启",
         M::DeveloperSection => "开发者",
         M::ConnectService => "Connect 服务（中继）",
-        M::ConnectServiceHint => "仅供测试。邀请链接和好友列表使用此服务。更改后会重启核心。",
-        M::ConnectServiceInUse => "开发中继：{service}",
-        M::ConnectServiceEnv => {
-            "已设置 {var}，因此核心使用 {service}。取消设置后，此设置才会生效。"
-        }
+        M::ConnectServiceHint => "邀请链接和好友列表使用它。",
+        M::ConnectServiceInUse => "开发中继",
+        M::ConnectServiceEnv => "一个环境变量指定了中继，取消该变量后此设置才会生效。",
         M::ConnectServiceScheme => "地址需以 https:// 开头。",
         M::ConnectServiceInsecure => {
             "请使用 https://。只有本机上的服务（127.0.0.1 或 localhost）可以使用 http://。"
@@ -332,11 +303,8 @@ pub fn text(message: M) -> &'static str {
             "感谢使用 Lodestone 测试版！如果你发现任何问题，请在我们的 Discord 服务器或 Github 上告诉我们。"
         }
         M::Cores => "核心",
-        M::CoresLead => {
-            "Lodestone Host 运行这台电脑上的核心。你也可以管理另一个核心，例如服务器上的核心。"
-        }
+        M::CoresLead => "你也可以管理另一个核心，例如服务器上的核心。",
         M::ThisComputerCore => "这台电脑",
-        M::ThisComputerHint => "Lodestone Host 运行的核心。",
         M::CurrentCore => "当前",
         M::UseCore => "切换",
         M::ChangeCore => "更换核心",
@@ -353,17 +321,14 @@ pub fn text(message: M) -> &'static str {
             "请将它与该核心“设置 › 常规 › 信息”中的指纹，或它启动时日志中的指纹进行比对。"
         }
         M::TrustCertificate => "信任证书",
-        M::SignInTo => "登录到 {name}",
-        M::VersionIncompatible => {
-            "此 Core 运行 Lodestone Core {theirs}，本机运行 {ours}。在两者都更新之前，某些页面可能无法使用。"
-        }
-        M::VersionPatch => "此 Core 运行 Lodestone Core {theirs}（本机：{ours}）。",
+        M::SignInTo => "登录",
+        M::VersionIncompatible => "在两者都更新之前，部分页面可能无法使用。",
         M::SignIn => "登录",
         M::RemoveCore => "移除",
-        M::RemoteSignedOut => "你已从 {name} 退出登录。Lodestone Host 已回到这台电脑的核心。",
+        M::RemoteSignedOut => "你已从此核心退出登录。Lodestone Host 已切回本机的核心。",
         M::RemoteAccess => "允许其他设备访问",
         M::RemoteAccessHintOff => {
-            "关闭：只有这台电脑上的应用可以使用这个核心（Lodestone Host、Lodestone Launcher 和 Lodestone CLI）。打开后可以在其他设备上使用网页控制台、添加用户或创建 API 密钥。无论开关如何，都可以分享服务器。"
+            "只有这台电脑上的应用可以使用这个核心。在其他设备上使用网页控制台、添加其他用户和使用 API 密钥都需要打开它。无论开关如何，都可以分享服务器。"
         }
         M::RemoteAccessHintOn => "其他设备可以通过 HTTPS 用用户名和密码登录这个核心。",
         M::RemoteAccessOffTitle => "关闭其他设备的访问？",
@@ -372,9 +337,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::LocalClaimNeedsPassword => "请先设置所有者账户：没有密码时，这是唯一的登录方式。",
         M::OwnerAccountTitle => "设置所有者账户以分享这个核心",
-        M::OwnerAccountLead => {
-            "其他设备使用用户名和密码登录。请选择你将在网页控制台和其他设备上使用的用户名和密码。这台电脑上的应用无需它们也能继续登录。"
-        }
+        M::OwnerAccountLead => "网页控制台和其他设备使用它们登录。这台电脑上的应用不需要它们。",
         M::OwnerAccountButton => "设置并允许访问",
         M::OwnerAccountDone => "所有者账户已设置。其他设备现在可以登录这个核心。",
         M::PasswordTooShort => "密码至少需要 12 个字符。",
@@ -382,20 +345,33 @@ pub fn text(message: M) -> &'static str {
         M::NoPasswordYet => "还没有密码。只有这台电脑上的应用可以使用这个核心。",
         M::ModpackChecks => "检查整合包更新",
         M::ModpackChecksHint => {
-            "每隔几小时在 Modrinth 上查找服务器所用整合包的新版本，有新版本时通知。关闭后，服务器“模组”标签中的“检查更新”仍可使用。"
+            "每隔几小时在 Modrinth 上查找。你仍可以在服务器的“模组”标签中检查。"
         }
         M::ModpackChecksKeywords => "整合包 更新 通知 Modrinth 自动",
         M::RemoteAccessKeywords => "远程 局域网 网络 共享",
         M::DomainKeywords => "地址 主机名 网址",
         M::OpenPortKeywords => "端口转发 路由器 UPnP 防火墙",
         M::ThemeKeywords => "深色 浅色 模式 外观 颜色",
+        M::KeyServers => "服务器",
+        M::Never => "从不",
+        M::ShownVersion => "版本",
+        M::ShownPlayers => "玩家人数",
+        M::ThisCore => "此核心",
+        M::NewBuild => "新构建",
+        M::ConnectServiceVariable => "变量",
+        M::LogsSection => "日志",
+        M::LogFiles => "日志文件",
+        M::LogsHint => "Host 和它的核心做过的事，保存在这台电脑上，便于排查问题。{path}",
+        M::LogDetail => "日志详细程度",
+        M::LogDetailHint => "“调试”会写入更多内容，便于排查问题。立即生效。",
+        M::LogInfo => "信息",
+        M::LogDebug => "调试",
+        M::LogLevelFromEnv => "Host 带着 LODESTONE_LOG 运行时，由它决定详细程度。",
     }
 }
 
 pub fn plural(message: P) -> [&'static str; 2] {
     match message {
-        P::ScopeServers => ["{count} 个服务器", "{count} 个服务器"],
-        P::ScopePermissions => ["{count} 项权限", "{count} 项权限"],
         P::ServersRunning => ["{count} 个服务器正在运行。", "{count} 个服务器正在运行。"],
     }
 }

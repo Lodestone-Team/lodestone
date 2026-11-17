@@ -16,7 +16,7 @@ use launcher_core::{
 };
 use lodestone_ui::{components::text_tooltip, theme::radius};
 
-use crate::i18n::{InstancesMsg, tr};
+use crate::i18n::{InstancesMsg, t};
 
 /// A downloaded picture.
 enum Remote {
@@ -176,9 +176,15 @@ pub fn game_icon(
         .into_any_element()
 }
 
-/// "Copied …", for a toast after copying `text`.
-pub fn copied(text: &str) -> String {
-    tr!(InstancesMsg::CopiedText, text = text)
+/// The toast after copying `text`: the value, exact, then "Copied".
+pub fn copied(text: &str) -> lodestone_ui::components::Toast {
+    lodestone_ui::components::Toast::success(t(InstancesMsg::CopiedText))
+        .object(
+            lodestone_ui::components::ObjectChip::new(text.to_string())
+                .mono()
+                .no_icon(),
+        )
+        .key("copied")
 }
 
 #[cfg(test)]

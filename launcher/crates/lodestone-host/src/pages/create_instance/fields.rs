@@ -258,11 +258,11 @@ impl Field {
     }
 }
 
-/// A form field's row: its name (and "Optional"), what it is, its control on the
-/// right, and the error under it (`FormInputField.tsx`).
+/// A form field's row: its name (and "Optional"), what it is if that needs saying,
+/// its control on the right, and the error under it (`FormInputField.tsx`).
 pub fn row(
     name: impl Into<SharedString>,
-    description: impl Into<SharedString>,
+    description: Option<SharedString>,
     optional: bool,
     control: AnyElement,
     error: Option<String>,
@@ -302,12 +302,14 @@ pub fn row(
                             )
                         }),
                 )
-                .child(
-                    div()
-                        .text_size(text::SMALL)
-                        .text_color(ink::muted())
-                        .child(description.into()),
-                ),
+                .when_some(description, |this, description| {
+                    this.child(
+                        div()
+                            .text_size(text::SMALL)
+                            .text_color(ink::muted())
+                            .child(description),
+                    )
+                }),
         )
         .child(
             div()
@@ -523,13 +525,15 @@ pub fn field_row<V: HasFields>(
     error: Option<String>,
     cx: &mut Context<V>,
 ) -> AnyElement {
+    let described = &field.setting.description;
     let description = match &field.locked {
-        Some(reason) => format!("{} {reason}", field.setting.description),
-        None => field.setting.description.clone(),
+        Some(reason) if described.is_empty() => Some(reason.clone()),
+        Some(reason) => Some(format!("{described} {reason}")),
+        None => (!described.is_empty()).then(|| described.clone()),
     };
     row(
         field.setting.name.clone(),
-        description,
+        description.map(Into::into),
         !field.setting.is_required,
         control(field, key, id_prefix, cx),
         error,

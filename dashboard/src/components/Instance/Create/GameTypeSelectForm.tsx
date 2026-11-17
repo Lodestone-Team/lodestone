@@ -23,14 +23,9 @@ export default function GameTypeSelectForm({
     useContext(GameInstanceContext);
   const { data: game_types, isPending: isLoading } = InstanceGameTypes();
   const heading = (
-    <>
-      <p className="text-left text-h2 font-extrabold tracking-medium text-gray-300">
-        {t('create.gameType.title')}
-      </p>
-      <p className="text-left text-medium leading-5 font-medium tracking-medium text-white/50 italic">
-        {t('create.gameType.subtitle')}
-      </p>
-    </>
+    <p className="text-left text-h2 font-extrabold tracking-medium text-gray-300">
+      {t('create.gameType.title')}
+    </p>
   );
   if (!game_types || isLoading) {
     // the cards' shapes, in place (a full-window spinner used to cover the

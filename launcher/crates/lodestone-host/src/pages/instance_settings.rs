@@ -659,7 +659,13 @@ impl InstanceSettingsPage {
                 match result {
                     Ok(ResourcePackHash { sha1, size }) => {
                         form.sha1.update(cx, |input, cx| input.set_text(sha1, cx));
-                        form.hash_note = Some(tr!(M::PackDownloaded, size = format::bytes(size)));
+                        form.hash_note = Some(
+                            lodestone_ui::components::readable::key_value(
+                                t(M::PackDownloaded),
+                                &format::bytes(size),
+                            )
+                            .to_string(),
+                        );
                     }
                     Err(err) => this.show_error(err.to_string(), cx),
                 }
@@ -945,13 +951,13 @@ impl InstanceSettingsPage {
             (
                 Automation::AutoStart,
                 M::AutoStart,
-                M::AutoStartHint,
+                Some(M::AutoStartHint),
                 instance.auto_start,
             ),
             (
                 Automation::RestartOnCrash,
                 M::RestartOnCrash,
-                M::RestartOnCrashHint,
+                None,
                 instance.restart_on_crash,
             ),
         ]
@@ -962,7 +968,11 @@ impl InstanceSettingsPage {
                 _ => saved,
             };
             SettingRow::new(t(label))
-                .hint(t(if can_edit { hint } else { M::NoPermission }))
+                .hint_opt(if can_edit {
+                    hint.map(t)
+                } else {
+                    Some(t(M::NoPermission))
+                })
                 .when(which == Automation::AutoStart, |row| {
                     row.keywords(t(M::AutoStartKeywords))
                 })
@@ -976,7 +986,7 @@ impl InstanceSettingsPage {
                 )
         });
         query
-            .section(t(M::Automation), Some(t(M::AutomationLead).into()))
+            .section(t(M::Automation), None)
             .card(rows)
             .finish()
             .map(IntoElement::into_any_element)
@@ -1163,7 +1173,6 @@ impl InstanceSettingsPage {
         });
         let row = if status.accepted {
             SettingRow::new(t(M::Eula))
-                .hint(t(M::EulaAcceptedHint))
                 .child(read)
                 .child(tag(t(M::EulaAccepted), colors::GREEN))
         } else {
@@ -1185,7 +1194,7 @@ impl InstanceSettingsPage {
                 )
         };
         query
-            .section(t(M::Eula), Some(t(M::EulaLead).into()))
+            .section(t(M::Eula), None)
             .card([row])
             .finish()
             .map(IntoElement::into_any_element)
@@ -1197,16 +1206,11 @@ impl InstanceSettingsPage {
             .read(cx)
             .me
             .may_core(CorePermission::DeleteInstance);
-        let hint = if can_delete {
-            M::DeleteServerHint
-        } else {
-            M::NoPermission
-        };
         query
-            .section(t(M::DangerZone), Some(t(M::DangerZoneLead).into()))
+            .section(t(M::DangerZone), None)
             .card([SettingRow::new(t(M::DeleteServer))
                 .danger()
-                .hint(t(hint))
+                .hint_opt((!can_delete).then(|| t(M::NoPermission)))
                 .child(
                     Button::new("delete-instance", t(CommonMsg::Delete))
                         .variant(ButtonVariant::Danger)
@@ -1227,7 +1231,7 @@ impl InstanceSettingsPage {
         let close = std::rc::Rc::new(close);
         Dialog::new(
             "delete-instance-dialog",
-            tr!(M::DeleteTitle, name = prompt.name),
+            t(M::DeleteTitle),
             prompt.focus.clone(),
         )
         .on_close({
@@ -1242,6 +1246,13 @@ impl InstanceSettingsPage {
                     leading::NORMAL,
                 ))
                 .text_color(ink::secondary())
+                // the server it deletes, named once
+                .child(
+                    div().pb(px(12.)).child(
+                        lodestone_ui::components::ObjectCard::new(prompt.name.clone())
+                            .kind(lodestone_ui::components::Kind::Server),
+                    ),
+                )
                 .child(
                     div()
                         .font_weight(weights::BOLD.face())
