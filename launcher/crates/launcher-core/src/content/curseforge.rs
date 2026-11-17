@@ -49,6 +49,9 @@ pub const RATE_LIMIT_PAUSE: Duration = Duration::from_secs(30);
 /// pageSize`), per the API documentation.
 pub const PAGE_SIZE: usize = 50;
 pub const MAX_SEARCH_RESULTS: usize = 10_000;
+/// The most categories one search may filter by (`categoryIds`), per the API
+/// documentation.
+pub const MAX_SEARCH_CATEGORIES: usize = 10;
 /// The most files read for one project, in pages of [`PAGE_SIZE`].
 pub const MAX_FILES: usize = 2_000;
 /// Hosts CurseForge serves files from. Anything else is refused.
@@ -438,6 +441,9 @@ pub struct CfSearch {
     pub sort: CfSort,
     pub offset: usize,
     pub limit: usize,
+    /// Only projects in these categories ([`CurseForge::categories`]); none for no
+    /// filter. The API takes [`MAX_SEARCH_CATEGORIES`] at most.
+    pub categories: Vec<u32>,
 }
 
 impl CfSearch {
@@ -486,8 +492,124 @@ impl CfSearch {
                 serde_json::to_string(&types).unwrap_or_default(),
             ));
         }
+        match self.categories.as_slice() {
+            [] => {}
+            [one] => pairs.push(("categoryId", one.to_string())),
+            many => {
+                let many = &many[..many.len().min(MAX_SEARCH_CATEGORIES)];
+                pairs.push((
+                    "categoryIds",
+                    serde_json::to_string(many).unwrap_or_default(),
+                ));
+            }
+        }
         pairs
     }
+}
+
+/// A category of a class's projects, as CurseForge names it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CfCategory {
+    pub id: u32,
+    pub name: String,
+    /// The category it is under, when it isn't directly under its class.
+    #[serde(default)]
+    pub parent_category_id: Option<u32>,
+    /// Whether it is a class (Mods, Resource Packs) rather than a category of one.
+    #[serde(default)]
+    pub is_class: Option<bool>,
+}
+
+/// What a curseforge.com link names: a project, and maybe one of its files.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CfLink {
+    pub project: CfLinkProject,
+    pub file: Option<u64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CfLinkProject {
+    /// `curseforge.com/projects/<id>`.
+    Id(u64),
+    /// `curseforge.com/minecraft/<class>/<slug>`.
+    Slug { class_id: u32, slug: String },
+}
+
+/// The project and file a link points to, found on CurseForge.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CfLinkTarget {
+    pub project: CfMod,
+    pub file: Option<CfFile>,
+}
+
+/// The class a curseforge.com path names (`/minecraft/<this>/<slug>`).
+fn class_of_path(segment: &str) -> Option<u32> {
+    Some(match segment {
+        "mc-mods" => CLASS_MODS,
+        "texture-packs" => CLASS_RESOURCE_PACKS,
+        "shaders" => CLASS_SHADERS,
+        "modpacks" => CLASS_MODPACKS,
+        "data-packs" => CLASS_DATA_PACKS,
+        "worlds" => CLASS_WORLDS,
+        _ => return None,
+    })
+}
+
+/// Reads a link to a Minecraft project on curseforge.com:
+/// `https://www.curseforge.com/minecraft/mc-mods/jei`, with `/files/<id>` or
+/// `/download/<id>` for one of its files, or `https://www.curseforge.com/projects/<id>`.
+/// The scheme may be left out. Anything else is refused.
+pub fn parse_curseforge_url(link: &str) -> Result<CfLink, CurseForgeError> {
+    let not_a_link =
+        || CurseForgeError::Invalid(format!("{link} isn't a link to a CurseForge project"));
+    let link_text = link.trim();
+    let with_scheme = if link_text.contains("://") {
+        link_text.to_string()
+    } else {
+        format!("https://{link_text}")
+    };
+    let url = Url::parse(&with_scheme).map_err(|_| not_a_link())?;
+    let host = url.host_str().unwrap_or_default().to_ascii_lowercase();
+    if !matches!(url.scheme(), "https" | "http")
+        || !matches!(host.as_str(), "www.curseforge.com" | "curseforge.com")
+    {
+        return Err(not_a_link());
+    }
+    let segments: Vec<&str> = url
+        .path_segments()
+        .map(|parts| parts.filter(|part| !part.is_empty()).collect())
+        .unwrap_or_default();
+    let (project, rest) = match segments.as_slice() {
+        ["projects", id, rest @ ..] => (
+            CfLinkProject::Id(id.parse().map_err(|_| not_a_link())?),
+            rest,
+        ),
+        ["minecraft", class, slug, rest @ ..] => {
+            let class_id = class_of_path(&class.to_ascii_lowercase()).ok_or_else(not_a_link)?;
+            let valid = !slug.is_empty()
+                && slug.len() <= 128
+                && slug
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
+            if !valid {
+                return Err(not_a_link());
+            }
+            (
+                CfLinkProject::Slug {
+                    class_id,
+                    slug: slug.to_ascii_lowercase(),
+                },
+                rest,
+            )
+        }
+        _ => return Err(not_a_link()),
+    };
+    let file = match rest {
+        ["files" | "download", id, ..] => id.parse().ok(),
+        _ => None,
+    };
+    Ok(CfLink { project, file })
 }
 
 /// A file CurseForge matched by fingerprint, with its project id.
@@ -688,6 +810,20 @@ impl CurseForge {
         })
     }
 
+    /// The categories of the projects of `class_id`, by name. Not kept: they are
+    /// asked for again when they are next shown.
+    pub async fn categories(&self, class_id: u32) -> Result<Vec<CfCategory>, CurseForgeError> {
+        let mut url = self.url("categories")?;
+        url.query_pairs_mut()
+            .append_pair("gameId", &GAME_ID.to_string())
+            .append_pair("classId", &class_id.to_string());
+        let data: Data<Vec<CfCategory>> = self.get(url, "The categories").await?;
+        let mut categories = data.data;
+        categories.retain(|c| c.is_class != Some(true) && c.id != class_id);
+        categories.sort_by_key(|c| c.name.to_lowercase());
+        Ok(categories)
+    }
+
     pub async fn project(&self, id: u64) -> Result<CfMod, CurseForgeError> {
         let data: Data<CfMod> = self
             .get(self.url(&format!("mods/{id}"))?, "That project")
@@ -705,6 +841,38 @@ impl CurseForge {
             projects.extend(data.data);
         }
         Ok(projects)
+    }
+
+    /// The project of `class_id` whose page on curseforge.com ends in `slug`.
+    pub async fn project_by_slug(
+        &self,
+        class_id: u32,
+        slug: &str,
+    ) -> Result<CfMod, CurseForgeError> {
+        let mut url = self.url("mods/search")?;
+        url.query_pairs_mut()
+            .append_pair("gameId", &GAME_ID.to_string())
+            .append_pair("classId", &class_id.to_string())
+            .append_pair("slug", slug);
+        let page: Page<CfMod> = self.get(url, "That project").await?;
+        page.data
+            .into_iter()
+            .find(|project| project.slug.eq_ignore_ascii_case(slug))
+            .ok_or_else(|| CurseForgeError::NotFound(slug.to_string()))
+    }
+
+    /// The project (and file) a pasted curseforge.com link points to.
+    pub async fn resolve_link(&self, link: &str) -> Result<CfLinkTarget, CurseForgeError> {
+        let parsed = parse_curseforge_url(link)?;
+        let project = match &parsed.project {
+            CfLinkProject::Id(id) => self.project(*id).await?,
+            CfLinkProject::Slug { class_id, slug } => self.project_by_slug(*class_id, slug).await?,
+        };
+        let file = match parsed.file {
+            Some(file) => Some(self.file(project.id, file).await?),
+            None => None,
+        };
+        Ok(CfLinkTarget { project, file })
     }
 
     /// The project's description, as HTML.
@@ -1007,6 +1175,56 @@ impl Murmur2 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_curseforge_links() {
+        let slug = |class_id, slug: &str| CfLinkProject::Slug {
+            class_id,
+            slug: slug.into(),
+        };
+        assert_eq!(
+            parse_curseforge_url("https://www.curseforge.com/minecraft/mc-mods/jei").unwrap(),
+            CfLink {
+                project: slug(CLASS_MODS, "jei"),
+                file: None
+            }
+        );
+        // No scheme, a file, a query and capitals.
+        assert_eq!(
+            parse_curseforge_url(
+                " curseforge.com/minecraft/Modpacks/All-The-Mods-9/files/5125809?x=1 "
+            )
+            .unwrap(),
+            CfLink {
+                project: slug(CLASS_MODPACKS, "all-the-mods-9"),
+                file: Some(5125809)
+            }
+        );
+        assert_eq!(
+            parse_curseforge_url("https://www.curseforge.com/minecraft/shaders/bsl/download/42")
+                .unwrap()
+                .file,
+            Some(42)
+        );
+        assert_eq!(
+            parse_curseforge_url("https://www.curseforge.com/projects/238222").unwrap(),
+            CfLink {
+                project: CfLinkProject::Id(238222),
+                file: None
+            }
+        );
+        for refused in [
+            "https://www.curseforge.com/minecraft/mc-mods",
+            "https://www.curseforge.com/wow/addons/details",
+            "https://www.curseforge.com/minecraft/bukkit-plugins/worldedit",
+            "https://www.curseforge.com.evil.example/minecraft/mc-mods/jei",
+            "https://modrinth.com/mod/sodium",
+            "ftp://www.curseforge.com/minecraft/mc-mods/jei",
+            "https://www.curseforge.com/minecraft/mc-mods/a%2Fb",
+        ] {
+            assert!(parse_curseforge_url(refused).is_err(), "{refused}");
+        }
+    }
 
     /// A straightforward MurmurHash2 (seed 1) over already-filtered bytes, to check the
     /// streaming one against.

@@ -12,6 +12,9 @@ pub fn text(message: M) -> &'static str {
         M::SearchInstalled => "Rechercher parmi les contenus installés",
         M::SearchModrinth => "Rechercher sur Modrinth",
         M::SearchCurseForge => "Rechercher sur CurseForge",
+        M::CurseForgeLinkUnavailable => {
+            "C’est un lien CurseForge, et cette copie de Lodestone Launcher ne peut pas joindre CurseForge."
+        }
         M::LookingForMore => "Envie de nouveautés ?",
         M::BrowseModrinth => "Parcourir Modrinth",
         M::BrowseCurseForge => "Parcourir CurseForge",
@@ -34,11 +37,9 @@ pub fn text(message: M) -> &'static str {
             "Le jeu est en marche. Arrêtez-le pour modifier son contenu\u{a0}: il réécrit options.txt et les réglages des shaders lorsqu’il se ferme."
         }
 
-        M::AllModsUpToDate => "Tous les mods venant de Modrinth sont à jour.",
-        M::AllResourcePacksUpToDate => {
-            "Tous les packs de ressources venant de Modrinth sont à jour."
-        }
-        M::AllShaderPacksUpToDate => "Tous les packs de shaders venant de Modrinth sont à jour.",
+        M::AllModsUpToDate => "Tous les mods sont à jour.",
+        M::AllResourcePacksUpToDate => "Tous les packs de ressources sont à jour.",
+        M::AllShaderPacksUpToDate => "Tous les packs de shaders sont à jour.",
         M::CouldntCheckUpdates => "Impossible de rechercher les mises à jour\u{a0}: {error}",
 
         M::CheckingProject => "Vérification de {name}",
@@ -88,9 +89,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::ReadingFolder => "Lecture du dossier {folder}",
         M::CouldntReadFolder => "Impossible de lire le dossier {folder}\u{a0}: {error}",
-        M::SomeFilesNotMatched => {
-            "Certains fichiers n’ont pas pu être associés à Modrinth\u{a0}: {error}"
-        }
+        M::SomeFilesNotMatched => "Certains fichiers n’ont pas pu être recherchés\u{a0}: {error}",
         M::ShadersOff => "Shaders désactivés",
         M::NormalLook => "L’apparence normale de Minecraft.",
 
@@ -323,6 +322,10 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::MoreVersions => [
             "{count} autre version est sur Modrinth.",
             "{count} autres versions sont sur Modrinth.",
+        ],
+        P::MoreFilesOnCurseForge => [
+            "{count} autre fichier est sur CurseForge.",
+            "{count} autres fichiers sont sur CurseForge.",
         ],
     }
 }

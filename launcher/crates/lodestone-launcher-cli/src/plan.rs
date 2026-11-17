@@ -517,6 +517,7 @@ pub fn plan(
                 sort,
                 limit,
                 offset,
+                source,
             } => call(
                 "content.search",
                 vec![
@@ -527,18 +528,23 @@ pub fn plan(
                     ("sort", json!(sort)),
                     ("limit", json!(limit)),
                     ("offset", json!(offset)),
+                    ("source", json!(source)),
                 ],
             ),
             Content::Versions {
                 project,
                 instance,
                 limit,
+                source,
+                kind,
             } => call(
                 "content.versions",
                 vec![
                     ("project", json!(project)),
                     ("instance", json!(instance)),
                     ("limit", json!(limit)),
+                    ("source", json!(source)),
+                    ("kind", json!(kind)),
                 ],
             ),
             Content::Install {
@@ -548,6 +554,7 @@ pub fn plan(
                 kind,
                 no_deps,
                 force,
+                source,
             } => long(
                 "content.install",
                 vec![
@@ -557,6 +564,7 @@ pub fn plan(
                     ("kind", json!(kind)),
                     ("no_deps", json!(no_deps)),
                     ("force", json!(force)),
+                    ("source", json!(source)),
                 ],
             ),
             Content::Add {
@@ -598,6 +606,7 @@ pub fn plan(
                 sort,
                 limit,
                 offset,
+                source,
             } => call(
                 "modpacks.search",
                 vec![
@@ -605,6 +614,7 @@ pub fn plan(
                     ("sort", json!(sort)),
                     ("limit", json!(limit)),
                     ("offset", json!(offset)),
+                    ("source", json!(source)),
                 ],
             ),
             Modpacks::Install {
@@ -612,6 +622,7 @@ pub fn plan(
                 file,
                 version,
                 name,
+                source,
             } => long(
                 "modpacks.install",
                 vec![
@@ -619,6 +630,7 @@ pub fn plan(
                     ("file", path_value(file)?),
                     ("version", json!(version)),
                     ("name", json!(name)),
+                    ("source", json!(source)),
                 ],
             ),
             Modpacks::Check(i) => call("modpacks.check", vec![("instance", json!(i.instance))]),
@@ -666,12 +678,14 @@ pub fn plan(
                 instance,
                 query,
                 limit,
+                source,
             } => call(
                 "worlds.datapack_search",
                 vec![
                     ("instance", json!(instance)),
                     ("query", json!(query)),
                     ("limit", json!(limit)),
+                    ("source", json!(source)),
                 ],
             ),
             Worlds::DatapackAdd { world: w, path } => {
@@ -683,10 +697,12 @@ pub fn plan(
                 world: w,
                 project,
                 version,
+                source,
             } => {
                 let mut pairs = world(w);
                 pairs.push(("project", json!(project)));
                 pairs.push(("version", json!(version)));
+                pairs.push(("source", json!(source)));
                 long("worlds.datapack_install", pairs)
             }
             Worlds::DatapackEnable { world: w, pack } => {
@@ -1266,6 +1282,21 @@ mod tests {
             (
                 "content.install",
                 json!({ "instance": "Survival", "project": "sodium", "no_deps": true, "force": false }),
+                true
+            )
+        );
+        assert_eq!(
+            call_of(&[
+                "content",
+                "install",
+                "Survival",
+                "jei",
+                "--source",
+                "curseforge"
+            ]),
+            (
+                "content.install",
+                json!({ "instance": "Survival", "project": "jei", "no_deps": false, "force": false, "source": "curseforge" }),
                 true
             )
         );

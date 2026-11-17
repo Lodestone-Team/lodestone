@@ -242,6 +242,7 @@ pub fn text(message: M) -> &'static str {
 
         M::AddingName => "正在加入 {name}",
         M::ModrinthUnreachable => "無法連線到 Modrinth。",
+        M::CurseForgeUpdateOnWebsite => "此版本只能從 CurseForge 網站下載，因此無法作為更新安裝。",
         M::ModpackAddedAlready => {
             "此實例已加入 {pack}。若要加入其他版本，請先在「設定」中將其移除。"
         }
@@ -264,6 +265,10 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::FilesSaved => ["已將 {count} 個檔案儲存至 {path}。"; 2],
         P::CurseForgeLeftOut => {
             ["有 {count} 個檔案僅在 CurseForge 上，CurseForge 的檔案不能放進 Modrinth 模組包，因此已略過：{names}。";
+                2]
+        }
+        P::ModrinthLeftOut => {
+            ["有 {count} 個檔案僅在 Modrinth 上，CurseForge 模組包無法從 Modrinth 下載，因此已略過：{names}。";
                 2]
         }
         P::FilesLeftOut => ["有 {count} 個檔案被略過，例如 {name}。"; 2],

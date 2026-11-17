@@ -438,6 +438,7 @@ fn prompt(instances: &Instances, id: &str) -> UpdatePrompt {
         pack: Arc::new(pack),
         snapshot_failed: None,
         without_snapshot: false,
+        blocked: Vec::new(),
     }
 }
 

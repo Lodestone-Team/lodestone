@@ -71,6 +71,8 @@ pub fn text(message: M) -> &'static str {
         M::PackTurnedOff => "{pack} 已禁用，下次打开世界时不再加载。",
         M::NoDataPackVersion => "{name} 没有适用于 Minecraft {version} 的数据包。",
         M::SearchingModrinth => "正在搜索 Modrinth",
+        M::SearchingCurseForge => "正在搜索 CurseForge",
+        M::CurseForgeUnavailable => "现在无法连接 CurseForge；仍然可以从文件添加数据包。",
         M::NoDataPacksFound => "没有找到适用于 Minecraft {version} 的数据包。",
         M::LinkNotDataPack => "这个链接不是数据包。",
         M::ModrinthUnavailable => "现在无法连接 Modrinth；仍然可以从文件添加数据包。",

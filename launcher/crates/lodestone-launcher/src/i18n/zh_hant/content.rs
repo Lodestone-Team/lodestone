@@ -12,6 +12,9 @@ pub fn text(message: M) -> &'static str {
         M::SearchInstalled => "搜尋已安裝內容",
         M::SearchModrinth => "搜尋 Modrinth",
         M::SearchCurseForge => "搜尋 CurseForge",
+        M::CurseForgeLinkUnavailable => {
+            "這是 CurseForge 連結，而此 Lodestone Launcher 無法連線至 CurseForge。"
+        }
         M::LookingForMore => "想找點新內容？",
         M::BrowseModrinth => "瀏覽 Modrinth",
         M::BrowseCurseForge => "瀏覽 CurseForge",
@@ -30,9 +33,9 @@ pub fn text(message: M) -> &'static str {
             "遊戲正在執行。停止遊戲後才能變更其內容：遊戲結束時會覆寫 options.txt 和光影設定。"
         }
 
-        M::AllModsUpToDate => "來自 Modrinth 的模組皆已是最新版本。",
-        M::AllResourcePacksUpToDate => "來自 Modrinth 的資源包皆已是最新版本。",
-        M::AllShaderPacksUpToDate => "來自 Modrinth 的光影包皆已是最新版本。",
+        M::AllModsUpToDate => "所有模組皆已是最新版本。",
+        M::AllResourcePacksUpToDate => "所有資源包皆已是最新版本。",
+        M::AllShaderPacksUpToDate => "所有光影包皆已是最新版本。",
         M::CouldntCheckUpdates => "無法檢查更新：{error}",
 
         M::CheckingProject => "正在檢查 {name}",
@@ -76,7 +79,7 @@ pub fn text(message: M) -> &'static str {
         M::NoShaderPacksYet => "還沒有光影包。瀏覽 Modrinth，或將 .zip 檔案或資料夾拖放到這裡。",
         M::ReadingFolder => "正在讀取 {folder} 資料夾",
         M::CouldntReadFolder => "無法讀取 {folder} 資料夾：{error}",
-        M::SomeFilesNotMatched => "部分檔案無法與 Modrinth 比對：{error}",
+        M::SomeFilesNotMatched => "部分檔案無法查詢：{error}",
         M::ShadersOff => "關閉光影",
         M::NormalLook => "Minecraft 的原始畫面。",
 
@@ -295,5 +298,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::Needs => ["{name} 需要以下 {count} 個已關閉的模組："; 2],
         P::NeededBy => ["以下 {count} 個模組需要 {name}，沒有它將無法載入："; 2],
         P::MoreVersions => ["Modrinth 上還有 {count} 個版本。"; 2],
+        P::MoreFilesOnCurseForge => ["CurseForge 上還有 {count} 個檔案。"; 2],
     }
 }

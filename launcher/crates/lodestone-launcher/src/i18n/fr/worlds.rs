@@ -83,6 +83,10 @@ pub fn text(message: M) -> &'static str {
         }
         M::NoDataPackVersion => "{name} n’a pas de pack de données pour Minecraft {version}.",
         M::SearchingModrinth => "Recherche sur Modrinth",
+        M::SearchingCurseForge => "Recherche sur CurseForge",
+        M::CurseForgeUnavailable => {
+            "CurseForge est injoignable pour le moment\u{a0}; des packs de données peuvent toujours être ajoutés depuis des fichiers."
+        }
         M::NoDataPacksFound => "Aucun pack de données trouvé pour Minecraft {version}.",
         M::LinkNotDataPack => "Ce lien n’est pas un pack de données.",
         M::ModrinthUnavailable => {

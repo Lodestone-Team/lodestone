@@ -362,13 +362,14 @@ pub enum Instances {
     /// Moves an instance to the Trash. Destructive: needs --yes.
     #[command(after_help = "Examples:\n  lodestone-launcher-cli instances delete Survival --yes")]
     Delete(InstanceArg),
-    /// Writes an instance as a Modrinth modpack (.mrpack).
+    /// Writes an instance as a Modrinth modpack (.mrpack), or as a CurseForge one when
+    /// the path ends in .zip.
     #[command(
-        after_help = "Examples:\n  lodestone-launcher-cli instances export Survival ./survival.mrpack"
+        after_help = "Examples:\n  lodestone-launcher-cli instances export Survival ./survival.mrpack\n  lodestone-launcher-cli instances export Survival ./survival.zip    # a CurseForge pack"
     )]
     Export {
         instance: String,
-        /// Where to write it; ends in .mrpack.
+        /// Where to write it; ends in .mrpack, or .zip for a CurseForge pack.
         path: PathBuf,
     },
     /// Checks every game file and downloads missing or broken ones.
@@ -696,9 +697,10 @@ pub enum Content {
         after_help = "Examples:\n  lodestone-launcher-cli content history Survival\n  lodestone-launcher-cli content history Survival --human"
     )]
     History { instance: String },
-    /// Searches Modrinth. With --instance, only what fits it (unless --all).
+    /// Searches Modrinth, or CurseForge with --source curseforge. With --instance, only
+    /// what fits it (unless --all).
     #[command(
-        after_help = "Examples:\n  lodestone-launcher-cli content search sodium --instance Survival\n  lodestone-launcher-cli content search \"faithful\" --kind resourcepack --sort downloads\n  lodestone-launcher-cli content search --kind shader --instance Survival"
+        after_help = "Examples:\n  lodestone-launcher-cli content search sodium --instance Survival\n  lodestone-launcher-cli content search \"faithful\" --kind resourcepack --sort downloads\n  lodestone-launcher-cli content search --kind shader --instance Survival\n  lodestone-launcher-cli content search jei --source curseforge --instance Survival"
     )]
     Search {
         query: Option<String>,
@@ -710,35 +712,50 @@ pub enum Content {
         /// Also what doesn't fit the instance.
         #[arg(long)]
         all: bool,
-        /// relevance, downloads, follows, newest or updated.
+        /// relevance, downloads, follows, newest or updated. On CurseForge: popularity,
+        /// downloads, updated or name.
         #[arg(long)]
         sort: Option<String>,
         #[arg(long)]
         limit: Option<u32>,
         #[arg(long)]
         offset: Option<u32>,
+        /// modrinth (default) or curseforge.
+        #[arg(long)]
+        source: Option<String>,
     },
-    /// A Modrinth project's versions, and whether each fits the instance.
+    /// A project's versions on Modrinth (or its files on CurseForge), and whether each
+    /// fits the instance.
     #[command(
-        after_help = "Examples:\n  lodestone-launcher-cli content versions sodium --instance Survival --limit 5"
+        after_help = "Examples:\n  lodestone-launcher-cli content versions sodium --instance Survival --limit 5\n  lodestone-launcher-cli content versions jei --source curseforge --instance Survival"
     )]
     Versions {
-        /// A slug, project id or modrinth.com link.
+        /// A slug, project id, or modrinth.com or curseforge.com link.
         project: String,
         #[arg(long)]
         instance: Option<String>,
         #[arg(long)]
         limit: Option<usize>,
+        /// modrinth (default) or curseforge. A curseforge.com link needs none.
+        #[arg(long)]
+        source: Option<String>,
+        /// On CurseForge, the kind a slug is looked for among: mod (default),
+        /// resourcepack or shader.
+        #[arg(long)]
+        kind: Option<String>,
     },
-    /// Installs from Modrinth, with required mods; a shader pack also gets its shader mod.
+    /// Installs from Modrinth (or CurseForge), with required mods; a shader pack also
+    /// gets its shader mod. Files a CurseForge author keeps on CurseForge's website are
+    /// listed for you to download (download_by_hand).
     #[command(
-        after_help = "Examples:\n  lodestone-launcher-cli content install Survival fabric-api\n  lodestone-launcher-cli content install Survival https://modrinth.com/mod/lithium\n  lodestone-launcher-cli content install Survival sodium --version mc1.21.1-0.6.0-fabric\n  lodestone-launcher-cli content install Survival complementary-reimagined --kind shader"
+        after_help = "Examples:\n  lodestone-launcher-cli content install Survival fabric-api\n  lodestone-launcher-cli content install Survival https://modrinth.com/mod/lithium\n  lodestone-launcher-cli content install Survival sodium --version mc1.21.1-0.6.0-fabric\n  lodestone-launcher-cli content install Survival complementary-reimagined --kind shader\n  lodestone-launcher-cli content install Survival jei --source curseforge\n  lodestone-launcher-cli content install Survival https://www.curseforge.com/minecraft/mc-mods/jei"
     )]
     Install {
         instance: String,
-        /// A slug, project id or modrinth.com link.
+        /// A slug, project id, or modrinth.com or curseforge.com link.
         project: String,
-        /// A version id or number (default: the newest that fits).
+        /// A version id or number (default: the newest that fits). On CurseForge, a
+        /// file id or name.
         #[arg(long)]
         version: Option<String>,
         #[arg(long)]
@@ -749,6 +766,9 @@ pub enum Content {
         /// Install a version that doesn't fit the instance.
         #[arg(long)]
         force: bool,
+        /// modrinth (default) or curseforge. A curseforge.com link needs none.
+        #[arg(long)]
+        source: Option<String>,
     },
     /// Adds a local file (a .jar mod; resource and shader packs need --kind).
     #[command(
@@ -808,9 +828,9 @@ pub struct ItemsArgs {
 
 #[derive(Subcommand, Debug)]
 pub enum Modpacks {
-    /// Searches Modrinth for modpacks.
+    /// Searches Modrinth for modpacks, or CurseForge with --source curseforge.
     #[command(
-        after_help = "Examples:\n  lodestone-launcher-cli modpacks search \"fabulously optimized\""
+        after_help = "Examples:\n  lodestone-launcher-cli modpacks search \"fabulously optimized\"\n  lodestone-launcher-cli modpacks search \"all the mods\" --source curseforge"
     )]
     Search {
         query: Option<String>,
@@ -820,13 +840,17 @@ pub enum Modpacks {
         limit: Option<u32>,
         #[arg(long)]
         offset: Option<u32>,
+        /// modrinth (default) or curseforge.
+        #[arg(long)]
+        source: Option<String>,
     },
-    /// Makes an instance from a modpack on Modrinth or a .mrpack file.
+    /// Makes an instance from a modpack on Modrinth or CurseForge, or from a file (a
+    /// .mrpack, or a CurseForge pack's .zip).
     #[command(
-        after_help = "Examples:\n  lodestone-launcher-cli modpacks install fabulously-optimized\n  lodestone-launcher-cli modpacks install https://modrinth.com/modpack/fabulously-optimized --name FO\n  lodestone-launcher-cli modpacks install --file ./pack.mrpack"
+        after_help = "Examples:\n  lodestone-launcher-cli modpacks install fabulously-optimized\n  lodestone-launcher-cli modpacks install https://modrinth.com/modpack/fabulously-optimized --name FO\n  lodestone-launcher-cli modpacks install --file ./pack.mrpack\n  lodestone-launcher-cli modpacks install all-the-mods-9 --source curseforge\n  lodestone-launcher-cli modpacks install --file ./curseforge-pack.zip"
     )]
     Install {
-        /// A slug, project id or modrinth.com link.
+        /// A slug, project id, or modrinth.com or curseforge.com link.
         #[arg(required_unless_present = "file")]
         project: Option<String>,
         #[arg(long, conflicts_with = "project")]
@@ -835,6 +859,9 @@ pub enum Modpacks {
         version: Option<String>,
         #[arg(long)]
         name: Option<String>,
+        /// modrinth (default) or curseforge. A curseforge.com link needs none.
+        #[arg(long)]
+        source: Option<String>,
     },
     /// Whether the instance's modpack has a newer version.
     #[command(after_help = "Examples:\n  lodestone-launcher-cli modpacks check FO")]
@@ -928,16 +955,20 @@ pub enum Worlds {
         after_help = "Examples:\n  lodestone-launcher-cli worlds datapacks Survival \"New World\""
     )]
     Datapacks(WorldArgs),
-    /// Data packs on Modrinth for the instance's Minecraft version.
+    /// Data packs on Modrinth (or CurseForge, with --source curseforge) for the
+    /// instance's Minecraft version.
     #[command(
         name = "datapack-search",
-        after_help = "Examples:\n  lodestone-launcher-cli worlds datapack-search Survival terralith"
+        after_help = "Examples:\n  lodestone-launcher-cli worlds datapack-search Survival terralith\n  lodestone-launcher-cli worlds datapack-search Survival terralith --source curseforge"
     )]
     DatapackSearch {
         instance: String,
         query: Option<String>,
         #[arg(long)]
         limit: Option<u32>,
+        /// modrinth (default) or curseforge.
+        #[arg(long)]
+        source: Option<String>,
     },
     /// Copies a data pack (.zip or folder) into a world.
     #[command(
@@ -949,19 +980,24 @@ pub enum Worlds {
         world: WorldArgs,
         path: std::path::PathBuf,
     },
-    /// Installs a data pack from Modrinth into a world (the newest that fits by default).
+    /// Installs a data pack from Modrinth (or CurseForge) into a world (the newest that
+    /// fits by default).
     #[command(
         name = "datapack-install",
-        after_help = "Examples:\n  lodestone-launcher-cli worlds datapack-install Survival \"New World\" terralith"
+        after_help = "Examples:\n  lodestone-launcher-cli worlds datapack-install Survival \"New World\" terralith\n  lodestone-launcher-cli worlds datapack-install Survival \"New World\" terralith --source curseforge"
     )]
     DatapackInstall {
         #[command(flatten)]
         world: WorldArgs,
-        /// A Modrinth project id or slug.
+        /// A Modrinth project id or slug; on CurseForge, a project id, slug or
+        /// curseforge.com link.
         project: String,
-        /// A version id or number.
+        /// A version id or number; on CurseForge, a file id or name.
         #[arg(long)]
         version: Option<String>,
+        /// modrinth (default) or curseforge. A curseforge.com link needs none.
+        #[arg(long)]
+        source: Option<String>,
     },
     /// Turns a data pack on, from the next time the world loads.
     #[command(

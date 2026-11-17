@@ -6,14 +6,14 @@
 //! looked at every [`WATCH_EVERY`]: a file named like one of them whose SHA-1 matches
 //! is copied into the instance (`launcher-core::content::curseforge_install`).
 
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{collections::BTreeSet, path::PathBuf, sync::Arc, time::Duration};
 
 use gpui::{
     AnyElement, AppContext as _, Context, PathPromptOptions, SharedString, Task, div, prelude::*,
 };
 use launcher_core::content::{
     ContentError, ContentKind, CurseForge, Platforms,
-    curseforge::{self, CfFile, CfMod, CfSearch, CfSearchResults, CfSort},
+    curseforge::{self, CfCategory, CfFile, CfMod, CfSearch, CfSearchResults, CfSort},
     curseforge_install::{self, CfInstallPlan, CfInstallRequest, CfPlannedFile},
     install::{InstallOutcome, InstallProgress, Placed},
     listing,
@@ -23,7 +23,8 @@ use launcher_core::images::labels;
 use super::{
     ContentView, Job, Load, PAGE_SIZE,
     view::{
-        badge, counted, heading, icon_box, list_box, muted, pills, row_base, short_list, small,
+        badge, counted, filter_chip, heading, icon_box, list_box, muted, pills, row_base,
+        short_list, small,
     },
 };
 use crate::components::{
@@ -42,7 +43,15 @@ pub struct CfBrowse {
     pub offset: usize,
     pub results: Load<CfSearchResults>,
     pub project: Option<CfProjectView>,
+    /// Whether the panel of categories is open.
+    pub filters_open: bool,
+    /// CurseForge's categories of the section's kind, asked for when the panel first
+    /// opens (and again after a failure).
+    pub categories: Load<Vec<CfCategory>>,
+    /// The categories the results are filtered by.
+    pub picked: BTreeSet<u32>,
     task: Option<Task<()>>,
+    categories_task: Option<Task<()>>,
 }
 
 impl Default for CfBrowse {
@@ -52,7 +61,11 @@ impl Default for CfBrowse {
             offset: 0,
             results: Load::NotLoaded,
             project: None,
+            filters_open: false,
+            categories: Load::NotLoaded,
+            picked: BTreeSet::new(),
             task: None,
+            categories_task: None,
         }
     }
 }
@@ -108,6 +121,70 @@ impl ContentView {
         self.cf_search(kind, cx);
     }
 
+    /// Opens or closes the panel of CurseForge's categories; they are asked for the
+    /// first time it opens.
+    pub fn cf_toggle_filters_open(&mut self, kind: ContentKind, cx: &mut Context<Self>) {
+        let section = self.section_mut(kind);
+        section.cf.filters_open = !section.cf.filters_open;
+        // The panel opens at the top of the list: brought into sight once it is in the
+        // list, on the next frame.
+        section.to_top = section.cf.filters_open;
+        if section.cf.filters_open
+            && matches!(section.cf.categories, Load::NotLoaded | Load::Failed(_))
+        {
+            self.cf_load_categories(kind, cx);
+        }
+        cx.notify();
+    }
+
+    fn cf_load_categories(&mut self, kind: ContentKind, cx: &mut Context<Self>) {
+        let (Some((id, _, _)), Some(cf)) = (self.context(cx), self.curseforge(cx)) else {
+            return;
+        };
+        self.section_mut(kind).cf.categories = Load::Loading;
+        let class = curseforge::class_of(kind);
+        let work = cx.background_spawn(async move { cf.categories(class).await });
+        let task = cx.spawn(async move |this, cx| {
+            let result = work.await;
+            this.update(cx, |this, cx| {
+                if this.instance_id.as_deref() != Some(id.as_str()) {
+                    return;
+                }
+                this.section_mut(kind).cf.categories = match result {
+                    Ok(categories) => Load::Ready(categories),
+                    Err(err) => Load::Failed(err.to_string().into()),
+                };
+                cx.notify();
+            })
+            .ok();
+        });
+        self.section_mut(kind).cf.categories_task = Some(task);
+    }
+
+    /// Picks or drops a category, and searches again from the first page. CurseForge
+    /// takes [`curseforge::MAX_SEARCH_CATEGORIES`] at most: more aren't picked.
+    pub fn cf_toggle_category(&mut self, kind: ContentKind, category: u32, cx: &mut Context<Self>) {
+        let browse = &mut self.section_mut(kind).cf;
+        if !browse.picked.remove(&category) {
+            if browse.picked.len() >= curseforge::MAX_SEARCH_CATEGORIES {
+                return;
+            }
+            browse.picked.insert(category);
+        }
+        browse.offset = 0;
+        self.cf_search(kind, cx);
+    }
+
+    pub fn cf_clear_categories(&mut self, kind: ContentKind, cx: &mut Context<Self>) {
+        let browse = &mut self.section_mut(kind).cf;
+        if browse.picked.is_empty() {
+            return;
+        }
+        browse.picked.clear();
+        browse.offset = 0;
+        self.cf_search(kind, cx);
+    }
+
     pub fn cf_set_page(&mut self, kind: ContentKind, offset: usize, cx: &mut Context<Self>) {
         self.section_mut(kind).cf.offset = offset;
         self.cf_search(kind, cx);
@@ -127,6 +204,7 @@ impl ContentView {
         search.sort = section.cf.sort;
         search.offset = section.cf.offset;
         search.limit = PAGE_SIZE as usize;
+        search.categories = section.cf.picked.iter().copied().collect();
         if section.browse.only_compatible {
             search.game_version = Some(target.game_version.clone());
             if kind == ContentKind::Mod {
@@ -272,16 +350,77 @@ impl ContentView {
         with_dependencies: bool,
         cx: &mut Context<Self>,
     ) {
-        self.cf_install(
-            vec![CfInstallRequest {
-                kind,
-                file,
-                project,
-                install_dependencies: with_dependencies,
-                force,
-            }],
-            cx,
-        );
+        let request = CfInstallRequest {
+            kind,
+            file,
+            project,
+            install_dependencies: with_dependencies,
+            force,
+        };
+        // A shader pack on an instance without a shader mod installs the offered shader
+        // mod first, as a pack from Modrinth does.
+        if kind == ContentKind::ShaderPack
+            && self.shaders.loader.is_none()
+            && let Some(super::ShaderModOffer::Install { version, .. }) = self.shader_offer.ready()
+        {
+            let shader_mod = launcher_core::content::install::InstallRequest {
+                kind: ContentKind::Mod,
+                version: (**version).clone(),
+                project: None,
+                install_dependencies: true,
+                force: false,
+            };
+            return self.install_then(vec![shader_mod], vec![request], None, cx);
+        }
+        self.cf_install(vec![request], cx);
+    }
+
+    /// Opens what a pasted curseforge.com link points to, in the section of its kind.
+    pub(super) fn open_cf_link(&mut self, kind: ContentKind, link: &str, cx: &mut Context<Self>) {
+        let Some(cf) = self.curseforge(cx) else {
+            // Said where Modrinth's results go: this copy has no CurseForge list.
+            self.section_mut(kind).browse.results =
+                Load::Failed(t(M::CurseForgeLinkUnavailable).into());
+            return cx.notify();
+        };
+        let link = link.to_string();
+        self.section_mut(kind).cf.results = Load::Loading;
+        let work = cx.background_spawn(async move { cf.resolve_link(&link).await });
+        let task = cx.spawn(async move |this, cx| {
+            let result = work.await;
+            this.update(cx, |this, cx| {
+                let failed = match result {
+                    Ok(target) => match target.project.class_id {
+                        Some(curseforge::CLASS_DATA_PACKS) => Some(t(M::LinkIsDataPack).into()),
+                        Some(curseforge::CLASS_MODPACKS) => {
+                            Some(tr!(M::LinkNotInstallable, kind = "modpack").into())
+                        }
+                        Some(curseforge::CLASS_WORLDS) => {
+                            Some(tr!(M::LinkNotInstallable, kind = "world").into())
+                        }
+                        class => match class.and_then(curseforge::kind_of_class) {
+                            Some(project_kind) => {
+                                this.section_mut(kind).cf.results = Load::NotLoaded;
+                                this.kind = project_kind;
+                                this.open_cf_project(project_kind, target.project.id, cx);
+                                None
+                            }
+                            None => Some(tr!(M::LinkNotInstallable, kind = "project").into()),
+                        },
+                    },
+                    Err(err) => Some(SharedString::from(err.to_string())),
+                };
+                if let Some(message) = failed {
+                    // Said in CurseForge's list, whichever list the link was pasted in.
+                    this.set_view(kind, super::ListView::CurseForge, cx);
+                    this.section_mut(kind).cf.results = Load::Failed(message);
+                }
+                cx.notify();
+            })
+            .ok();
+        });
+        self.section_mut(kind).cf.task = Some(task);
+        cx.notify();
     }
 
     /// Installs `requests` one after the other in the background, with progress. Files
@@ -843,6 +982,67 @@ impl ContentView {
         let selected = sorts.iter().position(|(s, _)| *s == sort).unwrap_or(0);
         let entity = cx.entity();
         let chip = self.compat_chip(kind, cx);
+        // Filters, with how many categories are picked; opens the panel over the results.
+        let (open, picked) = {
+            let browse = &self.section(kind).cf;
+            (browse.filters_open, browse.picked.len())
+        };
+        let label: SharedString = if picked == 0 {
+            t(M::Filters).into()
+        } else {
+            tr!(M::FiltersCount, count = format::number(picked as u64)).into()
+        };
+        let filters_button = div()
+            .id(("cf-filters", kind as usize))
+            .accessible(
+                Role::Button,
+                format!("{}-cf-filters", kind.dir()),
+                label.clone(),
+            )
+            .expandable(open, {
+                let view = cx.entity().downgrade();
+                move |_: &mut gpui::Window, cx: &mut gpui::App| {
+                    view.update(cx, |this, cx| this.cf_toggle_filters_open(kind, cx))
+                        .ok();
+                }
+            })
+            .keyboard_focus()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_1()
+            .px_2p5()
+            .py_0p5()
+            .rounded_full()
+            .border_1()
+            .cursor_pointer()
+            .text_size(theme::text_size(text::SMALL))
+            .font_weight(weights::BOLD.into())
+            .map(|this| {
+                if picked > 0 {
+                    this.bg(crate::theme::accent::base().opacity(25))
+                        .border_color(crate::theme::accent::light().opacity(60))
+                        .text_color(colors::WHITE)
+                } else {
+                    this.border_color(crate::theme::ink::border())
+                        .text_color(crate::theme::ink::secondary())
+                        .hover(|style| {
+                            style
+                                .text_color(crate::theme::ink::text())
+                                .bg(colors::GRAY_750)
+                        })
+                }
+            })
+            .child(label)
+            .child(
+                if open {
+                    Icon::ChevronDown
+                } else {
+                    Icon::ChevronRight
+                }
+                .render(crate::theme::px(10.), crate::theme::ink::secondary()),
+            )
+            .on_press(cx.listener(move |this, _, _, cx| this.cf_toggle_filters_open(kind, cx)));
         div()
             .flex()
             .flex_row()
@@ -862,7 +1062,99 @@ impl ContentView {
                 },
             ))
             .child(chip)
+            .child(filters_button)
             .child(self.installed_chip(kind, cx))
+            .into_any_element()
+    }
+
+    /// The filter panel over CurseForge's results: its categories of the kind, as
+    /// CurseForge names them.
+    pub(super) fn render_cf_filters(
+        &mut self,
+        kind: ContentKind,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let browse = &self.section(kind).cf;
+        let picked = browse.picked.clone();
+        let body: AnyElement = match &browse.categories {
+            Load::Ready(categories) if categories.is_empty() => {
+                muted(t(M::NothingOnCurseForge)).into_any_element()
+            }
+            Load::Ready(categories) => {
+                let full = picked.len() >= curseforge::MAX_SEARCH_CATEGORIES;
+                let chips: Vec<AnyElement> =
+                    categories
+                        .iter()
+                        .map(|category| {
+                            let id = category.id;
+                            let on = picked.contains(&id);
+                            filter_chip(
+                                ("cf-filter", id as usize),
+                                format!("{}-cf-filter-{id}", kind.dir()),
+                                category.name.clone().into(),
+                                None,
+                                on,
+                            )
+                            // CurseForge takes ten categories at most.
+                            .when(full && !on, |chip| chip.opacity(0.5))
+                            .on_press(cx.listener(move |this, _, _, cx| {
+                                this.cf_toggle_category(kind, id, cx)
+                            }))
+                            .into_any_element()
+                        })
+                        .collect();
+                div()
+                    .flex()
+                    .flex_row()
+                    .flex_wrap()
+                    .gap_1p5()
+                    .children(chips)
+                    .into_any_element()
+            }
+            Load::Failed(err) => small(err.clone())
+                .text_color(colors::RED_200)
+                .into_any_element(),
+            _ => div()
+                .flex()
+                .flex_row()
+                .text_color(crate::theme::ink::muted())
+                .child(LoadingDots)
+                .into_any_element(),
+        };
+        div()
+            .id(("cf-filter-panel", kind as usize))
+            .flex()
+            .flex_col()
+            .gap_3()
+            .p_3()
+            .rounded(theme::radius::XL)
+            .bg(colors::GRAY_800)
+            .border_1()
+            .border_color(colors::GRAY_FADED.opacity(15))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_1p5()
+                    .child(
+                        small(t(M::FilterCategories))
+                            .font_weight(weights::BOLD.into())
+                            .text_color(crate::theme::ink::muted()),
+                    )
+                    .child(body),
+            )
+            .when(!picked.is_empty(), |panel| {
+                panel.child(
+                    div().flex().flex_row().justify_end().child(
+                        Button::new(("cf-clear-filters", kind as usize), t(M::ClearFilters))
+                            .variant(ButtonVariant::Secondary)
+                            .size(ButtonSize::Slim)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.cf_clear_categories(kind, cx)
+                            })),
+                    ),
+                )
+            })
             .into_any_element()
     }
 
@@ -1391,7 +1683,7 @@ impl ContentView {
         column = column.child(rows);
         if total > 40 {
             column = column.child(
-                small(crate::i18n::trn!(P::MoreVersions, total - 40))
+                small(crate::i18n::trn!(P::MoreFilesOnCurseForge, total - 40))
                     .text_color(crate::theme::ink::muted()),
             );
         }

@@ -129,17 +129,21 @@ crate::i18n::messages! {
 
         // Modpack.
         FromModrinth = "From Modrinth",
+        FromCurseForge = "From CurseForge",
         /// {server} is a server's name.
         FromServerMods = "From the mods of {server}: Play keeps them in step with the server.",
         FromMrpack = "From a .mrpack file that isn't on Modrinth, so it can't be updated here.",
         ViewOnModrinth = "View on Modrinth",
+        ViewOnCurseForge = "View on CurseForge",
         DownloadingNewVersion = "Downloading the new version…",
         CheckingModrinth = "Checking Modrinth…",
+        CheckingCurseForge = "Checking CurseForge…",
         /// {version} is the pack's version, "1.4.2".
         UpdateTo = "Update to {version}…",
         UpToDate = "Up to date",
         CheckForUpdates = "Check for updates",
         ModrinthUnreachable = "Modrinth can't be reached.",
+        CurseForgeUnreachable = "CurseForge can't be reached.",
         StopGameFirst = "Stop the game first, or wait for the update to finish.",
         /// {error} is the problem, in English.
         CouldntPrepareUpdate = "Couldn't prepare the update: {error}",
@@ -296,7 +300,11 @@ crate::i18n::messages! {
         FindCrashingModKeywords = "crash conflict broken incompatible troubleshoot",
         Export = "Export",
         ExportHint = "As a .mrpack file.",
+        /// Under Export, in a launcher that can reach CurseForge: the two buttons beside it.
+        ExportHintBoth = "As a Modrinth .mrpack file, or a CurseForge .zip.",
         ExportButton = "Export…",
+        ExportCurseForgeButton = "CurseForge .zip…",
+        ExportModrinthButton = "Modrinth .mrpack…",
         Exporting = "Exporting…",
         Duplicate = "Duplicate",
         /// The Duplicate button while the copy is being made.

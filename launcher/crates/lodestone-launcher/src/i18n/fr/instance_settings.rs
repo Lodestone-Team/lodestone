@@ -108,6 +108,7 @@ pub fn text(message: M) -> &'static str {
         M::Beta => "Bêta",
 
         M::FromModrinth => "Depuis Modrinth",
+        M::FromCurseForge => "Depuis CurseForge",
         M::FromServerMods => {
             "Créé à partir des mods de {server}\u{a0}: Jouer les garde à jour avec le serveur."
         }
@@ -115,12 +116,15 @@ pub fn text(message: M) -> &'static str {
             "Depuis un fichier .mrpack absent de Modrinth\u{a0}: il ne peut pas être mis à jour ici."
         }
         M::ViewOnModrinth => "Voir sur Modrinth",
+        M::ViewOnCurseForge => "Voir sur CurseForge",
         M::DownloadingNewVersion => "Téléchargement de la nouvelle version…",
         M::CheckingModrinth => "Vérification sur Modrinth…",
+        M::CheckingCurseForge => "Vérification sur CurseForge…",
         M::UpdateTo => "Mettre à jour vers {version}…",
         M::UpToDate => "À jour",
         M::CheckForUpdates => "Rechercher des mises à jour",
         M::ModrinthUnreachable => "Modrinth est injoignable.",
+        M::CurseForgeUnreachable => "CurseForge est injoignable.",
         M::StopGameFirst => "Arrêtez d’abord le jeu, ou attendez la fin de la mise à jour.",
         M::CouldntPrepareUpdate => "Impossible de préparer la mise à jour\u{a0}: {error}",
 
@@ -276,7 +280,10 @@ pub fn text(message: M) -> &'static str {
         M::FindCrashingModKeywords => "plantage crash conflit cassé incompatible dépannage",
         M::Export => "Exporter",
         M::ExportHint => "En fichier .mrpack.",
+        M::ExportHintBoth => "En fichier .mrpack de Modrinth, ou en .zip de CurseForge.",
         M::ExportButton => "Exporter…",
+        M::ExportCurseForgeButton => "CurseForge .zip…",
+        M::ExportModrinthButton => "Modrinth .mrpack…",
         M::Exporting => "Exportation…",
         M::Duplicate => "Dupliquer",
         M::Duplicating => "Duplication…",

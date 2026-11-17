@@ -231,6 +231,18 @@ impl ModpackRecord {
         self.curseforge.is_some()
     }
 
+    /// The CurseForge pack the instance updates itself. A server's instance has none:
+    /// its server updates it.
+    pub fn curseforge_updates(&self) -> Option<&CurseForgePack> {
+        self.curseforge.as_ref().filter(|_| !self.from_server)
+    }
+
+    /// Whether the instance can look for a newer version of its pack, on either
+    /// platform.
+    pub fn updatable(&self) -> bool {
+        self.on_modrinth() || self.curseforge_updates().is_some()
+    }
+
     /// Whether the pack is on Modrinth and the instance updates it itself. A server's
     /// instance doesn't: its server does.
     pub fn on_modrinth(&self) -> bool {

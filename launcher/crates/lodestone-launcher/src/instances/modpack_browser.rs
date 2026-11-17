@@ -93,6 +93,9 @@ pub struct CfPicked {
     pub project: Load<CfMod>,
     pub files: Load<Vec<CfFile>>,
     pub file: Option<u64>,
+    /// The description, as HTML.
+    pub description: Load<String>,
+    pub show_description: bool,
     _task: Option<Task<()>>,
 }
 
@@ -253,12 +256,18 @@ impl ModpackBrowser {
     /// Opens a CurseForge pack with its files; the newest release that can be
     /// downloaded is picked.
     pub fn pick_cf(&mut self, project_id: u64, cx: &mut Context<Self>) {
+        self.pick_cf_file(project_id, None, cx);
+    }
+
+    /// [`Self::pick_cf`], with `file` (from a link) picked when the pack has it.
+    fn pick_cf_file(&mut self, project_id: u64, file: Option<u64>, cx: &mut Context<Self>) {
         let Some(cf) = self.cf(cx) else {
             return;
         };
         let filter = self.compatible.clone();
         let work = cx.background_spawn(async move {
             let project = cf.project(project_id).await;
+            let description = cf.description(project_id).await;
             let files = match &filter {
                 Some((game, loader)) => {
                     cf.files(
@@ -270,12 +279,16 @@ impl ModpackBrowser {
                 }
                 None => cf.files(project_id, None, None).await,
             };
-            (project, files)
+            (project, description, files)
         });
         let task = cx.spawn(async move |this, cx| {
-            let (project, files) = work.await;
+            let (project, description, files) = work.await;
             this.update(cx, |this, cx| {
                 if let Some(picked) = &mut this.cf_picked {
+                    picked.description = match description {
+                        Ok(description) => Load::Ready(description),
+                        Err(err) => Load::Failed(err.to_string().into()),
+                    };
                     picked.project = match project {
                         Ok(project) => Load::Ready(project),
                         Err(err) => Load::Failed(err.to_string().into()),
@@ -284,7 +297,12 @@ impl ModpackBrowser {
                         Ok(files) => {
                             picked.file = files
                                 .iter()
-                                .find(|f| f.release_type == 1 && f.downloadable())
+                                .find(|f| file == Some(f.id))
+                                .or_else(|| {
+                                    files
+                                        .iter()
+                                        .find(|f| f.release_type == 1 && f.downloadable())
+                                })
                                 .or_else(|| files.iter().find(|f| f.downloadable()))
                                 .or_else(|| files.first())
                                 .map(|f| f.id);
@@ -301,6 +319,8 @@ impl ModpackBrowser {
             project: Load::Loading,
             files: Load::Loading,
             file: None,
+            description: Load::Loading,
+            show_description: false,
             _task: Some(task),
         });
         cx.notify();
@@ -329,7 +349,9 @@ impl ModpackBrowser {
         self.task = Some(cx.spawn(async move |this, cx| {
             cx.background_executor().timer(SEARCH_DELAY).await;
             this.update(cx, |this, cx| {
-                if this.curseforge {
+                if text.contains("curseforge.com/") {
+                    this.open_cf_link(&text, cx);
+                } else if this.curseforge {
                     this.run_cf_search(cx);
                 } else if text.contains("modrinth.com/") {
                     this.open_link(&text, cx);
@@ -415,6 +437,63 @@ impl ModpackBrowser {
                         )
                     }
                     Err(err) => this.results = Load::Failed(err.to_string().into()),
+                }
+                cx.notify();
+            })
+            .ok();
+        }));
+        cx.notify();
+    }
+
+    /// Opens what a pasted curseforge.com link points to, when it is a modpack, in
+    /// CurseForge's list.
+    fn open_cf_link(&mut self, link: &str, cx: &mut Context<Self>) {
+        let Some(cf) = self.cf(cx) else {
+            self.results = Load::Failed(t(M::CurseForgeUnreachable).into());
+            return cx.notify();
+        };
+        let link = link.to_string();
+        if self.curseforge {
+            self.cf_results = Load::Loading;
+        } else {
+            self.results = Load::Loading;
+        }
+        let work = cx.background_spawn(async move { cf.resolve_link(&link).await });
+        self.task = Some(cx.spawn(async move |this, cx| {
+            let result = work.await;
+            this.update(cx, |this, cx| {
+                let failed: Option<SharedString> = match result {
+                    Ok(target) if target.project.class_id == Some(CLASS_MODPACKS) => {
+                        if !this.curseforge {
+                            this.results = Load::NotLoaded;
+                            this.set_curseforge(true, cx);
+                        }
+                        this.run_cf_search(cx);
+                        let file = target.file.map(|file| file.id);
+                        this.pick_cf_file(target.project.id, file, cx);
+                        None
+                    }
+                    Ok(target) => {
+                        let kind = match target.project.class_id {
+                            Some(launcher_core::content::curseforge::CLASS_MODS) => M::KindMod,
+                            Some(launcher_core::content::curseforge::CLASS_RESOURCE_PACKS) => {
+                                M::KindResourcePack
+                            }
+                            Some(launcher_core::content::curseforge::CLASS_SHADERS) => {
+                                M::KindShaderPack
+                            }
+                            _ => M::KindDataPack,
+                        };
+                        Some(tr!(M::LinkNotModpack, kind = t(kind)).into())
+                    }
+                    Err(err) => Some(err.to_string().into()),
+                };
+                if let Some(message) = failed {
+                    if this.curseforge {
+                        this.cf_results = Load::Failed(message);
+                    } else {
+                        this.results = Load::Failed(message);
+                    }
                 }
                 cx.notify();
             })
@@ -717,6 +796,8 @@ impl ModpackBrowser {
         };
         let files = picked.files.clone();
         let chosen = picked.file;
+        let description = picked.description.clone();
+        let show_description = picked.show_description;
         let icon = project.icon_url().and_then(|url| self.cf_icon(url, cx));
         let page = project.page_url();
         let header = div()
@@ -753,99 +834,135 @@ impl ModpackBrowser {
                 .label(t(C::ViewOnCurseForge))
                 .on_click(move |_, _, cx| cx.open_url(&page)),
             );
-        let body: AnyElement = match files {
-            Load::Ready(list) if list.is_empty() => small(t(M::NoVersions))
-                .text_color(crate::theme::ink::muted())
-                .into_any_element(),
-            Load::Ready(list) => {
-                let mut rows = div().flex().flex_col().gap_0p5();
-                for (index, file) in list.iter().take(50).enumerate() {
-                    let selected = chosen == Some(file.id);
-                    let (label, color) = match file.release_type {
-                        2 => (t(C::Beta), colors::YELLOW_300),
-                        3 => (t(C::Alpha), colors::RED_200),
-                        _ => (t(C::Release), colors::GREEN_300),
-                    };
-                    let tags = file.tags();
-                    let loaders: Vec<String> =
-                        tags.loaders.iter().map(|l| l.label().to_string()).collect();
-                    let id = file.id;
-                    rows = rows.child(
-                        div()
-                            .id(("cf-pack-file", index))
-                            .accessible(
-                                Role::ListItem,
-                                format!("cf-pack-file-{id}"),
-                                file.display_name_or_file().to_string(),
-                            )
-                            .aria_selected(selected)
-                            .aria_description(label)
-                            .keyboard_focus()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap_2()
-                            .px_2()
-                            .py_1()
-                            .rounded(radius::MD)
-                            .cursor_pointer()
-                            .map(|this| {
-                                if selected {
-                                    this.bg(colors::BLUE.opacity(35))
-                                } else {
-                                    this.hover(|style| style.bg(colors::GRAY_800))
-                                }
-                            })
-                            .on_press(cx.listener(move |this, _, _, cx| {
-                                if let Some(picked) = &mut this.cf_picked {
-                                    picked.file = Some(id);
-                                }
-                                cx.notify();
-                            }))
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_col()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .child(
-                                        div()
-                                            .flex()
-                                            .flex_row()
-                                            .items_center()
-                                            .gap_2()
-                                            .child(
-                                                div()
-                                                    .truncate()
-                                                    .font_weight(weights::BOLD.into())
-                                                    .child(file.display_name_or_file().to_string()),
-                                            )
-                                            .child(badge(label, color))
-                                            .when(!file.downloadable(), |this| {
-                                                this.child(badge(
-                                                    t(C::WebsiteDownload),
-                                                    crate::theme::ink::muted(),
-                                                ))
-                                            }),
-                                    )
-                                    .child(
-                                        small(format!(
-                                            "{} · {} · {} · {}",
-                                            short_list(&tags.game_versions, 2),
-                                            short_list(&loaders, 2),
-                                            published(&file.file_date),
-                                            format::bytes_binary(file.file_length)
-                                        ))
-                                        .truncate()
-                                        .text_color(crate::theme::ink::muted()),
-                                    ),
-                            ),
-                    );
+        // The description is HTML; a pack without one has no switch, as on Modrinth.
+        let html = description
+            .ready()
+            .filter(|html| !html.trim().is_empty())
+            .cloned();
+        let entity = cx.entity();
+        let switch = html.is_some().then(|| {
+            pills(
+                "cf-pack-tabs",
+                vec![t(M::Versions).into(), t(M::Description).into()],
+                usize::from(show_description),
+                move |index, _, cx| {
+                    entity.update(cx, |this, cx| {
+                        if let Some(picked) = &mut this.cf_picked {
+                            picked.show_description = index == 1;
+                        }
+                        cx.notify();
+                    })
+                },
+            )
+        });
+        let body: AnyElement = if let Some(html) = html.filter(|_| show_description) {
+            let blocks = self
+                .descriptions
+                .entry(format!("cf-{}", project.id))
+                .or_insert_with(|| Arc::new(launcher_core::markdown::parse(&html)))
+                .clone();
+            crate::markdown::render(
+                format!("cf-pack-description-{}", project.id),
+                &blocks,
+                &HashMap::new(),
+            )
+        } else {
+            match files {
+                Load::Ready(list) if list.is_empty() => small(t(M::NoVersions))
+                    .text_color(crate::theme::ink::muted())
+                    .into_any_element(),
+                Load::Ready(list) => {
+                    let mut rows = div().flex().flex_col().gap_0p5();
+                    for (index, file) in list.iter().take(50).enumerate() {
+                        let selected = chosen == Some(file.id);
+                        let (label, color) = match file.release_type {
+                            2 => (t(C::Beta), colors::YELLOW_300),
+                            3 => (t(C::Alpha), colors::RED_200),
+                            _ => (t(C::Release), colors::GREEN_300),
+                        };
+                        let tags = file.tags();
+                        let loaders: Vec<String> =
+                            tags.loaders.iter().map(|l| l.label().to_string()).collect();
+                        let id = file.id;
+                        rows = rows.child(
+                            div()
+                                .id(("cf-pack-file", index))
+                                .accessible(
+                                    Role::ListItem,
+                                    format!("cf-pack-file-{id}"),
+                                    file.display_name_or_file().to_string(),
+                                )
+                                .aria_selected(selected)
+                                .aria_description(label)
+                                .keyboard_focus()
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .gap_2()
+                                .px_2()
+                                .py_1()
+                                .rounded(radius::MD)
+                                .cursor_pointer()
+                                .map(|this| {
+                                    if selected {
+                                        this.bg(colors::BLUE.opacity(35))
+                                    } else {
+                                        this.hover(|style| style.bg(colors::GRAY_800))
+                                    }
+                                })
+                                .on_press(cx.listener(move |this, _, _, cx| {
+                                    if let Some(picked) = &mut this.cf_picked {
+                                        picked.file = Some(id);
+                                    }
+                                    cx.notify();
+                                }))
+                                .child(
+                                    div()
+                                        .flex()
+                                        .flex_col()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .child(
+                                            div()
+                                                .flex()
+                                                .flex_row()
+                                                .items_center()
+                                                .gap_2()
+                                                .child(
+                                                    div()
+                                                        .truncate()
+                                                        .font_weight(weights::BOLD.into())
+                                                        .child(
+                                                            file.display_name_or_file().to_string(),
+                                                        ),
+                                                )
+                                                .child(badge(label, color))
+                                                .when(!file.downloadable(), |this| {
+                                                    this.child(badge(
+                                                        t(C::WebsiteDownload),
+                                                        crate::theme::ink::muted(),
+                                                    ))
+                                                }),
+                                        )
+                                        .child(
+                                            small(format!(
+                                                "{} · {} · {} · {}",
+                                                short_list(&tags.game_versions, 2),
+                                                short_list(&loaders, 2),
+                                                published(&file.file_date),
+                                                format::bytes_binary(file.file_length)
+                                            ))
+                                            .truncate()
+                                            .text_color(crate::theme::ink::muted()),
+                                        ),
+                                ),
+                        );
+                    }
+                    rows.into_any_element()
                 }
-                rows.into_any_element()
+                Load::Failed(err) => small(err).text_color(colors::RED_200).into_any_element(),
+                _ => loading(M::LoadingVersions),
             }
-            Load::Failed(err) => small(err).text_color(colors::RED_200).into_any_element(),
-            _ => loading(M::LoadingVersions),
         };
         div()
             .flex()
@@ -854,6 +971,7 @@ impl ModpackBrowser {
             .size_full()
             .p_2()
             .child(header)
+            .children(switch.map(|s| div().flex().child(s)))
             .child(
                 div()
                     .id("cf-pack-detail")

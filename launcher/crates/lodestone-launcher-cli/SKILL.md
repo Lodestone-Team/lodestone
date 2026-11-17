@@ -209,6 +209,7 @@ lodestone-launcher-cli instances copy-as Vanilla121 --loader fabric --worlds
 lodestone-launcher-cli instances set-loader-version Survival 0.16.14        # the loader's version only
 lodestone-launcher-cli instances select Survival          # shows it in the window
 lodestone-launcher-cli instances export Survival ./survival.mrpack          # long
+lodestone-launcher-cli instances export Survival ./survival.zip             # long; a CurseForge pack (files only on Modrinth are left out: `skipped`)
 lodestone-launcher-cli instances verify Survival                            # long; downloads missing game files
 lodestone-launcher-cli instances share-code Survival --json | jq -r .code   # an LDS1:/LDS2: share code
 lodestone-launcher-cli instances import-code "$CODE" --name "Friend's pack" # long; a new instance
@@ -223,15 +224,16 @@ or `instances set-loader-version` for another loader build). It takes the server
 out), and each mod
 Modrinth knows as that project's build for the new version and loader, with any required
 mods (`--no-mods` leaves them out; a vanilla copy takes none, and takes no
-`--loader-version`). Mods with no such build, and mods not on Modrinth,
-stay behind. `config/` doesn't go (the new builds' settings can differ). The shared game
+`--loader-version`). Mods only CurseForge knows go the same way, as that project's file
+for the new version and loader, when this launcher can reach CurseForge. Mods with no
+such build, and mods on neither platform, stay behind. `config/` doesn't go (the new builds' settings can differ). The shared game
 settings choice goes with options.txt. Worlds go only
 with `--worlds` (the window's dialog starts with them checked for the same Minecraft
 version, but the API never copies them unasked), and only to the same or a newer version:
 the game upgrades them when it opens them and they can't go back (the originals stay).
 When mods stay behind or worlds are upgraded it needs `--yes`, and the refusal's
-`data.plan` lists what goes (`mods`, `worlds`, `resource_packs`) and what stays
-(`no_build`, `not_on_modrinth`, and `unchecked`: mods whose Modrinth lookup failed, so
+`data.plan` lists what goes (`mods`, `curseforge_mods`, `worlds`, `resource_packs`) and
+what stays (`no_build`, `no_curseforge_build`, `not_on_modrinth`, and `unchecked`: mods whose Modrinth lookup failed, so
 it isn't known whether they are on Modrinth; try again later). The job's result has the
 new `instance`.
 
@@ -276,7 +278,8 @@ lodestone-launcher-cli play stop Survival
 it, like the Play button (see `servers join`); `--no-join` plays without joining. A crash
 shows up as a `notice` event of kind `crashed` with the crash summary, and in the log.
 
-Content (mods, resource packs, shader packs; Modrinth):
+Content (mods, resource packs, shader packs; Modrinth, or CurseForge with
+`--source curseforge` or a curseforge.com link):
 
 ```sh
 lodestone-launcher-cli content list Survival                       # --kind mod|resourcepack|shader
@@ -285,6 +288,10 @@ lodestone-launcher-cli content versions sodium --instance Survival --limit 5
 lodestone-launcher-cli content install Survival fabric-api          # long; with required mods
 lodestone-launcher-cli content install Survival https://modrinth.com/mod/lithium
 lodestone-launcher-cli content install Survival complementary-reimagined --kind shader   # adds Iris if needed
+lodestone-launcher-cli content search jei --source curseforge --instance Survival
+lodestone-launcher-cli content versions jei --source curseforge --instance Survival
+lodestone-launcher-cli content install Survival jei --source curseforge
+lodestone-launcher-cli content install Survival https://www.curseforge.com/minecraft/mc-mods/jei
 lodestone-launcher-cli content add Survival ./my-mod.jar
 lodestone-launcher-cli content disable Survival sodium
 lodestone-launcher-cli content enable Survival sodium
@@ -298,6 +305,15 @@ Items are named by file name, slug, title or mod id. `install` picks the newest 
 that fits the instance's Minecraft version and loader; `--version` picks one, `--force`
 installs one that doesn't fit.
 
+CurseForge works only in a launcher built with Lodestone's CurseForge key; without it
+these answer that CurseForge isn't available. A CurseForge project is named by its id,
+its slug (looked for among mods, or `--kind`'s), or its link; `--version` takes a file id
+or name. Some authors keep their files on CurseForge's website: an install or update
+lists those under `download_by_hand` (title, file, url) instead of downloading them. Tell
+the user to download each from its `url`: the instance's Content tab picks it up from
+their Downloads folder. `content list` gives each item's `modrinth` or `curseforge`
+source, and `content updates` / `content update` cover both (`source` says which).
+
 `content history` lists the instance's content images, newest first: the launcher records
 one after each change it makes to mods, packs, configs or the loader version (changes a
 few seconds apart are one image), and before a launch when the files changed by hand
@@ -309,7 +325,9 @@ Modpacks:
 ```sh
 lodestone-launcher-cli modpacks search "fabulously optimized"
 lodestone-launcher-cli modpacks install fabulously-optimized --name FO     # long; makes an instance
-lodestone-launcher-cli modpacks install --file ./pack.mrpack
+lodestone-launcher-cli modpacks install --file ./pack.mrpack                # or a CurseForge pack's .zip
+lodestone-launcher-cli modpacks search "all the mods" --source curseforge
+lodestone-launcher-cli modpacks install all-the-mods-9 --source curseforge  # long
 lodestone-launcher-cli modpacks check FO
 lodestone-launcher-cli modpacks update FO           # exit 5 with data.plan: show it to the user
 lodestone-launcher-cli modpacks update FO --yes     # long; takes a snapshot first, and changes nothing if it fails

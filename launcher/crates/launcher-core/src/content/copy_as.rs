@@ -17,9 +17,12 @@
 //! - mods Modrinth knows (from `content.json`, after a lookup by SHA-1), as each
 //!   project's build for the new version and loader ([`resolve_mods`]), installed fresh
 //!   through the usual Modrinth path (hashes checked) with any required mods they need
-//!   now. A mod that was off stays off. Mods with no such build, and mods Modrinth
-//!   doesn't know (or that couldn't be checked), stay behind, unless another mod
-//!   requires them. `config/` stays: the new builds' settings can differ. Vanilla runs
+//!   now. Mods only CurseForge knows go the same way, through CurseForge
+//!   ([`resolve_curseforge_mods`]), when this launcher can reach it; a file its author
+//!   keeps on CurseForge's website is left for the user to download
+//!   ([`CopyOutcome::blocked`]). A mod that was off stays off. Mods with no such build,
+//!   and mods neither platform knows (or that couldn't be checked), stay behind, unless
+//!   another mod requires them. `config/` stays: the new builds' settings can differ. Vanilla runs
 //!   no mods, so none goes to it, and none counts as staying behind.
 //!
 //! The settings that aren't tied to the version (memory, arguments, window, group,
@@ -36,7 +39,11 @@ use futures::future;
 use lodestone_minecraft::modrinth::RawVersion;
 
 use super::{
-    ContentError, ContentKind, InstanceDirs, Modrinth, ModrinthError, Target, files,
+    ContentError, ContentKind, CurseForge, InstanceDirs, Modrinth, ModrinthError, Platforms,
+    Target,
+    curseforge::{CfFile, CurseForgeError},
+    curseforge_install::{self, CfInstallRequest, CfPlannedFile},
+    files,
     install::{self, InstallProgress, PlannedFile},
     io_error, listing, options,
     provenance::Provenance,
@@ -144,6 +151,17 @@ pub struct SourceMod {
     pub enabled: bool,
 }
 
+/// One of the instance's mods that CurseForge knows and Modrinth doesn't.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CfSourceMod {
+    pub project_id: u64,
+    /// The project's name, else the file's.
+    pub title: String,
+    pub file_name: String,
+    /// Whether it is on (any of its files, for a project with several).
+    pub enabled: bool,
+}
+
 /// What an instance has that a copy can take.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Contents {
@@ -157,8 +175,9 @@ pub struct Contents {
     pub shader: Option<String>,
     /// Its mods Modrinth knows, one per project.
     pub mods: Vec<SourceMod>,
-    /// The names of its other mods, which Modrinth doesn't know: added by hand, or from
-    /// CurseForge.
+    /// Its mods only CurseForge knows, one per project.
+    pub curseforge_mods: Vec<CfSourceMod>,
+    /// The names of its other mods, which neither platform knows: added by hand.
     pub other_mods: Vec<String>,
     /// The names of the mods that couldn't be looked up on Modrinth (it failed, or it
     /// can't be reached): they may be on it.
@@ -189,8 +208,19 @@ pub async fn contents(
     api: Option<&Modrinth>,
     dirs: &InstanceDirs,
 ) -> Result<Contents, ContentError> {
-    let (files, provenance, lookup_error) = listing::refresh(api, dirs, ContentKind::Mod).await?;
+    contents_on(Platforms::from(api), dirs).await
+}
+
+/// [`contents`], with CurseForge too: mods Modrinth doesn't know are looked up on
+/// CurseForge by fingerprint, so they can go to the copy as well.
+pub async fn contents_on(
+    platforms: Platforms<'_>,
+    dirs: &InstanceDirs,
+) -> Result<Contents, ContentError> {
+    let (files, provenance, lookup_error) =
+        listing::refresh(platforms, dirs, ContentKind::Mod).await?;
     let mut mods: Vec<SourceMod> = Vec::new();
+    let mut curseforge_mods: Vec<CfSourceMod> = Vec::new();
     let mut other_mods = Vec::new();
     let mut unchecked = Vec::new();
     for file in files.iter().filter(|f| !f.is_dir) {
@@ -210,8 +240,28 @@ pub async fn contents(
                     enabled: file.enabled_by_name(),
                 }),
             },
-            None if entry.is_some_and(|e| e.looked_up) => other_mods.push(file.display_name()),
-            None => unchecked.push(file.display_name()),
+            None => match entry.and_then(|e| e.curseforge.as_ref()) {
+                Some(source) => {
+                    match curseforge_mods
+                        .iter_mut()
+                        .find(|m| m.project_id == source.project_id)
+                    {
+                        Some(known) => known.enabled |= file.enabled_by_name(),
+                        None => curseforge_mods.push(CfSourceMod {
+                            project_id: source.project_id,
+                            title: if source.title.is_empty() {
+                                file.display_name()
+                            } else {
+                                source.title.clone()
+                            },
+                            file_name: file.file_name.clone(),
+                            enabled: file.enabled_by_name(),
+                        }),
+                    }
+                }
+                None if entry.is_some_and(|e| e.looked_up) => other_mods.push(file.display_name()),
+                None => unchecked.push(file.display_name()),
+            },
         }
     }
     let names = |kind: ContentKind| -> Result<Vec<String>, ContentError> {
@@ -227,6 +277,7 @@ pub async fn contents(
         options: dirs.game.join(options::FILE).is_file(),
         shader: listing::shader_state(dirs)?.selection.pack,
         mods,
+        curseforge_mods,
         other_mods,
         unchecked,
         lookup_error,
@@ -240,6 +291,12 @@ pub struct ResolvedMods {
     pub found: Vec<(SourceMod, RawVersion)>,
     /// The mods with no build for it.
     pub missing: Vec<SourceMod>,
+    /// Each mod only CurseForge knows, with its file for the target
+    /// ([`resolve_curseforge_mods`]). A CurseForge mod in neither list wasn't looked
+    /// for (CurseForge can't be reached), and stays behind.
+    pub curseforge: Vec<(CfSourceMod, CfFile)>,
+    /// The CurseForge mods with no file for it.
+    pub curseforge_missing: Vec<CfSourceMod>,
 }
 
 impl ResolvedMods {
@@ -287,6 +344,47 @@ pub async fn resolve_mods(
     Ok(ResolvedMods::sort(mods, |_| builds.next().flatten()))
 }
 
+/// Finds each CurseForge mod's file for `target` (as installing picks one), into
+/// `resolved`. Vanilla runs no mods, so none has one; nor does a project CurseForge no
+/// longer has.
+pub async fn resolve_curseforge_mods(
+    cf: &CurseForge,
+    mods: &[CfSourceMod],
+    target: &Target,
+    resolved: &mut ResolvedMods,
+) -> Result<(), ContentError> {
+    if target.loader == Loader::None {
+        resolved.curseforge_missing.extend(mods.iter().cloned());
+        return Ok(());
+    }
+    for chunk in mods.chunks(PARALLEL_LOOKUPS) {
+        let found = future::join_all(chunk.iter().map(|source| async move {
+            // Every loader's files: a Quilt instance takes Fabric's too, and the API
+            // filters by one loader only.
+            match cf
+                .files(source.project_id, Some(&target.game_version), None)
+                .await
+            {
+                Ok(files) => Ok(curseforge_install::pick_file(
+                    target,
+                    ContentKind::Mod,
+                    files,
+                )),
+                Err(CurseForgeError::NotFound(_)) => Ok(None),
+                Err(err) => Err(ContentError::from(err)),
+            }
+        }))
+        .await;
+        for (source, file) in chunk.iter().zip(found) {
+            match file? {
+                Some(file) => resolved.curseforge.push((source.clone(), file)),
+                None => resolved.curseforge_missing.push(source.clone()),
+            }
+        }
+    }
+    Ok(())
+}
+
 /// The build of `project` for `target`, if it has one.
 async fn build_for(
     api: &Modrinth,
@@ -321,7 +419,12 @@ pub struct CopyPlan {
     pub mods: Vec<(SourceMod, RawVersion)>,
     /// Mods Modrinth has no build of for the new version and loader: they stay behind.
     pub no_build: Vec<SourceMod>,
-    /// Mods Modrinth doesn't know: they stay behind.
+    /// The CurseForge mods that go, as their file for the new version and loader.
+    pub curseforge_mods: Vec<(CfSourceMod, CfFile)>,
+    /// Mods CurseForge has no file of for the new version and loader: they stay behind.
+    pub no_curseforge_build: Vec<CfSourceMod>,
+    /// Mods Modrinth doesn't know: they stay behind. CurseForge's too, when they
+    /// weren't looked for on CurseForge.
     pub not_on_modrinth: Vec<String>,
     /// Mods that couldn't be looked up on Modrinth: they stay behind.
     pub unchecked: Vec<String>,
@@ -333,6 +436,7 @@ impl CopyPlan {
         self.no_build
             .iter()
             .map(|m| m.title.clone())
+            .chain(self.no_curseforge_build.iter().map(|m| m.title.clone()))
             .chain(self.not_on_modrinth.iter().cloned())
             .chain(self.unchecked.iter().cloned())
             .collect()
@@ -359,15 +463,35 @@ pub fn plan(
     resolved: Option<&ResolvedMods>,
 ) -> CopyPlan {
     let packs = options.packs;
+    let mut curseforge_mods = Vec::new();
+    let mut no_curseforge_build = Vec::new();
     let (mods, no_build, not_on_modrinth, unchecked) = if options.mods && loader != Loader::None {
         let resolved = resolved.cloned().unwrap_or_else(|| ResolvedMods {
-            found: Vec::new(),
             missing: contents.mods.clone(),
+            ..ResolvedMods::default()
         });
+        // A CurseForge mod that wasn't looked for stays behind like one added by hand.
+        let looked_for = |m: &CfSourceMod| {
+            resolved
+                .curseforge
+                .iter()
+                .map(|(source, _)| source)
+                .chain(&resolved.curseforge_missing)
+                .any(|source| source.project_id == m.project_id)
+        };
+        let mut not_on_modrinth: Vec<String> = contents
+            .curseforge_mods
+            .iter()
+            .filter(|m| !looked_for(m))
+            .map(|m| m.title.clone())
+            .collect();
+        not_on_modrinth.extend(contents.other_mods.iter().cloned());
+        curseforge_mods = resolved.curseforge;
+        no_curseforge_build = resolved.curseforge_missing;
         (
             resolved.found,
             resolved.missing,
-            contents.other_mods.clone(),
+            not_on_modrinth,
             contents.unchecked.clone(),
         )
     } else {
@@ -396,6 +520,8 @@ pub fn plan(
         shader: contents.shader.clone().filter(|_| packs),
         mods,
         no_build,
+        curseforge_mods,
+        no_curseforge_build,
         not_on_modrinth,
         unchecked,
     }
@@ -480,7 +606,7 @@ impl CopyAsError {
 }
 
 /// What a finished copy did.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub struct CopyOutcome {
     pub instance: Instance,
     /// Titles of the mods installed, required mods included.
@@ -492,6 +618,10 @@ pub struct CopyOutcome {
     /// Mods the copied ones require that couldn't be installed: a title (or project id)
     /// and why.
     pub missing_dependencies: Vec<(String, String)>,
+    /// Its CurseForge mods (and mods they require) whose authors keep them on
+    /// CurseForge's website: the user downloads them there, as after any CurseForge
+    /// install.
+    pub blocked: Vec<CfPlannedFile>,
 }
 
 /// Makes the copy of `source` that `request` describes, as a new instance in `store`.
@@ -509,9 +639,28 @@ pub async fn execute(
     cancel: &CancelToken,
     files_read: impl FnOnce(),
 ) -> Result<CopyOutcome, CopyAsError> {
+    let platforms = Platforms::from(api);
+    execute_on(
+        store, platforms, downloader, source, request, progress, cancel, files_read,
+    )
+    .await
+}
+
+/// [`execute`], with CurseForge too: needed when the plan has CurseForge mods.
+#[allow(clippy::too_many_arguments)]
+pub async fn execute_on(
+    store: &InstanceStore,
+    platforms: Platforms<'_>,
+    downloader: &Downloader,
+    source: &Instance,
+    request: &CopyAsRequest,
+    progress: &InstallProgress,
+    cancel: &CancelToken,
+    files_read: impl FnOnce(),
+) -> Result<CopyOutcome, CopyAsError> {
     let staging = store.new_staging()?;
     let result = build(
-        store, api, downloader, source, request, progress, cancel, &staging, files_read,
+        store, platforms, downloader, source, request, progress, cancel, &staging, files_read,
     )
     .await;
     if result.is_err() {
@@ -523,7 +672,7 @@ pub async fn execute(
 #[allow(clippy::too_many_arguments)]
 async fn build(
     store: &InstanceStore,
-    api: Option<&Modrinth>,
+    platforms: Platforms<'_>,
     downloader: &Downloader,
     source: &Instance,
     request: &CopyAsRequest,
@@ -533,6 +682,7 @@ async fn build(
     files_read: impl FnOnce(),
 ) -> Result<CopyOutcome, CopyAsError> {
     let plan = &request.plan;
+    let api = platforms.modrinth;
     let from = InstanceDirs::new(store.dir(&source.id));
     let to = InstanceDirs::new(staging);
     let check = || {
@@ -670,6 +820,66 @@ async fn build(
             }
         }
     }
+    let mut blocked: Vec<CfPlannedFile> = Vec::new();
+    if !plan.curseforge_mods.is_empty() {
+        let cf = platforms.curseforge.ok_or_else(|| {
+            ContentError::Invalid("CurseForge isn't available to download the mods.".into())
+        })?;
+        progress.set_label("Installing the mods");
+        for (_, file) in &plan.curseforge_mods {
+            check()?;
+            let request = CfInstallRequest {
+                kind: ContentKind::Mod,
+                file: file.clone(),
+                project: None,
+                install_dependencies: true,
+                force: false,
+            };
+            let install_plan = curseforge_install::plan(cf, platforms, &to, &target, request)
+                .await
+                .map_err(CopyAsError::from_content)?;
+            skipped.extend(
+                install_plan
+                    .skipped
+                    .iter()
+                    .map(|s| (s.project.clone(), s.reason.clone())),
+            );
+            let outcome = curseforge_install::execute(
+                cf,
+                api,
+                downloader,
+                &to,
+                &target,
+                &install_plan,
+                progress,
+                cancel,
+            )
+            .await
+            .map_err(CopyAsError::from_content)?;
+            installed.extend(outcome.installed.into_iter().map(|(title, _)| title));
+            for file in install_plan.blocked {
+                if !blocked.iter().any(|b| b.file.id == file.file.id) {
+                    blocked.push(file);
+                }
+            }
+        }
+        // What was off stays off. One the user has yet to download isn't left behind:
+        // the copy asks for it.
+        let provenance = Provenance::load(&to.instance);
+        let mut by_project = provenance.by_curseforge_project(ContentKind::Mod);
+        for (source_mod, file) in &plan.curseforge_mods {
+            match by_project.remove(&source_mod.project_id) {
+                Some(names) if !source_mod.enabled => {
+                    for name in names {
+                        files::set_mod_enabled(&to, &name, false)?;
+                    }
+                }
+                Some(_) => {}
+                None if blocked.iter().any(|b| b.file.id == file.id) => {}
+                None => not_installed.push(source_mod.title.clone()),
+            }
+        }
+    }
     let (left_behind, missing_dependencies) =
         sort_left_behind(plan, &installed, not_installed, skipped);
     if let Some(shader) = &plan.shader
@@ -697,6 +907,7 @@ async fn build(
         installed,
         left_behind,
         missing_dependencies,
+        blocked,
     })
 }
 
@@ -712,7 +923,13 @@ fn sort_left_behind(
 ) -> (Vec<String>, Vec<(String, String)>) {
     let same = |a: &str, b: &str| a.trim().eq_ignore_ascii_case(b.trim());
     let is_installed = |name: &str| installed.iter().any(|i| same(i, name));
-    let own = |name: &str| plan.mods.iter().any(|(m, _)| same(&m.title, name));
+    let own = |name: &str| {
+        plan.mods.iter().any(|(m, _)| same(&m.title, name))
+            || plan
+                .curseforge_mods
+                .iter()
+                .any(|(m, _)| same(&m.title, name))
+    };
     let mut left_behind: Vec<String> = Vec::new();
     for name in plan.left_behind().into_iter().chain(not_installed) {
         if !is_installed(&name) && !left_behind.iter().any(|l| same(l, &name)) {
@@ -842,6 +1059,7 @@ mod tests {
             options: true,
             shader: Some("BSL.zip".into()),
             mods: vec![source_mod("sodium", true), source_mod("iris", false)],
+            curseforge_mods: Vec::new(),
             other_mods: vec!["Homemade".into()],
             unchecked: Vec::new(),
             lookup_error: None,

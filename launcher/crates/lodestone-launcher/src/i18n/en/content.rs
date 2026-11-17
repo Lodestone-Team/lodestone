@@ -17,6 +17,8 @@ crate::i18n::messages! {
         SearchInstalled = "Search what's installed",
         SearchModrinth = "Search Modrinth",
         SearchCurseForge = "Search CurseForge",
+        /// A curseforge.com link was pasted into the search field, in a copy that can't reach CurseForge (no API key, or offline).
+        CurseForgeLinkUnavailable = "That is a CurseForge link, and this copy of Lodestone Launcher can't reach CurseForge.",
         /// Below what's installed, with buttons that switch to a platform's view.
         LookingForMore = "Looking for something new?",
         BrowseModrinth = "Browse Modrinth",
@@ -43,9 +45,9 @@ crate::i18n::messages! {
         WaitForInstall = "Wait for the install to finish.",
         GameRunning = "The game is running. Stop it to change its content: it rewrites options.txt and the shader settings when it exits.",
 
-        AllModsUpToDate = "Every mod from Modrinth is up to date.",
-        AllResourcePacksUpToDate = "Every resource pack from Modrinth is up to date.",
-        AllShaderPacksUpToDate = "Every shader pack from Modrinth is up to date.",
+        AllModsUpToDate = "Every mod is up to date.",
+        AllResourcePacksUpToDate = "Every resource pack is up to date.",
+        AllShaderPacksUpToDate = "Every shader pack is up to date.",
         CouldntCheckUpdates = "Couldn't check for updates: {error}",
 
         /// The progress line of an install: {name} is a Modrinth project's title.
@@ -102,7 +104,7 @@ crate::i18n::messages! {
         /// {folder} is the folder's name: "mods".
         ReadingFolder = "Reading the {folder} folder",
         CouldntReadFolder = "Couldn't read the {folder} folder: {error}",
-        SomeFilesNotMatched = "Some files couldn't be matched to Modrinth: {error}",
+        SomeFilesNotMatched = "Some files couldn't be looked up: {error}",
         ShadersOff = "Shaders off",
         NormalLook = "Minecraft's normal look.",
 
@@ -322,6 +324,8 @@ crate::i18n::messages! {
         Follows = ("{count} follow", "{count} follows"),
         Followers = ("{count} follower", "{count} followers"),
         MoreVersions = ("{count} more version is on Modrinth.", "{count} more versions are on Modrinth."),
+        /// Under a CurseForge project's list of files, which shows the newest 40.
+        MoreFilesOnCurseForge = ("{count} more file is on CurseForge.", "{count} more files are on CurseForge."),
         /// Over the list of mods that need the one being turned off.
         NeededBy = ("{count} mod needs {name} and won't load without it:", "{count} mods need {name} and won't load without it:"),
         /// Over the list of mods that are off that the one being turned on needs.

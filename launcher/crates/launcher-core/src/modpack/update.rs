@@ -316,8 +316,27 @@ pub async fn apply(
     progress: &InstallProgress,
     cancel: &CancelToken,
 ) -> Result<UpdateOutcome, ModpackError> {
+    let platforms = crate::content::Platforms::from(api);
+    apply_on(
+        platforms, downloader, dirs, plan, pack_path, progress, cancel,
+    )
+    .await
+}
+
+/// [`apply`], downloading from either platform: a CurseForge pack's files come from
+/// CurseForge's CDN, which needs its client.
+#[allow(clippy::too_many_arguments)]
+pub async fn apply_on(
+    platforms: crate::content::Platforms<'_>,
+    downloader: &Downloader,
+    dirs: &InstanceDirs,
+    plan: &UpdatePlan,
+    pack_path: &Path,
+    progress: &InstallProgress,
+    cancel: &CancelToken,
+) -> Result<UpdateOutcome, ModpackError> {
     let sources = Sources {
-        platforms: crate::content::Platforms::from(api),
+        platforms,
         downloader,
         pack: Some(pack_path),
         objects: None,

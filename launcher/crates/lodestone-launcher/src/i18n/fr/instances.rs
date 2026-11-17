@@ -276,6 +276,9 @@ pub fn text(message: M) -> &'static str {
 
         M::AddingName => "Ajout de {name}",
         M::ModrinthUnreachable => "Modrinth est injoignable.",
+        M::CurseForgeUpdateOnWebsite => {
+            "Cette version ne peut être téléchargée que depuis le site de CurseForge\u{a0}: elle ne peut donc pas être installée comme mise à jour."
+        }
         M::ModpackAddedAlready => {
             "{pack} est déjà ajouté à cette instance. Retirez-le d’abord dans les Paramètres pour en ajouter une autre version."
         }
@@ -308,6 +311,10 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::CurseForgeLeftOut => [
             "{count} fichier a été ignoré car il n’est que sur CurseForge, dont les fichiers ne peuvent pas aller dans un pack Modrinth\u{a0}: {names}.",
             "{count} fichiers ont été ignorés car ils ne sont que sur CurseForge, dont les fichiers ne peuvent pas aller dans un pack Modrinth\u{a0}: {names}.",
+        ],
+        P::ModrinthLeftOut => [
+            "{count} fichier a été ignoré car il n’est que sur Modrinth, d’où un pack CurseForge ne peut rien télécharger\u{a0}: {names}.",
+            "{count} fichiers ont été ignorés car ils ne sont que sur Modrinth, d’où un pack CurseForge ne peut rien télécharger\u{a0}: {names}.",
         ],
         P::FilesLeftOut => [
             "{count} fichier a été ignoré\u{a0}: {name}.",

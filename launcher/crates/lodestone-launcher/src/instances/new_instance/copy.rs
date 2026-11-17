@@ -169,18 +169,26 @@ impl NewInstanceDialog {
         let Load::Ready(contents) = &form.contents else {
             return;
         };
-        let wanted = form.options.mods && target.1 != Loader::None && !contents.mods.is_empty();
+        let wanted = form.options.mods
+            && target.1 != Loader::None
+            && !(contents.mods.is_empty() && contents.curseforge_mods.is_empty());
         let known = form.lookup.as_ref().is_some_and(|(at, _)| *at == target);
         if !wanted || known {
             return;
         }
         let mods = contents.mods.clone();
+        let curseforge_mods = contents.curseforge_mods.clone();
         let instances = self.instances.clone();
         let at = target.clone();
         let task = cx.spawn(async move |this, cx| {
             cx.background_executor().timer(LOOKUP_DELAY).await;
             let lookup = instances.update(cx, |instances, cx| {
-                instances.resolve_copy_mods(mods, Target::new(at.0.clone(), at.1), cx)
+                instances.resolve_copy_mods(
+                    mods,
+                    curseforge_mods,
+                    Target::new(at.0.clone(), at.1),
+                    cx,
+                )
             });
             let result = match lookup {
                 Some(task) => task.await.map(Some),
@@ -432,7 +440,10 @@ impl NewInstanceDialog {
 
         // Mods: each one's build for the new version and loader.
         let has_mods = contents.is_some_and(|c| {
-            !c.mods.is_empty() || !c.other_mods.is_empty() || !c.unchecked.is_empty()
+            !c.mods.is_empty()
+                || !c.curseforge_mods.is_empty()
+                || !c.other_mods.is_empty()
+                || !c.unchecked.is_empty()
         });
         let mods_possible = loader != Loader::None && has_mods;
         let lookup_failed = match (&form.contents, &form.lookup) {
@@ -528,15 +539,10 @@ fn mods_status(
     resolved: Option<Option<ResolvedMods>>,
     target: &str,
 ) -> AnyElement {
-    let not_on_modrinth = (!contents.other_mods.is_empty()).then(|| {
-        tr!(
-            M::CopyModsNotOnModrinth,
-            names = format::list(&contents.other_mods)
-        )
-    });
+    let on_platforms = contents.mods.len() + contents.curseforge_mods.len();
     let resolved = match resolved {
-        None if contents.mods.is_empty() => ResolvedMods::default(),
-        None => return loading(trn!(P::CopyCheckingMods, contents.mods.len())),
+        None if on_platforms == 0 => ResolvedMods::default(),
+        None => return loading(trn!(P::CopyCheckingMods, on_platforms)),
         Some(None) => {
             return note(t(M::CopyModsOffline).into());
         }
@@ -548,19 +554,43 @@ fn mods_status(
             names = format::list(&contents.unchecked)
         )
     });
-    let total = contents.mods.len() + contents.other_mods.len() + contents.unchecked.len();
+    // CurseForge's mods that weren't looked for there (this copy can't reach it) stay
+    // behind with the ones added by hand.
+    let looked_for = |project: u64| {
+        resolved
+            .curseforge
+            .iter()
+            .map(|(source, _)| source)
+            .chain(&resolved.curseforge_missing)
+            .any(|source| source.project_id == project)
+    };
+    let staying: Vec<String> = contents
+        .curseforge_mods
+        .iter()
+        .filter(|m| !looked_for(m.project_id))
+        .map(|m| m.title.clone())
+        .chain(contents.other_mods.iter().cloned())
+        .collect();
+    let not_on_modrinth = (!staying.is_empty())
+        .then(|| tr!(M::CopyModsNotOnModrinth, names = format::list(&staying)));
+    let total = on_platforms + contents.other_mods.len() + contents.unchecked.len();
     let mut lines: Vec<AnyElement> = vec![
         div()
             .child(trn!(
                 P::CopyModsFound,
                 total,
-                found = resolved.found.len(),
+                found = resolved.found.len() + resolved.curseforge.len(),
                 target = target
             ))
             .into_any_element(),
     ];
-    if !resolved.missing.is_empty() {
-        let names: Vec<String> = resolved.missing.iter().map(|m| m.title.clone()).collect();
+    if !(resolved.missing.is_empty() && resolved.curseforge_missing.is_empty()) {
+        let names: Vec<String> = resolved
+            .missing
+            .iter()
+            .map(|m| m.title.clone())
+            .chain(resolved.curseforge_missing.iter().map(|m| m.title.clone()))
+            .collect();
         lines.push(
             div()
                 .child(tr!(

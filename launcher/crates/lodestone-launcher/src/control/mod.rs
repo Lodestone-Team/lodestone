@@ -431,17 +431,17 @@ pub const METHODS: &[Method] = &[
     ),
     method(
         "content.search",
-        "Searches Modrinth for content that fits the instance.",
+        "Searches Modrinth (or CurseForge, with source) for content that fits the instance.",
         content::search,
     ),
     method(
         "content.versions",
-        "A Modrinth project's versions, with whether each fits.",
+        "A project's versions on Modrinth (or its files on CurseForge), with whether each fits.",
         content::versions,
     ),
     method(
         "content.install",
-        "Installs a Modrinth project (with its required mods).",
+        "Installs a Modrinth or CurseForge project (with its required mods).",
         content::install,
     ),
     method(
@@ -477,12 +477,12 @@ pub const METHODS: &[Method] = &[
     // modpacks
     method(
         "modpacks.search",
-        "Searches Modrinth for modpacks.",
+        "Searches Modrinth (or CurseForge, with source) for modpacks.",
         content::modpack_search,
     ),
     method(
         "modpacks.install",
-        "Makes an instance from a modpack (Modrinth or .mrpack).",
+        "Makes an instance from a modpack (Modrinth, CurseForge, a .mrpack or a CurseForge .zip).",
         content::modpack_install,
     ),
     method(
@@ -580,7 +580,7 @@ pub const METHODS: &[Method] = &[
     ),
     method(
         "worlds.datapack_search",
-        "Data packs on Modrinth for the instance's Minecraft version.",
+        "Data packs on Modrinth (or CurseForge, with source) for the instance's Minecraft version.",
         worlds::datapack_search,
     ),
     method(
@@ -590,7 +590,7 @@ pub const METHODS: &[Method] = &[
     ),
     method(
         "worlds.datapack_install",
-        "Installs a Modrinth data pack into a world; a newer version replaces the old file.",
+        "Installs a Modrinth or CurseForge data pack into a world; a newer version replaces the old file.",
         worlds::datapack_install,
     ),
     method(

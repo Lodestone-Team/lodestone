@@ -172,8 +172,12 @@ jobs:
 
     # The tagged commit's own script builds it, so a release branch's build fixes
     # apply.
+    # The key CurseForge issued Lodestone is compiled in; without the secret the
+    # build has no CurseForge.
     - name: Build and stage
       shell: bash
+      env:
+        LODESTONE_CURSEFORGE_API_KEY: ${{ secrets.LODESTONE_CURSEFORGE_API_KEY }}
       run: python launcher/scripts/publish_release.py --stage "$RUNNER_TEMP/launcher-windows"
 
     - name: Keep the build

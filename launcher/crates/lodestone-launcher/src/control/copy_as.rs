@@ -209,6 +209,14 @@ pub fn plan_json(
             "enabled": source.enabled,
         })).collect::<Vec<_>>(),
         "no_build": plan.no_build.iter().map(|m| json!({ "title": m.title, "project": m.project_id, "file": m.file_name })).collect::<Vec<_>>(),
+        "curseforge_mods": plan.curseforge_mods.iter().map(|(source, file)| json!({
+            "title": source.title,
+            "project": source.project_id,
+            "file": file.display_name_or_file(),
+            "enabled": source.enabled,
+            "downloadable": file.downloadable(),
+        })).collect::<Vec<_>>(),
+        "no_curseforge_build": plan.no_curseforge_build.iter().map(|m| json!({ "title": m.title, "project": m.project_id, "file": m.file_name })).collect::<Vec<_>>(),
         "not_on_modrinth": plan.not_on_modrinth,
         "unchecked": plan.unchecked,
     })
@@ -348,9 +356,15 @@ pub fn copy_as(call: Call, cx: &mut App) -> Reply {
             .instances
             .update(cx, |instances, cx| instances.copy_contents(&source.id, cx));
         let contents = read.await.map_err(|err| api_error(codes::FAILED, err))?;
-        let resolved = if params.mods && to_loader != Loader::None && !contents.mods.is_empty() {
+        let has_mods = !(contents.mods.is_empty() && contents.curseforge_mods.is_empty());
+        let resolved = if params.mods && to_loader != Loader::None && has_mods {
             let lookup = control.instances.update(cx, |instances, cx| {
-                instances.resolve_copy_mods(contents.mods.clone(), Target::new(version.clone(), to_loader), cx)
+                instances.resolve_copy_mods(
+                    contents.mods.clone(),
+                    contents.curseforge_mods.clone(),
+                    Target::new(version.clone(), to_loader),
+                    cx,
+                )
             });
             let Some(lookup) = lookup else {
                 return Err(api_error(

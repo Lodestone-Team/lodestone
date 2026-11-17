@@ -76,6 +76,12 @@ Make one only when a developer asks for it.
   `--target`) and adds it to the draft. It needs a clean checkout of the tagged
   commit, the Rust toolchain, and `gh` signed in with write access. On Windows it
   also builds the installer, which needs Inno Setup 6.
+- **CurseForge needs Lodestone's API key compiled in**, from
+  `LODESTONE_CURSEFORGE_API_KEY` (`launcher-core/src/content/curseforge.rs`). The
+  workflows take it from the repository secret of that name; a local build takes it
+  from the environment, and the script says so when it's missing. A build without it
+  doesn't offer CurseForge. Never commit the key, print it, or put it in a command
+  line.
 - **Test a locally built release on this machine first.** The dry run
   (`--dry-run --tag ...`) stages the build and prints copies to test: run one and
   check it works (window, instances, Settings › General › Updates showing the new

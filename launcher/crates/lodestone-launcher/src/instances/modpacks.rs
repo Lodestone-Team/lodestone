@@ -150,6 +150,72 @@ pub struct UpdatePrompt {
     pub snapshot_failed: Option<String>,
     /// Update without taking a snapshot first (the user chose to, after one failed).
     pub without_snapshot: bool,
+    /// The new version's files only CurseForge's website serves, for the user to
+    /// download once the update is in (a CurseForge pack's).
+    pub blocked: Vec<CfPlannedFile>,
+}
+
+/// A version of a modpack an instance can update to: a version on Modrinth, or a file
+/// on CurseForge.
+#[derive(Clone)]
+pub enum PackVersion {
+    Modrinth(Box<RawVersion>),
+    CurseForge(Box<CfFile>),
+}
+
+impl PackVersion {
+    /// The version's name: "1.4.2" on Modrinth, the file's name on CurseForge.
+    pub fn label(&self) -> &str {
+        match self {
+            PackVersion::Modrinth(version) => &version.version_number,
+            PackVersion::CurseForge(file) => file.display_name_or_file(),
+        }
+    }
+
+    /// The Modrinth version id, or the CurseForge file id.
+    pub fn id(&self) -> String {
+        match self {
+            PackVersion::Modrinth(version) => version.id.clone(),
+            PackVersion::CurseForge(file) => file.id.to_string(),
+        }
+    }
+
+    /// When it was published, as the platform writes it (ISO 8601).
+    pub fn date(&self) -> &str {
+        match self {
+            PackVersion::Modrinth(version) => &version.date_published,
+            PackVersion::CurseForge(file) => &file.file_date,
+        }
+    }
+
+    pub fn is_release(&self) -> bool {
+        match self {
+            PackVersion::Modrinth(version) => {
+                version.version_type == lodestone_minecraft::modrinth::ModrinthVersionType::Release
+            }
+            PackVersion::CurseForge(file) => file.release_type == 1,
+        }
+    }
+
+    /// Whether `wanted` names it: its id, or its name.
+    pub fn is_named(&self, wanted: &str) -> bool {
+        self.id() == wanted || self.label() == wanted
+    }
+}
+
+/// The version to offer as an update: the newest release, else the newest version,
+/// if it is newer than `current`.
+pub fn update_candidate(versions: &[PackVersion], current: &ModpackRecord) -> Option<PackVersion> {
+    let newest = versions
+        .iter()
+        .filter(|v| v.is_release())
+        .max_by(|a, b| a.date().cmp(b.date()))
+        .or_else(|| versions.iter().max_by(|a, b| a.date().cmp(b.date())))?;
+    let (id, date) = match current.curseforge_updates() {
+        Some(pack) => (pack.file_id.to_string(), pack.file_date.as_str()),
+        None => (current.version_id.clone(), current.date_published.as_str()),
+    };
+    (newest.id() != id && newest.date() > date).then(|| newest.clone())
 }
 
 /// A pack to add to an instance, picked in "Add a modpack".
@@ -278,6 +344,24 @@ async fn identify(
         let icon = record.icon_url.clone();
         (record, icon)
     })
+}
+
+/// The record of a pack file CurseForge knows by its fingerprint, if it is a modpack's
+/// file, with its project.
+async fn identify_curseforge(
+    cf: &launcher_core::content::CurseForge,
+    path: &std::path::Path,
+) -> Option<(ModpackRecord, CfMod)> {
+    use launcher_core::content::curseforge;
+    let print = curseforge::fingerprint_file(path).ok()?;
+    let found = cf
+        .files_by_fingerprint(&[print])
+        .await
+        .ok()?
+        .remove(&print)?;
+    let project = cf.project(found.mod_id).await.ok()?;
+    (project.class_id == Some(curseforge::CLASS_MODPACKS))
+        .then(|| (curseforge_record(&project, &found.file), project))
 }
 
 impl Instances {
@@ -636,6 +720,18 @@ impl Instances {
                         record = found;
                         icon_url = icon;
                     }
+                    // A CurseForge pack's .zip from disk: CurseForge knows which file it
+                    // is by its fingerprint, so the instance can update it later.
+                    let mut cf_project = source.curseforge.as_ref().map(|(p, _)| p.clone());
+                    if from_curseforge
+                        && record.curseforge.is_none()
+                        && let Some(cf) = cf.as_deref()
+                        && let Some((found, project)) =
+                            identify_curseforge(cf, &source.pack_path).await
+                    {
+                        record = found;
+                        cf_project = Some(project);
+                    }
                     if record.title.is_empty() {
                         record.title = pack.name.clone();
                     }
@@ -643,9 +739,9 @@ impl Instances {
                         record.version_number = pack.version_number.clone().unwrap_or_default();
                     }
                     let loader = resolve_loader(&installer, &pack).await?;
-                    let icon = match (&icon_url, &source.curseforge, cf.as_deref()) {
+                    let icon = match (&icon_url, &cf_project, cf.as_deref()) {
                         (Some(url), _, _) => api.image(url).await.ok(),
-                        (None, Some((project, _)), Some(cf)) => match project.icon_url() {
+                        (None, Some(project), Some(cf)) => match project.icon_url() {
                             Some(url) => cf.image(url).await.ok(),
                             None => None,
                         },
@@ -823,18 +919,39 @@ impl Instances {
         self.modpack_updates.get(id)
     }
 
-    /// The pack's versions on Modrinth, newest first.
+    /// The versions of the instance's pack on its platform (Modrinth, or CurseForge for
+    /// a CurseForge pack), newest first. `None` when that platform can't be reached.
     pub fn modpack_versions(
         &self,
-        project_id: &str,
+        record: &ModpackRecord,
         cx: &mut Context<Self>,
-    ) -> Option<Task<Result<Vec<RawVersion>, String>>> {
+    ) -> Option<Task<Result<Vec<PackVersion>, String>>> {
+        if let Some(pack) = record.curseforge_updates() {
+            let cf = self.curseforge.clone()?;
+            let project = pack.project_id;
+            return Some(cx.background_spawn(async move {
+                let files = cf
+                    .files(project, None, None)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                Ok(files
+                    .into_iter()
+                    .filter(|file| file.is_available != Some(false))
+                    .map(|file| PackVersion::CurseForge(Box::new(file)))
+                    .collect())
+            }));
+        }
         let api = self.modrinth.clone()?;
-        let project_id = project_id.to_string();
+        let project_id = record.project_id.clone();
         Some(cx.background_spawn(async move {
-            api.versions(&project_id, &[], &[])
+            let versions = api
+                .versions(&project_id, &[], &[])
                 .await
-                .map_err(|e| e.to_string())
+                .map_err(|e| e.to_string())?;
+            Ok(versions
+                .into_iter()
+                .map(|version| PackVersion::Modrinth(Box::new(version)))
+                .collect())
         }))
     }
 
@@ -842,7 +959,7 @@ impl Instances {
     pub fn plan_modpack_update(
         &mut self,
         id: &str,
-        version: RawVersion,
+        version: PackVersion,
         cx: &mut Context<Self>,
     ) -> Option<Task<Result<UpdatePrompt, String>>> {
         if self.is_active(id) || self.modpack_updates.contains_key(id) {
@@ -852,7 +969,8 @@ impl Instances {
         if self.finder_saved(id) {
             return Some(Task::ready(Err(t(M::FinishFinderFirst).to_string())));
         }
-        let api = self.modrinth.clone()?;
+        let api = self.modrinth.clone();
+        let cf = self.curseforge.clone();
         let instance = self.store.get(id).ok()?;
         let current = self.modpack(id)?;
         let dirs = self.content_dirs(id);
@@ -860,30 +978,81 @@ impl Instances {
         let downloader = self.content_downloader.clone();
         Some(cx.background_spawn(async move {
             let progress = InstallProgress::default();
-            let project = api
-                .project(&current.project_id)
-                .await
-                .map_err(|e| e.to_string())?;
-            let pack_path = import::download_pack(
-                &api,
-                &downloader,
-                &version,
-                &dirs.instance,
-                &progress,
-                &CancelToken::new(),
-            )
-            .await
-            .map_err(|e| e.to_string())?;
-            let planned = async {
-                let pack = modpack::read_pack(&pack_path)?;
-                let loader = resolve_loader(&installer, &pack).await?;
-                let record = ModpackRecord::from_modrinth(&project, &version);
-                let plan = update::plan(&dirs, &current, &pack, record, loader);
-                Ok::<_, ModpackError>((plan, pack))
-            }
-            .await;
+            let (pack_path, planned) = match version {
+                PackVersion::Modrinth(version) => {
+                    let api = api.ok_or_else(|| t(M::ModrinthUnreachable).to_string())?;
+                    let project = api
+                        .project(&current.project_id)
+                        .await
+                        .map_err(|e| e.to_string())?;
+                    let pack_path = import::download_pack(
+                        &api,
+                        &downloader,
+                        &version,
+                        &dirs.instance,
+                        &progress,
+                        &CancelToken::new(),
+                    )
+                    .await
+                    .map_err(|e| e.to_string())?;
+                    let planned = async {
+                        let pack = modpack::read_pack(&pack_path)?;
+                        let loader = resolve_loader(&installer, &pack).await?;
+                        let record = ModpackRecord::from_modrinth(&project, &version);
+                        let plan = update::plan(&dirs, &current, &pack, record, loader);
+                        Ok::<_, ModpackError>((plan, pack, Vec::new()))
+                    }
+                    .await;
+                    (pack_path, planned)
+                }
+                PackVersion::CurseForge(file) => {
+                    let cf = cf.ok_or_else(|| t(M::CurseForgeUnreachable).to_string())?;
+                    let from = current
+                        .curseforge
+                        .clone()
+                        .ok_or_else(|| t(M::CurseForgeUnreachable).to_string())?;
+                    if !file.downloadable() {
+                        return Err(t(M::CurseForgeUpdateOnWebsite).to_string());
+                    }
+                    let pack_path = modpack::curseforge::download(
+                        &cf,
+                        &downloader,
+                        &file,
+                        &dirs.instance,
+                        &progress,
+                        &CancelToken::new(),
+                    )
+                    .await
+                    .map_err(|e| e.to_string())?;
+                    let planned = async {
+                        let read = modpack::curseforge::read_curseforge_pack(&pack_path)?;
+                        let resolved =
+                            modpack::curseforge::resolve(&cf, api.as_deref(), &read).await?;
+                        let loader = resolve_loader(&installer, &resolved.info).await?;
+                        // The project is the one the instance was made from: its name,
+                        // icon and page stay, the file changes.
+                        let record = ModpackRecord {
+                            title: current.title.clone(),
+                            slug: current.slug.clone(),
+                            icon_url: current.icon_url.clone(),
+                            version_number: file.display_name_or_file().to_string(),
+                            date_published: file.file_date.clone(),
+                            curseforge: Some(CurseForgePack {
+                                file_id: file.id,
+                                file_date: file.file_date.clone(),
+                                ..from
+                            }),
+                            ..ModpackRecord::default()
+                        };
+                        let plan = update::plan(&dirs, &current, &resolved.info, record, loader);
+                        Ok::<_, ModpackError>((plan, resolved.info, resolved.blocked))
+                    }
+                    .await;
+                    (pack_path, planned)
+                }
+            };
             match planned {
-                Ok((plan, pack)) => Ok(UpdatePrompt {
+                Ok((plan, pack, blocked)) => Ok(UpdatePrompt {
                     instance_id: instance.id.clone(),
                     instance_name: instance.name.clone(),
                     from_version: current.version_number.clone(),
@@ -892,6 +1061,7 @@ impl Instances {
                     pack: Arc::new(pack),
                     snapshot_failed: None,
                     without_snapshot: false,
+                    blocked,
                 }),
                 Err(err) => {
                     let _ = std::fs::remove_file(&pack_path);
@@ -941,6 +1111,7 @@ impl Instances {
             return;
         }
         let api = self.modrinth.clone();
+        let cf = self.curseforge.clone();
         let dirs = self.content_dirs(&id);
         let downloader = self.content_downloader.clone();
         let images = self.images();
@@ -994,8 +1165,8 @@ impl Instances {
                     &image_id,
                     labels::pack_updated(&record.title, &record.version_number),
                 );
-                let result = update::apply(
-                    api.as_deref(),
+                let result = update::apply_on(
+                    Platforms::new(api.as_deref(), cf.as_deref()),
                     &downloader,
                     &dirs,
                     &prompt.plan,
@@ -1030,6 +1201,11 @@ impl Instances {
                 match result {
                     Ok(outcome) => {
                         let plan = &prompt.plan;
+                        // Files only CurseForge's website serves: the Content tab asks
+                        // for them, as after an import.
+                        if !prompt.blocked.is_empty() {
+                            this.put_back_pending_downloads(&id, prompt.blocked.clone());
+                        }
                         let saved = this.store.get(&id).map(|mut instance: Instance| {
                             instance.game_version = plan.game_version.clone();
                             instance.loader =

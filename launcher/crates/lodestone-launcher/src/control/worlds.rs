@@ -445,6 +445,7 @@ fn datapack_json(pack: &datapacks::DataPack, game_version: &str) -> Value {
         "warning": compatibility.warning(),
         "problem": pack.meta.problem,
         "modrinth_project": pack.modrinth_project,
+        "curseforge_project": pack.curseforge_project,
     })
 }
 
@@ -590,6 +591,35 @@ struct SearchParams {
     query: Option<String>,
     #[serde(default)]
     limit: Option<u32>,
+    /// `modrinth` (the default) or `curseforge`.
+    #[serde(default)]
+    source: Option<String>,
+}
+
+/// Whether a data pack command is for CurseForge: `source` says so, or (without it)
+/// the project is a curseforge.com link.
+fn wants_curseforge(source: Option<&str>, project: Option<&str>) -> Result<bool, ErrorObject> {
+    match source.map(|s| s.trim().to_ascii_lowercase()).as_deref() {
+        Some("curseforge") => Ok(true),
+        Some("modrinth") => Ok(false),
+        Some(other) => Err(api_error(
+            codes::INVALID_PARAMS,
+            format!("No source \"{other}\". Sources: modrinth, curseforge."),
+        )),
+        None => Ok(project.is_some_and(|p| p.contains("curseforge.com/"))),
+    }
+}
+
+fn curseforge(
+    control: &Control,
+    cx: &App,
+) -> Result<Arc<launcher_core::content::CurseForge>, ErrorObject> {
+    control.instances.read(cx).curseforge().ok_or_else(|| {
+        api_error(
+            codes::UNAVAILABLE,
+            "CurseForge isn't available in this copy of Lodestone Launcher.",
+        )
+    })
 }
 
 /// Data packs on Modrinth for the instance's Minecraft version.
@@ -597,6 +627,33 @@ pub fn datapack_search(call: Call, cx: &mut App) -> Reply {
     let params: SearchParams = params!(call);
     let control = call.control.clone();
     let instance = tri!(control.instance_param(&call, cx));
+    if tri!(wants_curseforge(params.source.as_deref(), None)) {
+        use launcher_core::content::curseforge::{CLASS_DATA_PACKS, CfSearch};
+        let cf = tri!(curseforge(&control, cx));
+        let mut search = CfSearch::new(CLASS_DATA_PACKS, params.query.as_deref().unwrap_or(""));
+        search.game_version = Some(instance.game_version.clone());
+        search.limit = params.limit.unwrap_or(10) as usize;
+        return cx.background_spawn(async move {
+            let results = cf
+                .search(&search)
+                .await
+                .map_err(|err| api_error(codes::FAILED, err.to_string()))?;
+            Ok(json!({
+                "game_version": instance.game_version,
+                "source": "curseforge",
+                "total": results.total,
+                "hits": results.hits.iter().map(|h| json!({
+                    "project": h.id.to_string(),
+                    "slug": h.slug,
+                    "title": h.name,
+                    "author": h.authors.first().map(|a| a.name.clone()),
+                    "description": h.summary,
+                    "downloads": h.download_count as u64,
+                    "url": h.page_url(),
+                })).collect::<Vec<_>>(),
+            }))
+        });
+    }
     let api = tri!(modrinth(&control, cx));
     let search = tri!(
         lodestone_minecraft::modrinth::ClientSearchParams::new(
@@ -634,20 +691,116 @@ pub fn datapack_search(call: Call, cx: &mut App) -> Reply {
 struct InstallParams {
     /// A Modrinth project id or slug.
     project: String,
-    /// A version id or number; the newest that fits by default.
+    /// A version id or number; the newest that fits by default. On CurseForge, a file
+    /// id or name.
     #[serde(default)]
     version: Option<String>,
+    /// `modrinth` (the default) or `curseforge`. A curseforge.com link needs none.
+    #[serde(default)]
+    source: Option<String>,
 }
 
 /// Installs a Modrinth data pack into a world.
 pub fn datapack_install(call: Call, cx: &mut App) -> Reply {
     let params: InstallParams = params!(call);
     let target = tri!(target(&call, cx));
-    let api = tri!(modrinth(&target.control, cx));
     let downloader = target.control.instances.read(cx).content_downloader();
     let version = game_version(&target);
     let folder = target.world.folder.clone();
     let label = format!("Installing {} in {}", params.project, target.world.name());
+    if tri!(wants_curseforge(
+        params.source.as_deref(),
+        Some(&params.project)
+    )) {
+        use launcher_core::content::curseforge::CLASS_DATA_PACKS;
+        let cf = tri!(curseforge(&target.control, cx));
+        return run_async(
+            &call,
+            target,
+            label,
+            move |dirs, progress, cancel| async move {
+                let invalid = |err: launcher_core::content::CurseForgeError| {
+                    WorldError::Invalid(err.to_string())
+                };
+                let reference = params.project.trim();
+                let (project, linked) = if reference.contains("curseforge.com") {
+                    let found = cf.resolve_link(reference).await.map_err(invalid)?;
+                    (found.project, found.file)
+                } else {
+                    let project = match reference.parse::<u64>() {
+                        Ok(id) => cf.project(id).await,
+                        Err(_) => cf.project_by_slug(CLASS_DATA_PACKS, reference).await,
+                    }
+                    .map_err(invalid)?;
+                    (project, None)
+                };
+                if project.class_id != Some(CLASS_DATA_PACKS) {
+                    return Err(WorldError::Invalid(format!(
+                        "{} isn't a data pack.",
+                        project.name
+                    )));
+                }
+                let files = match linked {
+                    Some(file) => vec![file],
+                    None => cf.files(project.id, None, None).await.map_err(invalid)?,
+                };
+                let picked = match &params.version {
+                    Some(wanted) => {
+                        let file = files
+                            .into_iter()
+                            .find(|f| {
+                                f.id.to_string() == *wanted || f.display_name_or_file() == wanted
+                            })
+                            .ok_or_else(|| {
+                                WorldError::Invalid(format!(
+                                    "{} has no file \"{wanted}\".",
+                                    project.name
+                                ))
+                            })?;
+                        if let Some(problem) =
+                            datapacks::curseforge_incompatibility(&file, &version)
+                        {
+                            return Err(WorldError::Invalid(problem));
+                        }
+                        file
+                    }
+                    None => {
+                        let blocked = files
+                            .iter()
+                            .filter(|f| !f.downloadable())
+                            .find_map(|f| datapacks::curseforge_incompatibility(f, &version));
+                        datapacks::pick_curseforge_file(&version, files).ok_or_else(|| {
+                            WorldError::Invalid(blocked.unwrap_or_else(|| {
+                                format!(
+                                    "{} has no data pack for Minecraft {version}.",
+                                    project.name
+                                )
+                            }))
+                        })?
+                    }
+                };
+                let installed = datapacks::install_curseforge(
+                    &cf,
+                    &downloader,
+                    &dirs,
+                    &folder,
+                    &picked,
+                    &progress,
+                    &cancel,
+                )
+                .await?;
+                Ok(json!({
+                    "world": folder,
+                    "installed": installed.name,
+                    "version": picked.display_name_or_file(),
+                    "replaced": installed.replaced,
+                    "source": "curseforge",
+                }))
+            },
+            cx,
+        );
+    }
+    let api = tri!(modrinth(&target.control, cx));
     run_async(
         &call,
         target,

@@ -749,10 +749,11 @@ pub fn export(call: Call, cx: &mut App) -> Reply {
     let params: ExportParams = params!(call);
     let instance = tri!(call.control.instance_param(&call, cx));
     tri!(absolute(&params.path));
-    if params.path.extension().and_then(|e| e.to_str()) != Some("mrpack") {
+    let curseforge = crate::instances::export_is_curseforge(&params.path);
+    if !curseforge && params.path.extension().and_then(|e| e.to_str()) != Some("mrpack") {
         return ready(Err(api_error(
             codes::INVALID_PARAMS,
-            "A Modrinth modpack's file name ends in .mrpack.",
+            "A Modrinth modpack's file name ends in .mrpack, and a CurseForge one's in .zip.",
         )));
     }
     let store = call.control.instances.read(cx).store();
@@ -760,6 +761,36 @@ pub fn export(call: Call, cx: &mut App) -> Reply {
     let instance_dir = store.dir(&instance.id);
     let out = params.path.clone();
     let exported = instance.clone();
+    if curseforge {
+        let cf = call.control.instances.read(cx).curseforge();
+        // the steps of `Instances::export` for a CurseForge pack, with the outcome returned
+        let work = cx.background_spawn(async move {
+            let plan = crate::instances::curseforge_export_plan(
+                cf.as_deref(),
+                &exported,
+                &game_dir,
+                &instance_dir,
+            )
+            .await
+            .map_err(|err| api_error(codes::FAILED, err.to_string()))?;
+            export::write_curseforge(&plan, &out)
+                .map_err(|err| api_error(codes::FAILED, err.to_string()))?;
+            Ok(json!({
+                "path": out,
+                "format": "curseforge",
+                "files_listed": plan.manifest.files.len(),
+                "files_copied": plan.overrides.len(),
+                "skipped": plan.skipped.iter().map(|(file, why)| json!({ "file": file, "reason": why.to_string() })).collect::<Vec<_>>(),
+            }))
+        });
+        let control = call.control.clone();
+        let job = control.start_job(
+            JobSpec::new("export", format!("Exporting {}", instance.name)).instance(&instance),
+            work,
+            cx,
+        );
+        return control.reply_job(&call, job, cx);
+    }
     // the steps of `Instances::export`, with the outcome returned
     let work = cx.background_spawn(async move {
         let on_modrinth = export::modrinth_files(&instance_dir);

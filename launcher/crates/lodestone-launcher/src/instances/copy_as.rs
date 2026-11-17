@@ -9,9 +9,10 @@ use std::sync::Arc;
 use gpui::{AppContext as _, Context, Task};
 use launcher_core::{
     content::{
-        Target,
+        Platforms, Target,
         copy_as::{
-            self, Contents, CopyAsError, CopyAsRequest, ResolvedMods, SourceMod, WorldsRule,
+            self, CfSourceMod, Contents, CopyAsError, CopyAsRequest, ResolvedMods, SourceMod,
+            WorldsRule,
         },
         install::InstallProgress,
     },
@@ -31,27 +32,44 @@ impl Instances {
         cx: &mut Context<Self>,
     ) -> Task<Result<Contents, String>> {
         let api = self.modrinth.clone();
+        let cf = self.curseforge.clone();
         let dirs = self.content_dirs(id);
         cx.background_spawn(async move {
-            copy_as::contents(api.as_deref(), &dirs)
+            copy_as::contents_on(Platforms::new(api.as_deref(), cf.as_deref()), &dirs)
                 .await
                 .map_err(|err| err.to_string())
         })
     }
 
-    /// Finds each of `mods`' build for `target` on Modrinth, in the background. `None`
-    /// when Modrinth can't be reached.
+    /// Finds each of `mods`' build for `target` on Modrinth, and each of
+    /// `curseforge_mods`' file for it on CurseForge, in the background. `None` when
+    /// Modrinth can't be reached and has mods to find, or neither platform can be.
+    /// Without CurseForge its mods aren't looked for, and stay behind.
     pub fn resolve_copy_mods(
         &self,
         mods: Vec<SourceMod>,
+        curseforge_mods: Vec<CfSourceMod>,
         target: Target,
         cx: &mut Context<Self>,
     ) -> Option<Task<Result<ResolvedMods, String>>> {
-        let api = self.modrinth.clone()?;
+        let api = self.modrinth.clone();
+        let cf = self.curseforge.clone();
+        if api.is_none() && (!mods.is_empty() || cf.is_none()) {
+            return None;
+        }
         Some(cx.background_spawn(async move {
-            copy_as::resolve_mods(&api, &mods, &target)
-                .await
-                .map_err(|err| err.to_string())
+            let mut resolved = match &api {
+                Some(api) => copy_as::resolve_mods(api, &mods, &target)
+                    .await
+                    .map_err(|err| err.to_string())?,
+                None => ResolvedMods::default(),
+            };
+            if let Some(cf) = &cf {
+                copy_as::resolve_curseforge_mods(cf, &curseforge_mods, &target, &mut resolved)
+                    .await
+                    .map_err(|err| err.to_string())?;
+            }
+            Ok(resolved)
         }))
     }
 
@@ -97,6 +115,9 @@ impl Instances {
         if !request.plan.mods.is_empty() && self.modrinth.is_none() {
             return Err(t(crate::i18n::InstanceSettingsMsg::ModrinthUnreachable).into());
         }
+        if !request.plan.curseforge_mods.is_empty() && self.curseforge.is_none() {
+            return Err(t(crate::i18n::InstanceSettingsMsg::CurseForgeUnreachable).into());
+        }
         self.next_import += 1;
         let job_id = self.next_import;
         let progress = Arc::new(InstallProgress::default());
@@ -115,14 +136,15 @@ impl Instances {
         let work = {
             let store = self.store.clone();
             let api = self.modrinth.clone();
+            let cf = self.curseforge.clone();
             let downloader = self.content_downloader.clone();
             let images = self.images();
             let progress = progress.clone();
             let cancel = cancel.clone();
             cx.background_spawn(async move {
-                let outcome = copy_as::execute(
+                let outcome = copy_as::execute_on(
                     &store,
-                    api.as_deref(),
+                    Platforms::new(api.as_deref(), cf.as_deref()),
                     &downloader,
                     &source,
                     &request,
@@ -150,6 +172,12 @@ impl Instances {
                         let copy = outcome.instance;
                         this.selected = Some(copy.id.clone());
                         this.copies.insert(job_id, copy.id.clone());
+                        // Mods only CurseForge's website serves: the copy's Content
+                        // tab asks for them.
+                        if !outcome.blocked.is_empty() {
+                            this.pending_downloads
+                                .insert(copy.id.clone(), outcome.blocked.clone());
+                        }
                         this.reload(cx);
                         let mut message = tr!(
                             M::ModpackReadyMessage,

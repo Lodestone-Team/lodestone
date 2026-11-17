@@ -273,6 +273,8 @@ crate::i18n::messages! {
         /// Progress: the pack's files going into the instance.
         AddingName = "Adding {name}",
         ModrinthUnreachable = "Modrinth can't be reached.",
+        /// A newer version of a CurseForge modpack whose author keeps its file on curseforge.com.
+        CurseForgeUpdateOnWebsite = "This version can only be downloaded from CurseForge's website, so it can't be installed as an update.",
         /// The pack, or another version of it, was added to the instance before.
         ModpackAddedAlready = "{pack} is added to this instance already. Remove it in Settings first to add another version.",
         CouldntAddModpack = "Couldn't add the modpack",
@@ -308,6 +310,11 @@ crate::i18n::messages! {
         CurseForgeLeftOut = (
             "{count} file was left out because it is only on CurseForge, whose files can't go into a Modrinth pack: {names}.",
             "{count} files were left out because they are only on CurseForge, whose files can't go into a Modrinth pack: {names}."
+        ),
+        /// After an export as a CurseForge pack: files only Modrinth has, left out.
+        ModrinthLeftOut = (
+            "{count} file was left out because it is only on Modrinth, which a CurseForge pack can't download from: {names}.",
+            "{count} files were left out because they are only on Modrinth, which a CurseForge pack can't download from: {names}."
         ),
         FilesLeftOut = (
             "{count} file was left out: {name}.",

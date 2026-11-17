@@ -31,7 +31,7 @@ use launcher_core::{
     instances::{BackgroundMode, Instance, Loader, Memory, SlideshowSource, format_env},
     modpack::ModpackRecord,
 };
-use lodestone_minecraft::modrinth::{ModrinthVersionType, RawVersion};
+use lodestone_minecraft::modrinth::RawVersion;
 
 use super::{
     Instances,
@@ -39,7 +39,7 @@ use super::{
     content::Load,
     fields::{self, Fields, Values},
     loader_picker::LoaderPicker,
-    modpacks::UpdatePrompt,
+    modpacks::{PackVersion, UpdatePrompt, update_candidate},
     shared_settings::InstanceSharedSettings,
 };
 use crate::components::{
@@ -196,7 +196,7 @@ pub struct InstanceSettings {
     /// "Remove" was clicked for this added pack and waits for the second click.
     confirm_remove_added: Option<String>,
     /// The pack's versions on Modrinth, after "Check for updates".
-    modpack_versions: Load<Vec<RawVersion>>,
+    modpack_versions: Load<Vec<PackVersion>>,
     /// Downloading and planning an update.
     preparing_update: bool,
     /// "Unlink" was clicked and waits for the second click.
@@ -250,22 +250,6 @@ impl EventEmitter<ShareRequested> for InstanceSettings {}
 impl EventEmitter<AddModpackRequested> for InstanceSettings {}
 impl EventEmitter<CopyAsRequested> for InstanceSettings {}
 impl EventEmitter<UpdatePrompt> for InstanceSettings {}
-
-/// The version to offer as an update: the newest release, else the newest version,
-/// if it is newer than `current`.
-pub fn update_candidate(versions: &[RawVersion], current: &ModpackRecord) -> Option<RawVersion> {
-    let newest = versions
-        .iter()
-        .filter(|v| v.version_type == ModrinthVersionType::Release)
-        .max_by(|a, b| a.date_published.cmp(&b.date_published))
-        .or_else(|| {
-            versions
-                .iter()
-                .max_by(|a, b| a.date_published.cmp(&b.date_published))
-        })?;
-    (newest.id != current.version_id && newest.date_published > current.date_published)
-        .then(|| newest.clone())
-}
 
 /// Only the settings the Settings tab's fields edit, for comparing the fields' values.
 fn form_values(instance: &Instance) -> Instance {
@@ -1720,7 +1704,9 @@ impl InstanceSettings {
             .into_any_element()
     }
 
-    fn export(&mut self, cx: &mut Context<Self>) {
+    /// Asks where to save the instance as a modpack: a Modrinth `.mrpack`, or a
+    /// CurseForge `.zip` (`curseforge`).
+    fn export(&mut self, curseforge: bool, cx: &mut Context<Self>) {
         let name = self
             .instance(cx)
             .map(|i| i.name)
@@ -1728,11 +1714,20 @@ impl InstanceSettings {
         // A name Windows takes too: no reserved characters, trailing dot or device name.
         let file_name = launcher_core::worlds::folder_name(&name);
         let folder = dirs_downloads();
-        let picked = cx.prompt_for_new_path(&folder, Some(&format!("{file_name}.mrpack")));
+        let extension = if curseforge { "zip" } else { "mrpack" };
+        let picked = cx.prompt_for_new_path(&folder, Some(&format!("{file_name}.{extension}")));
         let id = self.instance_id.clone();
         self._prompt = Some(cx.spawn(async move |this, cx| {
             let Some(path) = file_dialog::chosen(picked, &this, cx).await else {
                 return;
+            };
+            // The extension says which pack it is: one typed without it gets it.
+            let path = if curseforge == super::export_is_curseforge(&path) {
+                path
+            } else {
+                let mut name = path.file_name().unwrap_or_default().to_os_string();
+                name.push(format!(".{extension}"));
+                path.with_file_name(name)
             };
             this.update(cx, |this, cx| {
                 this.instances
@@ -1770,13 +1765,18 @@ impl InstanceSettings {
     }
 
     fn check_modpack(&mut self, cx: &mut Context<Self>) {
-        let Some(record) = self.modpack.clone().filter(ModpackRecord::on_modrinth) else {
+        let Some(record) = self.modpack.clone().filter(ModpackRecord::updatable) else {
             return;
         };
-        let Some(task) = self.instances.update(cx, |instances, cx| {
-            instances.modpack_versions(&record.project_id, cx)
-        }) else {
-            return self.set_message(t(M::ModrinthUnreachable), true, cx);
+        let Some(task) = self
+            .instances
+            .update(cx, |instances, cx| instances.modpack_versions(&record, cx))
+        else {
+            let unreachable = match record.curseforge_updates() {
+                Some(_) => M::CurseForgeUnreachable,
+                None => M::ModrinthUnreachable,
+            };
+            return self.set_message(t(unreachable), true, cx);
         };
         self.modpack_versions = Load::Loading;
         self._modpack_task = Some(cx.spawn(async move |this, cx| {
@@ -1794,7 +1794,7 @@ impl InstanceSettings {
     }
 
     /// Downloads the version and plans the update, then asks the window to confirm it.
-    fn prepare_update(&mut self, version: RawVersion, cx: &mut Context<Self>) {
+    fn prepare_update(&mut self, version: PackVersion, cx: &mut Context<Self>) {
         let id = self.instance_id.clone();
         let Some(task) = self.instances.update(cx, |instances, cx| {
             instances.plan_modpack_update(&id, version, cx)
@@ -1822,7 +1822,12 @@ impl InstanceSettings {
     /// Shows the pack and an available update, for the offscreen screenshots.
     pub fn preview_modpack(&mut self, record: ModpackRecord, versions: Vec<RawVersion>) {
         self.modpack = Some(record);
-        self.modpack_versions = Load::Ready(versions);
+        self.modpack_versions = Load::Ready(
+            versions
+                .into_iter()
+                .map(|version| PackVersion::Modrinth(Box::new(version)))
+                .collect(),
+        );
     }
 
     /// Shows a Java check result, for the offscreen screenshots.
@@ -1875,7 +1880,9 @@ impl InstanceSettings {
             .modpack_versions
             .ready()
             .and_then(|versions| update_candidate(versions, &record));
+        let from_curseforge = record.curseforge_updates();
         let origin = match &self.server {
+            _ if from_curseforge.is_some() => t(M::FromCurseForge).to_string(),
             _ if record.on_modrinth() => t(M::FromModrinth).to_string(),
             Some(server) => tr!(M::FromServerMods, server = server),
             None => t(M::FromMrpack).to_string(),
@@ -1885,8 +1892,21 @@ impl InstanceSettings {
         } else {
             format!(" {}", record.version_number)
         };
-        let page = (!record.slug.is_empty())
-            .then(|| format!("https://modrinth.com/modpack/{}", record.slug));
+        // A CurseForge pack's page is CurseForge's: its slug names nothing on Modrinth.
+        let page = match &record.curseforge {
+            Some(pack) => Some((M::ViewOnCurseForge, pack.page_url.clone()))
+                .filter(|(_, url)| url.starts_with("https://www.curseforge.com/")),
+            None => (!record.slug.is_empty()).then(|| {
+                (
+                    M::ViewOnModrinth,
+                    format!("https://modrinth.com/modpack/{}", record.slug),
+                )
+            }),
+        };
+        let checking = match from_curseforge {
+            Some(_) => M::CheckingCurseForge,
+            None => M::CheckingModrinth,
+        };
         let working = |label: String| {
             div()
                 .flex()
@@ -1907,54 +1927,51 @@ impl InstanceSettings {
                 .child(text_)
                 .into_any_element()
         };
-        let update: Option<AnyElement> = if let Some((label, snapshot)) = update_job {
-            let percent = if snapshot.bytes_total > 0 {
-                let done =
-                    (snapshot.bytes_done as f64 * 100.0 / snapshot.bytes_total as f64).round();
-                format!(" · {}", format::percent(done as u64))
+        let update: Option<AnyElement> =
+            if let Some((label, snapshot)) = update_job {
+                let percent = if snapshot.bytes_total > 0 {
+                    let done =
+                        (snapshot.bytes_done as f64 * 100.0 / snapshot.bytes_total as f64).round();
+                    format!(" · {}", format::percent(done as u64))
+                } else {
+                    String::new()
+                };
+                Some(working(format!("{label}{percent}")))
+            } else if self.preparing_update {
+                Some(working(t(M::DownloadingNewVersion).into()))
             } else {
-                String::new()
-            };
-            Some(working(format!("{label}{percent}")))
-        } else if self.preparing_update {
-            Some(working(t(M::DownloadingNewVersion).into()))
-        } else {
-            match (&self.modpack_versions, candidate) {
-                (Load::Loading, _) => Some(working(t(M::CheckingModrinth).into())),
-                (Load::Failed(err), _) => Some(status_text(err.clone(), colors::RED_200)),
-                (Load::Ready(_), Some(newer)) => Some(
-                    Button::new(
-                        "update-modpack",
-                        tr!(M::UpdateTo, version = newer.version_number),
-                    )
-                    .variant(ButtonVariant::Primary)
-                    .size(ButtonSize::Slim)
-                    .disabled(busy)
-                    .on_click(
-                        cx.listener(move |this, _, _, cx| this.prepare_update(newer.clone(), cx)),
-                    )
-                    .into_any_element(),
-                ),
-                (Load::Ready(_), None) => {
-                    Some(status_text(t(M::UpToDate).into(), colors::GREEN_300))
+                match (&self.modpack_versions, candidate) {
+                    (Load::Loading, _) => Some(working(t(checking).into())),
+                    (Load::Failed(err), _) => Some(status_text(err.clone(), colors::RED_200)),
+                    (Load::Ready(_), Some(newer)) => Some(
+                        Button::new("update-modpack", tr!(M::UpdateTo, version = newer.label()))
+                            .variant(ButtonVariant::Primary)
+                            .size(ButtonSize::Slim)
+                            .disabled(busy)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.prepare_update(newer.clone(), cx)
+                            }))
+                            .into_any_element(),
+                    ),
+                    (Load::Ready(_), None) => {
+                        Some(status_text(t(M::UpToDate).into(), colors::GREEN_300))
+                    }
+                    (Load::NotLoaded, _) if record.updatable() => Some(
+                        Button::new("check-modpack", t(M::Check))
+                            .variant(ButtonVariant::Secondary)
+                            .size(ButtonSize::Slim)
+                            .on_click(cx.listener(|this, _, _, cx| this.check_modpack(cx)))
+                            .into_any_element(),
+                    ),
+                    (Load::NotLoaded, _) => None,
                 }
-                (Load::NotLoaded, _) if record.on_modrinth() => Some(
-                    Button::new("check-modpack", t(M::Check))
-                        .variant(ButtonVariant::Secondary)
-                        .size(ButtonSize::Slim)
-                        .on_click(cx.listener(|this, _, _, cx| this.check_modpack(cx)))
-                        .into_any_element(),
-                ),
-                (Load::NotLoaded, _) => None,
-            }
-        };
+            };
         let mut rows = vec![
             SettingRow::new(format!("{}{version}", record.title))
                 .hint(origin)
-                .when_some(page, |row, page| {
+                .when_some(page, |row, (label, page)| {
                     row.child(
-                        link("modpack-page", t(M::ViewOnModrinth))
-                            .on_press(move |_, _, cx| cx.open_url(&page)),
+                        link("modpack-page", t(label)).on_press(move |_, _, cx| cx.open_url(&page)),
                     )
                 }),
         ];
@@ -2682,12 +2699,30 @@ impl Render for InstanceSettings {
                             this.set_message(t(M::VerifyStarted), false, cx);
                         })),
                 ),
-            SettingRow::new(t(M::Export)).hint(t(M::ExportHint)).child(
-                Button::new("export-instance", t(M::ExportButton))
-                    .variant(ButtonVariant::Secondary)
-                    .size(ButtonSize::Slim)
-                    .on_click(cx.listener(|this, _, _, cx| this.export(cx))),
-            ),
+            // With CurseForge in reach, the pack can be either platform's.
+            if self.instances.read(cx).curseforge().is_some() {
+                SettingRow::new(t(M::Export))
+                    .hint(t(M::ExportHintBoth))
+                    .child(
+                        Button::new("export-instance", t(M::ExportModrinthButton))
+                            .variant(ButtonVariant::Secondary)
+                            .size(ButtonSize::Slim)
+                            .on_click(cx.listener(|this, _, _, cx| this.export(false, cx))),
+                    )
+                    .child(
+                        Button::new("export-instance-curseforge", t(M::ExportCurseForgeButton))
+                            .variant(ButtonVariant::Secondary)
+                            .size(ButtonSize::Slim)
+                            .on_click(cx.listener(|this, _, _, cx| this.export(true, cx))),
+                    )
+            } else {
+                SettingRow::new(t(M::Export)).hint(t(M::ExportHint)).child(
+                    Button::new("export-instance", t(M::ExportButton))
+                        .variant(ButtonVariant::Secondary)
+                        .size(ButtonSize::Slim)
+                        .on_click(cx.listener(|this, _, _, cx| this.export(false, cx))),
+                )
+            },
             SettingRow::new(t(M::ShareCodeRow)).child(
                 Button::new("share-instance", t(M::ShareButton))
                     .variant(ButtonVariant::Secondary)
@@ -3236,6 +3271,7 @@ mod tests {
             date_published: "2025-02-01".into(),
             ..ModpackRecord::default()
         };
+        let version = |id, kind, date| PackVersion::Modrinth(Box::new(version(id, kind, date)));
         let mut versions = vec![
             version("v1", "release", "2025-01-01"),
             version("v2", "release", "2025-02-01"),
@@ -3244,10 +3280,52 @@ mod tests {
         versions.push(version("v3-beta", "beta", "2025-04-01"));
         assert!(update_candidate(&versions, &current).is_none());
         versions.push(version("v3", "release", "2025-03-01"));
-        assert_eq!(update_candidate(&versions, &current).unwrap().id, "v3");
+        assert_eq!(update_candidate(&versions, &current).unwrap().id(), "v3");
         // A pack with only betas offers the newest beta.
         let betas = [version("b1", "beta", "2025-05-01")];
-        assert_eq!(update_candidate(&betas, &current).unwrap().id, "b1");
+        assert_eq!(update_candidate(&betas, &current).unwrap().id(), "b1");
+    }
+
+    #[test]
+    fn offers_a_curseforge_packs_newest_release_file() {
+        use launcher_core::{content::curseforge::CfFile, modpack::CurseForgePack};
+        let current = ModpackRecord {
+            curseforge: Some(CurseForgePack {
+                project_id: 7,
+                file_id: 20,
+                file_date: "2025-02-01T00:00:00Z".into(),
+                page_url: String::new(),
+            }),
+            ..ModpackRecord::default()
+        };
+        let file = |id: u64, release_type: u8, date: &str| {
+            let file: CfFile = serde_json::from_value(serde_json::json!({
+                "id": id,
+                "modId": 7,
+                "fileName": format!("pack-{id}.zip"),
+                "releaseType": release_type,
+                "fileDate": date,
+            }))
+            .unwrap();
+            PackVersion::CurseForge(Box::new(file))
+        };
+        let mut files = vec![
+            file(10, 1, "2025-01-01T00:00:00Z"),
+            file(20, 1, "2025-02-01T00:00:00Z"),
+        ];
+        assert!(update_candidate(&files, &current).is_none());
+        files.push(file(31, 2, "2025-04-01T00:00:00Z"));
+        assert!(update_candidate(&files, &current).is_none());
+        files.push(file(30, 1, "2025-03-01T00:00:00Z"));
+        let newer = update_candidate(&files, &current).unwrap();
+        assert_eq!(newer.id(), "30");
+        assert_eq!(newer.label(), "pack-30.zip");
+        // A server's instance is updated by its server, not from CurseForge.
+        let served = ModpackRecord {
+            from_server: true,
+            ..current.clone()
+        };
+        assert!(!served.updatable());
     }
 }
 
