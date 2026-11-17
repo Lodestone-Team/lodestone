@@ -128,9 +128,22 @@ pub fn core_status(
         CoreStatus::Restarting { .. } => waiting(t(ShellMsg::RestartingCore).into()),
         CoreStatus::Running { .. } => waiting(t(ShellMsg::SigningIn).into()),
         CoreStatus::Stopping | CoreStatus::Stopped => waiting(t(ShellMsg::StoppingCore).into()),
-        CoreStatus::Failed { reason, log } => card([
-            title(t(ShellMsg::CoreFailed)),
-            paragraph(reason.clone()),
+        // what happened as the title, then the exit code or error, exact, to copy
+        CoreStatus::Failed {
+            reason,
+            detail,
+            log,
+        } => card([
+            title(reason.clone()),
+            div()
+                .when_some(detail.clone(), |this, (key, value)| {
+                    this.child(
+                        lodestone_ui::components::ValueField::new("core-failed-detail", value)
+                            .label(key)
+                            .kind(lodestone_ui::components::ValueKind::Code),
+                    )
+                })
+                .into_any_element(),
             crash_line(crashed),
             div()
                 .when(!log.is_empty(), |this| {

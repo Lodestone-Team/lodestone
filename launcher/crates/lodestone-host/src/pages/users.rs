@@ -621,12 +621,19 @@ impl Render for UsersPage {
                 Confirm {
                     id: "delete-user",
                     title: t(CoreMsg::DeleteUserTitle).into(),
-                    body: tr!(CoreMsg::DeleteUserConfirm, name = deleting.user.username).into(),
+                    body: t(CoreMsg::DeleteUserConfirm).into(),
                     action: t(CommonMsg::Delete).into(),
                     danger: true,
                     busy: deleting.busy,
                 }
-                .render(
+                // the user, by their exact username, with their avatar
+                .render_about(
+                    lodestone_ui::components::ObjectCard::new(deleting.user.username.clone())
+                        .thumbnail(parts::avatar(
+                            &deleting.user.uid,
+                            &deleting.user.username,
+                            32.,
+                        )),
                     deleting.focus.clone(),
                     move |_, cx| {
                         this.update(cx, |this, cx| this.delete(cx)).ok();

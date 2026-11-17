@@ -6,6 +6,7 @@ import { PublicUser } from 'bindings/PublicUser';
 import { UserPermission } from 'bindings/UserPermission';
 import { Base64 } from 'js-base64';
 import { toast } from 'react-toastify';
+import { baseName, fileKind, fileToast } from 'components/FileViewer/fileToast';
 import {
   ApiError,
   axiosWrapper,
@@ -109,7 +110,11 @@ export const deleteInstanceFile = async (
     toast.error(error);
     return false;
   } else {
-    toast.success(t('server.api.deletedFile', { name: file.name }));
+    fileToast(
+      'success',
+      { name: file.name, kind: fileKind(file) },
+      t('files.toast.deleted')
+    );
   }
 
   const fileListKey = ['instance', uuid, 'fileList', directory];
@@ -142,7 +147,11 @@ export const deleteInstanceDirectory = async (
     toast.error(error);
     return false;
   } else {
-    toast.success(t('server.api.deletedDirectory', { path: directory }));
+    fileToast(
+      'success',
+      { name: baseName(directory), kind: 'folder' },
+      t('files.toast.deleted')
+    );
   }
   const fileListKey = ['instance', uuid, 'fileList', parentDirectory];
   const fileList = queryClient.getQueryData<ClientFile[]>(fileListKey);
@@ -204,11 +213,11 @@ export const downloadInstanceFile = async (
     await downloadFromCore(url);
     return true;
   } catch (error) {
-    toast.error(
-      t('server.api.downloadFailed', {
-        name: file.name,
-        error: errorToString(error),
-      })
+    fileToast(
+      'error',
+      { name: file.name, kind: fileKind(file) },
+      t('files.toast.downloadFailed'),
+      errorToString(error)
     );
     return false;
   }
@@ -337,11 +346,11 @@ export const moveInstanceFileOrDirectory = async (
   );
 
   if (error) {
-    toast.error(
-      t('server.api.moveFailed', {
-        name: getFileName(source, direcotrySeparator),
-        error,
-      })
+    fileToast(
+      'error',
+      { name: getFileName(source, direcotrySeparator), kind: 'file' },
+      t('files.toast.moveFailed'),
+      error
     );
     return error;
   }
@@ -410,10 +419,19 @@ export const unzipInstanceFile = async (
   );
 
   if (error) {
-    toast.error(t('server.api.unzipFailed', { name: file.name, error }));
+    fileToast(
+      'error',
+      { name: file.name, kind: 'archive' },
+      t('files.toast.unzipFailed'),
+      error
+    );
     return;
   } else {
-    toast.info(t('server.api.unzipping', { name: file.name }));
+    fileToast(
+      'info',
+      { name: file.name, kind: 'archive' },
+      t('files.toast.unzipping')
+    );
   }
 };
 

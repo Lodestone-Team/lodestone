@@ -7,6 +7,7 @@ mod auto_config;
 pub mod console;
 pub mod content;
 mod copy_as;
+pub mod facts;
 pub mod fields;
 mod files;
 pub mod import;
@@ -18,6 +19,7 @@ pub mod modpack_browser;
 pub mod modpacks;
 mod narrator;
 pub mod new_instance;
+pub mod report;
 pub mod settings;
 pub mod share_dialog;
 pub(crate) mod shared_options_i18n;
@@ -431,6 +433,9 @@ pub enum InstancesEvent {
         message: SharedString,
         about: About,
     },
+    /// The same with its names and values set apart: what it is about, keyed
+    /// facts, lists of names.
+    Report(Box<report::Report>),
     /// The instance's loader or Minecraft version was changed outside its Settings tab:
     /// by a modpack update, to match its linked server's pack, or by restoring a
     /// snapshot's mods. The user never changes them in place; a copy with another

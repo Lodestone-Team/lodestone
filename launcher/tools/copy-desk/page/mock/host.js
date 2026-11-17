@@ -427,7 +427,7 @@
     const kids = [h("div.hx-cap", S("SelectedInstance"))];
     if (onInstance && !noInstances()) {
       const addr = "localhost:" + inst.port;
-      const players = ist === "running" ? S("PlayersOnline", { online: 2, max: 20 }) : null;
+      const players = ist === "running" ? h("span", tx("Players 2 / 20")) : null;
       kids.push(h("div.hx-instcard",
         h("div.hx-name", gameIc(selGame(inst)), tx(inst.name)),
         h("div.hx-meta", stateDot(ist), stateLabel(ist), tx("·"), tx(GAMES[selGame(inst)])),
@@ -465,8 +465,8 @@
     const reason = conn === "degraded" || conn === "reconnecting" ? h("span", label, tx(": connection reset")) : label;
     const tipBody = h("div.hx-col.hx-gap4", reason,
       S("CoreAddress", { address: s.coreKind === "remote" ? "https://192.168.1.20:16662" : "https://127.0.0.1:16662" }),
-      S("CoreVersion", { version: "0.5.1" }), S("CoreHost", { host: s.coreKind === "remote" ? "homeserver" : "peters-mbp" }),
-      S("CoreSystem", { system: "macOS (Apple silicon)" }), S("CoreUptime", { uptime: FM("HoursMinutes", { hours: 2, minutes: 14 }) }));
+      tx("0.5.1"), S("CoreComputer"), tx(s.coreKind === "remote" ? "homeserver" : "peters-mbp"),
+      S("CoreSystem"), tx("macOS (Apple silicon)"), FM("HoursMinutes", { hours: 2, minutes: 14 }));
     const footer = h("div.hx-foot",
       tip(h("div.hx-conn", h("span", { class: "hx-dot " + dotCls }), h("span.hx-grow", tx(coreName()))), tipBody, { up: true, block: true }),
       h("div.hx-muted.hx-small", { style: { padding: "0 8px" } }, S("SignedInAs", { name: userName() })),
@@ -489,10 +489,10 @@
       const item = (txt, when, kind) => h("div.hx-nitem", h("span", { class: "hx-dot " + (kind || "hx-off"), style: { marginTop: "7px" } }), h("div.hx-grow", txt), h("span.hx-muted.hx-small", when));
       body.push(
         item(C("EventRunning", { name: "Survival SMP" }), FM("JustNow"), "hx-run"),
-        item(C("PlayersJoined", { players: "Alex, Sam", name: "Survival SMP" }), FMP("MinutesAgo", { count: 2 })),
+        item(h("span", tx("Survival SMP — Joined: Alex, Sam")), FMP("MinutesAgo", { count: 2 })),
         item(C("PlayersLeft", { players: "Jordan", name: "Survival SMP" }), FMP("MinutesAgo", { count: 5 })),
-        item(C("PlayersJoinedAndLeft", { joined: "Alex", left: "Sam", name: "Creative Build" }), FMP("MinutesAgo", { count: 9 })),
-        item(C("PlayerMessage", { player: "Alex", message: "hi all", name: "Survival SMP" }), FMP("MinutesAgo", { count: 12 })),
+        item(h("span", tx("Creative Build — Joined: Alex"), C("PlayersLeft")), FMP("MinutesAgo", { count: 9 })),
+        item(h("span", tx("Survival SMP — Alex: hi all")), FMP("MinutesAgo", { count: 12 })),
         item(C("EventStarting", { name: "Survival SMP" }), FMP("HoursAgo", { count: 1 }), "hx-warn"),
         item(C("EventStopping", { name: "Creative Build" }), FMP("HoursAgo", { count: 1 }), "hx-warn"),
         item(C("EventStopped", { name: "Creative Build" }), FMP("HoursAgo", { count: 2 })),
@@ -621,8 +621,8 @@
     const players = ist === "running" ? 2 : 0;
     const head = [
       h("div.hx-h1", { style: { marginBottom: "14px" } }, tip(h("span", tx(inst.name)), N("EditName"))),
-      h("div.hx-pills", gameIc(g, true), statePill(ist), pill(N("VersionLabel", { version: g === "fabric" ? "1.21.4" : "26.3" })),
-        pill(N("PlayerCount", { players, max: 20 })), tip(pill(h("span", tx("localhost:" + inst.port), " ", icon("copy", 12)), null, "hx-mono"), N("CopyAddress"))),
+      h("div.hx-pills", gameIc(g, true), statePill(ist), pill(tx("Minecraft " + (g === "fabric" ? "1.21.4" : "26.3"))),
+        pill(h("span", tx("Players "), tx(players + " / 20"))), tip(pill(h("span", tx("localhost:" + inst.port), " ", icon("copy", 12)), null, "hx-mono"), N("CopyAddress"))),
       tip(h("div.hx-lead", { style: { margin: "12px 0 0" } }, inst.desc ? tx(inst.desc) : N("NoDescription")), N("EditDescription")),
     ];
     const share = h("div.hx-sec", h("div.hx-h2", N("ShareTitle")), shareCard());
@@ -643,8 +643,8 @@
         N("DetailsGame"), tx(GAMES[g]), N("DetailsMinecraftVersion"), tx("1.21.4"), N("DetailsVersion"), tx("26.3"), N("DetailsLoader"), tx("Fabric 0.16.9"),
         N("DetailsPort"), tx(inst.port), N("DetailsState"), stateLabel(ist), N("DetailsPlayers"), tx(players + "/20"),
         N("DetailsCreated"), FM("ShortDateWithYear", { month: FM("March"), day: 14, year: 2026 }), N("DetailsAutoStart"), M("No"), N("DetailsRestartOnCrash"), M("Yes"),
-        N("DetailsRam"), N("DetailsRamValue", { min: 1024, max: 2048 }), N("DetailsFolder"), h("span.hx-mono", tx("~/.lodestone/instances/Survival SMP-de71266c")),
-        N("DetailsModpack"), tx("Cobblemon Official Modpack 1.6"))) : null);
+        N("DetailsMinRam"), tx("1,024 MB"), N("DetailsMaxRam"), tx("2,048 MB"), N("DetailsFolder"), h("span.hx-mono", tx("~/.lodestone/instances/Survival SMP-de71266c")),
+        tx("Modpack"), tx("Cobblemon Official Modpack 1.6"))) : null);
     return pageWrap(head, share, perf, pl, details);
   }
 
@@ -818,7 +818,7 @@
     const menu = f === "menu" ? h("div.hx-menu", { style: { left: "480px", top: "220px" } },
       h("div.hx-mi", M("Copy")), h("div.hx-mi", F("FilesCut")), h("div.hx-mi.hx-dis", F("FilesPaste")), h("div.hx-mi", F("FilesPasteInto", { name: "logs" })), h("div.hx-mi", FP("FilesPasteCount", { count: 2 })), h("div.hx-sep"),
       h("div.hx-mi", { onclick: () => X.open("files-rename") }, M("Rename")), h("div.hx-mi.hx-red", { onclick: () => X.open("files-delete") }, M("Delete")), h("div.hx-sep"),
-      h("div.hx-mi", F("FilesZipFile", { name: "eula.txt", archive: "eula.txt.zip" })), h("div.hx-mi", F("FilesZip")), h("div.hx-mi", F("FilesZipTo", { archive: "Archive.zip" })), h("div.hx-mi", FP("FilesZipFiles", { count: 3, archive: "Archive.zip" })),
+      h("div.hx-mi", F("FilesZip")), h("div.hx-mi", F("FilesZipTo")), h("div.hx-mi", FP("FilesZipFiles", { count: 3 })),
       h("div.hx-mi", F("FilesUnzipHere")), h("div.hx-mi", F("FilesUnzipHereSmart")), h("div.hx-mi", F("FilesUnzipTo", { name: "world" })), h("div.hx-sep"),
       h("div.hx-mi", M("ShowInFileManager")), h("div.hx-mi", F("FilesShowInFolder")), h("div.hx-sep"),
       h("div.hx-mi", { onclick: () => X.open("files-new-folder") }, F("FilesNewFolder")), h("div.hx-mi", { onclick: () => X.open("files-new-file") }, F("FilesNewFile"))) : null;
@@ -850,7 +850,7 @@
     if (s.mods === "failed") { body.push(h("div.hx-inlineerr", pl ? I("ModsLoadFailedPlugin", { error: "Server not found" }) : I("ModsLoadFailedMod", { error: "Server not found" }))); return pageWrap(modsHeading(), body) }
     if (s.mods === "empty") { body.push(h("div.hx-card.hx-pad.hx-muted", pl ? I("ModsEmptyPlugin") : I("ModsEmptyMod"))); return pageWrap(modsHeading(), body) }
     if (!pl) body.push(h("div.hx-card.hx-pad.hx-col", { style: { marginBottom: "18px" } },
-      h("div.hx-between", h("div.hx-col.hx-gap4", h("div", { style: { fontWeight: 600, fontSize: "17px" } }, IP("ModsPackTitle", { count: 4 })), h("div.hx-muted.hx-small", I("ModsLoader", { version: "0.16.9" }), tx(" · "), I("ModsLoaderNoVersion"))),
+      h("div.hx-between", h("div.hx-col.hx-gap4", h("div", { style: { fontWeight: 600, fontSize: "17px" } }, IP("ModsPackTitle", { count: 4 })), h("div.hx-muted.hx-small", tx("Minecraft 1.21.1"), tx("Fabric 0.16.9"))),
         btn(I("ModsDownloadPack"), { v: "primary", icon: "download" })),
       h("div.hx-muted.hx-small", IP("ModsImportHintJars", { count: 1 })),
       h("div.hx-muted.hx-small", I("ModsImportHint")),
@@ -858,7 +858,7 @@
     const mods = pl
       ? [["EssentialsX", "2.21.0", "server"], ["LuckPerms", "5.4.141", "server", "5.4.145"], ["WorldEdit", "7.3.9", "unknown"]]
       : [["Fabric API", "0.110.5", "server"], ["Sodium", "0.6.5", "players", "0.6.6"], ["Create", "6.0.4", "players"], ["Lithium", "0.14.3", "unknown"], ["Cloth Config", "15.0.140", "needed"]];
-    body.push(h("div.hx-between", { style: { marginBottom: "8px" } }, h("span.hx-muted.hx-small", pl ? IP("ModsCountPlugin", { count: 3, directory: "plugins" }) : IP("ModsCountMod", { count: 5, directory: "mods" }))));
+    body.push(h("div.hx-between", { style: { marginBottom: "8px" } }, h("span.hx-muted.hx-small", pl ? I("ModsPluginsLabel") : tx("Mods"))));
     body.push(h("div.hx-card.hx-rows", mods.map(([name, ver, side, upd], i) => {
       const sideTag = side === "server" ? tag(I("ModsServerOnly")) : side === "players" ? tag(I("ModsPlayersNeed"), "blue") : side === "needed" ? tag(I("ModsNeededBy", { mods: "Create, Sodium" }), "blue") : tip(tag(I("ModsUnknown"), "yellow"), i === 3 ? I("ModsUnknownNotOnModrinth") : I("ModsUnknownModrinth"));
       return h("div.hx-srow", h("div.hx-modicon", { style: { background: ["#3a6", "#c73", "#36a", "#a36", "#678"][i % 5] } }, tx(name[0])),
@@ -883,8 +883,8 @@
     else {
       body.push(h("div.hx-col", results.map(([n, a, d, dl, inst]) => h("div.hx-result", { onclick: () => X.go("mods-project", { i: sel().i }) },
         h("div.hx-modicon", tx(n[0])),
-        h("div.hx-grow.hx-col.hx-gap4", h("div.hx-flex", h("span", { style: { fontSize: "17px", fontWeight: 500 } }, tx(n)), h("span.hx-muted.hx-small", I("ModsByAuthor", { author: a })), inst ? tag(I("ModsInstalledTag"), "green") : null),
-          h("div", tx(d)), h("div.hx-muted.hx-small.hx-flex", { style: { gap: "4px" } }, icon("download", 12), IP("ModsDownloads", { count: Math.round(dl * 1e6) }), tx(" · "), FM("CompactMillions", { value: dl })))))));
+        h("div.hx-grow.hx-col.hx-gap4", h("div.hx-flex", h("span", { style: { fontSize: "17px", fontWeight: 500 } }, tx(n)), h("span.hx-muted.hx-small", tx(a)), inst ? tag(I("ModsInstalledTag"), "green") : null),
+          h("div", tx(d)), h("div.hx-muted.hx-small.hx-flex", { style: { gap: "4px" } }, icon("download", 12), FM("CompactMillions", { value: dl })))))));
       body.push(h("div.hx-flex", { style: { justifyContent: "center", marginTop: "16px" } }, tip(btn(icon("back", 14), { sm: true }), I("ModsPreviousPage")), h("span.hx-muted", I("ModsPage", { page: 1, total: 12 })), tip(btn(icon("chevR", 14), { sm: true }), I("ModsNextPage"))));
     }
     return pageWrap(modsHeading(), body);
@@ -900,13 +900,13 @@
     else if (kind === "wrongtype") notice = h("div.hx-note.hx-yellow", pl ? I("ModsWrongTypePlugin", { type: "mod" }) : I("ModsWrongTypeMod", { type: "resource pack" }));
     const verRow = (v, chan, gv, more, status) => h("div.hx-srow",
       h("div.hx-st", h("div.hx-stt", tx(v), chan === "release" ? tag(I("ModsRelease"), "green") : chan === "beta" ? tag(I("ModsBeta"), "yellow") : tag(I("ModsAlpha"), "red")),
-        h("div.hx-sth", tx(gv), more ? h("span", tx(" "), IP("ModsMoreGameVersions", { count: more })) : null)),
+        h("div.hx-sth", tx(gv), more ? h("span", tx(" +" + more)) : null)),
       h("div.hx-sc", status === "installed" ? tag(I("ModsInstalledTag"), "green") : status === "notfor" ? h("span.hx-flex", h("span.hx-warn-t", I("ModsNotFor", { loader: "Fabric", gameVersion: "1.21.4" })), btn(M("Install"), { sm: true, on: () => X.open("mods-incompatible") })) : btn(M("Install"), { sm: true, v: "primary" })));
     return pageWrap(
       h("div", { style: { marginBottom: "14px" } }, btn(M("Back"), { icon: "back", on: () => X.go("mods-browse", { i: sel().i }) })),
       h("div.hx-flex.hx-gap16", h("div.hx-modicon", { style: { width: "72px", height: "72px", fontSize: "30px" } }, tx("S")),
-        h("div.hx-col.hx-gap4", h("div.hx-flex", h("span", { style: { fontFamily: "Chillax", fontSize: "32px", fontWeight: 500 } }, tx("Sodium")), h("span.hx-muted", I("ModsByAuthor", { author: "jellysquid3" }))),
-          h("div.hx-flex.hx-muted.hx-small", IP("ModsDownloads", { count: 72100000 }), tx("·"), IP("ModsFollowers", { count: 21345 }), tx("·"), I("ModsServerSide", { value: I("ModsSideOptional") }),
+        h("div.hx-col.hx-gap4", h("div.hx-flex", h("span", { style: { fontFamily: "Chillax", fontSize: "32px", fontWeight: 500 } }, tx("Sodium")), h("span.hx-muted", tx("jellysquid3"))),
+          h("div.hx-flex.hx-muted.hx-small", tx("72,100,000"), tx("21,345"), I("ModsServerSide"), I("ModsSideOptional"),
             tag(I("ModsPlayersNeedToo"), "blue")),
           h("div.hx-flex.hx-small", h("span.hx-link", I("ModsSource")), h("span.hx-link", I("ModsIssues")), h("span.hx-link", I("ModsWiki")), h("span.hx-link", I("ModsViewOnModrinth"))))),
       notice ? h("div", { style: { marginTop: "16px" } }, notice) : null,
@@ -1150,12 +1150,12 @@
       const key = (name, scope, created, exp, used) => h("div.hx-srow", h("div.hx-st", h("div.hx-stt", tx(name), h("span.hx-mono.hx-muted.hx-tiny", tx("lsk_3f9a…c01d"))),
         h("div.hx-sth", scope), h("div.hx-sth.hx-flex", { style: { gap: "14px" } }, created, exp, used)), btn(C("Revoke"), { sm: true, v: "danger", on: () => X.open("api-revoke") }));
       list = h("div.hx-card.hx-rows",
-        key("backup script", C("ScopeFull"), C("CreatedOn", { date: FM("ShortDate", { month: FM("October"), day: 3 }) }), C("ExpiresOn", { date: FM("ShortDateWithYear", { month: FM("January"), day: 1, year: 2027 }) }), C("LastUsed", { time: FMP("HoursAgo", { count: 3 }) })),
-        key("launcher on laptop", C("ScopeLauncherConsole"), C("CreatedOn", { date: FM("Today") }), C("ExpiresNever"), C("LastUsedNever")),
-        key("status bot", C("ScopeLauncherConsoleRead"), C("CreatedOn", { date: FM("Yesterday") }), C("ExpiredOn", { date: FM("ShortDate", { month: FM("September"), day: 30 }) }), C("LastUsed", { time: FM("JustNow") })),
-        key("discord relay", C("ScopeLauncherConsoleWrite"), C("CreatedOn", { date: FM("ShortDate", { month: FM("August"), day: 12 }) }), C("ExpiresNever"), C("LastUsedNever")),
-        key("dashboard", C("ScopeLauncher"), C("CreatedOn", { date: FM("ShortDate", { month: FM("July"), day: 1 }) }), C("ExpiresNever"), C("LastUsedNever")),
-        key("custom", C("ScopeCustom", { servers: CP("ScopeServers", { count: 2 }), permissions: CP("ScopePermissions", { count: 5 }) }), C("CreatedOn", { date: FM("ShortDate", { month: FM("June"), day: 9 }) }), C("ExpiresNever"), C("LastUsedNever")));
+        key("backup script", C("ScopeFull"), FM("ShortDate", { month: FM("October"), day: 3 }), FM("ShortDateWithYear", { month: FM("January"), day: 1, year: 2027 }), C("LastUsed"), FMP("HoursAgo", { count: 3 })),
+        key("launcher on laptop", C("ScopeLauncherConsole"), FM("Today"), C("Never"), C("LastUsed")),
+        key("status bot", C("ScopeLauncherConsoleRead"), FM("Yesterday"), FM("ShortDate", { month: FM("September"), day: 30 }), C("LastUsed"), FM("JustNow")),
+        key("discord relay", C("ScopeLauncherConsoleWrite"), FM("ShortDate", { month: FM("August"), day: 12 }), C("Never"), C("LastUsed")),
+        key("dashboard", C("ScopeLauncher"), FM("ShortDate", { month: FM("July"), day: 1 }), C("Never"), C("LastUsed")),
+        key("custom", C("ScopeCustom"), C("KeyServers"), C("Permissions"), FM("ShortDate", { month: FM("June"), day: 9 }), C("Never"), C("LastUsed")));
     }
     return h("div.hx-col",
       h("div.hx-between", h("div", h("div.hx-h3", C("ApiKeys")), h("div.hx-sublead", lead)), other ? null : btn(C("CreateApiKey"), { icon: "plus", lg: true, on: () => X.open("api-create") })),
@@ -1309,8 +1309,8 @@
     else if (s.search === "failed") list = h("div.hx-col", h("div.hx-err-t", N("ModpackVersionsFailed", { error: "timed out" })), h("div.hx-err-t", N("ModpackUnsupported", { reason: "it needs Forge" })), h("div.hx-err-t", N("ModpackInspectFailed", { error: "bad zip" })));
     else if (s.search === "none") list = h("div.hx-muted", N("ModpackNoVersions"));
     else list = h("div.hx-col", ver("1.6.1", "release", true), ver("1.6.0", "release"), ver("1.7.0-beta.2", "beta"), ver("1.7.0-alpha.1", "alpha"), btn(NP("ModpackShowMore", { count: 12 }), { sm: true }),
-      h("div.hx-card.hx-pad", h("div.hx-kv", N("ModpackSummaryModpack"), tx("Cobblemon Official Modpack 1.6.1"), N("ModpackSummaryLoader"), tx("Fabric 0.16.9 · Minecraft 1.21.1"), N("ModpackSummaryServerFiles"), N("ModpackSummaryServerFilesValue", { count: 84, size: FM("Megabytes", { size: 212 }) }))),
-      loading(N("ModpackDownloadingSize", { size: FM("Megabytes", { size: 18 }) })), loading(N("ModpackDownloading")), loading(N("ModpackLoading")));
+      h("div.hx-card.hx-pad", h("div.hx-kv", N("ModpackSummaryModpack"), tx("Cobblemon Official Modpack 1.6.1"), N("ModpackSummaryLoader"), tx("Fabric 0.16.9 · Minecraft 1.21.1"), N("ModpackSummaryServerFiles"), tx("84"))),
+      loading(N("ModpackDownloading")), loading(N("ModpackLoading")));
     return createShell("version", MSTEPS, N("ModpackVersionTitle"), s.search === "uploaded" ? N("ModpackVersionUploaded") : null,
       [h("div.hx-muted.hx-small", N("ModpackVersionHint")), list], nav2("modpack", "mserver"));
   }
@@ -1359,7 +1359,7 @@
       h("div.hx-muted.hx-small", C("FingerprintHelp")),
       foot(btn(C("TrustCertificate"), { v: "primary", lg: true, on: () => X.open("cores-signin") }), btn(M("Back"), { lg: true, on: () => X.open("cores") })));
     if (step === "signin") return dlg({ title: C("SignInTo", { name: "Home server" }), w: 640 },
-      s.versionNote === "incompatible" ? h("div.hx-note.hx-yellow", C("VersionIncompatible", { theirs: "0.4.8", ours: "0.5.1" })) : s.versionNote === "patch" ? h("div.hx-note", C("VersionPatch", { theirs: "0.5.0", ours: "0.5.1" })) : null,
+      s.versionNote === "incompatible" ? h("div.hx-note.hx-yellow", C("VersionIncompatible")) : null,
       field(C("Username"), input("peter"), null, s.validation === "on" ? C("UsernameRequired") : null),
       field(C("Password"), input(null), null, s.validation === "on" ? C("PasswordRequired") : null),
       foot(btn(C("SignIn"), { v: "primary", lg: true, on: () => { X.set("coreKind", "remote"); X.close() } }), btn(M("Back"), { lg: true, on: () => X.open("cores") })));
@@ -1369,7 +1369,7 @@
       h("div.hx-card.hx-rows",
         srow(C("ThisComputerCore"), null, remote ? btn(C("UseCore"), { sm: true, on: () => X.set("coreKind", "local") }) : tag(C("CurrentCore"), "green")),
         s.remoteCores === "on" ? srow(tx("Home server"), h("span", tx("https://192.168.1.20:16662"),
-          s.versionNote === "incompatible" ? h("div.hx-warn-t", C("VersionIncompatible", { theirs: "0.4.8", ours: "0.5.1" })) : s.versionNote === "patch" ? h("div.hx-muted", C("VersionPatch", { theirs: "0.5.0", ours: "0.5.1" })) : null),
+          s.versionNote === "incompatible" ? h("div.hx-warn-t", C("VersionIncompatible")) : null),
           h("div.hx-flex", remote ? tag(C("CurrentCore"), "green") : btn(C("UseCore"), { sm: true, on: () => X.open("cores-signin") }), btn(C("RemoveCore"), { sm: true, v: "danger" }))) : null),
       h("div", { style: { fontSize: "19px", marginTop: "8px" } }, C("ConnectToCore")),
       field(C("CoreAddress"), input(null, { ph: tx("192.168.1.5") }), C("CoreAddressHint")),
@@ -1437,7 +1437,7 @@
   }
   function filesDeleteDlg() {
     return dlg({ title: FP("FilesDeleteTitle", { count: 3 }), w: 600 }, h("div", F("FilesDeleteMessage")),
-      h("div.hx-col.hx-gap4.hx-mono.hx-small", h("div", tx("eula.txt")), h("div", tx("logs "), F("FilesDeleteDirectory")), h("div", tx("link.lnk "), F("FilesDeleteUnknownType"))),
+      h("div.hx-col.hx-gap4.hx-mono.hx-small", h("div", tx("eula.txt")), h("div", F("FilesDeleteHeading")), h("div", tx("logs")), h("div", tx("link.lnk"))),
       foot(btn(M("Delete"), { v: "dangerfill", lg: true, on: close }), btn(M("Cancel"), { lg: true, on: close })));
   }
   function filesUnsavedDlg() {
@@ -1459,7 +1459,7 @@
   const msgSec = (title, ...items) => h("div.hx-msgsec", h("div.hx-h3", { style: { marginBottom: "10px", fontSize: "17px" } }, tx(title)), h("div.hx-msglist", items));
   const msgPage = (...secs) => h("div.hx-pagein.hx-msgpage", secs);
   const routesMsgShell = () => msgPage(
-    msgSec("Toasts", toast("err", C("CoreFailedNotice", { error: "failed to bind port 16662" })), toast("warn", C("RemoteSignedOut", { name: "Home server" })), toast("err", C("LoadFailed", { error: "connection reset" })), toast("warn", C("WarningToast")),
+    msgSec("Toasts", toast("err", S("CoreFailed")), toast("warn", C("RemoteSignedOut", { name: "Home server" })), toast("err", C("LoadFailed", { error: "connection reset" })), toast("warn", C("WarningToast")),
       toast("ok", N("CopiedText", { text: "localhost:25565" })), toast("ok", C("OwnerAccountDone")), toast("ok", C("ApiKeyCreated", { name: "backup script" })), toast("ok", C("ApiKeyRevoked", { name: "old laptop" })),
       toast("ok", C("MinecraftRemoved", { name: "PeterAlt" })), toast("ok", C("PortOpened", { port: 25565 })), toast("ok", C("KeyCopied")), toast("ok", C("CliCopied")), toast("ok", M("Copied")), toast("ok", M("Saved"))),
     msgSec("Sign-in form errors", h("div.hx-err-t", S("NoUsername")), h("div.hx-err-t", S("NoPassword"))),

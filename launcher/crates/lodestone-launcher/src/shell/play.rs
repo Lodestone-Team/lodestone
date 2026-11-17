@@ -7,16 +7,18 @@ use gpui::{AnyElement, Context, IntoElement, ObjectFit, SharedString, div, img, 
 use launcher_core::instances::{BackgroundMode, Instance};
 use launcher_core::ui_skin::SurfaceId;
 
-use super::{InstanceTab, LauncherShell, Page, loader_label};
+use lodestone_ui::{theme::Tone, values::truncate::sanitize};
+
+use super::{InstanceTab, LauncherShell, Page};
 use crate::{
     components::{
-        Align, Button, ButtonSize, ButtonVariant, Icon, KeyboardFocus, MagnetLook, PlayButton,
-        PlayButtonState, Tabs,
+        Align, Button, ButtonSize, ButtonVariant, Fact, FactLine, FactValue, Icon, Kind,
+        MagnetLook, ObjectChip, PlayButton, PlayButtonState, StatusBadge, Tabs,
         a11y::{Accessible, Role},
     },
-    i18n::{ServersMsg, ShellMsg as M, t, tr},
+    i18n::{FactMsg, ServersMsg, ShellMsg as M, format, t, tr},
     instances::appearance::{Background, scrim_layers},
-    instances::{Ago, PlayState, play_time},
+    instances::{PlayState, facts, play_time},
     servers::{InstanceLink, friends::Liveness},
     theme::{self, colors, fonts, leading, radius, text, weights},
 };
@@ -31,29 +33,28 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
     let rosetta = instance
         .as_ref()
         .and_then(|i| shell.instances.read(cx).rosetta_note(i));
-    let (title, subtitle): (SharedString, SharedString) = match &instance {
-        Some(instance) => (
-            instance.name.clone().into(),
-            {
-                let mut parts = vec![
-                    tr!(M::MinecraftVersion, version = instance.game_version),
-                    loader_label(instance),
-                ];
-                // A game that is running for the first time has been played, but has
-                // no play time yet.
-                if instance.play_time > 0 || instance.last_played.is_none() {
-                    parts.push(play_time(instance.play_time));
-                }
-                parts.extend(instance.last_played.map(|when| Ago::since(when).played()));
-                parts.join(" · ")
-            }
-            .into(),
-        ),
+    let (title, subtitle): (SharedString, AnyElement) = match &instance {
+        Some(instance) => (instance.name.clone().into(), {
+            // the game, its loader, play time and last played as keys over values;
+            // a linked server is a cell of its own
+            let mut facts = facts::version_facts(instance);
+            facts.extend(facts::played_facts(instance));
+            facts.extend(link.as_ref().map(|link| linked_server(link, cx)));
+            div()
+                .mt_2()
+                .child(FactLine::strip("instance-facts").facts(facts))
+                .into_any_element()
+        }),
         None => (
             t(M::NoInstanceSelected).into(),
-            t(M::NoInstanceSelectedHint).into(),
+            div()
+                .text_color(crate::theme::ink::muted())
+                .font_weight(weights::BOLD.into())
+                .child(t(M::NoInstanceSelectedHint))
+                .into_any_element(),
         ),
     };
+    let check = link.as_ref().and_then(|link| check_button(link, cx));
     div()
         .flex()
         .flex_col()
@@ -80,13 +81,8 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
                                 .text_color(crate::theme::ink::text())
                                 .child(title),
                         )
-                        .child(
-                            div()
-                                .text_color(crate::theme::ink::muted())
-                                .font_weight(weights::BOLD.into())
-                                .child(subtitle),
-                        )
-                        .children(link.as_ref().map(|link| linked_to(link, cx)))
+                        .child(subtitle)
+                        .children(check)
                         .children(rosetta.map(rosetta_note)),
                 )
                 .child(
@@ -160,23 +156,48 @@ fn hero(
     cx: &mut Context<LauncherShell>,
 ) -> impl IntoElement {
     let lit = !matches!(backdrop, Backdrop::Artwork);
-    let (title, body): (SharedString, SharedString) = match instance {
-        Some(instance) => (
-            instance.name.clone().into(),
-            match instance.last_played.filter(|_| instance.play_time > 0) {
-                Some(_) => tr!(
-                    M::HeroPlayed,
-                    game = described(instance),
-                    time = play_time(instance.play_time).to_lowercase()
+    // the same facts as the header's, as a line of their own; the sentence keeps only
+    // the call to action, before the first game
+    let (title, body, hero_facts): (SharedString, Option<SharedString>, Option<FactLine>) =
+        match instance {
+            Some(instance) => {
+                let played = instance.last_played.is_some() && instance.play_time > 0;
+                let mut hero_facts = facts::version_facts(instance);
+                if played {
+                    hero_facts.push(Fact::new(
+                        t(FactMsg::PlayTime),
+                        play_time(instance.play_time),
+                    ));
+                }
+                (
+                    instance.name.clone().into(),
+                    (!played).then(|| t(M::HeroNotPlayed).into()),
+                    Some(FactLine::strip("hero-facts").facts(hero_facts)),
                 )
-                .into(),
-                None => tr!(M::HeroNotPlayed, game = described(instance)).into(),
-            },
-        ),
-        None => (
-            t(M::CreateFirstInstance).into(),
-            t(M::InstanceExplainer).into(),
-        ),
+            }
+            None => (
+                t(M::CreateFirstInstance).into(),
+                Some(t(M::InstanceExplainer).into()),
+                None,
+            ),
+        };
+    let description: SharedString = match (&body, &hero_facts) {
+        (Some(body), _) => body.clone(),
+        (None, Some(_)) => instance
+            .map(|instance| {
+                let mut labels: Vec<String> = facts::version_facts(instance)
+                    .iter()
+                    .map(|fact| fact.label().to_string())
+                    .collect();
+                labels.push(
+                    Fact::new(t(FactMsg::PlayTime), play_time(instance.play_time))
+                        .label()
+                        .to_string(),
+                );
+                format::list(&labels).into()
+            })
+            .unwrap_or_default(),
+        (None, None) => SharedString::default(),
     };
     div()
         .relative()
@@ -230,7 +251,7 @@ fn hero(
                         .id("hero-title")
                         .accessible(Role::Heading, "hero-title", title.clone())
                         .aria_level(1)
-                        .aria_description(body.clone())
+                        .aria_description(description)
                         .font_family(fonts::title())
                         .text_size(theme::text_size(text::XLARGE_2))
                         .line_height(theme::line_height(text::XLARGE_2, leading::TIGHT))
@@ -238,7 +259,11 @@ fn hero(
                         .text_color(colors::WHITE)
                         .child(title),
                 )
-                .child(
+                .children(hero_facts.map(|line| {
+                    // over the artwork or a picture: the strip's inks, kept light
+                    div().child(line)
+                }))
+                .children(body.map(|body| {
                     div()
                         .text_size(theme::text_size(text::H3))
                         .line_height(theme::line_height(text::H3, leading::NORMAL))
@@ -247,8 +272,8 @@ fn hero(
                         } else {
                             colors::GRAY_400
                         })
-                        .child(body),
-                )
+                        .child(body)
+                }))
                 .when(instance.is_none(), |this| {
                     this.child(
                         div().flex().mt_2().child(
@@ -282,134 +307,95 @@ fn rosetta_note(reason: launcher_core::game::install::Rosetta) -> impl IntoEleme
         .child(note)
 }
 
-/// "Linked to Survival SMP on Peter's core", under the instance's name. Pressing it
-/// opens the Lodestone Host page with that server's row scrolled into sight and
-/// flashed.
-fn linked_to(link: &InstanceLink, cx: &mut Context<LauncherShell>) -> impl IntoElement + use<> {
-    let label = tr!(
-        if link.core_known {
-            M::LinkedTo
-        } else {
-            M::LinkedToRemoved
-        },
-        server = link.server_name,
-        core = link.core_name
-    );
+/// The header's Server cell, for an instance linked to a server: the server as a
+/// link (to the Lodestone Host page, or the Friends page, with its row scrolled into
+/// sight and flashed), the host it is on, muted, and whether it runs.
+fn linked_server(link: &InstanceLink, cx: &mut Context<LauncherShell>) -> Fact {
     let (core, server) = (link.core_uuid.clone(), link.server_uuid.clone());
-    // whether the server runs: the dot's colour, and a word after the link
-    let (dot, status): (Option<theme::Color>, Option<(&'static str, theme::Color)>) =
-        match link.live {
-            Liveness::Unknown => (None, None),
-            Liveness::Checking => (
-                Some(colors::GRAY_500),
-                Some((t(M::ServerChecking), crate::theme::ink::muted())),
-            ),
-            Liveness::Running => (
-                Some(colors::GREEN_200),
-                Some((t(M::ServerOnline), colors::GREEN_200)),
-            ),
-            Liveness::Starting => (
-                Some(colors::YELLOW),
-                Some((t(M::ServerStarting), colors::YELLOW)),
-            ),
-            Liveness::Stopped => (
-                Some(colors::GRAY_500),
-                Some((t(M::ServerStopped), crate::theme::ink::muted())),
-            ),
-            Liveness::Unreachable => (
-                Some(colors::RED_200),
-                Some((t(M::ServerUnreachable), colors::RED_200)),
-            ),
-        };
-    // "Check" asks a friend's server again, when it isn't running
-    let check = (link.friend
+    let shell = cx.entity().downgrade();
+    let server_name = sanitize(&link.server_name, 64);
+    let core_name = sanitize(&link.core_name, 64);
+    let status = match link.live {
+        Liveness::Unknown => None,
+        Liveness::Checking => Some(StatusBadge::new(t(M::ServerChecking), Tone::Neutral)),
+        Liveness::Running => Some(StatusBadge::new(t(M::ServerOnline), Tone::Success)),
+        Liveness::Starting => Some(StatusBadge::new(t(M::ServerStarting), Tone::Warning)),
+        Liveness::Stopped => Some(StatusBadge::new(t(M::ServerStopped), Tone::Neutral)),
+        Liveness::Unreachable => Some(
+            StatusBadge::new(t(M::ServerUnreachable), Tone::Danger).icon(Icon::TriangleExclamation),
+        ),
+    };
+    // a host since removed from the Lodestone Host page
+    let removed = (!link.core_known).then(|| StatusBadge::new(t(M::HostRemoved), Tone::Warning));
+    let mut plain = vec![server_name.clone(), core_name.clone()];
+    plain.extend(status.as_ref().map(|badge| badge.label().to_string()));
+    plain.extend(removed.as_ref().map(|badge| badge.label().to_string()));
+    let value = div()
+        .flex()
+        .flex_row()
+        .flex_wrap()
+        .items_center()
+        .gap(px(6.))
+        .child(
+            ObjectChip::new(server_name)
+                .kind(Kind::Server)
+                .id("linked-server")
+                .on_click(move |_, _, cx| {
+                    shell
+                        .update(cx, |this, cx| {
+                            // the page its row is on: the Friends page for a server
+                            // from the friend list, the Lodestone Host page for the
+                            // others
+                            let (friends, row_core, row_server) =
+                                this.servers.read(cx).link_target(&core, &server);
+                            this.show(
+                                if friends {
+                                    Page::Friends
+                                } else {
+                                    Page::Servers
+                                },
+                                cx,
+                            );
+                            this.servers.update(cx, |servers, cx| {
+                                servers.highlight_server(&row_core, &row_server, cx)
+                            });
+                        })
+                        .ok();
+                }),
+        )
+        .child(ObjectChip::new(core_name).kind(Kind::Computer).muted())
+        .children(status.map(|badge| badge.id("linked-server-status")))
+        .children(removed);
+    Fact::new(
+        t(FactMsg::Server),
+        FactValue::element(value, format::list(&plain)),
+    )
+}
+
+/// "Check", which asks a friend's server again when it isn't running.
+fn check_button(link: &InstanceLink, cx: &mut Context<LauncherShell>) -> Option<AnyElement> {
+    let checkable = link.friend
         && matches!(
             link.live,
             Liveness::Stopped | Liveness::Starting | Liveness::Unreachable
-        ))
-    .then(|| {
+        );
+    checkable.then(|| {
         let friend = link.core_uuid.clone();
-        Button::new("linked-server-check", t(ServersMsg::FriendCheck))
-            .size(ButtonSize::Slim)
-            .variant(ButtonVariant::Ghost)
-            .disabled(link.checking)
-            .on_click(cx.listener(move |this, _, _, cx| {
-                this.servers
-                    .update(cx, |servers, cx| servers.check_friend(&friend, cx))
-            }))
-    });
-    div()
-        .flex()
-        .flex_row()
-        .items_center()
-        .gap_2()
-        .mt_1()
-        .child(
-            div()
-                .flex_none()
-                .size(px(6.))
-                .rounded_full()
-                .map(|this| match dot {
-                    Some(dot) => this.bg(dot),
-                    // Lodestone Host's green, as the instance's outline in the sidebar
-                    None => this.bg(crate::components::host_gradient(100, false)),
-                }),
-        )
-        .child(
-            div()
-                .id("linked-server")
-                .accessible(Role::Link, "linked-server", label.clone())
-                .keyboard_focus()
-                .min_w_0()
-                .truncate()
-                .rounded(radius::DEFAULT)
-                .text_size(theme::text_size(text::SMALL))
-                .font_weight(weights::BOLD.into())
-                .text_color(crate::theme::accent::light())
-                .cursor_pointer()
-                .hover(|style| style.underline())
-                .on_press(cx.listener(move |this, _, _, cx| {
-                    // the page its row is on: the Friends page for a server from the
-                    // friend list, the Lodestone Host page for the others
-                    let (friends, row_core, row_server) =
-                        this.servers.read(cx).link_target(&core, &server);
-                    this.show(
-                        if friends {
-                            Page::Friends
-                        } else {
-                            Page::Servers
-                        },
-                        cx,
-                    );
-                    this.servers.update(cx, |servers, cx| {
-                        servers.highlight_server(&row_core, &row_server, cx)
-                    });
-                }))
-                .child(label),
-        )
-        .children(status.map(|(word, color)| {
-            div()
-                .id("linked-server-status")
-                .accessible(Role::Status, "linked-server-status", word)
-                .flex_none()
-                .text_size(theme::text_size(text::SMALL))
-                .font_weight(weights::BOLD.into())
-                .text_color(color)
-                .child(format!("· {word}"))
-        }))
-        .children(check)
-}
-
-/// "Minecraft 1.20.1", or "Minecraft 1.20.1 with Fabric 0.16.14".
-fn described(instance: &Instance) -> String {
-    match instance.loader.kind() {
-        None => tr!(M::MinecraftVersion, version = instance.game_version),
-        Some(_) => tr!(
-            M::MinecraftWith,
-            version = instance.game_version,
-            loader = instance.loader_label()
-        ),
-    }
+        div()
+            .flex()
+            .mt_1()
+            .child(
+                Button::new("linked-server-check", t(ServersMsg::FriendCheck))
+                    .size(ButtonSize::Slim)
+                    .variant(ButtonVariant::Ghost)
+                    .disabled(link.checking)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.servers
+                            .update(cx, |servers, cx| servers.check_friend(&friend, cx))
+                    })),
+            )
+            .into_any_element()
+    })
 }
 
 fn placeholder(message: impl Into<SharedString>) -> impl IntoElement {
@@ -466,7 +452,7 @@ impl LauncherShell {
         };
         let servers = self.servers.read(cx);
         let link = servers.instance_link(id);
-        let busy = servers.instance_busy(id).map(|busy| busy.label());
+        let busy = servers.instance_busy(id).map(|busy| busy.caption());
         let joins = link.is_some() && matches!(state, PlayButtonState::Ready);
         let (state, caption) = match (&link, busy) {
             (Some(_), Some(busy)) if joins => (PlayButtonState::Disabled, Some(busy)),

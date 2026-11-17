@@ -14,8 +14,8 @@
 use std::{collections::BTreeSet, sync::Arc, time::Duration};
 
 use gpui::{
-    App, AppContext as _, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement,
-    Render, SharedString, Subscription, Task, Window, div, prelude::*,
+    AnyElement, App, AppContext as _, Context, Entity, EventEmitter, FocusHandle, Focusable,
+    IntoElement, Render, SharedString, Subscription, Task, Window, div, prelude::*,
 };
 use launcher_core::content::{
     InstanceDirs,
@@ -24,9 +24,12 @@ use launcher_core::content::{
 
 use super::{CrashInfo, Instances, InstancesEvent};
 use crate::{
-    components::{Button, ButtonVariant, Dialog, LoadingDots, RichText},
-    i18n::{CommonMsg, InstancesMsg as M, InstancesPlural as P, t, tr, trn},
-    theme::{self, colors, px, radius, text, weights},
+    components::{
+        Button, ButtonVariant, Dialog, Fact, FactLine, FactValue, ItemIcon, Kind, LoadingDots,
+        NameGroup, NameItem, NameList, Num, ObjectCard, RichText,
+    },
+    i18n::{CommonMsg, InstancesMsg as M, t, tr},
+    theme::{self, colors, px, text},
 };
 
 /// How long a game that reached the main menu has to stay up for a try to count as
@@ -662,23 +665,25 @@ impl Render for ModFinder {
         };
         let progress = search.map(|search| {
             let tries = search.rounds.len() + usize::from(search.testing.is_some());
-            div()
-                .flex()
-                .flex_row()
-                .flex_wrap()
-                .gap_x_3()
-                .text_size(theme::text_size(text::SMALL))
-                .text_color(crate::theme::ink::muted())
-                .when(tries > 0, |this| {
-                    this.child(tr!(M::FinderTry, number = tries))
-                })
-                .child(trn!(P::FinderModsLeft, search.candidates.len()))
-                .when_some(search.testing.as_ref(), |this, off| {
-                    this.child(trn!(P::FinderModsOff, off.len()))
-                })
-                .when(search.tries_left() > 0, |this| {
-                    this.child(trn!(P::FinderTriesLeft, search.tries_left()))
-                })
+            // the search's numbers as keys over values, not four sentences
+            let mut stats = Vec::new();
+            if tries > 0 {
+                stats.push(Fact::new(t(M::FinderTryKey), Num::count(tries as u64)));
+            }
+            stats.push(Fact::new(
+                t(M::FinderLeftKey),
+                Num::count(search.candidates.len() as u64),
+            ));
+            if let Some(off) = search.testing.as_ref() {
+                stats.push(Fact::new(t(M::FinderOffKey), Num::count(off.len() as u64)));
+            }
+            if search.tries_left() > 0 {
+                stats.push(Fact::new(
+                    t(M::FinderTriesLeftKey),
+                    FactValue::text(tr!(M::About, count = search.tries_left())),
+                ));
+            }
+            FactLine::strip("finder-stats").facts(stats)
         });
         let automatic = search.is_some_and(|s| s.at_startup);
 
@@ -689,7 +694,7 @@ impl Render for ModFinder {
                 .flex_col()
                 .gap_3()
                 .child(note(if self.resumed {
-                    tr!(M::FinderInterrupted, name = self.name)
+                    t(M::FinderInterrupted).to_string()
                 } else {
                     t(M::FinderIntro).to_string()
                 }))
@@ -743,43 +748,43 @@ impl Render for ModFinder {
                     .filter(|f| !found.contains(*f))
                     .map(|f| name_of(f))
                     .collect();
+                // the culprit in a card (several, which go together, as a list),
+                // and the mods that stay off with it as a counted list
+                let culprit: AnyElement = match names.as_slice() {
+                    [one] => ObjectCard::new(one.clone())
+                        .kind(Kind::Mod)
+                        .into_any_element(),
+                    many => NameList::new("finder-found")
+                        .group(
+                            NameGroup::new(t(M::FinderFoundTogether)).items(many.iter().map(
+                                |name| NameItem::new(name.clone()).icon(ItemIcon::Kind(Kind::Mod)),
+                            )),
+                        )
+                        .into_any_element(),
+                };
+                let also = (!others.is_empty()).then(|| {
+                    NameList::new("finder-also-off").collapsed_after(5).group(
+                        NameGroup::new(t(M::FinderAlsoOffHeading)).items(others.iter().map(
+                            |name| NameItem::new(name.clone()).icon(ItemIcon::Kind(Kind::Mod)),
+                        )),
+                    )
+                });
                 div()
                     .flex()
                     .flex_col()
                     .gap_3()
-                    .child(
-                        div()
-                            .px_4()
-                            .py_3()
-                            .rounded(radius::LG)
-                            .border_1()
-                            .border_color(colors::FADE_700)
-                            .bg(colors::GRAY_800)
-                            .flex()
-                            .flex_col()
-                            .gap_1()
-                            .child(
-                                div()
-                                    .text_size(theme::text_size(text::SMALL))
-                                    .font_weight(weights::BOLD.into())
-                                    .text_color(crate::theme::ink::muted())
-                                    .child(t(M::FinderFound).to_uppercase()),
-                            )
-                            .child(
-                                div()
-                                    .text_size(theme::text_size(text::H2))
-                                    .font_weight(weights::BOLD.into())
-                                    .text_color(crate::theme::ink::text())
-                                    .child(names.join(", ")),
-                            ),
-                    )
-                    .child(note(if names.len() == 1 {
-                        tr!(M::FinderFoundOne, name = names[0])
-                    } else {
-                        tr!(M::FinderFoundGroup, names = names.join(", "))
-                    }))
+                    .child(culprit)
+                    .child(note(
+                        t(if names.len() == 1 {
+                            M::FinderFoundOne
+                        } else {
+                            M::FinderFoundGroup
+                        })
+                        .to_string(),
+                    ))
+                    .children(also)
                     .when(!others.is_empty(), |this| {
-                        this.child(note(tr!(M::FinderAlsoOff, names = others.join(", "))))
+                        this.child(note(t(M::FinderAlsoOff).to_string()))
                     })
                     .into_any_element()
             }
@@ -800,17 +805,26 @@ impl Render for ModFinder {
                 .into_any_element(),
         };
 
-        let mut dialog = Dialog::new(
-            "mod-finder",
-            tr!(M::FinderTitle, name = self.name),
-            self.focus.clone(),
-        )
-        .width(px(560.))
-        .on_close({
-            let entity = entity.clone();
-            move |_, cx| entity.update(cx, |this, cx| this.cancel(cx))
-        })
-        .child(body);
+        // the title says what happens; the instance is the card under it
+        let title = t(match &self.state {
+            State::Found { .. } => M::FinderFound,
+            _ if self.resumed => M::FinderInterruptedTitle,
+            _ => M::FinderTitle,
+        });
+        let mut dialog = Dialog::new("mod-finder", title, self.focus.clone())
+            .width(px(560.))
+            .on_close({
+                let entity = entity.clone();
+                move |_, cx| entity.update(cx, |this, cx| this.cancel(cx))
+            })
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_3()
+                    .child(super::facts::named_card(&self.name))
+                    .child(body),
+            );
 
         dialog =
             match &self.state {

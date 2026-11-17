@@ -15,7 +15,7 @@ crate::i18n::messages! {
         /// The search field at the top of a Settings page, and its name.
         SearchSettings = "Search settings",
         /// A Settings page's search found nothing; `{query}` is what was typed.
-        NoSettingsMatch = "No settings match “{query}”",
+        NoSettingsMatch = "No matching settings",
         /// The button under "No settings match", which empties the search field.
         ClearSearch = "Clear search",
         Close = "Close",

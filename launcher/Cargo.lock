@@ -3210,6 +3210,7 @@ dependencies = [
  "accesskit",
  "anyhow",
  "chrono",
+ "dirs",
  "futures",
  "gpui",
  "gpui_platform",

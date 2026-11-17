@@ -86,10 +86,7 @@ impl HostApp {
                 if let CoreStatus::Failed { reason, .. } = &this.supervisor.read(cx).status
                     && crate::notifications::in_background(cx)
                 {
-                    crate::notifications::native::notify(
-                        crate::APP_NAME,
-                        &crate::i18n::tr!(crate::i18n::CoreMsg::CoreFailedNotice, error = reason),
-                    );
+                    crate::notifications::native::notify(crate::APP_NAME, reason);
                 }
                 cx.notify();
             }
@@ -236,16 +233,23 @@ impl HostApp {
         // after being signed out of another core
         if let Some(notice) = self.notice.take() {
             state.update(cx, |state, cx| {
-                state.toast(lodestone_ui::components::Toast::warning(notice), cx)
+                state.toast(
+                    lodestone_ui::components::Toast::warning(crate::i18n::t(
+                        crate::i18n::CoreMsg::RemoteSignedOut,
+                    ))
+                    .object(
+                        lodestone_ui::components::ObjectChip::new(notice)
+                            .icon(lodestone_ui::components::Icon::HardDrive),
+                    ),
+                    cx,
+                )
             });
         }
         let subscription = cx.subscribe(&state, move |this, _, event, cx| match event {
             HostEvent::SignedOut => {
                 if let Some(name) = &remote {
-                    this.notice = Some(crate::i18n::tr!(
-                        crate::i18n::CoreMsg::RemoteSignedOut,
-                        name = name
-                    ));
+                    // the core's name; the toast says what happened
+                    this.notice = Some(name.clone());
                 }
                 if let Some(config) = this.config(cx) {
                     this.sign_in(config, cx);

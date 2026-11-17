@@ -66,7 +66,8 @@ pub fn creation_toast(
             crate::i18n::InstancesMsg::CreateFailedLater,
         ))),
         (true, _, Some(outcome)) => {
-            let lines = lodestone_ui::sharing::outcome_lines(outcome);
+            // counted, with no names: the server's pages have them
+            let lines = lodestone_ui::sharing::outcome_counts(outcome);
             (!lines.is_empty()).then(|| Toast::info(lines.join("\n")))
         }
         (true, Some(message), None) => message
@@ -725,7 +726,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             translated.text.as_ref(),
-            "1 file couldn’t be downloaded and was left out: mods/a.jar\n1 script was left out: only the owner can add scripts, while code execution is on."
+            "1 file couldn’t be downloaded and was left out\n1 script was left out: only the owner can add scripts, while code execution is on."
         );
         // an outcome with nothing in it says nothing
         assert!(

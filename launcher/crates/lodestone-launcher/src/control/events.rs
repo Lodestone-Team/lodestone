@@ -142,6 +142,9 @@ impl Notices {
                 message,
                 about,
             } => self.push_window_notice("notice", title, message, about),
+            InstancesEvent::Report(report) => {
+                self.push_window_notice("notice", &report.title, &report.plain(), &report.about)
+            }
             InstancesEvent::PlayFailed { id, title, message } => self.push_window_notice(
                 "launch_failed",
                 title,

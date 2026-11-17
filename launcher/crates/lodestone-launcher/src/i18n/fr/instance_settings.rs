@@ -117,16 +117,16 @@ pub fn text(message: M) -> &'static str {
         M::ViewOnModrinth => "Voir sur Modrinth",
         M::DownloadingNewVersion => "Téléchargement de la nouvelle version…",
         M::CheckingModrinth => "Vérification sur Modrinth…",
-        M::UpdateTo => "Mettre à jour vers {version}…",
+        M::UpdateModpack => "Mettre à jour…",
         M::UpToDate => "À jour",
         M::CheckForUpdates => "Rechercher des mises à jour",
         M::ModrinthUnreachable => "Modrinth est injoignable.",
         M::StopGameFirst => "Arrêtez d’abord le jeu, ou attendez la fin de la mise à jour.",
         M::CouldntPrepareUpdate => "Impossible de préparer la mise à jour\u{a0}: {error}",
 
-        M::LinkedServerHint => "Sur {core}. Jouer le rejoint et synchronise ses mods.",
+        M::LinkedServerHint => "Jouer le rejoint et synchronise ses mods.",
         M::LinkedServerCoreRemoved => {
-            "Sur {core}, qui a été retiré de la page Lodestone Host. Ajoutez de nouveau cet hôte sur cette page pour rejoindre le serveur."
+            "Son hôte a été retiré de la page Lodestone Host. Ajoutez de nouveau l’hôte sur cette page pour rejoindre le serveur."
         }
         M::CoreRemoved => "Hôte retiré",
         M::Unlink => "Délier",
@@ -139,10 +139,11 @@ pub fn text(message: M) -> &'static str {
         }
         M::Memory => "Mémoire",
         M::Checking => "Vérification…",
-        M::JavaFound => "Java {major} (version {version})",
-        M::JavaTooOld => {
-            "Java {major} (version {version}). Minecraft {game} demande Java {needed} ou plus récent."
-        }
+        M::JavaTooOldBadge => "Trop ancien",
+        M::JavaFitsBadge => "Convient",
+        M::JavaFoundKey => "Trouvé",
+        M::JavaVersion => "Java {version}",
+        M::JavaOrNewer => "Java {major} ou plus récent",
         M::MojangJavaVersion => "Java {major} de Mojang",
         M::MojangJava => "Java de Mojang",
         M::AzulZulu8 => "Azul Zulu\u{a0}8, fait pour Apple Silicon",
@@ -368,6 +369,8 @@ pub fn text(message: M) -> &'static str {
             "Arrêtez le jeu pour modifier ceci\u{a0}: il réécrit options.txt en quittant."
         }
         M::NotShared => "Non partagé (Paramètres du launcher)",
+        M::SharedKey => "Partagés",
+        M::OverriddenKey => "Remplacés",
         M::ShareAll => "Tout partager",
         M::OverrideAll => "Tout remplacer",
         M::Show => "Afficher",
@@ -542,8 +545,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
             "{count} activés ou désactivés",
         ],
         P::CodePackChanges => ["+ {count} modification", "+ {count} modifications"],
-        P::SharedCount => ["{count}\u{a0}partagé", "{count}\u{a0}partagés"],
-        P::OverriddenCount => ["{count}\u{a0}remplacé", "{count}\u{a0}remplacés"],
         P::AndMore => [
             "{names} et {count}\u{a0}autre",
             "{names} et {count}\u{a0}autres",

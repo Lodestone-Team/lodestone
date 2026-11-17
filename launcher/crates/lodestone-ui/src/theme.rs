@@ -317,6 +317,16 @@ pub mod fonts {
     pub fn own(part: FontPart) -> Option<SharedString> {
         chosen(part)
     }
+
+    /// Tabular figures (the `tnum` OpenType feature, which Satoshi has), so digits
+    /// are all as wide and a number that changes doesn't make the text around it
+    /// jitter. For every number a value shows.
+    pub fn tabular() -> gpui::FontFeatures {
+        static TABULAR: std::sync::OnceLock<gpui::FontFeatures> = std::sync::OnceLock::new();
+        TABULAR
+            .get_or_init(|| gpui::FontFeatures(std::sync::Arc::new(vec![("tnum".into(), 1)])))
+            .clone()
+    }
 }
 
 /// The theme's text and border colours, which a skin can change ([`Tokens`]).
@@ -454,6 +464,8 @@ pub mod text {
     pub const CAPTION: Rems = rems(0.625);
     pub const SMALL: Rems = rems(0.75);
     pub const MEDIUM: Rems = rems(0.875);
+    /// A version tag's and a file name fact's monospace text: 11px.
+    pub const VERSION: Rems = rems(0.6875);
     pub const H3: Rems = rems(1.0);
     pub const H2: Rems = rems(1.25);
     pub const H1: Rems = rems(1.75);
@@ -688,6 +700,53 @@ pub mod layout {
     }
 }
 
+/// The outline of cards, chips, tags and fields (the design's `--outline`):
+/// gray-faded at 30%, which the light theme draws as a light gray line.
+pub fn outline() -> Color {
+    colors::GRAY_FADED.opacity(30)
+}
+
+/// What a status, a stat or a mismatch says. Colour means status and nothing else.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Tone {
+    #[default]
+    Neutral,
+    Info,
+    Success,
+    Warning,
+    Danger,
+}
+
+/// The status pills' colours (the Host's sidebar and Mods page have used them by
+/// hand): a `-faded` accent at 25% behind its light accent as text. These exact
+/// alphas are the ones the light theme maps ([`palette::light`]).
+pub mod pill {
+    use super::{Color, Tone, colors, ink};
+
+    /// The fill behind a pill's text.
+    pub fn bg(tone: Tone) -> Color {
+        match tone {
+            // not gray-750, which the light theme draws as its card surface
+            Tone::Neutral => colors::GRAY_700,
+            Tone::Info => colors::BLUE_FADED.opacity(25),
+            Tone::Success => colors::GREEN_FADED.opacity(25),
+            Tone::Warning => colors::YELLOW_FADED.opacity(25),
+            Tone::Danger => colors::RED_FADED.opacity(25),
+        }
+    }
+
+    /// A pill's text and icon.
+    pub fn fg(tone: Tone) -> Color {
+        match tone {
+            Tone::Neutral => ink::secondary(),
+            Tone::Info => colors::BLUE_200,
+            Tone::Success => colors::GREEN_300,
+            Tone::Warning => colors::YELLOW_300,
+            Tone::Danger => colors::RED_200,
+        }
+    }
+}
+
 /// Width of the focus ring (`focus-visible:ring-4`).
 pub fn focus_ring_width() -> Pixels {
     px(4.0)
@@ -706,6 +765,49 @@ pub fn line_height(size: Rems, leading: f32) -> Rems {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The light theme maps only the token colours and the alphas it lists, so a
+    /// new opacity would draw its dark colour on white. Every colour the readable
+    /// components use must have a light one.
+    #[test]
+    fn light_theme_maps_every_readable_colour() {
+        let mut used = vec![
+            outline(),
+            colors::GRAY_500,
+            colors::GRAY_700,
+            colors::GRAY_750,
+            colors::GRAY_800,
+            colors::GRAY_850,
+            colors::GRAY_900,
+            colors::BLUE_300,
+            colors::RED_300,
+            colors::YELLOW_300,
+            colors::GREEN_300,
+            ink::text(),
+            ink::secondary(),
+            ink::muted(),
+            ink::faint(),
+            ink::border(),
+        ];
+        for tone in [
+            Tone::Neutral,
+            Tone::Info,
+            Tone::Success,
+            Tone::Warning,
+            Tone::Danger,
+        ] {
+            used.push(pill::bg(tone));
+            used.push(pill::fg(tone));
+        }
+        for color in used {
+            assert_ne!(
+                palette::light(color),
+                color,
+                "{} has no light colour",
+                color.to_hex()
+            );
+        }
+    }
 
     #[test]
     fn the_sidebar_folds_below_its_threshold_and_stays_in_bounds() {

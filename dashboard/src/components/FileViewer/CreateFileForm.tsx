@@ -49,7 +49,7 @@ export default function CreateFileForm({
           )
         ) {
           actions.setErrors({
-            name: t('files.nameTaken', { name: values.name }),
+            name: t('files.nameTaken'),
           });
           actions.setSubmitting(false);
           return;

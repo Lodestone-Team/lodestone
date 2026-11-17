@@ -13,22 +13,27 @@ use launcher_core::{
     ui_skin::SurfaceId,
 };
 
+use lodestone_ui::values::truncate::sanitize;
+
 use super::{
     Servers,
     extras::note,
+    facts,
     friend_list::{AddFriend, CoreServers, FriendDialog, FriendPrompt, expiry_label, hex, short},
     friends::{JoinStage, Liveness},
-    status_label,
-    view::server_detail,
 };
 use crate::{
     components::{
-        Button, ButtonSize, ButtonVariant, Checkbox, Dialog, Icon, LoadingDots, Toggle,
+        Button, ButtonSize, ButtonVariant, Checkbox, Dialog, Fact, FactLine, FactList, FactValue,
+        Icon, ItemIcon, Kind, KindIcon, LoadingDots, NameGroup, NameItem, NameList, Num,
+        ObjectCard, ObjectChip, ReasonTag, StatusBadge, Toggle, ValueField, ValueKind,
         a11y::{Accessible, Role},
+        readable::key_value,
+        readable::object_name,
     },
-    i18n::{CommonMsg, FriendListMsg as M, FriendListPlural as P, ServersMsg, format, t, tr, trn},
+    i18n::{CommonMsg, FactMsg, FriendListMsg as M, FriendListPlural as P, ServersMsg, t, tr, trn},
     skin::Skinned,
-    theme::{self, colors, fonts, leading, px, radius, text, weights},
+    theme::{self, Tone, colors, fonts, leading, px, radius, text, weights},
 };
 
 fn paragraph(value: impl Into<SharedString>) -> gpui::Div {
@@ -37,22 +42,6 @@ fn paragraph(value: impl Into<SharedString>) -> gpui::Div {
         .line_height(theme::line_height(text::MEDIUM, leading::NORMAL))
         .text_color(crate::theme::ink::secondary())
         .child(value.into())
-}
-
-/// A small word in a rounded box beside a name: "Not verified", "Hidden".
-fn badge(label: &'static str, color: theme::Color) -> gpui::Div {
-    div()
-        .flex_none()
-        .px_1p5()
-        .rounded(radius::MD)
-        .border_1()
-        .border_color(color.opacity(40))
-        .bg(color.opacity(10))
-        .text_size(theme::text_size(text::CAPTION))
-        .line_height(theme::line_height(text::SMALL, leading::NORMAL))
-        .font_weight(weights::BOLD.into())
-        .text_color(color)
-        .child(label)
 }
 
 /// A safety code, in a monospaced box so its groups line up.
@@ -117,6 +106,30 @@ fn warning(body: impl Into<SharedString>, color: theme::Color) -> gpui::Div {
         )
 }
 
+/// Friends with the same name as someone, in case one is pretending: a "Same name as"
+/// tag, a chip for each, and the advice under them.
+fn same_name(names: &[String], advice: &'static str) -> gpui::Div {
+    div()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .flex_wrap()
+                .items_center()
+                .gap_1p5()
+                .child(ReasonTag::new(t(M::SameNameTag)).icon(Icon::TriangleExclamation))
+                .children(names.iter().map(|name| {
+                    ObjectChip::new(sanitize(name, 64))
+                        .kind(Kind::Friend)
+                        .max_w(px(200.))
+                })),
+        )
+        .child(note(advice).text_color(colors::YELLOW))
+}
+
 fn working(label: impl Into<SharedString>) -> gpui::Div {
     div()
         .flex()
@@ -150,9 +163,19 @@ fn face(image: Option<Arc<RenderImage>>, size: f32) -> Option<gpui::Img> {
     })
 }
 
-/// "Alex" and "Sam": the names of friends a new name matches.
-fn names(list: &[String]) -> String {
-    format::list(list)
+/// The card that names a friend under a dialog's title, with their face when their
+/// Minecraft profile is known.
+fn friend_card(name: &str, face: Option<gpui::Img>) -> ObjectCard {
+    let card = ObjectCard::new(sanitize(name, 64)).kind(Kind::Friend);
+    match face {
+        Some(face) => card.thumbnail(face),
+        None => card,
+    }
+}
+
+/// The card that names one of this person's computers (a host).
+fn host_card(name: &str) -> ObjectCard {
+    ObjectCard::new(sanitize(name, 64)).kind(Kind::Computer)
 }
 
 impl Servers {
@@ -284,8 +307,14 @@ impl Servers {
                         )
                         .when(!list.snapshot.safety_code.is_empty(), |this| {
                             this.child(
-                                note(tr!(M::YourSafetyCode, code = list.snapshot.safety_code))
-                                    .font_family(fonts::mono()),
+                                div().pt_1().w(px(320.)).max_w_full().child(
+                                    ValueField::new(
+                                        "friend-list-safety-code",
+                                        list.snapshot.safety_code.clone(),
+                                    )
+                                    .label(t(M::YourSafetyCode))
+                                    .kind(ValueKind::Code),
+                                ),
                             )
                         }),
                 )
@@ -312,10 +341,31 @@ impl Servers {
         for core in &book.my_cores {
             let id = format!("friend-list-core-{}", short(&core.fingerprint));
             let fingerprint = core.fingerprint.clone();
-            let label: String = if core.source.as_deref() == Some(lan::LAN_SOURCE) {
+            let lan = core.source.as_deref() == Some(lan::LAN_SOURCE);
+            let label: String = if lan {
                 t(M::LanFromHere).into()
             } else {
-                tr!(M::SharingFrom, core = core.name)
+                key_value(t(M::SharingFrom), &core.name).into()
+            };
+            let line = if lan {
+                note(label.clone())
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .into_any_element()
+            } else {
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .child(
+                        FactLine::row(SharedString::from(format!("{id}-facts"))).fact(Fact::new(
+                            t(M::SharingFrom),
+                            ObjectChip::new(sanitize(&core.name, 64))
+                                .kind(Kind::Computer)
+                                .muted(),
+                        )),
+                    )
+                    .into_any_element()
             };
             body.push(
                 row()
@@ -323,7 +373,7 @@ impl Servers {
                     .accessible(Role::Group, id.clone(), label.clone())
                     .pl_8()
                     .child(Icon::Server.render(px(13.), colors::GRAY_400))
-                    .child(note(label).flex_1().min_w_0().truncate())
+                    .child(line)
                     .child(
                         Button::new(SharedString::from(format!("{id}-retire")), t(M::RetireCore))
                             .size(ButtonSize::Slim)
@@ -355,14 +405,48 @@ impl Servers {
                     .into_any_element(),
             );
         }
-        if let Some(problem) = &list.problem {
+        if !list.problems.is_empty() {
+            // each friend that couldn't be checked, with why; problems not about one
+            // friend under them
+            let (named, general): (Vec<_>, Vec<_>) =
+                list.problems.iter().partition(|(name, _)| name.is_some());
+            let has_named = !named.is_empty();
+            let mut group = NameGroup::new(t(M::RefreshProblem));
+            for (name, why) in named {
+                group = group.item(
+                    NameItem::new(sanitize(name.as_deref().unwrap_or_default(), 64))
+                        .icon(ItemIcon::Failed)
+                        .reason(why.clone()),
+                );
+            }
             body.push(
                 row()
-                    .child(Icon::TriangleExclamation.render(px(13.), colors::YELLOW))
+                    .items_start()
                     .child(
-                        note(tr!(M::RefreshProblem, error = problem))
+                        div()
+                            .flex()
+                            .flex_col()
                             .flex_1()
-                            .min_w_0(),
+                            .min_w_0()
+                            .gap_1()
+                            .when(has_named, |this| {
+                                this.child(
+                                    NameList::new("friend-list-problems")
+                                        .group(group)
+                                        .collapsed_after(5),
+                                )
+                            })
+                            .children(general.into_iter().map(|(_, why)| {
+                                div()
+                                    .flex()
+                                    .flex_row()
+                                    .items_start()
+                                    .gap_2()
+                                    .child(
+                                        Icon::TriangleExclamation.render(px(13.), colors::YELLOW),
+                                    )
+                                    .child(note(why.clone()).flex_1().min_w_0())
+                            })),
                     )
                     .into_any_element(),
             );
@@ -424,11 +508,17 @@ impl Servers {
         } else if share.open.is_empty() {
             details = details.child(note(t(M::LanNoneOpen)));
         } else {
-            for world in &share.open {
+            let joined = match &share.state {
+                Some(lan::LanHostState::Sharing { connected }) if *connected > 0 => {
+                    Some(*connected as u64)
+                }
+                _ => None,
+            };
+            for (i, world) in share.open.iter().enumerate() {
                 let name = if world.name.is_empty() {
                     t(M::LanWorld).to_string()
                 } else {
-                    world.name.clone()
+                    sanitize(&world.name, 120)
                 };
                 details = details.child(
                     div()
@@ -444,16 +534,24 @@ impl Servers {
                                 .bg(colors::GREEN_200),
                         )
                         .child(
-                            note(tr!(M::LanSharing, world = name))
-                                .text_color(crate::theme::ink::text())
-                                .truncate(),
+                            div().flex_1().min_w_0().child(
+                                FactLine::row(("friend-list-lan-world", i))
+                                    .fact(Fact::new(
+                                        t(M::LanSharing),
+                                        ObjectChip::new(name).kind(Kind::World),
+                                    ))
+                                    .facts(joined.filter(|_| i == 0).map(|joined| {
+                                        Fact::icon(
+                                            Icon::UserGroup,
+                                            t(FactMsg::Joined),
+                                            Num::count(joined),
+                                        )
+                                    })),
+                            ),
                         ),
                 );
             }
             match &share.state {
-                Some(lan::LanHostState::Sharing { connected }) if *connected > 0 => {
-                    details = details.child(note(trn!(P::LanFriendsJoined, *connected)));
-                }
                 Some(lan::LanHostState::Problem(error)) => {
                     details = details
                         .child(note(tr!(M::LanProblem, error = error)).text_color(colors::YELLOW));
@@ -526,9 +624,25 @@ impl Servers {
                     .py_1p5()
                     .child(Icon::Link.render(px(13.), colors::GRAY_500))
                     .child(
-                        note(tr!(M::LinkWaiting, time = expiry_label(link.expires)))
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap_3()
                             .flex_1()
-                            .min_w_0(),
+                            .min_w_0()
+                            .child(StatusBadge::new(t(M::LinkWaiting), Tone::Neutral))
+                            .child(
+                                div().flex_1().min_w_0().child(
+                                    FactLine::row(SharedString::from(format!("{id}-facts")))
+                                        .fact(Fact::new(t(M::LinkUses), t(M::LinkUsesOnce)))
+                                        .fact(Fact::icon(
+                                            Icon::Clock,
+                                            t(FactMsg::Expires),
+                                            FactValue::time(expiry_label(link.expires)),
+                                        )),
+                                ),
+                            ),
                     )
                     .child(
                         Button::new(SharedString::from(format!("{id}-cancel")), t(M::CancelLink))
@@ -562,7 +676,7 @@ impl Servers {
             .accessible(
                 Role::ListItem,
                 id.clone(),
-                tr!(M::ReplyFrom, name = reply.name),
+                key_value(&reply.name, t(M::ReplyFrom)),
             )
             .flex()
             .flex_col()
@@ -589,15 +703,22 @@ impl Servers {
                             .flex_col()
                             .flex_1()
                             .min_w_0()
+                            .child(note(t(M::ReplyFrom)))
+                            .child(object_name(sanitize(&reply.name, 64)))
                             .child(
-                                div()
-                                    .font_weight(weights::BOLD.into())
-                                    .text_color(crate::theme::ink::text())
-                                    .child(tr!(M::ReplyFrom, name = reply.name)),
-                            )
-                            .child(
-                                note(tr!(M::SafetyCode, code = reply.safety_code))
-                                    .font_family(fonts::mono()),
+                                FactLine::row(SharedString::from(format!("{id}-facts")))
+                                    .fact(Fact::new(
+                                        t(M::SafetyCode),
+                                        FactValue::mono(reply.safety_code.clone()),
+                                    ))
+                                    .facts(reply.player.as_ref().filter(|p| !p.offline).map(
+                                        |player| {
+                                            Fact::new(
+                                                t(M::MinecraftName),
+                                                FactValue::mono(player.name.clone()),
+                                            )
+                                        },
+                                    )),
                             ),
                     )
                     .when(busy, |this| this.child(LoadingDots))
@@ -621,10 +742,9 @@ impl Servers {
                     ),
             )
             // the profile is their launcher's word: said so, beside the face it draws
-            .when_some(
-                reply.player.as_ref().filter(|p| !p.offline),
-                |this, player| this.child(note(tr!(M::PlaysAs, name = player.name))),
-            )
+            .when_some(reply.player.as_ref().filter(|p| !p.offline), |this, _| {
+                this.child(note(t(M::PlaysAs)))
+            })
             .when(reply.answers > 1, |this| {
                 this.child(warning(
                     trn!(P::AnsweredTimes, reply.answers),
@@ -632,10 +752,7 @@ impl Servers {
                 ))
             })
             .when(!reply.same_name_as.is_empty(), |this| {
-                this.child(warning(
-                    tr!(M::SameNameAs, names = names(&reply.same_name_as)),
-                    colors::YELLOW,
-                ))
+                this.child(same_name(&reply.same_name_as, t(M::SameNameAs)))
             })
             .into_any_element()
     }
@@ -649,10 +766,16 @@ impl Servers {
         let expanded = list.expanded.contains(&friend.key);
         let online = list.online(friend);
         let cores = friend.joinable_cores(launcher_core::friend_list::now());
-        let (dot, status_line): (theme::Color, String) = match friend.status {
-            Status::Pending => (colors::YELLOW, tr!(M::WaitingFor, name = friend.name)),
-            Status::Retired => (colors::GRAY_500, t(M::Retired).into()),
-            Status::Active if cores.is_empty() => (colors::GRAY_500, t(M::SharesNothing).into()),
+        let (dot, status_line): (theme::Color, AnyElement) = match friend.status {
+            Status::Pending => (
+                colors::YELLOW,
+                StatusBadge::new(t(M::WaitingToConfirm), Tone::Warning).into_any_element(),
+            ),
+            Status::Retired => (colors::GRAY_500, note(t(M::Retired)).into_any_element()),
+            Status::Active if cores.is_empty() => (
+                colors::GRAY_500,
+                note(t(M::SharesNothing)).into_any_element(),
+            ),
             Status::Active => match online {
                 Some(true) => {
                     let online: Vec<_> = cores
@@ -664,26 +787,40 @@ impl Servers {
                         })
                         .collect();
                     // their launcher is online only while a world is open to LAN
-                    let names: Vec<String> = online
-                        .iter()
-                        .map(|c| {
-                            if friend.is_launcher(&c.fingerprint) {
-                                t(M::LanWorlds).to_string()
-                            } else {
-                                c.name.clone()
-                            }
-                        })
-                        .collect();
                     let status = if online.iter().all(|c| friend.is_launcher(&c.fingerprint)) {
-                        t(M::LanOpenStatus).to_string()
+                        StatusBadge::new(t(M::LanOpenStatus), Tone::Success).into_any_element()
                     } else {
-                        tr!(M::OnlineOn, cores = format::list(&names))
+                        // each computer sharing now, as a chip after the badge
+                        div()
+                            .flex()
+                            .flex_row()
+                            .flex_wrap()
+                            .items_center()
+                            .gap_1p5()
+                            .child(StatusBadge::new(t(M::CoreOnline), Tone::Success))
+                            .children(online.iter().map(|c| {
+                                if friend.is_launcher(&c.fingerprint) {
+                                    ObjectChip::new(t(M::LanWorlds))
+                                        .kind(Kind::World)
+                                        .muted()
+                                        .max_w(px(200.))
+                                } else {
+                                    ObjectChip::new(sanitize(&c.name, 64))
+                                        .kind(Kind::Computer)
+                                        .muted()
+                                        .max_w(px(200.))
+                                }
+                            }))
+                            .into_any_element()
                     };
                     (colors::GREEN_200, status)
                 }
                 // A core only answers friends it shares something with, so this is
                 // also what a running core that shares nothing with them looks like.
-                _ => (colors::GRAY_500, t(M::NotSharingNow).into()),
+                _ => (
+                    colors::GRAY_500,
+                    note(t(M::NotSharingNow)).into_any_element(),
+                ),
             },
         };
         let toggle_key = key.clone();
@@ -730,28 +867,29 @@ impl Servers {
                                             .child(friend.display_name().to_string()),
                                     )
                                     .child(if friend.verified {
-                                        badge(t(M::Verified), colors::GREEN_300)
+                                        StatusBadge::new(t(M::Verified), Tone::Success)
                                     } else {
-                                        badge(t(M::NotVerified), colors::YELLOW)
+                                        StatusBadge::new(t(M::NotVerified), Tone::Warning)
                                     })
                                     .when(friend.hidden, |this| {
-                                        this.child(badge(t(M::Hidden), colors::GRAY_400))
+                                        this.child(StatusBadge::new(t(M::Hidden), Tone::Neutral))
                                     }),
                             )
-                            .child(note(status_line))
+                            .child(div().pt_0p5().child(status_line))
                             .when(friend.nickname.is_some(), |this| {
-                                this.child(note(tr!(M::TheirName, name = friend.name)))
+                                this.child(
+                                    FactLine::row(SharedString::from(format!("{id}-their-name")))
+                                        .fact(Fact::new(
+                                            t(M::TheirName),
+                                            FactValue::object(sanitize(&friend.name, 64)),
+                                        )),
+                                )
                             })
                             // a name like another friend's (after a rename too): in case
                             // someone is pretending
                             .when_some(
                                 list.snapshot.name_clashes.get(&friend.key),
-                                |this, names| {
-                                    this.child(
-                                        note(tr!(M::NameLike, names = format::list(names)))
-                                            .text_color(colors::YELLOW),
-                                    )
-                                },
+                                |this, names| this.child(same_name(names, t(M::NameLikeBody))),
                             ),
                     )
                     // open, the panel's actions have Compare codes
@@ -1021,26 +1159,25 @@ impl Servers {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let as_server = server_instance(server);
-        let detail = match lan_host {
-            Some(_) if server.game_version.is_empty() => t(M::OpenNow).to_string(),
-            Some(_) => format!("{} · {}", server.game_version, t(M::OpenNow)),
-            None => format!(
-                "{} · {}",
-                server_detail(&as_server),
-                status_label(&as_server)
-            ),
-        };
-        // what a friend needs to know before Play: the account, the version, the mods
-        let mut lan_notes: Vec<String> = Vec::new();
+        // the players while it runs, then the game and its loader (a LAN world may not
+        // say its version)
+        let mut line: Vec<Fact> = Vec::new();
+        if lan_host.is_none() {
+            line.extend(facts::server_players(&as_server));
+        }
+        line.extend(
+            facts::versions(&as_server)
+                .into_iter()
+                .skip(usize::from(server.game_version.is_empty())),
+        );
+        // what a friend needs to know before Play: the account, the mods
+        let mut lan_notes: Vec<&'static str> = Vec::new();
         if lan_host.is_some() {
             if server.online_mode == Some(true) {
-                lan_notes.push(t(M::LanNeedsMicrosoft).into());
-            }
-            if !server.game_version.is_empty() {
-                lan_notes.push(tr!(M::LanNeedsVersion, version = server.game_version));
+                lan_notes.push(t(M::LanNeedsMicrosoft));
             }
             if !matches!(server.loader.as_str(), "vanilla" | "") {
-                lan_notes.push(tr!(M::LanModded, loader = server_detail(&as_server)));
+                lan_notes.push(t(M::LanModded));
             }
         }
         let instance: String = server
@@ -1114,30 +1251,42 @@ impl Servers {
                             .flex_row()
                             .items_center()
                             .gap_2()
-                            .when(lan_host.is_some(), |this| {
-                                this.child(badge(t(M::LanWorld), colors::GREEN_300))
-                            })
+                            .min_w_0()
                             .child(
                                 div()
+                                    .min_w_0()
                                     .truncate()
+                                    .font_weight(weights::MEDIUMBOLD.into())
                                     .text_color(crate::theme::ink::text())
                                     .child(if server.name.is_empty() {
                                         t(M::LanWorld).to_string()
                                     } else {
-                                        server.name.clone()
+                                        sanitize(&server.name, 120)
                                     }),
-                            ),
+                            )
+                            .map(|this| {
+                                if lan_host.is_some() {
+                                    this.child(KindIcon::new(Kind::World).small())
+                                        .child(StatusBadge::new(t(M::OpenNow), Tone::Success))
+                                } else {
+                                    this.child(facts::state_badge(as_server.state))
+                                }
+                            }),
                     )
-                    .child(note(detail))
+                    .when(!line.is_empty(), |this| {
+                        this.child(
+                            FactLine::row(SharedString::from(format!("{id}-facts"))).facts(line),
+                        )
+                    })
                     .children(waiting.map(note))
                     .children(lan_notes.into_iter().map(note))
                     // the tunnel's address on this computer, the same every time
                     .children(magic_port.map(|port| {
                         let address = launcher_core::cores::friends::game_address(port);
-                        super::friends_view::magic_line(
-                            format!("copy-address-{id}"),
-                            tr!(ServersMsg::FriendAddress, address = address),
+                        super::friends_view::magic_field(
+                            format!("magic-localhost-{id}"),
                             address,
+                            t(ServersMsg::WhileConnected),
                         )
                     })),
             )
@@ -1273,13 +1422,18 @@ pub fn friend_list_dialog(
             let their_code = friend.map(|f| f.safety_code()).unwrap_or_default();
             let toggle = servers.clone();
             let toggle_key = key.clone();
-            dialog("friend-verify", tr!(M::VerifyTitle, name = name))
+            let their_face = face(
+                this.friend_list.head(friend.and_then(|f| f.minecraft())),
+                32.,
+            );
+            dialog("friend-verify", t(M::VerifyTitle).into())
                 .child(
                     div()
                         .flex()
                         .flex_col()
                         .gap_3()
-                        .child(paragraph(tr!(M::VerifyBody, name = name)))
+                        .child(friend_card(&name, their_face))
+                        .child(paragraph(t(M::VerifyBody)))
                         .child(
                             div()
                                 .flex()
@@ -1292,7 +1446,7 @@ pub fn friend_list_dialog(
                                 ))
                                 .child(code_box(
                                     "friend-verify-theirs",
-                                    tr!(M::TheirCode, name = name),
+                                    t(M::TheirCode),
                                     &their_code,
                                 )),
                         )
@@ -1317,13 +1471,18 @@ pub fn friend_list_dialog(
                 .unwrap_or_default();
             let save = servers.clone();
             let clear = servers.clone();
-            dialog("friend-rename", tr!(M::RenameTitle, name = name_of(key)))
+            dialog("friend-rename", t(M::RenameTitle).into())
                 .child(
                     div()
                         .flex()
                         .flex_col()
                         .gap_3()
-                        .child(paragraph(tr!(M::RenameBody, name = chosen)))
+                        .child(friend_card(&name_of(key), None).compact(true))
+                        .child(paragraph(t(M::RenameBody)))
+                        .child(
+                            FactList::new("friend-rename-chosen")
+                                .row(t(M::TheirName), FactValue::object(sanitize(&chosen, 64))),
+                        )
                         .child(on_enter(
                             servers,
                             input.clone().into_any_element(),
@@ -1354,12 +1513,18 @@ pub fn friend_list_dialog(
         } => {
             let remove = servers.clone();
             let name = name_of(key);
-            dialog("friend-remove", tr!(M::RemoveTitle, name = name))
+            let their_face = face(
+                this.friend_list
+                    .head(this.friend_list.friend(key).and_then(|f| f.minecraft())),
+                32.,
+            );
+            dialog("friend-remove", t(M::RemoveTitle).into())
                 .child(
                     div()
                         .flex()
                         .flex_col()
                         .gap_3()
+                        .child(friend_card(&name, their_face))
                         .child(paragraph(t(M::RemoveBody)))
                         .children(error_note(error)),
                 )
@@ -1423,13 +1588,14 @@ pub fn friend_list_dialog(
             ..
         } => {
             let retire = servers.clone();
-            dialog("friend-retire-core", tr!(M::RetireCoreTitle, name = name))
+            dialog("friend-retire-core", t(M::RetireCoreTitle).into())
                 .child(
                     div()
                         .flex()
                         .flex_col()
                         .gap_3()
-                        .child(paragraph(tr!(M::RetireCoreBody, name = name)))
+                        .child(host_card(name))
+                        .child(paragraph(t(M::RetireCoreBody)))
                         .child(warning(t(M::RetireCoreWarning), colors::YELLOW))
                         .children(error_note(error)),
                 )
@@ -1461,13 +1627,24 @@ fn add_dialog(
             .child(
                 div()
                     .id("friend-add-done")
-                    .accessible(Role::Status, "friend-add-done", tr!(M::Added, name = name))
+                    .accessible(
+                        Role::Status,
+                        "friend-add-done",
+                        key_value(name, t(M::Added)),
+                    )
                     .flex()
-                    .flex_row()
-                    .items_start()
+                    .flex_col()
                     .gap_3()
-                    .child(Icon::CircleCheck.render(px(16.), colors::GREEN_300))
-                    .child(paragraph(tr!(M::Added, name = name)).flex_1()),
+                    .child(friend_card(name, None))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_start()
+                            .gap_3()
+                            .child(Icon::CircleCheck.render(px(16.), colors::GREEN_300))
+                            .child(paragraph(t(M::Added)).flex_1()),
+                    ),
             )
             .footer(cancel_button(t(CommonMsg::Done)))
             .into_any_element();
@@ -1513,55 +1690,38 @@ fn add_dialog(
         let confirm = servers.clone();
         let player = preview.player.as_ref().filter(|p| !p.offline);
         let their_face = face(this.friend_list.head(player), 32.);
+        let mut friend = friend_card(&preview.name, their_face);
+        if let Some(player) = player {
+            friend = friend.fact(Fact::new(
+                t(M::MinecraftName),
+                FactValue::mono(player.name.clone()),
+            ));
+        }
         let card = div()
             .id("friend-add-card")
             .accessible(
                 Role::Group,
                 "friend-add-card",
-                tr!(M::PreviewFrom, name = preview.name),
+                key_value(t(M::PreviewFrom), &preview.name),
             )
             .flex()
             .flex_col()
             .gap_3()
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_3()
-                    .children(their_face)
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .font_family(fonts::heading())
-                            .text_size(theme::text_size(text::H3))
-                            .font_weight(weights::BOLD.into())
-                            .text_color(crate::theme::ink::text())
-                            .child(tr!(M::PreviewFrom, name = preview.name)),
-                    ),
-            )
-            // the profile is the sender's word: said so, beside the face it draws
-            .when_some(player, |this, player| {
-                this.child(note(tr!(M::PlaysAs, name = player.name)))
+            .child(note(t(M::PreviewFrom)))
+            .child(friend)
+            .when(preview.already_friends, |this| {
+                this.child(div().child(StatusBadge::new(t(M::AlreadyFriends), Tone::Warning)))
             })
+            // the profile is the sender's word: said so, beside the face it draws
+            .when_some(player, |this, _| this.child(note(t(M::PlaysAs))))
             .child(code_box(
                 "friend-add-code",
-                tr!(M::TheirCode, name = preview.name),
+                t(M::TheirCode),
                 &preview.safety_code,
             ))
-            .child(note(tr!(M::PreviewCompare, name = preview.name)))
+            .child(note(t(M::PreviewCompare)))
             .when(!preview.same_name_as.is_empty(), |this| {
-                this.child(warning(
-                    tr!(M::SameNameAs, names = names(&preview.same_name_as)),
-                    colors::YELLOW,
-                ))
-            })
-            .when(preview.already_friends, |this| {
-                this.child(warning(
-                    tr!(M::AlreadyFriends, name = preview.name),
-                    colors::YELLOW,
-                ))
+                this.child(same_name(&preview.same_name_as, t(M::SameNameAs)))
             })
             .children(error_note(&add.error));
         return dialog

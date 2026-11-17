@@ -24,6 +24,7 @@ use lodestone_ui::{
     components::{
         Accessible as _, Checkbox, Dropdown, Icon, KeyboardFocus as _, LoadingDots, TextInput,
         settings::{popover_panel, select_button},
+        text_tooltip,
     },
     theme::{colors, ink, px, radius, text, weights},
 };
@@ -155,8 +156,8 @@ impl ModrinthSearchView {
         self
     }
 
-    /// A box that limits the results to a server's game version and loader ("Only show
-    /// versions for 1.21.1 / fabric"), ticked: the Mods tab's.
+    /// A box that limits the results to a server's game version and loader ("Only
+    /// compatible versions", then "Minecraft 1.21.1" "Fabric"), ticked: the Mods tab's.
     pub fn with_compat_filter(
         mut self,
         game_version: String,
@@ -435,12 +436,27 @@ impl ModrinthSearchView {
                                     .text_color(ink::text())
                                     .child(hit.title.clone()),
                             )
+                            // who made it: a person icon, "Author: name" in its tooltip
                             .child(
                                 div()
+                                    .id(SharedString::from(format!(
+                                        "hit-author-{}",
+                                        hit.project_id
+                                    )))
+                                    .flex()
                                     .flex_none()
+                                    .items_center()
+                                    .gap(px(4.))
                                     .text_size(text::SMALL)
-                                    .text_color(ink::muted())
-                                    .child(tr!(M::ByAuthor, author = hit.author)),
+                                    .text_color(ink::secondary())
+                                    .child(Icon::User.render(px(12.), colors::GRAY_500))
+                                    .child(hit.author.clone())
+                                    .tooltip(text_tooltip(
+                                        lodestone_ui::components::readable::key_value(
+                                            t(crate::i18n::FactMsg::Author),
+                                            &hit.author,
+                                        ),
+                                    )),
                             )
                             .when(self.installed.contains(&hit.project_id), |this| {
                                 this.child(lodestone_ui::components::settings::tag(
@@ -596,16 +612,39 @@ impl Render for ModrinthSearchView {
             }
             _ => None,
         };
-        let compat = self.compat.as_ref().map(|(.., label, on)| {
-            Checkbox::new("modrinth-compat-filter", *on, label.clone()).on_change(cx.listener(
-                |this, value: &bool, _, cx| {
-                    if let Some((.., on)) = this.compat.as_mut() {
-                        *on = *value;
-                    }
-                    this.page = 0;
-                    this.search(cx);
-                },
-            ))
+        // the box, then what it limits the results to: the game and the loader
+        let compat = self.compat.as_ref().map(|(game, loader, label, on)| {
+            let game = lodestone_ui::components::ProductPhrase::new(
+                lodestone_ui::values::Product::Minecraft,
+                game.clone(),
+            );
+            let loader = lodestone_ui::components::ProductPhrase::from_name(loader, "");
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(px(8.))
+                .child(
+                    Checkbox::new("modrinth-compat-filter", *on, label.clone()).on_change(
+                        cx.listener(|this, value: &bool, _, cx| {
+                            if let Some((.., on)) = this.compat.as_mut() {
+                                *on = *value;
+                            }
+                            this.page = 0;
+                            this.search(cx);
+                        }),
+                    ),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .gap(px(8.))
+                        .text_size(text::SMALL)
+                        .text_color(ink::muted())
+                        .child(game)
+                        .children(loader),
+                )
         });
         let filter = self.loader.as_ref().map(|(_, label, on)| {
             Checkbox::new("modrinth-loader-filter", *on, *label).on_change(cx.listener(

@@ -141,13 +141,8 @@ export const UserSettings = () => {
 
   const UserBoxes = !selectedUser && !openingUser && (
     <SettingsSection
-      title={
-        userListLoading
-          ? t('settings.users.allMembers')
-          : t('settings.users.allMembersCount', {
-              count: Object.keys(userList).length,
-            })
-      }
+      title={t('settings.users.allMembers')}
+      count={userListLoading ? undefined : Object.keys(userList).length}
       action={
         <Button
           label={t('settings.users.createUser')}
@@ -339,12 +334,7 @@ export const UserSettings = () => {
               </SettingsCard>
             </SettingsSection>
             <UserApiKeys user={selectedUser} />
-            {canManageUsers && (
-              <UserMinecraftLinks
-                uid={selectedUser.uid}
-                username={selectedUser.username}
-              />
-            )}
+            {canManageUsers && <UserMinecraftLinks uid={selectedUser.uid} />}
           </>
         )}
       </SettingsPage>

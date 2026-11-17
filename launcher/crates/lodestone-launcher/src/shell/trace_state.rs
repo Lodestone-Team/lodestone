@@ -29,6 +29,7 @@ impl Modal {
             Modal::Crash { .. } => "crash",
             Modal::ModFinder { .. } => "mod_finder",
             Modal::LaunchFailed { .. } => "launch_failed",
+            Modal::Report { .. } => "report",
             Modal::OfferMain { .. } => "offer_main",
             Modal::ConfirmMain { .. } => "confirm_main",
             Modal::ConfirmRosetta { .. } => "confirm_rosetta",

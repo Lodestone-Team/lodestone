@@ -4,6 +4,7 @@ import { faCircle } from '@fortawesome/free-solid-svg-icons';
 import { stateToColor } from 'utils/util';
 import CircularProgress from './Atoms/CircularProgress';
 import { useI18n } from 'i18n';
+import { Num, StatusBadge } from './Atoms/Values';
 
 export default function InstanceLoadingPill({
   progress_percent = 0,
@@ -31,13 +32,16 @@ export default function InstanceLoadingPill({
         ></CircularProgress>
       </div>
 
-      <p className="grow truncate text-left italic">
-        {t('server.loading.settingUp', {
-          percent: formatNumber(Math.round(progress_percent * 100) / 100, {
+      <span className="flex grow items-center gap-1.5 truncate text-left">
+        <StatusBadge tone="info">{t('server.loading.settingUp')}</StatusBadge>
+        <Num
+          value={formatNumber(Math.round(progress_percent * 100) / 100, {
             style: 'percent',
-          }),
-        })}
-      </p>
+          })}
+          minWidth="2.5rem"
+          className="text-small font-mediumbold"
+        />
+      </span>
       <FontAwesomeIcon
         icon={faCircle}
         className={`select-none ${stateColor} text-[8px]`}

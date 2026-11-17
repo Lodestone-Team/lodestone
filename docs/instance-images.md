@@ -4222,6 +4222,53 @@ dialog, and the control API's and CLI's `servers host` and `servers download-wor
   out, "M6a decisions", Making it; the summary keeps warning). Launcher to Launcher needs nothing new: M5's `.lodeimg`
   export and import already do it, and `LDS2:` codes stay as they are.
 
+### RV4 decisions
+
+RV4 is not an image milestone: it is the readable names-and-values redesign of the Tauri
+dashboard (`dashboard/src`), the dashboard's part of the redesign the Launcher and the
+GPUI Host also get. It changes presentation and messages only; nothing in the images
+service, the core or the shared crate changes. `dashboard/docs/readable-values.md` lists
+every place it changed and the components to use.
+
+- **Tokens.** The dashboard's ink tokens are alpha-based, so the design's roles map onto
+  its own classes: objects `text-gray-300 font-mediumbold`, numbers `text-gray-400
+  tabular-nums`, units and times `text-ink-muted`, keys `text-small text-ink-muted`
+  (the design's ink-faint: the dashboard's own `ink-faint` is white/30 and fails
+  contrast), status the `pill-*` tokens. No new colours; Daylight keeps working through
+  `src/light-overrides.css`.
+- **The game and its loader are one plain phrase** ("Minecraft 1.21.1", "Fabric 0.16.9",
+  `utils/values.ts`), keyed "Game" or "Loader" only in fact strips and fact lists. Only
+  mod, plugin and modpack versions get a `VersionTag`.
+- **A fact line drops facts without measuring.** `FactLine` is one line high and wraps;
+  the facts that don't fit go onto a hidden second line, lowest priority last, and the
+  row's title lists every fact as "key: value". This replaces the design's overflow
+  tooltip.
+- **Middle truncation counts code points**, never splitting an emoji, and keeps the
+  extension (or a third of the text) at the end. The full value is always in the title
+  and in screen-reader text, and containers keep CSS truncation as a backstop, since
+  characters are not pixels.
+- **The home folder is read from the path's shape** (`/Users/x`, `/home/x`, `/root`,
+  `C:\Users\x`), because the core may run on another machine than the browser.
+- **`ValueField` has Copy (and Open for URLs, Show/Hide for secrets) but no Reveal**: the
+  browser can't open a folder on the core's machine.
+- **Notifications are structured in the browser.** A notification keeps a
+  `NotificationContent` (state, players, chat, modpack update, API key, or a finished
+  progression's title) built from the fields the core's events already carry, and the
+  card leads with the server, player or key chip. No core change.
+- **English the core sends stays as it is, on its own reason line**: modpack history
+  entry labels, plan notes, skipped notes, unsupported reasons and error strings. The
+  core would have to send structured data first; that is a follow-up for the core.
+- **Kept**: error messages without an object ("Failed to load …: {error}"), counted
+  clipboard toasts, and form validation messages next to their field.
+- **`Label` stays for tags that aren't a state** (categories, version types, a key's
+  scope); `StatusBadge` is for state.
+- **No `UntitledName` or `ReasonTag` in the dashboard**: it has no generated default
+  names (no backups or snapshots UI).
+- **Notifications don't store a separate plain-text copy**: the card's content is real
+  text, so screen readers read it as it is, in the current language.
+- **No changes to `dashboard/src/bindings`, the core, `crates/lodestone-image` or
+  `dashboard/src-tauri`.**
+
 ### WB1 decisions
 
 Decisions the world backups milestone on the Host made where "World backups" left them

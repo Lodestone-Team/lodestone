@@ -118,3 +118,20 @@ fn chinese_messages_are_translated() {
         problems.join("\n")
     );
 }
+
+/// `tr_spans!` and `trn_spans!` look messages up through this crate's `i18n`, the
+/// Host's own areas and the shared ones alike.
+#[test]
+fn typed_spans_resolve_through_the_hosts_messages() {
+    use lodestone_ui::{
+        i18n::spans::{Mono, Num},
+        values::Role,
+    };
+    let spans = lodestone_ui::tr_spans!(ShellMsg::PowerMenu, state = Mono("mini.local"));
+    let (range, role) = spans.runs()[0].clone();
+    assert_eq!((&spans.plain()[range], role), ("mini.local", Role::Exact));
+    let spans = lodestone_ui::tr_spans!(ValueMsg::KeyValue, key = "Size", value = Num(4));
+    assert!(spans.plain().contains('4'));
+    let spans = lodestone_ui::trn_spans!(ValuePlural::ShowMore, 2);
+    assert_eq!(spans.runs()[0].1, Role::Number);
+}

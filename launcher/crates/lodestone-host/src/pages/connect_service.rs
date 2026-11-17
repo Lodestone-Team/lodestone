@@ -25,7 +25,7 @@ use lodestone_ui::{
 };
 
 use crate::{
-    i18n::{CommonMsg, CoreMsg as M, CorePlural, t, tr, trn},
+    i18n::{CommonMsg, CoreMsg as M, CorePlural, t, trn},
     prefs::Prefs,
 };
 
@@ -41,8 +41,13 @@ pub fn error_text(error: SettingError) -> &'static str {
 
 /// "Dev relay: connect-dev.lodestone.cc" for a service that isn't the default.
 pub fn relay_note(service: &Service) -> Option<String> {
-    (*service != Service::default())
-        .then(|| tr!(M::ConnectServiceInUse, service = service.display_name()))
+    (*service != Service::default()).then(|| {
+        lodestone_ui::components::readable::key_value(
+            t(M::ConnectServiceInUse),
+            &service.display_name(),
+        )
+        .to_string()
+    })
 }
 
 /// Whether Settings › Updates shows its Developer section: in a developer build (or a
@@ -219,12 +224,22 @@ impl Render for ConnectServiceSetting {
         let active = connect_service::active();
         let note: Option<(SharedString, Color)> = match (&typed, blank) {
             (Err(error), false) => Some((error_text(*error).into(), colors::RED_200)),
+            // why, then the variable and the relay, each keyed
             _ if active.source == Source::Env => Some((
-                tr!(
-                    M::ConnectServiceEnv,
-                    var = connect_service::ENV,
-                    service = active.url()
-                )
+                [
+                    t(M::ConnectServiceEnv).to_string(),
+                    lodestone_ui::components::readable::key_value(
+                        t(M::ConnectServiceVariable),
+                        connect_service::ENV,
+                    )
+                    .to_string(),
+                    lodestone_ui::components::readable::key_value(
+                        t(M::ConnectServiceInUse),
+                        &active.url(),
+                    )
+                    .to_string(),
+                ]
+                .join("\n")
                 .into(),
                 colors::YELLOW,
             )),

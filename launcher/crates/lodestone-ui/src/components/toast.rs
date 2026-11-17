@@ -111,6 +111,12 @@ pub struct Toast {
     pub key: Option<SharedString>,
     pub duration: Duration,
     actions: Vec<ToastAction>,
+    /// What the toast is about, on its first line, with its state; the text is then
+    /// the outcome under it.
+    object: Option<super::ObjectChip>,
+    status: Option<super::StatusBadge>,
+    /// The object's version, after its name (a mod's or a modpack's).
+    version: Option<super::VersionTag>,
 }
 
 impl std::fmt::Debug for Toast {
@@ -135,7 +141,30 @@ impl Toast {
                 DEFAULT_DURATION
             },
             actions: Vec::new(),
+            object: None,
+            status: None,
+            version: None,
         }
+    }
+
+    /// Leads with the object the toast is about ("Survival"), the text becoming the
+    /// outcome under it ("Settings changed"), so the name is never inside the
+    /// sentence.
+    pub fn object(mut self, object: super::ObjectChip) -> Self {
+        self.object = Some(object);
+        self
+    }
+
+    /// The object's version, a tag after its name ("Sodium" `0.6.1`).
+    pub fn version(mut self, version: super::VersionTag) -> Self {
+        self.version = Some(version);
+        self
+    }
+
+    /// The object's state, at the end of its line ("Online", "Stopped").
+    pub fn status(mut self, status: super::StatusBadge) -> Self {
+        self.status = Some(status);
+        self
     }
 
     pub fn info(text: impl Into<SharedString>) -> Self {
@@ -366,7 +395,31 @@ impl Render for Toasts {
                     .flex()
                     .flex_col()
                     .gap(px(6.))
-                    .child(toast.text.clone())
+                    .child(match toast.object.clone() {
+                        None => div().child(toast.text.clone()),
+                        Some(object) => div()
+                            .flex()
+                            .flex_col()
+                            .min_w_0()
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_row()
+                                    .items_center()
+                                    .gap(px(8.))
+                                    .min_w_0()
+                                    .child(object)
+                                    .children(toast.version.clone())
+                                    .child(div().flex_1())
+                                    .children(toast.status.clone()),
+                            )
+                            .child(
+                                div()
+                                    .text_size(theme::text_size(text::SMALL))
+                                    .text_color(theme::ink::muted())
+                                    .child(toast.text.clone()),
+                            ),
+                    })
                     .when(stacked, |message| {
                         message.child(
                             div()

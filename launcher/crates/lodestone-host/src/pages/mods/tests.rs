@@ -79,12 +79,23 @@ fn the_install_toast_says_what_happened() {
         "skipped": [{"project_id": "fabric-api", "reason": "already installed"}],
     }))
     .unwrap();
-    let toast = ModsPage::result_toast("Installed Sodium 0.6".into(), &result);
+    crate::i18n::force(crate::i18n::Locale::En);
+    let toast = ModsPage::result_toast(None, "Installed".into(), &result);
     let text = toast.text.to_string();
     assert!(text.contains("Sodium 0.6"), "{text}");
     assert!(text.contains("old.jar"), "{text}");
-    assert!(text.contains("fabric-api (already installed)"), "{text}");
-    assert!(text.contains("Players will need Sodium too"), "{text}");
+    assert!(text.contains("fabric-api: already installed"), "{text}");
+    assert!(
+        text.contains("Players will need 1 of them too\nSodium"),
+        "{text}"
+    );
+    // the mod it is about is its object, not listed again
+    let toast = ModsPage::result_toast(
+        Some(("Sodium".into(), "0.6".into())),
+        "Installed".into(),
+        &result,
+    );
+    assert!(!toast.text.contains("Sodium 0.6"), "{}", toast.text);
 }
 
 #[test]

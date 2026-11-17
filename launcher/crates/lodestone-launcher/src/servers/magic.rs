@@ -22,6 +22,7 @@ use launcher_core::cores::{
 };
 
 use super::{CoreEntry, CoreStatus, Notice, Servers, friends::port_taken_text};
+use crate::i18n::ServersMsg as PortMsg;
 
 /// The forwarders and what the page knows of them.
 #[derive(Default)]
@@ -166,7 +167,7 @@ impl Servers {
                     if !self.magic.told_taken {
                         self.magic.told_taken = true;
                         let address = game_address(forwarder.port());
-                        self.notice = Some(Notice::info(move || port_taken_text(taken, &address)));
+                        self.notice = Some(port_taken_notice(taken, address));
                     }
                 }
                 self.magic.running.insert(id, forwarder);
@@ -345,7 +346,23 @@ impl Servers {
         self.magic.preview_bound.insert(id, port);
         if let Some(taken) = taken {
             let address = game_address(port);
-            self.notice = Some(Notice::info(move || port_taken_text(taken, &address)));
+            self.notice = Some(port_taken_notice(taken, address));
         }
     }
+}
+
+/// The notice that a Magic localhost port was taken: the title and text, then the
+/// address to use this time and the usual port, as values to copy.
+fn port_taken_notice(saved: u16, address: String) -> Notice {
+    Notice::info(port_taken_text)
+        .value(
+            || crate::i18n::t(PortMsg::AddressNow).into(),
+            address,
+            crate::components::ValueKind::Code,
+        )
+        .value(
+            || crate::i18n::t(PortMsg::UsualPort).into(),
+            saved.to_string(),
+            crate::components::ValueKind::Code,
+        )
 }

@@ -21,6 +21,15 @@ import { toast } from 'react-toastify';
 import { useLocalStorage } from 'usehooks-ts';
 import { DASHBOARD_VERSION } from 'utils/version';
 import { useI18n } from 'i18n';
+import { KindIcon, VersionTag } from 'components/Atoms/Values';
+import {
+  CompareTable,
+  Fact,
+  FactLine,
+  ObjectCard,
+  ObjectToast,
+  ValueField,
+} from 'components/Values';
 
 export default function DashboardLayout() {
   const { t, rich } = useI18n();
@@ -91,14 +100,22 @@ export default function DashboardLayout() {
       onClose={() => setShowVersionMismatchModal(false)}
       closeButtonText={t('shell.versionMismatch.continue')}
     >
-      <div>
-        <b>{t('shell.versionMismatch.coreVersion')} </b>
-        {coreInfo?.version}
-        <br />
-        <b>{t('shell.versionMismatch.dashboardVersion')} </b>
-        {dashboardVersion}
-      </div>
-      <br />
+      <CompareTable
+        className="mb-4"
+        columns={[t('values.key.core'), t('values.key.dashboard')]}
+        rows={[
+          {
+            label: t('values.key.version'),
+            a: coreInfo?.version ? (
+              <VersionTag version={coreInfo.version} />
+            ) : (
+              '–'
+            ),
+            b: <VersionTag version={dashboardVersion} />,
+            mismatch: coreInfo?.version !== dashboardVersion,
+          },
+        ]}
+      />
       <p className="text-red-200">{t('shell.versionMismatch.incompatible')}</p>
       {rich('shell.versionMismatch.body', {
         link: (
@@ -149,10 +166,21 @@ export default function DashboardLayout() {
         setShowVersionMismatchModal(true);
       else if (patch(clientVersion) !== patch(dashboardVersion))
         toast.warn(
-          t('shell.versionMismatch.toast', {
-            core: clientVersion,
-            dashboard: dashboardVersion,
-          }),
+          <ObjectToast outcome={t('shell.versionMismatch.toastTitle')}>
+            <div className="flex flex-col gap-1">
+              <FactLine className="h-auto">
+                <Fact label={t('values.key.core')}>
+                  <VersionTag version={clientVersion} />
+                </Fact>
+                <Fact label={t('values.key.dashboard')}>
+                  <VersionTag version={dashboardVersion} />
+                </Fact>
+              </FactLine>
+              <span className="text-small text-gray-400">
+                {t('shell.versionMismatch.question')}
+              </span>
+            </div>
+          </ObjectToast>,
           {
             toastId: 'patchVersionMismatch',
             autoClose: 10000,
@@ -178,8 +206,17 @@ export default function DashboardLayout() {
         onClose={() => {
           setShowLocalSetupPrompt(false);
         }}
+        object={
+          localCoreInfo?.core_name && (
+            <ObjectCard
+              compact
+              icon={<KindIcon kind="core" className="w-4" />}
+              name={localCoreInfo.core_name}
+            />
+          )
+        }
       >
-        {t('shell.localCore.body', { name: localCoreInfo?.core_name ?? '' })}
+        {t('shell.localCore.body')}
       </ConfirmDialog>
       <ConfirmDialog
         isOpen={showSetupPrompt}
@@ -196,8 +233,17 @@ export default function DashboardLayout() {
           setPathname('/login/core/select');
           setShowSetupPrompt(false);
         }}
+        object={
+          coreInfo?.core_name && (
+            <ObjectCard
+              compact
+              icon={<KindIcon kind="core" className="w-4" />}
+              name={coreInfo.core_name}
+            />
+          )
+        }
       >
-        {t('shell.setupRequired.body', { name: coreInfo?.core_name ?? '' })}
+        {t('shell.setupRequired.body')}
       </ConfirmDialog>
       <ConfirmDialog
         isOpen={showCoreErrorModal}
@@ -215,11 +261,18 @@ export default function DashboardLayout() {
           window.location.reload();
         }}
       >
-        {localOnly
-          ? t('common.localOnly')
-          : t('shell.coreError.body', {
-              address: `${core.address}:${core.port}`,
-            })}
+        {localOnly ? (
+          t('common.localOnly')
+        ) : (
+          <div className="flex flex-col gap-3">
+            {t('shell.coreError.body')}
+            <ValueField
+              label={t('values.key.address')}
+              kind="code"
+              value={`${core.address}:${core.port}`}
+            />
+          </div>
+        )}
       </ConfirmDialog>
       <div className="flex h-screen flex-col">
         <TopNav />

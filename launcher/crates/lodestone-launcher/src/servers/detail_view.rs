@@ -9,24 +9,25 @@ use gpui::{
     ScrollEvent, ScrollStrategy, SharedString, StrikethroughStyle, StyledText, UnderlineStyle,
     Window, div, prelude::*, uniform_list,
 };
-use launcher_core::cores::{ServerLoader, ServerState};
 use launcher_core::ui_skin::SurfaceId;
 use lodestone_minecraft::console_format::{
     BADGE_PALETTE, BOLD, ConsoleColor, ConsoleLevel, ConsoleSegment, ConsoleTheme, DIM, INVERSE,
     ITALIC, ParsedConsoleLine, RGB_BASE, STRIKE, UNDERLINE, luminance, readable_color, xterm256,
 };
+use lodestone_ui::values::truncate::sanitize;
 
 use super::{
     core_error,
     detail::{DetailEvent, EulaState, LinkState, ServerDetail, StreamStatus},
-    loader_label, power_state, status_label,
+    facts, power_state, status_label,
 };
 use crate::{
     components::{
-        Button, ButtonSize, ButtonVariant, Icon, LoadingDots, PowerButtons,
+        Button, ButtonSize, ButtonVariant, Fact, FactLine, FactValue, Icon, LoadingDots,
+        ObjectChip, PowerButtons,
         a11y::{Accessible, Role},
     },
-    i18n::{CommonMsg, ServersMsg as M, t, tr},
+    i18n::{CommonMsg, FactMsg, ServersMsg as M, t, tr},
     theme::{self, Color, colors, fonts, leading, radius, text, weights},
 };
 use launcher_core::cores::admin::instances::Power;
@@ -201,15 +202,6 @@ fn card() -> gpui::Div {
         .surface(SurfaceId::Card)
 }
 
-fn state_color(state: ServerState) -> Color {
-    match state {
-        ServerState::Running => colors::GREEN_200,
-        ServerState::Starting | ServerState::Stopping => colors::YELLOW,
-        ServerState::Error => colors::RED_200,
-        ServerState::Stopped | ServerState::Unknown | ServerState::Hidden => colors::GRAY_500,
-    }
-}
-
 fn status_line(status: &StreamStatus) -> gpui::Div {
     let (color, label): (Color, SharedString) = match status {
         StreamStatus::Connecting => (colors::GRAY_500, t(M::Connecting).into()),
@@ -345,11 +337,6 @@ impl ServerDetail {
 
     fn header(&self, cx: &mut Context<Self>) -> AnyElement {
         let server = &self.server;
-        let loader = match (&server.loader, &server.loader_version) {
-            (ServerLoader::Vanilla, _) => String::new(),
-            (loader, Some(version)) => format!(" · {} {version}", loader_label(*loader)),
-            (loader, None) => format!(" · {}", loader_label(*loader)),
-        };
         let access = self.access.unwrap_or_default();
         let status = status_label(server);
         // the Host's power buttons, with what this device's key may do; the top bar's
@@ -389,12 +376,19 @@ impl ServerDetail {
                             .child(RichText::minecraft(server.name.clone())),
                     )
                     .child(
-                        small(format!(
-                            "{} · {}{loader}",
-                            self.core_name, server.game_version
-                        ))
-                        .truncate()
-                        .text_color(crate::theme::ink::muted()),
+                        div().pt_1().child(
+                            FactLine::strip("server-detail-facts")
+                                .fact(facts::host_fact(&self.core_name).priority(0))
+                                .facts(facts::keyed_versions(server))
+                                .facts(
+                                    facts::players_value(
+                                        server.state,
+                                        server.player_count,
+                                        server.max_player_count,
+                                    )
+                                    .map(|players| Fact::new(t(FactMsg::Players), players)),
+                                ),
+                        ),
                     ),
             )
             .child(
@@ -406,13 +400,7 @@ impl ServerDetail {
                     .items_center()
                     .gap_2()
                     .flex_none()
-                    .child(
-                        div()
-                            .size(px(8.))
-                            .rounded_full()
-                            .bg(state_color(server.state)),
-                    )
-                    .child(small(status).text_color(crate::theme::ink::secondary())),
+                    .child(facts::state_badge(server.state)),
             )
             // the state above comes from the event stream: say when it isn't live
             .when(self.events_status != StreamStatus::Live, |this| {
@@ -641,12 +629,14 @@ impl ServerDetail {
                         .gap_2()
                         .child(Icon::Check.render(px(12.), colors::GREEN_200))
                         .child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .truncate()
-                                .text_color(crate::theme::ink::text())
-                                .child(format!("{} → {user}", link.minecraft_name)),
+                            div().flex_1().min_w_0().child(
+                                FactLine::row(SharedString::from(format!("linked-{uuid}")))
+                                    .fact(Fact::new(
+                                        t(M::MinecraftAccount),
+                                        FactValue::object(sanitize(&link.minecraft_name, 32)),
+                                    ))
+                                    .fact(Fact::new(t(M::LodestoneUser), user.clone())),
+                            ),
                         )
                         .child(
                             Button::new(SharedString::from(format!("unlink-{uuid}")), t(M::Unlink))
@@ -665,14 +655,24 @@ impl ServerDetail {
         card = match selected {
             Some((_, name)) if !self.selected_is_linked(cx) => card
                 .child(
-                    Button::new(
-                        "link-account",
-                        tr!(M::LinkAccount, account = name, user = user),
-                    )
-                    .variant(ButtonVariant::Primary)
-                    .loading(self.linking)
-                    .full_width()
-                    .on_click(cx.listener(|this, _, _, cx| this.link_selected(cx))),
+                    div()
+                        .flex()
+                        .flex_row()
+                        .flex_wrap()
+                        .items_center()
+                        .gap_3()
+                        .child(ObjectChip::new(sanitize(&name, 32)).icon(Icon::User))
+                        .child(
+                            FactLine::row("link-account-to")
+                                .fact(Fact::new(t(FactMsg::To), user.clone())),
+                        ),
+                )
+                .child(
+                    Button::new("link-account", t(M::LinkAccount))
+                        .variant(ButtonVariant::Primary)
+                        .loading(self.linking)
+                        .full_width()
+                        .on_click(cx.listener(|this, _, _, cx| this.link_selected(cx))),
                 )
                 .child(small(t(M::LinkCheckHint)).text_color(crate::theme::ink::faint())),
             Some(_) => card,

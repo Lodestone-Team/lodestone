@@ -17,12 +17,14 @@ use launcher_core::{
 };
 use lodestone_ui::{
     components::{
-        Accessible as _, Button, ButtonSize, ButtonVariant, Checkbox, Icon, LoadingDots,
+        Accessible as _, Button, ButtonSize, ButtonVariant, Checkbox, CountBadge, Fact, FactLine,
+        FactValue, Icon, Kind, KindIcon, LoadingDots, Num, ProductPhrase, StatusBadge, VersionTag,
         settings::{card, link, tag},
         text_tooltip,
     },
     i18n::format,
-    theme::{colors, ink, px, radius, text, weights},
+    theme::{Tone, colors, ink, px, radius, text, weights},
+    values::Product,
 };
 
 use super::{
@@ -31,9 +33,64 @@ use super::{
     muted, warning,
 };
 use crate::{
-    i18n::{CommonMsg, InstanceMsg as M, InstancePlural as P, t, tr, trn},
+    i18n::{CommonMsg, FactMsg, InstanceMsg as M, InstancePlural as P, t, tr, trn},
     pages::create_instance::ModpackPreset,
 };
+
+/// A loader's name as it spells it ("fabric" is Fabric, "neoforge" NeoForge), else
+/// the id with a capital first letter.
+pub(super) fn loader_name(id: &str) -> String {
+    match Product::from_name(id) {
+        Some(product) => product.name().to_string(),
+        None => {
+            let mut chars = id.chars();
+            chars
+                .next()
+                .map(|first| first.to_uppercase().chain(chars).collect())
+                .unwrap_or_default()
+        }
+    }
+}
+
+/// "Minecraft 1.21.1, 1.21": the game with its versions, one plain phrase.
+pub(super) fn game_versions(versions: &[String]) -> String {
+    lodestone_ui::values::phrase(Product::Minecraft, &versions.join(", "))
+}
+
+/// A Modrinth date ("2026-10-02T…") as the app shows times.
+fn published(date: &str) -> String {
+    chrono::DateTime::parse_from_rfc3339(date)
+        .map(|time| {
+            format::day_and_time(
+                time.with_timezone(&chrono::Local),
+                chrono::Local::now().date_naive(),
+            )
+        })
+        .unwrap_or_else(|_| date.get(..10).unwrap_or(date).to_string())
+}
+
+/// The kind a Modrinth project type names, for its icon.
+fn project_kind(project_type: &str) -> Kind {
+    match project_type {
+        "plugin" => Kind::Plugin,
+        "modpack" => Kind::Modpack,
+        "resourcepack" => Kind::ResourcePack,
+        "shader" => Kind::ShaderPack,
+        "datapack" => Kind::DataPack,
+        _ => Kind::Mod,
+    }
+}
+
+/// What a version made for something else is made for, and what the server runs.
+#[derive(Clone, Debug, Default)]
+pub(super) struct Mismatch {
+    pub title: String,
+    pub version: String,
+    pub loaders: Vec<String>,
+    pub game_versions: Vec<String>,
+    pub loader: String,
+    pub game_version: String,
+}
 
 /// Versions shown at first, and added by "Show more".
 const VERSIONS_PAGE: usize = 20;
@@ -208,19 +265,17 @@ impl ModsPage {
             .and_then(|v| v.project.as_ref()?.as_ref().ok())
             .map(|p| p.title.clone())
             .unwrap_or_default();
-        let body = tr!(
-            M::ModsIncompatibleBody,
-            title = title,
-            version = version.version_number,
-            loaders = version.loaders.join(", "),
-            gameVersions = version.game_versions.join(", "),
-            loader = target.loader.as_str(),
-            gameVersion = target.game_version
-        );
         self.open_prompt(
             Prompt::Incompatible {
                 version_id: version.id.clone(),
-                body,
+                mismatch: Mismatch {
+                    title,
+                    version: version.version_number.clone(),
+                    loaders: version.loaders.clone(),
+                    game_versions: version.game_versions.clone(),
+                    loader: target.loader.as_str().to_string(),
+                    game_version: target.game_version.clone(),
+                },
             },
             cx,
         );
@@ -273,14 +328,15 @@ impl ModsPage {
                 }
                 let toast = match result {
                     Ok(result) => Self::result_toast(
-                        tr!(M::ModsInstalledVersion, title = title, version = number),
+                        Some((title, number)),
+                        t(M::ModsInstalledVersion).to_string(),
                         &result,
                     ),
                     Err(err) => lodestone_ui::components::Toast::error(tr!(
                         M::ModsInstallFailed,
-                        title = title,
                         error = err
-                    )),
+                    ))
+                    .object(lodestone_ui::components::ObjectChip::new(title).kind(Kind::Mod)),
                 };
                 this.toast(toast, cx);
                 this.reload(cx);
@@ -305,29 +361,42 @@ impl ModsPage {
             .as_ref()
             .and_then(|v| v.installing.as_ref())
             .is_some_and(|id| *id == version.id);
-        let (type_label, type_color) = match version.version_type {
-            ModrinthVersionType::Release => (t(M::ModsRelease), colors::GREEN),
-            ModrinthVersionType::Beta => (t(M::ModsBeta), colors::YELLOW),
-            ModrinthVersionType::Alpha => (t(M::ModsAlpha), colors::RED_200),
-            ModrinthVersionType::Unknown => ("?", lodestone_ui::theme::ink::muted()),
+        let (type_label, type_tone) = match version.version_type {
+            ModrinthVersionType::Release => (t(M::ModsRelease), Tone::Success),
+            ModrinthVersionType::Beta => (t(M::ModsBeta), Tone::Warning),
+            ModrinthVersionType::Alpha => (t(M::ModsAlpha), Tone::Danger),
+            ModrinthVersionType::Unknown => ("?", Tone::Neutral),
         };
-        let shown: Vec<&str> = version
-            .game_versions
-            .iter()
-            .take(3)
-            .map(String::as_str)
-            .collect();
+        // the game versions (the first few, then a count whose tooltip has them all), the
+        // loaders by name, and when it was published
+        let shown: Vec<String> = version.game_versions.iter().take(3).cloned().collect();
         let rest = version.game_versions.len().saturating_sub(shown.len());
-        let mut games = shown.join(", ");
-        if rest > 0 {
-            games = format!("{games} {}", trn!(P::ModsMoreGameVersions, rest));
-        }
-        let date = version
-            .date_published
-            .get(..10)
-            .unwrap_or(&version.date_published)
-            .to_string();
-        let details = format!("{games} · {} · {date}", version.loaders.join(", "));
+        let games = game_versions(&shown);
+        let loaders: Vec<String> = version.loaders.iter().map(|l| loader_name(l)).collect();
+        let games_value = FactValue::element(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(px(4.))
+                .child(div().flex_none().whitespace_nowrap().child(games.clone()))
+                .when(rest > 0, |this| {
+                    this.child(
+                        div()
+                            .id(SharedString::from(format!("version-{index}-more")))
+                            .child(CountBadge::new(rest as u64))
+                            .tooltip(text_tooltip(game_versions(&version.game_versions))),
+                    )
+                }),
+            game_versions(&version.game_versions),
+        );
+        let details = FactLine::row(SharedString::from(format!("version-{index}-facts")))
+            .fact(Fact::bare_named(t(FactMsg::Game), games_value).priority(1))
+            .fact(Fact::bare_named(t(FactMsg::Loader), loaders.join(", ")).priority(2))
+            .fact(Fact::new(
+                t(FactMsg::Published),
+                FactValue::time(published(&version.date_published)),
+            ));
         let picked = version.clone();
         let id = |part: &str| SharedString::from(format!("version-{index}-{part}"));
         div()
@@ -349,37 +418,16 @@ impl ModsPage {
                             .flex_row()
                             .items_center()
                             .gap(px(8.))
-                            .child(
-                                div()
-                                    .truncate()
-                                    .font_weight(weights::BOLD.face())
-                                    .text_color(ink::text())
-                                    .child(version.version_number.clone()),
-                            )
-                            .child(tag(type_label, type_color))
+                            .child(VersionTag::new(version.version_number.clone()).id(id("number")))
+                            .child(StatusBadge::new(type_label, type_tone))
                             .when(installed_here, |this| {
-                                this.child(tag(t(M::ModsInstalledTag), colors::GREEN))
+                                this.child(StatusBadge::new(t(M::ModsInstalledTag), Tone::Success))
                             })
                             .when(!compatible, |this| {
-                                this.child(tag(
-                                    tr!(
-                                        M::ModsNotFor,
-                                        loader = target.loader.as_str(),
-                                        gameVersion = target.game_version
-                                    ),
-                                    colors::GRAY_400,
-                                ))
+                                this.child(StatusBadge::new(t(M::ModsNotFor), Tone::Neutral))
                             }),
                     )
-                    .child(
-                        div()
-                            .id(id("details"))
-                            .truncate()
-                            .text_size(text::SMALL)
-                            .text_color(ink::muted())
-                            .child(details)
-                            .tooltip(text_tooltip(version.game_versions.join(", "))),
-                    ),
+                    .child(details),
             )
             // the exact version installed already: nothing to install
             .when(!installed_here, |this| {
@@ -485,19 +533,24 @@ impl ModsPage {
                     view.show_all,
                 );
                 if list.is_empty() {
-                    muted(if view.show_all {
-                        tr!(
-                            M::ModsNoVersions,
-                            loader = target.loader.as_str(),
-                            gameVersion = target.game_version
+                    // what the server runs, that no version is for
+                    let game = ProductPhrase::new(Product::Minecraft, target.game_version.clone());
+                    let loader = ProductPhrase::from_name(target.loader.as_str(), "");
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(8.))
+                        .child(muted(t(if view.show_all {
+                            M::ModsNoVersions
+                        } else {
+                            M::ModsNoVersionsShowAll
+                        })))
+                        .child(
+                            FactLine::strip("no-versions-for")
+                                .fact(Fact::new(game.key(), game))
+                                .facts(loader.map(|loader| Fact::new(loader.key(), loader))),
                         )
-                    } else {
-                        tr!(
-                            M::ModsNoVersionsShowAll,
-                            loader = target.loader.as_str(),
-                            gameVersion = target.game_version
-                        )
-                    })
+                        .into_any_element()
                 } else {
                     let left = list.len().saturating_sub(view.shown);
                     let rows: Vec<AnyElement> = list
@@ -590,14 +643,33 @@ impl ModsPage {
                 other => other.into(),
             }
         };
-        let author = view.hit.as_ref().map(|h| h.author.clone());
-        let byline = format!(
-            "{} · {}",
-            author
-                .map(|a| tr!(M::ModsByAuthor, author = a))
-                .unwrap_or_else(|| project.slug.clone()),
-            project.project_type
-        );
+        let author = view
+            .hit
+            .as_ref()
+            .map(|h| h.author.clone())
+            .unwrap_or_else(|| project.slug.clone());
+        // who made it, its downloads and followers, and whether servers need it
+        let facts = FactLine::strip("project-facts")
+            .fact(Fact::new(t(FactMsg::Author), FactValue::text(author)))
+            .fact(Fact::new(
+                t(FactMsg::Downloads),
+                FactValue::element(
+                    div()
+                        .id("project-downloads")
+                        .font_features(lodestone_ui::theme::fonts::tabular())
+                        .child(format::compact(project.downloads))
+                        .tooltip(text_tooltip(Num::count(project.downloads).plain())),
+                    Num::count(project.downloads).plain(),
+                ),
+            ))
+            .fact(Fact::new(
+                t(FactMsg::Followers),
+                Num::count(project.followers),
+            ))
+            .fact(Fact::new(
+                t(M::ModsServerSide),
+                FactValue::text(side(&project.server_side)),
+            ));
         let stats = div()
             .flex()
             .flex_row()
@@ -606,22 +678,6 @@ impl ModsPage {
             .gap(px(12.))
             .text_size(text::SMALL)
             .text_color(ink::muted())
-            .child(
-                div()
-                    .id("project-downloads")
-                    .flex()
-                    .items_center()
-                    .gap(px(4.))
-                    .child(Icon::Download.render(px(10.), ink::muted()))
-                    .child(format::compact(project.downloads))
-                    .tooltip(text_tooltip(trn!(P::ModsDownloads, project.downloads))),
-            )
-            .child(
-                div()
-                    .id("project-followers")
-                    .child(trn!(P::ModsFollowers, project.followers)),
-            )
-            .child(tr!(M::ModsServerSide, value = side(&project.server_side)))
             .when(installable && !target.is_plugin(), |this| {
                 this.children(match project.client_side.as_str() {
                     "required" => {
@@ -687,13 +743,22 @@ impl ModsPage {
                     .gap(px(4.))
                     .child(
                         div()
-                            .truncate()
-                            .text_size(text::H1)
-                            .font_weight(weights::BOLD.face())
-                            .text_color(ink::text())
-                            .child(project.title.clone()),
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(px(8.))
+                            .min_w_0()
+                            .child(
+                                div()
+                                    .truncate()
+                                    .text_size(text::H1)
+                                    .font_weight(weights::BOLD.face())
+                                    .text_color(ink::text())
+                                    .child(project.title.clone()),
+                            )
+                            .child(KindIcon::new(project_kind(&project.project_type))),
                     )
-                    .child(muted(byline))
+                    .child(facts)
                     .child(
                         div()
                             .text_color(ink::text())

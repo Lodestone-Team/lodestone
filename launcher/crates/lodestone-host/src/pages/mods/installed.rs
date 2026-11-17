@@ -17,17 +17,20 @@ use launcher_core::cores::admin::mods::{
 };
 use lodestone_ui::{
     components::{
-        Button, ButtonSize, ButtonVariant, Checkbox, Icon, IconButton, LoadingDots, Toast, Toggle,
+        Button, ButtonSize, ButtonVariant, Checkbox, CountBadge, Fact, FactLine, FactList,
+        FactValue, Icon, IconButton, LoadingDots, MonoValue, Num, PathText, ProductPhrase, Toast,
+        Toggle, VersionTag,
+        readable::{key_text, object_name},
         settings::{card, tag},
         text_tooltip,
     },
-    i18n::format,
     theme::{colors, ink, px, radius, text, weights},
+    values::Product,
 };
 
 use super::{ModsPage, Prompt, Target, muted};
 use crate::{
-    i18n::{InstanceMsg as M, InstancePlural as P, t, tr, trn},
+    i18n::{FactMsg, InstanceMsg as M, InstancePlural as P, t, tr, trn},
     pages::pager,
     state::HostEvent,
 };
@@ -49,6 +52,23 @@ pub(super) fn pack_chips(count: usize, open: bool) -> (usize, bool) {
     } else {
         (PACK_CHIPS_FOLDED, true)
     }
+}
+
+/// The tooltip naming the mods that need a mod: a counted heading, then one name a
+/// line, so names with spaces don't run into each other.
+pub(super) fn needed_by(mods: &[String]) -> String {
+    let mut text = trn!(P::ModsNeededBy, mods.len());
+    for name in mods {
+        text.push('\n');
+        text.push_str(&lodestone_ui::values::truncate::sanitize(name, 80));
+    }
+    text
+}
+
+/// A mod a toast is about.
+fn mod_chip(name: &str) -> lodestone_ui::components::ObjectChip {
+    lodestone_ui::components::ObjectChip::new(name.to_string())
+        .kind(lodestone_ui::components::Kind::Mod)
 }
 
 /// A project's icon from Modrinth's CDN, or a cube.
@@ -81,7 +101,7 @@ fn requirement_label(id: SharedString, m: &InstalledMod, marks: bool) -> Option<
             Some(if m.required_by.is_empty() {
                 label.into_any_element()
             } else {
-                let tip = tr!(M::ModsNeededBy, mods = format::list(&m.required_by));
+                let tip = needed_by(&m.required_by);
                 div()
                     .id(id)
                     .child(label)
@@ -151,11 +171,11 @@ impl ModsPage {
                 this.busy_files.remove(&file);
                 if let Err(err) = result {
                     let message = if enabled {
-                        tr!(M::ModsEnableFailed, name = name, error = err)
+                        tr!(M::ModsEnableFailed, error = err)
                     } else {
-                        tr!(M::ModsDisableFailed, name = name, error = err)
+                        tr!(M::ModsDisableFailed, error = err)
                     };
-                    this.toast(Toast::error(message), cx);
+                    this.toast(Toast::error(message).object(mod_chip(&name)), cx);
                 }
                 this.reload(cx);
             })
@@ -186,11 +206,11 @@ impl ModsPage {
             this.update(cx, |this, cx| {
                 this.busy_files.remove(&file);
                 let toast = match result {
-                    Ok(()) if required => Toast::success(tr!(M::ModsMarkedForPlayers, name = name)),
-                    Ok(()) => Toast::success(tr!(M::ModsUnmarkedForPlayers, name = name)),
-                    Err(err) => Toast::error(tr!(M::ModsMarkFailed, name = name, error = err)),
+                    Ok(()) if required => Toast::success(t(M::ModsMarkedForPlayers)),
+                    Ok(()) => Toast::success(t(M::ModsUnmarkedForPlayers)),
+                    Err(err) => Toast::error(tr!(M::ModsMarkFailed, error = err)),
                 };
-                this.toast(toast.key("mods-client-mark"), cx);
+                this.toast(toast.object(mod_chip(&name)).key("mods-client-mark"), cx);
                 this.reload(cx);
             })
             .ok();
@@ -227,14 +247,15 @@ impl ModsPage {
                 this.busy_files.remove(&file);
                 let toast = match result {
                     Ok(result) => Self::result_toast(
-                        tr!(M::ModsUpdated, name = name, version = update.version_number),
+                        Some((name, update.version_number.clone())),
+                        t(M::ModsUpdated).to_string(),
                         &result,
                     ),
                     Err(err) => {
                         // the core may not have sent an event to take the claim
                         this.state
                             .update(cx, |state, _| state.release_own_file_toast(claim));
-                        Toast::error(tr!(M::ModsUpdateFailed, name = name, error = err))
+                        Toast::error(tr!(M::ModsUpdateFailed, error = err)).object(mod_chip(&name))
                     }
                 };
                 this.toast(toast, cx);
@@ -306,7 +327,10 @@ impl ModsPage {
                                 .update(cx, |state, _| state.release_own_file_toast(claim))
                                 .ok();
                         }
-                        failures.push(format!("{name}: {err}"));
+                        failures.push(
+                            lodestone_ui::components::readable::key_value(&name, &err.to_string())
+                                .to_string(),
+                        );
                     }
                 }
             }
@@ -315,15 +339,20 @@ impl ModsPage {
                     state.set_updating_mods(&uuid, false);
                     if !total.installed.is_empty() || !total.removed.is_empty() {
                         state.toast(
-                            Self::result_toast(t(M::ModsUpdatesInstalled).to_string(), &total),
+                            Self::result_toast(
+                                None,
+                                t(M::ModsUpdatesInstalled).to_string(),
+                                &total,
+                            ),
                             cx,
                         );
                     }
                     if !failures.is_empty() {
                         state.toast(
-                            Toast::error(tr!(
-                                M::ModsSomeUpdatesFailed,
-                                failures = failures.join("; ")
+                            Toast::error(format!(
+                                "{}\n{}",
+                                trn!(P::ModsSomeUpdatesFailed, failures.len()),
+                                failures.join("\n")
                             )),
                             cx,
                         );
@@ -395,7 +424,7 @@ impl ModsPage {
             if !not_jars.is_empty() {
                 this.update(cx, |this, cx| {
                     this.toast(
-                        Toast::error(tr!(M::ModsOnlyJars, names = not_jars.join(", "))),
+                        Toast::error(format!("{}\n{}", t(M::ModsOnlyJars), not_jars.join("\n"))),
                         cx,
                     )
                 })
@@ -447,10 +476,15 @@ impl ModsPage {
                 match result {
                     Ok(uploaded) => {
                         let names: Vec<&str> = uploaded.iter().map(|m| m.name()).collect();
-                        this.toast(
-                            Toast::success(tr!(M::ModsUploaded, names = names.join(", "))),
-                            cx,
-                        );
+                        let toast = match names.as_slice() {
+                            [name] => Toast::success(t(M::ModsUploaded)).object(mod_chip(name)),
+                            _ => Toast::success(format!(
+                                "{}\n{}",
+                                trn!(P::ModsUploadedCount, names.len()),
+                                names.join("\n")
+                            )),
+                        };
+                        this.toast(toast, cx);
                     }
                     // a file of the same name: ask before replacing it
                     Err(launcher_core::cores::CoreError::Server {
@@ -477,7 +511,11 @@ impl ModsPage {
             };
             this.update(cx, |this, cx| {
                 let toast = match result {
-                    Ok(()) => Toast::success(tr!(M::ModsDeleted, name = file_name)),
+                    Ok(()) => Toast::success(t(M::ModsDeleted)).object(
+                        lodestone_ui::components::ObjectChip::new(file_name.clone())
+                            .kind(lodestone_ui::components::Kind::File)
+                            .mono(),
+                    ),
                     Err(err) => Toast::error(tr!(M::ModsDeleteFailed, error = err)),
                 };
                 this.toast(toast, cx);
@@ -571,16 +609,26 @@ impl ModsPage {
         if list.loader != InstalledModLoader::Fabric || list.mods.is_empty() {
             return None;
         }
-        let loader = match &list.loader_version {
-            Some(version) => tr!(M::ModsLoader, version = version),
-            None => t(M::ModsLoaderNoVersion).to_string(),
-        };
+        // the game and the loader, each one plain phrase
+        let game = ProductPhrase::new(Product::Minecraft, list.game_version.clone());
+        let loader = ProductPhrase::new(
+            Product::Fabric,
+            list.loader_version.clone().unwrap_or_default(),
+        );
         if list.client_required_count == 0 {
-            return Some(muted(tr!(
-                M::ModsPlainFabric,
-                gameVersion = list.game_version,
-                loader = loader
-            )));
+            return Some(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(8.))
+                    .child(muted(t(M::ModsPlainFabric)))
+                    .child(
+                        FactList::new("plain-fabric")
+                            .row(game.key(), game)
+                            .row(loader.key(), loader),
+                    )
+                    .into_any_element(),
+            );
         }
         // disabled mods never go into the pack
         let needed: Vec<InstalledMod> = list
@@ -645,18 +693,20 @@ impl ModsPage {
                         20.,
                         cx,
                     ))
-                    .child(div().text_color(ink::text()).child(m.name().to_string()))
+                    .child(
+                        div()
+                            .font_weight(weights::MEDIUMBOLD.face())
+                            .text_color(ink::text())
+                            .child(m.name().to_string()),
+                    )
                     .when_some(m.version().map(str::to_string), |this, v| {
-                        this.child(div().text_color(ink::muted()).child(v))
+                        this.child(VersionTag::new(v).id(("pack-chip-version", index)))
                     });
                 if m.required_by.is_empty() {
                     chip.into_any_element()
                 } else {
-                    chip.tooltip(text_tooltip(tr!(
-                        M::ModsNeededBy,
-                        mods = format::list(&m.required_by)
-                    )))
-                    .into_any_element()
+                    chip.tooltip(text_tooltip(needed_by(&m.required_by)))
+                        .into_any_element()
                 }
             })
             .collect();
@@ -690,10 +740,11 @@ impl ModsPage {
                                         .text_color(ink::text())
                                         .child(trn!(P::ModsPackTitle, count)),
                                 )
-                                .child(muted(format!(
-                                    "Minecraft {} · {loader}",
-                                    list.game_version
-                                ))),
+                                .child(
+                                    FactLine::strip("client-pack-facts")
+                                        .fact(Fact::new(game.key(), game.clone()))
+                                        .fact(Fact::new(loader.key(), loader.clone())),
+                                ),
                         )
                         .child(
                             Button::new("download-client-pack", t(M::ModsDownloadPack))
@@ -769,22 +820,18 @@ impl ModsPage {
                             .flex()
                             .flex_row()
                             .items_center()
-                            .gap(px(8.))
+                            .gap(px(6.))
                             .min_w_0()
                             .child(
-                                div()
-                                    .truncate()
-                                    .font_weight(weights::BOLD.face())
-                                    .text_color(if m.enabled { ink::text() } else { ink::muted() })
-                                    .child(name.clone()),
+                                object_name(name.clone())
+                                    .when(!m.enabled, |this| this.text_color(ink::muted())),
                             )
+                            // the version never wraps away: the name is cut first
                             .when_some(m.version().map(str::to_string), |this, v| {
                                 this.child(
                                     div()
                                         .flex_none()
-                                        .text_size(text::SMALL)
-                                        .text_color(ink::muted())
-                                        .child(v),
+                                        .child(VersionTag::new(v).id(id("version"))),
                                 )
                             })
                             // players never install plugins
@@ -806,31 +853,32 @@ impl ModsPage {
                             }),
                     )
                     .child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap(px(6.))
-                            .min_w_0()
-                            .child(
-                                div()
-                                    .truncate()
-                                    .text_size(text::SMALL)
-                                    .text_color(ink::faint())
-                                    .child(format!("{} · {}", m.file_name, format::bytes(m.size))),
-                            )
-                            // the modpack version this file came with
-                            .when_some(self.blame_label(&m.file_name), |this, (label, tip)| {
-                                this.child(
-                                    div()
-                                        .id(id("blame"))
-                                        .flex_none()
-                                        .text_size(text::SMALL)
-                                        .text_color(ink::muted())
-                                        .child(label)
-                                        .tooltip(text_tooltip(tip)),
+                        FactLine::row(id("facts"))
+                            .fact(
+                                Fact::bare_named(
+                                    t(FactMsg::File),
+                                    PathText::file(m.file_name.clone()),
                                 )
-                            }),
+                                .shrink()
+                                .priority(2),
+                            )
+                            .fact(Fact::bare_named(t(FactMsg::Size), Num::bytes(m.size)))
+                            // when the modpack change this file came with was recorded
+                            .facts(self.blame_label(&m.file_name).map(|(date, change)| {
+                                Fact::new(
+                                    t(FactMsg::Added),
+                                    FactValue::element(
+                                        div()
+                                            .id(id("blame"))
+                                            .flex_none()
+                                            .text_color(ink::muted())
+                                            .child(date.clone())
+                                            .tooltip(text_tooltip(change)),
+                                        date,
+                                    ),
+                                )
+                                .priority(1)
+                            })),
                     ),
             )
             .child(
@@ -866,7 +914,7 @@ impl ModsPage {
                                     this.set_client_mark(&marked, *on, cx)
                                 }));
                         let tip = if required_anyway && !m.required_by.is_empty() {
-                            tr!(M::ModsNeededBy, mods = format::list(&m.required_by))
+                            needed_by(&m.required_by)
                         } else if required_anyway {
                             t(M::ModsForPlayersAlready).to_string()
                         } else if m.client_optional {
@@ -929,16 +977,27 @@ impl ModsPage {
                     .count()
             })
             .unwrap_or(0);
+        // "Mods" with their count, and the folder they are in
         let count = self.list.as_ref().map(|list| {
-            if plugin {
-                trn!(
-                    P::ModsCountPlugin,
-                    list.mods.len(),
-                    directory = list.directory
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(px(6.))
+                .child(
+                    div()
+                        .font_weight(weights::MEDIUMBOLD.face())
+                        .text_color(ink::text())
+                        .child(if plugin {
+                            t(M::ModsPluginsLabel)
+                        } else {
+                            t(FactMsg::Mods)
+                        }),
                 )
-            } else {
-                trn!(P::ModsCountMod, list.mods.len(), directory = list.directory)
-            }
+                .child(CountBadge::new(list.mods.len() as u64))
+                .child(key_text(t(FactMsg::Folder)).ml(px(6.)))
+                .child(MonoValue::new(format!("{}/", list.directory)))
+                .into_any_element()
         });
         let toolbar = div()
             .flex()
@@ -947,7 +1006,7 @@ impl ModsPage {
             .items_center()
             .justify_between()
             .gap(px(8.))
-            .child(muted(count.unwrap_or_default()))
+            .children(count)
             .child(
                 div()
                     .flex()
@@ -959,7 +1018,8 @@ impl ModsPage {
                         this.child(why_not(
                             "update-all-why",
                             can_write,
-                            Button::new("update-all", tr!(M::ModsUpdateAll, count = updates))
+                            Button::new("update-all", t(M::ModsUpdateAll))
+                                .count(updates as u64)
                                 .variant(ButtonVariant::Primary)
                                 .icon(Icon::CircleUp)
                                 .loading(updating_all)

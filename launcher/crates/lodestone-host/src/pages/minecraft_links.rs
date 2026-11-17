@@ -16,7 +16,7 @@ use lodestone_ui::components::{
 
 use super::parts::{self, Confirm};
 use crate::{
-    i18n::{CommonMsg, CoreMsg, t, tr},
+    i18n::{CommonMsg, CoreMsg, t},
     state::HostState,
 };
 
@@ -129,12 +129,15 @@ impl MinecraftLinksSection {
             |this, result, cx| match result {
                 Ok(link) => {
                     this.removing.close(cx);
-                    parts::toast(
-                        &this.state,
-                        parts::Level::Success,
-                        tr!(CoreMsg::MinecraftRemoved, name = link.minecraft_name),
-                        cx,
-                    );
+                    let toast =
+                        lodestone_ui::components::Toast::success(t(CoreMsg::MinecraftRemoved))
+                            .object(
+                                lodestone_ui::components::ObjectChip::new(
+                                    link.minecraft_name.clone(),
+                                )
+                                .icon(lodestone_ui::components::Icon::User),
+                            );
+                    this.state.update(cx, |state, cx| state.toast(toast, cx));
                     this.load(cx);
                 }
                 Err(err) => {
@@ -155,9 +158,9 @@ impl Render for MinecraftLinksSection {
                 t(CoreMsg::MinecraftOwnLead).to_string(),
                 t(CoreMsg::MinecraftOwnEmpty).to_string(),
             ),
-            Owner::User(_, username) => (
+            Owner::User(..) => (
                 t(CoreMsg::MinecraftUserLead).to_string(),
-                tr!(CoreMsg::MinecraftUserEmpty, username = username),
+                t(CoreMsg::MinecraftUserEmpty).to_string(),
             ),
         };
         let query = self
@@ -211,16 +214,21 @@ impl Render for MinecraftLinksSection {
                 Confirm {
                     id: "unlink-minecraft",
                     title: t(CoreMsg::MinecraftRemoveTitle).into(),
-                    body: tr!(
-                        CoreMsg::MinecraftRemoveBody,
-                        name = removing.link.minecraft_name
-                    )
-                    .into(),
+                    body: t(CoreMsg::MinecraftRemoveBody).into(),
                     action: t(CommonMsg::Remove).into(),
                     danger: true,
                     busy: removing.busy,
                 }
-                .render(
+                // the account, with its UUID exact and cut in the middle
+                .render_about(
+                    lodestone_ui::components::ObjectCard::new(removing.link.minecraft_name.clone())
+                        .kind(lodestone_ui::components::Kind::Friend)
+                        .fact(lodestone_ui::components::Fact::bare_named(
+                            "UUID",
+                            lodestone_ui::components::PathText::exact(
+                                removing.link.minecraft_uuid.clone(),
+                            ),
+                        )),
                     removing.focus.clone(),
                     move |_, cx| {
                         this.update(cx, |this, cx| this.remove(cx)).ok();

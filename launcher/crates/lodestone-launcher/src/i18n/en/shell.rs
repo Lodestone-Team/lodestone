@@ -55,10 +55,8 @@ crate::i18n::messages! {
         Servers = "Lodestone Host",
         /// The sidebar link to the Friends page.
         Friends = "Friends",
-        /// Under the sidebar and the Settings pages.
-        AppVersion = "Lodestone Launcher v{version}",
-        /// A row's tooltip: {when} is "Played 2 hours ago", {time} "2 h 5 min".
-        PlayedInTotal = "{when} · {time} in total",
+        /// Under the sidebar and the Settings pages, before the version as a tag.
+        AppName = "Lodestone Launcher",
         /// A modpack being imported: "45% · Downloading mods".
         ImportProgress = "{percent} · {label}",
         /// An automatic sidebar group of instances with a mod loader: "Fabric (modded)".
@@ -75,21 +73,13 @@ crate::i18n::messages! {
         // The Play tab.
         NoInstanceSelected = "No instance selected",
         NoInstanceSelectedHint = "Select an instance in the sidebar to get started.",
-        MinecraftVersion = "Minecraft {version}",
-        /// {loader} is the loader with its version: "Fabric 0.16.14".
-        MinecraftWith = "Minecraft {version} with {loader}",
-        /// {game} is "Minecraft 1.20.1 with Fabric 0.16.14", {time} "2 h 5 min".
-        HeroPlayed = "{game}. Played for {time}.",
-        HeroNotPlayed = "{game}. Press Play to download it and start the game.",
+        HeroNotPlayed = "Press Play to download it and start the game.",
         CreateFirstInstance = "Create your first instance",
         InstanceExplainer = "An instance is a Minecraft version with its own mods, worlds and settings.",
         ContentPlaceholder = "Content appears here once you have an instance.",
         WorldsPlaceholder = "Worlds appear here once you have an instance.",
         SettingsPlaceholder = "Settings appear here once you have an instance.",
         LogsPlaceholder = "Logs appear here once you have an instance.",
-        /// Under the instance's name: {server} is a server, {core} a host.
-        LinkedTo = "Linked to {server} on {core}",
-        LinkedToRemoved = "Linked to {server} on {core} (that host was removed from the Lodestone Host page)",
         /// Under the instance's name, on an Apple silicon Mac, for a version that runs
         /// in an Intel Java (Minecraft 1.13.2 and older).
         RunsUnderRosetta = "Runs under Rosetta 2: Mojang made no Apple silicon build of some libraries this version needs. Slower to start, then plays normally.",
@@ -109,26 +99,29 @@ crate::i18n::messages! {
         ServerStopped = "Stopped",
         ServerUnreachable = "Can't reach it",
         ServerChecking = "Checking…",
+        /// In the header's Server cell, for a host since removed from the Lodestone Host page.
+        HostRemoved = "Host removed",
         /// The Play button over an instance's icon in the sidebar, for assistive technology.
         PlayNamed = "Play {name}",
 
         // Dialogs over the window.
         /// The title of a dialog that deletes an instance or a world.
         DeleteNamed = "Delete {name}?",
+        /// The title of the dialog that deletes an instance; the instance is in a card under it.
+        DeleteInstanceTitle = "Delete instance?",
         DeleteWorldBody = "The world's folder moves to {trash}, so you can put it back from there. Its world backups stay.",
         DeleteInstanceBody = "The instance's folder, with its worlds, mods and settings, moves to {trash}. You can put it back from there. Its snapshots and world backups are kept until you remove them in Settings › Storage, and come back with it.",
         ReplaceWorldTitle = "Restore {name} from this snapshot?",
         /// {when} is when the snapshot was taken: "today, 14:05".
         ReplaceWorldBody = "{name} goes back to how it was {when}. A snapshot of the instance as it is now is taken first and kept for 30 days.",
         BackUpAndReplace = "Snapshot and restore",
-        RemoveAccountTitle = "Remove {name}?",
+        RemoveAccountTitle = "Remove account?",
         RemoveAccountBody = "Lodestone Launcher forgets this account and deletes its saved sign-in from your {keychain}. You can add it again later.",
         RemoveAccount = "Remove account",
         /// {description} is the crash's own text, in English.
         MinecraftCrashed = "Minecraft crashed: {description}.",
-        MinecraftExitCode = "Minecraft stopped with exit code {code}.",
         MinecraftStopped = "Minecraft stopped unexpectedly.",
-        CrashTitle = "{name} crashed",
+        CrashTitle = "Game crashed",
         /// A heading in the crash dialog (shown in capitals).
         LikelyCause = "Likely cause",
         OpenCrashReport = "Open crash report",
@@ -161,22 +154,20 @@ crate::i18n::messages! {
         CopyLog = "Copy log",
 
         // A modpack update.
-        UpdateTitle = "Update {name}?",
-        /// {pack} is the modpack, {from} and {to} its versions, {size} "38 MB".
-        ModpackSummary = "{pack} {from} → {to}. Minecraft {game} with {loader}. {size} to download.",
+        /// The title of the dialog that updates an instance's modpack; the instance is in a card under it.
+        UpdateInstanceTitle = "Update instance?",
         NoFilesChange = "No files change; only the version is recorded.",
-        UpdatedFiles = "Updated ({count})",
-        AddedFiles = "Added ({count})",
-        RemovedFiles = "Removed ({count})",
-        ReplacedOwnFiles = "Your files the pack now provides ({count})",
-        KeptFiles = "Kept as you changed them ({count})",
-        WrittenFiles = "Configs and other files written ({count})",
+        UpdatedFiles = "Updated",
+        AddedFiles = "Added",
+        RemovedFiles = "Removed",
+        ReplacedOwnFiles = "Your files the pack now provides",
+        KeptFiles = "Kept as you changed them",
+        WrittenFiles = "Configs and other files written",
         ModpackUpdateSafety = "Your own mods, worlds and changed configs aren't touched. A snapshot of the instance is taken first, and every file that is replaced or removed is kept inside the instance's folder, in backups/.",
 
         // Unsaved settings.
         SaveChangesTitle = "Save your changes?",
         UnsavedDefaultsBody = "You changed Instance defaults. Save them, or discard them?",
-        UnsavedInstanceBody = "You changed the settings of {name}. Save them, or discard them?",
         UnsavedThisInstanceBody = "You changed the settings of this instance. Save them, or discard them?",
         UnsavedInDefaults = "You have unsaved changes in Instance defaults",
 
@@ -241,14 +232,15 @@ crate::i18n::messages! {
         SyncFrom = "Main instance",
         SyncFromHint = "Its in-game changes are copied to your other instances when they start.",
         SyncFromNoneHint = "The shared settings change only here.",
-        /// The offer to make a new instance the main one; also asked before another
-        /// instance takes over as main.
-        MainOfferTitle = "Make {name} your main instance?",
+        /// The offer to make a new instance the main one; it is in a card under the
+        /// title.
+        MainOfferTitle = "Make main instance?",
+        /// Asked before another instance becomes the main one; it is in a card under the title, and the one it replaces in a row.
+        MainSwitchTitle = "Change main instance?",
         MainOfferBody = "Shared game settings keep your controls, video, sound and other options the same in every instance. Settings you change in-game in your main instance are copied to the others when they start.",
         MainChangeLater = "You can change this later in Settings › Shared game settings.",
         MakeItMain = "Make it main",
-        MainSwitchBody = "{current} is your main instance now. Its in-game changes will stop updating your shared settings, and {name}'s will update them instead.",
-        MakeNameMain = "Make {name} main",
+        MainSwitchBody = "Its in-game changes will update your shared settings, and the old main instance's will stop updating them.",
         /// Settings > Developer.
         FirstTimeSetupSection = "First-time setup",
         ResetFirstTimeSetup = "Reset first-time setup",
@@ -300,8 +292,6 @@ crate::i18n::messages! {
         Offline = "Offline",
         AddMicrosoftAccount = "Add Microsoft account",
         AddOfflineAccount = "Add offline account",
-        /// The account menu's last row.
-        RemoveNamed = "Remove {name}",
         /// Shown wherever an offline account appears.
         OfflineNote = "Offline – single-player and offline-mode servers only",
 
@@ -366,9 +356,10 @@ crate::i18n::messages! {
         TurnItOn = "I understand, turn it on",
         TurnOffLauncherTitle = "Turn off the Minecraft Launcher sign-in?",
         TurnOffLauncherBody = "New Microsoft sign-ins will use Lodestone's own app again.",
-        OneLauncherAccount = "{name} is signed in as the Minecraft Launcher.",
-        /// {accounts} is the sentence that says which accounts.
-        TurnOffLauncherAccounts = "{accounts} Kept accounts go on working until Microsoft blocks this. Signing out removes them from Lodestone Launcher and deletes their saved sign-ins from your {keychain}.",
+        /// Over the accounts signed in as the Minecraft Launcher, with their count as a badge.
+        SignedInAsLauncher = "Signed in as the Minecraft Launcher",
+        /// Under the list of those accounts.
+        TurnOffLauncherAccounts = "Kept accounts go on working until Microsoft blocks this. Signing out removes them from Lodestone Launcher and deletes their saved sign-ins from your {keychain}.",
         TurnOffAndSignOut = "Turn off and sign out",
         TurnOffOnly = "Turn off only",
         /// Settings > Developer: the section of "Sign in as the Minecraft Launcher".
@@ -428,10 +419,12 @@ crate::i18n::messages! {
         NoClients = "No programs are connected.",
         /// A connected program that didn't say what it is.
         UnnamedClient = "Unnamed program",
-        /// {time} is "Today, 14:30".
-        ClientSince = "Connected {time}",
-        /// {pid} is a process number.
-        ClientPid = "Process {pid}",
+        /// The key of when a connected program connected, such as "Today, 14:30".
+        ClientSince = "Connected",
+        /// The key of a connected program's process number.
+        ClientPid = "Process",
+        /// The key of how many event and trace subscriptions a connected program has.
+        ClientSubscriptions = "Subscriptions",
         Disconnect = "Disconnect",
         /// Settings > Developer: the section of the performance monitor.
         DiagnosticsSection = "Diagnostics",
@@ -501,11 +494,11 @@ crate::i18n::messages! {
         FinishInBrowser = "Finish signing in in the browser window that opened, then come back here.",
         OpenBrowserAgain = "Open the browser again",
         GettingCode = "Getting a code…",
-        /// {host} is "microsoft.com/link".
-        GoToHost = "Go to {host} on any device and enter this code:",
+        /// Over Microsoft's sign-in address (in a field to open or copy) and the code.
+        GoToAddress = "On any device, open this address and enter the code below.",
         CodeCopiedWaiting = "Code copied. Waiting for you to enter it…",
         WaitingForCode = "Waiting for you to enter the code…",
-        CopyCodeAndOpen = "Copy code and open {host}",
+        CopyCodeAndOpen = "Copy code and open",
         /// The button beside the sign-in code.
         CopySignInCode = "Copy code",
         /// Asked on Back or closing once the sign-in code has been copied.
@@ -596,16 +589,12 @@ crate::i18n::messages! {
         DeveloperBuilds = "Developer builds",
         /// The running build: the number of commits it was built from.
         BuildNumber = "Build {build}",
-        /// {commit} is the first seven characters of the commit.
-        BuildNumberCommit = "Build {build} · {commit}",
         DevelopmentBuild = "Development build",
         UpdatesUnavailable = "This build wasn't published on GitHub, so it doesn't update itself.",
         UpdateNotChecked = "Checks GitHub for new builds every few hours.",
         UpdateChecking = "Looking for a newer build…",
         UpToDate = "This is the newest build.",
         UpdateAvailable = "Build {build} is available.",
-        /// {percent} is how much is done: "42%".
-        UpdateDownloading = "Downloading build {build}… {percent}",
         UpdateReady = "Build {build} is installed. Restart to use it.",
         UpdateReadyPlaying = "Build {build} is installed. You can restart once the game is closed.",
         /// {error} is in English, from the updater.
@@ -879,7 +868,7 @@ crate::i18n::messages! {
         StorageMoveRestartFailed = "Your data moved. Quit the launcher and open it again to use the new folder.",
         /// At start, when the moved data folder isn't there.
         DataFolderMissingTitle = "Can't find your data folder",
-        DataFolderMissingBody = "Your instances and worlds are in {path}, which isn't there. If it's on a drive that isn't connected, connect it and try again. The default folder starts with nothing in it, and your data stays where it is.",
+        DataFolderMissingBody = "Your instances and worlds are in this folder, which isn't there. If it's on a drive that isn't connected, connect it and try again. The default folder starts with nothing in it, and your data stays where it is.",
         DataFolderUseDefault = "Use the default folder",
         DataFolderQuit = "Quit",
         StorageLogs = "Logs and crash reports",
@@ -958,13 +947,6 @@ crate::i18n::messages! {
         /// How many shared values a category has.
         Values = ("{count} value", "{count} values"),
         CopiedValues = ("Copied {count} value from {name}.", "Copied {count} values from {name}."),
-        /// {names} is the list of accounts.
-        LauncherAccounts = (
-            "{count} account is signed in as the Minecraft Launcher: {names}.",
-            "{count} accounts are signed in as the Minecraft Launcher: {names}."
-        ),
-        /// Event and trace subscriptions a connected program has.
-        Subscriptions = ("{count} subscription", "{count} subscriptions"),
         PerfEntries = ("{count} entry", "{count} entries"),
         /// The Discord status's stats.
         DiscordDeaths = ("{count} death", "{count} deaths"),

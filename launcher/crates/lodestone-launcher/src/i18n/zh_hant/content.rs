@@ -17,11 +17,11 @@ pub fn text(message: M) -> &'static str {
         M::BackToTop => "回到頂端",
         M::AlreadyInstalled => "已安裝",
         M::ShowInstalled => "顯示已安裝",
-        M::InstalledCount => "已安裝 · {count}",
-        M::EnabledCount => "已啟用 · {count} · 重疊時以最上面的包為準",
-        M::AvailableCount => "可用 · {count}",
-        M::NoInstalledMatch => "已安裝 · {count} · 沒有符合的已安裝{kind}。",
-        M::OnlyTarget => "僅限 {target}",
+        M::Enabled => "已啟用",
+        M::TopPackWins => "重疊時以最上面的包為準。",
+        M::Available => "可用",
+        M::NoInstalledMatch => "沒有符合的已安裝{kind}。",
+        M::CompatibleOnly => "僅限相容",
 
         M::StopGameFirst => "請先停止遊戲：遊戲結束時會覆寫這些檔案。",
         M::WaitForInstall => "請等候安裝完成。",
@@ -64,12 +64,10 @@ pub fn text(message: M) -> &'static str {
         M::UpdateAll => "全部更新（{count}）",
         M::AddFile => "加入檔案…",
         M::AddFolder => "加入資料夾…",
-        M::ItemFolder => "{name} · 資料夾",
         M::Compatible => "相容",
         M::OlderVersion => "較舊版本",
         M::NewerVersion => "較新版本",
         M::NotOnModrinth => "不在 Modrinth 上",
-        M::UpdateTo => "更新至 {version}",
         M::NoModsYet => "還沒有模組。瀏覽 Modrinth，或將 .jar 檔案拖放到這裡。",
         M::NoResourcePacksYet => "還沒有資源包。瀏覽 Modrinth，或將 .zip 檔案或資料夾拖放到這裡。",
         M::NoShaderPacksYet => "還沒有光影包。瀏覽 Modrinth，或將 .zip 檔案或資料夾拖放到這裡。",
@@ -207,12 +205,10 @@ pub fn text(message: M) -> &'static str {
         M::CatScreenshot => "截圖",
         M::NothingOnCurseForge => "CurseForge 上沒有符合的結果。",
         M::PageOf => "第 {page} 頁，共 {pages} 頁",
-        M::ByAuthor => "作者：{author}",
         M::InstalledBadge => "已安裝",
         M::OptionalOnServers => "伺服器上可選用",
         M::DownloadsCompact => "{count}次下載",
         M::FollowsCompact => "{count}人追蹤",
-        M::FollowersCompact => "{count}位追蹤者",
 
         M::LoadingProject => "正在載入專案",
         M::ViewOnModrinth => "在 Modrinth 上檢視",
@@ -265,18 +261,21 @@ pub fn text(message: M) -> &'static str {
         M::WatchFolderPrompt => "監視此資料夾",
         M::CouldntAddDownload => "無法加入 {name}：{error}",
         M::AddedDownloads => "已加入 {names}。",
-        M::DisableModTitle => "要關閉 {name} 嗎？",
+        M::DisableModTitle => "要關閉模組嗎？",
         M::DisableModOnlyWarning => {
-            "如果只關閉 {name}，在它們也關閉或重新開啟 {name} 之前，遊戲將無法啟動。"
+            "如果只關閉這個模組，遊戲將無法啟動，直到它們也被關閉，或這個模組重新開啟。"
         }
         M::DisableModAll => "全部關閉",
-        M::DisableModOnly => "僅關閉 {name}",
-        M::EnableModTitle => "要開啟 {name} 嗎？",
+        M::DisableModOnly => "僅關閉這個模組",
+        M::EnableModTitle => "要開啟模組嗎？",
         M::EnableModOnlyWarning => {
-            "如果只開啟 {name}，在它們也開啟或再次關閉 {name} 之前，遊戲將無法啟動。"
+            "如果只開啟這個模組，遊戲將無法啟動，直到它們也被開啟，或這個模組再次關閉。"
         }
         M::EnableModAll => "全部開啟",
-        M::EnableModOnly => "僅開啟 {name}",
+        M::EnableModOnly => "僅開啟這個模組",
+        M::NeededByHeading => "被以下模組需要",
+        M::NeededByBody => "沒有它，這些模組將無法載入。",
+        M::NeedsHeading => "需要但已關閉",
 
         M::AddModpackContent => "加入模組包",
         M::NoSnapshotFirst => "未能先拍攝快照，請在遊玩前到「設定 › 快照」中拍攝一個。\n{error}",
@@ -285,11 +284,6 @@ pub fn text(message: M) -> &'static str {
 
 pub fn plural(message: P) -> [&'static str; 2] {
     match message {
-        P::Downloads => ["{count} 次下載"; 2],
-        P::Follows => ["{count} 人追蹤"; 2],
-        P::Followers => ["{count} 位追蹤者"; 2],
-        P::Needs => ["{name} 需要以下 {count} 個已關閉的模組："; 2],
-        P::NeededBy => ["以下 {count} 個模組需要 {name}，沒有它將無法載入："; 2],
         P::MoreVersions => ["Modrinth 上還有 {count} 個版本。"; 2],
     }
 }
