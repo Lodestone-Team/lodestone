@@ -38,6 +38,8 @@ pub struct FactLine {
     id: ElementId,
     strip: bool,
     facts: Vec<Fact>,
+    /// Facts only the tooltip and screen readers get, after the shown ones.
+    tooltip_facts: Vec<Fact>,
 }
 
 impl FactLine {
@@ -47,6 +49,7 @@ impl FactLine {
             id: id.into(),
             strip: false,
             facts: Vec::new(),
+            tooltip_facts: Vec::new(),
         }
     }
 
@@ -56,6 +59,7 @@ impl FactLine {
             id: id.into(),
             strip: true,
             facts: Vec::new(),
+            tooltip_facts: Vec::new(),
         }
     }
 
@@ -69,9 +73,21 @@ impl FactLine {
         self
     }
 
+    /// A fact the row leaves out but its tooltip and accessible name still give (a
+    /// row's loader, kept off a busy line). A strip ignores it.
+    pub fn tooltip_fact(mut self, fact: Fact) -> Self {
+        self.tooltip_facts.push(fact);
+        self
+    }
+
     /// Every fact as "key: value", for its accessible name.
     fn label(&self) -> SharedString {
-        let labels: Vec<SharedString> = self.facts.iter().map(Fact::label).collect();
+        let facts = self.facts.iter();
+        let labels: Vec<SharedString> = if self.strip {
+            facts.map(Fact::label).collect()
+        } else {
+            facts.chain(&self.tooltip_facts).map(Fact::label).collect()
+        };
         format::list(&labels).into()
     }
 }
@@ -85,6 +101,7 @@ impl RenderOnce for FactLine {
         let rows: Vec<(Option<SharedString>, SharedString)> = self
             .facts
             .iter()
+            .chain(&self.tooltip_facts)
             .map(|fact| (fact.key.label().cloned(), fact.plain()))
             .collect();
         div()

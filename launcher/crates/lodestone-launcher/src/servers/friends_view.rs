@@ -68,6 +68,27 @@ pub(super) fn magic_field(
         .child(note(when.into()))
 }
 
+/// [`magic_field`] with when the address works in its tooltip instead of beside it,
+/// for a server row, where it would repeat on every row.
+pub(super) fn magic_field_with_tooltip(
+    id: impl Into<SharedString>,
+    address: String,
+    when: impl Into<SharedString>,
+) -> gpui::Stateful<gpui::Div> {
+    let id = id.into();
+    div()
+        .id(SharedString::from(format!("{id}-when")))
+        .tooltip(crate::components::text_tooltip(when.into()))
+        .flex_none()
+        .w(px(240.))
+        .pt_1()
+        .child(
+            ValueField::new(id, address)
+                .label(t(M::MagicLocalhost))
+                .kind(ValueKind::Code),
+        )
+}
+
 fn paragraph(value: impl Into<SharedString>) -> gpui::Div {
     div()
         .text_size(theme::text_size(text::MEDIUM))

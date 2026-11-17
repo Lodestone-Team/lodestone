@@ -481,15 +481,18 @@ impl Servers {
                                 ))
                             }),
                     )
-                    .child(
+                    .child({
+                        // the game shows; the loader is in the line's tooltip
+                        let mut versions = facts::versions(server).into_iter();
                         FactLine::row(SharedString::from(format!("server-facts-{row_id}")))
-                            .facts(facts::versions(server)),
-                    )
+                            .facts(versions.next())
+                            .map(|line| versions.fold(line, FactLine::tooltip_fact))
+                    })
                     .children(magic.map(|(when, address, taken)| {
                         div()
                             .flex()
                             .flex_col()
-                            .child(super::friends_view::magic_field(
+                            .child(super::friends_view::magic_field_with_tooltip(
                                 format!("magic-localhost-{row_id}"),
                                 address,
                                 when,
