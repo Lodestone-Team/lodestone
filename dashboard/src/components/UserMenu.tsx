@@ -27,7 +27,7 @@ import { useI18n } from 'i18n';
  * status, so the menu opens upward.
  */
 const UserMenu = ({ showSettings = true }: { showSettings?: boolean }) => {
-  const { t, rich } = useI18n();
+  const { t } = useI18n();
   const { setToken, core } = useContext(LodestoneContext);
   const { setPathname, setSearchParam } = useContext(BrowserLocationContext);
   const location = useLocation();
@@ -80,13 +80,19 @@ const UserMenu = ({ showSettings = true }: { showSettings?: boolean }) => {
         >
           <Menu.Items className="absolute bottom-full left-0 z-10 mb-1.5 w-full min-w-48 origin-bottom-left divide-y divide-gray-faded/30 rounded border border-gray-faded/30 bg-gray-800 drop-shadow-md focus:outline-hidden">
             <div className="truncate px-3 py-2 text-small font-medium text-white/50">
-              {loggedIn
-                ? rich('shell.userMenu.signedInAs', {
-                    name: (
-                      <span className="text-gray-300">{user.username}</span>
-                    ),
-                  })
-                : t('shell.userMenu.notSignedIn')}
+              {loggedIn ? (
+                <div className="flex min-w-0 flex-col">
+                  <span>{t('values.key.signedInAs')}</span>
+                  <span
+                    className="truncate text-medium font-mediumbold text-gray-300"
+                    title={user.username}
+                  >
+                    {user.username}
+                  </span>
+                </div>
+              ) : (
+                t('shell.userMenu.notSignedIn')
+              )}
             </div>
             <div className="px-1.5 py-2">
               <Menu.Item>

@@ -12,13 +12,29 @@ import {
 import { ProgressionEvent } from 'bindings/ProgressionEvent';
 import { fields, match, variant, VariantOf } from 'variant';
 import { EventLevel } from 'bindings/EventLevel';
+import { InstanceState } from 'bindings/InstanceState';
 import { LodestoneContext } from './LodestoneContext';
 
 /** Only the newest notifications are kept, older ones are dropped. */
 export const MAX_NOTIFICATIONS = 200;
 
+/**
+ * What a notification is about, kept structured so the card can lead with
+ * the object (a server, players, a key) and style each value, instead of a
+ * sentence with the names inside. Built from the fields the core's events
+ * already carry. `text` is a finished progression: its title is the core's.
+ */
+export type NotificationContent =
+  | { type: 'state'; server: string; state: InstanceState }
+  | { type: 'warning' | 'error'; server: string }
+  | { type: 'players'; server: string; joined: string[]; left: string[] }
+  | { type: 'chat'; server: string; player: string; message: string }
+  | { type: 'modpack'; server: string; pack: string; version: string }
+  | { type: 'apiKey'; name: string; created: boolean }
+  | { type: 'text'; title: string };
+
 export type NotificationItem = {
-  title: string;
+  content: NotificationContent;
   message: string;
   description: string | null;
   timestamp: number;
@@ -46,7 +62,7 @@ export type OngoingNotificationItem = {
 
 export const NotificationAction = variant({
   add: fields<{
-    title: string;
+    content: NotificationContent;
     message?: string;
     event: ClientEvent;
     fresh: boolean;
@@ -117,11 +133,11 @@ const addNotification = (
 
 const notificationFromEvent = (
   event: ClientEvent,
-  title: string,
+  content: NotificationContent,
   message: string,
   fresh: boolean
 ): NotificationItem => ({
-  title,
+  content,
   message,
   description: null,
   timestamp: getSnowflakeTimestamp(event.snowflake),
@@ -189,7 +205,7 @@ const ongoingReducer = (
           state.notifications,
           notificationFromEvent(
             event,
-            item.title,
+            { type: 'text', title: item.title },
             message || item.message || '',
             fresh
           )
@@ -208,10 +224,10 @@ const reducer = (
 ): NotificationState => {
   if (action.kind === 'ongoing') return ongoingReducer(state, action.action);
   return match(action.action, {
-    add: ({ title, message, event, fresh }) => {
+    add: ({ content, message, event, fresh }) => {
       const notifications = addNotification(
         state.notifications,
-        notificationFromEvent(event, title, message ?? '', fresh)
+        notificationFromEvent(event, content, message ?? '', fresh)
       );
       if (notifications === state.notifications) return state;
       return { ...state, notifications };

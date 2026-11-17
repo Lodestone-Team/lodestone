@@ -7,6 +7,7 @@ import { InstanceContext } from 'data/InstanceContext';
 import { useInstalledMods, useModpackHistory } from 'data/Mods';
 import { useUserAuthorized } from 'data/UserInfo';
 import { useT } from 'i18n';
+import { gamePhrase, loaderPhrase } from 'utils/values';
 import { useContext, useEffect, useMemo, useState } from 'react';
 import { useDocumentTitle } from 'usehooks-ts';
 import { getModSupport } from 'utils/mods';
@@ -69,10 +70,17 @@ const Browse = ({
           toolbar={
             <div className="flex flex-row flex-wrap items-center justify-between gap-3">
               <Checkbox
-                label={t('mods.browse.onlyCompatible', {
-                  gameVersion: target.gameVersion,
-                  loader: target.loader,
-                })}
+                label={
+                  <span className="flex flex-row flex-wrap items-center gap-x-2">
+                    {t('mods.browse.onlyCompatible')}
+                    <span className="text-white/50">
+                      {gamePhrase(target.gameVersion)}
+                    </span>
+                    <span className="text-white/50">
+                      {loaderPhrase(target.loader)}
+                    </span>
+                  </span>
+                }
                 checked={onlyCompatible}
                 onChange={setOnlyCompatible}
               />

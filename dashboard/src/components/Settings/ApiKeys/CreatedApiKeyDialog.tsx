@@ -6,6 +6,8 @@ import Button from 'components/Atoms/Button';
 import { cliCoreUrl } from 'data/ApiKeys';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { useT } from 'i18n';
+import { KindIcon, MonoText } from 'components/Atoms/Values';
+import { Fact, FactLine, ObjectCard } from 'components/Values';
 import { Fragment, useContext } from 'react';
 import { toast } from 'react-toastify';
 
@@ -88,10 +90,22 @@ export default function CreatedApiKeyDialog({
           <div className="flex min-h-full items-center justify-center p-4">
             <ModalPanel className="flex w-150 max-w-full flex-col items-stretch justify-center gap-4 rounded-xl bg-gray-850 p-6">
               <Dialog.Title className="text-h2 font-extrabold tracking-tight wrap-break-word text-gray-300">
-                {t('settings.apiKeys.newTitle', {
-                  name: created?.info.name ?? '',
-                })}
+                {t('settings.apiKeys.newTitle')}
               </Dialog.Title>
+              {created && (
+                <ObjectCard
+                  compact
+                  icon={<KindIcon kind="apiKey" className="w-4" />}
+                  name={created.info.name}
+                  facts={
+                    <FactLine>
+                      <Fact label={t('values.key.prefix')}>
+                        <MonoText text={created.info.display} />
+                      </Fact>
+                    </FactLine>
+                  }
+                />
+              )}
               <p className="text-h3 font-bold tracking-medium text-yellow-300">
                 {t('settings.apiKeys.newCopyNow')}
               </p>

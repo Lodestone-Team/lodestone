@@ -1,8 +1,8 @@
 import { ReactNode, useContext } from 'react';
 import { InstanceContext } from 'data/InstanceContext';
 import { useLocation } from 'react-router';
-import Label from 'components/Atoms/Label';
-import { cn, stateToLabelColor } from 'utils/util';
+import { cn } from 'utils/util';
+import { StatusBadge, stateTone } from 'components/Atoms/Values';
 import { PageLoading } from 'components/DashboardLayout/LayoutSkeletons';
 import { CommandHistoryContextProvider } from 'data/CommandHistoryContext';
 import InstanceOverview from 'components/Instance/InstanceOverview';
@@ -129,13 +129,12 @@ const InstanceTabs = () => {
               <div className="flex min-w-0 flex-wrap font-title text-h1 leading-tight font-bold text-gray-300">
                 {displayTitle}
                 {tab.path === 'console' && (
-                  <Label
-                    size="medium"
-                    className="mt-[6px] ml-2"
-                    color={stateToLabelColor[instance.state]}
+                  <StatusBadge
+                    tone={stateTone(instance.state)}
+                    className="mt-2.5 ml-2"
                   >
                     {t(`common.state.${instance.state}`)}
-                  </Label>
+                  </StatusBadge>
                 )}
               </div>
             )}
