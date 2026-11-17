@@ -15,6 +15,14 @@ import {
 } from 'data/LodestoneContext';
 import { useCoreInfo } from 'data/SystemInfo';
 import { useT, type MessageKey, type TFunction } from 'i18n';
+import {
+  MonoText,
+  Num,
+  StatusBadge,
+  type StatusTone,
+  VersionTag,
+} from 'components/Atoms/Values';
+import { FactList, type FactRow } from 'components/Values';
 
 const statusDisplay = {
   success: {
@@ -22,24 +30,28 @@ const statusDisplay = {
     detailKey: 'shell.connection.connectedDetail',
     icon: faPlugCircleCheck,
     color: 'text-green-300',
+    tone: 'success',
   },
   loading: {
     labelKey: 'shell.connection.connecting',
     detailKey: 'shell.connection.connectingDetail',
     icon: faPlug,
     color: 'text-gray-400',
+    tone: 'neutral',
   },
   degraded: {
     labelKey: 'shell.connection.degraded',
     detailKey: 'shell.connection.degradedDetail',
     icon: faPlugCircleExclamation,
     color: 'text-yellow-300',
+    tone: 'warning',
   },
   error: {
     labelKey: 'shell.connection.disconnected',
     detailKey: 'shell.connection.disconnectedDetail',
     icon: faPlugCircleXmark,
     color: 'text-red-200',
+    tone: 'danger',
   },
 } as const satisfies Record<
   Status,
@@ -48,6 +60,7 @@ const statusDisplay = {
     detailKey: MessageKey;
     icon: IconDefinition;
     color: string;
+    tone: StatusTone;
   }
 >;
 
@@ -83,39 +96,48 @@ export default function CoreConnectionStatus({
   const status = statusDisplay[coreConnectionStatus];
   const statusLabel = t(status.labelKey);
 
-  const rows: [string, string][] = [
-    [
-      t('shell.connection.address'),
-      `${core.protocol}://${core.address}:${core.port}`,
-    ],
+  const rows: FactRow[] = [
+    {
+      label: t('shell.connection.address'),
+      value: (
+        <MonoText
+          text={`${core.protocol}://${core.address}:${core.port}`}
+          max={40}
+          className="text-small"
+        />
+      ),
+    },
   ];
   if (coreInfo) {
     rows.push(
-      [t('shell.connection.version'), coreInfo.version],
-      [t('shell.connection.host'), coreInfo.host_name],
-      [
-        t('shell.connection.system'),
-        `${osNames[coreInfo.os] ?? coreInfo.os} ${archNames[coreInfo.arch] ?? coreInfo.arch}`,
-      ],
-      [t('shell.connection.uptime'), formatUptime(t, coreInfo.up_since)]
+      {
+        label: t('shell.connection.version'),
+        value: <VersionTag version={coreInfo.version} />,
+      },
+      { label: t('shell.connection.host'), value: coreInfo.host_name },
+      {
+        label: t('shell.connection.system'),
+        value: `${osNames[coreInfo.os] ?? coreInfo.os} ${archNames[coreInfo.arch] ?? coreInfo.arch}`,
+      },
+      {
+        label: t('shell.connection.uptime'),
+        value: <Num value={formatUptime(t, coreInfo.up_since)} />,
+      }
     );
   }
 
   const details = (
     <div className="flex flex-col gap-1 py-1">
       <div className="flex flex-row items-center gap-1.5">
-        <FontAwesomeIcon icon={status.icon} className={status.color} />
-        <span className={clsx('font-bold', status.color)}>{statusLabel}</span>
+        <FontAwesomeIcon
+          icon={status.icon}
+          className={status.color}
+          aria-hidden="true"
+        />
+        <StatusBadge tone={status.tone}>{statusLabel}</StatusBadge>
       </div>
       <span className="text-gray-400">{t(status.detailKey)}</span>
-      <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
-        {rows.map(([label, value]) => (
-          <div key={label} className="contents">
-            <dt className="text-gray-400">{label}</dt>
-            <dd className="text-gray-300">{value}</dd>
-          </div>
-        ))}
-      </dl>
+      <FactList compact className="mt-1 text-small" rows={rows} />
     </div>
   );
 

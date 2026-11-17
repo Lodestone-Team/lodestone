@@ -172,7 +172,7 @@ export const countPermissions = (permissions: UserPermission) => {
 };
 
 /**
- * "Full access", "Custom: 3 servers, 5 permissions", or the fixed scope of a
+ * "Full access", "Custom" (its counts are facts, see apiKeyScopeCounts), or the fixed scope of a
  * Lodestone Launcher device, in the current language (call it at render).
  */
 export const apiKeyScopeSummary = (scope: ApiKeyScope) => {
@@ -188,14 +188,12 @@ export const apiKeyScopeSummary = (scope: ApiKeyScope) => {
             : 'settings.apiKeys.scope.launcher'
     );
   }
-  const { permissions, instances } = countPermissions(scope.permissions);
-  return t('settings.apiKeys.scope.custom', {
-    servers: t('settings.apiKeys.scope.servers', { count: instances }),
-    permissions: t('settings.apiKeys.scope.permissions', {
-      count: permissions,
-    }),
-  });
+  return t('settings.apiKeys.scope.custom');
 };
+
+/** How many servers and permissions a custom key has, for its facts */
+export const apiKeyScopeCounts = (scope: ApiKeyScope) =>
+  scope.type === 'custom' ? countPermissions(scope.permissions) : null;
 
 // Mirrors User::can_perform_action in the core: admins have these on every
 // instance without being granted them.

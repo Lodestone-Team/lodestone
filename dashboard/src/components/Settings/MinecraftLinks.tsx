@@ -7,6 +7,8 @@ import {
   useOwnMinecraftLinks,
 } from 'data/MinecraftLinks';
 import { TFunction, useT } from 'i18n';
+import { KindIcon, MonoText, ObjectChip } from 'components/Atoms/Values';
+import { FactLine, ObjectCard, ObjectToast } from 'components/Values';
 import { useState } from 'react';
 import { toast } from 'react-toastify';
 import { ApiError, errorToString } from 'utils/util';
@@ -55,6 +57,19 @@ function LinkList({
         closeButtonText={t('common.cancel')}
         isOpen={toRemove !== null}
         onClose={() => setToRemove(null)}
+        object={
+          toRemove && (
+            <ObjectCard
+              icon={<KindIcon kind="account" className="w-5" />}
+              name={toRemove.minecraft_name}
+              facts={
+                <FactLine>
+                  <MonoText text={toRemove.minecraft_uuid} max={40} />
+                </FactLine>
+              }
+            />
+          )
+        }
         onConfirm={async () => {
           if (!toRemove) return;
           try {
@@ -67,15 +82,17 @@ function LinkList({
             queryKey: ['minecraft_links'],
           });
           toast.success(
-            t('settings.minecraft.removed', { name: toRemove.minecraft_name })
+            <ObjectToast
+              object={
+                <ObjectChip kind="account" name={toRemove.minecraft_name} />
+              }
+              outcome={t('settings.minecraft.toast.removed')}
+            />
           );
           setToRemove(null);
         }}
       >
-        {toRemove &&
-          t('settings.minecraft.removeBody', {
-            name: toRemove.minecraft_name,
-          })}
+        {t('settings.minecraft.removeBody')}
       </ConfirmDialog>
       <SettingsCard>
         {links.length === 0 ? (
@@ -87,11 +104,7 @@ function LinkList({
               label={
                 <span className="block truncate">{link.minecraft_name}</span>
               }
-              hint={
-                <span className="font-mono break-all">
-                  {link.minecraft_uuid}
-                </span>
-              }
+              hint={<MonoText text={link.minecraft_uuid} max={40} />}
             >
               <Button
                 label={t('common.remove')}
@@ -127,13 +140,7 @@ export function OwnMinecraftLinks({ enabled }: { enabled: boolean }) {
 }
 
 /** Another user's linked Minecraft accounts, for the owner */
-export function UserMinecraftLinks({
-  uid,
-  username,
-}: {
-  uid: string;
-  username: string;
-}) {
+export function UserMinecraftLinks({ uid }: { uid: string }) {
   const t = useT();
   const { data, error } = useAllMinecraftLinks();
   return (
@@ -145,7 +152,7 @@ export function UserMinecraftLinks({
         links={data?.filter((link) => link.uid === uid)}
         error={error}
         anyUser
-        emptyText={t('settings.minecraft.userEmpty', { username })}
+        emptyText={t('settings.minecraft.userEmpty')}
       />
     </SettingsSection>
   );

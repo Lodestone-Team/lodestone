@@ -3,7 +3,7 @@ import { InstalledMod } from 'bindings/InstalledMod';
 import { InstalledModKind } from 'bindings/InstalledModKind';
 import { InstalledModLoader } from 'bindings/InstalledModLoader';
 import { ModrinthVersion } from 'bindings/ModrinthVersion';
-import { formatDate as formatLocaleDate, formatNumber, t } from 'i18n';
+import { formatDate as formatLocaleDate, t } from 'i18n';
 import { safeImageUrl } from 'utils/markdown';
 
 /** What kind of add-ons an instance supports, and its Modrinth loader. */
@@ -56,6 +56,24 @@ export const isVersionCompatible = (
 export const looksLikeModrinthLink = (text: string) =>
   text.toLowerCase().includes('modrinth.com/');
 
+const PROJECT_TYPES = {
+  mod: 'mods.projectType.mod',
+  plugin: 'mods.projectType.plugin',
+  modpack: 'mods.projectType.modpack',
+  resourcepack: 'mods.projectType.resourcepack',
+  shader: 'mods.projectType.shader',
+  datapack: 'mods.projectType.datapack',
+} as const;
+
+/**
+ * A Modrinth project type ("resourcepack") as a word in the current language
+ * ("resource pack"); a type Modrinth adds later is shown as it is.
+ */
+export const projectTypeName = (type: string) =>
+  type in PROJECT_TYPES
+    ? t(PROJECT_TYPES[type as keyof typeof PROJECT_TYPES])
+    : type;
+
 /** The project's page on modrinth.com. */
 export const modrinthProjectUrl = (projectType: string, slug: string) =>
   `https://modrinth.com/${encodeURIComponent(projectType)}/${encodeURIComponent(slug)}`;
@@ -67,10 +85,6 @@ export const installedModName = (mod: InstalledMod) =>
 /** The version to show for an installed mod, if any. */
 export const installedModVersion = (mod: InstalledMod) =>
   mod.modrinth?.version_number || mod.metadata?.version || null;
-
-/** A count such as 1234567 as "1.2M" in the current language. */
-export const formatCount = (count: number) =>
-  formatNumber(count, { notation: 'compact', maximumFractionDigits: 1 });
 
 /**
  * An ISO date as e.g. "Mar 4, 2025" in the current language, or the input

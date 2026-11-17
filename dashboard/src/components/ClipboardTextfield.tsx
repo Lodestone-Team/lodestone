@@ -1,10 +1,10 @@
 import { faClone } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import Tooltip from 'rc-tooltip';
-import { toast } from 'react-toastify';
 import clsx from 'clsx';
 import { LabelColor } from './Atoms/Label';
 import { useT } from 'i18n';
+import { copyWithToast } from './Values';
 
 export default function ClipboardTextfield({
   color = 'gray',
@@ -22,9 +22,8 @@ export default function ClipboardTextfield({
   const t = useT();
   const onClickCopy = (e: React.MouseEvent<HTMLSpanElement>) => {
     e.stopPropagation();
-    // note that navigator.clipboard.writeText is only supported over HTTPS
-    navigator.clipboard.writeText(textToCopy || text);
-    toast.info(t('common.clipboard.copiedText', { text: textToCopy || text }));
+    // "Copied", with the value on its own mono line
+    copyWithToast(textToCopy || text);
   };
 
   return (

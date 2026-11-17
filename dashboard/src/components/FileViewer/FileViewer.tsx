@@ -66,6 +66,9 @@ import { FileViewerContext, FileViewerContextValue } from './FileViewerContext';
 import { getDirectorySeparator, isSameOrInside } from './paths';
 import { SkeletonCode, SkeletonGroup } from 'components/Atoms/Skeleton';
 import { useT } from 'i18n';
+import { CountBadge, KindIcon, MonoText } from 'components/Atoms/Values';
+import { NameList } from 'components/Values';
+import { fileKind, fileToast } from './fileToast';
 
 // The instance whose files were shown last. FileViewer remounts per instance
 // (InstanceTabs keys it by uuid), so this tells a switch to another instance,
@@ -245,11 +248,11 @@ export default function FileViewer() {
           if (await downloadInstanceFile(instance.uuid, file, timeout))
             tickFile(file, false);
         } catch (e) {
-          toast.error(
-            t('files.downloadFailed', {
-              name: file.name,
-              error: errorToString(e),
-            })
+          fileToast(
+            'error',
+            { name: file.name, kind: fileKind(file) },
+            t('files.toast.downloadFailed'),
+            errorToString(e)
           );
         }
       })
@@ -423,20 +426,38 @@ export default function FileViewer() {
           setFilesToDelete([]);
           await deleteFiles(files);
         }}
-        title={t('files.delete.title', { count: filesToDelete.length })}
+        title={
+          filesToDelete.length === 1 ? (
+            t('files.delete.titleOne')
+          ) : (
+            <span className="inline-flex items-center gap-3">
+              {t('files.delete.titleMany')}
+              <CountBadge count={filesToDelete.length} className="text-small" />
+            </span>
+          )
+        }
         type="danger"
       >
-        {t('files.delete.message')}
-        <ul className="list-inside list-disc">
-          {filesToDelete.map((file) => (
-            <li key={file.path}>
-              {file.name}{' '}
-              {file.file_type === 'Directory'
-                ? t('files.delete.directory')
-                : file.file_type !== 'File' && t('files.delete.unknownType')}
-            </li>
-          ))}
-        </ul>
+        <div className="flex flex-col gap-3">
+          {t('files.delete.message')}
+          <NameList
+            groups={[
+              {
+                items: filesToDelete.map((file) => ({
+                  id: file.path,
+                  icon: <KindIcon kind={fileKind(file)} />,
+                  name: (
+                    <MonoText
+                      text={file.name}
+                      max={48}
+                      className="text-small"
+                    />
+                  ),
+                })),
+              },
+            ]}
+          />
+        </div>
       </ConfirmDialog>
       <div
         ref={boundingDivRef}
