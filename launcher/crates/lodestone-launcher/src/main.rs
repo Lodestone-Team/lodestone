@@ -73,6 +73,9 @@ fn main() {
             if let Some(locale) = lodestone_launcher::preview::requested_locale() {
                 lodestone_launcher::i18n::force(locale);
             }
+            if lodestone_launcher::preview::components::open(&scene, cx) {
+                return;
+            }
             let width = lodestone_launcher::preview::window_width(&scene);
             let height = lodestone_launcher::preview::window_height(&scene);
             let options = match (width, height) {

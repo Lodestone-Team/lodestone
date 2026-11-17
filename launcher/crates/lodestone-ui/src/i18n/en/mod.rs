@@ -7,7 +7,11 @@
 
 /// Words most screens use: buttons and the platform's names for its parts.
 pub mod common;
+/// The keys of facts ("Size", "Last played"), shared by both apps.
+pub mod facts;
 /// Units, dates and durations, for [`format`](crate::i18n::format).
 pub mod format;
 /// Moving instances and servers between computers as `.lodeimg` files.
 pub mod sharing;
+/// The readable components' words: status words, kinds, reasons, outcomes.
+pub mod values;

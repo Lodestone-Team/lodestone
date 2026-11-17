@@ -1,23 +1,34 @@
 //! What the apps say about moving a game to another computer as a `.lodeimg` file, so the
-//! GPUI Host's "From a file" and the Launcher's "Host this" say it alike: what a file
-//! holds before a server is made from it ([`summary_lines`] and the helpers beside it,
-//! from the core's [`ImageSummary`]), and what the server didn't get once made
-//! ([`outcome_lines`], from the creation's [`CreationOutcome`]). Each app lays the lines
-//! out with its own components.
+//! GPUI Host's "From a file" and the Launcher's "Host this" say it alike and lay it out
+//! alike: what a file holds before a server is made from it ([`summary_lines`], drawn by
+//! [`SummaryView`], from the core's [`ImageSummary`]), and what the server didn't get once
+//! made ([`outcome_view`] and [`outcome_counts`], from the creation's [`CreationOutcome`]).
+//! Names and values are never inside the sentences: the game and loader are facts, sizes
+//! numbers, and lists of files counted name lists.
 
+use gpui::{
+    AnyElement, App, ElementId, IntoElement, ParentElement, RenderOnce, SharedString, Styled,
+    Window, div, prelude::FluentBuilder as _,
+};
 use launcher_core::cores::admin::images::{
     CreationOutcome, ImageMaker, ImageSummary, NameList, NotTaken,
 };
 use launcher_core::cores::admin::instances::NAME_FORBIDDEN;
 
-use crate::i18n::{CommonPlural, SharingMsg as M, SharingPlural as P, format, t, tr, trn};
+use crate::components::{
+    DiffValue, FactList, FactValue, ItemIcon, Kind, MeterBar, NameGroup, NameItem,
+    NameList as Names, NameStyle, Num, ProductPhrase, StatRow, StatTile, StatusBadge, VersionTag,
+    readable::key_value,
+};
+use crate::i18n::{FactMsg, SharingMsg as M, SharingPlural as P, format, t, trn};
+use crate::theme::{self, Tone, ink, pill, px, radius, text};
 
 /// A server's name from the file: its label without control and invisible characters,
 /// else the file's name without `.lodeimg`, at most 64 characters, with the characters a
 /// server's name can't have replaced (an unnamed backup's label has the time, `14:10`).
 pub fn default_name(summary: &ImageSummary) -> String {
     let label = summary.label.as_deref().unwrap_or_default();
-    let label = visible(label);
+    let label = without_stamp(&visible(label));
     let name = if label.trim().is_empty() {
         let file = visible(&summary.file_name);
         file.strip_suffix(".lodeimg").unwrap_or(&file).to_string()
@@ -25,6 +36,30 @@ pub fn default_name(summary: &ImageSummary) -> String {
         label
     };
     server_name(&name)
+}
+
+/// An unnamed backup's label without the time the core adds ("Survival – 2026-11-12
+/// 14:10 UTC" is "Survival"): the time is the summary's Made fact, in local time, and a
+/// stamp in the name reads like a version.
+fn without_stamp(label: &str) -> String {
+    let Some((name, stamp)) = label.rsplit_once(" – ") else {
+        return label.to_string();
+    };
+    let stamp = stamp.trim();
+    let digits =
+        |part: &str, len: usize| part.len() == len && part.bytes().all(|b| b.is_ascii_digit());
+    let is_stamp = stamp.strip_suffix(" UTC").is_some_and(|stamp| {
+        let mut parts = stamp.split([' ', '-', ':', '.']);
+        [4, 2, 2, 2, 2]
+            .iter()
+            .all(|len| parts.next().is_some_and(|part| digits(part, *len)))
+            && parts.next().is_none()
+    });
+    if is_stamp && !name.trim().is_empty() {
+        name.to_string()
+    } else {
+        label.to_string()
+    }
 }
 
 /// `name` as a server's name the core takes: `:` becomes `.`, the other characters a
@@ -57,15 +92,15 @@ fn visible(text: &str) -> String {
     out.chars().filter(|c| !c.is_control()).collect()
 }
 
-/// The note on the server made: a Bukkit-family server the file names (Spigot,
-/// Purpur…) is made as Paper, said only while Paper is the server picked.
-pub fn server_note(summary: &ImageSummary, picked: Option<&str>) -> Option<String> {
+/// The software the file names when Lodestone makes it as Paper (a Bukkit-family server:
+/// Spigot, Purpur…), said only while Paper is the server picked: `(from, "Paper")`.
+pub fn made_as(summary: &ImageSummary, picked: Option<&str>) -> Option<(String, String)> {
     let flavour = summary.flavour.as_deref()?;
     let paper = picked.or(summary.server.as_deref()) == Some("Paper");
     let relative = ["spigot", "bukkit", "purpur", "folia"]
         .iter()
         .any(|f| flavour.eq_ignore_ascii_case(f));
-    (paper && relative).then(|| tr!(M::ImageMadeAsPaper, flavour = capitalized(flavour)))
+    (paper && relative).then(|| (capitalized(flavour), "Paper".to_string()))
 }
 
 fn capitalized(text: &str) -> String {
@@ -76,12 +111,19 @@ fn capitalized(text: &str) -> String {
     text
 }
 
-/// Why no server can be made from the file, when none can.
-pub fn unsupported(summary: &ImageSummary) -> Option<String> {
+/// The loader Lodestone can't make servers with, when it can't make one from the file.
+pub fn unsupported_loader(summary: &ImageSummary) -> Option<String> {
     summary.unsupported.as_ref()?;
-    Some(tr!(
-        M::ImageUnsupported,
-        loader = capitalized(&summary.loader)
+    Some(capitalized(&summary.loader))
+}
+
+/// Why no server can be made from the file, as a sentence for a log or the control API.
+pub fn unsupported(summary: &ImageSummary) -> Option<String> {
+    let loader = unsupported_loader(summary)?;
+    Some(format!(
+        "{} {}",
+        t(M::ImageUnsupported),
+        key_value(t(FactMsg::Loader), &loader)
     ))
 }
 
@@ -93,20 +135,6 @@ pub fn default_world(summary: &ImageSummary) -> Option<String> {
         .clone()
         .filter(|w| summary.worlds.iter().any(|world| &world.folder == w))
         .or_else(|| summary.worlds.first().map(|w| w.folder.clone()))
-}
-
-/// The game in a line: "Fabric 0.16.10 · Minecraft 1.21.1", "Paper · Minecraft 1.21.1".
-pub fn game_line(summary: &ImageSummary) -> String {
-    let software = summary
-        .server
-        .clone()
-        .or_else(|| summary.flavour.clone())
-        .unwrap_or_else(|| summary.loader.clone());
-    let software = match (&summary.loader_version, summary.loader.as_str()) {
-        (Some(version), loader) if loader != "vanilla" => format!("{software} {version}"),
-        _ => software,
-    };
-    format!("{software} · Minecraft {}", summary.minecraft)
 }
 
 /// The server software to ask for: the one picked, only when the file's game allows a
@@ -128,23 +156,6 @@ pub fn server_choice<'a>(summary: &'a ImageSummary, typed: &str) -> Option<&'a s
         .map(String::as_str)
 }
 
-/// What the server won't take from the file, as a list.
-pub fn not_taken(what: &[NotTaken]) -> String {
-    what.iter()
-        .filter_map(|n| {
-            Some(t(match n {
-                NotTaken::ServerSoftware => M::NotTakenSoftware,
-                NotTaken::Eula => M::NotTakenEula,
-                NotTaken::ClientFiles => M::NotTakenClientFiles,
-                NotTaken::Operators => M::NotTakenOperators,
-                NotTaken::Scripts => M::NotTakenScripts,
-                NotTaken::Unknown => return None,
-            }))
-        })
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
 /// Whether a server can be made from the file `summary` describes by someone who may
 /// (`may_write_global`) or may not change global files: not when Lodestone makes no server
 /// for it, nor when it carries protected files the person may not add, which the core
@@ -154,29 +165,7 @@ pub fn can_create(summary: &ImageSummary, may_write_global: bool) -> bool {
     summary.unsupported.is_none() && (may_write_global || !summary.needs_global_files)
 }
 
-/// The trust warning of a file whose server takes mods or plugins, which run on it: how
-/// many, as the Launcher's import says it, and the ones whose bytes the file carries
-/// (from whoever made it, not a download). A file with no mods that still carries
-/// protected files of its own (jars, programs) gets a warning too.
-pub fn trust_warning(summary: &ImageSummary) -> Option<String> {
-    let count = summary.server_mods.max(summary.carried_mods.count);
-    if count == 0 {
-        return summary
-            .needs_global_files
-            .then(|| t(M::ImageProtectedWarning).to_string());
-    }
-    let mut text = trn!(P::ImageModsWarning, count);
-    if !summary.carried_mods.is_empty() {
-        text.push(' ');
-        text.push_str(&tr!(M::ImageCarried, names = summary.carried_mods.joined()));
-        if !text.ends_with(['.', '…', '。']) {
-            text.push('.');
-        }
-    }
-    Some(text)
-}
-
-/// How bad a [`SummaryLines`] alert is.
+/// How bad an alert is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Level {
     /// Nothing can be made as things stand.
@@ -201,91 +190,157 @@ pub struct Picked<'a> {
     pub own_file: bool,
 }
 
-/// A file's summary as lines of text: notes under the title (the game, who made it),
-/// alerts to read before creating, and details (what is downloaded, left out, the disk).
+/// A fact about the file: the server it makes, then the file itself.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Note {
+    /// The game and the loader (the server), and the file's files and size.
+    Game {
+        game: String,
+        /// The loader's name and version; `None` for vanilla.
+        loader: Option<(String, Option<String>)>,
+        files: u64,
+        bytes: u64,
+    },
+    /// Who made it: the app and its version, or another program.
+    MadeWith {
+        app: Option<&'static str>,
+        version: String,
+    },
+    /// When the backup or snapshot was made, in local time.
+    Made(String),
+    /// The software it names, made as another (`Purpur` made as `Paper`).
+    MadeAs { from: String, to: String },
+    /// The pack it is built on, as the core describes it.
+    Base(String),
+}
+
+/// Something to read before making the server.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Alert {
+    /// Lodestone makes no servers with this loader.
+    Unsupported { loader: String },
+    /// It has mods or plugins, and maybe files of its own (`carried`).
+    Trust { count: u64, carried: NameList },
+    /// No mods, but protected files of its own.
+    Protected,
+    /// CurseForge files the servers can't download.
+    NotDownloadable(NameList),
+    /// Players can join without a Minecraft account.
+    OfflineMode,
+    /// It needs permission to change global files.
+    NeedsGlobal,
+    /// No room for the world picked.
+    NoRoom,
+}
+
+/// What is downloaded, left out, and the disk it needs.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Detail {
+    /// What is downloaded from Modrinth, and the mods among it.
+    Downloads { bytes: u64, mods: NameList },
+    /// Names left out, under a heading.
+    Left { heading: M, names: NameList },
+    /// What the server never takes from a file.
+    NotTaken(Vec<NotTaken>),
+    /// The space needed (with the spare) against the space free.
+    Disk { needed: u64, free: u64 },
+}
+
+/// A file's summary: facts under the title, alerts to read before creating, and details.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SummaryLines {
-    pub notes: Vec<String>,
-    pub alerts: Vec<(Level, String)>,
-    pub details: Vec<String>,
+    pub notes: Vec<Note>,
+    pub alerts: Vec<(Level, Alert)>,
+    pub details: Vec<Detail>,
 }
 
 /// What `summary` says, with `picked` chosen.
 pub fn summary_lines(summary: &ImageSummary, picked: Picked<'_>) -> SummaryLines {
     let mut lines = SummaryLines::default();
-    // the game line names the server picked
-    let with_server = ImageSummary {
-        server: picked
-            .server
-            .map(str::to_string)
-            .or_else(|| summary.server.clone()),
-        ..summary.clone()
+    let server = picked
+        .server
+        .map(str::to_string)
+        .or_else(|| summary.server.clone())
+        .or_else(|| summary.flavour.clone())
+        .unwrap_or_else(|| summary.loader.clone());
+    let loader = match summary.loader.as_str() {
+        "vanilla" | "" => {
+            (!server.eq_ignore_ascii_case("vanilla")).then(|| (capitalized(&server), None))
+        }
+        _ => Some((capitalized(&server), summary.loader_version.clone())),
     };
-    lines.notes.push(format!(
-        "{} · {} · {}",
-        game_line(&with_server),
-        trn!(CommonPlural::Files, summary.files),
-        format::bytes(summary.total_bytes)
-    ));
+    lines.notes.push(Note::Game {
+        game: summary.minecraft.clone(),
+        loader,
+        files: summary.files,
+        bytes: summary.total_bytes,
+    });
     if !picked.own_file {
-        lines.notes.push(match summary.made_by {
-            ImageMaker::Host => tr!(M::ImageMadeByHost, version = summary.producer_version),
-            ImageMaker::Launcher => {
-                tr!(M::ImageMadeByLauncher, version = summary.producer_version)
-            }
-            ImageMaker::Unknown => t(M::ImageMadeByOther).to_string(),
+        lines.notes.push(Note::MadeWith {
+            app: match summary.made_by {
+                ImageMaker::Host => Some("Lodestone Host"),
+                ImageMaker::Launcher => Some("Lodestone Launcher"),
+                ImageMaker::Unknown => None,
+            },
+            version: summary.producer_version.clone(),
         });
     }
-    if let Some(note) = server_note(summary, picked.server) {
-        lines.notes.push(note);
+    if summary.created > 0
+        && let Some(time) = chrono::DateTime::from_timestamp(summary.created, 0)
+    {
+        lines.notes.push(Note::Made(format::day_and_time(
+            time.with_timezone(&chrono::Local),
+            chrono::Local::now().date_naive(),
+        )));
+    }
+    if let Some((from, to)) = made_as(summary, picked.server) {
+        lines.notes.push(Note::MadeAs { from, to });
     }
     if let Some(base) = &summary.base {
-        lines
-            .notes
-            .push(launcher_core::images::display_text(base).into_owned());
+        lines.notes.push(Note::Base(
+            launcher_core::images::display_text(base).into_owned(),
+        ));
     }
 
-    if let Some(why) = unsupported(summary) {
-        lines.alerts.push((Level::Error, why));
+    if let Some(loader) = unsupported_loader(summary) {
+        lines
+            .alerts
+            .push((Level::Error, Alert::Unsupported { loader }));
     }
-    if let Some(warning) = trust_warning(summary).filter(|_| !picked.own_file) {
-        lines.alerts.push((Level::Warning, warning));
+    if !picked.own_file {
+        let count = summary.server_mods.max(summary.carried_mods.count);
+        if count > 0 {
+            lines.alerts.push((
+                Level::Warning,
+                Alert::Trust {
+                    count,
+                    carried: summary.carried_mods.clone(),
+                },
+            ));
+        } else if summary.needs_global_files {
+            lines.alerts.push((Level::Warning, Alert::Protected));
+        }
     }
     if !summary.not_downloadable.is_empty() {
         lines.alerts.push((
             Level::Warning,
-            tr!(
-                M::ImageNotDownloadable,
-                names = summary.not_downloadable.joined()
-            ),
+            Alert::NotDownloadable(summary.not_downloadable.clone()),
         ));
     }
     if summary.offline_mode {
-        lines
-            .alerts
-            .push((Level::Warning, t(M::ImageOfflineMode).to_string()));
+        lines.alerts.push((Level::Warning, Alert::OfflineMode));
     }
     if summary.needs_global_files && !picked.may_write_global {
-        lines
-            .alerts
-            .push((Level::Error, t(M::ImageNeedsGlobal).to_string()));
+        lines.alerts.push((Level::Error, Alert::NeedsGlobal));
     }
 
     if summary.download_bytes > 0 {
-        let size = format::bytes(summary.download_bytes);
-        lines
-            .details
-            .push(if summary.mods_from_modrinth.is_empty() {
-                tr!(M::ImageDownloads, size = size)
-            } else {
-                tr!(
-                    M::ImageDownloadsMods,
-                    size = size,
-                    names = summary.mods_from_modrinth.joined()
-                )
-            });
+        lines.details.push(Detail::Downloads {
+            bytes: summary.download_bytes,
+            mods: summary.mods_from_modrinth.clone(),
+        });
     }
-    for (list, message) in [
+    for (list, heading) in [
         (&summary.client_only, M::ImageClientOnly),
         (&summary.left_out, M::ImageTakenOut),
         (&summary.withheld, M::ImageWithheld),
@@ -293,58 +348,459 @@ pub fn summary_lines(summary: &ImageSummary, picked: Picked<'_>) -> SummaryLines
         (&summary.secrets_not_taken, M::ImageSecretsNotTaken),
     ] {
         if !list.is_empty() {
-            lines.details.push(tr!(message, names = list.joined()));
+            lines.details.push(Detail::Left {
+                heading,
+                names: list.clone(),
+            });
         }
     }
-    let what = not_taken(
-        &summary
-            .not_taken
-            .iter()
-            .filter(|n| !(picked.keep_operators && **n == NotTaken::Operators))
-            .copied()
-            .collect::<Vec<_>>(),
-    );
-    if !what.is_empty() {
-        lines.details.push(tr!(M::ImageNotTaken, what = what));
+    let not_taken: Vec<NotTaken> = summary
+        .not_taken
+        .iter()
+        .filter(|n| **n != NotTaken::Unknown)
+        .filter(|n| !(picked.keep_operators && **n == NotTaken::Operators))
+        .copied()
+        .collect();
+    if !not_taken.is_empty() {
+        lines.details.push(Detail::NotTaken(not_taken));
     }
     // for the world picked: the core checks again
     if let Some(free) = summary.disk_free {
-        lines.details.push(tr!(
-            M::ImageDisk,
-            needed = format::bytes(
-                summary
-                    .needed_bytes_for(picked.world)
-                    .saturating_add(ImageSummary::SPARE_BYTES)
-            ),
-            free = format::bytes(free)
-        ));
+        lines.details.push(Detail::Disk {
+            needed: summary
+                .needed_bytes_for(picked.world)
+                .saturating_add(ImageSummary::SPARE_BYTES),
+            free,
+        });
     }
     if !summary.has_room_for(picked.world) {
-        lines
-            .alerts
-            .push((Level::Warning, t(M::ImageNoRoom).to_string()));
+        lines.alerts.push((Level::Warning, Alert::NoRoom));
     }
     lines
 }
 
-/// What a server made from a file didn't get, a line per kind (empty when it got
-/// everything it could take).
-pub fn outcome_lines(outcome: &CreationOutcome) -> Vec<String> {
-    let mut lines = Vec::new();
-    let mut list = |names: &NameList, message: P| {
-        if !names.is_empty() {
-            lines.push(trn!(message, names.count, names = names.joined()));
+/// A not-taken item's name, and why, when it says.
+fn not_taken_item(what: NotTaken) -> (&'static str, Option<&'static str>) {
+    match what {
+        NotTaken::ServerSoftware => (t(M::NotTakenSoftware), Some(t(M::NotTakenSoftwareReason))),
+        NotTaken::Eula => (t(M::NotTakenEula), None),
+        NotTaken::ClientFiles => (t(M::NotTakenClientFiles), None),
+        NotTaken::Operators => (t(M::NotTakenOperators), Some(t(M::NotTakenOperatorsReason))),
+        NotTaken::Scripts | NotTaken::Unknown => (t(M::NotTakenScripts), None),
+    }
+}
+
+/// The names of a core's list, shown safely (hidden characters written out).
+fn shown_names(names: &NameList) -> Vec<String> {
+    names
+        .names
+        .iter()
+        .map(|name| launcher_core::images::display_text(name).into_owned())
+        .collect()
+}
+
+/// A group of exact names under `heading`, counted with the core's total.
+fn name_group(heading: impl Into<SharedString>, names: &NameList, icon: ItemIcon) -> NameGroup {
+    let shown = shown_names(names);
+    let more = names.count.saturating_sub(shown.len() as u64);
+    let mut group = NameGroup::new(heading).items(
+        shown
+            .into_iter()
+            .map(|name| NameItem::new(name).icon(icon).style(NameStyle::Path)),
+    );
+    // names the core counted but didn't send: counted, never an uncounted "…"
+    if more > 0 {
+        group = group.item(
+            NameItem::new(trn!(P::ImageMoreNames, more))
+                .icon(ItemIcon::Skipped)
+                .style(NameStyle::Name),
+        );
+    }
+    group
+}
+
+impl Note {
+    /// The note as text, for tests and logs.
+    pub fn plain(&self) -> String {
+        match self {
+            Note::Game {
+                game,
+                loader,
+                files,
+                bytes,
+            } => {
+                let mut parts = vec![crate::values::phrase(
+                    crate::values::Product::Minecraft,
+                    game,
+                )];
+                if let Some((name, version)) = loader {
+                    parts.push(
+                        format!("{name} {}", version.clone().unwrap_or_default())
+                            .trim()
+                            .to_string(),
+                    );
+                }
+                parts.push(key_value(t(M::ImageFiles), &format::number(*files)).to_string());
+                parts.push(key_value(t(M::ImageSize), &format::bytes(*bytes)).to_string());
+                parts.join("\n")
+            }
+            Note::MadeWith { app, version } => match app {
+                Some(app) => {
+                    key_value(t(M::ImageMadeWith), &format!("{app} {version}")).to_string()
+                }
+                None => t(M::ImageMadeByOther).to_string(),
+            },
+            Note::Made(time) => key_value(t(FactMsg::Made), time).to_string(),
+            Note::MadeAs { from, to } => key_value(
+                t(M::ImageServerSoftware),
+                &DiffValue::text(from.clone(), to.clone()).plain(),
+            )
+            .to_string(),
+            Note::Base(base) => key_value(t(M::ImageBasedOn), base).to_string(),
         }
-    };
-    list(&outcome.not_downloaded, P::OutcomeNotDownloaded);
-    list(&outcome.no_source, P::OutcomeNoSource);
-    list(&outcome.client_jars, P::OutcomeClientJars);
-    list(&outcome.secrets, P::OutcomeSecrets);
-    list(&outcome.settings_removed, P::OutcomeSettingsRemoved);
+    }
+}
+
+impl Alert {
+    /// The alert's sentence, for tests and logs (its lists are left out).
+    pub fn plain(&self) -> String {
+        match self {
+            Alert::Unsupported { loader } => {
+                format!(
+                    "{} {}",
+                    t(M::ImageUnsupported),
+                    key_value(t(FactMsg::Loader), loader)
+                )
+            }
+            Alert::Trust { count, .. } => trn!(P::ImageModsWarning, *count),
+            Alert::Protected => t(M::ImageProtectedWarning).to_string(),
+            Alert::NotDownloadable(_) => t(M::ImageNotDownloadable).to_string(),
+            Alert::OfflineMode => t(M::ImageOfflineMode).to_string(),
+            Alert::NeedsGlobal => t(M::ImageNeedsGlobal).to_string(),
+            Alert::NoRoom => t(M::ImageNoRoom).to_string(),
+        }
+    }
+
+    fn body(&self, id: &str) -> AnyElement {
+        let sentence = div().child(self.plain());
+        let column = div().flex().flex_col().gap(px(8.)).child(sentence);
+        match self {
+            Alert::Unsupported { loader } => column
+                .child(
+                    FactList::new(format!("{id}-loader")).row(t(FactMsg::Loader), loader.clone()),
+                )
+                .into_any_element(),
+            Alert::Trust { carried, .. } if !carried.is_empty() => column
+                .child(
+                    Names::new(format!("{id}-carried"))
+                        .group(name_group(
+                            t(M::ImageCarried),
+                            carried,
+                            ItemIcon::Kind(Kind::Mod),
+                        ))
+                        .collapsed_after(5),
+                )
+                .into_any_element(),
+            Alert::NotDownloadable(names) => column
+                .child(
+                    Names::new(format!("{id}-curseforge"))
+                        .group(name_group(
+                            t(M::ImageNotInstalled),
+                            names,
+                            ItemIcon::Kind(Kind::File),
+                        ))
+                        .collapsed_after(5),
+                )
+                .into_any_element(),
+            // the setting itself, exact, and its state
+            Alert::OfflineMode => column
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap(px(8.))
+                        .child(crate::components::MonoValue::new("online-mode"))
+                        .child(StatusBadge::new(t(M::ImageOff), Tone::Neutral)),
+                )
+                .into_any_element(),
+            _ => column.into_any_element(),
+        }
+    }
+}
+
+impl Detail {
+    /// The detail as text, for tests and logs.
+    pub fn plain(&self) -> String {
+        match self {
+            Detail::Downloads { bytes, mods } => {
+                let mut text = key_value(t(M::ImageDownloads), &format::bytes(*bytes)).to_string();
+                for name in shown_names(mods) {
+                    text.push('\n');
+                    text.push_str(&name);
+                }
+                text
+            }
+            Detail::Left { heading, names } => {
+                let mut text = t(*heading).to_string();
+                for name in shown_names(names) {
+                    text.push('\n');
+                    text.push_str(&name);
+                }
+                text
+            }
+            Detail::NotTaken(what) => {
+                let mut text = t(M::ImageNotTaken).to_string();
+                for item in what {
+                    let (name, reason) = not_taken_item(*item);
+                    text.push('\n');
+                    text.push_str(&match reason {
+                        Some(reason) => key_value(name, reason).to_string(),
+                        None => name.to_string(),
+                    });
+                }
+                text
+            }
+            Detail::Disk { needed, free } => format!(
+                "{}\n{}",
+                key_value(t(FactMsg::Needed), &format::bytes(*needed)),
+                key_value(t(FactMsg::Free), &format::bytes(*free))
+            ),
+        }
+    }
+}
+
+/// A file's summary, laid out the same in both apps: the facts as a table, the alerts in
+/// boxes of their tone, then what is downloaded, the names left out as one counted list,
+/// and the disk space as two numbers over a meter.
+#[derive(IntoElement)]
+pub struct SummaryView {
+    id: SharedString,
+    lines: SummaryLines,
+}
+
+impl SummaryView {
+    pub fn new(id: impl Into<SharedString>, lines: SummaryLines) -> Self {
+        Self {
+            id: id.into(),
+            lines,
+        }
+    }
+}
+
+impl RenderOnce for SummaryView {
+    fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
+        let id = self.id;
+        // the facts: the server, then the file
+        let mut facts = FactList::new(ElementId::Name(format!("{id}-facts").into()));
+        for note in &self.lines.notes {
+            match note {
+                Note::Game {
+                    game,
+                    loader,
+                    files,
+                    bytes,
+                } => {
+                    let game = ProductPhrase::new(crate::values::Product::Minecraft, game.clone());
+                    facts = facts.row(game.key(), game);
+                    if let Some((name, version)) = loader {
+                        let version = version.clone().unwrap_or_default();
+                        facts = match ProductPhrase::from_name(name, version.clone()) {
+                            Some(phrase) => facts.row(phrase.key(), phrase),
+                            None => facts.row(
+                                t(FactMsg::Loader),
+                                format!("{name}\u{a0}{version}").trim().to_string(),
+                            ),
+                        };
+                    }
+                    facts = facts
+                        .row(t(M::ImageFiles), Num::count(*files))
+                        .row(t(M::ImageSize), Num::bytes(*bytes));
+                }
+                Note::MadeWith { app, version } => {
+                    facts = match app {
+                        Some(app) => facts.row(
+                            t(M::ImageMadeWith),
+                            FactValue::element(
+                                div()
+                                    .flex()
+                                    .flex_row()
+                                    .items_center()
+                                    .gap(px(6.))
+                                    .child(app.to_string())
+                                    .when(!version.is_empty(), |this| {
+                                        this.child(VersionTag::new(version.clone()))
+                                    }),
+                                format!("{app} {version}"),
+                            ),
+                        ),
+                        None => facts.row(t(M::ImageMadeWith), t(M::ImageMadeByOther)),
+                    };
+                }
+                Note::Made(time) => {
+                    facts = facts.row(t(FactMsg::Made), FactValue::time(time.clone()))
+                }
+                Note::MadeAs { from, to } => {
+                    facts = facts.row(
+                        t(M::ImageServerSoftware),
+                        DiffValue::text(from.clone(), to.clone()),
+                    );
+                }
+                Note::Base(base) => facts = facts.row(t(M::ImageBasedOn), base.clone()),
+            }
+        }
+        let made_as = self
+            .lines
+            .notes
+            .iter()
+            .any(|note| matches!(note, Note::MadeAs { .. }));
+        let alerts = self
+            .lines
+            .alerts
+            .iter()
+            .enumerate()
+            .map(|(index, (level, alert))| {
+                let tone = match level {
+                    Level::Error => Tone::Danger,
+                    Level::Warning => Tone::Warning,
+                };
+                div()
+                    .p(px(10.))
+                    .rounded(radius::MD)
+                    .bg(pill::bg(tone))
+                    .text_size(theme::text_size(text::MEDIUM))
+                    .text_color(ink::text())
+                    .child(alert.body(&format!("{id}-alert-{index}")))
+            });
+        // what is downloaded, the names left out, what isn't taken, the disk
+        let mut downloads = None;
+        let mut names =
+            Names::new(ElementId::Name(format!("{id}-names").into())).collapsed_after(5);
+        let mut has_names = false;
+        let mut disk = None;
+        for detail in &self.lines.details {
+            match detail {
+                Detail::Downloads { bytes, mods } => {
+                    downloads = Some(
+                        FactList::new(ElementId::Name(format!("{id}-downloads").into()))
+                            .row(t(M::ImageDownloads), Num::bytes(*bytes)),
+                    );
+                    if !mods.is_empty() {
+                        names = names.group(name_group(
+                            t(M::ImageDownloadedMods),
+                            mods,
+                            ItemIcon::Kind(Kind::Mod),
+                        ));
+                        has_names = true;
+                    }
+                }
+                Detail::Left {
+                    heading,
+                    names: list,
+                } => {
+                    names = names.group(name_group(t(*heading), list, ItemIcon::Kind(Kind::File)));
+                    has_names = true;
+                }
+                Detail::NotTaken(what) => {
+                    names = names.group(NameGroup::new(t(M::ImageNotTaken)).items(
+                        what.iter().map(|item| {
+                            let (name, reason) = not_taken_item(*item);
+                            let item = NameItem::new(name).icon(ItemIcon::Skipped);
+                            match reason {
+                                Some(reason) => item.reason(reason),
+                                None => item,
+                            }
+                        }),
+                    ));
+                    has_names = true;
+                }
+                Detail::Disk { needed, free } => {
+                    let short = needed > free;
+                    disk =
+                        Some(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .gap(px(4.))
+                                .child(
+                                    StatRow::new()
+                                        .tile(StatTile::bytes(t(FactMsg::Needed), *needed).tone(
+                                            if short { Tone::Warning } else { Tone::Neutral },
+                                        ))
+                                        .tile(StatTile::bytes(t(FactMsg::Free), *free))
+                                        .meter(MeterBar::needed_free(*needed, *free)),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(theme::text_size(text::SMALL))
+                                        .text_color(ink::muted())
+                                        .child(t(M::ImageDiskSpare)),
+                                ),
+                        );
+                }
+            }
+        }
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(12.))
+            .child(facts)
+            .when(made_as, |this| {
+                this.child(
+                    div()
+                        .text_size(theme::text_size(text::SMALL))
+                        .text_color(ink::muted())
+                        .child(t(M::ImageMadeAsPaper)),
+                )
+            })
+            .children(alerts)
+            .children(downloads)
+            .when(has_names, |this| this.child(names))
+            .children(disk)
+    }
+}
+
+/// What a server made from a file didn't get, as counted groups of names (empty when it
+/// got everything it could take): one group a reason.
+pub fn outcome_view(id: impl Into<ElementId>, outcome: &CreationOutcome) -> Names {
+    let mut names = Names::new(id).collapsed_after(5);
+    for (list, message) in outcome_groups(outcome) {
+        names = names.group(name_group(
+            trn!(message, list.count),
+            list,
+            ItemIcon::Kind(Kind::File),
+        ));
+    }
+    if outcome.scripts > 0 {
+        names = names.group(NameGroup::new(trn!(P::OutcomeScripts, outcome.scripts)));
+    }
+    names
+}
+
+/// What a server made from a file didn't get, a counted line per reason, with no names:
+/// for a toast, whose details the server's own pages show.
+pub fn outcome_counts(outcome: &CreationOutcome) -> Vec<String> {
+    let mut lines: Vec<String> = outcome_groups(outcome)
+        .into_iter()
+        .map(|(list, message)| trn!(message, list.count))
+        .collect();
     if outcome.scripts > 0 {
         lines.push(trn!(P::OutcomeScripts, outcome.scripts));
     }
     lines
+}
+
+fn outcome_groups(outcome: &CreationOutcome) -> Vec<(&NameList, P)> {
+    [
+        (&outcome.not_downloaded, P::OutcomeNotDownloaded),
+        (&outcome.no_source, P::OutcomeNoSource),
+        (&outcome.client_jars, P::OutcomeClientJars),
+        (&outcome.secrets, P::OutcomeSecrets),
+        (&outcome.settings_removed, P::OutcomeSettingsRemoved),
+    ]
+    .into_iter()
+    .filter(|(list, _)| !list.is_empty())
+    .collect()
 }
 
 #[cfg(test)]
@@ -382,7 +838,7 @@ mod tests {
         let name = default_name(&summary(serde_json::json!({
             "label": "Survival – 2026-11-12 14:10 UTC"
         })));
-        assert_eq!(name, "Survival – 2026-11-12 14.10 UTC");
+        assert_eq!(name, "Survival", "the time is a fact, not part of the name");
         let name = default_name(&summary(serde_json::json!({
             "label": "Before 1/2 \"big\" update? <a|b> *\\"
         })));
@@ -446,55 +902,48 @@ mod tests {
             "server_note": "the core's English"
         }));
         assert_eq!(
-            server_note(&purpur, None).as_deref(),
-            Some("Lodestone makes Purpur servers as Paper servers, which run the same plugins.")
+            made_as(&purpur, None),
+            Some(("Purpur".to_string(), "Paper".to_string()))
         );
         assert_eq!(
-            server_note(&purpur, Some("Vanilla")),
+            made_as(&purpur, Some("Vanilla")),
             None,
             "not once Vanilla is picked"
         );
         let paper = summary(serde_json::json!({ "flavour": "paper", "server": "Paper" }));
-        assert_eq!(server_note(&paper, None), None);
+        assert_eq!(made_as(&paper, None), None);
         let quilt = summary(serde_json::json!({
             "loader": "quilt", "unsupported": "Lodestone can't make Quilt servers"
         }));
-        assert_eq!(
-            unsupported(&quilt).as_deref(),
-            Some("Lodestone can’t make Quilt servers.")
-        );
-        assert_eq!(unsupported(&paper), None);
+        assert_eq!(unsupported_loader(&quilt).as_deref(), Some("Quilt"));
+        assert_eq!(unsupported_loader(&paper), None);
     }
 
     #[test]
     fn mods_from_anywhere_get_the_trust_warning() {
         crate::i18n::force(crate::i18n::Locale::En);
-        let downloaded = summary(serde_json::json!({
+        let alerts = |json| summary_lines(&summary(json), Picked::default()).alerts;
+        let downloaded = alerts(serde_json::json!({
             "server_mods": 40,
             "mods_from_modrinth": {"names": ["lithium.jar"], "count": 40}
         }));
-        assert_eq!(
-            trust_warning(&downloaded).as_deref(),
-            Some(
-                "It has 40 mods or plugins: programs that run on the server. Only use files from people you trust."
-            )
+        assert!(
+            matches!(&downloaded[0], (Level::Warning, Alert::Trust { count: 40, carried }) if carried.is_empty())
         );
-        let carried = summary(serde_json::json!({
+        assert_eq!(
+            downloaded[0].1.plain(),
+            "It has 40 mods or plugins: programs that run on the server. Only use files from people you trust."
+        );
+        let carried = alerts(serde_json::json!({
             "server_mods": 1, "carried_mods": {"names": ["own.jar"], "count": 1}
         }));
-        assert_eq!(
-            trust_warning(&carried).as_deref(),
-            Some(
-                "It has 1 mod or plugin: a program that runs on the server. Only use files from people you trust. These are in the file itself, not downloaded from Modrinth: own.jar."
-            )
+        assert!(
+            matches!(&carried[0].1, Alert::Trust { count: 1, carried } if carried.names == ["own.jar"])
         );
-        assert_eq!(trust_warning(&summary(serde_json::json!({}))), None);
+        assert!(alerts(serde_json::json!({})).is_empty());
         // no mods, but protected files of its own: warned too
-        let programs = summary(serde_json::json!({ "needs_global_files": true }));
-        assert_eq!(
-            trust_warning(&programs).as_deref(),
-            Some(t(M::ImageProtectedWarning))
-        );
+        let programs = alerts(serde_json::json!({ "needs_global_files": true }));
+        assert!(programs.contains(&(Level::Warning, Alert::Protected)));
     }
 
     #[test]
@@ -509,21 +958,41 @@ mod tests {
     }
 
     #[test]
-    fn the_game_reads_in_one_line() {
+    fn the_game_and_loader_are_facts() {
         crate::i18n::force(crate::i18n::Locale::En);
-        let fabric = summary(serde_json::json!({
+        let notes = |json| {
+            summary_lines(
+                &summary(json),
+                Picked {
+                    own_file: true,
+                    ..Default::default()
+                },
+            )
+            .notes
+        };
+        let fabric = notes(serde_json::json!({
             "minecraft": "1.21.1", "loader": "fabric", "loader_version": "0.16.10",
-            "server": "Fabric"
+            "server": "Fabric", "files": 3, "total_bytes": 2048
         }));
-        assert_eq!(game_line(&fabric), "Fabric 0.16.10 · Minecraft 1.21.1");
-        let paper = summary(serde_json::json!({
+        assert_eq!(
+            fabric[0],
+            Note::Game {
+                game: "1.21.1".into(),
+                loader: Some(("Fabric".into(), Some("0.16.10".into()))),
+                files: 3,
+                bytes: 2048
+            }
+        );
+        let paper = notes(serde_json::json!({
             "minecraft": "1.21.3", "loader": "vanilla", "flavour": "purpur", "server": "Paper"
         }));
-        assert_eq!(game_line(&paper), "Paper · Minecraft 1.21.3");
-        assert_eq!(
-            not_taken(&[NotTaken::Eula, NotTaken::Unknown, NotTaken::Operators]),
-            "the EULA, the operators"
+        assert!(
+            matches!(&paper[0], Note::Game { loader: Some((name, None)), .. } if name == "Paper")
         );
+        let vanilla = notes(serde_json::json!({
+            "minecraft": "1.21.3", "loader": "vanilla", "server": "Vanilla"
+        }));
+        assert!(matches!(&vanilla[0], Note::Game { loader: None, .. }));
     }
 
     #[test]
@@ -547,28 +1016,33 @@ mod tests {
                 ..Default::default()
             },
         );
-        assert!(lines.notes[0].starts_with("Fabric 0.16.10 · Minecraft 1.21.1 · 3 files"));
-        assert_eq!(lines.notes[1], "Made with Lodestone Launcher 1.4.0");
-        assert!(
-            lines
-                .alerts
-                .contains(&(Level::Error, t(M::ImageNeedsGlobal).to_string()))
+        assert!(matches!(
+            &lines.notes[0],
+            Note::Game {
+                files: 3,
+                bytes: 2048,
+                ..
+            }
+        ));
+        assert_eq!(
+            lines.notes[1],
+            Note::MadeWith {
+                app: Some("Lodestone Launcher"),
+                version: "1.4.0".into()
+            }
         );
-        assert!(
-            lines
-                .alerts
-                .contains(&(Level::Warning, t(M::ImageNoRoom).to_string()))
-        );
+        assert!(lines.alerts.contains(&(Level::Error, Alert::NeedsGlobal)));
+        assert!(lines.alerts.contains(&(Level::Warning, Alert::NoRoom)));
         assert!(
             lines
                 .details
-                .contains(&"Mods only players run, left out: sodium.jar".to_string())
+                .iter()
+                .any(|d| d.plain() == "Mods only players run, left out\nsodium.jar")
         );
-        assert!(
-            lines.details.contains(
-                &"Not taken from the file: a player’s own files, the operators".to_string()
-            )
-        );
+        assert!(lines.details.contains(&Detail::NotTaken(vec![
+            NotTaken::ClientFiles,
+            NotTaken::Operators
+        ])));
         // a smaller world fits, someone who may change global files may create, and kept
         // operators aren't "not taken"
         let lines = summary_lines(
@@ -581,15 +1055,11 @@ mod tests {
             },
         );
         assert!(!lines.alerts.iter().any(|(level, _)| *level == Level::Error));
-        assert!(
-            !lines
-                .alerts
-                .contains(&(Level::Warning, t(M::ImageNoRoom).to_string()))
-        );
+        assert!(!lines.alerts.contains(&(Level::Warning, Alert::NoRoom)));
         assert!(
             lines
                 .details
-                .contains(&"Not taken from the file: a player’s own files".to_string())
+                .contains(&Detail::NotTaken(vec![NotTaken::ClientFiles]))
         );
         // the person's own game: no maker, no warning to trust the sender
         let own = summary_lines(
@@ -616,13 +1086,24 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(
-            outcome_lines(&outcome),
+            outcome_counts(&outcome),
             [
-                "1 file couldn’t be downloaded and was left out: mods/a.jar",
-                "70 files can’t be downloaded by Lodestone servers and were left out: mods/cf.jar, mods/cf2.jar, …",
+                "1 file couldn’t be downloaded and was left out",
+                "70 files can’t be downloaded by Lodestone servers and were left out",
                 "2 scripts were left out: only the owner can add scripts, while code execution is on.",
             ]
         );
-        assert!(outcome_lines(&CreationOutcome::default()).is_empty());
+        assert!(outcome_counts(&CreationOutcome::default()).is_empty());
+    }
+
+    #[test]
+    fn an_unnamed_backups_time_leaves_the_name() {
+        assert_eq!(without_stamp("Survival – 2026-11-12 14:10 UTC"), "Survival");
+        assert_eq!(without_stamp("Survival – 2026-11-12 14.10 UTC"), "Survival");
+        assert_eq!(without_stamp("Before – the update"), "Before – the update");
+        assert_eq!(
+            without_stamp("– 2026-11-12 14:10 UTC"),
+            "– 2026-11-12 14:10 UTC"
+        );
     }
 }

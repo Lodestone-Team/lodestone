@@ -5,13 +5,17 @@
 
 use super::{LauncherShell, Modal};
 use crate::theme::px;
-use crate::{components::segmented, theme::colors};
+use crate::{
+    components::segmented,
+    theme::{Tone, colors},
+};
 use crate::{
     components::{
-        Button, ButtonSize, ButtonVariant, Dialog, Icon, Toggle,
+        Button, ButtonSize, ButtonVariant, Dialog, Fact, FactLine, FactValue, Icon, ItemIcon, Kind,
+        NameGroup, NameItem, NameList, Num, StatusBadge, Toggle, ValueField,
         settings::{SearchRow, SettingRow, SettingsQuery},
     },
-    i18n::{CommonMsg, ShellMsg as M, ShellPlural as P, format, t, tr, trn},
+    i18n::{CommonMsg, ShellMsg as M, format, t, tr},
     theme::{self, fonts, leading, radius, text, weights},
 };
 use gpui::ClipboardItem;
@@ -226,10 +230,13 @@ fn command_line(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> Vec<S
     };
     let root = shell.accounts.read(cx).data_dir().root().to_path_buf();
     let path_text: SharedString = socket.display().to_string().into();
-    let socket_hint: SharedString = if cli.enabled {
-        path_text.clone()
-    } else {
-        format!("{} · {}", t(M::SocketClosed), path_text).into()
+    // the socket's state as a badge, its path in a field to copy and reveal
+    let closed = (!cli.enabled).then(|| StatusBadge::new(t(M::SocketClosed), Tone::Neutral));
+    let socket_field = {
+        let socket = socket.clone();
+        ValueField::new("cli-socket", path_text.clone())
+            .label(t(M::SocketPath))
+            .on_reveal(move |_, cx| cx.reveal_path(&socket))
     };
     vec![
         SettingRow::new(t(M::AllowCli))
@@ -268,24 +275,22 @@ fn command_line(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> Vec<S
                 Toggle::new("cli-game-logs", cli.game_logs)
                     .on_change(set(|cli, on| cli.game_logs = on)),
             ),
-        SettingRow::new(t(M::SocketPath)).hint(socket_hint).child(
-            div()
-                .flex()
-                .flex_row()
-                .gap_2()
-                .child(
-                    Button::new("cli-copy-socket", t(M::CopyPath))
-                        .size(ButtonSize::Slim)
-                        .on_click(move |_, _, cx| {
-                            cx.write_to_clipboard(ClipboardItem::new_string(path_text.to_string()))
-                        }),
-                )
-                .child(
-                    Button::new("cli-open-data", t(M::OpenDataFolder))
-                        .size(ButtonSize::Slim)
-                        .on_click(move |_, _, cx| cx.open_with_system(&root)),
-                ),
-        ),
+        SettingRow::new(t(M::SocketPath))
+            .search_text(path_text.clone())
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .children(closed)
+                    .child(
+                        Button::new("cli-open-data", t(M::OpenDataFolder))
+                            .size(ButtonSize::Slim)
+                            .on_click(move |_, _, cx| cx.open_with_system(&root)),
+                    ),
+            )
+            .below(socket_field),
     ]
 }
 
@@ -308,27 +313,40 @@ fn clients(query: &SettingsQuery, cx: &mut Context<LauncherShell>) -> Option<gpu
                     .clone()
                     .unwrap_or_else(|| t(M::UnnamedClient).to_string())
                     .into();
+                // its process number (exact), when it connected and its subscriptions,
+                // each with its key
                 let mut facts = Vec::new();
                 if let Some(pid) = client.pid {
-                    facts.push(tr!(M::ClientPid, pid = pid));
+                    facts.push(Fact::new(t(M::ClientPid), FactValue::mono(pid.to_string())));
                 }
-                facts.push(tr!(
-                    M::ClientSince,
-                    time = format::day_and_time(chrono::DateTime::from(client.since), today)
+                facts.push(Fact::new(
+                    t(M::ClientSince),
+                    FactValue::time(format::day_and_time(
+                        chrono::DateTime::from(client.since),
+                        today,
+                    )),
                 ));
                 if client.subscriptions > 0 {
-                    facts.push(trn!(P::Subscriptions, client.subscriptions));
+                    facts.push(Fact::new(
+                        t(M::ClientSubscriptions),
+                        Num::count(client.subscriptions as u64),
+                    ));
                 }
                 let connection = client.connection;
-                SettingRow::new(name).hint(facts.join(" · ")).child(
-                    Button::new(
-                        SharedString::from(format!("cli-disconnect-{connection}")),
-                        t(M::Disconnect),
+                SettingRow::new(name)
+                    .below(
+                        FactLine::row(SharedString::from(format!("cli-client-{connection}")))
+                            .facts(facts),
                     )
-                    .size(ButtonSize::Slim)
-                    .variant(ButtonVariant::Danger)
-                    .on_click(move |_, _, cx| crate::control::disconnect(connection, cx)),
-                )
+                    .child(
+                        Button::new(
+                            SharedString::from(format!("cli-disconnect-{connection}")),
+                            t(M::Disconnect),
+                        )
+                        .size(ButtonSize::Slim)
+                        .variant(ButtonVariant::Danger)
+                        .on_click(move |_, _, cx| crate::control::disconnect(connection, cx)),
+                    )
             })
             .collect()
     };
@@ -470,10 +488,15 @@ impl LauncherShell {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let entity = cx.entity();
-        let accounts = match usernames {
-            [one] => tr!(M::OneLauncherAccount, name = one),
-            many => trn!(P::LauncherAccounts, many.len(), names = format::list(many)),
-        };
+        // the accounts concerned as a counted list, out of the paragraph
+        let accounts =
+            NameList::new("launcher-identity-accounts")
+                .collapsed_after(5)
+                .group(
+                    NameGroup::new(t(M::SignedInAsLauncher)).items(usernames.iter().map(|name| {
+                        NameItem::new(name.clone()).icon(ItemIcon::Kind(Kind::Friend))
+                    })),
+                );
         Dialog::new(
             "disable-launcher-identity",
             t(M::TurnOffLauncherTitle),
@@ -486,9 +509,9 @@ impl LauncherShell {
                 .flex_col()
                 .gap_2()
                 .child(paragraph(t(M::TurnOffLauncherBody)))
+                .child(accounts)
                 .child(paragraph(tr!(
                     M::TurnOffLauncherAccounts,
-                    accounts = accounts,
                     keychain = t(CommonMsg::Keychain),
                 ))),
         )

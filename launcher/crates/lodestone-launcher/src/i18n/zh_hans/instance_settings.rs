@@ -112,16 +112,16 @@ pub fn text(message: M) -> &'static str {
         M::ViewOnModrinth => "在 Modrinth 上查看",
         M::DownloadingNewVersion => "正在下载新版本…",
         M::CheckingModrinth => "正在检查 Modrinth…",
-        M::UpdateTo => "更新到 {version}…",
+        M::UpdateModpack => "更新…",
         M::UpToDate => "已是最新",
         M::CheckForUpdates => "检查更新",
         M::ModrinthUnreachable => "无法连接到 Modrinth。",
         M::StopGameFirst => "请先停止游戏，或等待更新完成。",
         M::CouldntPrepareUpdate => "无法准备更新：{error}",
 
-        M::LinkedServerHint => "位于 {core}。“开始游戏”会加入它并同步模组。",
+        M::LinkedServerHint => "“开始游戏”会加入它并同步其模组。",
         M::LinkedServerCoreRemoved => {
-            "位于 {core}，该主机已从“Lodestone Host”页面移除。请在那里重新添加该主机以加入服务器。"
+            "它的主机已从“Lodestone Host”页面中移除。请在那里重新添加该主机以加入服务器。"
         }
         M::CoreRemoved => "主机已移除",
         M::Unlink => "取消关联",
@@ -132,10 +132,11 @@ pub fn text(message: M) -> &'static str {
         M::JavaMemoryLead => "内存的默认值在“设置 › 实例默认设置”中设定。",
         M::Memory => "内存",
         M::Checking => "正在检查…",
-        M::JavaFound => "Java {major}（版本 {version}）",
-        M::JavaTooOld => {
-            "Java {major}（版本 {version}）。Minecraft {game} 需要 Java {needed} 或更高版本。"
-        }
+        M::JavaTooOldBadge => "版本过旧",
+        M::JavaFitsBadge => "可用",
+        M::JavaFoundKey => "检测到",
+        M::JavaVersion => "Java {version}",
+        M::JavaOrNewer => "Java {major} 或更新版本",
         M::MojangJavaVersion => "Mojang 提供的 Java {major}",
         M::MojangJava => "Mojang 提供的 Java",
         M::AzulZulu8 => "适用于 Apple 芯片的 Azul Zulu 8",
@@ -322,6 +323,8 @@ pub fn text(message: M) -> &'static str {
         M::MakeMain => "设为主实例",
         M::StopGameToChange => "请先停止游戏再更改：游戏退出时会重写 options.txt。",
         M::NotShared => "未共享（启动器设置）",
+        M::SharedKey => "共享",
+        M::OverriddenKey => "已覆盖",
         M::ShareAll => "全部共享",
         M::OverrideAll => "全部覆盖",
         M::Show => "显示",
@@ -459,8 +462,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
         }
         P::ShareToggledCount => ["启用或禁用 {count} 项"; 2],
         P::CodePackChanges => ["+ {count} 项更改"; 2],
-        P::SharedCount => ["{count} 项共享"; 2],
-        P::OverriddenCount => ["{count} 项覆盖"; 2],
         P::AndMore => ["{names}及另外 {count} 项"; 2],
         P::ChangedInGame => {
             ["你在游戏中更改的 {count} 项设置（{names}）将在下次启动时被共享值替换。"; 2]

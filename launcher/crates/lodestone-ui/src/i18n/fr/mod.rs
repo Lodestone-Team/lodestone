@@ -43,5 +43,7 @@
 //! narrow no-break space (U+202F) before ; ! ?. Product names stay in English.
 
 pub mod common;
+pub mod facts;
 pub mod format;
 pub mod sharing;
+pub mod values;

@@ -77,7 +77,7 @@ fn server_json(core: &CoreEntry, server: &ServerInstance, servers: &Servers) -> 
         "has_client_pack": server.has_client_pack,
         "listed": server.listed,
         "linked_instance": servers.linked_instance(&core.saved.uuid, &server.uuid),
-        "busy": servers.busy.get(&row).map(|b| b.label()),
+        "busy": servers.busy.get(&row).map(|b| b.caption()),
     });
     for (key, field) in magic_fields(servers.magic_address(core, server)) {
         value[key] = field;
@@ -178,8 +178,7 @@ pub fn cores_list(call: Call, cx: &mut App) -> Reply {
             json!({
                 "cores": servers.cores.iter().map(|c| core_json(c, servers, true)).collect::<Vec<_>>(),
                 "notice": servers.notice.as_ref().map(|notice| {
-                    let (title, message) = notice.text();
-                    json!({ "title": title, "message": message })
+                    json!({ "title": notice.plain_title(), "message": notice.plain_message() })
                 }),
             })
         }))
@@ -461,10 +460,9 @@ pub fn cores_sign_out(call: Call, cx: &mut App) -> Reply {
 /// The page's notice, to tell a new one from the old, with its error code.
 fn notice_of(servers: &Servers) -> Option<(SharedString, SharedString, &'static str)> {
     servers.notice.as_ref().map(|notice| {
-        let (title, message) = notice.text();
         (
-            title.into(),
-            message.into(),
+            notice.plain_title().into(),
+            notice.plain_message().into(),
             notice.code.unwrap_or(codes::FAILED),
         )
     })
@@ -839,8 +837,7 @@ pub fn create_instance(call: Call, cx: &mut App) -> Reply {
                 "instance": outcome,
                 "summary": summary,
                 "notice": servers.notice.as_ref().map(|notice| {
-                    let (title, message) = notice.text();
-                    json!({ "title": title, "message": message })
+                    json!({ "title": notice.plain_title(), "message": notice.plain_message() })
                 }),
             })
         }))

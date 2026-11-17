@@ -14,6 +14,7 @@ use gpui::{AppContext as _, Context, EventEmitter, Task};
 use launcher_core::cores::CoreClient;
 
 use crate::core_process::{self, CoreConfig, CoreProcess};
+use crate::i18n::{FactMsg, ShellMsg, t};
 
 /// How long a core may take to answer after it starts.
 const READY_TIMEOUT: Duration = Duration::from_secs(90);
@@ -40,6 +41,9 @@ pub enum CoreStatus {
     /// Gave up: why, and the end of the core's log.
     Failed {
         reason: String,
+        /// The exit code or the error, with its key ("Exit code"), apart from the
+        /// sentence.
+        detail: Option<(&'static str, String)>,
         log: Vec<String>,
     },
     /// Stopping, because the Host is quitting.
@@ -93,7 +97,11 @@ impl Supervisor {
                 let config = match cx.background_spawn(async { prepare() }).await {
                     Ok(config) => config,
                     Err(reason) => {
-                        this.update(cx, |this, cx| this.fail(reason, cx)).ok();
+                        let detail = Some((t(FactMsg::Reason), reason));
+                        this.update(cx, |this, cx| {
+                            this.fail(t(ShellMsg::CoreFailed).to_string(), detail, cx)
+                        })
+                        .ok();
                         return;
                     }
                 };
@@ -104,8 +112,11 @@ impl Supervisor {
                 let process = match CoreProcess::spawn(&config) {
                     Ok(process) => process,
                     Err(err) => {
-                        let reason = format!("Lodestone Core couldn't start: {err}");
-                        this.update(cx, |this, cx| this.fail(reason, cx)).ok();
+                        let detail = Some((t(FactMsg::Reason), err.to_string()));
+                        this.update(cx, |this, cx| {
+                            this.fail(t(ShellMsg::CoreFailed).to_string(), detail, cx)
+                        })
+                        .ok();
                         return;
                     }
                 };
@@ -183,9 +194,18 @@ impl Supervisor {
                     })
                     .await;
                 }
-                let reason = match status {
-                    Some(status) => format!("Lodestone Core stopped ({status})."),
-                    None => "Lodestone Core didn't answer in time.".to_string(),
+                // what happened, and the exit code apart from it
+                let (reason, detail) = match status {
+                    Some(status) => (
+                        t(ShellMsg::CoreStopped).to_string(),
+                        Some((
+                            t(FactMsg::ExitCode),
+                            status
+                                .code()
+                                .map_or_else(|| status.to_string(), |code| code.to_string()),
+                        )),
+                    ),
+                    None => (t(ShellMsg::CoreNoAnswer).to_string(), None),
                 };
                 if !ready || answered.elapsed() < QUICK_EXIT {
                     quick_exits += 1;
@@ -193,7 +213,8 @@ impl Supervisor {
                     quick_exits = 0;
                 }
                 if quick_exits >= MAX_QUICK_EXITS {
-                    this.update(cx, |this, cx| this.fail(reason, cx)).ok();
+                    this.update(cx, |this, cx| this.fail(reason, detail, cx))
+                        .ok();
                     return;
                 }
                 let attempt = quick_exits;
@@ -212,9 +233,21 @@ impl Supervisor {
         }));
     }
 
-    fn fail(&mut self, reason: String, cx: &mut Context<Self>) {
+    fn fail(
+        &mut self,
+        reason: String,
+        detail: Option<(&'static str, String)>,
+        cx: &mut Context<Self>,
+    ) {
         let log = core_process::log_tail(&self.log_file, 12);
-        self.set_status(CoreStatus::Failed { reason, log }, cx);
+        self.set_status(
+            CoreStatus::Failed {
+                reason,
+                detail,
+                log,
+            },
+            cx,
+        );
     }
 
     fn set_status(&mut self, status: CoreStatus, cx: &mut Context<Self>) {

@@ -567,15 +567,8 @@ impl ServerDetail {
                 this.linking = false;
                 match result {
                     Ok(link) => {
-                        this.link_notice = Some((
-                            false,
-                            tr!(
-                                M::LinkedTo,
-                                account = link.minecraft_name,
-                                user = this.user_label()
-                            )
-                            .into(),
-                        ));
+                        let _ = link;
+                        this.link_notice = Some((false, t(M::LinkedTo).into()));
                         this.load_links(cx);
                     }
                     Err(message) => this.link_notice = Some((true, message.into())),

@@ -283,8 +283,9 @@ pub struct FriendList {
     pub presence: HashMap<(String, String), bool>,
     pub refreshing: bool,
     pub refreshed_at: Option<Instant>,
-    /// What couldn't be checked last time.
-    pub problem: Option<String>,
+    /// What couldn't be checked last time: the friend's name (none for a problem not
+    /// about one friend) and why, in English from the service.
+    pub problems: Vec<(Option<String>, String)>,
     /// Friends whose servers are shown.
     pub expanded: HashSet<String>,
     pub servers: HashMap<(String, String), CoreServers>,
@@ -317,7 +318,7 @@ impl FriendList {
             presence: HashMap::new(),
             refreshing: false,
             refreshed_at: None,
-            problem: None,
+            problems: Vec::new(),
             expanded: HashSet::new(),
             servers: HashMap::new(),
             servers_at: HashMap::new(),
@@ -346,7 +347,7 @@ impl FriendList {
         self.ignored.clear();
         self.presence.clear();
         self.refreshed_at = None;
-        self.problem = None;
+        self.problems.clear();
         self.expanded.clear();
         self.servers.clear();
         self.servers_at.clear();
@@ -893,8 +894,8 @@ impl Servers {
                         this.reload_shown_friend_servers(cx);
                     }
                     // no list yet is how everyone starts, not a failure
-                    Err(err) if err == NO_LIST => this.friend_list.problem = None,
-                    Err(err) => this.friend_list.problem = Some(err.clone()),
+                    Err(err) if err == NO_LIST => this.friend_list.problems.clear(),
+                    Err(err) => this.friend_list.problems = vec![(None, err.clone())],
                 }
                 this.request_friend_heads(cx);
                 cx.notify();
@@ -930,20 +931,24 @@ impl Servers {
         {
             list.made = None;
         }
-        let mut problems: Vec<String> = report.problems.clone();
+        let mut problems: Vec<(Option<String>, String)> = report
+            .problems
+            .iter()
+            .map(|why| (None, why.clone()))
+            .collect();
         problems.extend(report.refreshed.problems.iter().map(|(key, why)| {
             if key.is_empty() {
                 // not about one friend
-                return why.clone();
+                return (None, why.clone());
             }
             let name = list
                 .snapshot
                 .book
                 .friend(key)
                 .map_or_else(|| short(key).to_string(), |f| f.display_name().to_string());
-            format!("{name}: {why}")
+            (Some(name), why.clone())
         }));
-        list.problem = (!problems.is_empty()).then(|| problems.join("; "));
+        list.problems = problems;
         for fingerprint in &report.refreshed.dropped_cores {
             self.clear_friend_core_trust(fingerprint);
             self.friend_list

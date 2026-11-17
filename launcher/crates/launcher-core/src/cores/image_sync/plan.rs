@@ -125,16 +125,10 @@ pub fn check_game(instance: &Instance, view: &Image) -> Result<(), SyncError> {
         return Ok(());
     }
     Err(SyncError::GameChanged {
-        game: format!(
-            "Minecraft {} with {}",
-            view.game.minecraft,
-            loader_label(loader.as_ref())
-        ),
-        instance: format!(
-            "Minecraft {} with {}",
-            instance.game_version,
-            instance.loader_label()
-        ),
+        server_game: view.game.minecraft.clone(),
+        server_loader: loader_label(loader.as_ref()),
+        instance_game: instance.game_version.clone(),
+        instance_loader: instance.loader_label(),
     })
 }
 

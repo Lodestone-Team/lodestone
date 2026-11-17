@@ -34,8 +34,7 @@ pub fn text(message: M) -> &'static str {
         M::ImportInstances => "匯入實例…",
         M::Servers => "Lodestone Host",
         M::Friends => "好友",
-        M::AppVersion => "Lodestone Launcher v{version}",
-        M::PlayedInTotal => "{when} · 共 {time}",
+        M::AppName => "Lodestone Launcher",
         M::ImportProgress => "{percent} · {label}",
         M::GroupModded => "{loader}（模組）",
         M::Vanilla => "原版",
@@ -44,20 +43,13 @@ pub fn text(message: M) -> &'static str {
 
         M::NoInstanceSelected => "未選取實例",
         M::NoInstanceSelectedHint => "在側邊欄中選擇一個實例即可開始。",
-        M::MinecraftVersion => "Minecraft {version}",
-        M::MinecraftWith => "Minecraft {version}，{loader}",
-        M::HeroPlayed => "{game}。已遊玩 {time}。",
-        M::HeroNotPlayed => "{game}。按下「開始遊戲」即可下載並啟動遊戲。",
+        M::HeroNotPlayed => "按下「開始遊戲」即可下載並啟動遊戲。",
         M::CreateFirstInstance => "建立你的第一個實例",
         M::InstanceExplainer => "實例是一個 Minecraft 版本，擁有自己的模組、世界和設定。",
         M::ContentPlaceholder => "有了實例後，內容會顯示在這裡。",
         M::WorldsPlaceholder => "有了實例後，世界會顯示在這裡。",
         M::SettingsPlaceholder => "有了實例後，設定會顯示在這裡。",
         M::LogsPlaceholder => "有了實例後，日誌會顯示在這裡。",
-        M::LinkedTo => "已連結到 {core} 上的 {server}",
-        M::LinkedToRemoved => {
-            "已連結到 {core} 上的 {server}（該主機已從「Lodestone Host」頁面移除）"
-        }
         M::RunsUnderRosetta => {
             "透過 Rosetta 2 執行：Mojang 沒有為這個版本需要的部分程式庫製作 Apple 晶片版本。啟動較慢，之後可以正常遊玩。"
         }
@@ -74,10 +66,12 @@ pub fn text(message: M) -> &'static str {
         M::ServerStopped => "已停止",
         M::ServerUnreachable => "無法連線",
         M::ServerChecking => "正在檢查…",
+        M::HostRemoved => "主機已移除",
         M::PlayNamed => "啟動「{name}」",
 
         M::DeleteNamed => "刪除「{name}」？",
-        M::DeleteWorldBody => "世界的資料夾會移到{trash}，你可以從那裡還原。它的世界備份會保留。",
+        M::DeleteInstanceTitle => "刪除實例？",
+        M::DeleteWorldBody => "這個世界的資料夾會移到{trash}，你可以從那裡還原。它的備份會保留。",
         M::DeleteInstanceBody => {
             "這個實例的資料夾（包括其中的世界、模組和設定）會移到{trash}。你可以從那裡還原。它的快照和世界備份會一直保留，直到你在「設定 › 儲存空間」中移除；還原實例時它們也會一起回來。"
         }
@@ -85,16 +79,15 @@ pub fn text(message: M) -> &'static str {
         M::ReplaceWorldBody => {
             "{name} 將回到 {when} 時的狀態。會先為實例現在的樣子拍攝快照，並保留 30 天。"
         }
-        M::BackUpAndReplace => "拍攝快照並還原",
-        M::RemoveAccountTitle => "移除「{name}」？",
+        M::BackUpAndReplace => "備份並取代",
+        M::RemoveAccountTitle => "移除帳號？",
         M::RemoveAccountBody => {
             "Lodestone Launcher 會忘記這個帳號，並從你的{keychain}中刪除它儲存的登入資訊。之後你可以再次新增。"
         }
         M::RemoveAccount => "移除帳號",
         M::MinecraftCrashed => "Minecraft 已當機：{description}。",
-        M::MinecraftExitCode => "Minecraft 已停止，結束代碼為 {code}。",
         M::MinecraftStopped => "Minecraft 意外停止。",
-        M::CrashTitle => "「{name}」已當機",
+        M::CrashTitle => "遊戲已當機",
         M::LikelyCause => "可能的原因",
         M::OpenCrashReport => "開啟當機報告",
         M::CauseWrongJava => {
@@ -129,22 +122,20 @@ pub fn text(message: M) -> &'static str {
         }
         M::CopyLog => "複製日誌",
 
-        M::UpdateTitle => "更新「{name}」？",
-        M::ModpackSummary => "{pack} {from} → {to}。Minecraft {game}，{loader}。需下載 {size}。",
+        M::UpdateInstanceTitle => "更新實例？",
         M::NoFilesChange => "沒有檔案變更，只會記錄新版本。",
-        M::UpdatedFiles => "已更新（{count}）",
-        M::AddedFiles => "已新增（{count}）",
-        M::RemovedFiles => "已移除（{count}）",
-        M::ReplacedOwnFiles => "原本屬於你、現由模組包提供的檔案（{count}）",
-        M::KeptFiles => "保留你的變更（{count}）",
-        M::WrittenFiles => "寫入的設定檔和其他檔案（{count}）",
+        M::UpdatedFiles => "已更新",
+        M::AddedFiles => "已新增",
+        M::RemovedFiles => "已移除",
+        M::ReplacedOwnFiles => "原本屬於你、現由模組包提供的檔案",
+        M::KeptFiles => "保留你的變更",
+        M::WrittenFiles => "寫入的設定檔和其他檔案",
         M::ModpackUpdateSafety => {
             "你自己的模組、世界和修改過的設定不會被更動。會先為實例拍攝快照，被取代或刪除的每個檔案都會保存在實例資料夾的 backups/ 中。"
         }
 
         M::SaveChangesTitle => "要儲存變更嗎？",
         M::UnsavedDefaultsBody => "你變更了實例預設設定。要儲存還是捨棄？",
-        M::UnsavedInstanceBody => "你變更了「{name}」的設定。要儲存還是捨棄？",
         M::UnsavedThisInstanceBody => "你變更了這個實例的設定。要儲存還是捨棄？",
         M::UnsavedInDefaults => "實例預設設定中有尚未儲存的變更",
 
@@ -195,16 +186,14 @@ pub fn text(message: M) -> &'static str {
         M::SyncFrom => "主實例",
         M::SyncFromHint => "它的遊戲內變更會在其他實例啟動時複製過去。",
         M::SyncFromNoneHint => "共用設定只在這裡變更。",
-        M::MainOfferTitle => "將「{name}」設為主實例？",
+        M::MainOfferTitle => "設為主實例？",
+        M::MainSwitchTitle => "更換主實例？",
         M::MainOfferBody => {
             "共用遊戲設定讓你的操作、視訊、音效等選項在每個實例中保持一致。你在主實例遊戲中變更的設定，會在其他實例啟動時複製過去。"
         }
         M::MainChangeLater => "之後可以在「設定 › 共用遊戲設定」中變更。",
         M::MakeItMain => "設為主實例",
-        M::MainSwitchBody => {
-            "「{current}」目前是你的主實例。它在遊戲中的變更將不再更新共用設定，改由「{name}」更新。"
-        }
-        M::MakeNameMain => "將「{name}」設為主實例",
+        M::MainSwitchBody => "它在遊戲中的變更將更新你的共用設定，原主實例的變更將不再更新它們。",
         M::FirstTimeSetupSection => "首次設定",
         M::ResetFirstTimeSetup => "重設首次設定",
         M::ResetFirstTimeSetupHint => {
@@ -253,7 +242,6 @@ pub fn text(message: M) -> &'static str {
         M::Offline => "離線",
         M::AddMicrosoftAccount => "新增 Microsoft 帳號",
         M::AddOfflineAccount => "新增離線帳號",
-        M::RemoveNamed => "移除「{name}」",
         M::OfflineNote => "離線 – 僅限單人遊戲和離線模式伺服器",
         M::ChangePlayerSkin => "更換外觀…",
         M::PlayerSkinDialogTitle => "{name} 的外觀",
@@ -322,9 +310,9 @@ pub fn text(message: M) -> &'static str {
         M::TurnItOn => "我了解，開啟",
         M::TurnOffLauncherTitle => "關閉以 Minecraft Launcher 身分登入？",
         M::TurnOffLauncherBody => "新的 Microsoft 登入會重新使用 Lodestone 自己的應用程式。",
-        M::OneLauncherAccount => "「{name}」正以 Minecraft Launcher 身分登入。",
+        M::SignedInAsLauncher => "以 Minecraft Launcher 身分登入",
         M::TurnOffLauncherAccounts => {
-            "{accounts}保留的帳號會繼續可用，直到 Microsoft 封鎖這種做法。登出會將它們從 Lodestone Launcher 移除，並從你的{keychain}中刪除它們儲存的登入資訊。"
+            "保留的帳號會繼續可用，直到 Microsoft 封鎖這種做法。登出會將它們從 Lodestone Launcher 移除，並從你的{keychain}中刪除它們儲存的登入資訊。"
         }
         M::TurnOffAndSignOut => "關閉並登出",
         M::TurnOffOnly => "只關閉",
@@ -379,8 +367,9 @@ pub fn text(message: M) -> &'static str {
         M::ConnectedClients => "已連線的程式",
         M::NoClients => "沒有已連線的程式。",
         M::UnnamedClient => "未命名的程式",
-        M::ClientSince => "連線於 {time}",
-        M::ClientPid => "處理程序 {pid}",
+        M::ClientSince => "連線時間",
+        M::ClientPid => "處理程序",
+        M::ClientSubscriptions => "訂閱",
         M::Disconnect => "中斷連線",
         M::DiagnosticsSection => "診斷",
         M::PerfMonitor => "效能監視器",
@@ -436,10 +425,10 @@ pub fn text(message: M) -> &'static str {
         M::FinishInBrowser => "請在開啟的瀏覽器視窗中完成登入，然後回到這裡。",
         M::OpenBrowserAgain => "重新開啟瀏覽器",
         M::GettingCode => "正在取得代碼…",
-        M::GoToHost => "在任何裝置上前往 {host} 並輸入這組代碼：",
+        M::GoToAddress => "在任何裝置上開啟此網址，然後輸入下方的代碼。",
         M::CodeCopiedWaiting => "已複製代碼。正在等待你輸入…",
         M::WaitingForCode => "正在等待你輸入代碼…",
-        M::CopyCodeAndOpen => "複製代碼並開啟 {host}",
+        M::CopyCodeAndOpen => "複製代碼並開啟",
         M::CopySignInCode => "複製代碼",
         M::StopSigningInTitle => "停止登入？",
         M::StopSigningInBody => "Microsoft 仍在等待你複製的代碼。如果現在停止，輸入它將無法登入。",
@@ -542,14 +531,12 @@ pub fn text(message: M) -> &'static str {
         M::BetaBuilds => "測試版組建",
         M::DeveloperBuilds => "開發者組建",
         M::BuildNumber => "組建 {build}",
-        M::BuildNumberCommit => "組建 {build} · {commit}",
         M::DevelopmentBuild => "開發組建",
         M::UpdatesUnavailable => "此組建未在 GitHub 上發布，因此不會自動更新。",
         M::UpdateNotChecked => "每隔幾小時檢查一次 GitHub 上是否有新組建。",
         M::UpdateChecking => "正在檢查新組建…",
         M::UpToDate => "目前已是最新組建。",
         M::UpdateAvailable => "組建 {build} 現已可用。",
-        M::UpdateDownloading => "正在下載組建 {build}… {percent}",
         M::UpdateReady => "組建 {build} 已安裝，重新啟動後即可使用。",
         M::UpdateReadyPlaying => "組建 {build} 已安裝，關閉遊戲後即可重新啟動。",
         M::UpdateFailed => "無法更新：{error}",
@@ -750,7 +737,7 @@ pub fn text(message: M) -> &'static str {
         M::StorageMoveRestartFailed => "資料已移動。請結束啟動器並重新開啟，以使用新資料夾。",
         M::DataFolderMissingTitle => "找不到你的資料夾",
         M::DataFolderMissingBody => {
-            "你的實例和世界在 {path}，但它不存在。如果它在未連接的磁碟上，請連接後重試。預設資料夾是空的，你的資料會留在原處。"
+            "你的實例和世界在這個資料夾中，但它不存在。如果它在未連接的磁碟上，請連接後重試。預設資料夾是空的，你的資料會留在原處。"
         }
         M::DataFolderUseDefault => "使用預設資料夾",
         M::DataFolderQuit => "結束",
@@ -826,8 +813,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::AndMore => ["還有 {count} 個"; 2],
         P::Values => ["{count} 個值"; 2],
         P::CopiedValues => ["已從「{name}」複製 {count} 個值。"; 2],
-        P::LauncherAccounts => ["有 {count} 個帳號正以 Minecraft Launcher 身分登入：{names}。"; 2],
-        P::Subscriptions => ["{count} 個訂閱"; 2],
         P::PerfEntries => ["{count} 個項目"; 2],
         P::StorageSnapshotsHint => {
             ["{count} 個快照和每個實例的內容歷史 · 可刪除 {removable} 個"; 2]

@@ -10,7 +10,7 @@ pub fn text(message: M) -> &'static str {
         M::Change => "Modifier…",
         M::Clear => "Effacer",
         M::SearchSettings => "Rechercher dans les paramètres",
-        M::NoSettingsMatch => "Aucun paramètre ne correspond à «\u{a0}{query}\u{a0}»",
+        M::NoSettingsMatch => "Aucun réglage ne correspond",
         M::ClearSearch => "Effacer la recherche",
         M::Close => "Fermer",
         M::Continue => "Continuer",

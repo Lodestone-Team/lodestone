@@ -14,22 +14,25 @@ use launcher_core::{
     ui_skin::SurfaceId,
 };
 
+use lodestone_ui::values::truncate::sanitize;
+
 use super::{
     Servers,
     extras::note,
+    facts,
     friends::{
         FriendEntry, FriendStatus, JoinPrompt, JoinStage, Liveness, connection_label, game_address,
-        join_error_text, port_taken_text,
+        join_error_text, port_taken_text, port_taken_values,
     },
-    status_label,
-    view::server_detail,
 };
 use crate::{
     components::{
-        Button, ButtonSize, ButtonVariant, Dialog, Icon, LoadingDots,
+        Button, ButtonSize, ButtonVariant, Dialog, Fact, FactLine, FactList, FactValue, Icon, Kind,
+        LoadingDots, ObjectCard, ObjectChip, StatusBadge, UntitledName, ValueField, ValueKind,
         a11y::{Accessible, Role},
     },
-    i18n::{CommonMsg, ServersMsg as M, t, tr},
+    i18n::{CommonMsg, FactMsg, ServersMsg as M, format, t},
+    theme::Tone,
     theme::{self, colors, fonts, leading, radius, text, weights},
 };
 
@@ -40,34 +43,49 @@ fn short_link(link: &str) -> &str {
         .unwrap_or(link)
 }
 
-/// A small Copy button that puts `value` on the clipboard.
-pub(super) fn copy_button(id: impl Into<SharedString>, value: String) -> Button {
-    Button::new(id.into(), t(CommonMsg::Copy))
-        .size(ButtonSize::Slim)
-        .variant(ButtonVariant::Ghost)
-        .icon(Icon::Copy)
-        .on_click(move |_, _, cx| {
-            cx.write_to_clipboard(gpui::ClipboardItem::new_string(value.clone()))
-        })
-}
-
-/// A Magic localhost line: `text`, which names the address and when it works, and a
-/// button (`id`) that copies `address`, for Minecraft's server list.
-/// The text wraps, and the button stays whole, in a narrow window. The button's
-/// accessible name has the address ("Copy 127.0.0.1:25565"): a page of rows, each with
-/// a Copy button, would otherwise read "Copy" over and over.
-pub(super) fn magic_line(id: impl Into<SharedString>, text: String, address: String) -> gpui::Div {
-    let label = tr!(M::CopyMagicAddress, address = address);
+/// A server's Magic localhost: `address` (127.0.0.1:<port>) in a field keyed "Magic
+/// localhost", with its Copy button, and `when` beside it, which says when it works.
+/// `id` names the field; its Copy button takes its name from the key.
+pub(super) fn magic_field(
+    id: impl Into<SharedString>,
+    address: String,
+    when: impl Into<SharedString>,
+) -> gpui::Div {
     div()
         .flex()
         .flex_row()
+        .flex_wrap()
         .items_center()
         .gap_2()
-        .child(note(text).min_w_0().flex_shrink(1.))
+        .pt_1()
         .child(
-            div()
-                .flex_none()
-                .child(copy_button(id, address).accessible_label(label)),
+            div().flex_none().w(px(240.)).child(
+                ValueField::new(id.into(), address)
+                    .label(t(M::MagicLocalhost))
+                    .kind(ValueKind::Code),
+            ),
+        )
+        .child(note(when.into()))
+}
+
+/// [`magic_field`] with when the address works in its tooltip instead of beside it,
+/// for a server row, where it would repeat on every row.
+pub(super) fn magic_field_with_tooltip(
+    id: impl Into<SharedString>,
+    address: String,
+    when: impl Into<SharedString>,
+) -> gpui::Stateful<gpui::Div> {
+    let id = id.into();
+    div()
+        .id(SharedString::from(format!("{id}-when")))
+        .tooltip(crate::components::text_tooltip(when.into()))
+        .flex_none()
+        .w(px(240.))
+        .pt_1()
+        .child(
+            ValueField::new(id, address)
+                .label(t(M::MagicLocalhost))
+                .kind(ValueKind::Code),
         )
 }
 
@@ -79,20 +97,20 @@ fn paragraph(value: impl Into<SharedString>) -> gpui::Div {
         .child(value.into())
 }
 
-/// "Running · 2 / 20 players · over the local network, 12 ms".
-fn online_line(status: &FriendStatus) -> Option<String> {
+/// While a friend's server answers: its players, how this computer reaches it, and
+/// the round trip, for its row's second line.
+fn online_facts(status: &FriendStatus) -> Vec<Fact> {
     let FriendStatus::Online { server, kind, rtt } = status else {
-        return None;
+        return Vec::new();
     };
-    let state = status_label(&launcher_core::cores::connect::server_instance(server));
-    Some(format!(
-        "{state} · {}",
-        tr!(
-            M::ConnectedVia,
-            how = connection_label(*kind),
-            ms = rtt.as_millis().to_string()
-        )
-    ))
+    let server = launcher_core::cores::connect::server_instance(server);
+    facts::server_players(&server)
+        .into_iter()
+        .chain([
+            facts::connection(connection_label(*kind)),
+            facts::ping(rtt.as_millis() as u64),
+        ])
+        .collect()
 }
 
 impl Servers {
@@ -175,32 +193,62 @@ impl Servers {
             .and_then(|s| s.playing.clone());
         let shared = saved.shared();
         let as_server = launcher_core::cores::connect::server_instance(&shared);
-        let (dot, status): (theme::Color, Option<(String, theme::Color)>) = if playing.is_some() {
-            (
-                colors::GREEN_200,
-                Some((t(M::FriendPlayingNow).into(), colors::GREEN_200)),
-            )
+        // the state, as a badge by the name; a server that doesn't answer says why
+        let (dot, badge, problem): (theme::Color, Option<StatusBadge>, Option<String>) =
+            if playing.is_some() {
+                (
+                    colors::GREEN_200,
+                    Some(StatusBadge::new(t(M::FriendPlayingNow), Tone::Success)),
+                    None,
+                )
+            } else {
+                match &entry.status {
+                    FriendStatus::Unknown => (colors::GRAY_500, None, None),
+                    FriendStatus::Checking => (
+                        colors::GRAY_500,
+                        Some(StatusBadge::new(t(M::FriendChecking), Tone::Neutral)),
+                        None,
+                    ),
+                    FriendStatus::Online { server, .. } => (
+                        match Liveness::of_shared(server) {
+                            Liveness::Stopped => colors::GRAY_500,
+                            Liveness::Starting => colors::YELLOW,
+                            _ => colors::GREEN_200,
+                        },
+                        Some(facts::state_badge(
+                            launcher_core::cores::connect::server_instance(server).state,
+                        )),
+                        None,
+                    ),
+                    FriendStatus::Offline(error) => {
+                        (colors::RED_200, None, Some(join_error_text(error).0))
+                    }
+                }
+            };
+        let unanswered = saved.never_answered();
+        let mut line = Vec::new();
+        if unanswered {
+            line.push(Fact::new(
+                t(M::InviteLinkKey),
+                FactValue::mono(short_link(&saved.link).to_string()),
+            ));
         } else {
-            match &entry.status {
-                FriendStatus::Unknown => (colors::GRAY_500, None),
-                FriendStatus::Checking => (
-                    colors::GRAY_500,
-                    Some((t(M::FriendChecking).into(), crate::theme::ink::muted())),
-                ),
-                status @ FriendStatus::Online { server, .. } => (
-                    match Liveness::of_shared(server) {
-                        Liveness::Stopped => colors::GRAY_500,
-                        Liveness::Starting => colors::YELLOW,
-                        _ => colors::GREEN_200,
-                    },
-                    online_line(status).map(|line| (line, crate::theme::ink::secondary())),
-                ),
-                FriendStatus::Offline(error) => (
-                    colors::RED_200,
-                    Some((join_error_text(error).0, colors::YELLOW)),
-                ),
+            line.extend(facts::versions(&as_server));
+            if !here {
+                // under the core that shares it, the core is plain
+                line.push(
+                    Fact::icon(
+                        Icon::Desktop,
+                        t(M::SharedBy),
+                        FactValue::object(sanitize(&saved.core_name, 64)),
+                    )
+                    .priority(3),
+                );
             }
-        };
+            if playing.is_none() {
+                line.extend(online_facts(&entry.status));
+            }
+        }
         let checking = self.friend_checking(&id);
         // known to be stopped or starting: Play couldn't join it
         let blocked = playing.is_none() && self.friend_liveness(&id).blocks_play();
@@ -239,43 +287,43 @@ impl Servers {
                     .min_w_0()
                     .child(
                         div()
-                            .truncate()
-                            .font_weight(weights::BOLD.into())
-                            .text_color(crate::theme::ink::text())
-                            .child(if saved.never_answered() {
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap_2()
+                            .min_w_0()
+                            .child(if unanswered {
                                 // added without joining: its host hasn't answered yet
-                                tr!(M::ServerFromLink, link = short_link(&saved.link))
+                                UntitledName::new(t(M::UnnamedServer)).into_any_element()
                             } else {
-                                saved.name.clone()
-                            }),
+                                div()
+                                    .min_w_0()
+                                    .truncate()
+                                    .font_weight(weights::MEDIUMBOLD.into())
+                                    .text_color(crate::theme::ink::text())
+                                    .child(sanitize(&saved.name, 120))
+                                    .into_any_element()
+                            })
+                            .when(unanswered, |this| {
+                                this.child(StatusBadge::new(t(M::WaitingForReply), Tone::Neutral))
+                            })
+                            .children(badge),
                     )
-                    .child(note(if saved.never_answered() {
-                        t(M::AddedNotAnswered).to_string()
-                    } else if here {
-                        // under the core that shares it
-                        server_detail(&as_server)
-                    } else {
-                        format!(
-                            "{} · {}",
-                            server_detail(&as_server),
-                            tr!(M::SharedBy, name = saved.core_name)
-                        )
-                    }))
+                    .child(FactLine::row(SharedString::from(format!("{row_id}-facts"))).facts(line))
                     .when(not_owner, |this| {
                         this.child(note(t(M::ConnectToJoinDirectly)))
                     })
-                    .children(status.map(|(line, color)| note(line).text_color(color)))
+                    .children(problem.map(|line| note(line).text_color(colors::YELLOW)))
                     // the same every session: for Minecraft's server list. Under a core
                     // on this computer too: a row there is one the core's card doesn't
                     // list, so Play never joins it directly and its tunnel listens here
                     // (`FriendServer::direct_join`; a listed one is the card's own row,
                     // at the server's own port)
                     .children(saved.game_port.map(|port| {
-                        let address = game_address(port);
-                        magic_line(
-                            format!("copy-address-{row_id}"),
-                            tr!(M::FriendAddress, address = address),
-                            address,
+                        magic_field(
+                            format!("magic-localhost-{row_id}"),
+                            game_address(port),
+                            t(M::WhileConnected),
                         )
                     }))
                     .when(saved.is_trusted(), |this| {
@@ -344,32 +392,6 @@ impl Servers {
             )
             .into_any_element()
     }
-}
-
-/// A line with a label and its value, in the server's card.
-fn fact(label: &'static str, value: impl Into<SharedString>) -> gpui::Div {
-    div()
-        .flex()
-        .flex_row()
-        .gap_3()
-        .child(
-            div()
-                .flex_none()
-                .w(px(120.))
-                .text_size(theme::text_size(text::SMALL))
-                .line_height(theme::line_height(text::SMALL, leading::NORMAL))
-                .text_color(crate::theme::ink::muted())
-                .child(label),
-        )
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .text_size(theme::text_size(text::SMALL))
-                .line_height(theme::line_height(text::SMALL, leading::NORMAL))
-                .text_color(crate::theme::ink::text())
-                .child(value.into()),
-        )
 }
 
 /// A warning or error box: a title and what to do.
@@ -497,9 +519,15 @@ pub fn join_dialog(servers: &Entity<Servers>, prompt: &JoinPrompt, cx: &App) -> 
             name,
         } => {
             let heading = match name {
-                Some(name) => tr!(M::ConnectingTo, name = name),
+                Some(_) => t(M::Connecting).to_string(),
                 None => t(M::ConnectingToFriend).to_string(),
             };
+            let card = name.as_ref().map(|name| {
+                ObjectCard::new(sanitize(name, 120))
+                    .kind(Kind::Server)
+                    .compact(true)
+                    .id("join-friend-connecting-server")
+            });
             let detail = match progress.stage() {
                 Stage::Connecting if since.elapsed().as_secs() >= 12 => t(M::StageFindingSlow),
                 Stage::Connecting => t(M::StageFinding),
@@ -514,6 +542,7 @@ pub fn join_dialog(servers: &Entity<Servers>, prompt: &JoinPrompt, cx: &App) -> 
                         .flex_col()
                         .gap_2()
                         .child(working(heading))
+                        .children(card)
                         .child(note(detail)),
                 )
                 .footer(cancel_button(t(CommonMsg::Cancel)))
@@ -539,21 +568,72 @@ pub fn join_dialog(servers: &Entity<Servers>, prompt: &JoinPrompt, cx: &App) -> 
                     .find(|i| i.id == instance_id)
                     .map_or_else(|| instance_id.to_string(), |i| i.name.clone())
             };
+            // the instance Play uses, with a badge for why it fits; or what Play makes
+            let instance_value = |instance_id: &str, badge: M| {
+                let name = sanitize(&instance_name(instance_id), 120);
+                let plain = format::list(&[name.clone(), t(badge).to_string()]);
+                FactValue::element(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .flex_wrap()
+                        .items_center()
+                        .gap_2()
+                        .child(ObjectChip::new(name).kind(Kind::Instance))
+                        .child(StatusBadge::new(t(badge), Tone::Success)),
+                    plain,
+                )
+            };
             let instance_line = match &instance {
                 Some(InstanceMatch::Linked(instance_id)) => {
-                    tr!(M::PlaysWithLinked, name = instance_name(instance_id))
+                    instance_value(instance_id, M::MadeForThisServer)
                 }
                 Some(InstanceMatch::Matching(instance_id)) => {
-                    tr!(M::PlaysWithInstance, name = instance_name(instance_id))
+                    instance_value(instance_id, M::SameVersion)
                 }
-                Some(InstanceMatch::Create) | None => t(if shared.modpack {
+                Some(InstanceMatch::Create) | None => FactValue::text(t(if shared.modpack {
                     M::MakesInstanceWithMods
                 } else {
                     M::MakesInstance
-                })
-                .to_string(),
+                })),
             };
-            let players = super::players_label(server);
+            let mut list = FactList::new("join-friend-facts")
+                .row(
+                    t(FactMsg::Host),
+                    ObjectChip::new(sanitize(&shared.core_name, 64))
+                        .kind(Kind::Computer)
+                        .muted(),
+                )
+                .row(t(FactMsg::Game), facts::game(&server.game_version));
+            if let Some(loader) = facts::loader(server.loader, server.loader_version.as_deref()) {
+                list = list.row(t(FactMsg::Loader), loader);
+            }
+            list = list.row(
+                t(FactMsg::Mods),
+                t(if shared.modpack {
+                    M::FriendHasMods
+                } else {
+                    M::FriendNoMods
+                }),
+            );
+            list = list.row(t(FactMsg::Status), facts::state_badge(server.state));
+            if let Some(players) =
+                facts::players_value(server.state, server.player_count, server.max_player_count)
+                    .filter(|_| !stopped)
+            {
+                list = list.row(t(FactMsg::Players), players);
+            }
+            if session.is_direct() {
+                list = list.row(t(FactMsg::Connection), t(M::DirectConnection));
+            } else {
+                list = list
+                    .row(t(FactMsg::Connection), connection_label(session.kind()))
+                    .row(
+                        t(FactMsg::Ping),
+                        facts::ping_value(session.rtt().as_millis() as u64),
+                    );
+            }
+            list = list.row(t(FactMsg::Instance), instance_line);
             let play = servers.clone();
             let card = div()
                 .flex()
@@ -598,47 +678,13 @@ pub fn join_dialog(servers: &Entity<Servers>, prompt: &JoinPrompt, cx: &App) -> 
                                 .child(server.name.clone()),
                         ),
                 )
-                .child(note(tr!(M::SharedBy, name = shared.core_name)))
                 .child(div().h(px(4.)))
-                .child(fact(t(M::FactVersion), server_detail(server)))
-                .child(fact(
-                    t(M::FactMods),
-                    t(if shared.modpack {
-                        M::FriendHasMods
-                    } else {
-                        M::FriendNoMods
-                    }),
-                ))
-                .child(fact(
-                    t(M::FactStatus),
-                    match players {
-                        Some(players) if !stopped => {
-                            format!("{} · {players}", super::state_label(server.state))
-                        }
-                        _ => status_label(server),
-                    },
-                ))
-                .child(fact(
-                    t(M::FactConnection),
-                    if session.is_direct() {
-                        t(M::DirectConnection).to_string()
-                    } else {
-                        tr!(
-                            M::ConnectedVia,
-                            how = connection_label(session.kind()),
-                            ms = session.rtt().as_millis().to_string()
-                        )
-                    },
-                ))
+                .child(list)
                 .child(
-                    fact(t(M::Address), session.address.clone())
-                        .items_center()
-                        .child(copy_button(
-                            "join-friend-copy-address",
-                            session.address.clone(),
-                        )),
-                )
-                .child(fact(t(M::FactInstance), instance_line));
+                    ValueField::new("join-friend-address", session.address.clone())
+                        .label(t(FactMsg::Address))
+                        .kind(ValueKind::Code),
+                );
             dialog
                 .child(
                     div()
@@ -647,8 +693,27 @@ pub fn join_dialog(servers: &Entity<Servers>, prompt: &JoinPrompt, cx: &App) -> 
                         .gap_3()
                         .child(card)
                         .children(session.port_taken.map(|saved| {
-                            let (title, body) = port_taken_text(saved, &session.address);
-                            problem(title, body, colors::YELLOW)
+                            let (title, body) = port_taken_text();
+                            div()
+                                .flex()
+                                .flex_col()
+                                .gap_1()
+                                .child(problem(title, body, colors::YELLOW))
+                                .children(
+                                    port_taken_values(saved, &session.address)
+                                        .into_iter()
+                                        .enumerate()
+                                        .map(|(i, (key, value))| {
+                                            div().pt_1().child(
+                                                crate::components::ValueField::new(
+                                                    ("join-port-taken", i),
+                                                    value,
+                                                )
+                                                .label(key)
+                                                .kind(crate::components::ValueKind::Code),
+                                            )
+                                        }),
+                                )
                         }))
                         .when(stopped, |this| {
                             let (title, body) = if liveness == Liveness::Starting {

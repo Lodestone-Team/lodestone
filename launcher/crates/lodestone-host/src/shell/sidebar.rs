@@ -2,7 +2,9 @@
 //! button and tabs, every instance with its live state, "New server", and the footer
 //! with the connection, the signed-in user and the settings.
 
-use gpui::{AnyElement, Context, IntoElement, ParentElement, Styled, div, prelude::*};
+use gpui::{
+    AnyElement, Context, IntoElement, ParentElement, SharedString, Styled, div, prelude::*,
+};
 use launcher_core::cores::admin::{
     FullCoreInfo, InstanceInfo, InstanceState, PublicUser,
     instances::Power,
@@ -18,7 +20,7 @@ use lodestone_ui::{
 
 use super::HostShell;
 use crate::{
-    i18n::{ShellMsg, t, tr},
+    i18n::{FactMsg, ShellMsg, t, tr},
     routes::{InstanceTab, ModSupport, Route, TabContext, mod_support},
     state::{Connection, Creating, HostState},
 };
@@ -32,6 +34,22 @@ pub fn state_color(state: InstanceState) -> Color {
         // also the colour of its name on the state pill, so it is readable there
         InstanceState::Stopped | InstanceState::Unknown => ink::muted(),
     }
+}
+
+/// An instance's state as a status badge's tone.
+pub fn state_tone(state: InstanceState) -> lodestone_ui::theme::Tone {
+    use lodestone_ui::theme::Tone;
+    match state {
+        InstanceState::Running => Tone::Success,
+        InstanceState::Starting | InstanceState::Stopping => Tone::Warning,
+        InstanceState::Error => Tone::Danger,
+        InstanceState::Stopped | InstanceState::Unknown => Tone::Neutral,
+    }
+}
+
+/// An instance's state as a status badge.
+pub fn state_badge(state: InstanceState) -> lodestone_ui::components::StatusBadge {
+    lodestone_ui::components::StatusBadge::new(state_name(state), state_tone(state))
 }
 
 pub fn state_name(state: InstanceState) -> &'static str {
@@ -285,16 +303,27 @@ pub fn render(shell: &HostShell, cx: &mut Context<HostShell>) -> impl IntoElemen
                             .flex()
                             .items_center()
                             .gap(px(8.))
-                            .child(lodestone_ui::components::LoadingDots)
                             .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .truncate()
-                                    .child(tr!(ShellMsg::SettingUp, name = creating.name)),
+                                lodestone_ui::components::readable::object_name(
+                                    creating.name.clone(),
+                                )
+                                .flex_1(),
                             )
+                            .child(lodestone_ui::components::StatusBadge::new(
+                                t(ShellMsg::SettingUp),
+                                lodestone_ui::theme::Tone::Info,
+                            ))
                             .when_some(percent, |this, percent| {
-                                this.child(lodestone_ui::i18n::format::percent(percent.into()))
+                                this.child(
+                                    div()
+                                        .flex_none()
+                                        .w(px(36.))
+                                        .flex()
+                                        .justify_end()
+                                        .font_features(lodestone_ui::theme::fonts::tabular())
+                                        .text_color(ink::secondary())
+                                        .child(lodestone_ui::i18n::format::percent(percent.into())),
+                                )
                             }),
                     )
                     .child(
@@ -376,13 +405,29 @@ pub fn render(shell: &HostShell, cx: &mut Context<HostShell>) -> impl IntoElemen
                 .border_t_1()
                 .border_color(ink::border())
                 .child(connection_row(state, core_name))
+                // the account signed in: a key, then its name
                 .child(
                     div()
                         .px(px(8.))
+                        .flex()
+                        .flex_row()
+                        .items_baseline()
+                        .gap(px(6.))
                         .text_size(text::SMALL)
-                        .text_color(ink::muted())
-                        .truncate()
-                        .child(tr!(ShellMsg::SignedInAs, name = username)),
+                        .child(
+                            div()
+                                .flex_none()
+                                .text_color(ink::faint())
+                                .child(t(ShellMsg::SignedInAs)),
+                        )
+                        .child(
+                            div()
+                                .min_w_0()
+                                .truncate()
+                                .font_weight(weights::MEDIUMBOLD.face())
+                                .text_color(ink::text())
+                                .child(lodestone_ui::values::truncate::sanitize(&username, 64)),
+                        ),
                 )
                 .child(
                     ListRow::new("settings", t(ShellMsg::Settings))
@@ -410,27 +455,34 @@ fn connection_row(state: &Snapshot, core_name: String) -> AnyElement {
         Connection::SignedOut => (colors::RED, t(ShellMsg::SignedOut)),
     };
     let info = &state.info;
-    let mut lines = vec![match connection {
-        Connection::Reconnecting(reason) | Connection::Degraded(reason) => {
-            format!("{label}: {reason}")
-        }
-        _ => label.to_string(),
-    }];
-    lines.push(tr!(ShellMsg::CoreAddress, address = state.address.clone()));
-    lines.push(tr!(ShellMsg::CoreVersion, version = info.version.clone()));
-    if !info.host_name.is_empty() {
-        lines.push(tr!(ShellMsg::CoreHost, host = info.host_name.clone()));
+    // the state (and why, when it isn't connected), then the core's facts, each keyed
+    let mut rows: Vec<(Option<SharedString>, SharedString)> = vec![(None, label.into())];
+    if let Connection::Reconnecting(reason) | Connection::Degraded(reason) = connection {
+        rows.push((Some(t(FactMsg::Reason).into()), reason.clone().into()));
     }
-    lines.push(tr!(
-        ShellMsg::CoreSystem,
-        system = system_name(&info.os, &info.arch)
+    rows.push((
+        Some(t(FactMsg::Address).into()),
+        state.address.clone().into(),
+    ));
+    rows.push((
+        Some(t(FactMsg::Version).into()),
+        info.version.clone().into(),
+    ));
+    if !info.host_name.is_empty() {
+        rows.push((
+            Some(t(ShellMsg::CoreComputer).into()),
+            info.host_name.clone().into(),
+        ));
+    }
+    rows.push((
+        Some(t(ShellMsg::CoreSystem).into()),
+        system_name(&info.os, &info.arch).into(),
     ));
     let now = chrono::Utc::now().timestamp();
     if info.up_since > 0 && now > info.up_since {
         let uptime = lodestone_ui::i18n::format::play_time((now - info.up_since) as u64);
-        lines.push(tr!(ShellMsg::CoreUptime, uptime = uptime));
+        rows.push((Some(t(FactMsg::Uptime).into()), uptime.into()));
     }
-    let detail = lines.join("\n");
     div()
         .id("connection")
         .flex()
@@ -442,7 +494,7 @@ fn connection_row(state: &Snapshot, core_name: String) -> AnyElement {
         .text_color(ink::text())
         .child(dot(color))
         .child(div().flex_1().min_w_0().truncate().child(core_name))
-        .tooltip(text_tooltip(detail))
+        .tooltip(lodestone_ui::components::FactTooltip::builder(rows))
         .into_any_element()
 }
 
@@ -622,15 +674,27 @@ fn selected_card(
         let address = instance_address(state.settings.as_ref(), instance.port);
         address_chip(&address, cx).into_any_element()
     };
-    // always shown, as the dashboard's: "/20 Online" while the count is unknown
-    let players = {
-        let count = |n: Option<u32>| n.map(|n| n.to_string()).unwrap_or_default();
-        tr!(
-            ShellMsg::PlayersOnline,
-            online = count(instance.player_count),
-            max = count(instance.max_player_count)
+    // always shown: "Players 3 / 20", a dash while the count is unknown
+    let players = div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap(px(6.))
+        .child(
+            div()
+                .font_weight(weights::MEDIUM.face())
+                .opacity(0.8)
+                .child(t(crate::i18n::FactMsg::Players)),
         )
-    };
+        .child(match (instance.player_count, instance.max_player_count) {
+            (Some(n), Some(max)) => lodestone_ui::components::Num::fraction(n.into(), max.into())
+                .inherit_color()
+                .into_any_element(),
+            (Some(n), None) => lodestone_ui::components::Num::count(n.into())
+                .inherit_color()
+                .into_any_element(),
+            _ => div().child("–").into_any_element(),
+        });
     let players = {
         let (bg, fg) = pill_colors(instance.state);
         div()
@@ -645,7 +709,7 @@ fn selected_card(
             .text_size(text::SMALL)
             .font_weight(weights::BOLD.face())
             .text_color(fg)
-            .child(div().truncate().child(players))
+            .child(players)
     };
 
     let tab_cx = TabContext {
@@ -767,12 +831,7 @@ fn address_chip(address: &str, cx: &mut Context<HostShell>) -> impl IntoElement 
         .tooltip(text_tooltip(t(crate::i18n::InstancesMsg::CopyAddress)))
         .on_click(cx.listener(move |this, _, _, cx| {
             cx.write_to_clipboard(gpui::ClipboardItem::new_string(text.clone()));
-            let message = crate::instance_icons::copied(&text);
-            this.state.update(cx, |state, cx| {
-                state.toast(
-                    lodestone_ui::components::Toast::success(message).key("copied"),
-                    cx,
-                )
-            });
+            let toast = crate::instance_icons::copied(&text);
+            this.state.update(cx, |state, cx| state.toast(toast, cx));
         }))
 }

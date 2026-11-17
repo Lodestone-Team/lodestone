@@ -659,7 +659,13 @@ impl InstanceSettingsPage {
                 match result {
                     Ok(ResourcePackHash { sha1, size }) => {
                         form.sha1.update(cx, |input, cx| input.set_text(sha1, cx));
-                        form.hash_note = Some(tr!(M::PackDownloaded, size = format::bytes(size)));
+                        form.hash_note = Some(
+                            lodestone_ui::components::readable::key_value(
+                                t(M::PackDownloaded),
+                                &format::bytes(size),
+                            )
+                            .to_string(),
+                        );
                     }
                     Err(err) => this.show_error(err.to_string(), cx),
                 }
@@ -1225,7 +1231,7 @@ impl InstanceSettingsPage {
         let close = std::rc::Rc::new(close);
         Dialog::new(
             "delete-instance-dialog",
-            tr!(M::DeleteTitle, name = prompt.name),
+            t(M::DeleteTitle),
             prompt.focus.clone(),
         )
         .on_close({
@@ -1240,6 +1246,13 @@ impl InstanceSettingsPage {
                     leading::NORMAL,
                 ))
                 .text_color(ink::secondary())
+                // the server it deletes, named once
+                .child(
+                    div().pb(px(12.)).child(
+                        lodestone_ui::components::ObjectCard::new(prompt.name.clone())
+                            .kind(lodestone_ui::components::Kind::Server),
+                    ),
+                )
                 .child(
                     div()
                         .font_weight(weights::BOLD.face())

@@ -55,16 +55,13 @@ crate::i18n::messages! {
         FilesFindClose = "Close find",
         FilesUpload = "Upload",
         FilesZippingForDownload = "Zipping the folder for download…",
-        FilesDownloadFailed = "Failed to download {name}: {error}",
+        FilesDownloadFailed = "Couldn’t download it: {error}",
         /// A toast with a button that shows the file in its folder.
-        FilesDownloaded = "Downloaded {name}",
+        FilesDownloaded = "Downloaded",
         FilesShowInFolder = "Show in folder",
         FilesOnlyFilesUnzip = "Only files can be unzipped",
         FilesOnlyFilesUpload = "Only files can be uploaded",
         FilesDeleteMessage = "Are you sure you want to delete the following?",
-        /// After a folder's name in the list of what is deleted.
-        FilesDeleteDirectory = "(folder)",
-        FilesDeleteUnknownType = "(unknown type)",
         /// A screen reader label for the placeholder shown while a file loads.
         FilesLoadingFile = "Loading file",
         FilesEditorTitle = "File editor",
@@ -74,13 +71,12 @@ crate::i18n::messages! {
         FilesUnknownTime = "Unknown time",
         FilesCut = "Cut",
         FilesPaste = "Paste",
-        FilesPasteInto = "Paste into {name}",
+        FilesPasteInto = "Paste into this folder",
         FilesZip = "Zip",
-        FilesZipTo = "Zip to {archive}",
-        FilesZipFile = "Zip {name} to {archive}",
+        FilesZipTo = "Zip",
         FilesUnzipHere = "Unzip here",
         FilesUnzipHereSmart = "Unzip here (smart)",
-        FilesUnzipTo = "Unzip to {name}",
+        FilesUnzipTo = "Unzip to a folder",
         FilesUnsupportedZip = "Unsupported archive type",
         FilesNewFolder = "New folder",
         FilesNewFile = "New file",
@@ -94,16 +90,16 @@ crate::i18n::messages! {
         FilesNameRequired = "Enter a name.",
         /// The New file or New folder dialog, when the folder already has something by that name.
         FilesNameTaken = "A file or folder named {name} already exists here.",
-        FilesDeletedFile = "Deleted file: {name}",
-        FilesDeletedFolder = "Deleted folder: {path}",
-        FilesMoveFailed = "Failed to move {name}: {error}",
+        FilesDeletedFile = "Deleted",
+        FilesDeletedFolder = "Folder deleted",
+        FilesMoveFailed = "Couldn’t move it: {error}",
         FilesZipFailed = "Failed to start zipping: {error}",
-        FilesUnzipFailed = "Failed to unzip {name}: {error}",
-        FilesUnzipping = "Unzipping {name}…",
-        FilesSaveFailed = "Failed to save {name}: {error}",
+        FilesUnzipFailed = "Couldn’t unzip it: {error}",
+        FilesUnzipping = "Unzipping…",
+        FilesSaveFailed = "Couldn’t save it: {error}",
         /// The unsaved-changes dialog, before another file or folder opens.
-        FilesSaveChanges = "Save your changes to {name}?",
-        FilesTooLarge = "This file is too large to open here (over {size}). Download it instead.",
+        FilesSaveChanges = "Save your changes to this file?",
+        FilesTooLarge = "Download it instead.",
         /// Next to the file's name when the user may not change files.
         FilesReadOnly = "Read only",
         /// A checkbox under the editor: long lines wrap instead of scrolling sideways (⌥Z / Alt+Z).
@@ -113,6 +109,13 @@ crate::i18n::messages! {
         /// The file list's name for screen readers.
         FilesList = "Files",
         FilesResize = "Resize the file list",
+        FilesTooLargeTitle = "Too large to open here",
+        /// A key: the size of the file picked.
+        FilesThisFile = "This file",
+        /// A key: the largest file the editor opens.
+        FilesLimit = "Limit",
+        /// Over the names of what is deleted.
+        FilesDeleteHeading = "To delete",
     }
 
     pub enum ConsoleFilesPlural {
@@ -120,7 +123,7 @@ crate::i18n::messages! {
         FilesDeleteTitle = ("Delete {count} file", "Delete {count} files"),
         FilesSelected = ("{count} item selected", "{count} items selected"),
         FilesInClipboard = ("{count} item in clipboard", "{count} items in clipboard"),
-        FilesZipFiles = ("Zip {count} file to {archive}", "Zip {count} files to {archive}"),
+        FilesZipFiles = ("Zip {count} file", "Zip {count} files"),
         FilesCopiedToClipboard = ("{count} item copied to clipboard", "{count} items copied to clipboard"),
         FilesCutToClipboard = ("{count} item cut to clipboard", "{count} items cut to clipboard"),
         FilesUploading = ("Uploading {count} file", "Uploading {count} files"),
