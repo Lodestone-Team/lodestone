@@ -48,8 +48,9 @@ use crate::components::{
 };
 use crate::{
     components::{
-        Button, ButtonSize, ButtonVariant, Dropdown, Icon, IconButton, ListRow, LoadingDots,
-        TextInput, Toggle, segmented,
+        Button, ButtonSize, ButtonVariant, DiffValue, Dropdown, Fact, FactLine, FactValue, Icon,
+        IconButton, ListRow, LoadingDots, StatusBadge, TextInput, Toggle, VersionTag, VersionTone,
+        segmented,
         settings::{
             FindSetting, SearchRow, SectionNav, SettingRow, SettingsQuery, SettingsSearch,
             SettingsSearchChanged, Toast, content_width, left_overlay, link, muted_link, nav_width,
@@ -58,11 +59,11 @@ use crate::{
     },
     file_dialog,
     i18n::{
-        CommonMsg, InstanceSettingsMsg as M, InstanceSettingsPlural as P, ShellMsg, Text, format,
-        t, tr, trn,
+        CommonMsg, FactMsg, InstanceSettingsMsg as M, InstanceSettingsPlural as P, ShellMsg, Text,
+        format, t, tr, trn,
     },
     servers::Servers,
-    theme::{self, colors, leading, radius, text, weights},
+    theme::{self, Tone, colors, leading, radius, text, weights},
 };
 
 /// Below this window width the list of sections opens from a button instead of
@@ -1884,11 +1885,9 @@ impl InstanceSettings {
             Some(server) => tr!(M::FromServerMods, server = server),
             None => t(M::FromMrpack).to_string(),
         };
-        let version = if record.version_number.is_empty() {
-            String::new()
-        } else {
-            format!(" {}", record.version_number)
-        };
+        // the version as a tag beside the pack's name, never joined to it
+        let version = (!record.version_number.is_empty())
+            .then(|| VersionTag::new(record.version_number.clone()));
         let page = (!record.slug.is_empty())
             .then(|| format!("https://modrinth.com/modpack/{}", record.slug));
         let working = |label: String| {
@@ -1912,32 +1911,64 @@ impl InstanceSettings {
                 .into_any_element()
         };
         let update: Option<AnyElement> = if let Some((label, snapshot)) = update_job {
-            let percent = if snapshot.bytes_total > 0 {
+            // the step, then the percent in a fixed tabular cell
+            let percent = (snapshot.bytes_total > 0).then(|| {
                 let done =
                     (snapshot.bytes_done as f64 * 100.0 / snapshot.bytes_total as f64).round();
-                format!(" · {}", format::percent(done as u64))
-            } else {
-                String::new()
-            };
-            Some(working(format!("{label}{percent}")))
+                div()
+                    .flex_none()
+                    .min_w(px(40.))
+                    .text_size(theme::text_size(text::SMALL))
+                    .font_features(lodestone_ui::theme::fonts::tabular())
+                    .text_color(crate::theme::ink::secondary())
+                    .flex()
+                    .justify_end()
+                    .child(format::percent(done as u64))
+            });
+            Some(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .child(working(label))
+                    .children(percent)
+                    .into_any_element(),
+            )
         } else if self.preparing_update {
             Some(working(t(M::DownloadingNewVersion).into()))
         } else {
             match (&self.modpack_versions, candidate) {
                 (Load::Loading, _) => Some(working(t(M::CheckingModrinth).into())),
                 (Load::Failed(err), _) => Some(status_text(err.clone(), colors::RED_200)),
+                // the change beside a button that says only Update
                 (Load::Ready(_), Some(newer)) => Some(
-                    Button::new(
-                        "update-modpack",
-                        tr!(M::UpdateTo, version = newer.version_number),
-                    )
-                    .variant(ButtonVariant::Primary)
-                    .size(ButtonSize::Slim)
-                    .disabled(busy)
-                    .on_click(
-                        cx.listener(move |this, _, _, cx| this.prepare_update(newer.clone(), cx)),
-                    )
-                    .into_any_element(),
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_2()
+                        .child(if record.version_number.is_empty() {
+                            VersionTag::new(newer.version_number.clone())
+                                .tone(VersionTone::To)
+                                .into_any_element()
+                        } else {
+                            DiffValue::versions(
+                                record.version_number.clone(),
+                                newer.version_number.clone(),
+                            )
+                            .into_any_element()
+                        })
+                        .child(
+                            Button::new("update-modpack", t(M::UpdateModpack))
+                                .variant(ButtonVariant::Primary)
+                                .size(ButtonSize::Slim)
+                                .disabled(busy)
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.prepare_update(newer.clone(), cx)
+                                })),
+                        )
+                        .into_any_element(),
                 ),
                 (Load::Ready(_), None) => {
                     Some(status_text(t(M::UpToDate).into(), colors::GREEN_300))
@@ -1953,8 +1984,9 @@ impl InstanceSettings {
             }
         };
         let mut rows = vec![
-            SettingRow::new(format!("{}{version}", record.title))
+            SettingRow::new(record.title.clone())
                 .hint(origin)
+                .when_some(version, |row, version| row.child(version))
                 .when_some(page, |row, page| {
                     row.child(
                         link("modpack-page", t(M::ViewOnModrinth))
@@ -1987,15 +2019,14 @@ impl InstanceSettings {
         let mut rows = Vec::new();
         for (index, pack) in self.added.packs.iter().enumerate() {
             let record = &pack.record;
-            let title = if record.version_number.is_empty() {
-                record.title.clone()
-            } else {
-                format!("{} {}", record.title, record.version_number)
-            };
-            // keyed by the pack: two packs may have the same title
-            let mut row = SettingRow::new(title)
+            // keyed by the pack: two packs may have the same title; the version is a
+            // tag beside its name
+            let mut row = SettingRow::new(record.title.clone())
                 .key(SharedString::from(format!("added-modpack-{}", pack.id)))
-                .hint(trn!(P::AddedModpackFiles, record.files.len()));
+                .hint(trn!(P::AddedModpackFiles, record.files.len()))
+                .when(!record.version_number.is_empty(), |row| {
+                    row.child(VersionTag::new(record.version_number.clone()))
+                });
             let pack_id = pack.id.clone();
             row = if self.confirm_remove_added.as_deref() == Some(pack.id.as_str()) {
                 row.child(
@@ -2055,12 +2086,26 @@ impl InstanceSettings {
     /// The Linked server section, for an instance made for a server on a core.
     fn server_section(&self, query: &SettingsQuery, cx: &mut Context<Self>) -> Option<AnyElement> {
         let link = self.servers.read(cx).instance_link(&self.instance_id)?;
-        let hint = if link.core_known {
-            tr!(M::LinkedServerHint, core = link.core_name)
+        let hint = t(if link.core_known {
+            M::LinkedServerHint
         } else {
-            tr!(M::LinkedServerCoreRemoved, core = link.core_name)
-        };
-        let mut row = SettingRow::new(link.server_name.clone()).hint(hint);
+            M::LinkedServerCoreRemoved
+        });
+        // the host it is on, keyed Host, under the server's name
+        let host = crate::components::FactLine::row("linked-server-host").fact(
+            crate::components::Fact::new(
+                t(crate::i18n::FactMsg::Host),
+                crate::components::ObjectChip::new(lodestone_ui::values::truncate::sanitize(
+                    &link.core_name,
+                    64,
+                ))
+                .kind(crate::components::Kind::Computer)
+                .muted(),
+            ),
+        );
+        let mut row = SettingRow::new(link.server_name.clone())
+            .hint(hint)
+            .below(host);
         if !link.core_known {
             row = row.child(tag(t(M::CoreRemoved), colors::YELLOW));
         }
@@ -2499,28 +2544,57 @@ impl Render for InstanceSettings {
                             .map(|w| (w.into(), colors::YELLOW))),
                 )
             });
-        let java_note: Option<(SharedString, theme::Color)> = match &self.java_check {
-            JavaCheck::None => None,
-            JavaCheck::Checking => Some((t(M::Checking).into(), crate::theme::ink::muted())),
-            JavaCheck::Found(info) => match required_java {
-                Some(needed) if info.major < needed => Some((
-                    tr!(
-                        M::JavaTooOld,
-                        major = info.major,
-                        version = info.version,
-                        game = self.game_version,
-                        needed = needed
+        // a checked Java: whether it fits as a badge, then the Java found and the one
+        // the game needs as keyed facts, side by side
+        let (java_note, java_found): (Option<(SharedString, theme::Color)>, Option<AnyElement>) =
+            match &self.java_check {
+                JavaCheck::None => (None, None),
+                JavaCheck::Checking => (
+                    Some((t(M::Checking).into(), crate::theme::ink::muted())),
+                    None,
+                ),
+                JavaCheck::Found(info) => {
+                    let too_old = required_java.filter(|needed| info.major < *needed);
+                    let badge = match too_old {
+                        Some(_) => StatusBadge::new(t(M::JavaTooOldBadge), Tone::Warning)
+                            .icon(Icon::TriangleExclamation),
+                        None => StatusBadge::new(t(M::JavaFitsBadge), Tone::Success),
+                    };
+                    let mut facts = vec![Fact::new(
+                        t(M::JavaFoundKey),
+                        FactValue::text(tr!(M::JavaVersion, version = info.version)),
+                    )];
+                    if let Some(needed) = too_old {
+                        facts.push(Fact::new(
+                            t(FactMsg::Needed),
+                            FactValue::text(tr!(M::JavaOrNewer, major = needed)),
+                        ));
+                        facts.push(Fact::new(
+                            t(FactMsg::Game),
+                            crate::instances::facts::game(&self.game_version),
+                        ));
+                    }
+                    (
+                        None,
+                        Some(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .gap_2()
+                                .child(badge)
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .child(FactLine::row("java-check").facts(facts)),
+                                )
+                                .into_any_element(),
+                        ),
                     )
-                    .into(),
-                    colors::YELLOW,
-                )),
-                _ => Some((
-                    tr!(M::JavaFound, major = info.major, version = info.version).into(),
-                    colors::GREEN_300,
-                )),
-            },
-            JavaCheck::Failed(err) => Some((err.clone(), colors::RED_200)),
-        };
+                }
+                JavaCheck::Failed(err) => (Some((err.clone(), colors::RED_200)), None),
+            };
         // The Java that runs without an override. On Apple silicon it may not be the one
         // the version names: Zulu 8, Mojang's Java 17 for 1.17, or an Intel Java.
         let default_java = match default_java {
@@ -2557,6 +2631,7 @@ impl Render for InstanceSettings {
                         ),
                 )
                 .note_opt(java_note)
+                .when_some(java_found, |row, found| row.below(found))
             });
         push_section(
             &mut sections,

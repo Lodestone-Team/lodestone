@@ -12,9 +12,13 @@ use launcher_core::cores::admin::instances::{
     ServerSoftware, SetupManifest,
 };
 use lodestone_ui::{
-    components::{Button, ButtonVariant, TextInput, Toast, segmented},
+    components::{
+        Button, ButtonVariant, DiffValue, FactList, FactValue, Num, ProductPhrase, TextInput,
+        Toast, segmented,
+    },
     file_dialog::{Pick, ShowsError},
     theme::{colors, ink, px, text, weights},
+    values::Product,
 };
 
 use super::{
@@ -25,7 +29,7 @@ use super::{
     wizard,
 };
 use crate::{
-    i18n::{CommonMsg, InstancesMsg as M, InstancesPlural as P, t, tr, trn},
+    i18n::{CommonMsg, FactMsg, InstancesMsg as M, t, tr},
     state::HostState,
 };
 
@@ -214,7 +218,10 @@ impl ImportFlow {
                 this.reading = false;
                 match result {
                     Ok(info) => this.open_settings(info, cx),
-                    Err(err) => this.read_error = Some(tr!(M::ImportReadFailed, error = err)),
+                    Err(err) => {
+                        log::warn!("reading a server folder to import failed: {err}");
+                        this.read_error = Some(tr!(M::ImportReadFailed, error = err));
+                    }
                 }
                 cx.notify();
             })
@@ -426,28 +433,29 @@ fn note(text_: impl Into<SharedString>) -> AnyElement {
         .into_any_element()
 }
 
-/// What was found, in a line: "Paper 1.20.1 · 3,412 files · 1.2 GB".
-pub fn found_line(info: &ServerFolderInfo) -> String {
-    let software = match (&info.other_software, info.flavour) {
-        (Some(other), _) => Some(other.clone()),
-        (None, Some(software)) if software != ServerSoftware::Unknown => {
-            Some(software.title().to_string())
+/// What was found, one fact a row: the software (from what it ran to what Lodestone
+/// runs it with, when they differ), the game, and the folder's files and size.
+pub fn found_facts(info: &ServerFolderInfo) -> FactList {
+    let known = info.flavour.filter(|s| *s != ServerSoftware::Unknown);
+    let mut facts = FactList::new("import-found");
+    let software: Option<FactValue> = match (&info.other_software, known) {
+        (Some(other), Some(software)) => {
+            Some(DiffValue::text(other.clone(), software.title()).into())
         }
-        _ => None,
-    };
-    let what = match (software, &info.version) {
-        (Some(software), Some(version)) => Some(format!("{software} {version}")),
-        (Some(software), None) => Some(software),
-        (None, Some(version)) => Some(format!("Minecraft {version}")),
+        (Some(other), None) => Some(other.clone().into()),
+        (None, Some(software)) => Some(software.title().into()),
         (None, None) => None,
     };
-    what.into_iter()
-        .chain([
-            trn!(P::ImportFiles, info.file_count as usize),
-            launcher_core::import::copy::format_size(info.size_bytes),
-        ])
-        .collect::<Vec<_>>()
-        .join(" · ")
+    if let Some(software) = software {
+        facts = facts.row(t(FactMsg::Software), software);
+    }
+    if let Some(version) = &info.version {
+        let game = ProductPhrase::new(Product::Minecraft, version.clone());
+        facts = facts.row(game.key(), game);
+    }
+    facts
+        .row(t(FactMsg::Files), Num::count(info.file_count))
+        .row(t(FactMsg::Size), Num::bytes(info.size_bytes))
 }
 
 impl ImportFlow {
@@ -497,16 +505,12 @@ impl ImportFlow {
                 error(key),
             )
         };
-        let mut notes = vec![note(found_line(info))];
+        let mut notes = vec![found_facts(info).into_any_element()];
         match (&info.other_software, info.flavour) {
-            (Some(other), Some(software)) if software != ServerSoftware::Unknown => {
-                notes.push(note(tr!(
-                    M::ImportOtherSoftware,
-                    other = other,
-                    software = software.title()
-                )))
+            (Some(_), Some(software)) if software != ServerSoftware::Unknown => {
+                notes.push(note(t(M::ImportOtherSoftware)))
             }
-            (Some(other), _) => notes.push(note(tr!(M::ImportNotOffered, other = other))),
+            (Some(_), _) => notes.push(note(t(M::ImportNotOffered))),
             (None, None) => notes.push(note(t(M::ImportSoftwareUnknown))),
             _ => {}
         }

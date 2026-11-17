@@ -35,6 +35,8 @@ launcher-core.workspace = true
 # The introduction service's address, for the friend list (`friends.rs`).
 lodestone_connect.workspace = true
 lodestone-ui.workspace = true
+# The log file (`launcher_core::logging`), on the facade the launcher already uses.
+log.workspace = true
 # The console's regex search.
 regex.workspace = true
 serde.workspace = true

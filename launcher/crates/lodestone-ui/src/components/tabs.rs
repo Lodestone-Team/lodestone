@@ -19,6 +19,7 @@ type SelectHandler = Box<dyn Fn(&usize, &mut Window, &mut App) + 'static>;
 pub struct Tabs {
     id: ElementId,
     labels: Vec<SharedString>,
+    counts: Vec<Option<u64>>,
     selected: usize,
     on_select: Option<SelectHandler>,
 }
@@ -31,9 +32,17 @@ impl Tabs {
         Self {
             id: id.into(),
             labels: labels.into_iter().map(Into::into).collect(),
+            counts: Vec::new(),
             selected: 0,
             on_select: None,
         }
+    }
+
+    /// A count after each tab's label (`None` for none), as a badge: blue on the
+    /// chosen tab.
+    pub fn counts(mut self, counts: impl IntoIterator<Item = Option<u64>>) -> Self {
+        self.counts = counts.into_iter().collect();
+        self
     }
 
     pub fn selected(mut self, index: usize) -> Self {
@@ -93,6 +102,7 @@ impl RenderOnce for Tabs {
         let (next, prev) = (arrow(true), arrow(false));
         let tab_count = self.labels.len();
         let tabs_id = self.id.clone();
+        let counts = self.counts;
         div()
             .id(self.id.clone())
             .role(Role::TabList)
@@ -162,7 +172,21 @@ impl RenderOnce for Tabs {
                     .when_some(on_select, |this, on_select| {
                         this.on_press(move |_, window, cx| on_select(&index, window, cx))
                     })
-                    .child(label)
+                    .when_some(counts.get(index).copied().flatten(), |this, count| {
+                        this.flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(crate::theme::px(6.))
+                            .child(label.clone())
+                            .child(
+                                super::CountBadge::new(count)
+                                    .active(selected)
+                                    .id(("tab-count", index)),
+                            )
+                    })
+                    .when(counts.get(index).copied().flatten().is_none(), |this| {
+                        this.child(label)
+                    })
             }))
     }
 }

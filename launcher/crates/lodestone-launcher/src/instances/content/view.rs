@@ -32,27 +32,17 @@ use crate::components::{
     KeyboardFocus,
     a11y::{Accessible, Role, Toggled},
 };
-use crate::i18n::{CommonMsg, ContentMsg as M, ContentPlural as P, format, t, tr, trn};
+use crate::i18n::{CommonMsg, ContentMsg as M, ContentPlural as P, FactMsg, format, t, tr, trn};
 use crate::{
     components::{
-        Button, ButtonSize, ButtonVariant, Dropdown, Icon, IconButton, ListRow, LoadingDots,
-        RichText, ScrollSource as _, Scrollbar, Toggle,
+        Button, ButtonSize, ButtonVariant, CaptionLine, CountBadge, DiffValue, Dropdown, Fact,
+        FactLine, Icon, IconButton, Kind, KindIcon, ListRow, LoadingDots, Num, PathText, RichText,
+        ScrollSource as _, Scrollbar, Toggle, VersionTag, VersionTone,
         focus::Dismiss,
         settings::{popover_panel, select_button},
     },
     theme::{self, colors, fonts, leading, radius, text, weights},
 };
-
-/// A count of downloads, follows or followers: the plural `exact` for a small count,
-/// else `shortened` with the count shortened ("1.2k downloads").
-pub(crate) fn counted(value: u64, exact: P, shortened: M) -> String {
-    let short = format::compact(value);
-    if short == format::number(value) {
-        trn!(exact, value)
-    } else {
-        tr!(shortened, count = short)
-    }
-}
 
 /// A content kind's name, as the section switch shows it.
 fn kind_name(kind: ContentKind) -> &'static str {
@@ -553,15 +543,6 @@ pub(crate) fn version_label(kind: ModrinthVersionType) -> (&'static str, theme::
     }
 }
 
-/// "1.20.1, 1.20" with at most three versions.
-pub(crate) fn short_list(values: &[String], max: usize) -> String {
-    let mut shown: Vec<&str> = values.iter().take(max).map(String::as_str).collect();
-    if values.len() > max {
-        shown.push("…");
-    }
-    format::list(&shown)
-}
-
 impl ContentView {
     fn kind_label(&self, kind: ContentKind) -> SharedString {
         match self.section(kind).listing.ready() {
@@ -575,18 +556,26 @@ impl ContentView {
         }
     }
 
-    pub(crate) fn target_label(&self, kind: ContentKind, cx: &gpui::App) -> String {
+    /// What the results must suit: "Minecraft 1.20.1" and the loader ("Fabric",
+    /// "Vanilla") or shader mod ("Iris"), each a phrase of its own.
+    pub(crate) fn target_parts(&self, kind: ContentKind, cx: &gpui::App) -> Vec<String> {
         let Some((_, _, target)) = self.context(cx) else {
-            return String::new();
+            return Vec::new();
         };
+        let game = lodestone_ui::values::phrase(
+            lodestone_ui::values::Product::Minecraft,
+            &target.game_version,
+        );
         match kind {
-            ContentKind::Mod => format!("{} / {}", target.game_version, loader_name(target.loader)),
-            ContentKind::ResourcePack => target.game_version.clone(),
-            ContentKind::ShaderPack => format!(
-                "{} / {}",
-                target.game_version,
-                self.shaders.loader.map_or("Iris", ShaderLoader::label)
-            ),
+            ContentKind::Mod => vec![game, loader_name(target.loader).to_string()],
+            ContentKind::ResourcePack => vec![game],
+            ContentKind::ShaderPack => vec![
+                game,
+                self.shaders
+                    .loader
+                    .map_or("Iris", ShaderLoader::label)
+                    .to_string(),
+            ],
         }
     }
 
@@ -932,12 +921,28 @@ impl ContentView {
         let curseforge_on = self.curseforge(cx).is_some();
         let confirming = self.confirm_delete.as_ref() == Some(&(kind, name.clone()));
         let title = item.display_name();
-        let version = item.display_version();
-        let detail = if item.file.is_dir {
-            tr!(M::ItemFolder, name = name)
-        } else {
-            format!("{name} · {}", format::bytes(item.file.size))
-        };
+        // the version as a tag after the name (formatting codes left out)
+        let version = item
+            .display_version()
+            .map(|version| mc_text::strip(&version))
+            .filter(|version| !version.trim().is_empty());
+        let current_version = version.clone();
+        // the file (or folder) name, cut in the middle to keep its extension, then
+        // the size; a folder says what it is with an icon before the title
+        let mut facts = vec![
+            Fact::bare_named(
+                t(FactMsg::File),
+                PathText::file(name.clone())
+                    .size(text::VERSION)
+                    .color(crate::theme::ink::faint()),
+            )
+            .shrink()
+            .priority(9),
+        ];
+        if !item.file.is_dir {
+            facts.push(Fact::bare_named(t(FactMsg::Size), Num::bytes(item.file.size)).priority(0));
+        }
+        let detail = format::list(&facts.iter().map(Fact::label).collect::<Vec<_>>());
         // The "Older version" or "Newer version" tag says the rest.
         let warning = item.file.meta.problem.clone();
         // Whether the row can open a page: in the panel, or the browser.
@@ -1004,6 +1009,9 @@ impl ContentView {
                                     .items_center()
                                     .gap_2()
                                     .min_w_0()
+                                    .when(item.file.is_dir, |this| {
+                                        this.child(KindIcon::new(Kind::Folder).small())
+                                    })
                                     .child(
                                         div()
                                             .truncate()
@@ -1019,9 +1027,7 @@ impl ContentView {
                                     )
                                     .when_some(version, |this, version| {
                                         this.child(
-                                            small_rich(RichText::minecraft(version))
-                                                .flex_none()
-                                                .text_color(crate::theme::ink::muted()),
+                                            div().flex_none().child(VersionTag::new(version)),
                                         )
                                     })
                                     .when(
@@ -1061,11 +1067,7 @@ impl ContentView {
                                         ))
                                     }),
                             )
-                            .child(
-                                small_rich(RichText::minecraft(detail))
-                                    .truncate()
-                                    .text_color(crate::theme::ink::faint()),
-                            )
+                            .child(FactLine::row(("content-facts", id_base)).facts(facts))
                             .when_some(
                                 item.file
                                     .meta
@@ -1097,32 +1099,44 @@ impl ContentView {
                     .gap_2()
                     .when_some(update, |this, update| {
                         let name = name.clone();
-                        this.child(
-                            Button::new(
-                                ("update-one", id_base),
-                                tr!(M::UpdateTo, version = update.version_number),
+                        // the change beside the button, which says only "Update"
+                        let change: AnyElement = match &current_version {
+                            Some(current) => {
+                                DiffValue::versions(current.clone(), update.version_number.clone())
+                                    .into_any_element()
+                            }
+                            None => VersionTag::new(update.version_number.clone())
+                                .tone(VersionTone::To)
+                                .into_any_element(),
+                        };
+                        this.child(div().flex().flex_shrink_1().min_w_0().child(change))
+                            .child(
+                                Button::new(("update-one", id_base), t(CommonMsg::Update))
+                                    .variant(ButtonVariant::Primary)
+                                    .icon(Icon::CircleUp)
+                                    .size(ButtonSize::Slim)
+                                    .disabled(busy)
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.update_one(kind, &name, cx)
+                                    })),
                             )
-                            .variant(ButtonVariant::Primary)
-                            .icon(Icon::CircleUp)
-                            .size(ButtonSize::Slim)
-                            .disabled(busy)
-                            .on_click(
-                                cx.listener(move |this, _, _, cx| this.update_one(kind, &name, cx)),
-                            ),
-                        )
                     })
                     .when_some(cf_update, |this, cf_update| {
                         let name = name.clone();
-                        this.child(
+                        // the file it updates to, beside the button
+                        let to = cf_update.downloadable().then(|| {
+                            div().flex().flex_shrink_1().min_w_0().child(
+                                VersionTag::new(cf_update.file.display_name_or_file().to_string())
+                                    .tone(VersionTone::To),
+                            )
+                        });
+                        this.children(to).child(
                             Button::new(
                                 ("cf-update-one", id_base),
                                 if cf_update.downloadable() {
-                                    tr!(
-                                        M::UpdateTo,
-                                        version = cf_update.file.display_name_or_file()
-                                    )
+                                    t(CommonMsg::Update)
                                 } else {
-                                    t(M::GetOnCurseForge).to_string()
+                                    t(M::GetOnCurseForge)
                                 },
                             )
                             .variant(ButtonVariant::Primary)
@@ -2036,22 +2050,34 @@ impl ContentView {
             Entry::Empty => self.render_empty(kind),
             Entry::Heading(heading) => {
                 let (message, count) = match heading {
-                    Heading::Installed(n) => (M::InstalledCount, n),
-                    Heading::Enabled(n) => (M::EnabledCount, n),
-                    Heading::Available(n) => (M::AvailableCount, n),
+                    Heading::Installed(n) => (M::ViewInstalled, n),
+                    Heading::Enabled(n) => (M::Enabled, n),
+                    Heading::Available(n) => (M::Available, n),
                 };
-                small(tr!(message, count = format::number(*count as u64)))
-                    .font_weight(weights::BOLD.into())
-                    .text_color(crate::theme::ink::muted())
+                // the count as a badge after the heading; the order's rule under it
+                let caption = matches!(heading, Heading::Enabled(_))
+                    .then(|| CaptionLine::text(t(M::TopPackWins)));
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_0p5()
+                    .child(list_heading(t(message), *count as u64))
+                    .children(caption)
                     .into_any_element()
             }
-            Entry::NoInstalledMatch => small(tr!(
-                M::NoInstalledMatch,
-                count = format::number(0),
-                kind = kind_name(kind).to_lowercase()
-            ))
-            .text_color(crate::theme::ink::muted())
-            .into_any_element(),
+            Entry::NoInstalledMatch => div()
+                .flex()
+                .flex_col()
+                .gap_0p5()
+                .child(list_heading(t(M::ViewInstalled), 0))
+                .child(
+                    small(tr!(
+                        M::NoInstalledMatch,
+                        kind = kind_name(kind).to_lowercase()
+                    ))
+                    .text_color(crate::theme::ink::muted()),
+                )
+                .into_any_element(),
             Entry::ModrinthLoading => div()
                 .flex()
                 .flex_row()
@@ -2390,14 +2416,24 @@ impl ContentView {
     /// "1.20.1 / Fabric only", shared by Modrinth's and CurseForge's views.
     pub(super) fn compat_chip(&mut self, kind: ContentKind, cx: &mut Context<Self>) -> AnyElement {
         let only = self.section(kind).browse.only_compatible;
-        let target = self.target_label(kind, cx);
+        let target = self.target_parts(kind, cx);
         filter_chip(
             ("only-compatible", kind as usize),
             format!("{}-only-compatible", kind.dir()),
-            tr!(M::OnlyTarget, target = target).into(),
+            t(M::CompatibleOnly).into(),
             None,
             only,
         )
+        // what the results must suit, after the label, a step lighter
+        .aria_description(format::list(&target))
+        .children(target.into_iter().map(|part| {
+            div()
+                .flex_none()
+                .whitespace_nowrap()
+                .font_weight(weights::MEDIUM.into())
+                .opacity(0.8)
+                .child(part)
+        }))
         .on_press(cx.listener(move |this, _, _, cx| this.set_only_compatible(kind, !only, cx)))
         .into_any_element()
     }
@@ -2626,11 +2662,6 @@ impl ContentView {
                                     .text_color(crate::theme::ink::text())
                                     .child(hit.title.clone()),
                             )
-                            .child(
-                                small(tr!(M::ByAuthor, author = hit.author))
-                                    .flex_none()
-                                    .text_color(crate::theme::ink::muted()),
-                            )
                             .when(client_badge, |this| {
                                 this.child(badge(
                                     t(M::OptionalOnServers),
@@ -2638,16 +2669,20 @@ impl ContentView {
                                 ))
                             }),
                     )
+                    // the author and downloads under the title, so the handle never
+                    // reads as part of it
+                    .child(FactLine::row(("hit-facts", index)).facts(
+                        crate::instances::facts::project_facts(
+                            Some(&hit.author),
+                            Some(hit.downloads),
+                            None,
+                        ),
+                    ))
                     .child(
                         small_rich(RichText::minecraft(hit.description.clone()))
                             .truncate()
                             .text_color(crate::theme::ink::secondary()),
                     ),
-            )
-            .child(
-                small(counted(hit.downloads, P::Downloads, M::DownloadsCompact))
-                    .flex_none()
-                    .text_color(crate::theme::ink::muted()),
             )
             .map(|this| {
                 if installed {
@@ -2894,67 +2929,62 @@ impl ContentView {
             cx,
         );
         let icon_size = if self.panel_width.is_some() { 56. } else { 72. };
-        let mut column =
-            div().flex().flex_col().gap_4().child(bar).child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_start()
-                    .gap_4()
-                    .child(icon_box(icon, icon_size))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .flex_1()
-                            .min_w_0()
-                            .gap_1()
-                            .child(
-                                div()
-                                    .font_family(fonts::display())
-                                    .text_size(theme::text_size(text::H2))
-                                    .font_weight(weights::BOLD.into())
-                                    .text_color(crate::theme::ink::text())
-                                    .whitespace_normal()
-                                    .child(project.title.clone()),
-                            )
-                            .child(
-                                div()
-                                    .text_color(crate::theme::ink::secondary())
-                                    .whitespace_normal()
-                                    .child(RichText::minecraft(project.description.clone())),
-                            )
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_row()
-                                    .flex_wrap()
-                                    .items_center()
-                                    .gap_2()
-                                    .child(
-                                        small(format!(
-                                            "{} · {}",
-                                            counted(
-                                                project.downloads,
-                                                P::Downloads,
-                                                M::DownloadsCompact
-                                            ),
-                                            counted(
-                                                project.followers,
-                                                P::Followers,
-                                                M::FollowersCompact
-                                            )
-                                        ))
-                                        .text_color(crate::theme::ink::muted()),
-                                    )
-                                    .children(
-                                        project.categories.iter().take(6).map(|c| {
-                                            badge(c.clone(), crate::theme::accent::light())
-                                        }),
+        let mut column = div().flex().flex_col().gap_4().child(bar).child(
+            div()
+                .flex()
+                .flex_row()
+                .items_start()
+                .gap_4()
+                .child(icon_box(icon, icon_size))
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .flex_1()
+                        .min_w_0()
+                        .gap_1()
+                        .child(
+                            div()
+                                .font_family(fonts::display())
+                                .text_size(theme::text_size(text::H2))
+                                .font_weight(weights::BOLD.into())
+                                .text_color(crate::theme::ink::text())
+                                .whitespace_normal()
+                                .child(project.title.clone()),
+                        )
+                        .child(
+                            div()
+                                .text_color(crate::theme::ink::secondary())
+                                .whitespace_normal()
+                                .child(RichText::minecraft(project.description.clone())),
+                        )
+                        .child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .flex_wrap()
+                                .items_center()
+                                .gap_2()
+                                .child(FactLine::strip("project-stats").facts([
+                                    Fact::new(
+                                        t(FactMsg::Downloads),
+                                        crate::instances::facts::compact_count(project.downloads),
                                     ),
-                            ),
-                    ),
-            );
+                                    Fact::new(
+                                        t(FactMsg::Followers),
+                                        crate::instances::facts::compact_count(project.followers),
+                                    ),
+                                ]))
+                                .children(
+                                    project
+                                        .categories
+                                        .iter()
+                                        .take(6)
+                                        .map(|c| badge(c.clone(), crate::theme::accent::light())),
+                                ),
+                        ),
+                ),
+        );
         if kind == ContentKind::ShaderPack && self.shaders.loader.is_none() {
             column = column.child(self.render_shader_mod(cx));
         }
@@ -3185,7 +3215,7 @@ impl ContentView {
                         format!("{}-version-{}", kind.dir(), version.id),
                         version.version_number.clone(),
                     )
-                    .aria_description(format!("{type_label} · {date}"))
+                    .aria_description(format::list(&[type_label.to_string(), date.clone()]))
                     .child(
                         div()
                             .flex()
@@ -3206,16 +3236,15 @@ impl ContentView {
                                     )
                                     .child(badge(type_label, type_color)),
                             )
-                            .child(
-                                small(format!(
-                                    "{} · {} · {date} · {}",
-                                    short_list(&version.game_versions, 3),
-                                    short_list(&version.loaders, 3),
-                                    format::bytes(size)
-                                ))
-                                .truncate()
-                                .text_color(crate::theme::ink::faint()),
-                            )
+                            .child(FactLine::row(("version-facts", index)).facts(
+                                crate::instances::facts::release_facts(
+                                    &version.game_versions,
+                                    &version.loaders,
+                                    Some(date.clone()),
+                                    Some(size),
+                                    3,
+                                ),
+                            ))
                             .when_some(problem, |this, problem| {
                                 this.child(small(problem).text_color(colors::YELLOW_300))
                             }),
@@ -3260,7 +3289,7 @@ fn filter_chip(
     on: bool,
 ) -> gpui::Stateful<gpui::Div> {
     let icon_color = if on {
-        colors::WHITE.into()
+        colors::WHITE
     } else {
         crate::theme::ink::secondary()
     };
@@ -3307,6 +3336,20 @@ fn filter_chip(
             None => this,
         })
         .child(label)
+}
+
+/// A heading over the list with how many rows follow as a badge.
+fn list_heading(label: &'static str, count: u64) -> impl IntoElement {
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap(px(6.))
+        .text_size(theme::text_size(text::SMALL))
+        .font_weight(weights::BOLD.into())
+        .text_color(crate::theme::ink::muted())
+        .child(label)
+        .child(CountBadge::new(count))
 }
 
 /// A round selection mark.

@@ -61,7 +61,7 @@ pub fn text(message: M) -> &'static str {
         M::PortNotNumber => "端口必须是数字",
         M::PortRequired => "请输入端口",
         M::PortRange => "端口必须在 1 到 65535 之间",
-        M::PortOpened => "已开放端口 {port}",
+        M::PortOpened => "端口已打开",
         M::InfoCoreVersion => "核心版本",
         M::InfoHostVersion => "Lodestone Host 版本",
         M::InfoOs => "操作系统",
@@ -84,13 +84,13 @@ pub fn text(message: M) -> &'static str {
         M::FlagStatus => "状态和玩家",
         M::FlagAddress => "加入地址",
         M::FlagClientPack => "客户端模组下载",
-        M::ShownText => "任何能访问此核心的人无需登录即可看到此服务器的{list}。",
-        M::ShownNameVersion => "名称和版本",
-        M::ShownStatus => "状态和玩家数",
+        M::ShownText => "任何能访问此核心的人无需登录即可看到这些内容。",
+        M::ShownNameVersion => "名称",
+        M::ShownStatus => "状态",
         M::ShownAddress => "地址",
         M::ShownClientPack => "客户端模组",
         M::TurnOnFirst => "请先开启“公开列出服务器”。",
-        M::HiddenWhileOff => "{shown}“公开列出服务器”关闭时隐藏。",
+        M::HiddenWhileOff => "“公开列出服务器”关闭时隐藏。",
         M::NoJavaServers => "还没有 Minecraft Java Edition 服务器。",
         M::AllUsers => "所有用户",
         M::AllMembers => "所有成员",
@@ -110,8 +110,8 @@ pub fn text(message: M) -> &'static str {
         M::Owner => "所有者",
         M::ChangePasswordMenu => "修改密码",
         M::CantDeleteSelf => "你不能删除自己。",
-        M::DeleteUserTitle => "删除用户",
-        M::DeleteUserConfirm => "确定要删除 {name} 吗？此操作无法撤销。",
+        M::DeleteUserTitle => "删除用户？",
+        M::DeleteUserConfirm => "此用户的账户将被删除。此操作无法撤销。",
         M::DeleteUser => "删除用户",
         M::NoServersYet => "还没有服务器。",
         M::PermCreateInstance => "创建服务器",
@@ -180,28 +180,21 @@ pub fn text(message: M) -> &'static str {
         M::ApiKeysOwnLead => "让 CLI、脚本和智能体无需密码即可以你的身份操作。",
         M::ApiKeysOwnEmpty => "你还没有 API 密钥。",
         M::ApiKeysUserLead => "吊销密钥后，使用它的程序会立即失去访问权限。",
-        M::ApiKeysUserEmpty => "{username} 没有 API 密钥。",
+        M::ApiKeysUserEmpty => "此用户没有 API 密钥。",
         M::CreateApiKey => "创建 API 密钥",
-        M::ApiKeyCreated => "已创建 API 密钥“{name}”",
+        M::ApiKeyCreated => "已创建 API 密钥",
         M::LoadingApiKeys => "正在加载 API 密钥",
         M::Revoke => "吊销",
-        M::RevokeTitle => "吊销 API 密钥",
-        M::RevokeBody => {
-            "吊销“{name}”（{display}）？使用此密钥的所有程序将立即失去访问权限。此操作无法撤销。"
-        }
-        M::ApiKeyRevoked => "已吊销 API 密钥“{name}”",
-        M::CreatedOn => "创建于 {date}",
-        M::ExpiresOn => "{date} 过期",
-        M::ExpiredOn => "已于 {date} 过期",
-        M::ExpiresNever => "过期时间：永不",
-        M::LastUsed => "上次使用：{time}",
-        M::LastUsedNever => "上次使用：从未",
+        M::RevokeTitle => "吊销 API 密钥？",
+        M::RevokeBody => "使用此密钥的一切将立即失去访问权限。此操作无法撤销。",
+        M::ApiKeyRevoked => "已吊销 API 密钥",
+        M::LastUsed => "上次使用",
         M::ScopeFull => "完全访问",
         M::ScopeLauncher => "Launcher：查看、启动和停止服务器",
         M::ScopeLauncherConsole => "Launcher：查看、启动和停止服务器，读取和使用控制台",
         M::ScopeLauncherConsoleRead => "Launcher：查看、启动和停止服务器，读取控制台",
         M::ScopeLauncherConsoleWrite => "Launcher：查看、启动和停止服务器，发送控制台命令",
-        M::ScopeCustom => "自定义：{servers}，{permissions}",
+        M::ScopeCustom => "自定义",
         M::PasswordSessionOnly => "只有使用密码登录时才能管理 API 密钥，使用 API 密钥登录时不行。",
         M::CreateApiKeyLead => "为每个密钥设置较短的有效期，并只授予所需的访问权限。",
         M::ApiKeyName => "名称",
@@ -225,7 +218,7 @@ pub fn text(message: M) -> &'static str {
         M::KeyUnsafeSafeMode => {
             "安全模式已开启，因此在核心设置中关闭安全模式之前，核心会拒绝为自定义访问的密钥授予这些权限。"
         }
-        M::NewKeyTitle => "已创建 API 密钥“{name}”",
+        M::NewKeyTitle => "已创建 API 密钥",
         M::NewKeyCopyNow => "请立即复制此密钥。之后将无法再次查看。",
         M::NewKeyUseWithCli => "在 Lodestone CLI 中使用：",
         M::NewKeyStore => {
@@ -239,33 +232,29 @@ pub fn text(message: M) -> &'static str {
             "尚未关联 Minecraft 账户。在 Lodestone Launcher 中登录此核心即可关联。"
         }
         M::MinecraftUserLead => "从 Lodestone Launcher 关联。",
-        M::MinecraftUserEmpty => "{username} 没有关联的 Minecraft 账户。",
+        M::MinecraftUserEmpty => "此用户没有关联的 Minecraft 账户。",
         M::MinecraftTooOld => "此核心版本太旧，无法关联 Minecraft 账户。",
-        M::MinecraftRemoveTitle => "移除 Minecraft 账户",
-        M::MinecraftRemoveBody => "移除与 {name} 的关联？之后可以从 Lodestone Launcher 重新关联。",
-        M::MinecraftRemoved => "已移除 {name}",
+        M::MinecraftRemoveTitle => "移除账户关联？",
+        M::MinecraftRemoveBody => "之后可以从 Lodestone Launcher 重新关联。",
+        M::MinecraftRemoved => "已移除关联",
         M::Notifications => "通知",
         M::InProgress => "进行中",
         M::AllNotifications => "所有通知",
         M::LoadingNotifications => "正在加载通知",
         M::NoNotifications => "暂无通知！",
-        M::EventStarting => "服务器 {name} 正在启动！",
-        M::EventRunning => "服务器 {name} 已启动！",
-        M::EventStopping => "服务器 {name} 正在停止！",
-        M::EventStopped => "服务器 {name} 已停止！",
-        M::EventCrashed => "服务器 {name} 出现错误！",
+        M::EventStarting => "正在启动",
+        M::EventRunning => "已启动",
+        M::EventStopping => "正在停止",
+        M::EventStopped => "已停止",
+        M::EventCrashed => "遇到错误",
         M::WarningToast => "警告：某个服务器发出了警告。这不应该发生，请向开发者报告此问题。",
-        M::EventModpackUpdate => "{name} 的 {pack} {version} 已发布",
-        M::EventWarning => "服务器 {name} 发出了警告",
-        M::EventError => "服务器 {name} 出现错误",
-        M::PlayersJoined => "{players} 加入了 {name}",
-        M::PlayersLeft => "{players} 离开了 {name}",
-        M::PlayersJoinedAndLeft => "{joined} 加入了 {name}，{left} 离开了 {name}",
-        M::PlayerMessage => "{player} 在 {name} 上说：{message}",
-        M::EventApiKeyCreated => "已创建 API 密钥“{name}”",
-        M::EventApiKeyRevoked => "已吊销 API 密钥“{name}”",
+        M::EventModpackUpdate => "{pack} 的新版本",
+        M::EventWarning => "遇到警告",
+        M::EventError => "遇到错误",
+        M::PlayersLeft => "已离开",
+        M::EventApiKeyCreated => "已创建 API 密钥",
+        M::EventApiKeyRevoked => "已吊销 API 密钥",
         M::LoadFailed => "无法加载通知：{error}",
-        M::CoreFailedNotice => "Lodestone Core 无法启动：{error}",
         M::UpdatesTitle => "更新",
         M::UpdatesLead => "这台电脑上的 Lodestone Host 及其 Lodestone Core。",
         M::ThisVersion => "此版本",
@@ -275,17 +264,14 @@ pub fn text(message: M) -> &'static str {
         M::BetaBuildsHint => "测试版构建可能有错误。",
         M::DeveloperBuilds => "开发者构建",
         M::DeveloperBuildsHint => "更新到开发版构建，可能有错误。",
-        M::BuildNumber => "构建 {build}",
-        M::BuildNumberCommit => "构建 {build} · {commit}",
         M::DevelopmentBuild => "开发构建",
         M::UpdatesUnavailable => "此构建不会自动更新。从官网下载的 Lodestone Host 会自动更新。",
         M::UpdateNotChecked => "每隔几小时检查一次是否有新构建。",
         M::UpdateChecking => "正在检查新构建…",
         M::UpToDate => "当前已是最新构建。",
-        M::UpdateAvailable => "构建 {build} 现已可用。",
-        M::UpdateDownloading => "正在下载构建 {build}… {percent}",
+        M::UpdateAvailable => "有新的构建可用。",
         M::UpdateReady => {
-            "构建 {build} 已下载，重启后即可使用：你的服务器会停止，设为自动启动的服务器随后会再次启动。退出时也会安装。"
+            "新构建已下载。重启即可使用：你的服务器会先停止，设为自动启动的服务器随后会再次启动。退出时也会安装。"
         }
         M::RestartUpdateTitle => "重启以更新？",
         M::RestartUpdateBody => {
@@ -295,10 +281,8 @@ pub fn text(message: M) -> &'static str {
         M::DeveloperSection => "开发者",
         M::ConnectService => "Connect 服务（中继）",
         M::ConnectServiceHint => "邀请链接和好友列表使用它。",
-        M::ConnectServiceInUse => "开发中继：{service}",
-        M::ConnectServiceEnv => {
-            "已设置 {var}，因此核心使用 {service}。取消设置后，此设置才会生效。"
-        }
+        M::ConnectServiceInUse => "开发中继",
+        M::ConnectServiceEnv => "一个环境变量指定了中继，取消该变量后此设置才会生效。",
         M::ConnectServiceScheme => "地址需以 https:// 开头。",
         M::ConnectServiceInsecure => {
             "请使用 https://。只有本机上的服务（127.0.0.1 或 localhost）可以使用 http://。"
@@ -337,14 +321,11 @@ pub fn text(message: M) -> &'static str {
             "请将它与该核心“设置 › 常规 › 信息”中的指纹，或它启动时日志中的指纹进行比对。"
         }
         M::TrustCertificate => "信任证书",
-        M::SignInTo => "登录到 {name}",
-        M::VersionIncompatible => {
-            "此 Core 运行 Lodestone Core {theirs}，本机运行 {ours}。在两者都更新之前，某些页面可能无法使用。"
-        }
-        M::VersionPatch => "此 Core 运行 Lodestone Core {theirs}（本机：{ours}）。",
+        M::SignInTo => "登录",
+        M::VersionIncompatible => "在两者都更新之前，部分页面可能无法使用。",
         M::SignIn => "登录",
         M::RemoveCore => "移除",
-        M::RemoteSignedOut => "你已从 {name} 退出登录。Lodestone Host 已回到这台电脑的核心。",
+        M::RemoteSignedOut => "你已从此核心退出登录。Lodestone Host 已切回本机的核心。",
         M::RemoteAccess => "允许其他设备访问",
         M::RemoteAccessHintOff => {
             "只有这台电脑上的应用可以使用这个核心。在其他设备上使用网页控制台、添加其他用户和使用 API 密钥都需要打开它。无论开关如何，都可以分享服务器。"
@@ -371,13 +352,26 @@ pub fn text(message: M) -> &'static str {
         M::DomainKeywords => "地址 主机名 网址",
         M::OpenPortKeywords => "端口转发 路由器 UPnP 防火墙",
         M::ThemeKeywords => "深色 浅色 模式 外观 颜色",
+        M::KeyServers => "服务器",
+        M::Never => "从不",
+        M::ShownVersion => "版本",
+        M::ShownPlayers => "玩家人数",
+        M::ThisCore => "此核心",
+        M::NewBuild => "新构建",
+        M::ConnectServiceVariable => "变量",
+        M::LogsSection => "日志",
+        M::LogFiles => "日志文件",
+        M::LogsHint => "Host 和它的核心做过的事，保存在这台电脑上，便于排查问题。{path}",
+        M::LogDetail => "日志详细程度",
+        M::LogDetailHint => "“调试”会写入更多内容，便于排查问题。立即生效。",
+        M::LogInfo => "信息",
+        M::LogDebug => "调试",
+        M::LogLevelFromEnv => "Host 带着 LODESTONE_LOG 运行时，由它决定详细程度。",
     }
 }
 
 pub fn plural(message: P) -> [&'static str; 2] {
     match message {
-        P::ScopeServers => ["{count} 个服务器", "{count} 个服务器"],
-        P::ScopePermissions => ["{count} 项权限", "{count} 项权限"],
         P::ServersRunning => ["{count} 个服务器正在运行。", "{count} 个服务器正在运行。"],
     }
 }

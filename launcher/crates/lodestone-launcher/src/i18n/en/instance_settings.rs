@@ -135,8 +135,8 @@ crate::i18n::messages! {
         ViewOnModrinth = "View on Modrinth",
         DownloadingNewVersion = "Downloading the new version…",
         CheckingModrinth = "Checking Modrinth…",
-        /// {version} is the pack's version, "1.4.2".
-        UpdateTo = "Update to {version}…",
+        /// The modpack's update button, beside the change from its version to the new one; it opens the update's dialog.
+        UpdateModpack = "Update…",
         UpToDate = "Up to date",
         CheckForUpdates = "Check for updates",
         ModrinthUnreachable = "Modrinth can't be reached.",
@@ -145,9 +145,9 @@ crate::i18n::messages! {
         CouldntPrepareUpdate = "Couldn't prepare the update: {error}",
 
         // Linked server.
-        /// {core} is a host's name.
-        LinkedServerHint = "On {core}. Play joins it and syncs its mods.",
-        LinkedServerCoreRemoved = "On {core}, which was removed from the Lodestone Host page. Add the host again there to join the server.",
+        /// Under a linked server's name; the host it is on is under it, keyed Host.
+        LinkedServerHint = "Play joins it and syncs its mods.",
+        LinkedServerCoreRemoved = "Its host was removed from the Lodestone Host page. Add the host again there to join the server.",
         CoreRemoved = "Host removed",
         Unlink = "Unlink",
         Unlinked = "Unlinked",
@@ -159,9 +159,16 @@ crate::i18n::messages! {
         JavaMemoryLead = "Memory's default is set in Settings › Instance defaults.",
         Memory = "Memory",
         Checking = "Checking…",
-        /// {major} is "21", {version} is "21.0.5".
-        JavaFound = "Java {major} (version {version})",
-        JavaTooOld = "Java {major} (version {version}). Minecraft {game} needs Java {needed} or newer.",
+        /// After Check: a badge when the Java is older than the game needs.
+        JavaTooOldBadge = "Too old",
+        /// A badge when it is new enough.
+        JavaFitsBadge = "Works",
+        /// The key of the Java that was checked.
+        JavaFoundKey = "Found",
+        /// The Java found: {version} is "17.0.9".
+        JavaVersion = "Java {version}",
+        /// The Java the game needs: {major} is "21".
+        JavaOrNewer = "Java {major} or newer",
         /// The Java Mojang provides for the game, "Mojang's Java 21".
         MojangJavaVersion = "Mojang's Java {major}",
         MojangJava = "Mojang's Java",
@@ -394,6 +401,10 @@ crate::i18n::messages! {
         StopGameToChange = "Stop the game to change these: it rewrites options.txt when it quits.",
         /// A category the launcher's Settings doesn't share.
         NotShared = "Not shared (launcher Settings)",
+        /// A shared game settings category: the key of how many of its values are shared (the count shows after a link icon).
+        SharedKey = "Shared",
+        /// The key of how many this instance overrides (after a pencil icon).
+        OverriddenKey = "Overridden",
         ShareAll = "Share all",
         OverrideAll = "Override all",
         Show = "Show",
@@ -580,10 +591,6 @@ crate::i18n::messages! {
         ShareToggledCount = ("{count} turned off or on", "{count} turned off or on"),
         /// After "Gaycraft 5.0 from Modrinth" in the New instance dialog.
         CodePackChanges = ("+ {count} change", "+ {count} changes"),
-        /// How many of a category's settings are shared.
-        SharedCount = ("{count} shared", "{count} shared"),
-        /// How many of a category's settings this instance sets itself.
-        OverriddenCount = ("{count} overridden", "{count} overridden"),
         /// The names of a few settings and how many more there are: "FOV, Brightness,
         /// Max FPS and 2 more".
         AndMore = ("{names} and {count} more", "{names} and {count} more"),

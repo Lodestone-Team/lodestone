@@ -14,7 +14,7 @@ use crate::{
         Dropdown, Icon, KeyboardFocus, LoadingDots,
         a11y::{Accessible, Role, Toggled, automation_id},
     },
-    i18n::{CommonMsg, ShellMsg as M, t, tr},
+    i18n::{CommonMsg, ShellMsg as M, t},
     theme::{self, colors, layout, leading, radius, shadow, text, weights},
 };
 
@@ -457,7 +457,7 @@ fn menu(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElem
                 action_row(
                     "remove-account",
                     icon_slot(Icon::RightFromBracket, colors::RED_200),
-                    tr!(M::RemoveNamed, name = account.username),
+                    t(M::RemoveAccount),
                     colors::RED_200,
                 )
                 .on_press(cx.listener(move |this, _, window, cx| {

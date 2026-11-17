@@ -3,7 +3,7 @@ use crate::i18n::{InstancesMsg as M, InstancesPlural as P};
 pub fn text(message: M) -> &'static str {
     match message {
         M::CopyAddress => "Copier l’adresse",
-        M::CopiedText => "{text} copié",
+        M::CopiedText => "Copié",
         M::SettingUpPercent => "Configuration… {percent}",
         M::StepSelectGame => "Choisir un jeu",
         M::StepBasicSettings => "Paramètres de base",
@@ -75,10 +75,10 @@ pub fn text(message: M) -> &'static str {
         M::ImportReading => "Lecture du dossier",
         M::ImportReadFailed => "Impossible de lire le dossier : {error}",
         M::ImportOtherSoftware => {
-            "Ce serveur utilisait {other}. Lodestone le fait tourner avec {software}, qui utilise les mêmes plugins."
+            "Lodestone le fait tourner avec un logiciel qui utilise les mêmes plugins."
         }
         M::ImportNotOffered => {
-            "Ce serveur utilisait {other}, que Lodestone ne propose pas. Choisissez le logiciel avec lequel le faire tourner."
+            "Lodestone ne propose pas ce logiciel. Choisissez le logiciel avec lequel le faire tourner."
         }
         M::ImportSoftwareUnknown => {
             "Lodestone n’a pas pu déterminer le logiciel de ce serveur. Choisissez-le ci-dessous."
@@ -108,14 +108,14 @@ pub fn text(message: M) -> &'static str {
         M::ImageUploading => "Lecture du fichier…",
         M::ImageUploadFailed => "Impossible d’ouvrir le fichier : {error}",
         M::ImageSummaryTitle => "Contenu du fichier",
-        M::ImageKeepOperators => "Garder les opérateurs du fichier : {names}",
+        M::ImageKeepOperators => "Garder les opérateurs du fichier",
         M::ImageKeepOperatorsHint => {
             "Les opérateurs peuvent exécuter n’importe quelle commande sur le serveur."
         }
         M::ImageCreate => "Créer le serveur",
         M::ImageCreateFailed => "Impossible de créer le serveur : {error}",
         M::CreateFailedLater => "Le serveur n’a pas pu être créé",
-        M::ImageNotLodeimg => "{name} n’est pas un fichier .lodeimg",
+        M::ImageNotLodeimg => "Ce n’est pas un fichier .lodeimg",
         M::GameForgeDescription => "Fait tourner les mods Forge.",
         M::GameNeoForgeDescription => {
             "Fork communautaire de Forge, avec ses propres mods, pour Minecraft 1.20.2 et versions ultérieures."
@@ -137,7 +137,6 @@ pub fn text(message: M) -> &'static str {
         M::ModpackVersionTitle => "Choisissez une version",
         M::ModpackVersionUploaded => "Le modpack importé.",
         M::ModpackDownloading => "Téléchargement du fichier du modpack pour le lire…",
-        M::ModpackDownloadingSize => "Téléchargement du fichier du modpack ({size}) pour le lire…",
         M::ModpackVersionHint => {
             "Choisissez une version pour voir son contenu. Lodestone télécharge le fichier du modpack pour le lire ; rien n’est installé tant que vous n’avez pas cliqué sur Créer le serveur."
         }
@@ -151,7 +150,6 @@ pub fn text(message: M) -> &'static str {
         M::ModpackSummaryModpack => "Modpack",
         M::ModpackSummaryLoader => "Chargeur",
         M::ModpackSummaryServerFiles => "Fichiers du serveur",
-        M::ModpackSummaryServerFilesValue => "{count} ({size} à télécharger)",
         M::ModpackUnsupported => "Ce modpack ne peut pas être utilisé : {reason}",
         M::ModpackInspectFailed => "Impossible de lire le modpack : {error}",
         M::ModpackNotAModpack => "Ce projet est de type {type}, pas un modpack",
@@ -174,15 +172,12 @@ pub fn text(message: M) -> &'static str {
         M::SearchPage => "Page {page} sur {total}",
         M::PreviousPage => "Page précédente",
         M::NextPage => "Page suivante",
-        M::ByAuthor => "par {author}",
-        M::VersionRelease => "stable",
-        M::VersionBeta => "bêta",
-        M::VersionAlpha => "alpha",
+        M::VersionRelease => "Stable",
+        M::VersionBeta => "Bêta",
+        M::VersionAlpha => "Alpha",
         M::NotFound => "Serveur introuvable",
         M::NoName => "Sans nom",
         M::NoDescription => "Aucune description",
-        M::VersionLabel => "Version {version}",
-        M::PlayerCount => "Joueurs {players}/{max}",
         M::EditName => "Renommer",
         M::EditDescription => "Modifier la description",
         M::NameEmpty => "Saisissez un nom.",
@@ -200,20 +195,17 @@ pub fn text(message: M) -> &'static str {
         M::DetailsCreated => "Créé le",
         M::DetailsAutoStart => "Démarrage automatique",
         M::DetailsRestartOnCrash => "Redémarrer après un plantage",
-        M::DetailsRam => "Mémoire min. / max.",
-        M::DetailsRamValue => "{min} Mo / {max} Mo",
         M::DetailsFolder => "Dossier",
-        M::DetailsModpack => "Créé à partir du modpack",
         M::PerformanceTitle => "Surveillance du serveur",
-        M::CpuLoad => "CHARGE CPU : {value} %",
-        M::MemoryUsed => "MÉMOIRE UTILISÉE : {value} Gio",
+        M::CpuLoad => "Charge CPU",
+        M::MemoryUsed => "Mémoire utilisée",
         M::LoadingGraph => "Chargement du graphique",
         M::CpuUsage => "Utilisation du CPU",
         M::MemoryUsage => "Utilisation de la mémoire",
         M::UnitPercent => " %",
         M::UnitGiB => " Gio",
         M::GraphSeconds => "{seconds} s",
-        M::GraphSecondsAgo => "il y a {seconds} s : {value}",
+        M::GraphSecondsAgo => "il y a {seconds} s",
         M::PlayersTitle => "Liste des joueurs",
         M::PlayersSortByName => "NOM",
         M::PlayersLinkedUser => "L’utilisateur Lodestone qui a associé ce compte Minecraft",
@@ -245,9 +237,8 @@ pub fn text(message: M) -> &'static str {
         M::ShareHardNetwork => {
             "Le routeur de ce réseau rend les connexions directes difficiles. Certaines personnes ne pourront peut-être pas rejoindre."
         }
-        M::SharePeerLine => "via {connection}, {ms} ms",
-        M::ShareSameComputer => "cet ordinateur",
-        M::ShareLocalNetwork => "le réseau local",
+        M::ShareSameComputer => "Cet ordinateur",
+        M::ShareLocalNetwork => "Réseau local",
         M::ShareIpv6 => "IPv6",
         M::ShareInternet => "Internet",
         M::ShareStop => "Arrêter le partage",
@@ -263,18 +254,24 @@ pub fn text(message: M) -> &'static str {
         M::ShareNewLinkConfirm => "Créer un nouveau lien",
         M::ShareNewLinkMade => "Nouveau lien d'invitation créé",
         M::ShareRemovedFriendsNote => {
-            "Vous avez retiré {names} de vos amis. S'ils ont ce lien d'invitation, ils peuvent encore rejoindre tant que vous n'en créez pas un nouveau."
+            "Vous avez retiré ces amis. S’ils ont ce lien d’invitation, ils peuvent encore rejoindre jusqu’à ce que vous en créiez un nouveau."
         }
         M::ShareRemovedFriendsDismiss => "Ignorer",
         M::ShareRemovedFriendsToast => {
-            "{names} peuvent encore rejoindre {servers} s'ils ont le lien d'invitation. Créez de nouveaux liens pour les en empêcher."
+            "Ils peuvent encore rejoindre ces serveurs s’ils ont le lien d’invitation. Créez de nouveaux liens pour les en empêcher."
         }
         M::ShareNewLinks => "Créer de nouveaux liens",
         M::ShareNewLinksMade => {
             "Nouveaux liens d'invitation créés. Envoyez-les aux personnes qui doivent encore pouvoir rejoindre."
         }
-        M::ShareNewLinkFailed => "Impossible de créer un nouveau lien pour {name} : {error}",
+        M::ShareNewLinkFailed => "Impossible de créer un nouveau lien : {error}",
         M::ShareShort => "Partager",
+        M::DetailsMinRam => "RAM min.",
+        M::DetailsMaxRam => "RAM max.",
+        M::ShareConnected => "Personnes connectées",
+        M::ShareJoins => "Connexions jusqu’ici",
+        M::ShareRemovedFriendsHeading => "Amis retirés",
+        M::ShareRemovedServersHeading => "Serveurs partagés",
     }
 }
 
@@ -283,12 +280,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::ModpackShowMore => [
             "Afficher plus ({count} restante)",
             "Afficher plus ({count} restantes)",
-        ],
-        P::ImportFiles => ["{count} fichier", "{count} fichiers"],
-        P::ShareConnected => ["{count} personne connectée", "{count} personnes connectées"],
-        P::ShareJoins => [
-            "({count} connexion jusqu’ici)",
-            "({count} connexions jusqu’ici)",
         ],
     }
 }

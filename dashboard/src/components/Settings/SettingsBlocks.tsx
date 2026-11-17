@@ -1,4 +1,5 @@
 import { ReactNode } from 'react';
+import { CountBadge } from 'components/Atoms/Values';
 import { cn } from 'utils/util';
 
 /*
@@ -54,6 +55,7 @@ export function SettingsPage({
 export function SettingsSection({
   id,
   title,
+  count,
   lead,
   action,
   danger = false,
@@ -62,6 +64,8 @@ export function SettingsSection({
 }: {
   id?: string;
   title: string;
+  /** a CountBadge after the heading, instead of "All members (4)" */
+  count?: number;
   lead?: ReactNode;
   /** a button or link on the right of the heading */
   action?: ReactNode;
@@ -79,8 +83,9 @@ export function SettingsSection({
     >
       <div className="mb-2.5 flex flex-row items-end justify-between gap-4">
         <div className="flex min-w-0 flex-col gap-1">
-          <h2 className="font-heading text-h3 leading-tight font-bold text-gray-300">
+          <h2 className="flex items-center gap-1.5 font-heading text-h3 leading-tight font-bold text-gray-300">
             {title}
+            {count !== undefined && <CountBadge count={count} />}
           </h2>
           {lead && (
             <p className="text-[0.8125rem] font-medium text-gray-500">{lead}</p>

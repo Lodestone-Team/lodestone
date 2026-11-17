@@ -28,6 +28,8 @@ fn main() {
     if !screenshot && !single_instance::acquire(show_tx) {
         return;
     }
+    // The log file and the panic hook, before anything else can fail.
+    lodestone_host::logs::start(screenshot);
     // an older Host's sign-in entry, rewritten the way this one writes it
     if !screenshot {
         lodestone_host::login_item::refresh();
@@ -36,6 +38,12 @@ fn main() {
     // a click on the Dock icon brings the window back
     app.on_reopen(|cx| cx.dispatch_action(&ShowWindow));
     app.run(move |cx| {
+        // `--screenshot <file.png> --components`: the readable components' gallery
+        // alone, before anything starts the core
+        #[cfg(feature = "screenshot")]
+        if screenshot::components(cx) {
+            return;
+        }
         lodestone_host::init(cx);
         tray::set_dev_dock_icon();
         let options = lodestone_host::window_options(cx);
@@ -96,7 +104,10 @@ fn main() {
 }
 
 /// `--screenshot <file.png> [--wait <seconds>] [--select-first] [--tab <tab>] [--toasts] [--demo]`
-/// `[--power-menu]` (the selected instance's power menu open)
+/// `[--power-menu]` (the selected instance's power menu open) `[--crash-notice]` (the
+/// notice after a crash)
+/// `[--components [--page <n>] [--light] [--narrow] [--lang <tag>]]` (the readable components' gallery
+/// alone, without the core: see `components`)
 /// `[--friends <scene>] [--mods <scene>] [--backup-export <scene>] [--world-backup <scene>]`
 /// `[--settings-search <text>]`,
 /// with the `screenshot` feature: renders the window offscreen after the wait (10 s by
@@ -118,6 +129,73 @@ mod screenshot {
         let mut args = std::env::args().skip_while(|arg| arg != flag);
         args.next()?;
         args.next()
+    }
+
+    /// `--screenshot <file.png> --components [--page <n>] [--light] [--narrow] [--lang <tag>]`:
+    /// a page of the readable components' gallery (`lodestone_ui::components::readable`)
+    /// in a window of its own, in the dark or the light (Daylight) theme, 520px wide
+    /// with `--narrow`. Nothing else starts: no core, no preferences read. Says whether
+    /// it opened.
+    pub fn components(cx: &mut App) -> bool {
+        use gpui::{AppContext as _, Bounds, WindowBounds, WindowOptions, px, size};
+        use lodestone_ui::components::readable::ComponentGallery;
+
+        if !std::env::args().any(|arg| arg == "--components") {
+            return false;
+        }
+        let Some(path) = arg_after("--screenshot") else {
+            return false;
+        };
+        launcher_core::wording::set_app_name(lodestone_host::APP_NAME);
+        lodestone_ui::init(cx);
+        if let Some(locale) =
+            arg_after("--lang").and_then(|tag| lodestone_ui::i18n::Locale::from_tag(&tag))
+        {
+            lodestone_ui::i18n::force(locale);
+        }
+        lodestone_ui::theme::palette::set_light(std::env::args().any(|arg| arg == "--light"));
+        let narrow = std::env::args().any(|arg| arg == "--narrow");
+        let page = arg_after("--page")
+            .and_then(|page| page.parse().ok())
+            .unwrap_or(1);
+        let width = if narrow { 520. } else { 1200. };
+        let options = WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
+                None,
+                size(px(width), px(1000.)),
+                cx,
+            ))),
+            ..Default::default()
+        };
+        let window = cx
+            .open_window(options, |_, cx| {
+                cx.new(|_| {
+                    if narrow {
+                        ComponentGallery::narrow(page)
+                    } else {
+                        ComponentGallery::new(page)
+                    }
+                })
+            })
+            .expect("could not open the gallery window");
+        cx.spawn(async move |cx| {
+            cx.background_executor().timer(Duration::from_secs(1)).await;
+            let image = gpui::AppContext::update_window(cx, window.into(), |_, window, cx| {
+                window.refresh();
+                window.draw(cx).clear(cx);
+                window.render_to_image()
+            });
+            match image.and_then(|image| image) {
+                Ok(image) => match image.save(&path) {
+                    Ok(()) => eprintln!("saved {path}"),
+                    Err(err) => eprintln!("could not save {path}: {err}"),
+                },
+                Err(err) => eprintln!("could not render the gallery: {err:#}"),
+            }
+            cx.update(|cx| cx.quit());
+        })
+        .detach();
+        true
     }
 
     pub fn schedule(window: WindowHandle<HostApp>, cx: &mut App) {

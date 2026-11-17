@@ -7,7 +7,7 @@ crate::i18n::messages! {
         RestartingCore = "Lodestone Core stopped. Starting it again…",
         CoreFailed = "Lodestone Core couldn’t start",
         CoreLog = "The end of its log:",
-        OpenLogFolder = "Open the log folder",
+        OpenLogFolder = "Open logs folder",
         /// While quitting: the servers stop first.
         StoppingCore = "Stopping your servers…",
         SigningIn = "Signing in…",
@@ -25,7 +25,7 @@ crate::i18n::messages! {
         NewServer = "New server",
         NoPermission = "No permission",
         /// An instance being made.
-        SettingUp = "Setting up {name}…",
+        SettingUp = "Setting up",
         /// An instance's tabs.
         TabOverview = "Overview",
         TabSettings = "Settings",
@@ -51,8 +51,6 @@ crate::i18n::messages! {
         StateStopped = "Stopped",
         StateError = "Crashed",
         StateUnknown = "Unknown",
-        /// The selected instance's players pill, as the dashboard's card: "3/20 Online".
-        PlayersOnline = "{online}/{max} Online",
         /// The selected instance's power button, which opens Start, Stop, Restart or Kill; {state} is its state.
         PowerMenu = "Power: {state}",
         /// The connection to the core, in the footer.
@@ -60,7 +58,7 @@ crate::i18n::messages! {
         Connecting = "Connecting…",
         Reconnecting = "Reconnecting…",
         SignedOut = "Signed out",
-        SignedInAs = "Signed in as {name}",
+        SignedInAs = "Signed in as",
         /// The page without a selected instance.
         HomeTitle = "Welcome to Lodestone Host",
         HomeSubtitle = "Select a server in the sidebar, or create a new one.",
@@ -73,16 +71,21 @@ crate::i18n::messages! {
         QuitHost = "Quit Lodestone Host",
         /// Beside the logo in development builds.
         DevBadge = "DEV",
-        CoreVersion = "Version {version}",
         /// The footer and the banner when the core answers but its live updates stopped.
         Degraded = "Live updates stopped",
         DegradedBanner = "Lodestone Host reaches the core, but live updates stopped. What you see may be out of date.",
         Reload = "Reload",
-        /// The footer's tooltip.
-        CoreAddress = "Address: {address}",
-        CoreHost = "Computer: {host}",
-        CoreSystem = "System: {system}",
-        CoreUptime = "Running for {uptime}",
+        CoreSystem = "System",
+        /// A key in the connection's tooltip: the core's computer.
+        CoreComputer = "Computer",
+        /// The core failed screen's title when the core exited.
+        CoreStopped = "Lodestone Core stopped",
+        /// The core failed screen's title when the core never answered.
+        CoreNoAnswer = "Lodestone Core didn’t answer in time",
+        /// A notice at start, after the Host crashed.
+        ClosedUnexpectedly = "Lodestone Host closed unexpectedly last time.",
+        /// Shows the logs folder.
+        OpenLogs = "Open logs",
     }
 
     pub enum ShellPlural {

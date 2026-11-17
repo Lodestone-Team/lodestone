@@ -30,6 +30,25 @@ import {
   uploadMods,
 } from 'data/Mods';
 import { t as translate, useI18n, useT } from 'i18n';
+import {
+  Bytes,
+  CountBadge,
+  MonoText,
+  MonoValue,
+  ObjectChip,
+  VersionTag,
+} from 'components/Atoms/Values';
+import {
+  DiffValue,
+  Fact,
+  FactLine,
+  factsTitle,
+  ListCell,
+  ListHeader,
+  NameList,
+  ObjectCard,
+  ObjectToast,
+} from 'components/Values';
 import { useState } from 'react';
 import { toast } from 'react-toastify';
 import {
@@ -37,17 +56,18 @@ import {
   installedModVersion,
   modrinthProjectUrl,
 } from 'utils/mods';
-import { ApiError, errorToString } from 'utils/util';
+import { ApiError, cn, errorToString } from 'utils/util';
 import {
   ClientRequirementLabel,
   DisabledTooltip,
-  InstallResultMessage,
+  InstallResult,
   ModIcon,
+  NeededBy,
   pickFiles,
   WithTooltip,
 } from './common';
 import ClientPackPanel from './ClientPackPanel';
-import ModpackPanel, { blameLabel } from './ModpackPanel';
+import ModpackPanel, { blameOf } from './ModpackPanel';
 import { InstanceInfo } from 'bindings/InstanceInfo';
 import { ModpackHistory } from 'bindings/ModpackHistory';
 
@@ -67,10 +87,10 @@ const ModRow = ({
   mod: InstalledMod;
   canWrite: boolean;
   onDelete: (mod: InstalledMod) => void;
-  /** the modpack version the file came with ("since 6.4.0") */
-  blame: { label: string; tooltip: string } | null;
+  /** when the file came, and the history entry it came with */
+  blame: { date: number; change: string } | null;
 }) => {
-  const { t, formatBytes, formatList } = useI18n();
+  const { t, formatBytes, formatDate } = useI18n();
   const queryClient = useQueryClient();
   const [toggling, setToggling] = useState(false);
   const [marking, setMarking] = useState(false);
@@ -78,17 +98,23 @@ const ModRow = ({
   const name = installedModName(mod);
   const version = installedModVersion(mod);
   const update = mod.modrinth?.update ?? null;
+  const chip = <ObjectChip kind={kind} name={name} />;
 
   const toggle = async (enabled: boolean) => {
     setToggling(true);
     try {
       await setModEnabled(uuid, mod.file_name, enabled);
     } catch (error) {
-      const params = { name, error: errorToString(error) };
       toast.error(
-        enabled
-          ? translate('mods.installed.enableFailed', params)
-          : translate('mods.installed.disableFailed', params)
+        <ObjectToast
+          object={chip}
+          outcome={
+            enabled
+              ? translate('mods.toast.enableFailed')
+              : translate('mods.toast.disableFailed')
+          }
+          reason={errorToString(error)}
+        />
       );
     } finally {
       await invalidateInstalledMods(queryClient, uuid);
@@ -101,33 +127,39 @@ const ModRow = ({
   const forPlayers = mod.client_requirement === 'required';
   const requiredAnyway =
     forPlayers && !mod.client_marked && !mod.client_optional;
-  const markTooltip = !canWrite
-    ? t('mods.noWritePermission')
-    : requiredAnyway && mod.required_by.length > 0
-      ? t('mods.clientRequirement.neededBy', {
-          mods: formatList(mod.required_by),
-        })
-      : requiredAnyway
-        ? t('mods.forPlayers.already')
-        : mod.client_optional
-          ? t('mods.forPlayers.optional')
-          : t('mods.forPlayers.hint');
+  const markTooltip = !canWrite ? (
+    t('mods.noWritePermission')
+  ) : requiredAnyway && mod.required_by.length > 0 ? (
+    <NeededBy mods={mod.required_by} />
+  ) : requiredAnyway ? (
+    t('mods.forPlayers.already')
+  ) : mod.client_optional ? (
+    t('mods.forPlayers.optional')
+  ) : (
+    t('mods.forPlayers.hint')
+  );
 
   const mark = async (required: boolean) => {
     setMarking(true);
     try {
       await setClientMark(uuid, mod.file_name, required);
       toast.success(
-        required
-          ? translate('mods.forPlayers.marked', { name })
-          : translate('mods.forPlayers.unmarked', { name })
+        <ObjectToast
+          object={chip}
+          outcome={
+            required
+              ? translate('mods.toast.marked')
+              : translate('mods.toast.unmarked')
+          }
+        />
       );
     } catch (error) {
       toast.error(
-        translate('mods.forPlayers.failed', {
-          name,
-          error: errorToString(error),
-        })
+        <ObjectToast
+          object={chip}
+          outcome={translate('mods.toast.markFailed')}
+          reason={errorToString(error)}
+        />
       );
     } finally {
       // the client pack panel and the other rows' requirements change too
@@ -145,20 +177,25 @@ const ModRow = ({
         install_dependencies: true,
       });
       toast.success(
-        <InstallResultMessage
-          title={translate('mods.installed.updated', {
-            name,
-            version: update.version_number,
-          })}
-          result={result}
-        />
+        <ObjectToast
+          object={
+            <>
+              {chip}
+              <VersionTag version={update.version_number} tone="to" />
+            </>
+          }
+          outcome={translate('mods.toast.updated')}
+        >
+          <InstallResult result={result} />
+        </ObjectToast>
       );
     } catch (error) {
       toast.error(
-        translate('mods.installed.updateFailed', {
-          name,
-          error: errorToString(error),
-        })
+        <ObjectToast
+          object={chip}
+          outcome={translate('mods.toast.updateFailed')}
+          reason={errorToString(error)}
+        />
       );
     } finally {
       await invalidateInstalledMods(queryClient, uuid);
@@ -166,25 +203,47 @@ const ModRow = ({
     }
   };
 
+  const size = formatBytes(mod.size);
+  const added = blame ? formatDate(blame.date) : null;
+  const addedTitle = blame
+    ? factsTitle([
+        { label: t('values.key.added'), value: added ?? '' },
+        // the entry's label comes from the core
+        { label: t('values.key.cameWith'), value: blame.change },
+      ])
+    : undefined;
+
   return (
     <div className="flex flex-row items-center gap-3 bg-gray-800 px-4 py-3">
       <ModIcon url={mod.modrinth?.icon_url} />
       <div className="flex min-w-0 grow flex-col">
-        <div className="flex min-w-0 flex-row items-baseline gap-2">
+        {/* clipped across only, so the link's focus ring still shows */}
+        <div className="flex min-w-0 flex-row items-center gap-1.5 overflow-x-clip">
           <span
-            className={
-              mod.enabled
-                ? 'truncate text-medium font-bold text-gray-300'
-                : 'truncate text-medium font-bold text-white/50'
-            }
+            className={cn(
+              // the name keeps some room next to an update's two tags
+              'min-w-20 truncate text-medium font-bold',
+              mod.enabled ? 'text-gray-300' : 'text-white/50'
+            )}
           >
             {name}
           </span>
-          {version && (
-            <span className="shrink-0 truncate text-small text-white/50">
-              {version}
-            </span>
-          )}
+          {version &&
+            (update ? (
+              <DiffValue
+                className="shrink-0"
+                from={<VersionTag version={version} tone="from" max={14} />}
+                to={
+                  <VersionTag
+                    version={update.version_number}
+                    tone="to"
+                    max={14}
+                  />
+                }
+              />
+            ) : (
+              <VersionTag version={version} />
+            ))}
           {/* players never install plugins, so plugins show nothing */}
           {kind === 'mod' && <ClientRequirementLabel mod={mod} marks={marks} />}
           {/* by the name, so the controls on the right line up on every row */}
@@ -201,19 +260,35 @@ const ModRow = ({
             </a>
           )}
         </div>
-        <div className="flex min-w-0 flex-row items-center gap-1.5">
-          <div className="truncate text-small text-white/30">
-            {mod.file_name} · {formatBytes(mod.size)}
-          </div>
+        <FactLine
+          title={factsTitle([
+            { label: t('values.key.file'), value: mod.file_name },
+            { label: t('values.key.size'), value: size },
+            ...(blame
+              ? [
+                  { label: t('values.key.added'), value: added ?? '' },
+                  { label: t('values.key.cameWith'), value: blame.change },
+                ]
+              : []),
+          ])}
+        >
+          <MonoText
+            text={mod.file_name}
+            max={44}
+            className="max-w-[60%] text-white/50 @2xl:max-w-full"
+          />
+          <Fact label={t('values.key.size')} className="@2xl:hidden">
+            <Bytes bytes={mod.size} />
+          </Fact>
           {blame && (
-            <span
-              className="shrink-0 text-small text-white/50"
-              title={blame.tooltip}
+            <Fact
+              label={t('values.key.added')}
+              className="text-ink-muted @2xl:hidden"
             >
-              {blame.label}
-            </span>
+              {added}
+            </Fact>
           )}
-        </div>
+        </FactLine>
       </div>
       <div className="flex shrink-0 flex-row items-center gap-2">
         {update && (
@@ -222,9 +297,7 @@ const ModRow = ({
             message={t('mods.noWritePermission')}
           >
             <Button
-              label={t('mods.installed.updateTo', {
-                version: update.version_number,
-              })}
+              label={t('mods.installed.update')}
               icon={faCircleUp}
               intention="primary"
               size="slim"
@@ -263,6 +336,13 @@ const ModRow = ({
           />
         </DisabledTooltip>
       </div>
+      {/* last, so the columns line up whatever buttons a row has */}
+      <ListCell width="size">
+        <Bytes bytes={mod.size} />
+      </ListCell>
+      <ListCell width="date" title={addedTitle}>
+        {added ?? ''}
+      </ListCell>
     </div>
   );
 };
@@ -325,9 +405,22 @@ export default function InstalledMods({
     try {
       const uploaded = await uploadMods(uuid, files, overwrite);
       toast.success(
-        translate('mods.installed.uploaded', {
-          names: uploaded.map((mod) => installedModName(mod)).join(', '),
-        })
+        <ObjectToast outcome={translate('mods.toast.uploaded')}>
+          <NameList
+            groups={[
+              {
+                heading: translate(
+                  isPlugin ? 'mods.tab.plugins' : 'mods.tab.mods'
+                ),
+                tone: 'success',
+                items: uploaded.map((mod) => ({
+                  id: mod.file_name,
+                  name: installedModName(mod),
+                })),
+              },
+            ]}
+          />
+        </ObjectToast>
       );
       setOverwriteFiles(null);
     } catch (error) {
@@ -354,9 +447,25 @@ export default function InstalledMods({
     const notJars = files.filter((f) => !f.name.toLowerCase().endsWith('.jar'));
     if (notJars.length > 0) {
       toast.error(
-        translate('mods.installed.onlyJars', {
-          names: notJars.map((f) => f.name).join(', '),
-        })
+        <ObjectToast outcome={translate('mods.toast.notUploaded')}>
+          <NameList
+            groups={[
+              {
+                heading: translate('mods.toast.notUploadedGroup'),
+                items: notJars.map((file, i) => ({
+                  id: `${i}:${file.name}`,
+                  name: (
+                    <MonoText
+                      text={file.name}
+                      max={32}
+                      className="text-small"
+                    />
+                  ),
+                })),
+              },
+            ]}
+          />
+        </ObjectToast>
       );
       return;
     }
@@ -366,7 +475,7 @@ export default function InstalledMods({
   const updateAll = async () => {
     setUpdatingAll(true);
     const total: ModInstallResult = { installed: [], removed: [], skipped: [] };
-    const failures: string[] = [];
+    const failures: { name: string; error: string }[] = [];
     for (const mod of updates) {
       const update = mod.modrinth?.update;
       if (!update) continue;
@@ -379,39 +488,61 @@ export default function InstalledMods({
         total.removed.push(...result.removed);
         total.skipped.push(...result.skipped);
       } catch (error) {
-        failures.push(`${installedModName(mod)}: ${errorToString(error)}`);
+        failures.push({
+          name: installedModName(mod),
+          error: errorToString(error),
+        });
       }
     }
     await invalidateInstalledMods(queryClient, uuid);
     if (total.installed.length > 0 || total.removed.length > 0)
       toast.success(
-        <InstallResultMessage
-          title={translate('mods.installed.updatesInstalled')}
-          result={total}
-        />
+        <ObjectToast outcome={translate('mods.installed.updatesInstalled')}>
+          <InstallResult result={total} />
+        </ObjectToast>
       );
     if (failures.length > 0)
       toast.error(
-        translate('mods.installed.someUpdatesFailed', {
-          failures: failures.join('; '),
-        })
+        <ObjectToast outcome={translate('mods.toast.someFailed')}>
+          <NameList
+            groups={[
+              {
+                heading: translate('mods.toast.failedGroup'),
+                tone: 'danger',
+                // the errors come from the core
+                items: failures.map((failure, i) => ({
+                  id: `${i}:${failure.name}`,
+                  name: failure.name,
+                  reason: failure.error,
+                })),
+              },
+            ]}
+          />
+        </ObjectToast>
       );
     setUpdatingAll(false);
   };
 
   const confirmDelete = async () => {
     if (!toDelete) return;
+    const chip = <ObjectChip kind={kind} name={installedModName(toDelete)} />;
     try {
       await deleteMod(uuid, toDelete.file_name);
       toast.success(
-        translate('mods.installed.deleted', { name: toDelete.file_name })
+        <ObjectToast object={chip} outcome={translate('mods.toast.deleted')}>
+          <Fact label={translate('values.key.file')} className="text-small">
+            <MonoText text={toDelete.file_name} max={32} />
+          </Fact>
+        </ObjectToast>
       );
       setToDelete(null);
     } catch (error) {
       toast.error(
-        translate('mods.installed.deleteFailed', {
-          error: errorToString(error),
-        })
+        <ObjectToast
+          object={chip}
+          outcome={translate('mods.toast.deleteFailed')}
+          reason={errorToString(error)}
+        />
       );
     } finally {
       await invalidateInstalledMods(queryClient, uuid);
@@ -445,12 +576,26 @@ export default function InstalledMods({
         onClose={() => setToDelete(null)}
         confirmButtonText={t('common.delete')}
         onConfirm={confirmDelete}
+        object={
+          toDelete && (
+            <ObjectCard
+              icon={
+                <ModIcon url={toDelete.modrinth?.icon_url} className="size-8" />
+              }
+              name={installedModName(toDelete)}
+              version={installedModVersion(toDelete)}
+              facts={
+                <FactLine>
+                  <Fact label={t('values.key.file')}>
+                    <MonoText text={toDelete.file_name} max={36} />
+                  </Fact>
+                </FactLine>
+              }
+            />
+          )
+        }
       >
-        {toDelete &&
-          t('mods.installed.deleteBody', {
-            name: installedModName(toDelete),
-            fileName: toDelete.file_name,
-          })}
+        {t('mods.installed.deleteBody')}
       </ConfirmDialog>
       <ConfirmDialog
         title={t('mods.installed.overwriteTitle')}
@@ -462,10 +607,13 @@ export default function InstalledMods({
           if (overwriteFiles) await upload(overwriteFiles, true);
         }}
       >
-        {/* the message comes from the core */}
-        {t('mods.installed.overwriteBody', {
-          message: overwriteMessage || t('mods.installed.overwriteDefault'),
-        })}
+        <div className="flex flex-col gap-2">
+          {t('mods.installed.overwriteBody')}
+          {/* the message comes from the core */}
+          <span className="text-medium text-white/50">
+            {overwriteMessage || t('mods.installed.overwriteDefault')}
+          </span>
+        </div>
       </ConfirmDialog>
 
       <ModpackPanel
@@ -477,19 +625,19 @@ export default function InstalledMods({
       />
       {list && !error && <ClientPackPanel uuid={uuid} list={list} />}
       <div className="flex flex-row flex-wrap items-center justify-between gap-2">
-        <div className="text-medium text-white/50">
-          {list
-            ? isPlugin
-              ? t('mods.installed.count.plugin', {
-                  count: list.mods.length,
-                  directory: list.directory,
-                })
-              : t('mods.installed.count.mod', {
-                  count: list.mods.length,
-                  directory: list.directory,
-                })
-            : ' '}
-        </div>
+        {list ? (
+          <div className="flex min-w-0 flex-col">
+            <div className="flex items-center gap-1.5 text-medium font-bold text-gray-300">
+              {isPlugin ? t('mods.tab.plugins') : t('mods.tab.mods')}
+              <CountBadge count={list.mods.length} />
+            </div>
+            <Fact label={t('values.key.folder')} className="text-small">
+              <MonoValue>{list.directory}/</MonoValue>
+            </Fact>
+          </div>
+        ) : (
+          <div />
+        )}
         <div className="flex flex-row flex-wrap items-center gap-2">
           {updates.length > 0 && (
             <DisabledTooltip
@@ -497,9 +645,8 @@ export default function InstalledMods({
               message={t('mods.noWritePermission')}
             >
               <Button
-                label={t('mods.installed.updateAll', {
-                  count: updates.length,
-                })}
+                label={t('mods.installed.updateAll')}
+                badge={<CountBadge count={updates.length} />}
                 icon={faCircleUp}
                 intention="primary"
                 loading={updatingAll}
@@ -551,7 +698,14 @@ export default function InstalledMods({
             : t('mods.installed.empty.mod')}
         </div>
       ) : (
-        <div className="flex flex-col overflow-hidden rounded-lg border border-gray-faded/30 child:border-b child:border-gray-faded/30 child:last:border-b-0">
+        <div className="@container flex flex-col overflow-hidden rounded-lg border border-gray-faded/30 child:border-b child:border-gray-faded/30 child:last:border-b-0">
+          <ListHeader
+            className="bg-gray-800 px-4 pt-2"
+            columns={[
+              { label: t('values.key.size'), width: 'size' },
+              { label: t('values.key.added'), width: 'date' },
+            ]}
+          />
           {list.mods.map((mod) => (
             <ModRow
               key={mod.file_name}
@@ -561,7 +715,7 @@ export default function InstalledMods({
               mod={mod}
               canWrite={canWrite}
               onDelete={setToDelete}
-              blame={blameLabel(history, list.directory, mod.file_name)}
+              blame={blameOf(history, list.directory, mod.file_name)}
             />
           ))}
         </div>

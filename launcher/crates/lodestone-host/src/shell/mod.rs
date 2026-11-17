@@ -302,8 +302,8 @@ impl HostShell {
             )
     }
 
-    /// The window's title: the page (or the Settings' page), then the app (the
-    /// dashboard's `pageTitle`).
+    /// The window's title: the server and its tab (or the Settings' page), then the
+    /// app.
     fn title(&self, cx: &Context<Self>) -> String {
         if let Some(page) = self.settings_open() {
             return format!("{} – {}", settings::page_name(page), crate::APP_NAME);
@@ -316,7 +316,8 @@ impl HostShell {
                     if *tab == InstanceTab::Overview {
                         instance.name.clone()
                     } else {
-                        format!("{} – {}", sidebar::tab_name(*tab, instance), instance.name)
+                        // the server first, so it shows when the title is cut short
+                        format!("{} – {}", instance.name, sidebar::tab_name(*tab, instance))
                     }
                 })
             }

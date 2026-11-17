@@ -131,6 +131,8 @@ pub struct Button {
     align: Align,
     icon: Option<Icon>,
     icon_right: Option<Icon>,
+    /// A count after the label, as a [`CountBadge`](super::CountBadge).
+    count: Option<u64>,
     disabled: bool,
     loading: bool,
     full_width: bool,
@@ -152,6 +154,7 @@ impl Button {
             align: Align::default(),
             icon: None,
             icon_right: None,
+            count: None,
             disabled: false,
             loading: false,
             full_width: false,
@@ -191,6 +194,12 @@ impl Button {
 
     pub fn icon_right(mut self, icon: Icon) -> Self {
         self.icon_right = Some(icon);
+        self
+    }
+
+    /// A count after the label ("History 7"), in place of "(7)" in the label.
+    pub fn count(mut self, count: u64) -> Self {
+        self.count = Some(count);
         self
     }
 
@@ -411,6 +420,9 @@ impl RenderOnce for Button {
                 this.child(icon.render(icon_size, icon_color))
             })
             .child(label)
+            .when_some(self.count, |this, count| {
+                this.child(super::CountBadge::new(count))
+            })
             .when_some(self.icon_right, |this, icon| {
                 this.child(icon.render(icon_size, icon_color))
             })
@@ -523,6 +535,8 @@ pub struct IconButton {
     color: Option<Color>,
     /// A smaller button, for one inside a line of text (a link beside a name).
     small: bool,
+    /// Round and borderless, for one inside a pill (a notice's dismiss button).
+    round: bool,
     on_click: Option<ClickHandler>,
 }
 
@@ -535,8 +549,15 @@ impl IconButton {
             label: None,
             color: None,
             small: false,
+            round: false,
             on_click: None,
         }
+    }
+
+    /// Round and borderless, its background only on hover: for one inside a pill.
+    pub fn round(mut self) -> Self {
+        self.round = true;
+        self
     }
 
     /// A smaller button that fits a line of text: a 10px icon with less padding.
@@ -600,10 +621,16 @@ impl RenderOnce for IconButton {
             .justify_center()
             // p-1.5 around a 1em-high icon, at text-medium (less for a small one).
             .p(px(if self.small { 3. } else { 6. }))
-            .rounded(radius::DEFAULT)
-            .bg(colors::GRAY_800)
-            .border_1()
-            .border_color(colors::GRAY_FADED.opacity(30))
+            .map(|this| {
+                if self.round {
+                    this.rounded_full()
+                } else {
+                    this.rounded(radius::DEFAULT)
+                        .bg(colors::GRAY_800)
+                        .border_1()
+                        .border_color(colors::GRAY_FADED.opacity(30))
+                }
+            })
             .when(self.disabled, |this| this.opacity(0.4))
             .when(!self.disabled, |this| {
                 this.cursor_pointer()

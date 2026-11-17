@@ -7,13 +7,16 @@ const ContextMenuButton = forwardRef(
     {
       label,
       subLabel,
+      caption,
       disabled = false,
       className,
       onClick,
       iconComponent,
     }: {
       label: string;
-      subLabel?: string,
+      subLabel?: string;
+      /** what the action goes to (an archive or folder name), in mono under the label */
+      caption?: string;
       disabled?: boolean;
       className?: string;
       onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void;
@@ -24,33 +27,50 @@ const ContextMenuButton = forwardRef(
     return (
       <button
         className={myTwMerge(
-          'gap-1.5 rounded py-1 px-2 text-medium text-justify',
-          'text-white disabled:text-white/30 enabled:hover:text-on-accent enabled:ui-active:text-on-accent',
-          'font-medium ',
+          'gap-1.5 rounded px-2 py-1 text-justify text-medium',
+          'text-white enabled:hover:text-on-accent disabled:text-white/30 enabled:ui-active:text-on-accent',
+          'font-medium',
           'bg-blue enabled:hover:bg-blue-400 enabled:active:bg-blue-500 enabled:ui-active:bg-blue-400',
           'group flex',
-          'select-none flex-row flex-nowrap items-center',
+          'flex-row flex-nowrap items-center select-none',
           'leading-normal tracking-medium',
           'enabled:focus-visible:ring-blue-faded/50',
-          className,
+          className
         )}
 
         disabled={disabled}
         ref={ref}
-        type='button'
+        type="button"
         onClick={onClick}
       >
         <div className={`flex grow items-center truncate`}>
-          <span className={'truncate text-ellipsis' + clsx(!disabled && 'text-gray-300')}>
-            {label}
+          <span className="flex min-w-0 flex-col items-start">
+            <span
+              className={
+                'truncate text-ellipsis' + clsx(!disabled && 'text-gray-300')
+              }
+            >
+              {label}
+            </span>
+            {caption && (
+              <span
+                className="max-w-full truncate font-mono text-caption opacity-60"
+                title={caption}
+              >
+                {caption}
+              </span>
+            )}
           </span>
-          {subLabel &&
-            <span className={"ml-auto mr-0 text-small font-medium opacity-50" + 
-              clsx(!disabled && 'text-gray-300 group-hover:opacity-100')
-            }>
+          {subLabel && (
+            <span
+              className={
+                'mr-0 ml-auto text-small font-medium opacity-50' +
+                clsx(!disabled && 'text-gray-300 group-hover:opacity-100')
+              }
+            >
               {subLabel}
-            </span> 
-          }
+            </span>
+          )}
         </div>
         {iconComponent}
       </button>

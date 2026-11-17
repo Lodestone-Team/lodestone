@@ -8,8 +8,8 @@ use gpui::{AnyElement, Context, FocusHandle, IntoElement, div, prelude::*, px, r
 use launcher_control::paths::DataDirSource;
 
 use crate::{
-    components::{Button, ButtonVariant, Dialog},
-    i18n::{CommonMsg, ShellMsg as M, format, t, tr},
+    components::{Button, ButtonVariant, Dialog, ValueField},
+    i18n::{CommonMsg, FactMsg, ShellMsg as M, format, t, tr},
     theme::{self, colors, text},
 };
 
@@ -56,7 +56,7 @@ impl LauncherShell {
                 true
             }
             Err(err) => {
-                eprintln!("lodestone-launcher: couldn't restart: {err}");
+                log::error!("couldn't restart into the moved data folder: {err}");
                 false
             }
         }
@@ -205,10 +205,18 @@ impl LauncherShell {
     ) -> AnyElement {
         // No ×: the launcher can't go on without its data.
         Dialog::new("data-folder-missing", t(M::DataFolderMissingTitle), focus)
+            // the folder in a field to copy, out of the sentence
             .child(
                 div()
+                    .flex()
+                    .flex_col()
+                    .gap_3()
                     .text_color(crate::theme::ink::secondary())
-                    .child(tr!(M::DataFolderMissingBody, path = path.display())),
+                    .child(
+                        ValueField::new("data-folder-missing-path", path.display().to_string())
+                            .label(t(FactMsg::Folder)),
+                    )
+                    .child(div().whitespace_normal().child(t(M::DataFolderMissingBody))),
             )
             .footer(
                 Button::new("data-folder-try-again", t(CommonMsg::TryAgain))
@@ -254,14 +262,11 @@ pub fn finish_pending_move() {
     };
     match launcher_core::data_move::finish_pending(&location.default, &location.dir) {
         launcher_core::data_move::Finished::Removed(path) => {
-            eprintln!(
-                "lodestone-launcher: removed the old data folder {}",
-                path.display()
-            );
+            log::info!("removed the old data folder {}", path.display());
         }
         launcher_core::data_move::Finished::Failed { path, error } => {
-            eprintln!(
-                "lodestone-launcher: couldn't remove all of the old data folder {} (trying again next start): {error}",
+            log::warn!(
+                "couldn't remove all of the old data folder {} (trying again next start): {error}",
                 path.display()
             );
         }

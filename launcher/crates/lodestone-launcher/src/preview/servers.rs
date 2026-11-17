@@ -578,10 +578,7 @@ fn apply_servers(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) 
                 ],
                 Vec::new(),
             );
-            servers.preview_notice(
-                "Signed out of Peter's Lodestone Core",
-                &CoreError::SignedOut.to_string(),
-            );
+            servers.preview_signed_out("Peter's Lodestone Core");
         }
         "servers-certificate" => {
             servers.preview(

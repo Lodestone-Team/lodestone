@@ -34,8 +34,14 @@ use lodestone_minecraft::{
     modrinth::{ModrinthProject, RawVersion},
 };
 
-use super::{About, Instances, InstancesEvent};
-use crate::i18n::{InstancesMsg as M, InstancesPlural as P, t, tr, trn};
+use super::{
+    About, Instances, InstancesEvent,
+    report::{Report, ReportValue},
+};
+use crate::{
+    components::Kind,
+    i18n::{FactMsg, InstancesMsg as M, InstancesPlural as P, t, tr, trn},
+};
 
 /// A modpack import's or update's progress label, in the interface's language.
 /// `launcher-core` writes its labels in English ("Downloading 212 files", "Backing
@@ -219,25 +225,21 @@ struct Source {
     share: Option<ShareCode>,
 }
 
-/// The pack's "ready" message, and what of a share code couldn't be installed.
-fn share_message(ready: String, outcome: &ShareOutcome) -> String {
-    if outcome.failed.is_empty() {
-        return ready;
-    }
-    tr!(
-        M::TwoSentences,
-        first = ready,
-        second = tr!(
-            M::ShareCodeNotInstalled,
-            names = crate::i18n::format::list(
-                &outcome
-                    .failed
-                    .iter()
-                    .map(|(title, _)| title.clone())
-                    .collect::<Vec<_>>()
-            )
+/// What a share code installed, counted, and what it couldn't install, listed.
+fn share_report(report: Report, outcome: &ShareOutcome) -> Report {
+    report
+        .fact(
+            t(FactMsg::Installed),
+            ReportValue::Count(outcome.installed.len() as u64),
         )
-    )
+        .mods(
+            t(M::NotInstalled),
+            outcome
+                .failed
+                .iter()
+                .map(|(title, _)| title.clone())
+                .collect(),
+        )
 }
 
 /// The loader the instance gets for a pack, with Forge's list for old Forge builds.
@@ -498,7 +500,7 @@ impl Instances {
                 outcome
             })
         };
-        let instance_name = name.clone();
+        let instance_id = id.clone();
         let about = About::Instance(id.clone());
         let task = cx.spawn(async move |this, cx| {
             let result = work.await;
@@ -507,29 +509,13 @@ impl Instances {
                 this.reload(cx);
                 match result {
                     Ok(outcome) => {
-                        let installed = trn!(P::ShareCodeInstalled, outcome.installed.len());
-                        let message = match outcome.failed.len() {
-                            0 => installed,
-                            _ => tr!(
-                                M::TwoSentences,
-                                first = installed,
-                                second = tr!(
-                                    M::ShareCodeNotInstalled,
-                                    names = crate::i18n::format::list(
-                                        &outcome
-                                            .failed
-                                            .iter()
-                                            .map(|(title, _)| title.clone())
-                                            .collect::<Vec<_>>()
-                                    )
-                                )
-                            ),
-                        };
-                        cx.emit(InstancesEvent::Notice {
-                            title: tr!(M::ShareCodeReady, name = instance_name).into(),
-                            message: message.into(),
-                            about: about.clone(),
-                        });
+                        let mut report = Report::new(t(M::InstanceReady), about.clone());
+                        if let Ok(instance) = this.store.get(&instance_id) {
+                            report = report.instance(instance);
+                        }
+                        cx.emit(InstancesEvent::Report(Box::new(share_report(
+                            report, &outcome,
+                        ))));
                     }
                     Err(err) => cx.emit(InstancesEvent::LaunchFailed {
                         title: t(M::ShareCodeContentFailed).into(),
@@ -725,41 +711,28 @@ impl Instances {
                             this.pending_downloads.insert(instance.id.clone(), blocked);
                         }
                         this.reload(cx);
-                        let ready = tr!(
-                            M::ModpackReadyMessage,
-                            version = instance.game_version,
-                            loader = super::loader_label(&instance),
-                        );
-                        let mut message = match pack.skipped.first() {
-                            None => ready,
-                            Some(first) => tr!(
-                                M::TwoSentences,
-                                first = ready,
-                                second = trn!(
-                                    P::PackFilesLeftOut,
-                                    pack.skipped.len(),
-                                    path = first.path
-                                )
-                            ),
-                        };
+                        // the instance in a card with its game and loader; files left
+                        // out and content not installed are counted lists
+                        let mut body = t(M::PressPlayToDownload).to_string();
                         if to_download > 0 {
-                            message = tr!(
+                            body = tr!(
                                 M::TwoSentences,
-                                first = message,
+                                first = body,
                                 second = trn!(P::PackFilesToDownload, to_download)
                             );
                         }
+                        let report = Report::new(t(M::InstanceReady), About::Import(id))
+                            .instance(instance.clone())
+                            .body(body)
+                            .files(
+                                t(M::LeftOutOfPack),
+                                pack.skipped.iter().map(|file| file.path.clone()).collect(),
+                            );
                         match shared {
-                            None => cx.emit(InstancesEvent::Notice {
-                                title: tr!(M::ModpackReady, name = instance.name).into(),
-                                message: message.into(),
-                                about: About::Import(id),
-                            }),
-                            Some(Ok(outcome)) => cx.emit(InstancesEvent::Notice {
-                                title: tr!(M::ShareCodeReady, name = instance.name).into(),
-                                message: share_message(message, &outcome).into(),
-                                about: About::Import(id),
-                            }),
+                            None => cx.emit(InstancesEvent::Report(Box::new(report))),
+                            Some(Ok(outcome)) => cx.emit(InstancesEvent::Report(Box::new(
+                                share_report(report, &outcome),
+                            ))),
                             Some(Err(err)) => cx.emit(InstancesEvent::LaunchFailed {
                                 title: t(M::ShareCodeContentFailed).into(),
                                 message: err.into(),
@@ -1039,28 +1012,43 @@ impl Instances {
                             instance.recommended_memory = plan.recommended_memory;
                             instance
                         });
-                        let saved = saved
-                            .map_err(|e| e.to_string())
-                            .and_then(|i| this.save(&i, cx));
+                        let saved = saved.map_err(|e| e.to_string()).and_then(|i| {
+                            this.save(&i, cx)?;
+                            Ok(i)
+                        });
                         // After the new loader version is saved, so the image has it. The
                         // files changed either way: a failed save is still recorded.
                         operation.succeed();
-                        let message = match saved {
-                            Ok(()) => tr!(
-                                M::ModpackUpdatedMessage,
-                                name = prompt.instance_name,
-                                pack = plan.record.title,
-                                version = plan.record.version_number,
-                                path = outcome.snapshot.display(),
-                            ),
-                            Err(err) => tr!(M::UpdatedButNotSaved, error = err),
-                        };
                         cx.emit(InstancesEvent::LoaderChanged(id.clone()));
-                        cx.emit(InstancesEvent::Notice {
-                            title: t(M::ModpackUpdated).into(),
-                            message: message.into(),
-                            about: About::Instance(id.clone()),
-                        });
+                        match saved {
+                            // the instance, the pack and its version, and where the files
+                            // it replaced are kept, each set apart
+                            Ok(instance) => cx.emit(InstancesEvent::Report(Box::new(
+                                Report::new(t(M::ModpackUpdated), About::Instance(id.clone()))
+                                    .instance(instance)
+                                    .fact(
+                                        t(FactMsg::Modpack),
+                                        ReportValue::Object(
+                                            plan.record.title.clone(),
+                                            Kind::Modpack,
+                                        ),
+                                    )
+                                    .fact(
+                                        t(FactMsg::Version),
+                                        ReportValue::Version(plan.record.version_number.clone()),
+                                    )
+                                    .fact(
+                                        t(M::ReplacedFiles),
+                                        ReportValue::Path(outcome.snapshot.clone()),
+                                    )
+                                    .body(t(M::ReplacedFilesKept)),
+                            ))),
+                            Err(err) => cx.emit(InstancesEvent::Notice {
+                                title: t(M::ModpackUpdated).into(),
+                                message: tr!(M::UpdatedButNotSaved, error = err).into(),
+                                about: About::Instance(id.clone()),
+                            }),
+                        }
                     }
                     // What a failed or cancelled update changed is its own image.
                     Err(ModpackError::Cancelled) => operation.succeed_part_way(),
@@ -1293,23 +1281,26 @@ impl Instances {
                                 .or_default()
                                 .extend(prompt.blocked.clone());
                         }
-                        let mut message = tr!(
-                            M::ModpackAddedMessage,
-                            pack = added.record.title,
-                            name = prompt.instance_name,
-                        );
+                        // the instance in a card, the pack as a keyed fact of its own
+                        let mut body = t(M::PressPlayToStart).to_string();
                         if to_download > 0 {
-                            message = tr!(
+                            body = tr!(
                                 M::TwoSentences,
-                                first = message,
+                                first = body,
                                 second = trn!(P::PackFilesToDownload, to_download)
                             );
                         }
-                        cx.emit(InstancesEvent::Notice {
-                            title: t(M::ModpackAdded).into(),
-                            message: message.into(),
-                            about: About::Instance(id.clone()),
-                        });
+                        let mut report =
+                            Report::new(t(M::ModpackAdded), About::Instance(id.clone()))
+                                .fact(
+                                    t(FactMsg::Modpack),
+                                    ReportValue::Object(added.record.title.clone(), Kind::Modpack),
+                                )
+                                .body(body);
+                        if let Ok(instance) = this.store.get(&id) {
+                            report = report.instance(instance);
+                        }
+                        cx.emit(InstancesEvent::Report(Box::new(report)));
                     }
                     Err(ModpackError::Cancelled) => {}
                     Err(err) => cx.emit(InstancesEvent::LaunchFailed {

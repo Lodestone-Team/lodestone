@@ -3,8 +3,15 @@ use crate::i18n::{InstancesMsg as M, InstancesPlural as P};
 pub fn text(message: M) -> &'static str {
     match message {
         M::TwoSentences => "{first}{second}",
-        M::ShareCodeReady => "{name} 已就绪",
-        M::ShareCodeNotInstalled => "未安装：{names}。",
+        M::InstanceReady => "实例已就绪",
+        M::PressPlayToDownload => "按“开始游戏”即可下载并启动游戏。",
+        M::PressPlayToStart => "按“开始游戏”即可启动。",
+        M::NotInstalled => "未安装",
+        M::LeftOutOfPack => "整合包中被跳过的文件",
+        M::StayedBehind => "未复制的模组",
+        M::NeededNotInstalled => "所需但无法安装的模组",
+        M::ReplacedFiles => "被替换的文件",
+        M::ReplacedFilesKept => "更新所替换的文件保存在那里，以备你需要找回。",
         M::ShareCodeContentFailed => "无法安装分享码中的内容",
         M::ShareCodeOffline => "无法连接 Modrinth，因此创建的实例不含其内容。",
         M::TitleAndMessage => "{title}：{message}",
@@ -57,7 +64,7 @@ pub fn text(message: M) -> &'static str {
         M::RosettaMissing => {
             "此 Minecraft 版本需要 Intel（x86_64）Java，它在 Apple Silicon 上通过 Rosetta 2 运行。Rosetta 尚未安装。请在“终端”中运行以下命令安装，然后再次点击“开始游戏”：\n\nsoftwareupdate --install-rosetta"
         }
-        M::RosettaNoticeTitle => "Minecraft {version} 通过 Rosetta 2 运行",
+        M::RosettaNoticeTitle => "通过 Rosetta 2 运行",
         M::RosettaNoticeBody => {
             "Mojang 没有为此版本需要的部分库制作 Apple 芯片版本，因此它会通过 Rosetta 2 在 Intel 版 Java 中运行。启动会慢一些，之后可以正常游玩。Minecraft 1.14 及更高版本会原生运行。"
         }
@@ -102,12 +109,12 @@ pub fn text(message: M) -> &'static str {
         M::LogSource => "要显示的日志",
         M::LogThisSession => "本次运行",
         M::LogNoFiles => "还没有以前的日志或崩溃报告。",
-        M::LogKindLog => "日志",
-        M::LogKindCrash => "崩溃报告",
-        M::LogKindJvm => "Java 崩溃",
         M::LogReading => "正在读取 {name}",
         M::LogReadFailed => "无法读取 {name}：{error}",
         M::LogFileEmpty => "此文件为空。",
+        M::LogLines => "行数",
+        M::LogLinesNotShown => "未显示",
+        M::LogFollowing => "跟随中",
 
         M::ImportTitle => "从其他启动器导入",
         M::ImportFromHere => "从此处导入",
@@ -115,6 +122,7 @@ pub fn text(message: M) -> &'static str {
         M::NewestRelease => "最新正式版",
         M::NewestSnapshot => "最新快照版",
         M::NoInstances => "没有实例。",
+        M::ToCopy => "待复制",
         M::LookingForLaunchers => "正在查找其他启动器",
         M::NoLaunchersFound => {
             "在常见位置未找到其他启动器。请选择某个启动器或实例的文件夹以从中导入。"
@@ -127,7 +135,6 @@ pub fn text(message: M) -> &'static str {
         M::MatchingModrinth => "正在将模组和资源包与 Modrinth 匹配",
         M::CheckToImport => "勾选要导入的实例。其文件会被复制，原启动器中的文件保持不变。",
         M::LeaveWorldsOut => "不导入世界",
-        M::LeaveWorldsOutSize => "不导入世界（{size}）",
         M::Import => "导入",
         M::ChooseFolder => "选择文件夹…",
         M::StopImportingTitle => "停止导入？",
@@ -147,22 +154,15 @@ pub fn text(message: M) -> &'static str {
         }
         M::Modpack => "整合包",
         M::ReadingModpack => "正在读取整合包",
-        M::ModpackReady => "{name} 已就绪",
-        M::ModpackReadyMessage => {
-            "Minecraft {version}，使用 {loader}。点击“开始游戏”即可下载并启动游戏。"
-        }
         M::CouldntImportModpack => "无法导入整合包",
         M::CouldntUpdateModpack => "无法更新整合包",
         M::StopGameFirst => "请先停止游戏。",
         M::FinishFinderFirst => "请先完成“帮我找出来”的查找：它关闭了部分模组。",
         M::ModpackUpdated => "整合包已更新",
-        M::ModpackUpdatedMessage => {
-            "{name} 现在运行 {pack} {version}。被替换的文件已保存在 {path}。"
-        }
         M::UpdatedButNotSaved => "文件已更新，但无法保存实例：{error}",
         M::DownloadingName => "正在下载 {name}",
         M::InstallingName => "正在安装 {name}",
-        M::CopyReady => "{name} 已就绪",
+        M::CopyReady => "副本已就绪",
         M::CouldntCopy => "无法创建副本",
         M::CopyingWorlds => "正在复制世界",
         M::CopyingPacksAndOptions => "正在复制资源包、光影和选项",
@@ -187,7 +187,6 @@ pub fn text(message: M) -> &'static str {
         M::KindPlugin => "插件",
         M::SearchingModrinth => "正在搜索 Modrinth",
         M::NoModpacksMatch => "没有匹配的整合包。",
-        M::ByAuthor => "作者 {author} · {downloads} 次下载",
         M::PickModpack => "选择一个整合包以查看其版本。",
         M::LoadingModpack => "正在加载整合包",
         M::Versions => "版本",
@@ -195,7 +194,7 @@ pub fn text(message: M) -> &'static str {
         M::NoVersions => "此整合包没有任何版本。",
         M::LoadingVersions => "正在加载版本",
         M::FindModButton => "帮我找出来",
-        M::FinderTitle => "找出导致“{name}”崩溃的模组",
+        M::FinderTitle => "找出导致游戏崩溃的模组",
         M::FinderIntro => {
             "启动器会多次启动游戏，每次禁用可能导致崩溃的模组中的一半，直到只剩下一个。完成后，你的模组会恢复原样。"
         }
@@ -210,7 +209,11 @@ pub fn text(message: M) -> &'static str {
         }
         M::FinderStart => "开始",
         M::FinderReading => "正在检查你的模组",
-        M::FinderTry => "第 {number} 次尝试",
+        M::FinderTryKey => "尝试",
+        M::FinderLeftKey => "待检查",
+        M::FinderOffKey => "已禁用",
+        M::FinderTriesLeftKey => "剩余尝试",
+        M::About => "约 {count}",
         M::FinderStarting => "正在启动游戏",
         M::FinderWaiting => "正在等待，看游戏是否崩溃",
         M::FinderSettling => "已进入主菜单，正在确认游戏不会关闭",
@@ -220,11 +223,11 @@ pub fn text(message: M) -> &'static str {
         M::FinderItCrashed => "崩溃了",
         M::FinderStopping => "正在停止游戏",
         M::FinderFound => "找到了",
-        M::FinderFoundOne => "禁用 {name} 后，游戏不会崩溃。",
-        M::FinderFoundGroup => {
-            "禁用这些模组后，游戏不会崩溃：{names}。它们相互依赖，只能一起禁用。"
-        }
-        M::FinderAlsoOff => "依赖它的模组也会保持禁用：{names}。",
+        M::FinderFoundOne => "禁用这个模组后，游戏不会崩溃。",
+        M::FinderFoundGroup => "禁用这些模组后，游戏不会崩溃。它们相互依赖，因此只能一起禁用。",
+        M::FinderAlsoOff => "需要它的模组也会保持禁用。",
+        M::FinderAlsoOffHeading => "同时禁用",
+        M::FinderFoundTogether => "一起禁用",
         M::FinderKeepOff => "保持禁用",
         M::FinderPutBack => "全部重新启用",
         M::FinderNotFound => {
@@ -236,8 +239,10 @@ pub fn text(message: M) -> &'static str {
         M::FinderFailed => "出了点问题，查找已停止。你的模组已恢复原样。",
         M::FinderStopped => "已停止查找。你的模组已恢复原样。",
         M::FinderStop => "停止",
-        M::FinderInterruptedTitle => "要完成在“{name}”中查找模组吗？",
-        M::FinderInterrupted => "启动器在查找中途关闭了，所以“{name}”的部分模组仍处于禁用状态。",
+        M::FinderInterruptedTitle => "要完成查找模组吗？",
+        M::FinderInterrupted => {
+            "Lodestone Launcher 在查找过程中禁用了，因此它的一些模组仍处于禁用状态。"
+        }
         M::FinderPutBackFailed => "部分模组无法重新启用：{error}",
 
         M::AddingName => "正在添加 {name}",
@@ -245,7 +250,6 @@ pub fn text(message: M) -> &'static str {
         M::ModpackAddedAlready => "此实例已添加 {pack}。要添加其他版本，请先在“设置”中将其移除。",
         M::CouldntAddModpack => "无法添加整合包",
         M::ModpackAdded => "整合包已添加",
-        M::ModpackAddedMessage => "{pack} 已添加到 {name}。按“开始游戏”即可启动。",
         M::CouldntRemoveModpack => "无法移除整合包",
         M::ModpackRemoved => "整合包已移除",
     }
@@ -265,23 +269,12 @@ pub fn plural(message: P) -> [&'static str; 2] {
                 2]
         }
         P::FilesLeftOut => ["有 {count} 个文件被跳过，例如 {name}。"; 2],
-        P::LogLinesSkipped => ["前 {count} 行未显示"; 2],
-        P::LinesShown => ["显示 {shown} 行，共 {count} 行"; 2],
-        P::LinesShownFollowing => ["显示 {shown} 行，共 {count} 行 · 自动滚动"; 2],
         P::ProblemAndMore => ["{problem}（另有 {count} 个问题）"; 2],
-        P::InstancesToCopy => ["将复制 {count} 个实例，共 {size}。"; 2],
         P::ImportInstances => ["导入 {count} 个实例"; 2],
-        P::ShareCodeInstalled => ["已从分享码安装 {count} 项内容。"; 2],
         P::PackFilesToDownload => {
             ["有 {count} 个文件需要从 CurseForge 网站下载：实例的“内容”标签页会列出它们。"; 2]
         }
-        P::PackFilesLeftOut => ["整合包中有 {count} 个文件被跳过，例如 {path}。"; 2],
         P::DownloadingFiles => ["正在下载 {count} 个文件"; 2],
-        P::CopyModsLeftBehind => ["{count} 个模组未复制：{names}。"; 2],
-        P::CopyDependenciesMissing => ["{count} 个所需的前置模组无法安装：{names}。"; 2],
-        P::FinderModsLeft => ["还有 {count} 个模组待检查"; 2],
-        P::FinderModsOff => ["已禁用 {count} 个模组"; 2],
-        P::FinderTriesLeft => ["大约还需 {count} 次尝试"; 2],
 
         P::AddedPackFilesRemoved => ["已移除 {pack} 的 {count} 个文件。"; 2],
         P::AddedPackFilesKept => ["你修改过的 {count} 个文件已保留。"; 2],

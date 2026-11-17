@@ -3,8 +3,17 @@ use crate::i18n::{InstancesMsg as M, InstancesPlural as P};
 pub fn text(message: M) -> &'static str {
     match message {
         M::TwoSentences => "{first} {second}",
-        M::ShareCodeReady => "{name} est prête",
-        M::ShareCodeNotInstalled => "Non installés\u{a0}: {names}.",
+        M::InstanceReady => "Instance prête",
+        M::PressPlayToDownload => "Appuyez sur Jouer pour télécharger le jeu et le lancer.",
+        M::PressPlayToStart => "Appuyez sur Jouer pour la lancer.",
+        M::NotInstalled => "Non installés",
+        M::LeftOutOfPack => "Laissés hors du pack",
+        M::StayedBehind => "Restés en arrière",
+        M::NeededNotInstalled => "Nécessaires mais non installés",
+        M::ReplacedFiles => "Fichiers remplacés",
+        M::ReplacedFilesKept => {
+            "Les fichiers remplacés par la mise à jour y sont gardés au cas où vous en auriez besoin."
+        }
         M::ShareCodeContentFailed => "Impossible d’installer le contenu du code de partage",
         M::ShareCodeOffline => {
             "Modrinth est injoignable\u{a0}: l’instance a été créée sans son contenu."
@@ -71,7 +80,7 @@ pub fn text(message: M) -> &'static str {
         M::RosettaMissing => {
             "Cette version de Minecraft a besoin d’un Java Intel (x86_64), qui s’exécute sur Apple Silicon grâce à Rosetta 2. Rosetta n’est pas installé. Installez-le en exécutant cette commande dans le Terminal, puis cliquez de nouveau sur Jouer\u{a0}:\n\nsoftwareupdate --install-rosetta"
         }
-        M::RosettaNoticeTitle => "Minecraft {version} s’exécute via Rosetta\u{a0}2",
+        M::RosettaNoticeTitle => "S’exécute via Rosetta\u{a0}2",
         M::RosettaNoticeBody => {
             "Mojang n’a pas fait de version Apple Silicon de certaines bibliothèques dont cette version a besoin\u{a0}: elle s’exécute donc dans un Java Intel grâce à Rosetta\u{a0}2. Elle met plus de temps à démarrer, puis fonctionne normalement. Minecraft 1.14 et les versions suivantes s’exécutent nativement."
         }
@@ -120,12 +129,12 @@ pub fn text(message: M) -> &'static str {
         M::LogSource => "Journal à afficher",
         M::LogThisSession => "Cette session",
         M::LogNoFiles => "Aucun journal ni rapport de plantage antérieur pour l’instant.",
-        M::LogKindLog => "Journal",
-        M::LogKindCrash => "Rapport de plantage",
-        M::LogKindJvm => "Plantage de Java",
         M::LogReading => "Lecture de {name}",
         M::LogReadFailed => "Impossible de lire {name} : {error}",
         M::LogFileEmpty => "Ce fichier est vide.",
+        M::LogLines => "Lignes",
+        M::LogLinesNotShown => "Non affichées",
+        M::LogFollowing => "En direct",
 
         M::ImportTitle => "Importer depuis un autre launcher",
         M::ImportFromHere => "Importer depuis ce dossier",
@@ -133,6 +142,7 @@ pub fn text(message: M) -> &'static str {
         M::NewestRelease => "La version stable la plus récente",
         M::NewestSnapshot => "Le snapshot le plus récent",
         M::NoInstances => "Aucune instance.",
+        M::ToCopy => "À copier",
         M::LookingForLaunchers => "Recherche des autres launchers",
         M::NoLaunchersFound => {
             "Aucun autre launcher n’a été trouvé aux emplacements habituels. Choisissez le dossier d’un launcher, ou celui d’une instance, pour importer depuis celui-ci."
@@ -147,7 +157,6 @@ pub fn text(message: M) -> &'static str {
             "Cochez les instances à importer. Leurs fichiers sont copiés\u{202F}; l’autre launcher garde les siens."
         }
         M::LeaveWorldsOut => "Ne pas copier les mondes",
-        M::LeaveWorldsOutSize => "Ne pas copier les mondes ({size})",
         M::Import => "Importer",
         M::ChooseFolder => "Choisir un dossier…",
         M::StopImportingTitle => "Arrêter l’importation\u{202F}?",
@@ -169,10 +178,6 @@ pub fn text(message: M) -> &'static str {
         }
         M::Modpack => "Modpack",
         M::ReadingModpack => "Lecture du modpack",
-        M::ModpackReady => "L’instance {name} est prête",
-        M::ModpackReadyMessage => {
-            "Minecraft {version} avec {loader}. Cliquez sur Jouer pour télécharger le jeu et le démarrer."
-        }
         M::CouldntImportModpack => "Impossible d’importer le modpack",
         M::CouldntUpdateModpack => "Impossible de mettre à jour le modpack",
         M::StopGameFirst => "Arrêtez d’abord le jeu.",
@@ -180,15 +185,12 @@ pub fn text(message: M) -> &'static str {
             "Terminez d’abord la recherche Le trouver pour moi\u{a0}: elle a désactivé une partie des mods."
         }
         M::ModpackUpdated => "Modpack mis à jour",
-        M::ModpackUpdatedMessage => {
-            "{name} utilise maintenant {pack} {version}. Les fichiers remplacés sont conservés dans {path}."
-        }
         M::UpdatedButNotSaved => {
             "Les fichiers ont été mis à jour, mais l’instance n’a pas pu être enregistrée\u{a0}: {error}"
         }
         M::DownloadingName => "Téléchargement de {name}",
         M::InstallingName => "Installation de {name}",
-        M::CopyReady => "L’instance {name} est prête",
+        M::CopyReady => "Copie prête",
         M::CouldntCopy => "Impossible de faire la copie",
         M::CopyingWorlds => "Copie des mondes",
         M::CopyingPacksAndOptions => "Copie des packs de ressources, des shaders et des options",
@@ -215,7 +217,6 @@ pub fn text(message: M) -> &'static str {
         M::KindPlugin => "plugin",
         M::SearchingModrinth => "Recherche sur Modrinth",
         M::NoModpacksMatch => "Aucun modpack ne correspond.",
-        M::ByAuthor => "par {author} · {downloads}\u{a0}téléchargements",
         M::PickModpack => "Choisissez un modpack pour voir ses versions.",
         M::LoadingModpack => "Chargement du modpack",
         M::Versions => "Versions",
@@ -223,7 +224,7 @@ pub fn text(message: M) -> &'static str {
         M::NoVersions => "Ce modpack n’a aucune version.",
         M::LoadingVersions => "Chargement des versions",
         M::FindModButton => "Le trouver pour moi",
-        M::FinderTitle => "Trouver le mod qui fait planter {name}",
+        M::FinderTitle => "Trouver le mod qui fait planter le jeu",
         M::FinderIntro => {
             "Lodestone Launcher va lancer le jeu plusieurs fois, en désactivant à chaque fois la moitié des mods qui pourraient causer le plantage, jusqu’à ce qu’il n’en reste qu’un. Ensuite, vos mods reviennent comme avant."
         }
@@ -238,7 +239,11 @@ pub fn text(message: M) -> &'static str {
         }
         M::FinderStart => "Commencer",
         M::FinderReading => "Vérification de vos mods",
-        M::FinderTry => "Essai {number}",
+        M::FinderTryKey => "Essai",
+        M::FinderLeftKey => "Restant à vérifier",
+        M::FinderOffKey => "Désactivés",
+        M::FinderTriesLeftKey => "Essais restants",
+        M::About => "Environ {count}",
         M::FinderStarting => "Lancement du jeu",
         M::FinderWaiting => "En attente d’un éventuel plantage",
         M::FinderSettling => "Le menu principal est atteint. Vérification que le jeu reste ouvert",
@@ -250,11 +255,13 @@ pub fn text(message: M) -> &'static str {
         M::FinderItCrashed => "Il a planté",
         M::FinderStopping => "Arrêt du jeu",
         M::FinderFound => "Trouvé",
-        M::FinderFoundOne => "Le jeu ne plante pas quand {name} est désactivé.",
+        M::FinderFoundOne => "Le jeu ne plante pas quand ce mod est désactivé.",
         M::FinderFoundGroup => {
-            "Le jeu ne plante pas quand ceux-ci sont désactivés\u{a0}: {names}. Ils dépendent les uns des autres, donc ils ne peuvent être désactivés qu’ensemble."
+            "Le jeu ne plante pas quand ceux-ci sont désactivés. Ils dépendent les uns des autres, donc ils ne peuvent être désactivés qu’ensemble."
         }
-        M::FinderAlsoOff => "Les mods qui en ont besoin restent aussi désactivés\u{a0}: {names}.",
+        M::FinderAlsoOff => "Les mods qui en ont besoin restent désactivés aussi.",
+        M::FinderAlsoOffHeading => "Désactivés aussi",
+        M::FinderFoundTogether => "Désactivés ensemble",
         M::FinderKeepOff => "Le garder désactivé",
         M::FinderPutBack => "Tout réactiver",
         M::FinderNotFound => {
@@ -268,9 +275,9 @@ pub fn text(message: M) -> &'static str {
         }
         M::FinderStopped => "Recherche arrêtée. Vos mods sont revenus comme avant.",
         M::FinderStop => "Arrêter",
-        M::FinderInterruptedTitle => "Terminer la recherche du mod dans {name}\u{202F}?",
+        M::FinderInterruptedTitle => "Terminer la recherche du mod\u{202F}?",
         M::FinderInterrupted => {
-            "Lodestone Launcher s’est fermé au milieu d’une recherche, donc certains mods de {name} sont encore désactivés."
+            "Lodestone Launcher s’est fermé au milieu d’une recherche, donc certains de ses mods sont encore désactivés."
         }
         M::FinderPutBackFailed => "Certains mods n’ont pas pu être réactivés\u{a0}: {error}",
 
@@ -281,7 +288,6 @@ pub fn text(message: M) -> &'static str {
         }
         M::CouldntAddModpack => "Impossible d’ajouter le modpack",
         M::ModpackAdded => "Modpack ajouté",
-        M::ModpackAddedMessage => "{pack} a été ajouté à {name}. Appuyez sur Jouer pour la lancer.",
         M::CouldntRemoveModpack => "Impossible de retirer le modpack",
         M::ModpackRemoved => "Modpack retiré",
     }
@@ -313,56 +319,18 @@ pub fn plural(message: P) -> [&'static str; 2] {
             "{count} fichier a été ignoré\u{a0}: {name}.",
             "{count} fichiers ont été ignorés, par exemple {name}.",
         ],
-        P::LogLinesSkipped => [
-            "{count} ligne au début n’est pas affichée",
-            "les {count} premières lignes ne sont pas affichées",
-        ],
-        P::LinesShown => ["{shown} ligne sur {count}", "{shown} lignes sur {count}"],
-        P::LinesShownFollowing => [
-            "{shown} ligne sur {count} · suivi en direct",
-            "{shown} lignes sur {count} · suivi en direct",
-        ],
         P::ProblemAndMore => [
             "{problem} (et {count} autre)",
             "{problem} (et {count} autres)",
         ],
-        P::InstancesToCopy => [
-            "{count} instance à copier, {size}.",
-            "{count} instances à copier, {size}.",
-        ],
         P::ImportInstances => ["Importer {count} instance", "Importer {count} instances"],
-        P::ShareCodeInstalled => [
-            "{count} élément installé depuis le code.",
-            "{count} éléments installés depuis le code.",
-        ],
         P::PackFilesToDownload => [
             "{count} fichier doit être téléchargé depuis le site de CurseForge\u{a0}: l’onglet Contenu de l’instance l’affiche.",
             "{count} fichiers doivent être téléchargés depuis le site de CurseForge\u{a0}: l’onglet Contenu de l’instance les affiche.",
         ],
-        P::PackFilesLeftOut => [
-            "{count} fichier du pack a été ignoré\u{a0}: {path}.",
-            "{count} fichiers du pack ont été ignorés, par exemple {path}.",
-        ],
         P::DownloadingFiles => [
             "Téléchargement de {count} fichier",
             "Téléchargement de {count} fichiers",
-        ],
-        P::CopyModsLeftBehind => [
-            "{count}\u{a0}mod n’a pas été copié\u{a0}: {names}.",
-            "{count}\u{a0}mods n’ont pas été copiés\u{a0}: {names}.",
-        ],
-        P::CopyDependenciesMissing => [
-            "{count}\u{a0}mod dont ils ont besoin n’a pas pu être installé\u{a0}: {names}.",
-            "{count}\u{a0}mods dont ils ont besoin n’ont pas pu être installés\u{a0}: {names}.",
-        ],
-        P::FinderModsLeft => [
-            "{count} mod reste à vérifier",
-            "{count} mods restent à vérifier",
-        ],
-        P::FinderModsOff => ["{count} mod désactivé", "{count} mods désactivés"],
-        P::FinderTriesLeft => [
-            "Environ {count} essai de plus",
-            "Environ {count} essais de plus",
         ],
 
         P::AddedPackFilesRemoved => [

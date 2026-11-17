@@ -15,6 +15,7 @@
 //! `AF_UNIX` sockets too: the socket file inherits the data folder's permissions, and
 //! the other end's user is the SID of the process the socket names.
 
+pub mod logs;
 pub mod paths;
 pub mod protocol;
 

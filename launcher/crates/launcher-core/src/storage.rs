@@ -88,7 +88,9 @@ pub fn load<T: Document>(path: &Path) -> Result<Loaded<T>, StorageError> {
         path: path.to_owned(),
         reason,
     };
-    let value: Value = serde_json::from_slice(&bytes).map_err(|err| corrupt(err.to_string()))?;
+    // The reason is shown and logged: serde's text without the values it quotes.
+    let value: Value =
+        serde_json::from_slice(&bytes).map_err(|err| corrupt(crate::logging::serde_error(&err)))?;
     let Value::Object(mut fields) = value else {
         return Err(corrupt("expected a JSON object".into()));
     };
@@ -108,8 +110,8 @@ pub fn load<T: Document>(path: &Path) -> Result<Loaded<T>, StorageError> {
     }
     let fields = migrate(fields, version as usize, T::MIGRATIONS)
         .map_err(|err| corrupt(format!("{err:#}")))?;
-    let document =
-        serde_json::from_value(Value::Object(fields)).map_err(|err| corrupt(err.to_string()))?;
+    let document = serde_json::from_value(Value::Object(fields))
+        .map_err(|err| corrupt(crate::logging::serde_error(&err)))?;
     Ok(Loaded {
         document,
         file_version: Some(version),

@@ -73,10 +73,16 @@ pub enum SyncError {
     BaseFileMissing(String),
     /// The view is for another Minecraft version or loader than the instance: those are
     /// fixed when an instance is made.
+    /// Each side's Minecraft version and loader ("Fabric 0.16.10", or "Vanilla").
     #[error(
-        "The server now runs {game}, and this instance is for {instance}. Make a new instance for the server."
+        "The server now runs Minecraft {server_game} with {server_loader}, and this instance is for Minecraft {instance_game} with {instance_loader}. Make a new instance for the server."
     )]
-    GameChanged { game: String, instance: String },
+    GameChanged {
+        server_game: String,
+        server_loader: String,
+        instance_game: String,
+        instance_loader: String,
+    },
     /// The instance applied a view from this server, which now answers 404 on
     /// `…/image`: not taken for an older core, whose `.mrpack` fallback may place files
     /// where a view can't ("M4b decisions", "The fallback").

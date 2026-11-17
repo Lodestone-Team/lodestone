@@ -41,6 +41,21 @@ impl CoreClient {
         if key.is_empty() || !key.chars().all(|c| c.is_ascii_alphanumeric()) {
             return Err(CoreError::Invalid("the download key isn't valid".into()));
         }
+        // The key is all a download needs, for an hour: an error naming the URL (a
+        // transport error does) mustn't carry it to a toast or the log.
+        self.download_with_key(key, out, limit, progress, cancel)
+            .await
+            .map_err(|err| err.without(key))
+    }
+
+    async fn download_with_key(
+        &self,
+        key: &str,
+        out: &Path,
+        limit: u64,
+        progress: &Progress,
+        cancel: &CancelToken,
+    ) -> Result<u64, CoreError> {
         let url = self.url(&format!("file/{key}"));
         // through the core's pinned certificate, like every other request
         let response = unless_cancelled(
@@ -172,6 +187,30 @@ fn partial_path(out: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_failed_download_never_names_its_key() {
+        let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = closed.local_addr().unwrap().port();
+        drop(closed);
+        let client = super::super::CoreClient::new(
+            crate::http::default_client().unwrap(),
+            url::Url::parse(&format!("http://127.0.0.1:{port}")).unwrap(),
+        );
+        let dir = tempfile::tempdir().unwrap();
+        let key = "Ab3dE5gH7jK9mN1pQ3sT5vW7yZ9bC1dE";
+        let err = futures::executor::block_on(client.download_file(
+            key,
+            &dir.path().join("out.zip"),
+            1024,
+            &Progress::default(),
+            &CancelToken::default(),
+        ))
+        .unwrap_err();
+        assert!(err.is_offline(), "{err}");
+        assert!(!err.to_string().contains(key), "{err}");
+        assert!(!format!("{err:?}").contains(key), "{err:?}");
+    }
 
     #[test]
     fn a_download_replaces_the_file_only_once_complete() {

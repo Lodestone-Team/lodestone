@@ -12,7 +12,8 @@ import clsx from 'clsx';
 import { useVirtualizer, VirtualItem } from '@tanstack/react-virtual';
 import { VirtualizedList } from '../../../Atoms/Form/ComboField';
 import { Skeleton, SkeletonGroup } from 'components/Atoms/Skeleton';
-import { useT } from 'i18n';
+import { useI18n } from 'i18n';
+import { MonoValue } from 'components/Atoms/Values';
 
 /**
  * A combo box field that allows the user to select from a list of options, or
@@ -54,7 +55,7 @@ export default function FormComboField(props: ComboFieldProps) {
     filterOptions = defaultFilterOptions,
     ...rest
   } = props;
-  const t = useT();
+  const { t, rich } = useI18n();
   const [field, meta] = useField(props);
   const { value: selectedValue } = field;
   const [query, setQuery] = useState('');
@@ -216,7 +217,9 @@ export default function FormComboField(props: ComboFieldProps) {
                       >
                         <div className="flex flex-row justify-between">
                           <span className="block truncate pr-1">
-                            {t('create.combo.add', { query })}
+                            {rich('create.combo.add', {
+                              query: <MonoValue>{query}</MonoValue>,
+                            })}
                           </span>
                         </div>
                       </Combobox.Option>

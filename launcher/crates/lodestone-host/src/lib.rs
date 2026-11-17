@@ -22,6 +22,7 @@ pub mod instance_icons;
 pub mod keychain;
 pub mod local_core;
 pub mod login_item;
+pub mod logs;
 pub mod notifications;
 pub mod onboarding;
 pub mod pages;
@@ -94,6 +95,12 @@ pub fn init(cx: &mut App) {
     lodestone_ui::init(cx);
     lodestone_ui::components::settings::set_english_lookup(i18n::english_of);
     prefs::Prefs::init(cx);
+    // A clean quit: the next start shows no crash notice.
+    cx.on_app_quit(|_| {
+        launcher_core::logging::end_session();
+        async {}
+    })
+    .detach();
     updater::Updater::init(cx);
     pages::init(cx);
     #[cfg(target_os = "macos")]

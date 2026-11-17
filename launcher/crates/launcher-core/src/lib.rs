@@ -27,6 +27,7 @@ pub mod http;
 pub mod images;
 pub mod import;
 pub mod instances;
+pub mod logging;
 pub mod markdown;
 pub mod mc_text;
 pub mod modpack;

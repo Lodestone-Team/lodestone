@@ -7,7 +7,27 @@ import { ModrinthVersion } from 'bindings/ModrinthVersion';
 import Button from 'components/Atoms/Button';
 import Checkbox from 'components/Atoms/Checkbox';
 import WarningAlert from 'components/Atoms/WarningAlert';
-import { ModIcon, pickFiles, VersionTypeLabel } from 'components/Mods/common';
+import {
+  GameVersions,
+  ModIcon,
+  pickFiles,
+  VersionTypeLabel,
+} from 'components/Mods/common';
+import { Bytes, Num, VersionTag } from 'components/Atoms/Values';
+import {
+  Fact,
+  FactLine,
+  FactList,
+  factsTitle,
+  ListCell,
+  ObjectCard,
+} from 'components/Values';
+import {
+  gamePhrase,
+  gameVersionsPhrase,
+  loaderName,
+  loaderPhrase,
+} from 'utils/values';
 import { ApiError } from 'utils/util';
 import ModrinthSearch, {
   ModrinthPick,
@@ -25,13 +45,13 @@ import { Form, Formik, FormikHelpers } from 'formik';
 import { useContext, useLayoutEffect, useRef, useState } from 'react';
 import { toast } from 'react-toastify';
 import useAnalyticsEventTracker, { useEffectOnce } from 'utils/hooks';
-import { formatDate, primaryFile } from 'utils/mods';
-import { cn, errorToString, formatBytes } from 'utils/util';
+import { formatDate, primaryFile, projectTypeName } from 'utils/mods';
+import { cn, errorToString } from 'utils/util';
 import * as yup from 'yup';
 import FormInputField from './SetupFormFields/FormInputField';
 import FormRadioField from './SetupFormFields/FormRadioField';
 import { Skeleton, SkeletonGroup } from 'components/Atoms/Skeleton';
-import { t, useT } from 'i18n';
+import { t, useI18n, useT } from 'i18n';
 import WizardSteps from './WizardSteps';
 import EulaCheckbox from './EulaCheckbox';
 
@@ -120,38 +140,40 @@ const ModpackSummary = ({ info }: { info: ModpackInfo }) => {
   const t = useT();
   return (
     <div className="flex flex-col gap-3">
-      <div className={sectionClass}>
-        {(
-          [
-            [
-              t('create.modpack.summary.modpack'),
-              `${info.name}${info.version_number ? ` ${info.version_number}` : ''}`,
-            ],
-            ['Minecraft', info.game_version],
-            [
-              t('create.modpack.summary.loader'),
-              `${info.loader}${info.loader_version ? ` ${info.loader_version}` : ''}`,
-            ],
-            [
-              t('create.modpack.summary.serverFiles'),
-              t('create.modpack.summary.serverFilesValue', {
-                count: info.server_file_count,
-                size: formatBytes(info.server_download_size),
-              }),
-            ],
-          ] as Array<[string, string]>
-        ).map(([label, value]) => (
-          <div
-            key={label}
-            className="flex flex-row justify-between gap-4 bg-gray-800 px-4 py-2 text-medium"
-          >
-            <span className="shrink-0 text-white/50">{label}</span>
-            <span className="min-w-0 truncate text-gray-300" title={value}>
-              {value}
-            </span>
-          </div>
-        ))}
-      </div>
+      <FactList
+        framed
+        rows={[
+          {
+            label: t('values.key.modpack'),
+            value: (
+              <>
+                <span
+                  className="min-w-0 truncate font-mediumbold"
+                  title={info.name}
+                >
+                  {info.name}
+                </span>
+                {info.version_number && (
+                  <VersionTag version={info.version_number} />
+                )}
+              </>
+            ),
+          },
+          { label: t('values.key.game'), value: gamePhrase(info.game_version) },
+          {
+            label: t('values.key.loader'),
+            value: loaderPhrase(info.loader, info.loader_version),
+          },
+          {
+            label: t('values.key.serverFiles'),
+            value: <Num value={info.server_file_count} />,
+          },
+          {
+            label: t('values.key.download'),
+            value: <Bytes bytes={info.server_download_size} />,
+          },
+        ]}
+      />
       {info.summary && (
         <div className="line-clamp-2 text-medium text-white/50">
           {info.summary}
@@ -192,7 +214,7 @@ const VersionPicker = ({
   inspectingId: string | null;
   onSelect: (version: ModrinthVersion) => void;
 }) => {
-  const t = useT();
+  const { t, formatBytes } = useI18n();
   const [shown, setShown] = useState(VERSIONS_PAGE_SIZE);
   if (error)
     return (
@@ -219,9 +241,11 @@ const VersionPicker = ({
     );
   return (
     <div className="flex flex-col gap-2">
-      <div className={sectionClass}>
+      <div className={cn(sectionClass, '@container')}>
         {versions.slice(0, shown).map((version) => {
           const file = primaryFile(version);
+          const published = formatDate(version.date_published);
+          const loaders = version.loaders.map(loaderName);
           return (
             <div
               key={version.id}
@@ -230,20 +254,54 @@ const VersionPicker = ({
                 version.id === selectedId && 'bg-gray-700'
               )}
             >
-              <div className="flex min-w-0 grow flex-col">
+              <div className="flex min-w-0 grow flex-col gap-0.5">
                 <div className="flex min-w-0 flex-row items-center gap-2">
-                  <span className="truncate text-medium font-bold text-gray-300">
-                    {version.version_number}
-                  </span>
+                  <VersionTag
+                    version={version.version_number}
+                    max={32}
+                    className="text-small text-gray-300"
+                  />
                   <VersionTypeLabel type={version.version_type} />
                 </div>
-                <div className="truncate text-small text-white/50">
-                  {version.game_versions.join(', ')} ·{' '}
-                  {version.loaders.join(', ')} ·{' '}
-                  {formatDate(version.date_published)}
-                  {file && ` · ${formatBytes(file.size)}`}
-                </div>
+                <FactLine
+                  title={factsTitle([
+                    {
+                      label: t('values.key.game'),
+                      value: gameVersionsPhrase(version.game_versions),
+                    },
+                    {
+                      label: t('values.key.loader'),
+                      value: loaders.join(', '),
+                    },
+                    { label: t('values.key.published'), value: published },
+                    ...(file
+                      ? [
+                          {
+                            label: t('values.key.size'),
+                            value: formatBytes(file.size),
+                          },
+                        ]
+                      : []),
+                  ])}
+                >
+                  <GameVersions versions={version.game_versions} />
+                  {loaders.map((loader) => (
+                    <span key={loader}>{loader}</span>
+                  ))}
+                  <span className="text-ink-muted @2xl:hidden">
+                    {published}
+                  </span>
+                  {file && (
+                    <Fact label={t('values.key.size')} className="@2xl:hidden">
+                      <Bytes bytes={file.size} />
+                    </Fact>
+                  )}
+                </FactLine>
               </div>
+              <ListCell width="date">{published}</ListCell>
+              <ListCell width="size">
+                {file && <Bytes bytes={file.size} />}
+              </ListCell>
               <Button
                 label={
                   version.id === selectedId
@@ -263,7 +321,7 @@ const VersionPicker = ({
       </div>
       {versions.length > shown && (
         <Button
-          label={t('create.modpack.showMore', {
+          label={t('values.showMore', {
             count: versions.length - shown,
           })}
           className="self-center"
@@ -403,7 +461,9 @@ export default function ModpackCreateForm({
   const pick = (picked: ModrinthPick) => {
     if (picked.projectType !== 'modpack') {
       toast.error(
-        t('create.modpack.notAModpack', { type: picked.projectType })
+        t('create.modpack.notAModpack', {
+          type: projectTypeName(picked.projectType),
+        })
       );
       return;
     }
@@ -603,11 +663,15 @@ export default function ModpackCreateForm({
               <div className="mt-4 flex min-h-38 shrink-0 flex-col justify-center">
                 {inspectingId !== null ? (
                   <div className="text-medium text-white/50">
-                    {inspectingFile
-                      ? t('create.modpack.downloadingSize', {
-                          size: formatBytes(inspectingFile.size),
-                        })
-                      : t('create.modpack.downloading')}
+                    {t('create.modpack.downloading')}
+                    {inspectingFile && (
+                      <Fact
+                        label={t('values.key.size')}
+                        className="ml-3 text-small"
+                      >
+                        <Bytes bytes={inspectingFile.size} />
+                      </Fact>
+                    )}
                   </div>
                 ) : info ? (
                   <ModpackSummary info={info} />
@@ -631,10 +695,26 @@ export default function ModpackCreateForm({
                 <Form id={SETTINGS_FORM_ID}>
                   <StepTitle title={t('create.modpack.settingsTitle')} />
                   {info && (
-                    <div className="mb-4 text-medium text-white/50">
-                      {info.name} · Minecraft {info.game_version} · Fabric{' '}
-                      {info.loader_version}
-                    </div>
+                    <ObjectCard
+                      compact
+                      className="mb-4"
+                      icon={
+                        <ModIcon
+                          url={pickedHit?.icon_url}
+                          className="size-6 text-small"
+                        />
+                      }
+                      name={info.name}
+                      version={info.version_number}
+                      facts={
+                        <FactLine>
+                          <span>{gamePhrase(info.game_version)}</span>
+                          <span>
+                            {loaderPhrase(info.loader, info.loader_version)}
+                          </span>
+                        </FactLine>
+                      }
+                    />
                   )}
                   <div className={sectionClass}>
                     <FormInputField

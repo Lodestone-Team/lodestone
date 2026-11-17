@@ -71,7 +71,10 @@ pub const CATALOG: &[(&str, &str)] = &[
     ("game.failed", "The game couldn't start (title, message)."),
     ("game.state", "The instance went idle."),
     ("job.started", "A control API job started."),
-    ("job.finished", "A control API job ended (state, error)."),
+    (
+        "job.finished",
+        "A control API job ended (kind, instance, state, error).",
+    ),
     (
         "http.response",
         "An HTTP request finished (method, host, path, status, ms).",

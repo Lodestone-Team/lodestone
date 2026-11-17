@@ -34,8 +34,7 @@ pub fn text(message: M) -> &'static str {
         M::ImportInstances => "Importer…",
         M::Servers => "Lodestone Host",
         M::Friends => "Amis",
-        M::AppVersion => "Lodestone Launcher v{version}",
-        M::PlayedInTotal => "{when} · {time} au total",
+        M::AppName => "Lodestone Launcher",
         M::ImportProgress => "{percent} · {label}",
         M::GroupModded => "{loader} (moddé)",
         M::Vanilla => "Vanilla",
@@ -46,10 +45,7 @@ pub fn text(message: M) -> &'static str {
         M::NoInstanceSelectedHint => {
             "Sélectionnez une instance dans la barre latérale pour commencer."
         }
-        M::MinecraftVersion => "Minecraft {version}",
-        M::MinecraftWith => "Minecraft {version} avec {loader}",
-        M::HeroPlayed => "{game}. Temps de jeu\u{a0}: {time}.",
-        M::HeroNotPlayed => "{game}. Appuyez sur Jouer pour la télécharger et lancer le jeu.",
+        M::HeroNotPlayed => "Appuyez sur Jouer pour la télécharger et lancer le jeu.",
         M::CreateFirstInstance => "Créez votre première instance",
         M::InstanceExplainer => {
             "Une instance est une version de Minecraft avec ses propres mods, mondes et paramètres."
@@ -60,10 +56,6 @@ pub fn text(message: M) -> &'static str {
             "Les paramètres s’affichent ici une fois que vous avez une instance."
         }
         M::LogsPlaceholder => "Les journaux s’affichent ici une fois que vous avez une instance.",
-        M::LinkedTo => "Liée à {server} sur {core}",
-        M::LinkedToRemoved => {
-            "Liée à {server} sur {core} (cet hôte a été retiré de la page Lodestone Host)"
-        }
         M::RunsUnderRosetta => {
             "S’exécute via Rosetta\u{a0}2\u{a0}: Mojang n’a pas fait de version Apple Silicon de certaines bibliothèques dont cette version a besoin. Démarrage plus lent, puis fonctionnement normal."
         }
@@ -83,9 +75,11 @@ pub fn text(message: M) -> &'static str {
         M::ServerStopped => "Arrêté",
         M::ServerUnreachable => "Injoignable",
         M::ServerChecking => "Vérification…",
+        M::HostRemoved => "Hôte retiré",
         M::PlayNamed => "Jouer à {name}",
 
         M::DeleteNamed => "Supprimer {name}\u{202F}?",
+        M::DeleteInstanceTitle => "Supprimer l’instance\u{202F}?",
         M::DeleteWorldBody => {
             "Le dossier du monde est placé dans {trash}, d’où vous pouvez le récupérer. Ses sauvegardes de monde restent."
         }
@@ -96,16 +90,15 @@ pub fn text(message: M) -> &'static str {
         M::ReplaceWorldBody => {
             "{name} revient à son état du moment ({when}). Un instantané de l’instance telle qu’elle est maintenant est pris d’abord et gardé 30\u{a0}jours."
         }
-        M::BackUpAndReplace => "Prendre un instantané et restaurer",
-        M::RemoveAccountTitle => "Retirer {name}\u{202F}?",
+        M::BackUpAndReplace => "Sauvegarder et remplacer",
+        M::RemoveAccountTitle => "Retirer le compte\u{202F}?",
         M::RemoveAccountBody => {
             "Lodestone Launcher oublie ce compte et supprime sa connexion enregistrée de votre {keychain}. Vous pourrez l’ajouter de nouveau plus tard."
         }
         M::RemoveAccount => "Retirer le compte",
         M::MinecraftCrashed => "Minecraft a planté\u{a0}: {description}.",
-        M::MinecraftExitCode => "Minecraft s’est arrêté avec le code de sortie {code}.",
         M::MinecraftStopped => "Minecraft s’est arrêté de façon inattendue.",
-        M::CrashTitle => "{name} a planté",
+        M::CrashTitle => "Le jeu a planté",
         M::LikelyCause => "Cause probable",
         M::OpenCrashReport => "Ouvrir le rapport de plantage",
         M::CauseWrongJava => {
@@ -148,17 +141,14 @@ pub fn text(message: M) -> &'static str {
         }
         M::CopyLog => "Copier le journal",
 
-        M::UpdateTitle => "Mettre à jour {name}\u{202F}?",
-        M::ModpackSummary => {
-            "{pack} {from} → {to}. Minecraft {game} avec {loader}. {size} à télécharger."
-        }
+        M::UpdateInstanceTitle => "Mettre à jour l’instance\u{202F}?",
         M::NoFilesChange => "Aucun fichier ne change\u{202F}; seule la version est enregistrée.",
-        M::UpdatedFiles => "Mis à jour ({count})",
-        M::AddedFiles => "Ajoutés ({count})",
-        M::RemovedFiles => "Supprimés ({count})",
-        M::ReplacedOwnFiles => "Vos fichiers désormais fournis par le pack ({count})",
-        M::KeptFiles => "Gardés tels que vous les avez modifiés ({count})",
-        M::WrittenFiles => "Configurations et autres fichiers écrits ({count})",
+        M::UpdatedFiles => "Mis à jour",
+        M::AddedFiles => "Ajoutés",
+        M::RemovedFiles => "Supprimés",
+        M::ReplacedOwnFiles => "Vos fichiers désormais fournis par le pack",
+        M::KeptFiles => "Gardés tels que vous les avez modifiés",
+        M::WrittenFiles => "Configurations et autres fichiers écrits",
         M::ModpackUpdateSafety => {
             "Vos propres mods, mondes et configurations modifiées ne sont pas touchés. Un instantané de l’instance est pris d’abord, et chaque fichier remplacé ou supprimé est gardé dans le dossier de l’instance, sous backups/."
         }
@@ -166,9 +156,6 @@ pub fn text(message: M) -> &'static str {
         M::SaveChangesTitle => "Enregistrer vos modifications\u{202F}?",
         M::UnsavedDefaultsBody => {
             "Vous avez modifié les paramètres par défaut des instances. Les enregistrer ou les abandonner\u{202F}?"
-        }
-        M::UnsavedInstanceBody => {
-            "Vous avez modifié les paramètres de {name}. Les enregistrer ou les abandonner\u{202F}?"
         }
         M::UnsavedThisInstanceBody => {
             "Vous avez modifié les paramètres de cette instance. Les enregistrer ou les abandonner\u{202F}?"
@@ -234,7 +221,8 @@ pub fn text(message: M) -> &'static str {
             "Ses changements faits en jeu sont copiés dans vos autres instances à leur démarrage."
         }
         M::SyncFromNoneHint => "Les réglages partagés ne changent qu’ici.",
-        M::MainOfferTitle => "Faire de {name} votre instance principale\u{202F}?",
+        M::MainOfferTitle => "En faire l’instance principale\u{202F}?",
+        M::MainSwitchTitle => "Changer d’instance principale\u{202F}?",
         M::MainOfferBody => {
             "Les réglages de jeu partagés gardent vos contrôles, la vidéo, le son et d’autres options identiques dans toutes vos instances. Les réglages modifiés en jeu dans votre instance principale sont copiés dans les autres à leur démarrage."
         }
@@ -243,9 +231,8 @@ pub fn text(message: M) -> &'static str {
         }
         M::MakeItMain => "En faire l’instance principale",
         M::MainSwitchBody => {
-            "{current} est votre instance principale. Ses changements en jeu ne mettront plus à jour vos réglages partagés\u{a0}: ce seront ceux de {name}."
+            "Ses changements en jeu mettront à jour vos paramètres partagés, et ceux de l’ancienne instance principale cesseront de le faire."
         }
-        M::MakeNameMain => "Rendre {name} principale",
         M::FirstTimeSetupSection => "Première configuration",
         M::ResetFirstTimeSetup => "Réinitialiser la première configuration",
         M::ResetFirstTimeSetupHint => {
@@ -304,7 +291,6 @@ pub fn text(message: M) -> &'static str {
         M::Offline => "Hors ligne",
         M::AddMicrosoftAccount => "Ajouter un compte Microsoft",
         M::AddOfflineAccount => "Ajouter un compte hors ligne",
-        M::RemoveNamed => "Retirer {name}",
         M::OfflineNote => "Hors ligne – solo et serveurs en mode hors ligne uniquement",
         M::ChangePlayerSkin => "Changer de skin…",
         M::PlayerSkinDialogTitle => "Skin de {name}",
@@ -383,9 +369,9 @@ pub fn text(message: M) -> &'static str {
         M::TurnOffLauncherBody => {
             "Les nouvelles connexions Microsoft utiliseront de nouveau l’application de Lodestone."
         }
-        M::OneLauncherAccount => "{name} est connecté en tant que Minecraft Launcher.",
+        M::SignedInAsLauncher => "Connectés en tant que Minecraft Launcher",
         M::TurnOffLauncherAccounts => {
-            "{accounts} Les comptes gardés continuent de fonctionner jusqu’à ce que Microsoft bloque cela. Les déconnecter les retire de Lodestone Launcher et supprime leurs connexions enregistrées de votre {keychain}."
+            "Les comptes gardés continuent de fonctionner jusqu’à ce que Microsoft bloque cela. Les déconnecter les retire de Lodestone Launcher et supprime leurs connexions enregistrées de votre {keychain}."
         }
         M::TurnOffAndSignOut => "Désactiver et déconnecter",
         M::TurnOffOnly => "Désactiver seulement",
@@ -450,8 +436,9 @@ pub fn text(message: M) -> &'static str {
         M::ConnectedClients => "Programmes connectés",
         M::NoClients => "Aucun programme n’est connecté.",
         M::UnnamedClient => "Programme sans nom",
-        M::ClientSince => "Connecté · {time}",
-        M::ClientPid => "Processus {pid}",
+        M::ClientSince => "Connecté",
+        M::ClientPid => "Processus",
+        M::ClientSubscriptions => "Abonnements",
         M::Disconnect => "Déconnecter",
         M::DiagnosticsSection => "Diagnostic",
         M::PerfMonitor => "Moniteur de performances",
@@ -517,12 +504,12 @@ pub fn text(message: M) -> &'static str {
         }
         M::OpenBrowserAgain => "Rouvrir le navigateur",
         M::GettingCode => "Obtention d’un code…",
-        M::GoToHost => {
-            "Allez sur {host} depuis n’importe quel appareil et saisissez ce code\u{a0}:"
+        M::GoToAddress => {
+            "Sur n’importe quel appareil, ouvrez cette adresse et saisissez le code ci-dessous."
         }
         M::CodeCopiedWaiting => "Code copié. En attente de sa saisie…",
         M::WaitingForCode => "En attente de la saisie du code…",
-        M::CopyCodeAndOpen => "Copier le code et ouvrir {host}",
+        M::CopyCodeAndOpen => "Copier le code et ouvrir",
         M::CopySignInCode => "Copier le code",
         M::StopSigningInTitle => "Arrêter la connexion\u{202F}?",
         M::StopSigningInBody => {
@@ -655,7 +642,6 @@ pub fn text(message: M) -> &'static str {
         M::BetaBuilds => "Builds bêta",
         M::DeveloperBuilds => "Builds de développeur",
         M::BuildNumber => "Build {build}",
-        M::BuildNumberCommit => "Build {build} · {commit}",
         M::DevelopmentBuild => "Build de développement",
         M::UpdatesUnavailable => {
             "Ce build n’a pas été publié sur GitHub, il ne se met donc pas à jour tout seul."
@@ -666,7 +652,6 @@ pub fn text(message: M) -> &'static str {
         M::UpdateChecking => "Recherche d’un build plus récent…",
         M::UpToDate => "C’est le build le plus récent.",
         M::UpdateAvailable => "Le build {build} est disponible.",
-        M::UpdateDownloading => "Téléchargement du build {build}… {percent}",
         M::UpdateReady => "Le build {build} est installé. Redémarrez pour l’utiliser.",
         M::UpdateReadyPlaying => {
             "Le build {build} est installé. Vous pourrez redémarrer une fois le jeu fermé."
@@ -883,7 +868,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::DataFolderMissingTitle => "Dossier de données introuvable",
         M::DataFolderMissingBody => {
-            "Vos instances et mondes sont dans {path}, qui est introuvable. S'il est sur un disque non connecté, connectez-le et réessayez. Le dossier par défaut démarre vide, et vos données restent où elles sont."
+            "Vos instances et mondes sont dans ce dossier, qui est introuvable. S'il est sur un disque non connecté, connectez-le et réessayez. Le dossier par défaut démarre vide, et vos données restent où elles sont."
         }
         M::DataFolderUseDefault => "Utiliser le dossier par défaut",
         M::DataFolderQuit => "Quitter",
@@ -950,6 +935,21 @@ pub fn text(message: M) -> &'static str {
         M::StorageCleanWorldBackupsTitle => {
             "Supprimer les sauvegardes de mondes des instances supprimées\u{a0}?"
         }
+        M::LogsSetting => "Journaux",
+        M::LogsHint => {
+            "Ce que le lanceur a fait, gardé sur cet ordinateur pour aider à comprendre un problème. {path}"
+        }
+        M::OpenLogsFolder => "Ouvrir le dossier des journaux",
+        M::LogDetail => "Détail des journaux",
+        M::LogDetailHint => {
+            "Débogage en écrit plus, pour comprendre un problème. Le changement est immédiat."
+        }
+        M::LogInfo => "Info",
+        M::LogDebug => "Débogage",
+        M::LogLevelFromEnv => "LODESTONE_LOG fixe le détail tant que le lanceur est lancé avec.",
+        M::CrashNotice => "Le lanceur s’est fermé de façon inattendue la dernière fois.",
+        M::OpenLogs => "Ouvrir les journaux",
+        M::DismissCrashNotice => "Masquer",
     }
 }
 
@@ -961,11 +961,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
             "{count} valeur copiée depuis {name}.",
             "{count} valeurs copiées depuis {name}.",
         ],
-        P::LauncherAccounts => [
-            "{count} compte est connecté en tant que Minecraft Launcher\u{a0}: {names}.",
-            "{count} comptes sont connectés en tant que Minecraft Launcher\u{a0}: {names}.",
-        ],
-        P::Subscriptions => ["{count} abonnement", "{count} abonnements"],
         P::PerfEntries => ["{count} entrée", "{count} entrées"],
         P::StorageSnapshotsHint => [
             "{count}\u{a0}instantané et l’historique du contenu de chaque instance · {removable} peuvent être supprimés",
