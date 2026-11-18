@@ -11,13 +11,11 @@ use gpui::{
 };
 use launcher_core::cores::image_sync::WithheldReason;
 use launcher_core::cores::{
-    CoreError, CoreProduct, LaunchedBy, ServerInstance, ServerLoader, ServerState,
+    CoreError, CoreProduct, LaunchedBy, ServerInstance, ServerState,
     client::display_address,
-    image_sync::{
-        display_text,
-        plan::{PackChanges, Summary},
-    },
+    image_sync::{display_text, plan::Summary},
     local_claim::ClaimError,
+    magic_localhost::MagicAddress,
     trust::Advisory,
 };
 use launcher_core::ui_skin::SurfaceId;
@@ -25,21 +23,25 @@ use launcher_core::wording;
 
 use super::{
     AdvisoryAnswer, AdvisoryPrompt, CertPrompt, CoreEntry, CoreStatus, NoticeKind, Servers,
-    TrustPrompt, UpdatePrompt, core_error, loader_label, local::FoundCore, power_state,
-    status_label, trust_explanation, withheld_reason,
+    TrustPrompt, UpdatePrompt, core_error, facts, local::FoundCore, power_state, status_label,
+    trust_explanation, withheld_reason,
 };
 use crate::{
     components::{
-        Button, ButtonSize, ButtonVariant, Dialog, DialogSlot, Dropdown, Icon, IconButton,
-        KeyboardFocus, ListRow, LoadingDots, Toggle,
+        Button, ButtonSize, ButtonVariant, CountBadge, Dialog, DialogSlot, Dropdown, Fact,
+        FactLine, FactList, FactValue, Icon, IconButton, ItemIcon, KeyboardFocus, Kind, ListRow,
+        LoadingDots, MonoValue, NameGroup, NameItem, NameList, NameStyle, Num, ObjectChip,
+        PathText, StatusBadge, Toggle, ValueField, VersionTag,
         a11y::{Accessible, Role},
         power_name, power_toggle,
+        readable::object_name,
         settings::popover_panel,
         text_tooltip,
     },
-    i18n::{CommonMsg, ServersMsg as M, ServersPlural as P, ShellMsg, format, t, tr, trn},
-    theme::{self, colors, fonts, leading, radius, text, weights},
+    i18n::{CommonMsg, FactMsg, ServersMsg as M, ServersPlural as P, ShellMsg, format, t, tr, trn},
+    theme::{self, Tone, colors, fonts, leading, radius, text, weights},
 };
+use lodestone_ui::values::truncate::sanitize;
 
 fn state_color(state: ServerState) -> theme::Color {
     match state {
@@ -57,48 +59,28 @@ fn small(value: impl Into<SharedString>) -> gpui::Div {
         .child(value.into())
 }
 
-/// "1.20.1 · Fabric 0.16.14", or "1.20.1" for vanilla.
+/// The game and loader as plain text, for what is spoken and the control API:
+/// "Minecraft 1.20.1 and Fabric 0.16.14", or "Minecraft 1.20.1" for Vanilla.
 pub(super) fn server_detail(server: &ServerInstance) -> String {
-    let loader = match (&server.loader, &server.loader_version) {
-        (ServerLoader::Vanilla, _) => return server.game_version.clone(),
-        (loader, Some(version)) => format!("{} {version}", loader_label(*loader)),
-        (loader, None) => loader_label(*loader).to_string(),
-    };
-    format!("{} · {loader}", server.game_version)
+    let parts: Vec<String> = facts::versions(server)
+        .iter()
+        .map(|fact| fact.plain().to_string())
+        .collect();
+    format::list(&parts)
 }
 
-/// What an update changes, for "<server> has different mods": "2 added, 1 updated,
-/// 3 other files".
-fn changes_summary(changes: &PackChanges) -> String {
-    let parts: Vec<String> = [
-        (changes.added.len(), P::ModsAdded),
-        (changes.updated.len(), P::ModsUpdated),
-        (changes.removed.len(), P::ModsRemoved),
-        (changes.other.len(), P::OtherFiles),
+/// The advisory's other files, as counted facts: config files, script files (which
+/// can run code), other files.
+fn other_files(advisory: &Advisory) -> Vec<Fact> {
+    [
+        (advisory.configs, M::ConfigFilesKey),
+        (advisory.scripts, M::ScriptFilesKey),
+        (advisory.other, M::OtherFilesKey),
     ]
     .into_iter()
     .filter(|(count, _)| *count > 0)
-    .map(|(count, message)| trn!(message, count))
-    .collect();
-    if parts.is_empty() {
-        t(M::NoChanges).into()
-    } else {
-        format::list(&parts)
-    }
-}
-
-/// The advisory's other files: "14 config files, 2 script files, 1 other file".
-fn other_files(advisory: &Advisory) -> Option<String> {
-    let parts: Vec<String> = [
-        (advisory.configs, P::ConfigFiles),
-        (advisory.scripts, P::ScriptFiles),
-        (advisory.other, P::OtherFiles),
-    ]
-    .into_iter()
-    .filter(|(count, _)| *count > 0)
-    .map(|(count, message)| trn!(message, count))
-    .collect();
-    (!parts.is_empty()).then(|| format::list(&parts))
+    .map(|(count, key)| Fact::new(t(key), Num::count(count as u64)))
+    .collect()
 }
 
 /// A fingerprint in two lines of 16 bytes, in the mono font.
@@ -310,6 +292,9 @@ impl Servers {
                     .text_color(crate::theme::ink::secondary())
                     .child(LoadingDots)
                     .child(small(busy.label()))
+                    .children(busy.progress().map(|progress| {
+                        FactLine::row(SharedString::from(format!("busy-{row_id}"))).fact(progress)
+                    }))
                     .into_any_element(),
             );
             // asking the server may wait minutes while it prepares its files, and its
@@ -392,12 +377,31 @@ impl Servers {
 
         let status = status_label(server);
         let element_id = SharedString::from(format!("server-{row_id}"));
+        // any Minecraft client joins it at this address on this computer
+        let magic = self.magic_address(core, server).map(|magic| {
+            let address = magic.address();
+            let (when, taken) = match magic {
+                MagicAddress::ThisComputer { .. } => (t(M::WhileServerRuns).to_string(), None),
+                // something else had the saved port: this address is for this session
+                // only, which the row says while the person copies it
+                MagicAddress::Forwarded { taken, .. } => (
+                    t(M::WhileServerRunsAndOpen).to_string(),
+                    taken.map(|saved| tr!(M::MagicPortTakenRow, port = saved.to_string())),
+                ),
+            };
+            (when, address, taken)
+        });
         // the row shows the state with its power icon (or dot); screen readers hear it
-        let mut description = format!("{status} · {}", server_detail(server));
+        let mut parts = vec![status, server_detail(server)];
         if shared {
-            description = format!("{description} · {}", t(M::SharedTag));
+            parts.push(t(M::SharedTag).to_string());
         }
-        let description: SharedString = description.into();
+        if let Some((when, address, taken)) = &magic {
+            parts.push(format!("{} {address}", t(M::MagicLocalhost)));
+            parts.push(when.clone());
+            parts.extend(taken.clone());
+        }
+        let description: SharedString = format::list(&parts).into();
         let share_link = self.share_link(&core_uuid, &server.uuid).is_some();
         let name = RichText::minecraft(server.name.clone());
         // the name opens the server's page, which needs a signed-in core
@@ -477,7 +481,24 @@ impl Servers {
                                 ))
                             }),
                     )
-                    .child(small(server_detail(server)).text_color(crate::theme::ink::muted())),
+                    .child({
+                        // the game shows; the loader is in the line's tooltip
+                        let mut versions = facts::versions(server).into_iter();
+                        FactLine::row(SharedString::from(format!("server-facts-{row_id}")))
+                            .facts(versions.next())
+                            .map(|line| versions.fold(line, FactLine::tooltip_fact))
+                    })
+                    .children(magic.map(|(when, address, taken)| {
+                        div()
+                            .flex()
+                            .flex_col()
+                            .child(super::friends_view::magic_field_with_tooltip(
+                                format!("magic-localhost-{row_id}"),
+                                address,
+                                when,
+                            ))
+                            .children(taken.map(|taken| small(taken).text_color(colors::YELLOW)))
+                    })),
             )
             .child(
                 div()
@@ -580,10 +601,16 @@ impl Servers {
             .filter(|(_, _, needed)| *needed)
             .map(|(found_index, uuid, _)| self.connect_button(found_index, uuid, cx));
         let account = match (&core.saved.username, signed_in) {
-            (Some(username), true) => tr!(M::SignedInAs, username = username),
-            (None, true) => t(M::SignedIn).to_string(),
-            _ => t(M::NotSignedIn).to_string(),
-        };
+            (Some(username), true) => Fact::icon(
+                Icon::User,
+                t(M::SignedInAs),
+                FactValue::text(lodestone_ui::values::truncate::sanitize(username, 64)),
+            ),
+            (None, true) => Fact::bare(t(M::SignedIn)),
+            _ => Fact::bare(t(M::NotSignedIn)),
+        }
+        .priority(1);
+        let address = display_address(&core.url);
         let body: AnyElement = match &core.status {
             CoreStatus::Loading => div()
                 .px_4()
@@ -640,11 +667,11 @@ impl Servers {
                 .into_any_element(),
         };
         let card_id = SharedString::from(format!("core-{}", core.saved.uuid));
-        let card_description: SharedString = format!(
-            "{} · {} · {account}",
-            core.saved.product.label(),
-            display_address(&core.url)
-        )
+        let card_description: SharedString = format::list(&[
+            core.saved.product.label().to_string(),
+            address_fact(address.clone()).label().to_string(),
+            account.label().to_string(),
+        ])
         .into();
         let sign_in_button = (!signed_in && connect_button.is_none()).then(|| {
             Button::new(
@@ -685,19 +712,12 @@ impl Servers {
                                             .child(RichText::new(core.saved.name.clone())),
                                     ),
                             )
-                            .child(
-                                div()
-                                    .text_size(theme::text_size(text::SMALL))
-                                    .child(RichText::new(format!(
-                                        "{} · {account}",
-                                        display_address(&core.url)
-                                    )))
-                                    .truncate()
-                                    .text_color(crate::theme::ink::muted()),
-                            )
-                            .children(started_by(core.saved.launched_by).map(|started| {
-                                small(started).text_color(crate::theme::ink::muted())
-                            })),
+                            .child(host_facts(
+                                SharedString::from(format!("core-facts-{index}")),
+                                address,
+                                Some(account),
+                                started_by(core.saved.launched_by),
+                            )),
                     )
                     .child(
                         div()
@@ -941,20 +961,21 @@ impl Servers {
                                                 .child(RichText::new(found.info.core_name.clone())),
                                         ),
                                     )
-                                    .child(
-                                        small(format!(
-                                            "{} · {}",
-                                            display_address(&found.url),
-                                            started_by(found.info.launched_by).unwrap_or_else(
-                                                || t(match found.info.product {
+                                    .child(host_facts(
+                                        SharedString::from(format!(
+                                            "local-core-facts-{found_index}"
+                                        )),
+                                        display_address(&found.url),
+                                        None,
+                                        Some(started_by(found.info.launched_by).unwrap_or_else(
+                                            || {
+                                                Fact::bare(t(match found.info.product {
                                                     CoreProduct::Host => M::ProductHostHint,
                                                     CoreProduct::Core => M::ProductCoreHint,
-                                                })
-                                                .to_string()
-                                            )
-                                        ))
-                                        .text_color(crate::theme::ink::muted()),
-                                    ),
+                                                }))
+                                            },
+                                        )),
+                                    )),
                             )
                             .child(connect),
                     )
@@ -1032,24 +1053,20 @@ impl Servers {
             .flex_col()
             .gap_2()
             .child(
-                section_header(
-                    "other-cores-title",
-                    t(M::OtherCoresTitle),
-                    Some(t(M::OtherCoresHint)),
-                )
-                // a server from someone's invite link, and a host by its address
-                .child(
-                    Button::new("join-friend", t(M::JoinAFriend))
-                        .size(ButtonSize::Slim)
-                        .icon(Icon::Plus)
-                        .on_click(cx.listener(|this, _, _, cx| this.open_join(None, cx))),
-                )
-                .child(
-                    Button::new("add-server", t(M::AddServer))
-                        .size(ButtonSize::Slim)
-                        .icon(Icon::Plus)
-                        .on_click(cx.listener(|this, _, _, cx| this.open_add(None, cx))),
-                ),
+                section_header("other-cores-title", t(M::OtherCoresTitle), None)
+                    // a server from someone's invite link, and a host by its address
+                    .child(
+                        Button::new("join-friend", t(M::JoinAFriend))
+                            .size(ButtonSize::Slim)
+                            .icon(Icon::Plus)
+                            .on_click(cx.listener(|this, _, _, cx| this.open_join(None, cx))),
+                    )
+                    .child(
+                        Button::new("add-server", t(M::AddServer))
+                            .size(ButtonSize::Slim)
+                            .icon(Icon::Plus)
+                            .on_click(cx.listener(|this, _, _, cx| this.open_add(None, cx))),
+                    ),
             )
             .when(empty, |this| {
                 this.child(
@@ -1245,15 +1262,58 @@ fn shared_from_here(
 const LODESTONE_CLI_RELEASES: &str = "https://github.com/Lodestone-Team/lodestone_cli/releases";
 
 /// "Started by …", or nothing when the core doesn't say.
-fn started_by(launched_by: LaunchedBy) -> Option<String> {
+/// What started a host here, as a fact: "Started by" Lodestone CLI, or "Started
+/// directly".
+fn started_by(launched_by: LaunchedBy) -> Option<Fact> {
     let who = match launched_by {
         LaunchedBy::Host => "Lodestone Host",
         LaunchedBy::LodestoneCli => "Lodestone CLI",
         LaunchedBy::Docker => "Docker",
-        LaunchedBy::Direct => return Some(t(M::StartedDirectly).into()),
+        LaunchedBy::Direct => return Some(Fact::bare(t(M::StartedDirectly)).priority(2)),
         LaunchedBy::Unknown => return None,
     };
-    Some(tr!(M::StartedBy, who = who))
+    Some(Fact::new(t(M::StartedBy), who).priority(2))
+}
+
+/// A host's address as an exact value, with "Address" in its icon's tooltip.
+fn address_fact(address: String) -> Fact {
+    Fact::icon(Icon::Globe, t(FactMsg::Address), FactValue::mono(address)).priority(0)
+}
+
+/// The line under a host's name: its address (with a button after it that copies
+/// it), the account signed in, and what started it.
+fn host_facts(
+    id: SharedString,
+    address: String,
+    account: Option<Fact>,
+    started: Option<Fact>,
+) -> FactLine {
+    let copy = address.clone();
+    let value = div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_1()
+        .child(MonoValue::new(address.clone()))
+        .child(
+            IconButton::new(SharedString::from(format!("{id}-copy")), Icon::Copy)
+                .small()
+                .label(t(M::CopyAddress))
+                .on_click(move |_, _, cx| {
+                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(copy.clone()))
+                }),
+        );
+    FactLine::row(id)
+        .fact(
+            Fact::icon(
+                Icon::Globe,
+                t(FactMsg::Address),
+                FactValue::element(value, address),
+            )
+            .priority(0),
+        )
+        .facts(account)
+        .facts(started)
 }
 
 /// Under a core started directly: Lodestone Core is meant to be run with lodestone_cli,
@@ -1363,7 +1423,35 @@ impl Render for Servers {
                     NoticeKind::Success => (colors::GREEN_300, Some(Icon::Check)),
                     NoticeKind::Info => (crate::theme::accent::light(), None),
                 };
-                let notice_label: SharedString = format!("{title}: {message}").into();
+                let notice_label: SharedString =
+                    format!("{}: {}", notice.plain_title(), notice.plain_message()).into();
+                let head = notice.object.as_ref().map(|object| {
+                    div()
+                        .flex()
+                        .flex_row()
+                        .flex_wrap()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            ObjectChip::new(object.name.clone())
+                                .kind(object.kind)
+                                .max_w(px(320.)),
+                        )
+                        .children(
+                            notice
+                                .status
+                                .as_ref()
+                                .map(|(label, tone)| StatusBadge::new(label(), *tone)),
+                        )
+                });
+                let values = notice.values.iter().enumerate().map(|(i, value)| {
+                    ValueField::new(
+                        SharedString::from(format!("servers-notice-value-{i}")),
+                        value.value.clone(),
+                    )
+                    .label((value.key)())
+                    .kind(value.kind)
+                });
                 div()
                     .id("servers-notice")
                     .accessible(Role::Status, "servers-notice", notice_label)
@@ -1384,13 +1472,26 @@ impl Render for Servers {
                             .flex_col()
                             .flex_1()
                             .min_w_0()
+                            .gap_0p5()
+                            .children(head)
                             .child(
                                 div()
                                     .font_weight(weights::BOLD.into())
                                     .text_color(crate::theme::ink::text())
                                     .child(title),
                             )
-                            .child(small(message).text_color(crate::theme::ink::secondary())),
+                            .when(!message.is_empty(), |this| {
+                                this.child(
+                                    small(message).text_color(crate::theme::ink::secondary()),
+                                )
+                            })
+                            .children(values.map(|field| div().pt_1().child(field)))
+                            .children(
+                                notice
+                                    .extra
+                                    .as_ref()
+                                    .map(|extra| div().pt_2().child(extra())),
+                            ),
                     )
                     .child(
                         Button::new("dismiss-notice", t(M::Dismiss))
@@ -1527,32 +1628,44 @@ fn update_dialog(servers: &Entity<Servers>, prompt: &UpdatePrompt) -> AnyElement
     }
     let entity = servers.clone();
     let changes = &prompt.changes;
-    let mut lines: Vec<String> = Vec::new();
-    for (names, message) in [
-        (&changes.added, M::ChangeNew),
-        (&changes.updated, M::ChangeChanged),
-        (&changes.removed, M::ChangeRemoved),
-        (&changes.other, M::ChangeConfig),
+    // the files the update writes, grouped by what it does to them; the loader and
+    // the download apart, as facts
+    let mut list = NameList::new("update-server-changes").collapsed_after(5);
+    for (names, heading, icon) in [
+        (&changes.added, M::ChangeNew, ItemIcon::Added),
+        (
+            &changes.updated,
+            M::ChangeChanged,
+            ItemIcon::Kind(Kind::Mod),
+        ),
+        (&changes.removed, M::ChangeRemoved, ItemIcon::Skipped),
+        (&changes.other, M::ChangeConfig, ItemIcon::Kind(Kind::File)),
     ] {
-        for name in names.iter().take(6) {
-            lines.push(tr!(message, name = display_text(name)));
+        if names.is_empty() {
+            continue;
         }
+        list = list.group(NameGroup::new(t(heading)).items(names.iter().map(|name| {
+            NameItem::new(display_text(name).into_owned())
+                .icon(icon)
+                .style(NameStyle::Mono)
+        })));
     }
+    let mut facts = FactList::new("update-server-facts");
+    let mut has_facts = false;
     if let Some(loader) = &prompt.loader {
-        lines.push(tr!(M::ChangeLoader, loader = loader));
+        facts = facts.row(t(FactMsg::Loader), facts::phrase(loader));
+        has_facts = true;
     }
     if prompt.download_bytes > 0 {
-        lines.push(tr!(
-            M::SummaryDownload,
-            size = format::bytes_binary(prompt.download_bytes)
-        ));
+        facts = facts.row(t(FactMsg::Download), Num::bytes(prompt.download_bytes));
+        has_facts = true;
     }
     let update = servers.clone();
     let play = servers.clone();
     let cancel = servers.clone();
     Dialog::new(
         "update-server-mods",
-        tr!(M::DifferentMods, name = prompt.server.name),
+        t(M::DifferentMods),
         prompt.focus.clone(),
     )
     .on_close(move |_, cx| entity.update(cx, |this, cx| this.cancel_prompt(cx)))
@@ -1560,17 +1673,12 @@ fn update_dialog(servers: &Entity<Servers>, prompt: &UpdatePrompt) -> AnyElement
         div()
             .flex()
             .flex_col()
-            .gap_2()
+            .gap_3()
             .text_color(crate::theme::ink::secondary())
-            .child(tr!(
-                M::DifferentModsBody,
-                changes = changes_summary(changes)
-            ))
-            .children(lines.into_iter().map(|line| {
-                small(line)
-                    .font_family(fonts::mono())
-                    .text_color(crate::theme::ink::text())
-            }))
+            .child(facts::server_versions_card(&prompt.server).id("update-server-card"))
+            .child(t(M::DifferentModsBody))
+            .child(list)
+            .when(has_facts, |this| this.child(facts))
             .children(missing_block(&prompt.missing, &prompt.curseforge))
             .children(prompt.snapshot_failed.as_ref().map(|error| {
                 small(tr!(ShellMsg::ModpackUpdateNoSnapshot, error = error))
@@ -1607,172 +1715,127 @@ fn lacking_dialog(servers: &Entity<Servers>, prompt: &UpdatePrompt) -> AnyElemen
     let entity = servers.clone();
     let play = servers.clone();
     let cancel = servers.clone();
-    Dialog::new(
-        "server-lacks-files",
-        tr!(M::LacksFiles, name = prompt.server.name),
-        prompt.focus.clone(),
-    )
-    .on_close(move |_, cx| entity.update(cx, |this, cx| this.cancel_prompt(cx)))
-    .child(
-        div()
-            .flex()
-            .flex_col()
-            .gap_2()
-            .text_color(crate::theme::ink::secondary())
-            .child(t(M::LacksFilesBody))
-            .children(missing_block(&prompt.missing, &prompt.curseforge)),
-    )
-    .footer(
-        Button::new("play-lacking", t(M::Play))
-            .variant(ButtonVariant::Primary)
-            .on_click(move |_, _, cx| play.update(cx, |this, cx| this.answer_prompt(true, cx))),
-    )
-    .footer(
-        Button::new("cancel-lacking", t(CommonMsg::Cancel))
-            .variant(ButtonVariant::Ghost)
-            .on_click(move |_, _, cx| cancel.update(cx, |this, cx| this.cancel_prompt(cx))),
-    )
-    .into_any_element()
+    Dialog::new("server-lacks-files", t(M::LacksFiles), prompt.focus.clone())
+        .on_close(move |_, cx| entity.update(cx, |this, cx| this.cancel_prompt(cx)))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_3()
+                .text_color(crate::theme::ink::secondary())
+                .child(facts::server_versions_card(&prompt.server).id("lacking-server-card"))
+                .child(t(M::LacksFilesBody))
+                .children(missing_block(&prompt.missing, &prompt.curseforge)),
+        )
+        .footer(
+            Button::new("play-lacking", t(M::Play))
+                .variant(ButtonVariant::Primary)
+                .on_click(move |_, _, cx| play.update(cx, |this, cx| this.answer_prompt(true, cx))),
+        )
+        .footer(
+            Button::new("cancel-lacking", t(CommonMsg::Cancel))
+                .variant(ButtonVariant::Ghost)
+                .on_click(move |_, _, cx| cancel.update(cx, |this, cx| this.cancel_prompt(cx))),
+        )
+        .into_any_element()
 }
 
-/// Files a server's view can't give the player, with why, and CurseForge files the player
-/// downloads by hand: shown before anything is installed.
+/// Files a server's view can't give the player, each with why, and CurseForge files
+/// the player downloads by hand: shown before anything is installed.
 fn missing_block(missing: &[(String, WithheldReason)], curseforge: &[String]) -> Option<gpui::Div> {
-    const SHOWN: usize = 8;
     if missing.is_empty() && curseforge.is_empty() {
         return None;
     }
-    let more = |count: usize| {
-        (count > SHOWN)
-            .then(|| small(trn!(P::AndMore, count - SHOWN)).text_color(crate::theme::ink::muted()))
-    };
-    let mono = |text: String| {
-        small(text)
-            .font_family(fonts::mono())
-            .text_color(crate::theme::ink::text())
-    };
+    let mut list = NameList::new("server-missing-files").collapsed_after(5);
+    if !missing.is_empty() {
+        list = list.group(NameGroup::new(t(M::MissingTitle)).items(missing.iter().map(
+            |(path, reason)| {
+                NameItem::new(display_text(path).into_owned())
+                    .icon(ItemIcon::Failed)
+                    .style(NameStyle::Mono)
+                    .reason(withheld_reason(reason))
+            },
+        )));
+    }
+    if !curseforge.is_empty() {
+        list = list.group(
+            NameGroup::new(t(M::CurseForgeTitle)).items(curseforge.iter().map(|path| {
+                NameItem::new(display_text(path).into_owned())
+                    .icon(ItemIcon::Kind(Kind::Mod))
+                    .style(NameStyle::Mono)
+            })),
+        );
+    }
     Some(
         div()
             .flex()
             .flex_col()
-            .gap_1()
+            .gap_2()
             .px_3()
             .py_2()
             .rounded(radius::LG)
             .border_1()
             .border_color(colors::YELLOW.opacity(40))
             .bg(colors::YELLOW.opacity(8))
+            .child(list)
             .when(!missing.is_empty(), |this| {
-                this.child(
-                    div()
-                        .flex()
-                        .flex_row()
-                        .items_center()
-                        .gap_2()
-                        .child(Icon::TriangleExclamation.render(px(14.), colors::YELLOW))
-                        .child(
-                            small(tr!(
-                                M::MissingTitle,
-                                count = format::number(missing.len() as u64)
-                            ))
-                            .font_weight(weights::BOLD.into())
-                            .text_color(colors::YELLOW),
-                        ),
-                )
-                .children(missing.iter().take(SHOWN).map(|(path, reason)| {
-                    mono(tr!(
-                        M::MissingLine,
-                        name = path,
-                        reason = withheld_reason(reason)
-                    ))
-                }))
-                .children(more(missing.len()))
-                .child(small(t(M::MissingNote)).text_color(crate::theme::ink::secondary()))
+                this.child(small(t(M::MissingNote)).text_color(crate::theme::ink::secondary()))
             })
             .when(!curseforge.is_empty(), |this| {
-                this.child(
-                    small(tr!(
-                        M::CurseForgeTitle,
-                        count = format::number(curseforge.len() as u64)
-                    ))
-                    .font_weight(weights::BOLD.into())
-                    .text_color(colors::YELLOW),
-                )
-                .children(
-                    curseforge
-                        .iter()
-                        .take(SHOWN)
-                        .map(|path| mono(display_text(path).into_owned())),
-                )
-                .children(more(curseforge.len()))
-                .child(small(t(M::CurseForgeNote)).text_color(crate::theme::ink::secondary()))
+                this.child(small(t(M::CurseForgeNote)).text_color(crate::theme::ink::secondary()))
             }),
     )
 }
 
-/// What a server's image installs: its modpack, the mods it added, the files only it
-/// has, and what the player won't get.
+/// What a server's image installs: its modpack and the download as facts, then the
+/// mods it added and the files only it has as counted lists.
 fn summary_block(summary: &Summary) -> gpui::Div {
-    const SHOWN: usize = 8;
-    let more = |count: usize| {
-        (count > SHOWN)
-            .then(|| small(trn!(P::AndMore, count - SHOWN)).text_color(crate::theme::ink::muted()))
-    };
-    let section = |title: String, items: &[String]| {
-        (!items.is_empty()).then(|| {
-            div()
-                .flex()
-                .flex_col()
-                .gap_1()
-                .child(
-                    small(title)
-                        .font_weight(weights::BOLD.into())
-                        .text_color(crate::theme::ink::secondary()),
-                )
-                .children(items.iter().take(SHOWN).map(|item| {
-                    small(file_label(item))
-                        .font_family(fonts::mono())
-                        .truncate()
-                        .text_color(crate::theme::ink::text())
-                }))
-                .children(more(items.len()))
-        })
-    };
+    let mut facts = FactList::new("server-summary-facts");
+    let mut has_facts = false;
+    if let Some((pack, version)) = &summary.base {
+        let pack = sanitize(pack, 120);
+        facts = facts.row(
+            t(FactMsg::Modpack),
+            FactValue::element(
+                div()
+                    .flex()
+                    .flex_row()
+                    .flex_wrap()
+                    .items_center()
+                    .gap_2()
+                    .child(object_name(pack.clone()))
+                    .child(VersionTag::new(version.clone())),
+                format!("{pack} {version}"),
+            ),
+        );
+        has_facts = true;
+    }
+    if summary.download_bytes > 0 {
+        facts = facts.row(t(FactMsg::Download), Num::bytes(summary.download_bytes));
+        has_facts = true;
+    }
+    let mut list = NameList::new("server-summary-files").collapsed_after(5);
+    let mut has_files = false;
+    for (heading, items, kind) in [
+        (M::SummaryAddedMods, &summary.added_mods, Kind::Mod),
+        (M::SummaryServerOnly, &summary.server_only, Kind::File),
+    ] {
+        if items.is_empty() {
+            continue;
+        }
+        has_files = true;
+        list = list.group(NameGroup::new(t(heading)).items(items.iter().map(|item| {
+            NameItem::new(file_label(item))
+                .icon(ItemIcon::Kind(kind))
+                .style(NameStyle::Mono)
+        })));
+    }
     div()
         .flex()
         .flex_col()
         .gap_2()
-        .px_3()
-        .py_2()
-        .rounded(radius::LG)
-        .border_1()
-        .border_color(crate::theme::ink::border())
-        .bg(colors::GRAY_900)
-        .children(summary.base.as_ref().map(|(pack, version)| {
-            small(tr!(M::SummaryBase, pack = pack, version = version))
-                .text_color(crate::theme::ink::text())
-        }))
-        .children((summary.download_bytes > 0).then(|| {
-            small(tr!(
-                M::SummaryDownload,
-                size = format::bytes_binary(summary.download_bytes)
-            ))
-            .text_color(crate::theme::ink::text())
-        }))
-        .children(section(
-            tr!(
-                M::SummaryAddedMods,
-                count = format::number(summary.added_mods.len() as u64)
-            ),
-            &summary.added_mods,
-        ))
-        .children(section(
-            tr!(
-                M::SummaryServerOnly,
-                count = format::number(summary.server_only.len() as u64)
-            ),
-            &summary.server_only,
-        ))
+        .when(has_facts, |this| this.child(facts.framed(true)))
+        .when(has_files, |this| this.child(list))
 }
 
 fn paragraph(value: impl Into<SharedString>) -> gpui::Div {
@@ -1783,27 +1846,23 @@ fn paragraph(value: impl Into<SharedString>) -> gpui::Div {
         .child(value.into())
 }
 
-/// The certificate prompt: trust a certificate macOS doesn't, or a changed one.
+/// The certificate prompt: trust a certificate macOS doesn't, or a changed one. The
+/// host is in a card with its address, next to the fingerprints.
 fn certificate_dialog(servers: &Entity<Servers>, prompt: &CertPrompt) -> Dialog {
     let changed = prompt.previous.is_some();
     let name = prompt.name.clone().unwrap_or_else(|| prompt.host.clone());
     let close = servers.clone();
     let trust = servers.clone();
     let cancel = servers.clone();
-    let title = if changed {
-        tr!(M::CertChangedTitle, name = name)
+    let title = t(if changed {
+        M::CertChangedTitle
     } else {
-        t(M::CertTrustTitle).to_string()
-    };
+        M::CertTrustTitle
+    });
     let intro = if changed {
-        tr!(M::CertChangedIntro, address = prompt.address)
+        t(M::CertChangedIntro).to_string()
     } else {
-        tr!(
-            M::CertUntrustedIntro,
-            os = wording::OS,
-            name = name,
-            address = prompt.address
-        )
+        tr!(M::CertUntrustedIntro, os = wording::OS)
     };
     Dialog::new("core-certificate", title, prompt.focus.clone())
         .width(px(560.))
@@ -1813,6 +1872,7 @@ fn certificate_dialog(servers: &Entity<Servers>, prompt: &CertPrompt) -> Dialog 
                 .flex()
                 .flex_col()
                 .gap_3()
+                .child(facts::host_card(&name, &prompt.address).id("core-certificate-host"))
                 .child(paragraph(intro))
                 .children(prompt.previous.as_ref().map(|previous| {
                     fingerprint_block(t(M::FingerprintTrustedBefore), previous, colors::GRAY_400)
@@ -1832,16 +1892,17 @@ fn certificate_dialog(servers: &Entity<Servers>, prompt: &CertPrompt) -> Dialog 
                 ))
                 .child(small(t(M::FingerprintHelp)).text_color(crate::theme::ink::muted()))
                 .child(
-                    small(tr!(
-                        if changed {
-                            M::CertIfMatchChanged
-                        } else {
-                            M::CertIfMatch
-                        },
-                        host = prompt.host
-                    ))
+                    small(t(if changed {
+                        M::CertIfMatchChanged
+                    } else {
+                        M::CertIfMatch
+                    }))
                     .text_color(crate::theme::ink::muted()),
-                ),
+                )
+                .child(FactLine::row("core-certificate-scope").fact(Fact::new(
+                    t(M::TrustedOnlyFor),
+                    FactValue::mono(prompt.host.clone()),
+                ))),
         )
         .footer(
             Button::new(
@@ -1870,48 +1931,42 @@ fn certificate_dialog(servers: &Entity<Servers>, prompt: &CertPrompt) -> Dialog 
         )
 }
 
-/// "Do you trust <core>?"
+/// "Trust this host?", over the host's card.
 fn trust_dialog(servers: &Entity<Servers>, prompt: &TrustPrompt) -> Dialog {
     let close = servers.clone();
     let not_now = servers.clone();
     let trust = servers.clone();
-    Dialog::new(
-        "trust-core",
-        tr!(M::TrustTitle, name = prompt.name),
-        prompt.focus.clone(),
-    )
-    .on_close(move |_, cx| close.update(cx, |this, cx| this.answer_trust(false, cx)))
-    .child(
-        div()
-            .flex()
-            .flex_col()
-            .gap_3()
-            .child(paragraph(tr!(
-                M::CoreAt,
-                name = prompt.name,
-                address = prompt.address
-            )))
-            .child(paragraph(trust_explanation()))
-            .child(
-                small(if prompt.after_add {
-                    tr!(M::TrustAfterAdd, setting = t(M::TrustedForMods))
-                } else {
-                    t(M::TrustLater).to_string()
-                })
-                .text_color(crate::theme::ink::muted()),
-            ),
-    )
-    .footer(
-        Button::new("trust-core-yes", t(M::TrustThisCore))
-            .variant(ButtonVariant::Secondary)
-            .on_click(move |_, _, cx| trust.update(cx, |this, cx| this.answer_trust(true, cx))),
-    )
-    // the safe answer, so the one that stands out, though last like any Cancel
-    .footer(
-        Button::new("trust-not-now", t(CommonMsg::NotNow))
-            .variant(ButtonVariant::Primary)
-            .on_click(move |_, _, cx| not_now.update(cx, |this, cx| this.answer_trust(false, cx))),
-    )
+    Dialog::new("trust-core", t(M::TrustTitle), prompt.focus.clone())
+        .on_close(move |_, cx| close.update(cx, |this, cx| this.answer_trust(false, cx)))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_3()
+                .child(facts::host_card(&prompt.name, &prompt.address).id("trust-core-host"))
+                .child(paragraph(trust_explanation()))
+                .child(
+                    small(if prompt.after_add {
+                        tr!(M::TrustAfterAdd, setting = t(M::TrustedForMods))
+                    } else {
+                        t(M::TrustLater).to_string()
+                    })
+                    .text_color(crate::theme::ink::muted()),
+                ),
+        )
+        .footer(
+            Button::new("trust-core-yes", t(M::TrustThisCore))
+                .variant(ButtonVariant::Secondary)
+                .on_click(move |_, _, cx| trust.update(cx, |this, cx| this.answer_trust(true, cx))),
+        )
+        // the safe answer, so the one that stands out, though last like any Cancel
+        .footer(
+            Button::new("trust-not-now", t(CommonMsg::NotNow))
+                .variant(ButtonVariant::Primary)
+                .on_click(move |_, _, cx| {
+                    not_now.update(cx, |this, cx| this.answer_trust(false, cx))
+                }),
+        )
 }
 
 /// A file's name, for the lists: `mods/sodium.jar` is `sodium.jar`.
@@ -1920,15 +1975,160 @@ fn file_label(path: &str) -> String {
     path.strip_prefix("mods/").unwrap_or(&path).to_string()
 }
 
+/// The server and the host it is on, in a card under a dialog's title.
+fn server_on_host(prompt: &AdvisoryPrompt) -> crate::components::ObjectCard {
+    facts::server_card(&prompt.server_name).fact(facts::host_fact(&prompt.core_name))
+}
+
 /// What a new instance gets from a server's image, when its core is trusted for mods:
 /// Install or Cancel.
 fn install_dialog(servers: &Entity<Servers>, prompt: &AdvisoryPrompt, summary: &Summary) -> Dialog {
     let close = servers.clone();
     let cancel = servers.clone();
     let install = servers.clone();
-    Dialog::new(
-        "server-install",
-        tr!(M::InstallTitle, name = prompt.server_name),
+    Dialog::new("server-install", t(M::InstallTitle), prompt.focus.clone())
+        .width(px(600.))
+        .on_close(move |_, cx| {
+            close.update(cx, |this, cx| {
+                this.answer_advisory(AdvisoryAnswer::Cancel, cx)
+            })
+        })
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_3()
+                .child(server_on_host(prompt).id("server-install-server"))
+                .child(paragraph(t(M::InstallIntro)))
+                .child(
+                    FactList::new("server-install-versions")
+                        .row(t(FactMsg::Game), facts::game(&summary.minecraft))
+                        .row(t(FactMsg::Loader), facts::phrase(&summary.loader)),
+                )
+                .child(summary_block(summary))
+                .children(missing_block(&summary.missing, &summary.curseforge_listed)),
+        )
+        .footer(
+            Button::new("server-install-yes", t(M::Install))
+                .variant(ButtonVariant::Primary)
+                .on_click(move |_, _, cx| {
+                    install.update(cx, |this, cx| {
+                        this.answer_advisory(AdvisoryAnswer::InstallOnce, cx)
+                    })
+                }),
+        )
+        .footer(
+            Button::new("server-install-cancel", t(CommonMsg::Cancel))
+                .variant(ButtonVariant::Ghost)
+                .on_click(move |_, _, cx| {
+                    cancel.update(cx, |this, cx| {
+                        this.answer_advisory(AdvisoryAnswer::Cancel, cx)
+                    })
+                }),
+        )
+}
+
+/// "This server's mods will run on your Mac", with what a server's image installs when
+/// it is one; or, from a trusted core, only what a new instance gets.
+fn advisory_dialog(servers: &Entity<Servers>, prompt: &AdvisoryPrompt) -> Option<Dialog> {
+    let Some(advisory) = &prompt.advisory else {
+        return prompt
+            .summary
+            .as_ref()
+            .map(|summary| install_dialog(servers, prompt, summary));
+    };
+    let close = servers.clone();
+    let cancel = servers.clone();
+    let once = servers.clone();
+    let trust = servers.clone();
+    let uploaded = (!advisory.uploaded.is_empty()).then(|| {
+        div()
+            .px_3()
+            .py_2()
+            .rounded(radius::LG)
+            .border_1()
+            .border_color(colors::YELLOW.opacity(40))
+            .bg(colors::YELLOW.opacity(8))
+            .child(NameList::new("advisory-uploaded").collapsed_after(5).group(
+                NameGroup::new(t(M::UploadedNotChecked)).items(advisory.uploaded.iter().map(
+                    |path| {
+                        NameItem::new(file_label(path))
+                            .icon(ItemIcon::Kind(Kind::File))
+                            .style(NameStyle::Mono)
+                    },
+                )),
+            ))
+    });
+    // each file Modrinth knows: its project and version on the first line, the file
+    // on the second
+    let on_modrinth = (!advisory.on_modrinth.is_empty()).then(|| {
+        const SHOWN: usize = 8;
+        let count = advisory.on_modrinth.len();
+        div()
+            .flex()
+            .flex_col()
+            .gap_1p5()
+            .px_3()
+            .py_2()
+            .rounded(radius::LG)
+            .border_1()
+            .border_color(crate::theme::ink::border())
+            .bg(colors::GRAY_900)
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        small(t(M::AlsoOnModrinth))
+                            .font_weight(weights::BOLD.into())
+                            .text_color(crate::theme::ink::secondary()),
+                    )
+                    .child(CountBadge::new(count as u64)),
+            )
+            .children(
+                advisory
+                    .on_modrinth
+                    .iter()
+                    .take(SHOWN)
+                    .enumerate()
+                    .map(|(i, found)| {
+                        div()
+                            .flex()
+                            .flex_col()
+                            .min_w_0()
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_row()
+                                    .items_center()
+                                    .gap_2()
+                                    .min_w_0()
+                                    .child(object_name(sanitize(&found.project, 120)))
+                                    .child(VersionTag::new(found.version.clone())),
+                            )
+                            .child(
+                                FactLine::row(("advisory-modrinth-file", i)).fact(
+                                    Fact::new(
+                                        t(FactMsg::File),
+                                        PathText::file(file_label(&found.path)),
+                                    )
+                                    .shrink(),
+                                ),
+                            )
+                    }),
+            )
+            .when(count > SHOWN, |this| {
+                this.child(
+                    small(trn!(P::AndMore, count - SHOWN)).text_color(crate::theme::ink::muted()),
+                )
+            })
+    });
+    let other_files = other_files(advisory);
+    let dialog = Dialog::new(
+        "mod-advisory",
+        tr!(M::AdvisoryTitle, computer = t(CommonMsg::ThisComputer)),
         prompt.focus.clone(),
     )
     .width(px(600.))
@@ -1942,222 +2142,81 @@ fn install_dialog(servers: &Entity<Servers>, prompt: &AdvisoryPrompt, summary: &
             .flex()
             .flex_col()
             .gap_3()
-            .child(paragraph(tr!(
-                M::InstallIntro,
-                server = prompt.server_name,
-                core = prompt.core_name,
-                version = summary.minecraft,
-                loader = summary.loader
-            )))
-            .child(summary_block(summary))
-            .children(missing_block(&summary.missing, &summary.curseforge_listed)),
+            .child(server_on_host(prompt).id("mod-advisory-server"))
+            .child(paragraph(t(if prompt.update {
+                M::AdvisoryUpdate
+            } else {
+                M::AdvisoryNew
+            })))
+            .children(prompt.summary.as_ref().map(summary_block))
+            .children(
+                prompt.summary.as_ref().and_then(|summary| {
+                    missing_block(&summary.missing, &summary.curseforge_listed)
+                }),
+            )
+            .when(advisory.unchecked, |this| {
+                this.child(small(t(M::ModrinthUnreachable)).text_color(colors::YELLOW))
+            })
+            .children(uploaded)
+            .children(on_modrinth)
+            .when(!other_files.is_empty(), |this| {
+                this.child(FactLine::row("advisory-other-files").facts(other_files))
+            })
+            .when(advisory.scripts > 0, |this| {
+                this.child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            StatusBadge::new(t(M::CanRunCode), Tone::Warning)
+                                .icon(Icon::TriangleExclamation),
+                        )
+                        .child(small(t(M::ScriptsNote)).text_color(crate::theme::ink::secondary())),
+                )
+            })
+            .child(
+                paragraph(t(M::OnlyIfYouTrust))
+                    .font_weight(weights::BOLD.into())
+                    .text_color(crate::theme::ink::text()),
+            )
+            .child(
+                small(tr!(
+                    M::AdvisoryTrustNote,
+                    button = t(M::TrustAndInstall),
+                    explanation = trust_explanation()
+                ))
+                .text_color(crate::theme::ink::muted()),
+            ),
     )
     .footer(
-        Button::new("server-install-yes", t(M::Install))
-            .variant(ButtonVariant::Primary)
+        Button::new("advisory-once", t(M::InstallThisTime))
+            .variant(ButtonVariant::Secondary)
             .on_click(move |_, _, cx| {
-                install.update(cx, |this, cx| {
+                once.update(cx, |this, cx| {
                     this.answer_advisory(AdvisoryAnswer::InstallOnce, cx)
                 })
             }),
     )
     .footer(
-        Button::new("server-install-cancel", t(CommonMsg::Cancel))
+        Button::new("advisory-trust", t(M::TrustAndInstall))
             .variant(ButtonVariant::Ghost)
+            .on_click(move |_, _, cx| {
+                trust.update(cx, |this, cx| {
+                    this.answer_advisory(AdvisoryAnswer::TrustAndInstall, cx)
+                })
+            }),
+    )
+    // the safe answer, so the one that stands out, though last like any Cancel
+    .footer(
+        Button::new("advisory-cancel", t(CommonMsg::Cancel))
+            .variant(ButtonVariant::Primary)
             .on_click(move |_, _, cx| {
                 cancel.update(cx, |this, cx| {
                     this.answer_advisory(AdvisoryAnswer::Cancel, cx)
                 })
             }),
-    )
-}
-
-/// "This server's mods will run on your Mac", with what a server's image installs when
-/// it is one; or, from a trusted core, only what a new instance gets.
-fn advisory_dialog(servers: &Entity<Servers>, prompt: &AdvisoryPrompt) -> Option<Dialog> {
-    const SHOWN: usize = 8;
-    let Some(advisory) = &prompt.advisory else {
-        return prompt
-            .summary
-            .as_ref()
-            .map(|summary| install_dialog(servers, prompt, summary));
-    };
-    let close = servers.clone();
-    let cancel = servers.clone();
-    let once = servers.clone();
-    let trust = servers.clone();
-    let more = |count: usize| {
-        (count > SHOWN)
-            .then(|| small(trn!(P::AndMore, count - SHOWN)).text_color(crate::theme::ink::muted()))
-    };
-    let uploaded = (!advisory.uploaded.is_empty()).then(|| {
-        div()
-            .flex()
-            .flex_col()
-            .gap_1()
-            .px_3()
-            .py_2()
-            .rounded(radius::LG)
-            .border_1()
-            .border_color(colors::YELLOW.opacity(40))
-            .bg(colors::YELLOW.opacity(8))
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_2()
-                    .child(Icon::TriangleExclamation.render(px(14.), colors::YELLOW))
-                    .child(
-                        small(tr!(
-                            M::UploadedNotChecked,
-                            count = format::number(advisory.uploaded.len() as u64)
-                        ))
-                        .font_weight(weights::BOLD.into())
-                        .text_color(colors::YELLOW),
-                    ),
-            )
-            .children(advisory.uploaded.iter().take(SHOWN).map(|path| {
-                small(file_label(path))
-                    .font_family(fonts::mono())
-                    .text_color(crate::theme::ink::text())
-            }))
-            .children(more(advisory.uploaded.len()))
-    });
-    let on_modrinth = (!advisory.on_modrinth.is_empty()).then(|| {
-        div()
-            .flex()
-            .flex_col()
-            .gap_1()
-            .px_3()
-            .py_2()
-            .rounded(radius::LG)
-            .border_1()
-            .border_color(crate::theme::ink::border())
-            .bg(colors::GRAY_900)
-            .child(
-                small(tr!(
-                    M::AlsoOnModrinth,
-                    count = format::number(advisory.on_modrinth.len() as u64)
-                ))
-                .font_weight(weights::BOLD.into())
-                .text_color(crate::theme::ink::secondary()),
-            )
-            .children(advisory.on_modrinth.iter().take(SHOWN).map(|found| {
-                div()
-                    .flex()
-                    .flex_row()
-                    .gap_2()
-                    .child(
-                        small(format!("{} {}", found.project, found.version))
-                            .text_color(crate::theme::ink::text()),
-                    )
-                    .child(
-                        small(file_label(&found.path))
-                            .font_family(fonts::mono())
-                            .truncate()
-                            .text_color(crate::theme::ink::muted()),
-                    )
-            }))
-            .children(more(advisory.on_modrinth.len()))
-    });
-    let intro = tr!(
-        if prompt.update {
-            M::AdvisoryUpdate
-        } else {
-            M::AdvisoryNew
-        },
-        server = prompt.server_name,
-        core = prompt.core_name
     );
-    let trust_label = tr!(M::TrustAndInstall, core = prompt.core_name);
-    let dialog =
-        Dialog::new(
-            "mod-advisory",
-            tr!(M::AdvisoryTitle, computer = t(CommonMsg::ThisComputer)),
-            prompt.focus.clone(),
-        )
-        .width(px(600.))
-        .on_close(move |_, cx| {
-            close.update(cx, |this, cx| {
-                this.answer_advisory(AdvisoryAnswer::Cancel, cx)
-            })
-        })
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap_3()
-                .child(paragraph(intro))
-                .children(prompt.summary.as_ref().map(summary_block))
-                .children(prompt.summary.as_ref().and_then(|summary| {
-                    missing_block(&summary.missing, &summary.curseforge_listed)
-                }))
-                .when(advisory.unchecked, |this| {
-                    this.child(small(t(M::ModrinthUnreachable)).text_color(colors::YELLOW))
-                })
-                .children(uploaded)
-                .children(on_modrinth)
-                .children(other_files(advisory).map(|files| {
-                    small(tr!(
-                        if advisory.scripts > 0 {
-                            M::AlsoFilesScripts
-                        } else {
-                            M::AlsoFiles
-                        },
-                        files = files
-                    ))
-                    .text_color(crate::theme::ink::secondary())
-                }))
-                .child(
-                    paragraph(tr!(M::OnlyIfYouTrust, core = prompt.core_name))
-                        .font_weight(weights::BOLD.into())
-                        .text_color(crate::theme::ink::text()),
-                )
-                .child(
-                    small(tr!(
-                        M::AdvisoryTrustNote,
-                        button = trust_label,
-                        explanation = trust_explanation()
-                    ))
-                    .text_color(crate::theme::ink::muted()),
-                ),
-        )
-        // one footer item that wraps: the trust button holds the core's name
-        .footer(
-            div()
-                .flex()
-                .flex_row()
-                .flex_wrap()
-                .gap_2()
-                .child(
-                    Button::new("advisory-once", t(M::InstallThisTime))
-                        .variant(ButtonVariant::Secondary)
-                        .on_click(move |_, _, cx| {
-                            once.update(cx, |this, cx| {
-                                this.answer_advisory(AdvisoryAnswer::InstallOnce, cx)
-                            })
-                        }),
-                )
-                .child(
-                    Button::new("advisory-trust", trust_label)
-                        .variant(ButtonVariant::Ghost)
-                        .on_click(move |_, _, cx| {
-                            trust.update(cx, |this, cx| {
-                                this.answer_advisory(AdvisoryAnswer::TrustAndInstall, cx)
-                            })
-                        }),
-                )
-                // the safe answer, so the one that stands out, though last like any Cancel
-                .child(
-                    Button::new("advisory-cancel", t(CommonMsg::Cancel))
-                        .variant(ButtonVariant::Primary)
-                        .on_click(move |_, _, cx| {
-                            cancel.update(cx, |this, cx| {
-                                this.answer_advisory(AdvisoryAnswer::Cancel, cx)
-                            })
-                        }),
-                ),
-        );
     Some(dialog)
 }

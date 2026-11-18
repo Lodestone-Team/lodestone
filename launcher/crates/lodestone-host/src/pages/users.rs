@@ -477,11 +477,8 @@ impl UsersPage {
         if query.is_active() && query.found() == 0 {
             return Vec::new();
         }
-        let description =
-            (!query.is_active()).then(|| parts::paragraph(t(CoreMsg::UsersDescription)));
-        description
-            .into_iter()
-            .chain([div()
+        vec![
+            div()
                 .flex()
                 .flex_col()
                 .gap_2()
@@ -499,8 +496,8 @@ impl UsersPage {
                         ),
                 )
                 .child(body)
-                .into_any_element()])
-            .collect()
+                .into_any_element(),
+        ]
     }
 
     fn user_view(
@@ -547,17 +544,14 @@ impl UsersPage {
             on_change,
         );
         let normal = query
-            .section(
-                t(CoreMsg::Permissions),
-                Some(tr!(CoreMsg::PermissionsLead, username = user.username).into()),
-            )
+            .section(t(CoreMsg::Permissions), None)
             .card(normal)
             .finish()
             .map(IntoElement::into_any_element);
         let unsafe_section = query
             .section(
                 t(CoreMsg::UnsafePermissions),
-                Some(t(CoreMsg::UnsafePermissionsLead).into()),
+                safe_mode.then(|| t(CoreMsg::UnsafePermissionsLead).into()),
             )
             .card_with(unsafe_rows, |card| {
                 card.border_color(colors::RED_FADED.opacity(50))
@@ -627,12 +621,19 @@ impl Render for UsersPage {
                 Confirm {
                     id: "delete-user",
                     title: t(CoreMsg::DeleteUserTitle).into(),
-                    body: tr!(CoreMsg::DeleteUserConfirm, name = deleting.user.username).into(),
+                    body: t(CoreMsg::DeleteUserConfirm).into(),
                     action: t(CommonMsg::Delete).into(),
                     danger: true,
                     busy: deleting.busy,
                 }
-                .render(
+                // the user, by their exact username, with their avatar
+                .render_about(
+                    lodestone_ui::components::ObjectCard::new(deleting.user.username.clone())
+                        .thumbnail(parts::avatar(
+                            &deleting.user.uid,
+                            &deleting.user.username,
+                            32.,
+                        )),
                     deleting.focus.clone(),
                     move |_, cx| {
                         this.update(cx, |this, cx| this.delete(cx)).ok();

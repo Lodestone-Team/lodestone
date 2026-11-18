@@ -112,16 +112,16 @@ pub fn text(message: M) -> &'static str {
         M::ViewOnModrinth => "在 Modrinth 上查看",
         M::DownloadingNewVersion => "正在下载新版本…",
         M::CheckingModrinth => "正在检查 Modrinth…",
-        M::UpdateTo => "更新到 {version}…",
+        M::UpdateModpack => "更新…",
         M::UpToDate => "已是最新",
         M::CheckForUpdates => "检查更新",
         M::ModrinthUnreachable => "无法连接到 Modrinth。",
         M::StopGameFirst => "请先停止游戏，或等待更新完成。",
         M::CouldntPrepareUpdate => "无法准备更新：{error}",
 
-        M::LinkedServerHint => "位于 {core}。“开始游戏”会加入它并同步模组。",
+        M::LinkedServerHint => "“开始游戏”会加入它并同步其模组。",
         M::LinkedServerCoreRemoved => {
-            "位于 {core}，该主机已从“Lodestone Host”页面移除。请在那里重新添加该主机以加入服务器。"
+            "它的主机已从“Lodestone Host”页面中移除。请在那里重新添加该主机以加入服务器。"
         }
         M::CoreRemoved => "主机已移除",
         M::Unlink => "取消关联",
@@ -129,13 +129,14 @@ pub fn text(message: M) -> &'static str {
         M::UnlinkNote => "“开始游戏”将不再加入该服务器，模组会保留。",
 
         M::ChangeSetting => "更改",
-        M::JavaMemoryLead => "默认值来自启动器设置。",
+        M::JavaMemoryLead => "内存的默认值在“设置 › 实例默认设置”中设定。",
         M::Memory => "内存",
         M::Checking => "正在检查…",
-        M::JavaFound => "Java {major}（版本 {version}）",
-        M::JavaTooOld => {
-            "Java {major}（版本 {version}）。Minecraft {game} 需要 Java {needed} 或更高版本。"
-        }
+        M::JavaTooOldBadge => "版本过旧",
+        M::JavaFitsBadge => "可用",
+        M::JavaFoundKey => "检测到",
+        M::JavaVersion => "Java {version}",
+        M::JavaOrNewer => "Java {major} 或更新版本",
         M::MojangJavaVersion => "Mojang 提供的 Java {major}",
         M::MojangJava => "Mojang 提供的 Java",
         M::AzulZulu8 => "适用于 Apple 芯片的 Azul Zulu 8",
@@ -159,7 +160,6 @@ pub fn text(message: M) -> &'static str {
         M::NoSnapshots => "还没有快照。",
         M::SnapshotSizes => "{total}，其中新增 {new}",
         M::SnapshotNothingNew => "{total}，无新增",
-        M::SnapshotWithMods => "含模组",
         M::PreparingFile => "正在准备文件…",
         M::DragToShare => "将文件拖到其他应用中，或：",
         M::SaveAsEllipsis => "另存为…",
@@ -175,21 +175,7 @@ pub fn text(message: M) -> &'static str {
         M::ImportServerTitle => "从服务器的世界新建实例",
         M::CreateInstanceButton => "创建实例",
         M::SnapshotGameRunning => "请先停止游戏。",
-        M::SnapshotsHint => "此实例的世界和文件的副本，可用于恢复或分享。",
-        M::SnapshotIncludeEverything => "包含模组和配置",
-        M::SnapshotIncludeEverythingHint => {
-            "不勾选时，快照保留世界和其他文件，并记住它们运行时使用的模组。"
-        }
         M::SnapshotAfterPlay => "每次游戏结束后拍摄快照",
-        M::SnapshotAfterPlayHint => {
-            "游玩后复制世界。跟随“设置 › 实例默认设置”，默认关闭，除非你开启。"
-        }
-        M::SnapshotAfterPlayDefaultHint => {
-            "每次游戏结束后复制世界，适用于未自行设置的实例。默认关闭，除非你开启。"
-        }
-        M::SnapshotKeepHint => {
-            "启动器自动拍摄的快照会保留一段时间：最近 {last} 个、{days} 天内每天一个、{weeks} 周内每周一个。你自己拍摄的快照会一直保留，直到你删除。"
-        }
         M::BadgeAutomatic => "自动",
         M::BadgeAfterPlaying => "游戏后",
         M::BadgeImported => "已导入",
@@ -256,9 +242,7 @@ pub fn text(message: M) -> &'static str {
         M::Duplicate => "创建副本",
         M::Duplicating => "正在创建副本…",
         M::ChangeVersionOrLoader => "其他版本或加载器",
-        M::ChangeVersionOrLoaderHint => {
-            "实例会保留创建时的版本和加载器。副本可以使用其他版本或加载器。"
-        }
+        M::ChangeVersionOrLoaderHint => "会创建一个副本，此实例保持不变。",
         M::CopyAs => "以其他版本或加载器复制",
         M::CopyAsButton => "换版本复制…",
         M::CopyAsKeywords => "更改 切换 更新 升级 降级 版本 加载器 Fabric Forge NeoForge Quilt",
@@ -328,20 +312,19 @@ pub fn text(message: M) -> &'static str {
         M::DeleteInstance => "删除实例",
         M::DeleteHint => "包括其中的世界和模组。",
         M::DeleteButton => "删除…",
-        M::SharedLead => "让各实例的设置保持同步。",
+        M::SharedLead => "按键、视频、声音和其他游戏内选项，在每个共享它们的实例中保持一致。",
         M::UseSharedSettings => "使用共享设置",
-        M::SharingOff => "此实例保留自己的选项。",
         M::SharingFrom => "接收来自 {name} 的游戏内更改。",
         M::SharingMain => "此实例中游戏内的更改会同步到所有实例。",
         M::SharingNoMain => "没有主实例：共享值只能在设置中更改。",
         M::MainInstance => "主实例",
-        M::MainInstanceHint => {
-            "你在主实例游戏中更改的设置，会在其他共享设置的实例下次启动时复制过去。只能有一个主实例。"
-        }
+        M::MainInstanceHint => "它的游戏内更改会在其他共享设置的实例下次启动时同步过去。",
         M::IsMainInstance => "这是你的主实例",
         M::MakeMain => "设为主实例",
         M::StopGameToChange => "请先停止游戏再更改：游戏退出时会重写 options.txt。",
         M::NotShared => "未共享（启动器设置）",
+        M::SharedKey => "共享",
+        M::OverriddenKey => "已覆盖",
         M::ShareAll => "全部共享",
         M::OverrideAll => "全部覆盖",
         M::Show => "显示",
@@ -416,10 +399,8 @@ pub fn text(message: M) -> &'static str {
         M::AddGroupThere => "实例中已有（{count}）",
         M::AddedModpacks => "已添加的整合包",
         M::AddModpackRow => "添加整合包",
-        M::AddModpackHint => "将整合包的模组和配置添加到此实例中，与已有的放在一起。",
-        M::AddModpackServerHint => {
-            "将整合包的模组（例如客户端优化）添加到 {server} 的模组旁边。服务器的模组保持不变。"
-        }
+        M::AddModpackHint => "实例已有的内容都不会被替换。",
+        M::AddModpackServerHint => "用于客户端模组，例如优化模组。{server} 的模组保持不变。",
         M::AddModpackEllipsis => "添加整合包…",
         M::RemoveAddedModpackNote => "移除该整合包添加的文件。你修改过的文件会保留。",
         M::SnapshotsNotChanged => "无法更改快照",
@@ -441,8 +422,30 @@ pub fn text(message: M) -> &'static str {
         M::ImportNoRoom => "磁盘空间不足：需要 {size}（含 1 GB 余量），可用 {free}。",
         M::ImportSpaceFree => "需要 {size} 磁盘空间（含 1 GB 余量）；可用 {free}。",
         M::ExportNotDownloadable => "这些无法下载，因此导入该文件的人不会得到它们：{files}。",
-        M::SnapshotAfterPlayOwnHint => "游玩后复制世界。仅为此实例设置。",
         M::DeleteUnreadableNote => "它们将被永久删除。",
+        M::SnapshotsGroup => "已保存的快照",
+        M::BackUpWorldTitle => "备份世界",
+        M::RestoreAsNewWorld => "恢复为新世界",
+        M::WorldBackupWorld => "世界",
+        M::WorldBackupDefaultName => "世界备份",
+        M::WorldBackupBeforeRestoring => "恢复“{name}”之前",
+        M::BackUpButton => "备份",
+        M::BackingUpWorld => "正在备份 {name}…",
+        M::WorldBackedUp => "已备份 {name}。",
+        M::NoWorldsToBackUp => "此实例还没有世界。",
+        M::RestoreWorldTitle => "恢复 {world}",
+        M::RestoreWorldBody => {
+            "{world} 将回到“{name}”（{when}）时的状态。会先把世界现在的样子另存为一个世界备份。"
+        }
+        M::RestoreWorldGoneBody => "{world} 已不在此实例中。它会以“{name}”（{when}）时的状态回来。",
+        M::SaveAndRestore => "保存并恢复",
+        M::SavingWorld => "正在保存世界现在的样子…",
+        M::UnpackingWorldBackup => "正在解压世界备份…",
+        M::WorldRestored => "已恢复 {world}。",
+        M::WorldRestoredSafety => "原来的世界保存在世界备份“{name}”中。",
+        M::WorldRestoredAsNew => "已恢复为新世界 {folder}。",
+        M::DeleteWorldBackupTitle => "删除这个世界备份？",
+        M::DeleteWorldBackupBody => "“{name}”会移到{trash}。",
     }
 }
 
@@ -459,8 +462,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
         }
         P::ShareToggledCount => ["启用或禁用 {count} 项"; 2],
         P::CodePackChanges => ["+ {count} 项更改"; 2],
-        P::SharedCount => ["{count} 项共享"; 2],
-        P::OverriddenCount => ["{count} 项覆盖"; 2],
         P::AndMore => ["{names}及另外 {count} 项"; 2],
         P::ChangedInGame => {
             ["你在游戏中更改的 {count} 项设置（{names}）将在下次启动时被共享值替换。"; 2]
@@ -487,5 +488,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
             "来自 {server} 的服务器备份：包括它的世界和玩家会获得的模组。{count} 个服务器文件不会被带入（服务器的设置、管理员和插件）。",
             "来自 {server} 的服务器备份：包括它的世界和玩家会获得的模组。{count} 个服务器文件不会被带入（服务器的设置、管理员和插件）。",
         ],
+        P::WorldBackupLeftOut => ["{count} 个文件未包含"; 2],
     }
 }

@@ -4,17 +4,15 @@ pub fn text(message: M) -> &'static str {
     match message {
         M::SectionCore => "Core",
         M::SectionPublic => "Serveurs publics",
-        M::SectionPublicLead => "Visible sans connexion.",
         M::SectionInfo => "Informations",
         M::SectionDanger => "Zone de danger",
-        M::SectionDangerLead => "À modifier avec prudence.",
         M::CoreName => "Nom du core",
         M::CoreNameEmpty => "Le nom ne peut pas être vide",
         M::CoreNameTooLong => "Le nom ne peut pas dépasser {max} caractères",
         M::Domain => "Domaine ou IP publique",
         M::DomainTooLong => "Le domaine ne peut pas dépasser {max} caractères",
         M::DomainHint => {
-            "C’est votre IP publique si vous avez configuré une redirection de port. Sinon, laissez tel quel."
+            "Utilisé dans l’adresse que les joueurs copient pour rejoindre vos serveurs. Indiquez votre IP publique ou votre domaine si vous avez configuré une redirection de port ; sinon, laissez vide."
         }
         M::ListPublicly => "Lister les serveurs publiquement",
         M::ListPubliclyHint => {
@@ -24,17 +22,21 @@ pub fn text(message: M) -> &'static str {
             "Autoriser les applications de cet ordinateur à obtenir l’accès propriétaire"
         }
         M::LocalClaimHint => {
-            "Lodestone Launcher peut devenir propriétaire en prouvant qu’il peut écrire dans le dossier de données de ce core. Tout ce qui peut y écrire peut déjà modifier chaque utilisateur et réglage\u{a0}: cela ne compte que sur un ordinateur partagé."
+            "Lodestone Host et Lodestone Launcher se connectent en tant que propriétaire en prouvant qu’ils peuvent écrire dans le dossier de données de ce core. Si c’est désactivé, ils demandent le mot de passe du propriétaire. Tout ce qui peut y écrire contrôle déjà le core : cela ne compte que sur un ordinateur partagé."
         }
         M::SafeMode => "Mode sécurisé",
-        M::SafeModeHint => "Réserve l’accès administrateur de cette machine au propriétaire.",
+        M::SafeModeHint => {
+            "Tant qu’il est activé, seul le propriétaire peut modifier les fichiers, mondes et mods des serveurs, utiliser des fichiers ailleurs sur cet ordinateur, ou gérer les utilisateurs et les autorisations, même si ces droits ont été accordés."
+        }
         M::SafeModeOffTitle => "Désactiver le mode sécurisé ?",
         M::SafeModeOffBody => {
             "Voulez-vous vraiment désactiver le mode sécurisé ? Vous pourrez alors permettre à d’autres utilisateurs que vous d’exécuter des commandes potentiellement dangereuses. Assurez-vous de faire confiance à tous les utilisateurs à qui vous donnez ces autorisations."
         }
         M::TurnOff => "Désactiver",
         M::CodeExecution => "Exécution de code",
-        M::CodeExecutionHint => "Commandes Java personnalisées.",
+        M::CodeExecutionHint => {
+            "Commandes et arguments Java personnalisés, et scripts des modpacks, des serveurs importés et des fichiers .lodeimg. Si c’est désactivé, les serveurs avec une commande Java personnalisée ne démarrent pas."
+        }
         M::CodeExecutionLocked => {
             "Verrouillé par l’administrateur de ce core (LODESTONE_DISABLE_CODE_EXECUTION ou --disable-code-execution)."
         }
@@ -65,7 +67,7 @@ pub fn text(message: M) -> &'static str {
         M::PortNotNumber => "Le port doit être un nombre",
         M::PortRequired => "Le port est requis",
         M::PortRange => "Le port doit être compris entre 1 et 65535",
-        M::PortOpened => "Port {port} ouvert",
+        M::PortOpened => "Port ouvert",
         M::InfoCoreVersion => "Version du core",
         M::InfoHostVersion => "Version de Lodestone Host",
         M::InfoOs => "Système d’exploitation",
@@ -88,20 +90,14 @@ pub fn text(message: M) -> &'static str {
         M::FlagStatus => "État et joueurs",
         M::FlagAddress => "Adresse pour rejoindre",
         M::FlagClientPack => "Téléchargement des mods client",
-        M::ShownText => {
-            "Sans se connecter, toute personne qui peut accéder à ce core voit {list} de ce serveur."
-        }
-        M::ShownNameVersion => "le nom et la version",
-        M::ShownStatus => "l’état et le nombre de joueurs",
-        M::ShownAddress => "l’adresse",
-        M::ShownClientPack => "les mods client",
+        M::ShownText => "Toute personne pouvant joindre ce core voit ceci sans se connecter.",
+        M::ShownNameVersion => "Nom",
+        M::ShownStatus => "État",
+        M::ShownAddress => "Adresse",
+        M::ShownClientPack => "Mods client",
         M::TurnOnFirst => "Activez d’abord « Lister les serveurs publiquement ».",
-        M::HiddenWhileOff => {
-            "{shown} Masqué tant que « Lister les serveurs publiquement » est désactivé."
-        }
-        M::NotShown => "Non visible sans se connecter.",
+        M::HiddenWhileOff => "Masqué tant que « Lister les serveurs publiquement » est désactivé.",
         M::NoJavaServers => "Aucun serveur Minecraft Java Edition pour l’instant.",
-        M::UsersDescription => "Les comptes de ce core et leurs droits.",
         M::AllUsers => "Tous les utilisateurs",
         M::AllMembers => "Tous les membres",
         M::AllMembersCount => "Tous les membres ({count})",
@@ -110,10 +106,9 @@ pub fn text(message: M) -> &'static str {
         M::CreateUserLead => "Commence sans aucune autorisation.",
         M::LoadingUsers => "Chargement des utilisateurs",
         M::Permissions => "Autorisations",
-        M::PermissionsLead => "Ce que {username} peut faire sur ce core.",
         M::UnsafePermissions => "Autorisations à risque",
         M::UnsafePermissionsLead => {
-            "Désactivez le mode sécurisé pour les accorder à d’autres utilisateurs."
+            "Le mode sécurisé est activé : seul le propriétaire peut les utiliser. Désactivez-le dans Paramètres › Général pour les accorder."
         }
         M::UsersOwnerOnly => "Seul le propriétaire gère les utilisateurs.",
         M::You => "Vous",
@@ -121,18 +116,16 @@ pub fn text(message: M) -> &'static str {
         M::Owner => "Propriétaire",
         M::ChangePasswordMenu => "Changer le mot de passe",
         M::CantDeleteSelf => "Vous ne pouvez pas vous supprimer vous-même.",
-        M::DeleteUserTitle => "Supprimer l’utilisateur",
+        M::DeleteUserTitle => "Supprimer l’utilisateur ?",
         M::DeleteUserConfirm => {
-            "Voulez-vous vraiment supprimer {name} ? Cette action est irréversible."
+            "Le compte de cet utilisateur sera supprimé. Cette action est irréversible."
         }
         M::DeleteUser => "Supprimer l’utilisateur",
         M::NoServersYet => "Aucun serveur pour l’instant.",
         M::PermCreateInstance => "Créer des serveurs",
-        M::PermCreateInstanceUser => "L’utilisateur peut créer de nouveaux serveurs.",
-        M::PermCreateInstanceKey => "La clé peut créer de nouveaux serveurs.",
         M::PermDeleteInstance => "Supprimer des serveurs",
-        M::PermDeleteInstanceUser => "L’utilisateur peut supprimer n’importe quel serveur.",
-        M::PermDeleteInstanceKey => "La clé peut supprimer n’importe quel serveur.",
+        M::PermDeleteInstanceUser => "N’importe quel serveur de ce core.",
+        M::PermDeleteInstanceKey => "N’importe quel serveur de ce core.",
         M::PermReadGlobalFile => "Lire les fichiers globaux",
         M::PermReadGlobalFileUser => {
             "L’utilisateur peut lire n’importe quel fichier de l’ordinateur sur lequel Lodestone Core s’exécute."
@@ -141,48 +134,30 @@ pub fn text(message: M) -> &'static str {
             "La clé peut lire n’importe quel fichier de l’ordinateur sur lequel Lodestone Core s’exécute."
         }
         M::PermViewInstance => "Voir les serveurs",
-        M::PermViewInstanceUser => "L’utilisateur peut voir ces serveurs.",
-        M::PermViewInstanceKey => "La clé peut voir ces serveurs.",
         M::PermStartInstance => "Démarrer les serveurs",
-        M::PermStartInstanceUser => "L’utilisateur peut démarrer ces serveurs.",
-        M::PermStartInstanceKey => "La clé peut démarrer ces serveurs.",
         M::PermStopInstance => "Arrêter les serveurs",
-        M::PermStopInstanceUser => "L’utilisateur peut arrêter ces serveurs.",
-        M::PermStopInstanceKey => "La clé peut arrêter ces serveurs.",
         M::PermConsole => "Accéder à la console des serveurs",
         M::PermConsoleUser => {
-            "L’utilisateur peut lire la console de ces serveurs et y envoyer des commandes. Cela donne de fait un accès opérateur au serveur."
+            "Y compris envoyer des commandes, ce qui équivaut à un accès opérateur."
         }
         M::PermConsoleKey => {
-            "La clé peut lire la console de ces serveurs et y envoyer des commandes. Cela donne de fait un accès opérateur au serveur."
+            "Y compris envoyer des commandes, ce qui équivaut à un accès opérateur."
         }
         M::PermInstanceSettings => "Accéder aux paramètres des serveurs",
-        M::PermInstanceSettingsUser => {
-            "L’utilisateur peut lire et modifier les paramètres de ces serveurs."
-        }
-        M::PermInstanceSettingsKey => {
-            "La clé peut lire et modifier les paramètres de ces serveurs."
-        }
+        M::PermInstanceSettingsUser => "Y compris les modifier.",
+        M::PermInstanceSettingsKey => "Y compris les modifier.",
         M::PermReadResource => "Lire les ressources des serveurs",
-        M::PermReadResourceUser => {
-            "L’utilisateur peut lire les ressources (mondes, mods, etc.) de ces serveurs."
-        }
-        M::PermReadResourceKey => {
-            "La clé peut lire les ressources (mondes, mods, etc.) de ces serveurs."
-        }
+        M::PermReadResourceUser => "Mondes, mods et autres.",
+        M::PermReadResourceKey => "Mondes, mods et autres.",
         M::PermReadFiles => "Lire les fichiers des serveurs",
-        M::PermReadFilesUser => "L’utilisateur peut lire les fichiers de ces serveurs.",
-        M::PermReadFilesKey => "La clé peut lire les fichiers de ces serveurs.",
+        M::PermReadFilesUser => "Tout fichier des dossiers de ces serveurs.",
+        M::PermReadFilesKey => "Tout fichier des dossiers de ces serveurs.",
         M::PermWriteResource => "Modifier les ressources des serveurs",
-        M::PermWriteResourceUser => {
-            "L’utilisateur peut modifier les ressources (mondes, mods, etc.) de ces serveurs."
-        }
-        M::PermWriteResourceKey => {
-            "La clé peut modifier les ressources (mondes, mods, etc.) de ces serveurs."
-        }
+        M::PermWriteResourceUser => "Mondes, mods et autres.",
+        M::PermWriteResourceKey => "Mondes, mods et autres.",
         M::PermWriteFiles => "Modifier les fichiers des serveurs",
-        M::PermWriteFilesUser => "L’utilisateur peut modifier les fichiers de ces serveurs.",
-        M::PermWriteFilesKey => "La clé peut modifier les fichiers de ces serveurs.",
+        M::PermWriteFilesUser => "Tout fichier des dossiers de ces serveurs.",
+        M::PermWriteFilesKey => "Tout fichier des dossiers de ces serveurs.",
         M::PermWriteGlobalFile => "Modifier les fichiers globaux",
         M::PermWriteGlobalFileUser => {
             "L’utilisateur peut modifier n’importe quel fichier de l’ordinateur sur lequel Lodestone Core s’exécute."
@@ -191,12 +166,6 @@ pub fn text(message: M) -> &'static str {
             "La clé peut modifier n’importe quel fichier de l’ordinateur sur lequel Lodestone Core s’exécute."
         }
         M::PermManagePermission => "Gérer les autorisations",
-        M::PermManagePermissionUser => {
-            "L’utilisateur peut gérer les autorisations des autres utilisateurs."
-        }
-        M::PermManagePermissionKey => {
-            "La clé peut gérer les autorisations des autres utilisateurs."
-        }
         M::Username => "Nom d’utilisateur",
         M::Password => "Mot de passe",
         M::OldPassword => "Ancien mot de passe",
@@ -217,7 +186,7 @@ pub fn text(message: M) -> &'static str {
         M::Startup => "Démarrage",
         M::StartAtLogin => "Ouvrir Lodestone Host à l’ouverture de ma session",
         M::StartAtLoginHint => {
-            "Il s’ouvre en arrière-plan quand vous ouvrez votre session sur cet ordinateur, et démarre les serveurs réglés pour démarrer automatiquement."
+            "S’ouvre en arrière-plan et démarre les serveurs réglés pour démarrer automatiquement."
         }
         M::StartAtLoginFailed => "Impossible de modifier le réglage de démarrage : {error}",
         M::Language => "Langue",
@@ -227,8 +196,6 @@ pub fn text(message: M) -> &'static str {
         M::ThemeLight => "Clair",
         M::ThemeDark => "Sombre",
         M::ThemeSystemHint => "Suit le réglage clair ou sombre de votre ordinateur",
-        M::ThemeLightHint => "Toujours clair",
-        M::ThemeDarkHint => "Toujours sombre",
         M::Zoom => "Zoom",
         M::ZoomHint => "Aussi avec {modifier} + et {modifier} −.",
         M::ApiKeys => "Clés d’API",
@@ -236,25 +203,18 @@ pub fn text(message: M) -> &'static str {
             "Permettent à la CLI, aux scripts et aux agents d’agir en votre nom sans votre mot de passe."
         }
         M::ApiKeysOwnEmpty => "Vous n’avez aucune clé d’API.",
-        M::ApiKeysUserLead => {
-            "Clés créées par {username}. En révoquer une coupe l’accès de ce qui l’utilise."
-        }
-        M::ApiKeysUserEmpty => "{username} n’a aucune clé d’API.",
+        M::ApiKeysUserLead => "Révoquer une clé coupe l’accès de ce qui l’utilise.",
+        M::ApiKeysUserEmpty => "Cet utilisateur n’a aucune clé d’API.",
         M::CreateApiKey => "Créer une clé d’API",
-        M::ApiKeyCreated => "Clé d’API « {name} » créée",
+        M::ApiKeyCreated => "Clé d’API créée",
         M::LoadingApiKeys => "Chargement des clés d’API",
         M::Revoke => "Révoquer",
-        M::RevokeTitle => "Révoquer la clé d’API",
+        M::RevokeTitle => "Révoquer la clé d’API ?",
         M::RevokeBody => {
-            "Révoquer « {name} » ({display}) ? Tout ce qui utilise cette clé perd l’accès immédiatement. Cette action est irréversible."
+            "Tout ce qui utilise cette clé perd l’accès immédiatement. Cette action est irréversible."
         }
-        M::ApiKeyRevoked => "Clé d’API « {name} » révoquée",
-        M::CreatedOn => "Créée le {date}",
-        M::ExpiresOn => "Expire le {date}",
-        M::ExpiredOn => "Expirée le {date}",
-        M::ExpiresNever => "Expiration : jamais",
-        M::LastUsed => "Dernière utilisation : {time}",
-        M::LastUsedNever => "Dernière utilisation : jamais",
+        M::ApiKeyRevoked => "Clé d’API révoquée",
+        M::LastUsed => "Dernière utilisation",
         M::ScopeFull => "Accès complet",
         M::ScopeLauncher => "Launcher : voir, démarrer et arrêter les serveurs",
         M::ScopeLauncherConsole => {
@@ -266,7 +226,7 @@ pub fn text(message: M) -> &'static str {
         M::ScopeLauncherConsoleWrite => {
             "Launcher : voir, démarrer et arrêter les serveurs, envoyer des commandes à la console"
         }
-        M::ScopeCustom => "Personnalisé : {servers}, {permissions}",
+        M::ScopeCustom => "Personnalisé",
         M::PasswordSessionOnly => {
             "Les clés d’API ne peuvent être gérées que si vous vous connectez avec votre mot de passe, pas avec une clé d’API."
         }
@@ -298,7 +258,7 @@ pub fn text(message: M) -> &'static str {
         M::KeyUnsafeSafeMode => {
             "Le mode sécurisé est activé : le core refuse donc ces autorisations aux clés à accès personnalisé tant que le mode sécurisé n’est pas désactivé dans les paramètres du core."
         }
-        M::NewKeyTitle => "Clé d’API « {name} » créée",
+        M::NewKeyTitle => "Clé d’API créée",
         M::NewKeyCopyNow => "Copiez cette clé maintenant. Vous ne pourrez plus la voir.",
         M::NewKeyUseWithCli => "Utilisez-la avec la CLI Lodestone :",
         M::NewKeyStore => {
@@ -311,44 +271,34 @@ pub fn text(message: M) -> &'static str {
         M::MinecraftOwnEmpty => {
             "Aucun compte Minecraft n’est lié. Connectez-vous à ce core dans Lodestone Launcher pour en lier un."
         }
-        M::MinecraftUserLead => {
-            "Les comptes Minecraft que {username} a liés depuis Lodestone Launcher."
-        }
-        M::MinecraftUserEmpty => "{username} n’a lié aucun compte Minecraft.",
+        M::MinecraftUserLead => "Liés depuis Lodestone Launcher.",
+        M::MinecraftUserEmpty => "Cet utilisateur n’a lié aucun compte Minecraft.",
         M::MinecraftTooOld => "Ce core est trop ancien pour lier des comptes Minecraft.",
-        M::MinecraftRemoveTitle => "Retirer le compte Minecraft",
-        M::MinecraftRemoveBody => {
-            "Retirer le lien vers {name} ? Il pourra être lié à nouveau depuis Lodestone Launcher."
-        }
-        M::MinecraftRemoved => "{name} retiré",
+        M::MinecraftRemoveTitle => "Retirer le lien du compte ?",
+        M::MinecraftRemoveBody => "Il pourra être lié à nouveau depuis Lodestone Launcher.",
+        M::MinecraftRemoved => "Lien retiré",
         M::Notifications => "Notifications",
         M::InProgress => "En cours",
         M::AllNotifications => "Toutes les notifications",
         M::LoadingNotifications => "Chargement des notifications",
         M::NoNotifications => "Aucune notification pour le moment !",
-        M::EventStarting => "Le serveur {name} démarre !",
-        M::EventRunning => "Le serveur {name} a démarré !",
-        M::EventStopping => "Le serveur {name} s’arrête !",
-        M::EventStopped => "Le serveur {name} s’est arrêté !",
-        M::EventCrashed => "Le serveur {name} a rencontré une erreur !",
+        M::EventStarting => "Démarrage",
+        M::EventRunning => "Démarré",
+        M::EventStopping => "Arrêt en cours",
+        M::EventStopped => "Arrêté",
+        M::EventCrashed => "A rencontré une erreur",
         M::WarningToast => {
             "Avertissement : un serveur a émis un avertissement. Cela ne devrait pas arriver, veuillez le signaler aux développeurs."
         }
-        M::EventModpackUpdate => "{pack} {version} est disponible pour {name}",
-        M::EventWarning => "Le serveur {name} a émis un avertissement",
-        M::EventError => "Le serveur {name} a rencontré une erreur",
-        M::PlayersJoined => "{players} a rejoint {name}",
-        M::PlayersLeft => "{players} a quitté {name}",
-        M::PlayersJoinedAndLeft => "{joined} a rejoint {name} et {left} a quitté {name}",
-        M::PlayerMessage => "{player} a dit {message} sur {name}",
-        M::EventApiKeyCreated => "Clé d’API « {name} » créée",
-        M::EventApiKeyRevoked => "Clé d’API « {name} » révoquée",
+        M::EventModpackUpdate => "Nouvelle version de {pack}",
+        M::EventWarning => "A rencontré un avertissement",
+        M::EventError => "A rencontré une erreur",
+        M::PlayersLeft => "Partis",
+        M::EventApiKeyCreated => "Clé d’API créée",
+        M::EventApiKeyRevoked => "Clé d’API révoquée",
         M::LoadFailed => "Impossible de charger les notifications : {error}",
-        M::CoreFailedNotice => "Lodestone Core n’a pas pu démarrer : {error}",
         M::UpdatesTitle => "Mises à jour",
-        M::UpdatesLead => {
-            "Lodestone Host, sur cet ordinateur. Lodestone Core se met à jour avec lui."
-        }
+        M::UpdatesLead => "Lodestone Host de cet ordinateur et son Lodestone Core.",
         M::ThisVersion => "Cette version",
         M::UpdateAutomatically => "Mettre à jour automatiquement",
         M::UpdateAutomaticallyHint => "Télécharge les nouveaux builds en arrière-plan.",
@@ -356,10 +306,8 @@ pub fn text(message: M) -> &'static str {
         M::BetaBuildsHint => "Les builds bêta peuvent comporter des bugs.",
         M::DeveloperBuilds => "Builds de développeur",
         M::DeveloperBuildsHint => {
-            "Pour les développeurs de Lodestone : met à jour vers des builds de développement, qui peuvent comporter des bugs."
+            "Met à jour vers des builds de développement, qui peuvent comporter des bugs."
         }
-        M::BuildNumber => "Build {build}",
-        M::BuildNumberCommit => "Build {build} · {commit}",
         M::DevelopmentBuild => "Build de développement",
         M::UpdatesUnavailable => {
             "Ce build ne se met pas à jour tout seul. Lodestone Host téléchargé depuis le site, si."
@@ -367,10 +315,9 @@ pub fn text(message: M) -> &'static str {
         M::UpdateNotChecked => "Recherche de nouveaux builds toutes les quelques heures.",
         M::UpdateChecking => "Recherche d’un build plus récent…",
         M::UpToDate => "C’est le build le plus récent.",
-        M::UpdateAvailable => "Le build {build} est disponible.",
-        M::UpdateDownloading => "Téléchargement du build {build}… {percent}",
+        M::UpdateAvailable => "Un nouveau build est disponible.",
         M::UpdateReady => {
-            "Le build {build} est téléchargé. Redémarrez pour l’utiliser : vos serveurs s’arrêtent, puis redémarrent s’ils démarrent tout seuls. Quitter l’installe aussi."
+            "Le nouveau build est téléchargé. Redémarrez pour l’utiliser : vos serveurs s’arrêtent, puis redémarrent s’ils démarrent d’eux-mêmes. Quitter l’installe aussi."
         }
         M::RestartUpdateTitle => "Redémarrer pour mettre à jour ?",
         M::RestartUpdateBody => {
@@ -379,12 +326,10 @@ pub fn text(message: M) -> &'static str {
         M::RestartUpdateConfirm => "Arrêter les serveurs et redémarrer",
         M::DeveloperSection => "Développeur",
         M::ConnectService => "Service Connect (relais)",
-        M::ConnectServiceHint => {
-            "Pour les tests. Les liens d’invitation et la liste d’amis utilisent ce service. Le changer redémarre le cœur."
-        }
-        M::ConnectServiceInUse => "Relais de dév.\u{a0}: {service}",
+        M::ConnectServiceHint => "Les liens d’invitation et la liste d’amis l’utilisent.",
+        M::ConnectServiceInUse => "Relais de dév.",
         M::ConnectServiceEnv => {
-            "{var} est défini, donc le cœur utilise {service}. Le réglage s’appliquera une fois la variable retirée."
+            "Une variable d’environnement définit le relais : le réglage s’applique une fois qu’elle est retirée."
         }
         M::ConnectServiceScheme => "Commencez l’adresse par https://.",
         M::ConnectServiceInsecure => {
@@ -408,11 +353,8 @@ pub fn text(message: M) -> &'static str {
             "Merci d’utiliser la bêta de Lodestone ! Si vous rencontrez un problème, signalez-le-nous sur notre serveur Discord ou sur Github."
         }
         M::Cores => "Cores",
-        M::CoresLead => {
-            "Lodestone Host fait tourner le core de cet ordinateur. Vous pouvez aussi gérer un autre core, par exemple sur un serveur."
-        }
+        M::CoresLead => "Vous pouvez aussi gérer un autre core, par exemple sur un serveur.",
         M::ThisComputerCore => "Cet ordinateur",
-        M::ThisComputerHint => "Le core que Lodestone Host fait tourner.",
         M::CurrentCore => "Actuel",
         M::UseCore => "Basculer",
         M::ChangeCore => "Changer de core",
@@ -429,19 +371,18 @@ pub fn text(message: M) -> &'static str {
             "Comparez-la à l’empreinte dans Paramètres › Général › Informations de ce core, ou dans son journal à son démarrage."
         }
         M::TrustCertificate => "Approuver le certificat",
-        M::SignInTo => "Se connecter à {name}",
+        M::SignInTo => "Se connecter",
         M::VersionIncompatible => {
-            "Ce core utilise Lodestone Core {theirs}, et celui de cet ordinateur {ours}. Certaines pages risquent de ne pas fonctionner tant que les deux ne sont pas à jour."
+            "Certaines pages risquent de ne pas fonctionner tant que les deux ne sont pas à jour."
         }
-        M::VersionPatch => "Ce core utilise Lodestone Core {theirs} (cet ordinateur : {ours}).",
         M::SignIn => "Se connecter",
         M::RemoveCore => "Retirer",
         M::RemoteSignedOut => {
-            "Vous avez été déconnecté de {name}. Lodestone Host est revenu au core de cet ordinateur."
+            "Vous avez été déconnecté de ce core. Lodestone Host est revenu sur le core de cet ordinateur."
         }
         M::RemoteAccess => "Autoriser l’accès depuis d’autres appareils",
         M::RemoteAccessHintOff => {
-            "Désactivé : seules les applications de cet ordinateur peuvent utiliser ce core (Lodestone Host, Lodestone Launcher et Lodestone CLI). Activez-le pour utiliser le tableau de bord web depuis d’autres appareils, ajouter des utilisateurs ou créer des clés API. Le partage de serveurs fonctionne dans les deux cas."
+            "Seules les applications de cet ordinateur peuvent utiliser ce core. Le tableau de bord web sur d’autres appareils, les autres utilisateurs et les clés API nécessitent de l’activer. Le partage de serveurs fonctionne dans les deux cas."
         }
         M::RemoteAccessHintOn => {
             "D’autres appareils peuvent se connecter à ce core avec un nom d’utilisateur et un mot de passe, en HTTPS."
@@ -455,7 +396,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::OwnerAccountTitle => "Configurer un compte propriétaire pour partager ce core",
         M::OwnerAccountLead => {
-            "Les autres appareils se connectent avec un nom d’utilisateur et un mot de passe. Choisissez ceux que vous utiliserez sur le tableau de bord web et vos autres appareils. Les applications de cet ordinateur continuent de se connecter sans eux."
+            "Le tableau de bord web et les autres appareils se connectent avec ces identifiants. Les applications de cet ordinateur n’en ont pas besoin."
         }
         M::OwnerAccountButton => "Configurer et autoriser l’accès",
         M::OwnerAccountDone => {
@@ -468,20 +409,37 @@ pub fn text(message: M) -> &'static str {
         }
         M::ModpackChecks => "Rechercher les mises à jour des modpacks",
         M::ModpackChecksHint => {
-            "Toutes les quelques heures, chercher sur Modrinth de nouvelles versions des modpacks dont les serveurs sont issus, et le signaler. « Rechercher une mise à jour » dans l’onglet Mods d’un serveur fonctionne toujours quand c’est désactivé."
+            "Cherche sur Modrinth toutes les quelques heures. Vous pouvez toujours vérifier depuis l’onglet Mods d’un serveur."
         }
         M::ModpackChecksKeywords => "modpack mise à jour notification Modrinth automatique",
         M::RemoteAccessKeywords => "à distance réseau LAN partager",
         M::DomainKeywords => "adresse nom d’hôte URL",
         M::OpenPortKeywords => "redirection de port routeur UPnP pare-feu",
         M::ThemeKeywords => "sombre clair mode apparence couleurs",
+        M::KeyServers => "Serveurs",
+        M::Never => "Jamais",
+        M::ShownVersion => "Version",
+        M::ShownPlayers => "Nombre de joueurs",
+        M::ThisCore => "Ce core",
+        M::NewBuild => "Nouveau build",
+        M::ConnectServiceVariable => "Variable",
+        M::LogsSection => "Journaux",
+        M::LogFiles => "Fichiers journaux",
+        M::LogsHint => {
+            "Ce que le Host et son core ont fait, gardé sur cet ordinateur pour aider à comprendre un problème. {path}"
+        }
+        M::LogDetail => "Détail des journaux",
+        M::LogDetailHint => {
+            "Débogage en écrit plus, pour comprendre un problème. Le changement est immédiat."
+        }
+        M::LogInfo => "Info",
+        M::LogDebug => "Débogage",
+        M::LogLevelFromEnv => "LODESTONE_LOG fixe le détail tant que le Host est lancé avec.",
     }
 }
 
 pub fn plural(message: P) -> [&'static str; 2] {
     match message {
-        P::ScopeServers => ["{count} serveur", "{count} serveurs"],
-        P::ScopePermissions => ["{count} autorisation", "{count} autorisations"],
         P::ServersRunning => [
             "{count} serveur est en marche.",
             "{count} serveurs sont en marche.",

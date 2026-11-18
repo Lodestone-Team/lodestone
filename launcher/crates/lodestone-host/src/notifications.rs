@@ -18,13 +18,14 @@ use launcher_core::cores::admin::{
         EventLevel, InstanceEventInner, ProgressionEndValue, ProgressionEventInner, UserEventInner,
     },
 };
+use lodestone_ui::components::readable::key_value;
 use lodestone_ui::{
     components::{Dropdown, Icon, IconButton, Toast},
     theme::{colors, fonts, ink, px, radius, shadow, text, weights},
 };
 
 use crate::{
-    i18n::{CoreMsg, t, tr},
+    i18n::{CoreMsg, FactMsg, t, tr},
     state::{HostEvent, HostState},
 };
 
@@ -64,86 +65,80 @@ impl Ongoing {
 }
 
 /// The title and message a notification has for `event`, or `None` for an event
-/// that isn't listed (`EventStream.ts`). Progressions are [`List::apply`]'s.
+/// that isn't listed (`EventStream.ts`). Progressions are [`List::apply`]'s. The title
+/// is what it's about (the server, the key), the message what happened, so a name is
+/// never inside a sentence.
 pub fn describe(event: &ClientEvent) -> Option<(String, String)> {
-    let title = match &event.event_inner {
+    let names = |players: &[launcher_core::cores::admin::models::Player]| {
+        players
+            .iter()
+            .map(|p| p.name().to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let keyed = |key: &str, value: &str| key_value(key, value).to_string();
+    match &event.event_inner {
         EventInner::InstanceEvent(instance) => {
-            let name = &instance.instance_name;
-            match &instance.instance_event_inner {
-                InstanceEventInner::StateTransition { to } => tr!(
-                    match to {
-                        InstanceState::Starting => CoreMsg::EventStarting,
-                        InstanceState::Running => CoreMsg::EventRunning,
-                        InstanceState::Stopping => CoreMsg::EventStopping,
-                        InstanceState::Stopped => CoreMsg::EventStopped,
-                        InstanceState::Error => CoreMsg::EventCrashed,
-                        InstanceState::Unknown => return None,
-                    },
-                    name = name
-                ),
-                InstanceEventInner::InstanceWarning { .. } => {
-                    tr!(CoreMsg::EventWarning, name = name)
-                }
-                InstanceEventInner::InstanceError { .. } => tr!(CoreMsg::EventError, name = name),
+            let name = instance.instance_name.clone();
+            let message = match &instance.instance_event_inner {
+                InstanceEventInner::StateTransition { to } => t(match to {
+                    InstanceState::Starting => CoreMsg::EventStarting,
+                    InstanceState::Running => CoreMsg::EventRunning,
+                    InstanceState::Stopping => CoreMsg::EventStopping,
+                    InstanceState::Stopped => CoreMsg::EventStopped,
+                    InstanceState::Error => CoreMsg::EventCrashed,
+                    InstanceState::Unknown => return None,
+                })
+                .to_string(),
+                InstanceEventInner::InstanceWarning { .. } => t(CoreMsg::EventWarning).to_string(),
+                InstanceEventInner::InstanceError { .. } => t(CoreMsg::EventError).to_string(),
                 InstanceEventInner::ModpackUpdateAvailable {
                     modpack,
                     version_number,
                     ..
-                } => tr!(
-                    CoreMsg::EventModpackUpdate,
-                    pack = modpack,
-                    version = version_number,
-                    name = name
+                } => keyed(
+                    &tr!(CoreMsg::EventModpackUpdate, pack = modpack),
+                    version_number,
                 ),
+                // who joined and who left, each under its key
                 InstanceEventInner::PlayerChange {
                     players_joined,
                     players_left,
                     ..
                 } => {
-                    let names = |players: &[launcher_core::cores::admin::models::Player]| {
-                        players
-                            .iter()
-                            .map(|p| p.name().to_string())
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    };
                     let (joined, left) = (names(players_joined), names(players_left));
-                    match (joined.is_empty(), left.is_empty()) {
-                        (false, false) => tr!(
-                            CoreMsg::PlayersJoinedAndLeft,
-                            joined = joined,
-                            left = left,
-                            name = name
-                        ),
-                        (false, true) => tr!(CoreMsg::PlayersJoined, players = joined, name = name),
-                        (true, false) => tr!(CoreMsg::PlayersLeft, players = left, name = name),
-                        (true, true) => return None,
+                    let mut lines = Vec::new();
+                    if !joined.is_empty() {
+                        lines.push(keyed(t(FactMsg::Joined), &joined));
                     }
+                    if !left.is_empty() {
+                        lines.push(keyed(t(CoreMsg::PlayersLeft), &left));
+                    }
+                    if lines.is_empty() {
+                        return None;
+                    }
+                    lines.join("\n")
                 }
+                // the player, then what they said
                 InstanceEventInner::PlayerMessage {
                     player,
                     player_message,
-                } => tr!(
-                    CoreMsg::PlayerMessage,
-                    player = player,
-                    message = player_message,
-                    name = name
-                ),
+                } => keyed(player, player_message),
                 _ => return None,
-            }
+            };
+            Some((name, message))
         }
         EventInner::UserEvent(user) => match &user.user_event_inner {
             UserEventInner::ApiKeyCreated { name, .. } => {
-                tr!(CoreMsg::EventApiKeyCreated, name = name)
+                Some((name.clone(), t(CoreMsg::EventApiKeyCreated).to_string()))
             }
             UserEventInner::ApiKeyRevoked { name, .. } => {
-                tr!(CoreMsg::EventApiKeyRevoked, name = name)
+                Some((name.clone(), t(CoreMsg::EventApiKeyRevoked).to_string()))
             }
-            _ => return None,
+            _ => None,
         },
-        _ => return None,
-    };
-    Some((title, String::new()))
+        _ => None,
+    }
 }
 
 /// The lists, without the view: what the tests check.
@@ -337,11 +332,14 @@ impl Notifications {
                     self.state.update(cx, |state, cx| state.toast(toast, cx));
                 }
                 InstanceEventInner::ModpackUpdateAvailable { .. } => {
-                    if let Some((title, _)) = describe(event) {
+                    if let Some((title, message)) = describe(event) {
                         if background {
-                            native::notify(crate::APP_NAME, &title);
+                            native::notify(&title, &message);
                         } else {
-                            let toast = Toast::info(title);
+                            let toast = Toast::info(message).object(
+                                lodestone_ui::components::ObjectChip::new(title)
+                                    .kind(lodestone_ui::components::Kind::Server),
+                            );
                             self.state.update(cx, |state, cx| state.toast(toast, cx));
                         }
                     }
@@ -350,8 +348,8 @@ impl Notifications {
                 | InstanceEventInner::StateTransition {
                     to: InstanceState::Error,
                 } if background => {
-                    if let Some((title, _)) = describe(event) {
-                        native::notify(crate::APP_NAME, &title);
+                    if let Some((title, message)) = describe(event) {
+                        native::notify(&title, &message);
                     }
                 }
                 _ => {}
@@ -436,7 +434,7 @@ impl Notifications {
                             .flex_1()
                             .min_w_0()
                             .text_size(text::MEDIUM)
-                            .font_weight(weights::MEDIUM.face())
+                            .font_weight(weights::MEDIUMBOLD.face())
                             .text_color(ink::text())
                             .child(item.title.clone()),
                     )
@@ -735,7 +733,8 @@ mod tests {
             !list.apply(&state_change(1 << 22, "Running")),
             "seen already"
         );
-        assert_eq!(list.items[0].title, "Server SMP started!");
+        assert_eq!(list.items[0].title, "SMP");
+        assert_eq!(list.items[0].message, "Started");
         assert_eq!(list.items[0].millis, 1 + 1_667_530_800_000);
         for i in 0..MAX_NOTIFICATIONS as i64 + 5 {
             list.apply(&state_change((i + 2) << 22, "Stopped"));
@@ -788,7 +787,10 @@ mod tests {
                     "players_left": [] } },
             "details": "", "snowflake": "5", "level": "Info", "caused_by": { "type": "System" },
         }));
-        assert_eq!(describe(&players).unwrap().0, "Steve Joined SMP");
+        assert_eq!(
+            describe(&players).unwrap(),
+            ("SMP".to_string(), "Joined: Steve".to_string())
+        );
         let console = event(serde_json::json!({
             "event_inner": { "type": "InstanceEvent",
                 "instance_uuid": "i", "instance_name": "SMP",

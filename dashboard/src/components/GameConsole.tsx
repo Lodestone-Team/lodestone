@@ -25,6 +25,8 @@ import { useResolvedTheme } from 'utils/theme';
 import { useLinkedPlayers } from 'data/MinecraftLinks';
 import { linkedPlayerInLine } from 'utils/linkedPlayers';
 import { MessageKey, useI18n } from 'i18n';
+import { CountBadge, Num } from './Atoms/Values';
+import { Fact } from './Values';
 
 const autoScrollThreshold = 10;
 // rendering is the slow part, so only the newest lines are put in the DOM
@@ -53,7 +55,7 @@ const parsed = (line: ConsoleEvent) => {
 };
 
 export default function GameConsole() {
-  const { t, formatNumber } = useI18n();
+  const { t } = useI18n();
   useDocumentTitle(t('common.pageTitle', { page: t('console.pageTitle') }));
   const { selectedInstance: instance } = useContext(InstanceContext);
   if (!instance) throw new Error('No server selected');
@@ -252,11 +254,14 @@ export default function GameConsole() {
             onScroll={onListScroll}
           >
             {visibleLines.hiddenCount > 0 && (
-              <li className="px-4 py-0.5 text-gray-500 italic">
-                {t('console.hiddenLines', {
-                  count: visibleLines.hiddenCount,
-                  max: formatNumber(maxRenderedLines),
-                })}
+              <li className="flex flex-row flex-wrap items-center gap-x-3 px-4 py-0.5 font-sans text-gray-500">
+                <span className="flex items-center gap-1.5">
+                  {t('console.hiddenLines')}
+                  <CountBadge count={visibleLines.hiddenCount} />
+                </span>
+                <Fact label={t('values.key.showing')}>
+                  <Num value={maxRenderedLines} />
+                </Fact>
               </li>
             )}
             {visibleLines.lines.map((line) => (

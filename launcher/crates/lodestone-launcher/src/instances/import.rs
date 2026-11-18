@@ -16,8 +16,8 @@ use std::{
 };
 
 use gpui::{
-    App, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement, PathPromptOptions,
-    Render, RenderImage, SharedString, Task, Window, div, img, prelude::*,
+    AnyElement, App, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement,
+    PathPromptOptions, Render, RenderImage, SharedString, Task, Window, div, img, prelude::*,
 };
 use launcher_core::{
     game::download::CancelToken,
@@ -35,10 +35,11 @@ use crate::components::{
 };
 use crate::{
     components::{
-        Button, ButtonVariant, Dialog, DialogSlot, Icon, IconButton, LoadingDots, Toggle,
+        Button, ButtonVariant, CaptionLine, Dialog, DialogSlot, Fact, FactLine, FactValue, Icon,
+        IconButton, LoadingDots, Num, ProductPhrase, Toggle,
     },
     file_dialog,
-    i18n::{CommonMsg, InstancesMsg as M, InstancesPlural as P, format, t, tr, trn},
+    i18n::{CommonMsg, FactMsg, InstancesMsg as M, InstancesPlural as P, format, t, tr, trn},
     theme::{self, colors, leading, radius, text, weights},
 };
 
@@ -47,21 +48,28 @@ fn format_size(bytes: u64) -> String {
     format::bytes(bytes)
 }
 
-/// The Minecraft version an instance asks for, with its loader: "1.20.1 · Fabric
-/// 0.16.10".
-fn version_label(found: &Found) -> String {
-    let game = match &found.game_version {
-        WantedVersion::Exact(version) => version.clone(),
+/// The Minecraft version an instance asks for and its loader, as phrases: "Minecraft
+/// 1.20.1" and "Fabric 0.16.10" (or "The newest release").
+fn version_facts(found: &Found) -> Vec<Fact> {
+    let game: FactValue = match &found.game_version {
+        WantedVersion::Exact(version) => super::facts::game(version).into(),
         WantedVersion::LatestRelease => t(M::NewestRelease).into(),
         WantedVersion::LatestSnapshot => t(M::NewestSnapshot).into(),
     };
-    match &found.loader {
-        None => game,
-        Some(loader) => match &loader.version {
-            Some(version) => format!("{game} · {} {version}", loader.kind.label()),
-            None => format!("{game} · {}", loader.kind.label()),
-        },
+    let mut facts = vec![Fact::bare_named(t(FactMsg::Game), game).priority(0)];
+    if let Some(loader) = &found.loader {
+        facts.push(
+            Fact::bare_named(
+                t(FactMsg::Loader),
+                ProductPhrase::new(
+                    loader.kind.into(),
+                    loader.version.clone().unwrap_or_default(),
+                ),
+            )
+            .priority(1),
+        );
     }
+    facts
 }
 
 pub struct ImportDismissed;
@@ -468,7 +476,10 @@ impl ImportDialog {
                             QueueState::Done { id, notes }
                         }
                         Err(import::ImportError::Cancelled) => QueueState::Cancelled,
-                        Err(err) => QueueState::Failed(err.to_string().into()),
+                        Err(err) => {
+                            log::warn!("importing an instance failed: {err}");
+                            QueueState::Failed(err.to_string().into())
+                        }
                     };
                 }
                 this.advance(cx);
@@ -558,7 +569,14 @@ impl ImportDialog {
             } else {
                 Toggled::False
             })
-            .aria_description(format!("{} · {size_text}", version_label(found)))
+            .aria_description({
+                let mut labels: Vec<String> = version_facts(found)
+                    .iter()
+                    .map(|f| f.label().to_string())
+                    .collect();
+                labels.push(size_text.to_string());
+                format::list(&labels)
+            })
             .keyboard_focus()
             .flex()
             .flex_row()
@@ -585,11 +603,8 @@ impl ImportDialog {
                             .child(found.name.clone()),
                     )
                     .child(
-                        div()
-                            .truncate()
-                            .text_size(theme::text_size(text::SMALL))
-                            .text_color(crate::theme::ink::muted())
-                            .child(version_label(found)),
+                        FactLine::row(SharedString::from(format!("import-facts-{key}")))
+                            .facts(version_facts(found)),
                     )
                     .when_some(note, |this, note| {
                         this.child(
@@ -615,30 +630,21 @@ impl ImportDialog {
         let mut rows: Vec<gpui::AnyElement> = Vec::new();
         for launcher in &self.launchers {
             rows.push(
+                // the launcher's name over its folder, which is cut in the middle
                 div()
                     .flex()
-                    .flex_row()
-                    .items_baseline()
-                    .gap_2()
+                    .flex_col()
+                    .gap_0p5()
                     .pt_2()
                     .px_2()
                     .child(
                         div()
-                            .flex_none()
                             .text_size(theme::text_size(text::SMALL))
                             .font_weight(weights::BOLD.into())
                             .text_color(crate::theme::ink::secondary())
-                            .child(launcher.source.label().to_uppercase()),
+                            .child(launcher.source.label()),
                     )
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .whitespace_normal()
-                            .text_size(theme::text_size(text::CAPTION))
-                            .text_color(crate::theme::ink::faint())
-                            .child(launcher.root.display().to_string()),
-                    )
+                    .child(CaptionLine::path(launcher.root.display().to_string()))
                     .into_any_element(),
             );
             if launcher.instances.is_empty() && launcher.problems.is_empty() {
@@ -903,22 +909,26 @@ impl Render for ImportDialog {
             .filter_map(|f| self.sizes.get(&f.key))
             .map(|s| s.total)
             .sum();
-        let summary: SharedString = match count {
-            0 => t(M::CheckToImport).into(),
+        // how many instances and how much they copy, as keyed counts
+        let summary: AnyElement = match count {
+            0 => div().child(t(M::CheckToImport)).into_any_element(),
             n => {
                 let total = if self.without_worlds {
                     selected_total - selected_worlds
                 } else {
                     selected_total
                 };
-                trn!(P::InstancesToCopy, n, size = format_size(total)).into()
+                FactLine::row("import-summary")
+                    .facts([
+                        Fact::new(t(FactMsg::Instances), Num::count(n as u64)),
+                        Fact::new(t(M::ToCopy), Num::bytes(total)),
+                    ])
+                    .into_any_element()
             }
         };
-        let worlds_caption: SharedString = if selected_worlds > 0 {
-            tr!(M::LeaveWorldsOutSize, size = format_size(selected_worlds)).into()
-        } else {
-            t(M::LeaveWorldsOut).into()
-        };
+        let worlds_caption: SharedString = t(M::LeaveWorldsOut).into();
+        // the worlds' size beside the label, not in its brackets
+        let worlds_size = (selected_worlds > 0).then(|| Num::bytes(selected_worlds));
         let without_worlds = self.without_worlds;
         let dialog = Dialog::new("import", t(M::ImportTitle), self.focus.clone())
             .width(px(760.))
@@ -979,7 +989,10 @@ impl Render for ImportDialog {
                                             .font_weight(weights::BOLD.into())
                                             .text_color(crate::theme::ink::secondary())
                                             .child(worlds_caption),
-                                    ),
+                                    )
+                                    .children(worlds_size.map(|size| {
+                                        div().text_size(theme::text_size(text::SMALL)).child(size)
+                                    })),
                             ),
                     )
                     .when(!self.queue.is_empty(), |this| {

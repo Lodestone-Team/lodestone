@@ -35,6 +35,8 @@ launcher-core.workspace = true
 # The introduction service's address, for the friend list (`friends.rs`).
 lodestone_connect.workspace = true
 lodestone-ui.workspace = true
+# The log file (`launcher_core::logging`), on the facade the launcher already uses.
+log.workspace = true
 # The console's regex search.
 regex.workspace = true
 serde.workspace = true
@@ -84,6 +86,10 @@ windows-sys = { workspace = true, features = [
     "Win32_System_Threading",
     "Win32_UI_WindowsAndMessaging",
 ] }
+
+[build-dependencies]
+# The app icon in the Windows executable (`build.rs`). Unused when building for other systems.
+embed-resource.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

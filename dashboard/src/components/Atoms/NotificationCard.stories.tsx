@@ -26,11 +26,24 @@ export default meta;
 
 type Story = StoryObj<typeof NotificationCard>;
 
+/** Players joined: the server leads, the players are chips */
 export const Default: Story = {
   args: {
     level: 'Info',
-    title: 'Dream joined "Test Server"',
-    progress_percent: undefined,
+    content: {
+      type: 'players',
+      server: 'Test Server',
+      joined: ['Dream', 'Technoblade'],
+      left: [],
+    },
+    timestamp: 1620000000000,
+  },
+};
+
+export const State: Story = {
+  args: {
+    level: 'Info',
+    content: { type: 'state', server: 'Test Server', state: 'Running' },
     timestamp: 1620000000000,
   },
 };
@@ -38,8 +51,7 @@ export const Default: Story = {
 export const Warning: Story = {
   args: {
     level: 'Warning',
-    title: 'Server "Test Server" started',
-    progress_percent: undefined,
+    content: { type: 'warning', server: 'Test Server' },
     timestamp: 1620000000000,
   },
 };
@@ -47,8 +59,33 @@ export const Warning: Story = {
 export const Error: Story = {
   args: {
     level: 'Error',
-    title: 'Server "Test Server" crashed',
-    progress_percent: undefined,
+    content: { type: 'state', server: 'Test Server', state: 'Error' },
+    timestamp: 1620000000000,
+  },
+};
+
+export const Chat: Story = {
+  args: {
+    level: 'Info',
+    content: {
+      type: 'chat',
+      server: 'Test Server',
+      player: 'Dream',
+      message: 'anyone up for the nether?',
+    },
+    timestamp: 1620000000000,
+  },
+};
+
+export const ModpackUpdate: Story = {
+  args: {
+    level: 'Info',
+    content: {
+      type: 'modpack',
+      server: 'Test Server',
+      pack: 'Fabulously Optimized',
+      version: '6.5.0',
+    },
     timestamp: 1620000000000,
   },
 };

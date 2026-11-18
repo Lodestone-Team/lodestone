@@ -113,6 +113,22 @@ impl Default for InstanceSharing {
     }
 }
 
+impl InstanceSharing {
+    /// The keys changed in-game that the next launch will actually replace: those the
+    /// global set has a value for, in a category it shares. A change to a key with no
+    /// shared value stays as the player set it, so it isn't reported.
+    pub fn replaced_next_launch(&self, profile: &Profile) -> BTreeMap<String, String> {
+        self.changed
+            .iter()
+            .filter(|(key, _)| {
+                profile.values.contains_key(*key)
+                    && find(key).is_none_or(|spec| profile.shares(spec.category))
+            })
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect()
+    }
+}
+
 impl Document for InstanceSharing {
     const VERSION: u32 = 1;
     const MIGRATIONS: &'static [Migration] = &[Ok];

@@ -50,6 +50,27 @@ pub fn toast(
     state.update(cx, |state, cx| state.toast(toast, cx));
 }
 
+/// A toast about `names`: one is its object (a chip of `kind`), more are listed under
+/// its text, one a line, so a name with a comma or "and" in it stays whole.
+pub fn about_names(
+    mut toast: Toast,
+    names: &[String],
+    kind: lodestone_ui::components::Kind,
+) -> Toast {
+    match names {
+        [] => toast,
+        [one] => toast.object(lodestone_ui::components::ObjectChip::new(one.clone()).kind(kind)),
+        _ => {
+            let shown: Vec<String> = names
+                .iter()
+                .map(|name| lodestone_ui::values::truncate::sanitize(name, 80))
+                .collect();
+            toast.text = format!("{}\n{}", toast.text, shown.join("\n")).into();
+            toast
+        }
+    }
+}
+
 /// The small "Saved" toast after a setting changed (`savedToast.ts`): one at a time,
 /// for 1.5 s.
 pub fn saved(state: &Entity<HostState>, cx: &mut App) {
@@ -81,10 +102,34 @@ impl Confirm {
         on_confirm: impl Fn(&mut Window, &mut App) + 'static,
         on_close: impl Fn(&mut Window, &mut App) + 'static,
     ) -> Dialog {
+        self.build(None, focus, on_confirm, on_close)
+    }
+
+    /// With what it's about (an `ObjectCard`) under the title, above the body.
+    pub fn render_about(
+        self,
+        object: impl IntoElement,
+        focus: FocusHandle,
+        on_confirm: impl Fn(&mut Window, &mut App) + 'static,
+        on_close: impl Fn(&mut Window, &mut App) + 'static,
+    ) -> Dialog {
+        self.build(Some(object.into_any_element()), focus, on_confirm, on_close)
+    }
+
+    fn build(
+        self,
+        object: Option<AnyElement>,
+        focus: FocusHandle,
+        on_confirm: impl Fn(&mut Window, &mut App) + 'static,
+        on_close: impl Fn(&mut Window, &mut App) + 'static,
+    ) -> Dialog {
         let on_close = Rc::new(on_close);
         let cancel = on_close.clone();
         Dialog::new(self.id, self.title, focus)
             .on_close(move |window, cx| on_close(window, cx))
+            .when_some(object, |this, object| {
+                this.child(div().pb(px(12.)).child(object))
+            })
             .child(paragraph(self.body))
             .footer(
                 Button::new((self.id, 1usize), self.action)

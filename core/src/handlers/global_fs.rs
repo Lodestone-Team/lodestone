@@ -80,6 +80,9 @@ pub struct DownloadableFile {
     /// For a zipped folder, the zip, which other links for the same folder may share.
     /// It is deleted once the last of them is dropped.
     zip: Option<Arc<ZippedFolder>>,
+    /// The name the download is saved as, when it isn't the file's own (a world backup's
+    /// stored zip, say, which is named by its id).
+    file_name: Option<String>,
     /// The user who made the link, as their request authenticated (session or API key).
     owner: User,
     scope: DownloadScope,
@@ -109,6 +112,32 @@ pub(super) async fn register_download(
             path,
             temp_dir,
             zip: None,
+            file_name: None,
+            owner,
+            scope,
+            expires_at: Instant::now() + DOWNLOAD_LINK_TTL,
+        },
+    )
+    .await
+}
+
+/// Stores a download link for a file Lodestone keeps (a world backup's zip), saved as
+/// `file_name`, like [`register_download`]. The link holds no copy and never deletes the
+/// file: when it expires or `DELETE /file/{key}` lets go of it, only the link goes.
+pub(super) async fn register_stored_download(
+    state: &AppState,
+    path: PathBuf,
+    file_name: String,
+    owner: User,
+    scope: DownloadScope,
+) -> String {
+    insert_download(
+        state,
+        DownloadableFile {
+            path,
+            temp_dir: None,
+            zip: None,
+            file_name: Some(file_name),
             owner,
             scope,
             expires_at: Instant::now() + DOWNLOAD_LINK_TTL,
@@ -132,6 +161,7 @@ pub(super) async fn register_zipped_folder_download(
             path: zip.zip_path.clone(),
             temp_dir: None,
             zip: Some(zip),
+            file_name: None,
             owner,
             scope,
             expires_at: Instant::now() + DOWNLOAD_LINK_TTL,
@@ -527,18 +557,21 @@ fn touches_lodestone_secret(
 /// keys), `local_claim`, whose files grant owner access (see [`crate::local_claim`]),
 /// `tls`, the web server's certificate and private key, `backups`
 /// ([`crate::prelude::path_to_backups`]: every server's backed-up files, and the restore
-/// journals that startup recovery trusts), and `playit.toml`.
+/// journals that startup recovery trusts), `world-backups`
+/// ([`crate::prelude::path_to_world_backups`]: every server's world zips and the sidecars a
+/// restore trusts), and `playit.toml`.
 ///
 /// Compatibility: cores before Lodestone Connect saved a playit.gg secret key in
 /// `playit.toml`. Playit.gg support is gone, but the file can still be on disk (the core
 /// never deletes it), so it stays protected.
-fn lodestone_secret_paths(root: &std::path::Path, stores: &std::path::Path) -> [PathBuf; 5] {
+fn lodestone_secret_paths(root: &std::path::Path, stores: &std::path::Path) -> [PathBuf; 6] {
     [
         stores.to_path_buf(),
         root.join("playit.toml"),
         root.join(crate::local_claim::CLAIM_DIR),
         root.join("tls"),
         root.join(crate::prelude::BACKUPS_DIR),
+        root.join(crate::prelude::WORLD_BACKUPS_DIR),
     ]
 }
 
@@ -1103,13 +1136,21 @@ async fn upload_file(
     result.map(Json)
 }
 
-/// Builds a `Content-Disposition: attachment` value. Characters that are not printable
-/// ASCII, and quotes and backslashes, are replaced so the header is always valid.
+/// Builds a `Content-Disposition: attachment` value naming the file at `path`. Characters
+/// that are not printable ASCII, and quotes and backslashes, are replaced so the header is
+/// always valid.
 fn attachment_header(path: &std::path::Path) -> String {
-    let name: String = path
-        .file_name()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "unknown".to_string())
+    attachment_header_named(
+        &path
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "unknown".to_string()),
+    )
+}
+
+/// [`attachment_header`] with the name `name`.
+fn attachment_header_named(name: &str) -> String {
+    let name: String = name
         .chars()
         .map(|c| {
             if (c.is_ascii_graphic() || c == ' ') && c != '"' && c != '\\' {
@@ -1131,12 +1172,15 @@ async fn download(
         source: eyre!("File not found with the download key"),
     };
     // copy what we need out of the map so the lock is not held while awaiting
-    let (path, owner, scope) = {
+    let (path, file_name, owner, scope) = {
         let mut download_urls = state.download_urls.lock().await;
         match download_urls.get(&key) {
-            Some(file) if file.expires_at > Instant::now() => {
-                (file.path.clone(), file.owner.clone(), file.scope.clone())
-            }
+            Some(file) if file.expires_at > Instant::now() => (
+                file.path.clone(),
+                file.file_name.clone(),
+                file.owner.clone(),
+                file.scope.clone(),
+            ),
             Some(_) => {
                 if let Some(file) = download_urls.remove(&key) {
                     discard_download(file);
@@ -1163,11 +1207,19 @@ async fn download(
 
     let mut response = Response::builder()
         .header(CONTENT_TYPE, "application/octet-stream")
-        .header(CONTENT_DISPOSITION, attachment_header(&path));
+        .header(
+            CONTENT_DISPOSITION,
+            match &file_name {
+                Some(name) => attachment_header_named(name),
+                None => attachment_header(&path),
+            },
+        );
     if let Ok(metadata) = file.metadata().await {
         response = response.header(CONTENT_LENGTH, metadata.len());
     }
-    let body = Body::from_stream(ReaderStream::new(file));
+    // large reads: each one is a trip to the blocking pool, and world backups and
+    // snapshot zips run to gigabytes
+    let body = Body::from_stream(ReaderStream::with_capacity(file, 256 * 1024));
     Ok(response
         .body(body)
         .context("Failed to build the download response")?)
@@ -1243,6 +1295,8 @@ mod tests {
             "/home/u/.lodestone/tls/key.pem",
             "/home/u/.lodestone/backups/images/x/restore-journal.json",
             "/home/u/.lodestone/backups/objects/ab/abcd",
+            "/home/u/.lodestone/world-backups/x/20260101-000000-aaaa.zip",
+            "/home/u/.lodestone/world-backups/x/20260101-000000-aaaa.json",
         ] {
             assert!(
                 touches_lodestone_secret(std::path::Path::new(path), &secrets, false),
@@ -1275,6 +1329,9 @@ mod tests {
             "/home/u/.lodestone/stores/users.json",
             "/home/u/.lodestone/stores",
             "/home/u/.lodestone/tls/key.pem",
+            // planting a world zip or editing its sidecar, even before the folder exists
+            "/home/u/.lodestone/world-backups",
+            "/home/u/.lodestone/world-backups/x/20260101-000000-aaaa.json",
             // moving or deleting a folder that holds them
             "/home/u/.lodestone",
             "/home/u",

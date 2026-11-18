@@ -13,6 +13,8 @@ import { useCoreInfo } from 'data/SystemInfo';
 import { useUserInfo } from 'data/UserInfo';
 import { Form, Formik, FormikHelpers } from 'formik';
 import { MessageKey, useI18n } from 'i18n';
+import { MonoText } from 'components/Atoms/Values';
+import { Fact, ObjectToast } from 'components/Values';
 import { useContext, useState } from 'react';
 import { toast } from 'react-toastify';
 import * as yup from 'yup';
@@ -360,7 +362,11 @@ export const CoreSettings = () => {
                 actions.resetForm();
                 setShowOpenPortDialog(false);
                 toast.info(
-                  t('settings.core.openPort.opened', { port: values.port })
+                  <ObjectToast outcome={t('settings.core.openPort.toast')}>
+                    <Fact label={t('values.key.port')} className="text-small">
+                      <MonoText text={String(values.port)} />
+                    </Fact>
+                  </ObjectToast>
                 );
               }}
             >
@@ -527,10 +533,7 @@ export const CoreSettings = () => {
           </SettingsCard>
         </SettingsSection>
         {can_change_core_settings && listPubliclySupported && (
-          <SettingsSection
-            title={t('settings.core.section.public')}
-            lead={t('settings.core.section.publicLead')}
-          >
+          <SettingsSection title={t('settings.core.section.public')}>
             <SettingsCard>
               {listInstancesPubliclyField}
               <PublicInstanceRows
@@ -579,11 +582,7 @@ export const CoreSettings = () => {
             )}
           </SettingsCard>
         </SettingsSection>
-        <SettingsSection
-          title={t('settings.core.section.danger')}
-          lead={t('settings.core.section.dangerLead')}
-          danger
-        >
+        <SettingsSection title={t('settings.core.section.danger')} danger>
           <SettingsCard danger>
             {unsafeModeField}
             {can_change_core_settings && codeExecutionField}

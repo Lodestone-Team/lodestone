@@ -143,6 +143,30 @@ pub enum OpenProblem {
     Unreadable(StorageError),
 }
 
+impl OpenProblem {
+    /// The log's line for it: the window only shows a notice, and a sent log has to
+    /// explain accounts that went missing at a start.
+    pub fn log_line(&self) -> String {
+        match self {
+            Self::TooNew(error) => format!("{error}; account changes won't be saved"),
+            Self::Corrupt {
+                error,
+                moved_to: Some(moved_to),
+            } => format!(
+                "{error}; moved it to {} and started with no accounts",
+                moved_to.display()
+            ),
+            Self::Corrupt {
+                error,
+                moved_to: None,
+            } => format!(
+                "{error}; couldn't move it aside, so started with no accounts and won't save them"
+            ),
+            Self::Unreadable(error) => format!("{error}; account changes won't be saved"),
+        }
+    }
+}
+
 impl AccountStore {
     /// Opens the store at `path`, migrating an older file and writing it back.
     pub fn open(path: impl Into<PathBuf>) -> (Self, Option<OpenProblem>) {
@@ -156,9 +180,9 @@ impl AccountStore {
                     writable: true,
                 };
                 store.normalize();
-                if migrated {
-                    // Best effort: the migrated data is in memory either way.
-                    let _ = store.save();
+                if migrated && let Err(err) = store.save() {
+                    // The migrated data is in memory either way.
+                    log::warn!("couldn't write the accounts back after updating them: {err}");
                 }
                 (store, None)
             }
@@ -171,6 +195,7 @@ impl AccountStore {
                     }
                     StorageError::Io { .. } => (false, OpenProblem::Unreadable(error)),
                 };
+                log::warn!("{}", problem.log_line());
                 let store = Self {
                     path,
                     file: AccountsFile::default(),
@@ -565,5 +590,32 @@ mod tests {
         assert_eq!(std::fs::read_to_string(moved_to).unwrap(), "{ not json");
         store.upsert_and_activate(steve()).unwrap();
         assert!(path.exists());
+    }
+
+    /// What `open` logs for each problem: what happened to the file and what it means
+    /// for the accounts, without the file's values.
+    #[test]
+    fn open_problems_are_logged_with_what_was_done() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("accounts.json");
+        std::fs::write(&path, r#"{"version": 1, "accounts": "Notch-secret"}"#).unwrap();
+        let (_, problem) = AccountStore::open(&path);
+        let line = problem.unwrap().log_line();
+        assert!(
+            line.contains("accounts.json is not a valid launcher file"),
+            "{line}"
+        );
+        assert!(
+            line.contains("moved it to") && line.contains("accounts.json.corrupt-1"),
+            "{line}"
+        );
+        assert!(line.contains("started with no accounts"), "{line}");
+        assert!(!line.contains("Notch-secret"), "values stay out: {line}");
+
+        std::fs::write(&path, r#"{"version": 999}"#).unwrap();
+        let (_, problem) = AccountStore::open(&path);
+        let line = problem.unwrap().log_line();
+        assert!(line.contains("newer Lodestone Launcher"), "{line}");
+        assert!(line.ends_with("account changes won't be saved"), "{line}");
     }
 }

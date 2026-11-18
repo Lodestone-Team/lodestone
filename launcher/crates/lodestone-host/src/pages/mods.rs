@@ -27,13 +27,16 @@ use launcher_core::cores::admin::{
     mods::{InstalledModKind, InstalledModList, InstalledModLoader, ModInstallResult},
 };
 use lodestone_ui::{
-    components::{Icon, Tabs, Toast, window_layer},
+    components::{
+        CompareTable, Fact, Icon, Kind, ObjectCard, ObjectChip, PathText, Tabs, Toast, VersionTag,
+        window_layer,
+    },
     theme::{colors, ink, leading, line_height, px, radius, text},
 };
 
 use self::{browse::Browse, project::ProjectView};
 use crate::{
-    i18n::{InstanceMsg as M, t, tr},
+    i18n::{FactMsg, InstanceMsg as M, InstancePlural as P, t, tr, trn},
     routes::{ModSupport, mod_support},
     state::{HostEvent, HostState},
 };
@@ -101,7 +104,10 @@ enum Prompt {
         message: String,
     },
     /// A version for another loader or game version.
-    Incompatible { version_id: String, body: String },
+    Incompatible {
+        version_id: String,
+        mismatch: project::Mismatch,
+    },
     /// Update the server's modpack: what the core says it changes.
     ModpackUpdate {
         source: launcher_core::cores::admin::instances::ModpackSource,
@@ -284,39 +290,68 @@ impl ModsPage {
         self.dialog.open(Shown { focus, prompt }, cx);
     }
 
-    /// The toast after an install: what was installed, removed and skipped, and which
-    /// mods players need too (`InstallResultMessage`).
-    pub(crate) fn result_toast(title: String, result: &ModInstallResult) -> Toast {
-        let mut lines = vec![title];
+    /// The toast after an install: the mod it was about (`object`, with its version)
+    /// and the `outcome` ("Installed"), then what else was installed, removed and
+    /// skipped, and which mods players need too (`InstallResultMessage`), each as a
+    /// counted heading over one name a line.
+    pub(crate) fn result_toast(
+        object: Option<(String, String)>,
+        outcome: String,
+        result: &ModInstallResult,
+    ) -> Toast {
+        let mut lines = vec![outcome];
         let label = |m: &launcher_core::cores::admin::mods::InstalledMod| match m.version() {
             Some(v) => format!("{} {v}", m.name()),
             None => m.name().to_string(),
         };
-        if !result.installed.is_empty() {
-            let mods: Vec<String> = result.installed.iter().map(label).collect();
-            lines.push(tr!(M::ModsResultInstalled, mods = mods.join(", ")));
-        }
-        if !result.removed.is_empty() {
-            lines.push(tr!(M::ModsResultRemoved, files = result.removed.join(", ")));
-        }
-        if !result.skipped.is_empty() {
-            let skipped: Vec<String> = result
+        let mut group = |heading: String, names: Vec<String>| {
+            if !names.is_empty() {
+                lines.push(heading);
+                lines.extend(names);
+            }
+        };
+        // the mod the toast is about is its object, not one of the others
+        let others: Vec<String> = result
+            .installed
+            .iter()
+            .filter(|m| object.as_ref().is_none_or(|(name, _)| m.name() != name))
+            .map(label)
+            .collect();
+        group(trn!(P::ModsResultInstalled, others.len()), others);
+        group(
+            trn!(P::ModsResultRemoved, result.removed.len()),
+            result.removed.clone(),
+        );
+        group(
+            trn!(P::ModsResultSkipped, result.skipped.len()),
+            result
                 .skipped
                 .iter()
-                .map(|s| format!("{} ({})", s.project_id, s.reason))
-                .collect();
-            lines.push(tr!(M::ModsResultSkipped, projects = skipped.join(", ")));
-        }
-        let needed: Vec<&str> = result
+                .map(|s| {
+                    lodestone_ui::components::readable::key_value(&s.project_id, &s.reason)
+                        .to_string()
+                })
+                .collect(),
+        );
+        let needed: Vec<String> = result
             .installed
             .iter()
             .filter(|m| m.players_need())
-            .map(|m| m.name())
+            .map(|m| m.name().to_string())
             .collect();
-        if !needed.is_empty() {
-            lines.push(tr!(M::ModsResultPlayersNeed, mods = needed.join(", ")));
+        group(trn!(P::ModsResultPlayersNeed, needed.len()), needed);
+        let toast = Toast::success(lines.join("\n"));
+        match object {
+            Some((name, version)) => {
+                let toast = toast.object(ObjectChip::new(name).kind(Kind::Mod));
+                if version.is_empty() {
+                    toast
+                } else {
+                    toast.version(VersionTag::new(version))
+                }
+            }
+            None => toast,
         }
-        Toast::success(lines.join("\n"))
     }
 
     fn render_dialog(&self, shown: &Shown, cx: &mut Context<Self>) -> AnyElement {
@@ -339,7 +374,23 @@ impl ModsPage {
                     M::ModsDeleteTitleMod
                 })
                 .to_string(),
-                text_body(tr!(M::ModsDeleteBody, name = name, fileName = file_name)),
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(12.))
+                    .child(
+                        ObjectCard::new(name.clone())
+                            .kind(if plugin { Kind::Plugin } else { Kind::Mod })
+                            .fact(
+                                Fact::bare_named(
+                                    t(FactMsg::File),
+                                    PathText::file(file_name.clone()),
+                                )
+                                .shrink(),
+                            ),
+                    )
+                    .child(text_body(t(M::ModsDeleteBody).to_string()))
+                    .into_any_element(),
                 t(crate::i18n::CommonMsg::Delete).to_string(),
                 ButtonVariant::Danger,
                 true,
@@ -358,9 +409,13 @@ impl ModsPage {
                 ButtonVariant::Danger,
                 true,
             ),
-            Prompt::Incompatible { body, .. } => (
+            Prompt::Incompatible { mismatch, .. } => (
                 t(M::ModsIncompatibleTitle).to_string(),
-                text_body(body.clone()),
+                incompatible_body(
+                    mismatch,
+                    plugin,
+                    text_body(t(M::ModsIncompatibleBody).to_string()),
+                ),
                 t(M::ModsInstallAnyway).to_string(),
                 ButtonVariant::Danger,
                 true,
@@ -418,7 +473,7 @@ impl ModsPage {
             &mut shown.prompt,
             Prompt::Incompatible {
                 version_id: String::new(),
-                body: String::new(),
+                mismatch: project::Mismatch::default(),
             },
         );
         match prompt {
@@ -428,6 +483,47 @@ impl ModsPage {
             Prompt::ModpackUpdate { source, plan } => self.run_modpack_update(source, *plan, cx),
         }
     }
+}
+
+/// What a version made for something else is about: the mod with that version, then
+/// what it is made for against what the server runs, the cells that don't match in
+/// yellow, then `note`.
+fn incompatible_body(m: &project::Mismatch, plugin: bool, note: AnyElement) -> AnyElement {
+    let loaders: Vec<String> = m.loaders.iter().map(|l| project::loader_name(l)).collect();
+    let loader_matches = m.loaders.iter().any(|l| l.eq_ignore_ascii_case(&m.loader));
+    let game_matches = m.game_versions.contains(&m.game_version);
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(12.))
+        .child(
+            ObjectCard::new(m.title.clone())
+                .kind(if plugin { Kind::Plugin } else { Kind::Mod })
+                .fact(Fact::bare_named(
+                    t(FactMsg::Version),
+                    VersionTag::new(m.version.clone()),
+                )),
+        )
+        .child(
+            CompareTable::new(
+                "incompatible-compare",
+                [t(M::ModsThisVersion).into(), t(M::ModsThisServer).into()],
+            )
+            .row(
+                t(FactMsg::Loader),
+                loaders.join(", "),
+                project::loader_name(&m.loader),
+                !loader_matches,
+            )
+            .row(
+                t(FactMsg::Game),
+                project::game_versions(&m.game_versions),
+                project::game_versions(std::slice::from_ref(&m.game_version)),
+                !game_matches,
+            ),
+        )
+        .child(note)
+        .into_any_element()
 }
 
 /// A yellow banner, such as "Restart the server to apply mod changes".

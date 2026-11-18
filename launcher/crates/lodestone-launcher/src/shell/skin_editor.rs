@@ -1760,7 +1760,6 @@ impl SkinEditor {
                     )
                     .into_any_element(),
                 SettingRow::new(t(M::SkinFill))
-                    .hint(super::skin_checks::surface_name(SurfaceId::PlayButton))
                     .child(
                         Button::new("skin-play-fill", t(M::SkinFill))
                             .variant(ButtonVariant::Secondary)

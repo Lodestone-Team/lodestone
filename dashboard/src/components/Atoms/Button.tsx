@@ -72,6 +72,8 @@ export interface ButtonProps extends VariantProps<typeof buttonClasses> {
   iconComponent?: React.ReactNode;
   icon?: IconDefinition;
   iconRight?: IconDefinition;
+  /** a CountBadge after the label, instead of "Update all (3)" */
+  badge?: React.ReactNode;
   labelGrow?: boolean;
   form?: string;
   value?: string;
@@ -92,6 +94,7 @@ const Button = forwardRef(
       iconComponent,
       icon,
       iconRight,
+      badge,
       labelGrow = false,
       type = 'button',
       ...props
@@ -126,6 +129,7 @@ const Button = forwardRef(
             <span className={clsx(loading && 'opacity-0')}>{label}</span>
           </div>
         </div>
+        {badge}
         {iconRight && (
           <FontAwesomeIcon icon={iconRight} className="w-4 opacity-50" />
         )}

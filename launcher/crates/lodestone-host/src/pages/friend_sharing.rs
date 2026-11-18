@@ -15,7 +15,7 @@ use lodestone_ui::{
 
 use crate::{
     friends::{FriendSharing, Phase, Renew, is_connected, is_shared},
-    i18n::{InstanceMsg as M, InstancePlural as P, t, tr, trn},
+    i18n::{InstanceMsg as M, InstancePlural as P, t, trn},
 };
 
 /// The section for the instance `instance`.
@@ -155,28 +155,57 @@ pub fn friend_rows(sharing: &Entity<FriendSharing>, instance: &str, cx: &App) ->
                 .px(px(16.))
                 .py(px(12.))
                 .min_h(px(56.))
+                // the friend is the row's name; the box only says what it does
+                .child(
+                    lodestone_ui::components::ObjectChip::new(friend.name.clone())
+                        .kind(lodestone_ui::components::Kind::Friend)
+                        .id(SharedString::from(format!("friend-name-{}", friend.key))),
+                )
+                .child(tags)
+                .child(div().flex_1())
                 .child(
                     Checkbox::new(
                         SharedString::from(format!("friend-share-{}", friend.key)),
                         checked,
-                        tr!(M::FriendsShareWith, name = friend.name),
+                        t(M::FriendsShareWith),
                     )
                     .disabled(pending.is_some())
                     .on_change(on_change),
                 )
-                .child(tags)
                 // their Minecraft accounts, which sharing puts on the whitelist
                 .when(!minecraft.is_empty(), |this| {
                     this.child(
                         div()
                             .w_full()
-                            .pl(px(28.))
-                            .text_size(text::SMALL)
-                            .text_color(ink::muted())
-                            .child(tr!(
-                                M::FriendsMinecraft,
-                                names = lodestone_ui::i18n::format::list(&minecraft)
-                            )),
+                            .flex()
+                            .flex_col()
+                            .gap(px(4.))
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_row()
+                                    .flex_wrap()
+                                    .items_center()
+                                    .gap(px(6.))
+                                    .child(lodestone_ui::components::readable::key_text(t(
+                                        M::FriendsMinecraftKey,
+                                    )))
+                                    .children(minecraft.iter().enumerate().map(|(index, name)| {
+                                        lodestone_ui::components::ObjectChip::new(name.to_string())
+                                            .icon(lodestone_ui::components::Icon::User)
+                                            .mono()
+                                            .id(SharedString::from(format!(
+                                                "friend-{}-player-{index}",
+                                                friend.key
+                                            )))
+                                    })),
+                            )
+                            .child(
+                                div()
+                                    .text_size(text::SMALL)
+                                    .text_color(ink::muted())
+                                    .child(t(M::FriendsMinecraft)),
+                            ),
                     )
                 })
                 .into_any_element(),
@@ -200,13 +229,29 @@ fn certificate_rows(sharing: &Entity<FriendSharing>, model: &FriendSharing) -> V
     let working = model.renew == Renew::Working;
     if model.certificate_retired {
         let row = if model.renew == Renew::Unsupported {
-            SettingRow::new(t(M::FriendsCertificateRetired))
-                .key("friends-certificate-retired")
-                .hint(tr!(
-                    M::FriendsCertificateManual,
-                    path = model.certificate_file().display().to_string()
-                ))
-                .into_any_element()
+            // the file to delete, to copy or show, not inside the hint
+            let file = model.certificate_file();
+            let reveal = file.clone();
+            return vec![
+                SettingRow::new(t(M::FriendsCertificateRetired))
+                    .key("friends-certificate-retired")
+                    .hint(t(M::FriendsCertificateManual))
+                    .into_any_element(),
+                div()
+                    .px(px(16.))
+                    .pb(px(12.))
+                    .child(
+                        lodestone_ui::components::ValueField::new(
+                            "friends-certificate-file",
+                            file.display().to_string(),
+                        )
+                        .label(t(crate::i18n::FactMsg::File))
+                        .kind(lodestone_ui::components::ValueKind::Path)
+                        .home(dirs::home_dir().map(|home| home.display().to_string()))
+                        .on_reveal(move |_, cx| cx.reveal_path(&reveal)),
+                    )
+                    .into_any_element(),
+            ];
         } else {
             let renew = sharing.clone();
             SettingRow::new(t(M::FriendsCertificateRetired))
@@ -295,6 +340,9 @@ fn certificate_rows(sharing: &Entity<FriendSharing>, model: &FriendSharing) -> V
 /// Before the first share with a friend whose safety code wasn't compared: a warning,
 /// "Share anyway" and "Cancel".
 fn confirm_row(sharing: &Entity<FriendSharing>, name: &str) -> AnyElement {
+    let friend = lodestone_ui::components::ObjectChip::new(name.to_string())
+        .kind(lodestone_ui::components::Kind::Friend)
+        .id("friends-confirm-friend");
     let (share, cancel) = (sharing.clone(), sharing.clone());
     div()
         .id("friends-confirm")
@@ -316,7 +364,11 @@ fn confirm_row(sharing: &Entity<FriendSharing>, name: &str) -> AnyElement {
                     leading::NORMAL,
                 ))
                 .text_color(ink::text())
-                .child(tr!(M::FriendsConfirmUnverified, name = name)),
+                .flex()
+                .flex_col()
+                .gap(px(6.))
+                .child(friend)
+                .child(t(M::FriendsConfirmUnverified)),
         )
         .child(
             Button::new("friends-confirm-share", t(M::FriendsShareAnyway))

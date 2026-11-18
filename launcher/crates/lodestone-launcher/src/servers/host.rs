@@ -29,7 +29,8 @@ use launcher_core::{
     },
     game::download::CancelToken,
 };
-use lodestone_ui::sharing::{self, Level, Picked};
+use lodestone_ui::sharing::{self, Picked};
+use lodestone_ui::values::truncate::sanitize;
 
 use super::{
     Servers,
@@ -37,12 +38,13 @@ use super::{
 };
 use crate::{
     components::{
-        Button, ButtonVariant, Checkbox, Dialog, Dropdown, ListRow, LoadingDots, TextInput, Toggle,
+        Button, ButtonVariant, Checkbox, Dialog, Dropdown, Fact, FactLine, FactValue, Kind,
+        ListRow, LoadingDots, Num, ObjectChip, StatusBadge, TextInput, Toggle,
         a11y::Accessible as _,
         settings::{popover_panel, select_button},
     },
-    i18n::{CommonMsg, ServersMsg as M, SharingMsg as S, Text, format, t, tr},
-    theme::layout,
+    i18n::{CommonMsg, FactMsg, ServersMsg as M, SharingMsg as S, Text, format, t, tr},
+    theme::{Tone, layout},
 };
 
 /// The server's memory choices, in MB.
@@ -495,10 +497,10 @@ impl HostDialog {
 }
 
 /// The dialog's text for an error hosting ran into.
-pub fn host_error(err: &HostError, core_name: &str) -> String {
+pub fn host_error(err: &HostError) -> String {
     match err {
-        HostError::NeedsUpdate => tr!(M::HostTooOld, core = core_name),
-        HostError::Forbidden(_) => tr!(M::HostNoPermission, core = core_name),
+        HostError::NeedsUpdate => t(M::HostTooOld).to_string(),
+        HostError::Forbidden(_) => t(M::HostNoPermission).to_string(),
         // the core's own reason, in English: shown on one line
         HostError::Refused(why) => tr!(
             M::HostCreationFailed,
@@ -555,29 +557,46 @@ impl HostDialog {
                 let folder = world.folder.clone();
                 let checked = self.send.contains(&folder);
                 let entity = entity.clone();
-                Checkbox::new(
-                    SharedString::from(format!("host-world-{i}")),
-                    checked,
-                    format!("{} · {}", world.name, format::bytes(world.size)),
-                )
-                .on_change(move |value, _, cx| {
-                    let (value, folder) = (*value, folder.clone());
-                    entity.update(cx, |this, cx| {
-                        this.send.retain(|f| *f != folder);
-                        if value {
-                            this.send.push(folder);
-                        }
-                        cx.notify();
-                    })
-                })
-                .into_any_element()
+                // the name is the checkbox's label; the size stands apart, right-aligned
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_3()
+                    .child(
+                        div().flex_1().min_w_0().child(
+                            Checkbox::new(
+                                SharedString::from(format!("host-world-{i}")),
+                                checked,
+                                sanitize(&world.name, 120),
+                            )
+                            .on_change(move |value, _, cx| {
+                                let (value, folder) = (*value, folder.clone());
+                                entity.update(cx, |this, cx| {
+                                    this.send.retain(|f| *f != folder);
+                                    if value {
+                                        this.send.push(folder);
+                                    }
+                                    cx.notify();
+                                })
+                            }),
+                        ),
+                    )
+                    .child(
+                        div()
+                            .flex_none()
+                            .text_size(crate::theme::text_size(crate::theme::text::SMALL))
+                            .child(Num::bytes(world.size).min_w(px(64.)).align_right()),
+                    )
+                    .into_any_element()
             })
             .collect();
         div()
             .flex()
             .flex_col()
             .gap_3()
-            .child(note(tr!(M::HostIntro, name = self.instance_name)))
+            .child(crate::instances::facts::named_card(&self.instance_name).id("host-instance"))
+            .child(note(t(M::HostIntro)))
             .children(self.blocked.as_ref().map(|why| error_line(why.get())))
             .when(self.blocked.is_none(), |this| {
                 this.child(label(t(M::CoreLabel)))
@@ -622,19 +641,30 @@ impl HostDialog {
             snapshot.bytes_done as f32 / snapshot.bytes_total as f32
         };
         let text = match progress.stage() {
-            HostStage::Exporting => t(M::StageExporting).to_string(),
-            HostStage::Uploading => tr!(
-                M::HostStageSending,
-                done = format::bytes(snapshot.bytes_done),
-                total = format::bytes(snapshot.bytes_total)
-            ),
-            HostStage::Reading => t(M::HostStageReading).to_string(),
+            HostStage::Exporting => t(M::StageExporting),
+            HostStage::Uploading => t(M::HostStageSending),
+            HostStage::Reading => t(M::HostStageReading),
         };
+        // what was sent, in a box that doesn't resize as the numbers grow, and the
+        // share of it
+        let sent =
+            (progress.stage() == HostStage::Uploading && snapshot.bytes_total > 0).then(|| {
+                FactLine::row("host-sent")
+                    .fact(Fact::bare(format::percent(
+                        (fraction * 100.0).round().clamp(0.0, 100.0) as u64,
+                    )))
+                    .fact(Fact::new(
+                        t(M::Sent),
+                        Num::fraction_bytes(snapshot.bytes_done, snapshot.bytes_total)
+                            .min_w(px(96.)),
+                    ))
+            });
         div()
             .flex()
             .flex_col()
             .gap_3()
-            .child(note(tr!(M::HostIntro, name = self.instance_name)))
+            .child(crate::instances::facts::named_card(&self.instance_name).id("host-instance"))
+            .child(note(t(M::HostIntro)))
             .child(
                 div()
                     .flex()
@@ -648,6 +678,7 @@ impl HostDialog {
             .when(progress.stage() != HostStage::Reading, |this| {
                 this.child(progress_bar(fraction))
             })
+            .children(sent)
             .into_any_element()
     }
 
@@ -772,12 +803,8 @@ impl HostDialog {
             .gap_3()
             .max_h(px(520.))
             .overflow_y_scroll()
-            .children(lines.notes.into_iter().map(note))
-            .children(lines.alerts.into_iter().map(|(level, text)| match level {
-                Level::Error => error_line(text),
-                Level::Warning => note(text).text_color(crate::theme::colors::YELLOW),
-            }))
-            .children(lines.details.into_iter().map(note))
+            // what the file holds, laid out as the Host's "From a file" lays it out
+            .child(sharing::SummaryView::new("host-summary-lines", lines))
             .children(software)
             .child(label(t(S::ImageWorld)))
             .child(world_picker)
@@ -845,23 +872,38 @@ impl HostDialog {
             .flex_col()
             .gap_3()
             .child(
-                note(tr!(
-                    if done.linked {
-                        M::HostCreated
-                    } else {
-                        M::HostCreatedUnlinked
-                    },
-                    name = done.name,
-                    core = done.core_name,
-                    port = port
-                ))
+                super::facts::server_card(&done.name)
+                    .id("host-done-server")
+                    .fact(Fact::bare_named(
+                        t(FactMsg::Status),
+                        StatusBadge::new(t(M::StateStopped), Tone::Neutral),
+                    ))
+                    .fact(super::facts::host_fact(&done.core_name))
+                    .fact(Fact::new(t(FactMsg::Port), FactValue::mono(port))),
+            )
+            .child(
+                note(t(if done.linked {
+                    M::HostCreated
+                } else {
+                    M::HostCreatedUnlinked
+                }))
                 .text_color(crate::theme::ink::text()),
             )
-            .children(
-                done.relinked
-                    .as_ref()
-                    .map(|server| note(tr!(M::HostCreatedRelinked, server = server))),
-            )
+            .children(done.relinked.as_ref().map(|server| {
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(note(t(M::HostCreatedRelinked)))
+                    .child(
+                        FactLine::row("host-done-relinked").fact(Fact::new(
+                            t(M::LinkedBefore),
+                            ObjectChip::new(sanitize(server, 120))
+                                .kind(Kind::Server)
+                                .muted(),
+                        )),
+                    )
+            }))
             .when(!done.left_out.is_empty(), |this| {
                 this.child(label(t(M::HostLeftOut)))
                     .children(done.left_out.iter().cloned().map(note))
@@ -1130,7 +1172,6 @@ impl Servers {
         dialog.update(cx, |d, cx| {
             d.start_working(progress.clone(), cancel.clone(), cx)
         });
-        let core_name = to.core_name.clone();
         let core_uuid = to.core_uuid.clone();
         let work = cx.background_spawn(async move {
             let admin = to.auth.admin(to.client).await.map_err(HostError::from)?;
@@ -1171,7 +1212,7 @@ impl Servers {
                     d._ticker = None;
                     cx.notify();
                 }
-                Err(err) => d.fail(host_error(&err, &core_name), cx),
+                Err(err) => d.fail(host_error(&err), cx),
             });
         }));
     }
@@ -1213,7 +1254,7 @@ impl Servers {
             let uuid = match made {
                 Ok(uuid) => uuid,
                 Err(err) => {
-                    let text = host_error(&err, &core_name);
+                    let text = host_error(&err);
                     let _ = dialog.update(cx, |d, cx| d.refused(uploaded, text, cx));
                     return;
                 }
@@ -1286,7 +1327,7 @@ impl Servers {
                         return;
                     }
                     Err(err) => {
-                        let text = host_error(&err, &core_name);
+                        let text = host_error(&err);
                         let _ = dialog.update(cx, |d, cx| d.ended(text, cx));
                         return;
                     }
@@ -1294,7 +1335,7 @@ impl Servers {
                 let left_out = outcome
                     .outcome
                     .as_ref()
-                    .map(sharing::outcome_lines)
+                    .map(sharing::outcome_counts)
                     .unwrap_or_else(|| {
                         // an older core says it only in English
                         outcome
@@ -1391,13 +1432,13 @@ impl Servers {
                         port: 25566,
                         relinked: linked.then(|| "Old SMP".into()),
                         linked,
-                        left_out: sharing::outcome_lines(&outcome),
+                        left_out: sharing::outcome_counts(&outcome),
                     },
                     cx,
                 );
             }
-            "too-old" => d.fail(host_error(&HostError::NeedsUpdate, &core_name), cx),
-            "still-creating" => d.ended(host_error(&HostError::StillCreating, &core_name), cx),
+            "too-old" => d.fail(host_error(&HostError::NeedsUpdate), cx),
+            "still-creating" => d.ended(host_error(&HostError::StillCreating), cx),
             _ => {}
         });
     }

@@ -7,7 +7,7 @@ use gpui::{AnyElement, Context, Entity, FocusHandle, IntoElement, Window, div, p
 use super::{LauncherShell, Modal};
 use crate::{
     components::{Button, ButtonVariant, Dialog},
-    i18n::{CommonMsg, ShellMsg as M, t, tr},
+    i18n::{CommonMsg, ShellMsg as M, t},
     instances::settings::InstanceSettings,
 };
 
@@ -119,20 +119,31 @@ impl LauncherShell {
         target: &UnsavedTarget,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let body = match target {
-            UnsavedTarget::LauncherDefaults => t(M::UnsavedDefaultsBody).to_string(),
+        // the instance in a card; the sentence names no one
+        let (card, body) = match target {
+            UnsavedTarget::LauncherDefaults => (None, t(M::UnsavedDefaultsBody)),
             UnsavedTarget::Instance(view) => {
                 let id = view.read(cx).instance_id().to_string();
-                match self.instances.read(cx).instance_name(&id) {
-                    Some(name) => tr!(M::UnsavedInstanceBody, name = name),
-                    None => t(M::UnsavedThisInstanceBody).to_string(),
-                }
+                let card = self
+                    .instances
+                    .read(cx)
+                    .instance_name(&id)
+                    .map(|name| crate::instances::facts::named_card(&name));
+                (card, t(M::UnsavedThisInstanceBody))
             }
         };
         let entity = cx.entity();
         Dialog::new("unsaved-settings", t(M::SaveChangesTitle), focus)
             .on_close(move |_, cx| entity.update(cx, |this, cx| this.keep_editing(cx)))
-            .child(div().text_color(crate::theme::ink::secondary()).child(body))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_3()
+                    .text_color(crate::theme::ink::secondary())
+                    .children(card)
+                    .child(body),
+            )
             .footer(
                 Button::new("unsaved-save", t(CommonMsg::Save))
                     .variant(ButtonVariant::Primary)

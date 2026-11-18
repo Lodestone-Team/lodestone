@@ -38,9 +38,9 @@ use std::fmt::Display;
 #[cfg(test)]
 use lodestone_ui::i18n::placeholders;
 pub use lodestone_ui::i18n::{
-    CommonMsg, CommonPlural, FormatMsg, FormatPlural, Language, Locale, Message, SharingMsg,
-    SharingPlural, Text, apply, cjk_fallbacks, force, format, interpolate, locale, locale_fonts,
-    resolve,
+    CommonMsg, CommonPlural, FactMsg, FormatMsg, FormatPlural, Language, Locale, Message,
+    SharingMsg, SharingPlural, Text, ValueMsg, ValuePlural, apply, cjk_fallbacks, force, format,
+    interpolate, locale, locale_fonts, resolve,
 };
 
 pub use en::{
@@ -138,6 +138,24 @@ macro_rules! areas {
         impl From<SharingMsg> for Msg {
             fn from(message: SharingMsg) -> Self {
                 Msg::Ui(message.into())
+            }
+        }
+
+        impl From<FactMsg> for Msg {
+            fn from(message: FactMsg) -> Self {
+                Msg::Ui(message.into())
+            }
+        }
+
+        impl From<ValueMsg> for Msg {
+            fn from(message: ValueMsg) -> Self {
+                Msg::Ui(message.into())
+            }
+        }
+
+        impl From<ValuePlural> for Plural {
+            fn from(message: ValuePlural) -> Self {
+                Plural::Ui(message.into())
             }
         }
 

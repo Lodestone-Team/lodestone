@@ -29,6 +29,10 @@ import {
 import { SettingsWithToc } from 'components/Settings/SettingsToc';
 import { notifySaved } from 'components/Settings/savedToast';
 import { type MessageKey, useI18n, useT } from 'i18n';
+import GameIcon from 'components/Atoms/GameIcon';
+import { StatusBadge, stateTone } from 'components/Atoms/Values';
+import { FactLine, ObjectCard } from 'components/Values';
+import { instanceGamePhrase, instanceLoaderPhrase } from 'utils/values';
 
 type StartupSetting = 'auto_start' | 'restart_on_crash';
 
@@ -42,12 +46,13 @@ const STARTUP_SETTINGS = [
   {
     key: 'restart_on_crash',
     labelKey: 'server.settings.restartOnCrash',
-    descriptionKey: 'server.settings.restartOnCrashHint',
+    descriptionKey: null,
   },
 ] as const satisfies ReadonlyArray<{
   key: StartupSetting;
   labelKey: MessageKey;
-  descriptionKey: MessageKey;
+  /** none when the label says it all */
+  descriptionKey: MessageKey | null;
 }>;
 
 /** Toggles for auto start and restart on crash. */
@@ -94,7 +99,6 @@ function StartupSettings({
     <SettingsSection
       id="server-settings-automation"
       title={t('server.settings.automation')}
-      lead={t('server.settings.automationLead')}
     >
       <SettingsCard>
         {STARTUP_SETTINGS.map(({ key, labelKey, descriptionKey }) => (
@@ -103,7 +107,9 @@ function StartupSettings({
             className="group relative"
             label={t(labelKey)}
             labelId={`startup-setting-${key}`}
-            hint={canEdit ? t(descriptionKey) : disabledReason}
+            hint={
+              canEdit ? descriptionKey && t(descriptionKey) : disabledReason
+            }
           >
             <Toggle
               value={pending[key] ?? instance[key]}
@@ -179,6 +185,11 @@ export default function InstanceSetting() {
     [manifest]
   );
 
+  const loader = instanceLoaderPhrase(
+    instance.game_type,
+    instance.loader_version
+  );
+
   if (isLoading) {
     // Only the first time: the settings are kept once loaded (see
     // useInstanceManifest), so reopening the page shows them right away
@@ -188,7 +199,35 @@ export default function InstanceSetting() {
   return (
     <>
       <ConfirmDialog
-        title={t('server.settings.deleteTitle', { name: instance.name })}
+        title={t('server.settings.deleteTitle')}
+        object={
+          <ObjectCard
+            icon={
+              <GameIcon
+                game_type={instance.game_type}
+                icon_url={instance.icon_url}
+                className="size-8"
+              />
+            }
+            name={instance.name}
+            facts={
+              <FactLine>
+                <span>
+                  {instanceGamePhrase(
+                    instance.game_type,
+                    instance.version || null
+                  )}
+                </span>
+                {loader && <span>{loader}</span>}
+              </FactLine>
+            }
+            badge={
+              <StatusBadge tone={stateTone(instance.state)}>
+                {t(`common.state.${instance.state}`)}
+              </StatusBadge>
+            }
+          />
+        }
         type={'danger'}
         onClose={() => setShowDeleteDialog(false)}
         onConfirm={() => {
@@ -275,7 +314,6 @@ export default function InstanceSetting() {
         <SettingsSection
           id="server-settings-danger"
           title={t('server.settings.dangerZone')}
-          lead={t('server.settings.dangerZoneLead')}
           danger
         >
           <SettingsCard danger>

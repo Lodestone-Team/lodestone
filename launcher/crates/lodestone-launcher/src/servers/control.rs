@@ -24,7 +24,9 @@ use launcher_core::{
 };
 use serde_json::json;
 
-use crate::i18n::{ServersMsg as M, t, tr};
+use crate::components::{Kind, ValueKind};
+use crate::i18n::{FactMsg, ServersMsg as M, t};
+use crate::theme::Tone;
 
 use super::{
     AddFailure, CoreEntry, CoreStatus, FINGERPRINT_HELP, Notice, Servers, certificate_outcome,
@@ -317,12 +319,21 @@ impl Servers {
                         && core.saved.check_identity(&info.uuid)
                     {
                         let (name, address) = (core.saved.name.clone(), address.clone());
-                        this.notice = Some(Notice::new(move || {
-                            (
-                                tr!(M::NoLongerTrusted, name = name),
-                                tr!(M::NoLongerTrustedOtherCore, address = address),
-                            )
-                        }));
+                        this.notice = Some(
+                            Notice::new(|| {
+                                (
+                                    t(M::NoLongerTrusted).into(),
+                                    t(M::NoLongerTrustedOtherCore).into(),
+                                )
+                            })
+                            .object(name, Kind::Computer)
+                            .status(|| t(M::NotTrusted).into(), Tone::Danger)
+                            .value(
+                                || t(FactMsg::Address).into(),
+                                address,
+                                ValueKind::Code,
+                            ),
+                        );
                     }
                 }
                 let mut saved = match existing {
@@ -351,12 +362,16 @@ impl Servers {
                     && saved.pin_certificate(pin)
                 {
                     let name = saved.name.clone();
-                    this.notice = Some(Notice::new(move || {
-                        (
-                            tr!(M::NoLongerTrusted, name = name),
-                            t(M::NoLongerTrustedNewCertificate).into(),
-                        )
-                    }));
+                    this.notice = Some(
+                        Notice::new(|| {
+                            (
+                                t(M::NoLongerTrusted).into(),
+                                t(M::NoLongerTrustedNewCertificate).into(),
+                            )
+                        })
+                        .object(name, Kind::Computer)
+                        .status(|| t(M::NotTrusted).into(), Tone::Danger),
+                    );
                 }
                 let signed_in = key.is_some();
                 let entry = CoreEntry::new(saved, url, key.map(|(secret, _)| secret).or(kept_key));

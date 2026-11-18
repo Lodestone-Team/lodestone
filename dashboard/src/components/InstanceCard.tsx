@@ -1,5 +1,6 @@
-import { errorToString, stateToLabelColor } from 'utils/util';
-import Label from './Atoms/Label';
+import { errorToString } from 'utils/util';
+import { Fraction, StatusBadge, stateTone } from './Atoms/Values';
+import { Fact, ObjectCard } from './Values';
 import { Fragment, useContext, useState } from 'react';
 import axios from 'axios';
 import { InstanceState } from 'bindings/InstanceState';
@@ -14,6 +15,7 @@ import {
   faLink,
   faPlug,
   faPowerOff,
+  faUser,
 } from '@fortawesome/free-solid-svg-icons';
 import IconButton from './Atoms/IconButton';
 import ClipboardTextfield from './ClipboardTextfield';
@@ -261,7 +263,6 @@ export default function InstanceCard({
       });
   };
 
-  const stateColor = stateToLabelColor[state];
   const menuInfo = stateToMenuInfo().filter((info) => mayPower(info.action));
   // the card's second row: a small outlined button, as Copy IP was
   const chipClass =
@@ -271,13 +272,26 @@ export default function InstanceCard({
     <div className="my-2 border-b-2 border-gray-faded/30 pb-2">
       <ConfirmDialog
         title={t('server.eula.title')}
+        object={
+          <ObjectCard
+            compact
+            icon={
+              <GameIcon
+                game_type={game_type}
+                icon_url={icon_url}
+                className="size-6"
+              />
+            }
+            name={name}
+          />
+        }
         type="info"
         isOpen={eulaDialogOpen}
         onClose={() => setEulaDialogOpen(false)}
         onConfirm={acceptEulaAndStart}
         confirmButtonText={t('server.eula.accept')}
       >
-        {rich('server.eula.body', { name, link: <MinecraftEulaLink /> })}
+        {rich('server.eula.body', { link: <MinecraftEulaLink /> })}
       </ConfirmDialog>
       <div
         className={clsx(
@@ -350,29 +364,21 @@ export default function InstanceCard({
         )}
       >
         {canShare ? (
-          <Tooltip
-            showArrow={false}
-            overlay={<span>{t('server.card.shareHint')}</span>}
-            placement="bottom"
-            trigger={['hover']}
-            mouseEnterDelay={0.2}
+          <button
+            type="button"
+            onClick={openShare}
+            className={clsx(
+              chipClass,
+              'group flex cursor-pointer flex-row items-center justify-center gap-2 whitespace-nowrap select-none',
+              'focus-visible:ring-4 focus-visible:ring-blue-faded/50 focus-visible:outline-hidden'
+            )}
           >
-            <button
-              type="button"
-              onClick={openShare}
-              className={clsx(
-                chipClass,
-                'group flex cursor-pointer flex-row items-center justify-center gap-2 whitespace-nowrap select-none',
-                'focus-visible:ring-4 focus-visible:ring-blue-faded/50 focus-visible:outline-hidden'
-              )}
-            >
-              <FontAwesomeIcon
-                icon={faLink}
-                className="text-gray-faded/25 group-hover:text-gray-500"
-              />
-              {t('server.card.share')}
-            </button>
-          </Tooltip>
+            <FontAwesomeIcon
+              icon={faLink}
+              className="text-gray-faded/25 group-hover:text-gray-500"
+            />
+            {t('server.card.share')}
+          </button>
         ) : (
           <ClipboardTextfield
             className={chipClass}
@@ -380,16 +386,14 @@ export default function InstanceCard({
             text={t('server.card.copyIp')}
           />
         )}
-        <Label
-          size="small"
-          className="flex grow justify-center whitespace-nowrap"
-          color={stateColor}
-        >
-          {t('server.card.online', {
-            players: player_count ?? '',
-            max: max_player_count ?? '',
-          })}
-        </Label>
+        <span className="flex grow flex-row items-center justify-center gap-2 text-small whitespace-nowrap">
+          <Fact label={t('values.key.players')} icon={faUser}>
+            <Fraction done={player_count} total={max_player_count} />
+          </Fact>
+          <StatusBadge tone={stateTone(state)}>
+            {t(`common.state.${state}`)}
+          </StatusBadge>
+        </span>
       </div>
     </div>
   );

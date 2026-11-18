@@ -14,8 +14,6 @@ crate::i18n::messages! {
         // What is running, over its progress bar. {name} is a world's name; {trash} is
         // the Trash, with its article.
         BackingUp = "Backing up {name}",
-        RestoringBackup = "Restoring the backup",
-        ReplacingWorld = "Replacing the world with the backup",
         MovingToTrash = "Moving {name} to {trash}",
         Renaming = "Renaming",
         Exporting = "Exporting {name}",
@@ -56,12 +54,8 @@ crate::i18n::messages! {
         /// {time} is "Today, 14:30", "Yesterday, 09:12" or a date.
         PlayedAt = "Played {time}",
         BackUp = "Back up",
-        Backups = "Backups",
         Export = "Export…",
         DeleteWorld = "Delete…",
-        NoBackupsYet = "No snapshots of this world yet. \"Back up\" takes one; Settings › Snapshots lists them all.",
-        RestoreAsCopy = "Restore as copy",
-        ReplaceWorld = "Replace world…",
 
         // A world's data packs.
         DataPacks = "Data packs",
@@ -98,19 +92,29 @@ crate::i18n::messages! {
         OpenSavesFolder = "Open saves folder",
         ReadingWorlds = "Reading the worlds",
         NoWorldsYet = "No worlds yet",
-        NoWorldsHint = "Worlds you create in the game appear here. You can also import a world zip, or drop one here.",
+        NoWorldsHint = "Create one in the game, or drop a world zip here.",
 
         // Screenshots.
         ReadingScreenshots = "Reading the screenshots",
         NoScreenshotsYet = "No screenshots yet",
-        NoScreenshotsHint = "Press F2 in the game to take one; they appear here.",
+        NoScreenshotsHint = "Press F2 in the game to take one.",
         /// In the large view: "3 of 12".
         Position = "{index} of {count}",
         CopyImage = "Copy image",
+        /// Over the progress bar while a world comes back from a snapshot.
+        RestoringFromSnapshot = "Restoring the world from the snapshot",
+        /// A world's panel: its zips.
+        WorldBackupsHeading = "World backups",
+        NoWorldBackupsYet = "No backups yet.",
+        /// A world's panel: the snapshots of the whole instance that hold this world.
+        InSnapshots = "In snapshots",
+        NoSnapshotsOfWorld = "No snapshot holds this world yet. Settings › Snapshots takes them.",
+        RestoreEllipsis = "Restore…",
+        RestoreAsNewWorld = "Restore as a new world",
     }
 
     pub enum WorldsPlural {
-        ScreenshotsSummary = ("{count} screenshot · F2 in the game takes one", "{count} screenshots · F2 in the game takes one"),
+        ScreenshotsSummary = ("{count} screenshot", "{count} screenshots"),
         WithOtherWorlds = ("with {count} other world", "with {count} other worlds"),
     }
 }

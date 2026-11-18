@@ -1,16 +1,32 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { ApiKeyInfo } from 'bindings/ApiKeyInfo';
-import clsx from 'clsx';
 import Button from 'components/Atoms/Button';
 import ConfirmDialog from 'components/Atoms/ConfirmDialog';
 import WarningAlert from 'components/Atoms/WarningAlert';
 import {
   apiKeyErrorMessage,
+  apiKeyScopeCounts,
   apiKeyScopeSummary,
   isApiKeyExpired,
   removeApiKeyFromCache,
 } from 'data/ApiKeys';
 import { useI18n } from 'i18n';
+import Label from 'components/Atoms/Label';
+import {
+  KindIcon,
+  MonoText,
+  MonoValue,
+  Num,
+  ObjectChip,
+  StatusBadge,
+} from 'components/Atoms/Values';
+import {
+  Fact,
+  FactLine,
+  factsTitle,
+  ObjectCard,
+  ObjectToast,
+} from 'components/Values';
 import { useState } from 'react';
 import { toast } from 'react-toastify';
 import { ApiError, formatTimeAgo } from 'utils/util';
@@ -105,15 +121,34 @@ export default function ApiKeyList({
             return;
           }
           removeApiKeyFromCache(queryClient, queryKey, toRevoke.id);
-          toast.success(t('settings.apiKeys.revoked', { name: toRevoke.name }));
+          toast.success(
+            <ObjectToast
+              object={<ObjectChip kind="apiKey" name={toRevoke.name} />}
+              outcome={t('settings.apiKeys.toast.revoked')}
+            />
+          );
           setToRevoke(null);
         }}
+        object={
+          toRevoke && (
+            <ObjectCard
+              icon={<KindIcon kind="apiKey" className="w-5" />}
+              name={toRevoke.name}
+              facts={
+                <FactLine>
+                  <Fact label={t('values.key.prefix')}>
+                    <MonoText text={toRevoke.display} />
+                  </Fact>
+                  <Fact label={t('values.key.created')}>
+                    {formatDate(toRevoke.created_at)}
+                  </Fact>
+                </FactLine>
+              }
+            />
+          )
+        }
       >
-        {toRevoke &&
-          t('settings.apiKeys.revokeBody', {
-            name: toRevoke.name,
-            display: toRevoke.display,
-          })}
+        {t('settings.apiKeys.revokeBody')}
       </ConfirmDialog>
       <SettingsCard>
         {keys.length === 0 ? (
@@ -121,60 +156,85 @@ export default function ApiKeyList({
         ) : (
           keys.map((key) => {
             const expired = isApiKeyExpired(key);
+            const counts = apiKeyScopeCounts(key.scope);
+            const never = t('settings.apiKeys.expiry.never');
+            const created = formatDate(key.created_at);
+            const expires =
+              key.expires_at === null ? never : formatDate(key.expires_at);
+            const lastUsed =
+              key.last_used_at === null
+                ? never
+                : formatTimeAgo(key.last_used_at * 1000);
             return (
               <SettingsRow
                 key={key.id}
                 label={
-                  <span className="flex min-w-0 flex-row flex-wrap items-baseline gap-x-2">
+                  <span className="flex min-w-0 flex-row flex-wrap items-center gap-x-2">
                     <span className="truncate">{key.name}</span>
-                    <span className="font-mono text-small font-medium text-gray-500">
-                      {key.display}
-                    </span>
+                    <MonoValue>{key.display}</MonoValue>
                   </span>
                 }
                 hint={
-                  <>
-                    <span className="block text-gray-400">
-                      {apiKeyScopeSummary(key.scope)}
+                  <span className="flex flex-col gap-1">
+                    <span className="flex flex-row flex-wrap items-center gap-x-3 gap-y-1">
+                      <Label size="small" color="gray" className="w-fit">
+                        {apiKeyScopeSummary(key.scope)}
+                      </Label>
+                      {counts && (
+                        <>
+                          <Fact label={t('values.key.servers')}>
+                            <Num value={counts.instances} />
+                          </Fact>
+                          <Fact label={t('values.key.permissions')}>
+                            <Num value={counts.permissions} />
+                          </Fact>
+                        </>
+                      )}
                     </span>
-                    <span className="flex flex-row flex-wrap gap-x-3">
-                      <span title={formatDateTime(key.created_at)}>
-                        {t('settings.apiKeys.createdOn', {
-                          date: formatDate(key.created_at),
-                        })}
-                      </span>
-                      <span
-                        className={clsx(expired && 'text-red-200')}
+                    <FactLine
+                      title={factsTitle([
+                        { label: t('values.key.created'), value: created },
+                        { label: t('values.key.expires'), value: expires },
+                        { label: t('values.key.lastUsed'), value: lastUsed },
+                      ])}
+                    >
+                      <Fact
+                        label={t('values.key.created')}
+                        title={formatDateTime(key.created_at)}
+                      >
+                        {created}
+                      </Fact>
+                      <Fact
+                        label={t('values.key.expires')}
                         title={
                           key.expires_at === null
                             ? undefined
                             : formatDateTime(key.expires_at)
                         }
                       >
-                        {key.expires_at === null
-                          ? t('settings.apiKeys.expiresNever')
-                          : t(
-                              expired
-                                ? 'settings.apiKeys.expiredOn'
-                                : 'settings.apiKeys.expiresOn',
-                              { date: formatDate(key.expires_at) }
-                            )}
-                      </span>
-                      <span
+                        {expired ? (
+                          <span className="inline-flex items-center gap-1.5">
+                            <StatusBadge tone="danger">
+                              {t('settings.apiKeys.expired')}
+                            </StatusBadge>
+                            {expires}
+                          </span>
+                        ) : (
+                          expires
+                        )}
+                      </Fact>
+                      <Fact
+                        label={t('values.key.lastUsed')}
                         title={
                           key.last_used_at === null
                             ? undefined
                             : formatDateTime(key.last_used_at)
                         }
                       >
-                        {key.last_used_at === null
-                          ? t('settings.apiKeys.lastUsedNever')
-                          : t('settings.apiKeys.lastUsed', {
-                              time: formatTimeAgo(key.last_used_at * 1000),
-                            })}
-                      </span>
-                    </span>
-                  </>
+                        <span className="text-ink-muted">{lastUsed}</span>
+                      </Fact>
+                    </FactLine>
+                  </span>
                 }
               >
                 <Button

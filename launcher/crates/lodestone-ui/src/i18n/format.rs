@@ -2,13 +2,27 @@
 //! and the order of the parts come from the locale's [`FormatMsg`] table; the digits
 //! are grouped and separated by its `GroupSeparator` and `DecimalSeparator`.
 
+use std::fmt;
+
 use chrono::{Datelike as _, NaiveDate};
 
-use super::{FormatMsg, FormatPlural, Locale, locale, t, tr, trn};
+use super::{FormatMsg, FormatPlural, Locale, Msg, Plural, locale, t, tr};
 
 /// A whole number with its digits grouped: "4,091" in English, "4 091" in French.
 pub fn number(value: u64) -> String {
-    group(&value.to_string(), t(FormatMsg::GroupSeparator))
+    number_in(value, locale())
+}
+
+fn number_in(value: u64, locale: Locale) -> String {
+    group(
+        &value.to_string(),
+        in_locale(FormatMsg::GroupSeparator, locale),
+    )
+}
+
+/// A format message in `locale`.
+fn in_locale(message: FormatMsg, locale: Locale) -> &'static str {
+    Msg::from(message).text(locale)
 }
 
 /// A signed whole number with its digits grouped.
@@ -22,6 +36,10 @@ pub fn signed(value: i64) -> String {
 
 /// A number with `places` decimals and grouped digits: "1.5" or "1,5".
 pub fn decimal(value: f64, places: usize) -> String {
+    decimal_in(value, places, locale())
+}
+
+fn decimal_in(value: f64, places: usize, locale: Locale) -> String {
     let text = format!("{value:.places$}");
     let (whole, fraction) = match text.split_once('.') {
         Some((whole, fraction)) => (whole, Some(fraction)),
@@ -31,9 +49,12 @@ pub fn decimal(value: f64, places: usize) -> String {
         Some(digits) => ("-", digits),
         None => ("", whole),
     };
-    let mut out = format!("{sign}{}", group(digits, t(FormatMsg::GroupSeparator)));
+    let mut out = format!(
+        "{sign}{}",
+        group(digits, in_locale(FormatMsg::GroupSeparator, locale))
+    );
     if let Some(fraction) = fraction {
-        out.push_str(t(FormatMsg::DecimalSeparator));
+        out.push_str(in_locale(FormatMsg::DecimalSeparator, locale));
         out.push_str(fraction);
     }
     out
@@ -59,33 +80,128 @@ pub fn percent(value: u64) -> String {
 /// A file's or a folder's size in decimal units, as Finder shows sizes: "512 bytes",
 /// "4.2 MB", "38 MB", "1.2 GB". One decimal below 10.
 pub fn bytes(bytes: u64) -> String {
-    sized(bytes, 1000.0)
+    bytes_parts(bytes).to_string()
 }
 
 /// A size in binary units (1 KB is 1,024 bytes), as a download's or a memory's size
 /// is often counted: "1.5 MB".
 pub fn bytes_binary(bytes: u64) -> String {
-    sized(bytes, 1024.0)
+    sized_in(bytes, BINARY, unit_of(bytes, BINARY), locale()).to_string()
 }
 
-fn sized(bytes: u64, step: f64) -> String {
-    const UNITS: [FormatMsg; 4] = [
-        FormatMsg::Kilobytes,
-        FormatMsg::Megabytes,
-        FormatMsg::Gigabytes,
-        FormatMsg::Terabytes,
-    ];
-    if (bytes as f64) < step {
-        return trn!(FormatPlural::Bytes, bytes);
+/// A number and its unit, apart, so the unit can be drawn one ink lighter than the
+/// number: "4.2" and " MB", or "4,2" and "\u{a0}Mo". The parts come from the
+/// locale's template, so a unit written before the number keeps its place.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Measure {
+    pub value: String,
+    /// The template's text before the number (usually none).
+    pub before: &'static str,
+    /// The template's text after the number: the unit, with its space.
+    pub after: &'static str,
+}
+
+impl fmt::Display for Measure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}{}{}", self.before, self.value, self.after)
     }
-    let mut value = bytes as f64 / step;
+}
+
+/// [`bytes`] as a number and a unit.
+pub fn bytes_parts(bytes: u64) -> Measure {
+    bytes_parts_in(bytes, locale())
+}
+
+fn bytes_parts_in(bytes: u64, locale: Locale) -> Measure {
+    sized_in(bytes, DECIMAL, unit_of(bytes, DECIMAL), locale)
+}
+
+/// How far a transfer has come, with both numbers in the total's unit so the unit is
+/// written once, after the total: "1.2" of "3.4 MB". Returns the done amount's
+/// number and the total.
+pub fn bytes_fraction(done: u64, total: u64) -> (String, Measure) {
+    bytes_fraction_in(done, total, locale())
+}
+
+fn bytes_fraction_in(done: u64, total: u64, locale: Locale) -> (String, Measure) {
+    let unit = unit_of(total, DECIMAL);
+    let done = done.min(total);
+    // With the total's decimals, so the two line up: "0.4 / 3.4 MB", not "0 / 3.4 MB".
+    let done_value = match unit {
+        Some(index) => {
+            let scale = DECIMAL.powi(index as i32 + 1);
+            decimal_in(done as f64 / scale, places_of(total, unit), locale)
+        }
+        None => number_in(done, locale),
+    };
+    (done_value, sized_in(total, DECIMAL, unit, locale))
+}
+
+const DECIMAL: f64 = 1000.0;
+const BINARY: f64 = 1024.0;
+
+const UNITS: [FormatMsg; 4] = [
+    FormatMsg::Kilobytes,
+    FormatMsg::Megabytes,
+    FormatMsg::Gigabytes,
+    FormatMsg::Terabytes,
+];
+
+/// The unit `bytes` is shown in: `None` for bytes, else an index into [`UNITS`].
+fn unit_of(bytes: u64, step: f64) -> Option<usize> {
+    let mut value = bytes as f64;
+    if value < step {
+        return None;
+    }
     let mut unit = 0;
+    value /= step;
     while value >= step && unit < UNITS.len() - 1 {
         value /= step;
         unit += 1;
     }
+    Some(unit)
+}
+
+/// The decimals `bytes` is shown with in `unit`: one below 10, else none.
+fn places_of(bytes: u64, unit: Option<usize>) -> usize {
+    match unit {
+        None => 0,
+        Some(index) => {
+            let value = bytes as f64 / DECIMAL.powi(index as i32 + 1);
+            if value < 10.0 { 1 } else { 0 }
+        }
+    }
+}
+
+/// `bytes` in `unit` (`None` for bytes), as a number and the unit's text.
+fn sized_in(bytes: u64, step: f64, unit: Option<usize>, locale: Locale) -> Measure {
+    let Some(index) = unit else {
+        let [one, other] = Plural::from(FormatPlural::Bytes).forms(locale);
+        let template = if locale.is_one(bytes) { one } else { other };
+        let (before, after) = split(template, "count");
+        return Measure {
+            value: number_in(bytes, locale),
+            before,
+            after,
+        };
+    };
+    let value = bytes as f64 / step.powi(index as i32 + 1);
     let places = if value < 10.0 { 1 } else { 0 };
-    tr!(UNITS[unit], size = decimal(value, places))
+    let (before, after) = split(in_locale(UNITS[index], locale), "size");
+    Measure {
+        value: decimal_in(value, places, locale),
+        before,
+        after,
+    }
+}
+
+/// The text of `template` before and after its `{name}` placeholder.
+fn split(template: &'static str, name: &str) -> (&'static str, &'static str) {
+    let placeholder = format!("{{{name}}}");
+    match template.find(&placeholder) {
+        Some(at) => (&template[..at], &template[at + placeholder.len()..]),
+        None => ("", template),
+    }
 }
 
 /// Memory in MiB, as the memory settings show it: "512 MB", "4 GB", "4.5 GB".
@@ -205,6 +321,43 @@ mod tests {
     /// tests read.
     fn in_locale(locale: Locale, message: FormatMsg) -> &'static str {
         Msg::from(message).text(locale)
+    }
+
+    #[test]
+    fn sizes_split_into_a_number_and_its_unit() {
+        let measure = bytes_parts_in(4_200_000, Locale::En);
+        assert_eq!(measure.value, "4.2");
+        assert_eq!((measure.before, measure.after), ("", " MB"));
+        assert_eq!(measure.to_string(), "4.2 MB");
+        let measure = bytes_parts_in(1_234_567_890, Locale::Fr);
+        assert_eq!(measure.value, "1,2");
+        assert_eq!(measure.after, "\u{a0}Go");
+        let measure = bytes_parts_in(38_000_000, Locale::ZhHans);
+        assert_eq!(measure.to_string(), "38 MB");
+        // bytes use the plural message, in the locale's form
+        assert_eq!(bytes_parts_in(1, Locale::En).to_string(), "1 byte");
+        assert_eq!(bytes_parts_in(512, Locale::En).to_string(), "512 bytes");
+        assert_eq!(bytes_parts_in(0, Locale::Fr).to_string(), "0\u{a0}octet");
+        assert_eq!(bytes_parts_in(999, Locale::Fr).after, "\u{a0}octets");
+    }
+
+    #[test]
+    fn a_fraction_uses_the_total_unit() {
+        let (done, total) = bytes_fraction_in(1_200_000, 3_400_000, Locale::En);
+        assert_eq!(done, "1.2");
+        assert_eq!(total.to_string(), "3.4 MB");
+        // done is counted in the total's unit, even when it is far smaller
+        let (done, total) = bytes_fraction_in(400_000, 2_500_000_000, Locale::En);
+        assert_eq!(done, "0.0");
+        assert_eq!(total.to_string(), "2.5 GB");
+        let (done, total) = bytes_fraction_in(12, 900, Locale::Fr);
+        assert_eq!(done, "12");
+        assert_eq!(total.to_string(), "900\u{a0}octets");
+        let (done, total) = bytes_fraction_in(25_000_000, 38_000_000, Locale::Fr);
+        assert_eq!(done, "25");
+        assert_eq!(total.to_string(), "38\u{a0}Mo");
+        // more done than the total is shown as the total
+        assert_eq!(bytes_fraction_in(5_000, 3_000, Locale::En).0, "3.0");
     }
 
     #[test]

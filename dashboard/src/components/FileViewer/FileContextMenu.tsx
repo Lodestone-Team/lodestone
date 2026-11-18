@@ -5,36 +5,8 @@ import { ClientFile } from 'bindings/ClientFile';
 import { UnzipOption } from 'bindings/UnzipOption';
 import { joinPath, supportedZip } from 'utils/util';
 import { useFileViewer } from './FileViewerContext';
-import { t as translate, useT } from 'i18n';
-
-function generateZipText(
-  tickedFiles: ClientFile[] | undefined,
-  hoverFile: ClientFile | null
-): string {
-  // if there is no file ticked, and that there is a file, zip the current file to a zip file with the same name
-  // if there is a file ticked, zip all the ticked files
-  if (
-    (tickedFiles === undefined || tickedFiles.length === 0) &&
-    hoverFile === null
-  ) {
-    return translate('files.contextMenu.zip');
-  } else if (tickedFiles === undefined || tickedFiles.length === 0) {
-    return translate('files.contextMenu.zipTo', {
-      archive: `${hoverFile?.name}.zip`,
-    });
-  } else if (tickedFiles.length === 1) {
-    return translate('files.contextMenu.zipFile', {
-      name: tickedFiles[0].name,
-      archive: `${tickedFiles[0].name}.zip`,
-    });
-  } else {
-    return translate('files.contextMenu.zipFiles', {
-      count: tickedFiles.length,
-      // the archive's actual file name, see generateZipFileName
-      archive: 'Archive.zip',
-    });
-  }
-}
+import { useT } from 'i18n';
+import { MonoText } from 'components/Atoms/Values';
 
 function generateZipFileName(
   tickedFiles: ClientFile[],
@@ -136,6 +108,18 @@ const FileContextMenu = forwardRef(
         }}
         ref={ref}
       >
+        {/* what the menu acts on, named once */}
+        {(tickedFiles.length > 0 || file) && (
+          <div className="max-w-64 truncate px-2.5 py-1.5 font-mono text-small text-white/50">
+            {tickedFiles.length > 1 ? (
+              <span className="font-sans">
+                {t('files.contextMenu.items', { count: tickedFiles.length })}
+              </span>
+            ) : (
+              <MonoText text={(tickedFiles[0] ?? file)?.name ?? ''} max={32} />
+            )}
+          </div>
+        )}
         <div className="py-1">
           <ContextMenuButton
             className="w-full rounded-none bg-gray-900 px-2.5 text-small font-medium whitespace-nowrap"
@@ -160,8 +144,9 @@ const FileContextMenu = forwardRef(
             label={
               file?.file_type !== 'Directory'
                 ? t('files.contextMenu.paste')
-                : t('files.contextMenu.pasteInto', { name: file.name })
+                : t('files.contextMenu.pasteInto')
             }
+            caption={file?.file_type === 'Directory' ? file.name : undefined}
             onClick={() => {
               pasteFiles(targetDirectory);
               setShowContextMenu(false);
@@ -192,7 +177,12 @@ const FileContextMenu = forwardRef(
         <div className="py-1">
           <ContextMenuButton
             className="w-full rounded-none bg-gray-900 px-2.5 text-small font-medium whitespace-nowrap"
-            label={generateZipText(tickedFiles, file)}
+            label={t('files.contextMenu.zip')}
+            caption={
+              tickedFiles.length > 0 || file
+                ? generateZipFileName(tickedFiles, file)
+                : undefined
+            }
             // disable if no file is ticked and if there is no file
             disabled={tickedFiles.length === 0 && !file}
             onClick={() => {
@@ -230,7 +220,8 @@ const FileContextMenu = forwardRef(
               />
               <ContextMenuButton
                 className="w-full truncate rounded-none bg-gray-900 px-2.5 text-small font-medium whitespace-nowrap"
-                label={t('files.contextMenu.unzipTo', { name: file.file_stem })}
+                label={t('files.contextMenu.unzipTo')}
+                caption={file.file_stem}
                 onClick={() => {
                   unzip('ToDirectoryWithFileName');
                 }}

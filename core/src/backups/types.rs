@@ -229,7 +229,8 @@ pub struct BackupList {
     pub next_scheduled: Option<i64>,
 }
 
-/// The backup or restore of a server that is running now.
+/// The job of a server that is running now: a snapshot, a world backup or either's
+/// restore (they share one lock per server).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct RunningJob {
@@ -248,8 +249,14 @@ pub struct RunningJob {
 #[serde(rename_all = "snake_case")]
 #[ts(export)]
 pub enum JobKind {
+    /// A snapshot (the API's "backup").
     Backup,
+    /// A snapshot's restore.
     Restore,
+    /// A world backup ([`crate::backups::world`]).
+    WorldBackup,
+    /// A world backup's restore.
+    WorldRestore,
 }
 
 /// How much space a server's backups take. Only counts this server's own backups, so it

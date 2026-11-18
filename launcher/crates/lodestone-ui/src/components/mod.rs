@@ -1,7 +1,10 @@
 //! A small set of in-house components styled after the dashboard's atoms, shared by
-//! Lodestone Launcher and Lodestone Host.
+//! Lodestone Launcher and Lodestone Host, and the readable components for names and
+//! values ([`readable`]).
 //!
-//! Run `cargo run --example components` to see each one.
+//! Run `cargo run --example components` to see the basic ones, and the launcher's
+//! `--scene components` (or the Host's `--components`) screenshot for the readable
+//! ones.
 
 pub mod a11y;
 mod button;
@@ -16,6 +19,7 @@ mod list_row;
 pub mod log_view;
 pub mod motion;
 mod power;
+pub mod readable;
 mod rich_text;
 pub mod scrollbar;
 mod segmented;
@@ -43,6 +47,13 @@ pub use focus::{ArrowGroup, FocusScope, KeyboardFocus};
 pub use icon::Icon;
 pub use list_row::ListRow;
 pub use power::{PowerButtons, power_actions, power_name, power_toggle};
+pub use readable::{
+    CaptionLine, Column, CompareTable, CountBadge, DiffValue, Fact, FactKey, FactLine, FactList,
+    FactTooltip, FactValue, ItemIcon, Kind, KindIcon, ListColumns, ListHeader, MeterBar, MonoValue,
+    NameGroup, NameItem, NameList, NameStyle, Num, ObjectCard, ObjectChip, PathText, ProductPhrase,
+    ProgressBar, ProgressBlock, ReasonTag, StatRow, StatTile, StatusBadge, UntitledName,
+    ValueField, ValueKind, VersionTag, VersionTone,
+};
 pub use rich_text::{CopySelection, RichText, clear_selection};
 pub use scrollbar::{ScrollMetrics, ScrollSource, Scrollbar};
 pub use segmented::segmented;

@@ -1,6 +1,7 @@
 import { useEffect, useState, Fragment, useMemo, useRef } from 'react';
 import { FieldHookConfig, useField } from 'formik';
-import { useT } from 'i18n';
+import { useI18n } from 'i18n';
+import { MonoValue } from 'components/Atoms/Values';
 import { Combobox, Transition } from '@headlessui/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import BeatLoader from 'react-spinners/BeatLoader';
@@ -45,7 +46,7 @@ export default function ComboField(props: ComboFieldProps) {
     filterOptions = defaultFilterOptions,
     ...rest
   } = props;
-  const t = useT();
+  const { t, rich } = useI18n();
   const [field, meta] = useField(props);
   const { value: selectedValue } = field;
   const [query, setQuery] = useState('');
@@ -177,7 +178,9 @@ export default function ComboField(props: ComboFieldProps) {
                     >
                       <div className="flex flex-row justify-between">
                         <span className="block truncate pr-1">
-                          {t('common.combo.addCustom', { query })}
+                          {rich('common.combo.addCustom', {
+                            query: <MonoValue>{query}</MonoValue>,
+                          })}
                         </span>
                       </div>
                     </Combobox.Option>

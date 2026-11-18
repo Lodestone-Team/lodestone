@@ -28,14 +28,21 @@ use launcher_core::{
     game::download::CancelToken,
 };
 
+use lodestone_ui::values::truncate::sanitize;
+
 use super::{
     Servers,
     extras::{error_line, label, note, progress_bar},
 };
 use crate::{
-    components::{Button, ButtonVariant, Dialog, ListRow, LoadingDots, TextInput},
-    i18n::{CommonMsg, ServersMsg as M, format, t, tr},
-    theme::{layout, px},
+    components::{
+        Button, ButtonVariant, Dialog, Fact, FactLine, FactValue, Icon, KeyboardFocus, ListRow,
+        LoadingDots, Num, ObjectCard, StatusBadge, TextInput,
+        a11y::{Accessible, Role},
+        readable::object_name,
+    },
+    i18n::{CommonMsg, FactMsg, ServersMsg as M, ValueMsg, format, t, tr},
+    theme::{Tone, colors, layout, px, radius},
 };
 
 pub enum DownloadWorldEvent {
@@ -118,9 +125,9 @@ impl Drop for DownloadWorldDialog {
 }
 
 /// The dialog's text for an error.
-fn download_error(err: &WorldDownloadError, core: &str) -> String {
+fn download_error(err: &WorldDownloadError) -> String {
     match err {
-        WorldDownloadError::NeedsUpdate => tr!(M::DownloadWorldTooOld, core = core),
+        WorldDownloadError::NeedsUpdate => t(M::DownloadWorldTooOld).to_string(),
         WorldDownloadError::Forbidden => t(M::DownloadWorldForbidden).to_string(),
         WorldDownloadError::BackupForbidden => t(M::DownloadWorldBackupForbidden).to_string(),
         WorldDownloadError::NoRoom { needed, free } => tr!(
@@ -211,11 +218,7 @@ impl DownloadWorldDialog {
         };
         self.error = None;
         self.step = Step::Loading;
-        let (client, server, core) = (
-            self.client.clone(),
-            self.server.clone(),
-            self.core_name.clone(),
-        );
+        let (client, server) = (self.client.clone(), self.server.clone());
         let work = cx.background_spawn(async move {
             let admin = auth.admin(client).await.map_err(WorldDownloadError::from)?;
             let backups = world_download::backups(&admin, &server).await?;
@@ -233,7 +236,7 @@ impl DownloadWorldDialog {
                             picked,
                         };
                     }
-                    Err(err) => this.fail(download_error(&err, &core), cx),
+                    Err(err) => this.fail(download_error(&err), cx),
                 }
                 cx.notify();
             })
@@ -344,7 +347,7 @@ impl DownloadWorldDialog {
             list,
         };
         self.error = None;
-        let (server, core) = (self.server.clone(), self.core_name.clone());
+        let server = self.server.clone();
         let made = progress.clone();
         let work = cx.background_spawn({
             let cancel = cancel.clone();
@@ -383,7 +386,7 @@ impl DownloadWorldDialog {
                 }
                 Err(err) => {
                     let refused = matches!(err, WorldDownloadError::BackupForbidden);
-                    this.back_to_list(download_error(&err, &core), made.backup_made(), cx);
+                    this.back_to_list(download_error(&err), made.backup_made(), cx);
                     if refused {
                         this.after_backup_refused();
                     }
@@ -426,22 +429,19 @@ impl DownloadWorldDialog {
                         format::day_and_time(time, chrono::Local::now().date_naive())
                     })
                     .unwrap_or_else(|| backup.id.clone());
-                let name = match &backup.name {
-                    Some(name) => format!("{name} · {when}"),
-                    None => when,
-                };
-                let mut detail = format::bytes(backup.total_bytes);
-                if backup.may_be_inconsistent() {
-                    detail = format!("{detail} · {}", t(M::DownloadWorldMidWrite));
-                }
                 let entity = entity.clone();
-                ListRow::new(
+                backup_row(
                     SharedString::from(format!("download-world-backup-{i}")),
-                    name,
+                    backup
+                        .name
+                        .as_deref()
+                        .filter(|name| !name.trim().is_empty()),
+                    when,
+                    backup.total_bytes,
+                    backup.may_be_inconsistent(),
+                    picked == Some(id.as_str()),
                 )
-                .detail(detail)
-                .selected(picked == Some(id.as_str()))
-                .on_click(move |_, _, cx| {
+                .on_press(move |_, _, cx| {
                     let id = id.clone();
                     entity.update(cx, |this, cx| this.pick(Some(id), cx))
                 })
@@ -450,7 +450,6 @@ impl DownloadWorldDialog {
             .collect();
         rows.push(
             ListRow::new("download-world-backup-new", t(M::DownloadWorldBackUpNow))
-                .detail(t(M::DownloadWorldBackUpNowHint))
                 .selected(picked.is_none())
                 .on_click(move |_, _, cx| entity.update(cx, |this, cx| this.pick(None, cx)))
                 .into_any_element(),
@@ -459,7 +458,8 @@ impl DownloadWorldDialog {
             .flex()
             .flex_col()
             .gap_3()
-            .child(note(tr!(M::DownloadWorldIntro, server = self.server_name)))
+            .child(self.server_card())
+            .child(note(t(M::DownloadWorldIntro)))
             .child(label(t(M::DownloadWorldBackups)))
             .child(div().flex().flex_col().children(rows))
             .children(self.error.clone().map(error_line))
@@ -467,12 +467,93 @@ impl DownloadWorldDialog {
     }
 }
 
+impl DownloadWorldDialog {
+    /// The server whose world this downloads, under the title.
+    fn server_card(&self) -> ObjectCard {
+        super::facts::server_card(&self.server_name)
+            .id("download-world-server")
+            .fact(super::facts::host_fact(&self.core_name))
+    }
+}
+
+/// A backup to pick: its name (or "Untitled backup", muted), then when it was made and
+/// its size, with a badge when it was taken while the server ran.
+fn backup_row(
+    id: SharedString,
+    name: Option<&str>,
+    when: String,
+    bytes: u64,
+    mid_write: bool,
+    selected: bool,
+) -> gpui::Stateful<gpui::Div> {
+    let label: SharedString = name
+        .map(|name| sanitize(name, 120))
+        .unwrap_or_else(|| t(ValueMsg::UntitledBackup).to_string())
+        .into();
+    let line = FactLine::row(SharedString::from(format!("{id}-facts")))
+        .fact(Fact::icon(
+            Icon::Clock,
+            t(FactMsg::Made),
+            FactValue::time(when),
+        ))
+        .fact(Fact::bare_named(t(FactMsg::Size), Num::bytes(bytes)));
+    div()
+        .id(id.clone())
+        .accessible(Role::ListItem, id, label.clone())
+        .aria_selected(selected)
+        .keyboard_focus()
+        .flex()
+        .flex_col()
+        .gap_0p5()
+        .w_full()
+        .px_2()
+        .py_1p5()
+        .rounded(radius::MD)
+        .border_1()
+        .border_color(colors::TRANSPARENT)
+        .cursor_pointer()
+        .hover(|style| style.bg(colors::GRAY_700))
+        .when(selected, |this| {
+            this.bg(colors::GRAY_750)
+                .border_color(crate::theme::ink::border())
+        })
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .min_w_0()
+                .child(match name {
+                    Some(_) => object_name(label).into_any_element(),
+                    None => div()
+                        .min_w_0()
+                        .truncate()
+                        .text_color(crate::theme::ink::muted())
+                        .child(label)
+                        .into_any_element(),
+                })
+                .when(mid_write, |this| {
+                    this.child(
+                        div()
+                            .id("mid-write")
+                            .tooltip(crate::components::text_tooltip(t(M::DownloadWorldMidWrite)))
+                            .child(
+                                StatusBadge::new(t(M::TakenWhileRunning), Tone::Warning)
+                                    .icon(Icon::TriangleExclamation),
+                            ),
+                    )
+                }),
+        )
+        .child(line)
+}
+
 impl Render for DownloadWorldDialog {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let entity = cx.entity();
         let dialog = Dialog::new(
             "download-world",
-            tr!(M::DownloadWorldTitle, server = self.server_name),
+            t(M::DownloadWorldTitle),
             self.focus.clone(),
         )
         .width(layout::dialog_width() + px(80.))
@@ -486,7 +567,8 @@ impl Render for DownloadWorldDialog {
                         .flex()
                         .flex_col()
                         .gap_3()
-                        .child(note(tr!(M::DownloadWorldIntro, server = self.server_name)))
+                        .child(self.server_card())
+                        .child(note(t(M::DownloadWorldIntro)))
                         .when(self.owner_key.is_none(), |this| {
                             this.child(note(t(M::DownloadWorldSignIn)))
                                 .child(self.username.clone())
@@ -532,17 +614,27 @@ impl Render for DownloadWorldDialog {
             }
             Step::Downloading { progress, .. } => {
                 let snapshot = progress.bytes.snapshot();
+                let downloading = progress.stage() == DownloadStage::Downloading;
                 let text = match progress.stage() {
-                    DownloadStage::BackingUp => t(M::DownloadWorldBackingUp).to_string(),
-                    DownloadStage::Preparing => t(M::DownloadWorldPreparing).to_string(),
-                    DownloadStage::Downloading => tr!(
-                        M::DownloadWorldDownloading,
-                        done = format::bytes(snapshot.bytes_done),
-                        total = format::bytes(snapshot.bytes_total)
-                    ),
+                    DownloadStage::BackingUp => t(M::DownloadWorldBackingUp),
+                    DownloadStage::Preparing => t(M::DownloadWorldPreparing),
+                    DownloadStage::Downloading => t(M::DownloadWorldDownloading),
                 };
                 let fraction = (snapshot.bytes_total > 0)
                     .then(|| snapshot.bytes_done as f32 / snapshot.bytes_total as f32);
+                // what came, in a box that doesn't resize as the numbers grow, and
+                // the share of it
+                let came = fraction.filter(|_| downloading).map(|fraction| {
+                    FactLine::row("download-world-came")
+                        .fact(Fact::bare(format::percent(
+                            (fraction * 100.0).round().clamp(0.0, 100.0) as u64,
+                        )))
+                        .fact(Fact::new(
+                            t(M::Downloaded),
+                            Num::fraction_bytes(snapshot.bytes_done, snapshot.bytes_total)
+                                .min_w(px(96.)),
+                        ))
+                });
                 dialog
                     .child(
                         div()
@@ -558,7 +650,8 @@ impl Render for DownloadWorldDialog {
                                     .child(LoadingDots)
                                     .child(note(text)),
                             )
-                            .children(fraction.map(progress_bar)),
+                            .children(fraction.map(progress_bar))
+                            .children(came),
                     )
                     .footer(cancel)
                     .into_any_element()
@@ -673,10 +766,7 @@ impl Servers {
                         picked: if refused { None } else { Some("b2".into()) },
                     };
                     if refused {
-                        d.error = Some(
-                            download_error(&WorldDownloadError::BackupForbidden, &d.core_name)
-                                .into(),
-                        );
+                        d.error = Some(download_error(&WorldDownloadError::BackupForbidden).into());
                         d.after_backup_refused();
                     }
                 }

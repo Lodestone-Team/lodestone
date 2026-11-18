@@ -307,16 +307,23 @@ pub(super) fn idle(control: &Control, instance: &Instance, cx: &App) -> Result<(
     no_snapshot_job(control, instance)
 }
 
-/// Refuses while a job of this API works on the instance's snapshots.
+/// Refuses while a job of this API works on the instance's snapshots or world backups:
+/// each holds the instance's record lock, and a restore of one changes what the other
+/// reads.
 fn no_snapshot_job(control: &Control, instance: &Instance) -> Result<(), ErrorObject> {
-    if let Some(job) = control.jobs.borrow().running_for("snapshots", &instance.id) {
-        return Err(api_error(
-            codes::BUSY,
-            format!(
-                "Job {job} is working on {}'s snapshots; wait for it.",
-                instance.name
-            ),
-        ));
+    for (kind, what) in [
+        ("snapshots", "snapshots"),
+        ("world_backups", "world backups"),
+    ] {
+        if let Some(job) = control.jobs.borrow().running_for(kind, &instance.id) {
+            return Err(api_error(
+                codes::BUSY,
+                format!(
+                    "Job {job} is working on {}'s {what}; wait for it.",
+                    instance.name
+                ),
+            ));
+        }
     }
     Ok(())
 }
@@ -369,9 +376,6 @@ pub fn list(call: Call, cx: &mut App) -> Reply {
 struct CreateParams {
     #[serde(default)]
     name: Option<String>,
-    /// A full image: mods and configs too, not only what the content image links.
-    #[serde(default)]
-    everything: bool,
 }
 
 /// `snapshots.create`: takes a snapshot.
@@ -398,7 +402,6 @@ pub fn create(call: Call, cx: &mut App) -> Reply {
                     Take {
                         kind: SnapshotKind::Manual,
                         name: params.name,
-                        full: params.everything,
                         progress,
                         cancel: &|| cancel.is_cancelled(),
                     },

@@ -25,7 +25,6 @@ import { useT } from 'i18n';
 
 export type FormPage = {
   name: string;
-  description: string;
   page: SetupManifest;
 };
 
@@ -62,7 +61,6 @@ export default function InstanceCreateForm({
   const formPages = useMemo<FormPage[]>(() => {
     const basicPage: FormPage = {
       name: t('create.step.basicSettings'),
-      description: t('create.basicSettings.description'),
       page: { setting_sections: { section_1: basicSettingsPage() } },
     };
     if (!setupManifest) return [basicPage];
@@ -71,12 +69,10 @@ export default function InstanceCreateForm({
       basicPage,
       {
         name: t('create.step.serverSettings'),
-        description: t('create.serverSettings.description'),
         page: setupManifest,
       },
       {
         name: t('create.step.autoSettings'),
-        description: t('create.autoSettings.description'),
         page: { setting_sections: { section_1: autoSettingsPage() } },
       },
     ];
@@ -246,7 +242,6 @@ export default function InstanceCreateForm({
               ) : (
                 <FormFromManifest
                   name={formPages[activeStep - 1].name}
-                  description={formPages[activeStep - 1].description}
                   manifest={formPages[activeStep - 1].page}
                 >
                   {status && (

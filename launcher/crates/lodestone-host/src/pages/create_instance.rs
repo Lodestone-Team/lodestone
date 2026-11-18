@@ -582,47 +582,35 @@ fn basic_settings() -> Vec<launcher_core::cores::admin::instances::SettingManife
     use launcher_core::cores::admin::instances::{
         ConfigurableValue, ConfigurableValueType, SettingManifest,
     };
-    let text_setting =
-        |id: &str, name: M, description: M, default: String, required: bool| SettingManifest {
-            setting_id: id.into(),
-            name: t(name).into(),
-            description: t(description).into(),
-            value: Some(ConfigurableValue::String(String::new())),
-            value_type: ConfigurableValueType::String { regex: None },
-            default_value: Some(ConfigurableValue::String(default)),
-            is_secret: false,
-            is_required: required,
-            is_mutable: true,
-        };
+    let text_setting = |id: &str, name: M, default: String, required: bool| SettingManifest {
+        setting_id: id.into(),
+        name: t(name).into(),
+        description: String::new(),
+        value: Some(ConfigurableValue::String(String::new())),
+        value_type: ConfigurableValueType::String { regex: None },
+        default_value: Some(ConfigurableValue::String(default)),
+        is_secret: false,
+        is_required: required,
+        is_mutable: true,
+    };
     vec![
-        text_setting(
-            "name",
-            M::FieldName,
-            M::FieldNameDescription,
-            t(M::FieldNameDefault).into(),
-            true,
-        ),
-        text_setting(
-            "description",
-            M::FieldDescription,
-            M::FieldDescriptionDescription,
-            String::new(),
-            false,
-        ),
+        text_setting("name", M::FieldName, t(M::FieldNameDefault).into(), true),
+        text_setting("description", M::FieldDescription, String::new(), false),
     ]
 }
 
-/// A game's line on its card (`game_to_description`).
-fn game_description(game: &HandlerGameType) -> &'static str {
-    t(match game {
-        HandlerGameType::MinecraftJavaVanilla => M::GameVanillaDescription,
+/// A game's line on its card, if it needs one (`game_to_description`).
+fn game_description(game: &HandlerGameType) -> Option<&'static str> {
+    let message = match game {
+        HandlerGameType::MinecraftJavaVanilla => return None,
         HandlerGameType::MinecraftFabric => M::GameFabricDescription,
         HandlerGameType::MinecraftForge => M::GameForgeDescription,
         HandlerGameType::MinecraftNeoForge => M::GameNeoForgeDescription,
         HandlerGameType::MinecraftPaper => M::GamePaperDescription,
         HandlerGameType::MinecraftBedrock => M::GameBedrockDescription,
         HandlerGameType::Unknown => M::GameGenericDescription,
-    })
+    };
+    Some(t(message))
 }
 
 /// A card to pick a game, or the modpack flow (`SelectGameCard.tsx`).
@@ -630,7 +618,7 @@ fn game_card(
     id: impl Into<SharedString>,
     game: &launcher_core::cores::admin::models::Game,
     title: SharedString,
-    description: &'static str,
+    description: Option<&'static str>,
     badge: Option<&'static str>,
     selected: bool,
     cx: &mut gpui::App,
@@ -683,13 +671,15 @@ fn game_card(
                     )
                 }),
         )
-        .child(
-            div()
-                .text_size(text::MEDIUM)
-                .italic()
-                .text_color(ink::muted())
-                .child(description),
-        )
+        .when_some(description, |this, description| {
+            this.child(
+                div()
+                    .text_size(text::MEDIUM)
+                    .italic()
+                    .text_color(ink::muted())
+                    .child(description),
+            )
+        })
 }
 
 fn loading_line(label: &'static str) -> AnyElement {
@@ -715,14 +705,14 @@ fn error_line(text_: String) -> AnyElement {
 
 impl CreateInstance {
     fn render_games(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        let mut body = vec![wizard::title(t(M::GameTypeTitle), t(M::GameTypeSubtitle))];
+        let mut body = vec![wizard::title(t(M::GameTypeTitle), None)];
         let modpack_game = HandlerGameType::MinecraftFabric.game();
         body.push(
             game_card(
                 "game-modpack",
                 &modpack_game,
                 t(M::GameTypeModpack).into(),
-                t(M::GameTypeModpackDescription),
+                Some(t(M::GameTypeModpackDescription)),
                 Some(t(M::GameTypeNew)),
                 false,
                 cx,
@@ -735,7 +725,7 @@ impl CreateInstance {
                 "game-import",
                 &HandlerGameType::MinecraftJavaVanilla.game(),
                 t(M::GameTypeImport).into(),
-                t(M::GameTypeImportDescription),
+                Some(t(M::GameTypeImportDescription)),
                 Some(t(M::GameTypeNew)),
                 false,
                 cx,
@@ -748,7 +738,7 @@ impl CreateInstance {
                 "game-image",
                 &HandlerGameType::MinecraftJavaVanilla.game(),
                 t(M::GameTypeImage).into(),
-                t(M::GameTypeImageDescription),
+                Some(t(M::GameTypeImageDescription)),
                 Some(t(M::GameTypeNew)),
                 false,
                 cx,
@@ -810,12 +800,12 @@ impl CreateInstance {
     }
 
     fn render_fields(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        let (title, description) = match self.step {
-            BASIC => (t(M::StepBasicSettings), t(M::BasicSettingsDescription)),
-            SERVER => (t(M::StepServerSettings), t(M::ServerSettingsDescription)),
-            _ => (t(M::StepAutoSettings), t(M::AutoSettingsDescription)),
+        let title = match self.step {
+            BASIC => t(M::StepBasicSettings),
+            SERVER => t(M::StepServerSettings),
+            _ => t(M::StepAutoSettings),
         };
-        let mut body = vec![wizard::title(title, description)];
+        let mut body = vec![wizard::title(title, None)];
         match self.step {
             BASIC => {
                 let rows = (0..self.basic.len())
@@ -873,7 +863,7 @@ impl CreateInstance {
                 body.push(fields::section(vec![
                     fields::row(
                         t(M::FieldAutoStart),
-                        t(M::FieldAutoStartDescription),
+                        Some(t(M::FieldAutoStartDescription).into()),
                         false,
                         toggle("auto-start", self.auto_start, M::FieldAutoStart)
                             .on_change(cx.listener(|this, value: &bool, _, cx| {
@@ -885,7 +875,7 @@ impl CreateInstance {
                     ),
                     fields::row(
                         t(M::FieldRestartOnCrash),
-                        t(M::FieldRestartOnCrashDescription),
+                        None,
                         false,
                         toggle(
                             "restart-on-crash",

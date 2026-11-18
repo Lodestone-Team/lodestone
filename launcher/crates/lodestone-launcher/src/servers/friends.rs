@@ -332,16 +332,21 @@ impl Friends {
     }
 }
 
-/// What to say when the saved port `saved` was taken, so this session is at `address`.
-pub fn port_taken_text(saved: u16, address: &str) -> (String, String) {
+/// What to say when the saved port was taken: the title and the text, with the
+/// address of this session and the usual port as values apart ([`port_taken_values`]).
+pub fn port_taken_text() -> (String, String) {
     (
-        tr!(M::FriendPortTaken, port = saved.to_string()),
-        tr!(
-            M::FriendPortTakenBody,
-            address = address,
-            port = saved.to_string()
-        ),
+        t(M::FriendPortTaken).into(),
+        t(M::FriendPortTakenBody).into(),
     )
+}
+
+/// The address to use this time, then the usual port, with their keys.
+pub fn port_taken_values(saved: u16, address: &str) -> [(String, String); 2] {
+    [
+        (t(M::AddressNow).into(), address.to_string()),
+        (t(M::UsualPort).into(), saved.to_string()),
+    ]
 }
 
 fn now() -> i64 {
@@ -382,10 +387,10 @@ pub fn join_error_text(error: &JoinError) -> (String, String) {
 /// How this computer reaches the host, in a few words.
 pub fn connection_label(kind: ConnectionKind) -> &'static str {
     t(match kind {
-        ConnectionKind::SameComputer => M::ViaSameComputer,
-        ConnectionKind::LocalNetwork => M::ViaLocalNetwork,
-        ConnectionKind::Ipv6 => M::ViaIpv6,
-        ConnectionKind::Internet => M::ViaInternet,
+        ConnectionKind::SameComputer => M::ConnectionSameComputer,
+        ConnectionKind::LocalNetwork => M::ConnectionLocalNetwork,
+        ConnectionKind::Ipv6 => M::ConnectionIpv6,
+        ConnectionKind::Internet => M::ConnectionInternet,
     })
 }
 
@@ -599,7 +604,7 @@ impl Servers {
         let mut file = FriendsFile {
             friends: self.friends.list.iter().map(|f| f.saved.clone()).collect(),
         };
-        let (index, new) = file.add(&invite, now());
+        let (index, new) = file.add(&invite, now(), &self.host_magic_ports());
         let saved = file.friends[index].clone();
         let id = saved.id.clone();
         if new {
@@ -630,14 +635,17 @@ impl Servers {
         if !new {
             // saved before: say so, rather than seeming to do nothing
             let name = file.friends[index].name.clone();
-            self.notice = Some(Notice::info(move || {
-                let title = if name.is_empty() {
-                    t(M::AlreadyAddedTitle).to_string()
-                } else {
-                    tr!(M::AlreadyAddedNamed, name = name)
-                };
-                (title, t(M::AlreadyAddedBody).to_string())
-            }));
+            let notice = Notice::info(|| {
+                (
+                    t(M::AlreadyAddedTitle).to_string(),
+                    t(M::AlreadyAddedBody).to_string(),
+                )
+            });
+            self.notice = Some(if name.is_empty() {
+                notice
+            } else {
+                notice.object(name, crate::components::Kind::Server)
+            });
         }
         // its row: in "Other hosts and servers", or, for a server on a core here,
         // under that core or as the core's own row of it
@@ -782,7 +790,7 @@ impl Servers {
         let file = FriendsFile {
             friends: self.friends.list.iter().map(|f| f.saved.clone()).collect(),
         };
-        let game_port = file.game_port(&id);
+        let game_port = file.game_port(&id, &self.host_magic_ports());
         let opening = self.open_source(&source, game_port.clone(), progress, cx);
         self.friends.connecting = Some(cx.spawn(async move |this, cx| {
             let result = opening.await;
@@ -942,15 +950,14 @@ impl Servers {
                 cx,
             );
         } else if session.playing.is_some() {
-            self.fail(
-                move || {
-                    (
-                        tr!(M::FriendTunnelEnded, name = name),
-                        t(M::FriendTunnelEndedBody).into(),
-                    )
-                },
-                cx,
-            );
+            let notice = Notice::new(|| {
+                (
+                    t(M::FriendTunnelEnded).into(),
+                    t(M::FriendTunnelEndedBody).into(),
+                )
+            })
+            .object(name, crate::components::Kind::Server);
+            self.fail_with(notice, cx);
         }
         cx.notify();
     }
@@ -1038,15 +1045,9 @@ impl Servers {
         if let Some(instance) = found.instance_id()
             && self.instances.read(cx).is_active(instance)
         {
-            let name = server.name.clone();
             return self.friend_failed(
                 &id,
-                move || {
-                    (
-                        tr!(M::JoinFailed, name = name),
-                        t(M::FriendInstanceBusy).into(),
-                    )
-                },
+                || (t(M::JoinFailed).into(), t(M::FriendInstanceBusy).into()),
                 cx,
             );
         }
@@ -1208,7 +1209,19 @@ impl Servers {
         // the dialog said so; it closes as the game starts, so the page says it too
         if let Some(saved) = session.port_taken {
             let address = session.address.clone();
-            self.notice = Some(Notice::info(move || port_taken_text(saved, &address)));
+            self.notice = Some(
+                Notice::info(port_taken_text)
+                    .value(
+                        || t(M::AddressNow).into(),
+                        address,
+                        crate::components::ValueKind::Code,
+                    )
+                    .value(
+                        || t(M::UsualPort).into(),
+                        saved.to_string(),
+                        crate::components::ValueKind::Code,
+                    ),
+            );
         }
         let linked = self
             .instance_links

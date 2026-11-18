@@ -29,6 +29,7 @@ mod friends;
 mod import;
 mod instances;
 mod jobs;
+mod logs;
 mod perf;
 mod servers;
 mod settings;
@@ -36,6 +37,7 @@ mod skins;
 mod snapshots;
 mod storage;
 mod trace;
+mod world_backups;
 mod worlds;
 
 use std::{
@@ -518,7 +520,7 @@ pub const METHODS: &[Method] = &[
     ),
     method(
         "snapshots.create",
-        "Takes a snapshot of an instance: its worlds and other files linked to its mods (name; everything: true for mods and configs too).",
+        "Takes a snapshot of an instance: the whole instance folder, its worlds and other files linked to its mods and configs (name).",
         snapshots::create,
     ),
     destructive(
@@ -554,19 +556,35 @@ pub const METHODS: &[Method] = &[
     // worlds
     method("worlds.list", "An instance's worlds.", worlds::list),
     method(
-        "worlds.backups",
+        "worlds.snapshots",
         "The snapshots that hold a world.",
-        worlds::backups,
+        worlds::snapshots,
+    ),
+    destructive(
+        "worlds.restore_snapshot",
+        "Restores a world from a snapshot that holds it (snapshot: id, name or latest) as a new world beside it (mode: new, the default), or in its place after a safety snapshot (mode: replace, needs confirm).",
+        worlds::restore_snapshot,
+    ),
+    // world backups
+    method(
+        "world_backups.list",
+        "An instance's world backups (zips of one world each), newest first (world: only that world's, also one no longer in the instance); deleted: true lists deleted instances' world backups.",
+        world_backups::list,
     ),
     method(
-        "worlds.backup",
-        "Backs up a world: a snapshot named after it.",
-        worlds::backup,
+        "world_backups.create",
+        "Backs up a world as a zip (world: its folder or name; name). A job; jobs.cancel stops it.",
+        world_backups::create,
     ),
-    method(
-        "worlds.restore",
-        "Restores a world from a snapshot (snapshot: id, name or latest) as a copy, or in its place after a safety snapshot (mode: replace).",
-        worlds::restore,
+    destructive(
+        "world_backups.restore",
+        "Restores a world backup (backup: id, name, or latest with world): mode new (the default) as a new world beside it, mode replace in place after a safety world backup (needs confirm). A job; jobs.cancel stops it.",
+        world_backups::restore,
+    ),
+    destructive(
+        "world_backups.delete",
+        "Moves a world backup's zip to the Trash (backup: id, name, or latest with world).",
+        world_backups::delete,
     ),
     destructive(
         "worlds.delete",
@@ -888,6 +906,17 @@ pub const METHODS: &[Method] = &[
         "trace.snapshot",
         "What the window shows now (page, tab, instance, dialog, size, zoom), games and running jobs.",
         trace::snapshot,
+    ),
+    // the log file
+    method(
+        "logs.path",
+        "Where the launcher's log files are, with their sizes; the crash file; whether LODESTONE_LOG sets the level.",
+        logs::path,
+    ),
+    method(
+        "logs.tail",
+        "The last `lines` (200; at most 2000) lines of the log, only `level` (error, warn, info, debug) and worse when given.",
+        logs::tail,
     ),
     // perf
     method(
@@ -1506,8 +1535,8 @@ pub fn apply(cx: &mut App) {
             match served {
                 Ok(handle) => service.handle = Some(handle),
                 Err(err) => {
-                    eprintln!(
-                        "lodestone-launcher: no control socket, so lodestone-launcher-cli can't reach this launcher: {err}"
+                    log::warn!(
+                        "no control socket, so lodestone-launcher-cli can't reach this launcher: {err}"
                     );
                     error = Some(err);
                 }
@@ -1607,7 +1636,8 @@ pub fn disconnect(connection: u64, cx: &mut App) {
 
 /// Why `method` is refused under `cli`, if it is: a method that changes something
 /// while access is read-only, a trace method while traces are off, or game output
-/// while game logs are off.
+/// while game logs are off. `logs.*` needs only command-line access: its lines are
+/// scrubbed, and the same user can read the files anyway.
 pub fn refusal(method: &str, cli: &CliSettings) -> Option<ErrorObject> {
     if method.starts_with("trace.") && !cli.traces {
         return Some(api_error(
@@ -1677,7 +1707,8 @@ pub const READ_METHODS: &[&str] = &[
     "modpacks.added",
     "snapshots.list",
     "worlds.list",
-    "worlds.backups",
+    "worlds.snapshots",
+    "world_backups.list",
     "worlds.datapacks",
     "worlds.datapack_search",
     "accounts.list",
@@ -1697,6 +1728,8 @@ pub const READ_METHODS: &[&str] = &[
     "trace.subscribe",
     "trace.unsubscribe",
     "trace.snapshot",
+    "logs.path",
+    "logs.tail",
     "perf.show",
     "perf.watch",
 ];
@@ -1811,6 +1844,9 @@ mod tests {
             "shared.clear",
             "snapshots.restore",
             "snapshots.delete",
+            "world_backups.delete",
+            "world_backups.restore",
+            "worlds.restore_snapshot",
             // only the user can say they compared safety codes
             "friend_list.verify",
             "friend_list.answer_link",
@@ -1875,8 +1911,10 @@ mod tests {
         "snapshots.delete",
         "snapshots.pin",
         "snapshots.policy",
-        "worlds.backup",
-        "worlds.restore",
+        "worlds.restore_snapshot",
+        "world_backups.create",
+        "world_backups.restore",
+        "world_backups.delete",
         "worlds.delete",
         "worlds.datapack_add",
         "worlds.datapack_install",
@@ -1983,6 +2021,9 @@ mod tests {
         };
         for name in ["trace.topics", "trace.subscribe", "trace.snapshot"] {
             assert_eq!(refusal(name, &off).unwrap().code, codes::PERMISSION_DENIED);
+        }
+        for name in ["logs.path", "logs.tail"] {
+            assert!(refusal(name, &off).is_none(), "{name}");
         }
         assert_eq!(
             refusal("play.logs", &off).unwrap().code,

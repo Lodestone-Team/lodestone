@@ -30,6 +30,8 @@ pub enum Plan {
     Trace { params: Value, count: Option<usize> },
     /// Performance readings as JSON lines.
     PerfWatch { count: Option<usize> },
+    /// The launcher's logs folder, read without the launcher.
+    LogsPath,
 }
 
 #[derive(Debug, PartialEq, Default)]
@@ -648,17 +650,16 @@ pub fn plan(
         },
         Command::Worlds(c) => match c {
             Worlds::List(i) => call("worlds.list", vec![("instance", json!(i.instance))]),
-            Worlds::Backups(w) => call("worlds.backups", world(w)),
-            Worlds::Backup(w) => long("worlds.backup", world(w)),
-            Worlds::Restore {
+            Worlds::Snapshots(w) => call("worlds.snapshots", world(w)),
+            Worlds::RestoreSnapshot {
                 world: w,
                 snapshot,
-                replace,
+                mode,
             } => {
                 let mut pairs = world(w);
                 pairs.push(("snapshot", json!(snapshot)));
-                pairs.push(("mode", json!(if *replace { "replace" } else { "copy" })));
-                long("worlds.restore", pairs)
+                pairs.push(("mode", json!(mode)));
+                long("worlds.restore_snapshot", pairs)
             }
             Worlds::Delete(w) => call("worlds.delete", world(w)),
             Worlds::Datapacks(w) => call("worlds.datapacks", world(w)),
@@ -1032,6 +1033,53 @@ pub fn plan(
                 vec![("path", json!(absolute(path)?)), ("id", json!(id))],
             ),
         },
+        Command::WorldBackups(c) => match c {
+            WorldBackups::List {
+                instance,
+                world,
+                deleted,
+            } => {
+                if *deleted {
+                    call("world_backups.list", vec![("deleted", json!(true))])
+                } else {
+                    call(
+                        "world_backups.list",
+                        vec![("instance", json!(instance)), ("world", json!(world))],
+                    )
+                }
+            }
+            WorldBackups::Create { world: w, name } => {
+                let mut pairs = world(w);
+                pairs.push(("name", json!(name)));
+                long("world_backups.create", pairs)
+            }
+            WorldBackups::Restore {
+                instance,
+                backup,
+                world,
+                mode,
+            } => long(
+                "world_backups.restore",
+                vec![
+                    ("instance", json!(instance)),
+                    ("backup", json!(backup)),
+                    ("world", json!(world)),
+                    ("mode", json!(mode)),
+                ],
+            ),
+            WorldBackups::Delete {
+                instance,
+                backup,
+                world,
+            } => call(
+                "world_backups.delete",
+                vec![
+                    ("instance", json!(instance)),
+                    ("backup", json!(backup)),
+                    ("world", json!(world)),
+                ],
+            ),
+        },
         Command::Snapshots(c) => {
             // "default" goes as it is: back to the Launcher's (a null would be left out).
             let count = |value: &Option<String>| -> Result<Option<Value>, ErrorObject> {
@@ -1052,17 +1100,10 @@ pub fn plan(
                         call("snapshots.list", vec![("instance", json!(instance))])
                     }
                 }
-                Snapshots::Create {
-                    instance,
-                    name,
-                    everything,
-                } => {
-                    let mut pairs = vec![("instance", json!(instance)), ("name", json!(name))];
-                    if *everything {
-                        pairs.push(("everything", json!(true)));
-                    }
-                    long("snapshots.create", pairs)
-                }
+                Snapshots::Create { instance, name } => long(
+                    "snapshots.create",
+                    vec![("instance", json!(instance)), ("name", json!(name))],
+                ),
                 Snapshots::Restore {
                     instance,
                     snapshot,
@@ -1185,6 +1226,13 @@ pub fn plan(
                 ]),
                 count: w.count,
             },
+        },
+        Command::AppLogs(l) => match l {
+            AppLogs::Path => Plan::LogsPath,
+            AppLogs::Tail { lines, level } => call(
+                "logs.tail",
+                vec![("lines", json!(lines)), ("level", json!(level))],
+            ),
         },
         Command::Perf(p) => match p.command {
             None | Some(Perf::Show) => call("perf.show", vec![]),
@@ -1355,17 +1403,10 @@ mod tests {
         let (_, params, _) = call_of(&["play", "launch", "Smp", "--skip-update"]);
         assert_eq!(params["update_mods"], json!(false));
         assert_eq!(
-            call_of(&[
-                "snapshots",
-                "create",
-                "S",
-                "--name",
-                "Before",
-                "--everything"
-            ]),
+            call_of(&["snapshots", "create", "S", "--name", "Before"]),
             (
                 "snapshots.create",
-                json!({ "instance": "S", "name": "Before", "everything": true }),
+                json!({ "instance": "S", "name": "Before" }),
                 true
             )
         );
@@ -1412,10 +1453,105 @@ mod tests {
             call_of(&["snapshots", "list", "--deleted"]).1,
             json!({ "deleted": true })
         );
-        let (_, params, _) = call_of(&["worlds", "restore", "S", "World", "--replace"]);
         assert_eq!(
-            params,
-            json!({ "instance": "S", "world": "World", "snapshot": "latest", "mode": "replace" })
+            call_of(&[
+                "worlds",
+                "restore-snapshot",
+                "S",
+                "World",
+                "--mode",
+                "replace"
+            ]),
+            (
+                "worlds.restore_snapshot",
+                json!({ "instance": "S", "world": "World", "snapshot": "latest", "mode": "replace" }),
+                true
+            )
+        );
+        assert_eq!(
+            call_of(&["worlds", "snapshots", "S", "World"]),
+            (
+                "worlds.snapshots",
+                json!({ "instance": "S", "world": "World" }),
+                false
+            )
+        );
+        for gone in [
+            ["worlds", "backup"],
+            ["worlds", "backups"],
+            ["worlds", "restore"],
+        ] {
+            let argv = ["lodestone-launcher-cli", gone[0], gone[1], "S", "World"];
+            assert!(Cli::try_parse_from(argv).is_err(), "{gone:?}");
+        }
+        assert_eq!(
+            call_of(&["world-backups", "list", "S", "--world", "World"]),
+            (
+                "world_backups.list",
+                json!({ "instance": "S", "world": "World" }),
+                false
+            )
+        );
+        assert_eq!(
+            call_of(&["world-backups", "list", "--deleted"]).1,
+            json!({ "deleted": true })
+        );
+        assert_eq!(
+            call_of(&["world-backups", "create", "S", "World", "--name", "Before"]),
+            (
+                "world_backups.create",
+                json!({ "instance": "S", "world": "World", "name": "Before" }),
+                true
+            )
+        );
+        assert_eq!(
+            call_of(&[
+                "world-backups",
+                "restore",
+                "S",
+                "latest",
+                "--world",
+                "World",
+                "--mode",
+                "replace"
+            ])
+            .1,
+            json!({ "instance": "S", "backup": "latest", "world": "World", "mode": "replace" })
+        );
+        // Both restores spell their modes alike, and default to the one that replaces
+        // nothing.
+        assert_eq!(
+            call_of(&["world-backups", "restore", "S", "Before"]).1,
+            json!({ "instance": "S", "backup": "Before", "mode": "new" })
+        );
+        assert_eq!(
+            call_of(&["worlds", "restore-snapshot", "S", "World"]).1["mode"],
+            "new"
+        );
+        for argv in [
+            ["world-backups", "restore", "S", "Before", "--mode", "copy"],
+            ["worlds", "restore-snapshot", "S", "World", "--mode", "copy"],
+        ] {
+            let argv: Vec<&str> = std::iter::once("lodestone-launcher-cli")
+                .chain(argv)
+                .collect();
+            assert!(Cli::try_parse_from(argv).is_err());
+        }
+        assert_eq!(
+            call_of(&["world-backups", "delete", "S", "Before"]),
+            (
+                "world_backups.delete",
+                json!({ "instance": "S", "backup": "Before" }),
+                false
+            )
+        );
+        assert_eq!(
+            call_of(&["world-backups", "delete", "S", "latest", "--world", "World"]).1,
+            json!({ "instance": "S", "backup": "latest", "world": "World" })
+        );
+        assert_eq!(
+            call_of(&["storage", "clean", "deleted-world-backups"]).1,
+            json!({ "what": "deleted-world-backups" })
         );
         let (_, params, _) = call_of(&[
             "shared",
@@ -1769,6 +1905,15 @@ mod tests {
             }
         );
         assert_eq!(call_of(&["trace", "snapshot"]).0, "trace.snapshot");
+        assert_eq!(plan_of(&["logs", "path"]).unwrap(), Plan::LogsPath);
+        assert_eq!(
+            call_of(&["logs", "tail", "-n", "50", "--level", "warn"]),
+            ("logs.tail", json!({ "lines": 50, "level": "warn" }), false)
+        );
+        assert_eq!(
+            call_of(&["logs", "tail"]),
+            ("logs.tail", json!({ "lines": 200 }), false)
+        );
         assert_eq!(call_of(&["trace", "topics"]).0, "trace.topics");
         assert!(
             Cli::try_parse_from([
@@ -1815,5 +1960,74 @@ mod tests {
             crate::run::mode(&quiet.global, true),
             crate::output::Mode::Human
         );
+    }
+
+    /// The words of a shell line as `sh` would split them (quotes, no expansion).
+    fn shell_words(line: &str) -> Vec<String> {
+        let mut words = Vec::new();
+        let mut word = String::new();
+        let (mut quote, mut in_word) = (None, false);
+        for c in line.chars() {
+            match (quote, c) {
+                (Some(q), c) if c == q => quote = None,
+                (Some(_), c) => word.push(c),
+                (None, '"' | '\'') => {
+                    quote = Some(c);
+                    in_word = true;
+                }
+                (None, c) if c.is_whitespace() => {
+                    if in_word {
+                        words.push(std::mem::take(&mut word));
+                        in_word = false;
+                    }
+                }
+                (None, c) => {
+                    word.push(c);
+                    in_word = true;
+                }
+            }
+        }
+        if in_word {
+            words.push(word);
+        }
+        words
+    }
+
+    /// Every command SKILL.md shows parses, so an agent following a recipe never meets a
+    /// command that was renamed or removed.
+    #[test]
+    fn every_command_in_the_skill_parses() {
+        let skill = include_str!("../SKILL.md");
+        let mut checked = 0;
+        let mut in_block = false;
+        for line in skill.lines() {
+            if line.starts_with("```") {
+                in_block = !in_block;
+                continue;
+            }
+            if !in_block {
+                continue;
+            }
+            // Each command of the line, before a comment: `a && b`, `x | a`, `a; b`.
+            let line = line.split(" #").next().unwrap_or(line);
+            let mut commands = vec![line];
+            for separator in [" && ", " || ", "; ", " | "] {
+                commands = commands.iter().flat_map(|c| c.split(separator)).collect();
+            }
+            for command in commands.iter().map(|c| c.trim()) {
+                if !command.starts_with("lodestone-launcher-cli ") {
+                    continue;
+                }
+                let words = shell_words(command);
+                if words.iter().any(|w| w.contains('<') || w.contains('$')) {
+                    continue;
+                }
+                if let Err(err) = Cli::try_parse_from(&words) {
+                    panic!("SKILL.md: {command}\n{err}");
+                }
+                checked += 1;
+            }
+        }
+        assert!(checked > 100, "{checked}");
     }
 }

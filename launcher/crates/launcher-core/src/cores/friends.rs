@@ -18,9 +18,12 @@
 //! the friend's key ([`FriendServer::friend_key`]) and the core's fingerprint, which
 //! its mod trust is tied to; nothing about it goes to the Keychain.
 //!
-//! Each server keeps its own game port ([`FriendServer::game_port`]), picked on the
-//! first join from its id, so Minecraft finds it at the same `127.0.0.1:<port>` every
-//! session ([`FriendsFile::game_port`]).
+//! Each server keeps its own game port ([`FriendServer::game_port`]), its Magic
+//! localhost, so Minecraft finds it at the same `127.0.0.1:<port>` every session. It is
+//! picked from the server's id ([`port_choices`]) when the server is added from a link
+//! ([`FriendsFile::add`]), or else on its first join ([`FriendsFile::game_port`]), away
+//! from other friends' ports and from the ports the Lodestone Host page's servers saved
+//! (`also_taken`: each `SavedCore::magic_ports` in `servers.json`).
 
 use std::{
     ops::RangeInclusive,
@@ -140,7 +143,9 @@ pub struct FriendServer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trusted_pack: Option<String>,
     /// The local game port Minecraft joins this server on (`127.0.0.1:<port>`), the
-    /// same every session. Picked on the first join ([`port_choices`]).
+    /// same every session: its Magic localhost. Picked ([`port_choices`]) when it is
+    /// added from a link, or else on its first join, away from other friends' ports and
+    /// the Lodestone Host page's servers' ports.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub game_port: Option<u16>,
     /// The entries the launcher added to instances' Minecraft server lists for it
@@ -575,12 +580,18 @@ impl FriendsFile {
     }
 
     /// Adds a server from `invite` without joining it, unless it is saved already.
-    /// Returns its index, and whether it is new.
-    pub fn add(&mut self, invite: &Invite, now: i64) -> (usize, bool) {
+    /// Returns its index, and whether it is new. A new one gets its game port at once,
+    /// away from every saved one and from `also_taken` (the Lodestone Host page's Magic
+    /// localhost ports), so its row shows its address before the first join.
+    pub fn add(&mut self, invite: &Invite, now: i64, also_taken: &[u16]) -> (usize, bool) {
         match position_of(&self.friends, invite) {
             Some(index) => (index, false),
             None => {
-                self.friends.push(FriendServer::added(invite, now));
+                let mut entry = FriendServer::added(invite, now);
+                let mut taken = self.taken_ports();
+                taken.extend_from_slice(also_taken);
+                entry.game_port = port_choices(&entry.id, &taken).first().copied();
+                self.friends.push(entry);
                 (self.friends.len() - 1, true)
             }
         }
@@ -652,18 +663,25 @@ impl FriendsFile {
     }
 
     /// Which game port joining the server `id` asks for: its saved port, or, on its
-    /// first join, ports picked from its id that no other saved server has.
-    pub fn game_port(&self, id: &str) -> GamePort {
+    /// first join, ports picked from its id that no other saved server has, nor
+    /// `also_taken` (the Lodestone Host page's Magic localhost ports).
+    pub fn game_port(&self, id: &str, also_taken: &[u16]) -> GamePort {
         if let Some(port) = self.get(id).and_then(|f| f.game_port) {
             return GamePort::Saved(port);
         }
-        let taken: Vec<u16> = self
+        let mut taken: Vec<u16> = self
             .friends
             .iter()
             .filter(|f| f.id != id)
             .filter_map(|f| f.game_port)
             .collect();
+        taken.extend_from_slice(also_taken);
         GamePort::Choose(port_choices(id, &taken))
+    }
+
+    /// Every saved game port, for the Magic localhost ports to stay away from.
+    pub fn taken_ports(&self) -> Vec<u16> {
+        self.friends.iter().filter_map(|f| f.game_port).collect()
     }
 
     /// Takes the entry out; returns it.
@@ -1131,7 +1149,7 @@ mod tests {
         let first = invite_for("FIRST1", 0xab);
         let id = friend_id(&first);
         // a first join picks a port from the id
-        let wanted = file.game_port(&id);
+        let wanted = file.game_port(&id, &[]);
         let GamePort::Choose(ports) = &wanted else {
             panic!("{wanted:?}");
         };
@@ -1146,7 +1164,7 @@ mod tests {
         save(&path, &file).unwrap();
         let mut file = load(&path).unwrap();
         assert_eq!(file.friends[0].game_port, Some(saved));
-        assert_eq!(file.game_port(&id), GamePort::Saved(saved));
+        assert_eq!(file.game_port(&id, &[]), GamePort::Saved(saved));
 
         // later joins ask for it; when it is busy, that join uses another and it stays
         let entry = &mut file.friends[0];
@@ -1166,10 +1184,10 @@ mod tests {
         let mut other = shared("vanilla", None, false);
         other.instance_uuid = "other".into();
         let index = file.upsert(&second, &other, 2);
-        let wanted = file.game_port(&friend_id(&second));
+        let wanted = file.game_port(&friend_id(&second), &[]);
         assert_eq!(file.friends[index].joined_on_port(&wanted, 61000), None);
         assert_eq!(file.friends[index].game_port, None);
-        assert_eq!(file.game_port(&friend_id(&second)), wanted);
+        assert_eq!(file.game_port(&friend_id(&second), &[]), wanted);
 
         // two saved servers never get the same port, even when one's first choice is
         // the other's port
@@ -1180,7 +1198,7 @@ mod tests {
         let clash_first = port_choices(&clash.id, &[])[0];
         file.friends[0].game_port = Some(clash_first);
         file.friends.push(clash);
-        let GamePort::Choose(ports) = file.game_port("connect:x/clash") else {
+        let GamePort::Choose(ports) = file.game_port("connect:x/clash", &[]) else {
             panic!("a first join chooses");
         };
         assert!(!ports.contains(&clash_first));
@@ -1245,7 +1263,7 @@ mod tests {
         let loaded = load(&path).unwrap();
         assert_eq!(loaded.friends[0].game_port, None);
         assert!(matches!(
-            loaded.game_port(&loaded.friends[0].id),
+            loaded.game_port(&loaded.friends[0].id, &[]),
             GamePort::Choose(_)
         ));
         // once saved, the port is one more field, which older launchers ignore
@@ -1505,6 +1523,39 @@ mod tests {
     }
 
     #[test]
+    fn a_server_under_its_core_here_is_joined_through_the_tunnel() {
+        // A row under a core on this computer ("Shared with friends") is one its card
+        // doesn't list, so Play can never join it directly: it opens a tunnel on the
+        // saved game port, and the row's Magic localhost is that port. Only a server
+        // the card lists (shown in the core's own row) is joined at its own port.
+        let entry = FriendServer::new(&invite(0xab), &shared("vanilla", None, false), 1);
+        let url = Url::parse("http://127.0.0.1:16662").unwrap();
+        let listed = [core_server("server", Some(25565))];
+        let other = [core_server("another", Some(25570))];
+        let hidden = [core_server("server", None)];
+        let here = |servers, owner| LocalCore {
+            uuid: "core",
+            url: &url,
+            servers,
+            owner,
+        };
+        let lists: [&[ServerInstance]; 4] = [&[], &other, &listed, &hidden];
+        for servers in lists {
+            for owner in [false, true] {
+                let local = [here(servers, owner)];
+                let direct = entry.direct_join(&local);
+                match entry.placement(&local) {
+                    Placement::Local(_) => assert_eq!(direct, None),
+                    Placement::CoreRow(_) if owner && servers == &listed[..] => {
+                        assert_eq!(direct.unwrap().address(), "127.0.0.1:25565")
+                    }
+                    _ => assert_eq!(direct, None),
+                }
+            }
+        }
+    }
+
+    #[test]
     fn a_direct_join_lists_the_servers_own_address() {
         use super::server_list::SERVERS_DAT;
         let dir = tempfile::tempdir().unwrap();
@@ -1528,17 +1579,45 @@ mod tests {
     fn a_server_added_without_joining_learns_its_name_later() {
         let invite = invite(0xab);
         let mut file = FriendsFile::default();
-        let (index, new) = file.add(&invite, 10);
+        let (index, new) = file.add(&invite, 10, &[]);
         assert!(new);
         assert!(file.friends[index].never_answered());
         assert_eq!(file.friends[index].last_joined, None);
         // adding the same link again keeps the one entry
-        assert_eq!(file.add(&invite, 20), (index, false));
+        assert_eq!(file.add(&invite, 20, &[]), (index, false));
         assert_eq!(file.friends.len(), 1);
+        // it has its game port already, so its row shows its address
+        let port = file.friends[index].game_port.unwrap();
+        assert_eq!(port, port_choices(&file.friends[index].id, &[])[0]);
+        assert_eq!(
+            file.game_port(&file.friends[index].id.clone(), &[]),
+            GamePort::Saved(port)
+        );
         file.friends[index].learn(&shared("fabric", Some("0.16.14"), false));
         assert!(!file.friends[index].never_answered());
         assert_eq!(file.friends[index].name, "SMP");
         assert_eq!(file.friends[index].instance_uuid, "server");
         assert_eq!(file.friends[index].last_joined, None);
+    }
+
+    #[test]
+    fn ports_stay_away_from_the_host_pages_magic_localhost_ports() {
+        let invite = invite(0xab);
+        let id = friend_id(&invite);
+        let first = port_choices(&id, &[])[0];
+        let mut file = FriendsFile::default();
+        let GamePort::Choose(ports) = file.game_port(&id, &[first]) else {
+            panic!("a first join chooses");
+        };
+        assert!(!ports.contains(&first));
+        let (index, _) = file.add(&invite, 10, &[first]);
+        let port = file.friends[index].game_port.unwrap();
+        assert_ne!(port, first);
+        assert!(GAME_PORTS.contains(&port));
+        assert_eq!(file.taken_ports(), [port]);
+        // a second server added stays away from the first one's port too
+        let other = invite_for("OTHER3", 0xcd);
+        let (index, _) = file.add(&other, 11, &[]);
+        assert_ne!(file.friends[index].game_port, Some(port));
     }
 }

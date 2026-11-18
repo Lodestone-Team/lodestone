@@ -17,7 +17,7 @@ import {
   SettingsSection,
 } from 'components/Settings/SettingsBlocks';
 import { notifySaved } from 'components/Settings/savedToast';
-import { type I18n, type MessageKey, useI18n, useT } from 'i18n';
+import { type MessageKey, useI18n, useT } from 'i18n';
 
 // the labels are message keys, translated when rendered
 const SCOPE_FLAGS = [
@@ -29,15 +29,39 @@ const SCOPE_FLAGS = [
   labelKey: MessageKey;
 }>;
 
-/** What anyone sees of a listed instance, as a sentence. */
-function shownText({ t, formatList }: I18n, scope: PublicScope) {
+/** What anyone sees of a listed instance: a sentence, then a chip per item. */
+function Shown({
+  scope,
+  hiddenWhileOff,
+}: {
+  scope: PublicScope;
+  hiddenWhileOff: boolean;
+}) {
+  const t = useT();
   const shown = [
     t('server.publicListing.shown.nameVersion'),
     scope.status && t('server.publicListing.shown.status'),
     scope.address && t('server.publicListing.shown.address'),
     scope.client_pack && t('server.publicListing.shown.clientPack'),
   ].filter((item): item is string => !!item);
-  return t('server.publicListing.shownText', { list: formatList(shown) });
+  return (
+    <span className="flex flex-col gap-1">
+      {t('server.publicListing.shownText')}
+      <span className="flex flex-row flex-wrap gap-1.5">
+        {shown.map((item) => (
+          <span
+            key={item}
+            className="rounded-sm border border-line bg-gray-900 px-1.5 text-small text-gray-300"
+          >
+            {item}
+          </span>
+        ))}
+      </span>
+      {hiddenWhileOff && (
+        <span>{t('server.publicListing.hiddenWhileOff')}</span>
+      )}
+    </span>
+  );
 }
 
 /**
@@ -106,17 +130,15 @@ export function PublicScopeRow({
     }
   };
 
-  const description = !canEdit
-    ? t('server.publicListing.ownerOnly')
-    : !switchOn && !scope.listed
-      ? t('server.publicListing.turnOnFirst')
-      : scope.listed
-        ? switchOn
-          ? shownText(i18n, scope)
-          : t('server.publicListing.hiddenWhileOff', {
-              shown: shownText(i18n, scope),
-            })
-        : t('server.publicListing.notShown');
+  const description = !canEdit ? (
+    t('server.publicListing.ownerOnly')
+  ) : !switchOn && !scope.listed ? (
+    t('server.publicListing.turnOnFirst')
+  ) : scope.listed ? (
+    <Shown scope={scope} hiddenWhileOff={!switchOn} />
+  ) : (
+    t('server.publicListing.notShown')
+  );
 
   return (
     <SettingsRow

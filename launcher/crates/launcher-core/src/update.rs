@@ -760,7 +760,15 @@ pub fn install(staged: &Path, exe: &Path) -> Result<(), UpdateError> {
         }
         crate::fsx::rename(exe, &old).map_err(|err| UpdateError::io(exe, err))?;
         if let Err(err) = crate::fsx::rename(staged, exe) {
-            let _ = crate::fsx::rename(&old, exe);
+            if let Err(back) = crate::fsx::rename(&old, exe) {
+                // The program is now only at `old`: say where, for whoever looks.
+                log::error!(
+                    "couldn't put {} back after the update couldn't replace it ({err}): \
+                     {back}; the previous version is at {}",
+                    exe.display(),
+                    old.display()
+                );
+            }
             return Err(UpdateError::io(exe, err));
         }
         Ok(())

@@ -15,16 +15,17 @@ pub fn text(message: M) -> &'static str {
         M::ConnectAsOwner => "Se connecter en tant que propriétaire",
         M::ChooseDataFolder => "Choisir le dossier…",
         M::ChooseDataFolderPrompt => "Choisir",
-        M::ProductHostHint => "l’application de bureau, avec le tableau de bord dans une fenêtre",
-        M::ProductCoreHint => "le programme serveur seul, ou Docker",
-        M::ConnectedAsOwner => "Connecté à {name} en tant que propriétaire",
+        M::ProductHostHint => "Lodestone Host",
+        M::ProductCoreHint => "Lodestone Core",
+        M::ConnectedAsOwner => "Connecté en tant que propriétaire",
         M::ConnectedMadeOwner => {
-            "Il n’avait pas encore de propriétaire\u{202F}: Lodestone Launcher a créé le compte propriétaire {username}."
+            "Il n’avait pas encore de propriétaire\u{202F}: Lodestone Launcher vous a créé un compte propriétaire."
         }
         M::ConnectedOwnerKey => {
             "Ce lanceur a maintenant une clé de propriétaire pour cet hôte. Vous pouvez la révoquer depuis le tableau de bord de l’hôte."
         }
-        M::StartedBy => "Démarré par {who}",
+        M::OwnerAccount => "Compte propriétaire",
+        M::StartedBy => "Démarré par",
         M::StartedDirectly => "Démarré directement",
         M::DirectNote => {
             "Cet hôte a été démarré directement. Il est fait pour être lancé avec lodestone_cli, qui l’installe et le garde à jour."
@@ -55,9 +56,6 @@ pub fn text(message: M) -> &'static str {
         M::AddServer => "Ajouter un hôte",
         M::Dismiss => "Masquer",
         M::OtherCoresTitle => "Autres hôtes et serveurs",
-        M::OtherCoresHint => {
-            "Les hôtes d’autres ordinateurs ajoutés par leur adresse, et les serveurs rejoints avec un lien d’invitation."
-        }
         M::NoOtherCores => "Aucun autre hôte ni serveur pour l’instant",
         M::NoServersHint => {
             "Ajoutez un hôte par son adresse, ou un serveur avec le lien d’invitation qu’on vous a envoyé."
@@ -65,12 +63,13 @@ pub fn text(message: M) -> &'static str {
 
         M::CoreMoreActions => "Plus d’actions pour {name}",
         M::CopyOwnerApiKey => "Copier la clé d’API de propriétaire",
-        M::OwnerKeyCopied => "Clé d’API de propriétaire de {name} copiée",
+        M::OwnerKeyCopied => "Clé d’API de propriétaire copiée",
         M::OwnerKeyCopiedHint => {
             "Gardez-la secrète\u{202F}: toute personne qui l’a peut contrôler cet hôte en tant que propriétaire."
         }
         M::CertificatePinned => "Certificat épinglé",
-        M::SignedInAs => "Connecté en tant que {username}",
+        M::SignedInAs => "Connecté en tant que",
+        M::CopyAddress => "Copier l’adresse",
         M::SignedIn => "Connecté",
         M::NotSignedIn => "Non connecté\u{a0}: serveurs publics uniquement",
         M::TrustedForMods => "Confiance pour les mods",
@@ -98,7 +97,7 @@ pub fn text(message: M) -> &'static str {
         M::Play => "Jouer et rejoindre",
         M::SharedTag => "Partagé",
         M::CopyInviteLink => "Copier le lien d’invitation",
-        M::InviteLinkCopied => "Lien d’invitation de {name} copié",
+        M::InviteLinkCopied => "Lien d’invitation copié",
         M::InviteLinkCopiedHint => {
             "Toute personne qui l’a peut rejoindre tant que le serveur est partagé."
         }
@@ -116,31 +115,29 @@ pub fn text(message: M) -> &'static str {
 
         M::BusyFetching => "Récupération des mods du serveur…",
         M::BusyCreating => "Création de l’instance, téléchargement…",
-        M::BusyCreatingFiles => {
-            "Création de l’instance, téléchargement de {done} fichiers sur {total}…"
-        }
         M::BusyChecking => "Vérification des mods du serveur…",
         M::BusyUpdating => "Mise à jour des mods…",
-        M::BusyUpdatingFiles => "Mise à jour des mods, {done} fichiers sur {total}…",
         M::BusyStarting => "Démarrage du serveur…",
         M::BusyStopping => "Arrêt…",
+        M::BusyCaption => "{stage} {progress}",
 
         M::ReadFailed => "Impossible de lire vos serveurs",
         M::SaveFailed => "Impossible d’enregistrer vos serveurs",
-        M::NoLongerTrusted => "Vous ne faites plus confiance à {name} pour les mods",
+        M::NoLongerTrusted => "N’est plus fiable pour les mods",
         M::NoLongerTrustedIdChanged => {
-            "Un autre hôte répond désormais à l’adresse {address} (son identifiant a changé). Ne lui refaites confiance sur sa carte que si vous faites confiance à son propriétaire."
+            "Un autre hôte répond désormais à cette adresse (son identifiant a changé). Ne lui refaites confiance sur sa carte que si vous faites confiance à son propriétaire."
         }
-        M::NoLongerTrustedOtherCore => "Un autre hôte répond désormais à l’adresse {address}.",
+        M::NoLongerTrustedOtherCore => "Un autre hôte répond désormais à cette adresse.",
         M::NoLongerTrustedNewCertificate => {
             "Vous avez approuvé un nouveau certificat pour cet hôte. Refaites-lui confiance pour les mods sur sa carte si vous êtes sûr qu’il s’agit du même hôte."
         }
         M::NoLongerTrustedCertificateChanged => {
             "Son certificat a changé. Refaites-lui confiance pour les mods sur sa carte si vous êtes sûr qu’il s’agit du même hôte."
         }
-        M::SignedOutOf => "Déconnecté de {name}",
+        M::NotTrusted => "Non fiable",
+        M::SignedOut => "Déconnecté",
         M::KeyStillValid => {
-            "La clé de cet appareil (lsk_{id}_…) reste valide jusqu’à son expiration. Révoquez-la dans Paramètres → Clés d’API du tableau de bord pour y mettre fin dès maintenant."
+            "La clé de cet appareil reste valide jusqu’à son expiration. Pour y mettre fin dès maintenant, révoquez-la dans Paramètres → Clés d’API du tableau de bord."
         }
         M::KeySaveFailed => "Impossible d’enregistrer la clé dans le {keychain}",
         M::KeySaveFailedError => {
@@ -151,24 +148,25 @@ pub fn text(message: M) -> &'static str {
             "Le certificat n’a pas été approuvé, vos identifiants n’ont donc pas été envoyés à l’hôte."
         }
         M::CreateFailed => "Impossible de créer l’instance",
-        M::CreatedWithoutMods => "{name} a été créée sans les mods du serveur",
+        M::CreatedWithoutMods => "Créée sans les mods du serveur",
         M::CreatedWithoutModsBody => {
             "Le propriétaire n’a pas partagé les mods client de ce serveur\u{202F}; l’instance n’a donc que sa version de Minecraft et son chargeur. Ajoutez vous-même les mods dont elle a besoin."
         }
+        M::NoServerMods => "Sans mods du serveur",
         M::LinkFailed => "Impossible de lier l’instance au serveur",
-        M::ReadyTitle => "{name} est prête",
+        M::ReadyTitle => "Instance prête",
         M::ReadyBody => {
-            "Minecraft {version} avec {loader}, et les mods et configurations du serveur. Appuyez sur Jouer pour le rejoindre."
+            "Elle a les mods et configurations du serveur. Appuyez sur Jouer pour le rejoindre."
         }
         M::CheckModsFailed => "Impossible de vérifier les mods du serveur",
-        M::JoinFailed => "Impossible de rejoindre {name}",
+        M::JoinFailed => "Impossible de rejoindre",
         M::CoreRemoved => {
-            "L’hôte pour lequel cette instance a été créée ({address}) n’est plus dans Lodestone Launcher. Ajoutez-le sur la page Lodestone Host, ou appuyez sur Jouer sans rejoindre."
+            "L’hôte pour lequel cette instance a été créée n’est plus dans Lodestone Launcher. Ajoutez-le sur la page Lodestone Host, ou appuyez sur Jouer sans rejoindre."
         }
         M::ServerNotShown => {
             "L’hôte ne vous montre plus ce serveur\u{a0}: il a été supprimé, ou il n’est pas listé publiquement et vous n’êtes pas connecté."
         }
-        M::NotRunning => "{name} n’est pas en marche",
+        M::NotRunning => "N’est pas lancé",
         M::AskOwnerToStart => {
             "Demandez à son propriétaire de le démarrer, ou connectez-vous à l’hôte sur la page Lodestone Host pour le démarrer vous-même."
         }
@@ -193,8 +191,8 @@ pub fn text(message: M) -> &'static str {
         }
         M::ServerGone => "Le serveur n’existe plus.",
         M::StartTimedOut => "Le serveur n’a pas fini de démarrer en 5\u{a0}minutes.",
-        M::StartFailed => "Impossible de démarrer {name}",
-        M::StopFailed => "Impossible d’arrêter {name}",
+        M::StartFailed => "Impossible de démarrer",
+        M::StopFailed => "Impossible d’arrêter",
         M::UnlinkFailed => "Impossible de délier l’instance\u{a0}: {error}",
         M::Cancelled => "Annulé",
         M::TrustExplanation => {
@@ -228,40 +226,39 @@ pub fn text(message: M) -> &'static str {
             "L’hôte a envoyé une réponse que Lodestone Launcher ne comprend pas\u{a0}: {detail}"
         }
 
-        M::DifferentMods => "{name} a des mods différents",
+        M::DifferentMods => "Les mods diffèrent de ceux du serveur",
         M::DifferentModsBody => {
-            "Les mods du serveur ont changé depuis que cette instance les a reçus ({changes}). Mettez-la d’abord à jour pour pouvoir rejoindre le serveur\u{202F}; vos propres mods restent tels quels, et les fichiers remplacés sont conservés dans les sauvegardes de l’instance."
+            "Les mods du serveur ont changé depuis que cette instance les a reçus. Mettez-la à jour d’abord pour pouvoir le rejoindre\u{202F}; vos propres mods restent tels quels, et les fichiers remplacés sont conservés dans les sauvegardes de l’instance."
         }
-        M::ChangeNew => "Nouveau\u{a0}: {name}",
-        M::ChangeChanged => "Modifié\u{a0}: {name}",
-        M::ChangeRemoved => "Retiré\u{a0}: {name}",
-        M::ChangeConfig => "Configuration\u{a0}: {name}",
-        M::NoChanges => "aucun changement",
+        M::ChangeNew => "Nouveaux",
+        M::ChangeChanged => "Modifiés",
+        M::ChangeRemoved => "Retirés",
+        M::ChangeConfig => "Configurations et autres fichiers",
         M::UpdateAndPlay => "Mettre à jour et jouer",
         M::PlayAnyway => "Jouer quand même",
 
-        M::CertChangedTitle => "Le certificat de {name} a changé",
+        M::CertChangedTitle => "Certificat modifié",
         M::CertTrustTitle => "Faire confiance au certificat de cet hôte\u{202F}?",
         M::CertChangedIntro => {
-            "L’hôte à l’adresse {address} présente un autre certificat HTTPS que celui que vous avez approuvé. L’hôte crée un nouveau certificat quand le sien arrive à expiration ou que son adresse change, mais cela peut aussi vouloir dire que quelqu’un intercepte la connexion."
+            "Cet hôte présente un autre certificat HTTPS que celui auquel vous avez fait confiance. L’hôte crée un nouveau certificat quand le sien est sur le point d’expirer ou que son adresse change, mais cela peut aussi signifier que quelqu’un intercepte la connexion."
         }
         M::CertUntrustedIntro => {
-            "{os} ne fait pas confiance au certificat HTTPS de {name} à l’adresse {address}. Les hôtes créent leur propre certificat, c’est donc normal la première fois que vous vous connectez."
+            "{os} ne fait pas confiance au certificat HTTPS de cet hôte. Les hôtes créent leur propre certificat\u{202F}: c’est normal la première fois que vous vous connectez."
         }
         M::FingerprintTrustedBefore => "APPROUVÉ JUSQU’ICI (SHA-256)",
         M::FingerprintPresented => "PRÉSENTÉ MAINTENANT (SHA-256)",
         M::FingerprintCaption => "EMPREINTE DU CERTIFICAT (SHA-256)",
         M::CertIfMatch => {
-            "Si elles correspondent, faites-lui confiance\u{a0}: Lodestone Launcher accepte alors exactement ce certificat, seulement pour {host}, et vous avertit s’il change."
+            "S’ils correspondent, faites-lui confiance\u{202F}: Lodestone Launcher acceptera alors exactement ce certificat, et vous avertira s’il change."
         }
         M::CertIfMatchChanged => {
-            "Si elles correspondent, faites-lui confiance\u{a0}: Lodestone Launcher accepte alors exactement ce certificat, seulement pour {host}, et vous avertit s’il change. Un hôte de confiance pour les mods ne l’est plus tant que vous ne lui refaites pas confiance."
+            "S’ils correspondent, faites-lui confiance\u{202F}: Lodestone Launcher acceptera alors exactement ce certificat, et vous avertira s’il change. Un hôte fiable pour les mods cesse de l’être jusqu’à ce que vous lui refassiez confiance."
         }
+        M::TrustedOnlyFor => "Fiable seulement pour",
         M::TrustNewCertificate => "Approuver le nouveau certificat",
         M::TrustCertificate => "Approuver le certificat",
 
-        M::TrustTitle => "Faites-vous confiance à {name}\u{202F}?",
-        M::CoreAt => "{name} à l’adresse {address}.",
+        M::TrustTitle => "Faire confiance à cet hôte\u{202F}?",
         M::TrustAfterAdd => {
             "Tant que vous ne lui faites pas confiance, Lodestone Launcher vous montre les mods d’un serveur avant de les installer. Vous pourrez changer cela plus tard avec «\u{a0}{setting}\u{a0}» sur la carte de l’hôte."
         }
@@ -272,55 +269,54 @@ pub fn text(message: M) -> &'static str {
 
         M::AdvisoryTitle => "Les mods de ce serveur vont s’exécuter sur {computer}",
         M::AdvisoryNew => {
-            "L’instance pour {server} sur {core} reçoit ces fichiers. Les mods sont des programmes\u{a0}: ils s’exécutent avec le même accès que vous à vos fichiers et à vos comptes."
+            "L’instance de ce serveur reçoit ces fichiers. Les mods sont des programmes\u{202F}: ils s’exécutent avec le même accès à vos fichiers et comptes que vous."
         }
         M::AdvisoryUpdate => {
-            "Passer aux mods de {server} sur {core} installe ces fichiers. Les mods sont des programmes\u{a0}: ils s’exécutent avec le même accès que vous à vos fichiers et à vos comptes."
+            "Passer aux mods de ce serveur installe ces fichiers. Les mods sont des programmes\u{202F}: ils s’exécutent avec le même accès à vos fichiers et comptes que vous."
         }
         M::ModrinthUnreachable => {
             "Impossible de joindre Modrinth, aucun fichier n’a donc pu y être vérifié."
         }
-        M::UploadedNotChecked => "Envoyés sur le serveur — non vérifiés par Modrinth ({count})",
-        M::AlsoOnModrinth => "Également sur Modrinth ({count})",
-        M::AlsoFiles => "S’y ajoutent {files}.",
-        M::AlsoFilesScripts => {
-            "S’y ajoutent {files}. Les fichiers de script (KubeJS, CraftTweaker) peuvent eux aussi piloter du code."
+        M::UploadedNotChecked => "Envoyés au serveur, non vérifiés par Modrinth",
+        M::AlsoOnModrinth => "Aussi sur Modrinth",
+        M::ConfigFilesKey => "Fichiers de configuration",
+        M::ScriptFilesKey => "Fichiers de script",
+        M::OtherFilesKey => "Autres fichiers",
+        M::CanRunCode => "Peut exécuter du code",
+        M::ScriptsNote => {
+            "Les fichiers de script (KubeJS, CraftTweaker) peuvent aussi piloter du code."
         }
-        M::OnlyIfYouTrust => "Ne continuez que si vous faites confiance au propriétaire de {core}.",
+        M::OnlyIfYouTrust => "Ne continuez que si vous faites confiance au propriétaire de l’hôte.",
         M::AdvisoryTrustNote => {
             "«\u{a0}{button}\u{a0}» installe aussi ses mods sans vous le demander à partir de maintenant. {explanation}"
         }
         M::InstallThisTime => "Installer cette fois",
-        M::TrustAndInstall => "Faire confiance à {core} et installer",
+        M::TrustAndInstall => "Faire confiance et installer",
         M::BusyPreparing => "Le serveur prépare ses fichiers…",
-        M::BusyBasePack => "Téléchargement du modpack du serveur, {done} sur {total}…",
-        M::LacksFiles => "{name} a des fichiers que vous n’aurez pas",
+        M::BusyBasePack => "Récupération du modpack du serveur…",
+        M::LacksFiles => "Le serveur a des fichiers que vous n’aurez pas",
         M::LacksFilesBody => {
             "Votre instance a les fichiers du serveur, mais le serveur en a qu’il ne peut pas partager. Vous ne pourrez peut-être pas le rejoindre sans eux."
         }
-        M::InstallTitle => "Installer les fichiers de {name} ?",
+        M::InstallTitle => "Installer les fichiers du serveur\u{202F}?",
         M::InstallIntro => {
-            "La nouvelle instance pour {server} sur {core} reçoit Minecraft {version} avec {loader}, et ces fichiers du serveur."
+            "Une nouvelle instance reçoit ce jeu et ce chargeur, et ces fichiers du serveur."
         }
-        M::SummaryBase => "Modpack : {pack} {version}",
-        M::SummaryAddedMods => "Mods ajoutés par le serveur ({count})",
-        M::SummaryServerOnly => "Fichiers que seul le serveur possède ({count})",
-        M::SummaryDownload => "Téléchargement : {size}",
-        M::MissingTitle => "Fichiers que le serveur n’a pas pu partager ({count})",
+        M::SummaryAddedMods => "Mods ajoutés par le serveur",
+        M::SummaryServerOnly => "Fichiers que seul le serveur a",
+        M::MissingTitle => "Fichiers que le serveur n’a pas pu partager",
         M::MissingNote => {
             "Vous ne les aurez pas, et vous ne pourrez peut-être pas rejoindre sans eux. Demandez au propriétaire du serveur."
         }
-        M::MissingLine => "{name} ({reason})",
-        M::WithheldSymlink => "c’est un lien",
-        M::WithheldUnreadable => "il n’a pas pu être lu",
-        M::WithheldBadName => "son nom ne peut pas être partagé",
-        M::WithheldKeptChanging => "il changeait sans cesse",
-        M::WithheldCurseForge => "CurseForge ne le permet pas",
-        M::WithheldOther => "non partagé",
-        M::CurseForgeTitle => "À télécharger vous-même sur CurseForge ({count})",
+        M::WithheldSymlink => "Un lien",
+        M::WithheldUnreadable => "Illisible",
+        M::WithheldBadName => "Nom non partageable",
+        M::WithheldKeptChanging => "Changeait sans cesse",
+        M::WithheldCurseForge => "CurseForge ne l’autorise pas",
+        M::WithheldOther => "Non partagé",
+        M::CurseForgeTitle => "Téléchargez-les vous-même depuis CurseForge",
         M::CurseForgeNote => "Leurs auteurs ne laissent pas d’autres applications les télécharger.",
         M::Install => "Installer",
-        M::ChangeLoader => "Chargeur : {loader}",
         M::ErrUpdateLodestone => {
             "Ce serveur utilise un Lodestone plus récent. Mettez Lodestone Launcher à jour pour le rejoindre."
         }
@@ -330,18 +326,18 @@ pub fn text(message: M) -> &'static str {
         M::ErrStillPreparing => {
             "Le serveur prépare encore ses fichiers. Réessayez dans quelques minutes."
         }
-        M::ErrFileFailed => "Le serveur n’a pas pu envoyer {path}. Réessayez plus tard.",
+        M::ErrFileFailed => "Le serveur n’a pas pu envoyer ce fichier. Réessayez plus tard.",
         M::ErrViewChanged => {
             "Les fichiers du serveur ont changé pendant le téléchargement. Réessayez."
         }
         M::ErrFilesChangedSince => {
-            "{path} a changé après la préparation de la mise à jour, donc rien n’a été modifié. Appuyez à nouveau sur Jouer."
+            "Ce fichier a changé après la préparation de la mise à jour\u{202F}: rien n’a été modifié. Appuyez de nouveau sur Jouer."
         }
         M::ErrBasePackGone => {
             "Le modpack du serveur n’est plus sur Modrinth, ses fichiers ne peuvent donc pas être téléchargés. Demandez au propriétaire du serveur de mettre le modpack à jour."
         }
         M::ErrGameChanged => {
-            "Le serveur utilise maintenant {game}, et cette instance est pour {instance}. Créez une nouvelle instance pour le serveur."
+            "Le jeu du serveur a changé, et cette instance ne lui correspond plus. Créez une nouvelle instance pour le serveur."
         }
         M::ErrCurseForgeUnreachable => {
             "CurseForge est injoignable, et le serveur a des fichiers qui en viennent. Vérifiez votre connexion, puis réessayez."
@@ -353,7 +349,7 @@ pub fn text(message: M) -> &'static str {
             "Le serveur a envoyé des fichiers que Lodestone Launcher n’installera pas : {detail}"
         }
         M::ErrBaseFileMissing => {
-            "Le modpack du serveur n’a pas de fichier {path}, alors que le serveur dit qu’il en vient. Demandez au propriétaire du serveur de mettre le modpack à jour."
+            "Le modpack du serveur n’a pas ce fichier, dont le serveur dit qu’il en provient. Demandez au propriétaire du serveur de mettre à jour le modpack."
         }
         M::ErrOlderCore => {
             "L’hôte utilise un Lodestone plus ancien, qui ne partage pas les fichiers de ses serveurs de cette façon."
@@ -363,7 +359,7 @@ pub fn text(message: M) -> &'static str {
             "Le serveur ne partage plus ses fichiers, ils n’ont donc pas pu être vérifiés. Demandez au propriétaire du serveur."
         }
         M::ErrNotEnoughSpace => {
-            "Il n’y a pas assez d’espace libre pour les fichiers du serveur : il faut {needed}, et {free} sont libres."
+            "Il n’y a pas assez d’espace libre sur ce disque pour les fichiers du serveur."
         }
         M::ErrNotLinked => "Cette instance n’est plus liée au serveur, rien n’a donc été installé.",
 
@@ -388,7 +384,7 @@ pub fn text(message: M) -> &'static str {
             "Connectez-vous pour démarrer et arrêter des serveurs et voir ceux qui ne sont pas listés publiquement. Lodestone Launcher crée sa propre clé pour {computer}\u{202F}; votre mot de passe n’est pas conservé."
         }
         M::AddIntro => {
-            "L’adresse d’un hôte. Sans vous connecter, vous voyez les serveurs que son propriétaire liste publiquement."
+            "Sans vous connecter, vous ne voyez que les serveurs que son propriétaire liste publiquement."
         }
         M::Address => "Adresse",
         M::SignInOptional => "Connexion (facultatif)",
@@ -411,7 +407,7 @@ pub fn text(message: M) -> &'static str {
         M::OfflineCantLink => {
             "Les comptes hors ligne ne peuvent pas être liés\u{a0}: leur UUID vient du nom, il ne prouve donc rien."
         }
-        M::LinkedTo => "{account} est lié à {user}.",
+        M::LinkedTo => "Compte lié.",
         M::YourLodestoneUser => "votre utilisateur Lodestone",
         M::Connecting => "Connexion…",
         M::Live => "En direct",
@@ -419,15 +415,14 @@ pub fn text(message: M) -> &'static str {
         M::ConsoleNotShown => "La console n’est pas affichée",
         M::OutputAppearsHere => "La sortie du serveur s’affiche ici.",
         M::Send => "Envoyer",
-        M::ChatHint => {
-            "Le texte est dit à tous avec /say. Commencez par / pour exécuter une commande."
-        }
+        M::ChatHint => "Le texte est dit à tous avec /say.",
         M::Console => "Console",
         M::JumpToLatest => "Aller à la fin",
         M::MinecraftAccount => "Compte Minecraft",
         M::CoreTooOldToLink => "Cet hôte est trop ancien pour lier des comptes Minecraft.",
         M::Unlink => "Délier",
-        M::LinkAccount => "Lier {account} à {user}",
+        M::LinkAccount => "Lier",
+        M::LodestoneUser => "Utilisateur Lodestone",
         M::LinkCheckHint => {
             "L’hôte vérifie auprès de Microsoft que le compte est bien à vous, en utilisant cette connexion une seule fois. Il ne la conserve pas."
         }
@@ -462,7 +457,7 @@ pub fn text(message: M) -> &'static str {
         M::SignedOutRightAway => "L’hôte vous a déconnecté juste après la connexion. Réessayez.",
         M::AddCoreFirst => "Ajoutez d’abord votre hôte sur la page Lodestone Host.",
         M::HostIntro => {
-            "Crée un serveur sur un hôte à partir de {name}\u{a0}: ses mods et configurations, et les mondes que vous choisissez. Les mods dont seuls les joueurs ont besoin, vos comptes et vos propres paramètres restent ici. Le serveur est créé arrêté."
+            "Crée un serveur sur un hôte à partir de cette instance\u{a0}: ses mods et configurations, et les mondes que vous choisissez. Les mods dont seuls les joueurs ont besoin, vos comptes et vos propres paramètres restent ici. Le serveur est créé arrêté."
         }
         M::HostWorlds => "Mondes à envoyer",
         M::HostWorldsHint => {
@@ -470,7 +465,8 @@ pub fn text(message: M) -> &'static str {
         }
         M::HostNoWorlds => "Cette instance n’a aucun monde\u{a0}: le serveur en crée un nouveau.",
         M::HostWorldsLoading => "Recherche des mondes de l’instance…",
-        M::HostStageSending => "Envoi à l’hôte ({done} sur {total})…",
+        M::HostStageSending => "Envoi à l’hôte…",
+        M::Sent => "Envoyé",
         M::HostStageReading => "L’hôte lit le fichier…",
         M::HostPort => "Port",
         M::HostPortInvalid => "Saisissez un port de 1 à 65535.",
@@ -481,14 +477,15 @@ pub fn text(message: M) -> &'static str {
             "Vous pouvez fermer cette fenêtre\u{a0}: l’hôte continue de préparer le serveur, et cette instance y est liée une fois qu’il est prêt."
         }
         M::HostCreated => {
-            "{name} est sur {core}, sur le port {port}. Il est arrêté\u{a0}: démarrez-le depuis la page Lodestone Host ou le tableau de bord quand vous êtes prêt. Cette instance y est liée, donc Jouer le rejoint."
+            "Il est arrêté\u{a0}: démarrez-le depuis la page Lodestone Host ou le tableau de bord quand vous êtes prêt. Cette instance y est liée, donc Jouer le rejoint."
         }
         M::HostCreatedUnlinked => {
-            "{name} est sur {core}, sur le port {port}. Il est arrêté\u{a0}: démarrez-le depuis la page Lodestone Host ou le tableau de bord quand vous êtes prêt. L’instance a été supprimée entre-temps, donc rien n’y est lié."
+            "Il est arrêté\u{a0}: démarrez-le depuis la page Lodestone Host ou le tableau de bord quand vous êtes prêt. L’instance a été supprimée entre-temps, donc rien n’y est lié."
         }
         M::HostCreatedRelinked => {
-            "Cette instance était liée à {server}\u{202F}; elle appartient désormais au nouveau serveur."
+            "Cette instance était liée à un autre serveur\u{202F}; elle appartient désormais au nouveau."
         }
+        M::LinkedBefore => "Liée avant",
         M::HostLeftOut => "Absent du serveur",
         M::HostCreationFailed => "L’hôte n’a pas pu créer le serveur\u{a0}: {error}",
         M::HostCreationFailedPlain => "L’hôte n’a pas pu créer le serveur.",
@@ -496,18 +493,18 @@ pub fn text(message: M) -> &'static str {
             "L’hôte prépare encore le serveur. Il apparaît sur la page Lodestone Host une fois prêt\u{202F}; cette instance n’y est pas encore liée."
         }
         M::HostTooOld => {
-            "Le Lodestone de {core} est trop ancien pour créer des serveurs à partir de fichiers. Mettez-le à jour sur cet ordinateur, puis réessayez."
+            "Le Lodestone de l’hôte est trop ancien pour créer des serveurs à partir de fichiers. Mettez-le à jour sur cet ordinateur, puis réessayez."
         }
         M::HostNoPermission => {
-            "Votre utilisateur sur {core} ne peut pas créer de serveurs. Demandez à son propriétaire."
+            "Votre utilisateur sur cet hôte ne peut pas créer de serveurs. Demandez à son propriétaire."
         }
         M::HostGameRunning => {
             "Quittez d’abord le jeu\u{a0}: ses mondes ne peuvent pas être envoyés pendant qu’il tourne."
         }
         M::DownloadWorldAction => "Télécharger ce monde…",
-        M::DownloadWorldTitle => "Télécharger le monde de {server}",
+        M::DownloadWorldTitle => "Télécharger le monde",
         M::DownloadWorldIntro => {
-            "Crée une nouvelle instance sur cet ordinateur à partir d’une sauvegarde de {server}\u{a0}: son monde, avec les mods que reçoivent ses joueurs. Les paramètres, opérateurs et plugins du serveur restent dessus."
+            "Crée une nouvelle instance sur cet ordinateur à partir d’une sauvegarde de ce serveur\u{a0}: son monde, avec les mods que reçoivent ses joueurs. Les paramètres, opérateurs et plugins du serveur restent dessus."
         }
         M::DownloadWorldSignIn => {
             "Connectez-vous avec un utilisateur qui peut lire les fichiers de ce serveur."
@@ -516,15 +513,18 @@ pub fn text(message: M) -> &'static str {
             "Saisissez votre nom d’utilisateur et votre mot de passe pour cet hôte."
         }
         M::DownloadWorldBackups => "Sauvegarde",
-        M::DownloadWorldMidWrite => "faite pendant qu’il tournait, peut-être en pleine écriture",
+        M::DownloadWorldMidWrite => {
+            "Prise pendant que le serveur tournait\u{a0}: le monde a pu être saisi en pleine écriture."
+        }
+        M::TakenWhileRunning => "Prise en cours d’exécution",
         M::DownloadWorldBackUpNow => "Sauvegarder maintenant",
-        M::DownloadWorldBackUpNowHint => "Une sauvegarde du serveur tel qu’il est maintenant",
         M::DownloadWorldButton => "Télécharger",
         M::DownloadWorldBackingUp => "L’hôte sauvegarde le serveur…",
         M::DownloadWorldPreparing => "L’hôte prépare le fichier…",
-        M::DownloadWorldDownloading => "Téléchargement ({done} sur {total})…",
+        M::DownloadWorldDownloading => "Téléchargement…",
+        M::Downloaded => "Téléchargé",
         M::DownloadWorldTooOld => {
-            "Le Lodestone de {core} est trop ancien pour envoyer un monde. Mettez-le à jour sur cet ordinateur, puis réessayez."
+            "Le Lodestone de l’hôte est trop ancien pour envoyer un monde. Mettez-le à jour sur cet ordinateur, puis réessayez."
         }
         M::DownloadWorldNothingToDownload => {
             "Ce serveur n’a aucune sauvegarde, et votre utilisateur ne peut pas le sauvegarder. Demandez à son propriétaire de le sauvegarder, puis réessayez."
@@ -555,30 +555,24 @@ pub fn text(message: M) -> &'static str {
         M::LanWorld => "Monde en LAN",
         M::Join => "Rejoindre",
         M::AddInvite => "Ajouter",
+        M::UnnamedServer => "Serveur sans nom",
+        M::WaitingForReply => "En attente de son hôte",
         M::AddAndJoin => "Ajouter et rejoindre",
-        M::ServerFromLink => "Serveur de {link}",
-        M::AddedNotAnswered => {
-            "Ajouté. Son nom et sa version s’afficheront quand son hôte répondra."
-        }
         M::AlreadyAddedTitle => "Déjà ajouté",
-        M::AlreadyAddedNamed => "{name} est déjà ajouté",
         M::AlreadyAddedBody => {
             "Ce lien mène à un serveur de cette page. Sa ligne est mise en évidence."
         }
         M::OnYourNetwork => "Sur votre réseau",
         M::OnYourNetworkHint => "Les mondes ouverts en LAN sur ce réseau.",
-        M::JoinWorld => "Rejoindre {world}",
+        M::JoinWorld => "Rejoindre le monde LAN",
         M::PickInstance => {
-            "Choisissez l’instance avec laquelle jouer. Elle doit avoir la même version de Minecraft et les mêmes mods que le monde à l’adresse {address}."
+            "Choisissez l’instance avec laquelle jouer. Elle doit avoir la même version de Minecraft et les mêmes mods que le monde."
         }
         M::NoInstancesYet => "Vous n’avez pas encore d’instance. Créez-en une d’abord.",
 
         M::FriendsTitle => "Serveurs des liens d’invitation",
-        M::FriendsHint => {
-            "Les serveurs qu’on vous a partagés par un lien d’invitation Lodestone Connect."
-        }
         M::JoinAFriend => "Ajouter un serveur",
-        M::SharedBy => "Partagé par {name}",
+        M::SharedBy => "Partagé par",
         M::SharedWithFriends => "Partagé avec des amis",
         M::SharedWithFriendsHint => "Vous les avez rejoints avec leur lien d’invitation.",
         M::ConnectToJoinDirectly => {
@@ -589,22 +583,21 @@ pub fn text(message: M) -> &'static str {
         M::FriendChecking => "Vérification…",
         M::FriendPlayingNow => "En jeu",
         M::StopTrusting => "Ne plus faire confiance",
-        M::ConnectedVia => "Connexion directe {how}, {ms}\u{a0}ms",
-        M::ViaSameComputer => "sur le même ordinateur",
-        M::ViaLocalNetwork => "par votre réseau local",
-        M::ViaIpv6 => "par IPv6",
-        M::ViaInternet => "par Internet",
+        M::ConnectionSameComputer => "Même ordinateur",
+        M::ConnectionLocalNetwork => "Réseau local",
+        M::ConnectionIpv6 => "IPv6",
+        M::ConnectionInternet => "Internet",
+        M::PingMs => "{ms}\u{a0}ms",
         M::JoinFriendTitle => "Rejoindre un serveur",
         M::AddServerTitle => "Ajouter un serveur",
         M::JoinFriendIntro => {
-            "Collez le lien d’invitation qu’on vous a envoyé. Il commence par https://connect.lodestone.cc/j/. Ajouter enregistre le serveur même s’il est hors ligne pour l’instant."
+            "Ajouter enregistre le serveur même s’il est hors ligne pour l’instant."
         }
         M::InvitePlaceholder => "Lien d’invitation (https://connect.lodestone.cc/j/…)",
         M::NotAnInvite => {
             "Ce n’est pas un lien d’invitation Lodestone. Les liens d’invitation commencent par https://connect.lodestone.cc/j/."
         }
         M::PasteInviteFirst => "Collez d’abord un lien d’invitation.",
-        M::ConnectingTo => "Connexion à {name}…",
         M::ConnectingToFriend => "Connexion au serveur de votre ami…",
         M::StageFinding => {
             "Recherche d’un chemin direct entre votre réseau et celui de votre ami. Cela prend quelques secondes."
@@ -613,19 +606,12 @@ pub fn text(message: M) -> &'static str {
             "Toujours en recherche. Certains réseaux demandent jusqu’à une minute."
         }
         M::StageReading => "Connecté. Lecture des informations du serveur…",
-        M::FactVersion => "Version",
-        M::FactMods => "Mods",
-        M::FactStatus => "État",
-        M::FactConnection => "Connexion",
-        M::FactInstance => "Instance",
         M::FriendHasMods => {
             "Ce serveur utilise des mods. Lodestone Launcher installe les mêmes pour vous."
         }
         M::FriendNoMods => "Aucun n’est nécessaire",
-        M::PlaysWithLinked => {
-            "{name}, créée pour ce serveur. Ses mods restent à jour avec ceux du serveur."
-        }
-        M::PlaysWithInstance => "Votre instance {name}, qui a la même version.",
+        M::MadeForThisServer => "Créée pour ce serveur",
+        M::SameVersion => "Même version",
         M::MakesInstance => "Jouer crée une nouvelle instance de la même version.",
         M::MakesInstanceWithMods => {
             "Jouer crée une nouvelle instance avec la version et les mods du serveur."
@@ -662,7 +648,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::FriendJoinFailed => "Impossible de rejoindre le serveur",
         M::FriendJoinFailedBody => "Un problème est survenu\u{a0}: {detail}",
-        M::FriendTunnelEnded => "La connexion à {name} a pris fin",
+        M::FriendTunnelEnded => "Connexion terminée",
         M::FriendTunnelEndedBody => {
             "Votre ami a arrêté le partage, ou son ordinateur s’est déconnecté. Minecraft indique que la connexion a été perdue. Rejouez quand il sera de retour."
         }
@@ -670,15 +656,26 @@ pub fn text(message: M) -> &'static str {
             "Lodestone Launcher n’a pas pu lire le lien d’invitation de ce serveur. Ouvrez de nouveau le lien reçu de votre ami."
         }
         M::FriendRemoved => {
-            "Cette instance a été créée pour le serveur d’un ami ({link}) qui n’est plus dans Lodestone Launcher. Ouvrez de nouveau son lien d’invitation pour le rejoindre."
+            "Cette instance a été créée pour le serveur d’un ami qui n’est plus dans Lodestone Launcher. Ouvrez de nouveau son lien d’invitation pour le rejoindre."
         }
+        M::InviteLinkKey => "Lien d’invitation",
         M::FriendsReadFailed => "Impossible de lire les serveurs de vos amis",
         M::FriendsSaveFailed => "Impossible d’enregistrer les serveurs de vos amis",
-        M::FriendAddress => "Magic localhost\u{a0}: {address} (une fois connecté)",
-        M::FriendPortTaken => "Le port {port} était occupé",
-        M::FriendPortTakenBody => {
-            "Un autre programme de cet ordinateur l’utilise, donc cette fois l’adresse est {address}. La prochaine fois, Lodestone Launcher essaiera de nouveau le port {port}."
+        M::MagicLocalhost => "Magic localhost",
+        M::WhileConnected => "Fonctionne tant que vous êtes connecté.",
+        M::WhileServerRuns => "Fonctionne tant que le serveur tourne.",
+        M::WhileServerRunsAndOpen => {
+            "Fonctionne tant que le serveur tourne et que Lodestone Launcher est ouvert."
         }
+        M::MagicPortTakenRow => {
+            "Le port {port} était occupé, donc cette adresse ne marche que jusqu’à la fermeture de Lodestone Launcher"
+        }
+        M::FriendPortTaken => "Le port était occupé",
+        M::FriendPortTakenBody => {
+            "Un autre programme de cet ordinateur utilise le port habituel\u{202F}: cette fois, utilisez cette adresse dans Minecraft. La prochaine fois, Lodestone Launcher essaiera d’abord le port habituel."
+        }
+        M::AddressNow => "Adresse actuelle",
+        M::UsualPort => "Port habituel",
         M::EulaNotAccepted => "Le CLUF de Minecraft n’est pas accepté pour ce serveur",
         M::EulaNotAcceptedBody => {
             "Le serveur ne peut pas démarrer tant que quelqu’un n’a pas accepté le CLUF de Minecraft de Mojang ({url}). Lisez-le, et ne l’acceptez que si vous êtes d’accord."
@@ -695,22 +692,13 @@ pub fn plural(message: P) -> [&'static str; 2] {
     match message {
         P::Players => ["{count} joueur", "{count} joueurs"],
         P::ReadyBodySkipped => [
-            "Minecraft {version} avec {loader}, et les mods et configurations du serveur. {count} fichier du pack a été laissé de côté. Appuyez sur Jouer pour le rejoindre.",
-            "Minecraft {version} avec {loader}, et les mods et configurations du serveur. {count} fichiers du pack ont été laissés de côté. Appuyez sur Jouer pour le rejoindre.",
+            "Elle a les mods et configurations du serveur. {count} fichier du pack a été laissé de côté. Appuyez sur Jouer pour le rejoindre.",
+            "Elle a les mods et configurations du serveur. {count} fichiers du pack ont été laissés de côté. Appuyez sur Jouer pour le rejoindre.",
         ],
         P::ReadyBodyMissing => [
-            "Minecraft {version} avec {loader}, et les fichiers du serveur. {count} fichier que le serveur n’a pas pu partager manque. Appuyez sur Jouer pour rejoindre.",
-            "Minecraft {version} avec {loader}, et les fichiers du serveur. {count} fichiers que le serveur n’a pas pu partager manquent. Appuyez sur Jouer pour rejoindre.",
+            "Elle a les fichiers du serveur. {count} fichier que le serveur n’a pas pu partager manque. Appuyez sur Jouer pour le rejoindre.",
+            "Elle a les fichiers du serveur. {count} fichiers que le serveur n’a pas pu partager manquent. Appuyez sur Jouer pour le rejoindre.",
         ],
-        P::ModsAdded => ["{count} ajouté", "{count} ajoutés"],
-        P::ModsUpdated => ["{count} mis à jour", "{count} mis à jour"],
-        P::ModsRemoved => ["{count} retiré", "{count} retirés"],
-        P::OtherFiles => ["{count} autre fichier", "{count} autres fichiers"],
-        P::ConfigFiles => [
-            "{count} fichier de configuration",
-            "{count} fichiers de configuration",
-        ],
-        P::ScriptFiles => ["{count} fichier de script", "{count} fichiers de script"],
         P::AndMore => ["et {count} de plus", "et {count} de plus"],
     }
 }

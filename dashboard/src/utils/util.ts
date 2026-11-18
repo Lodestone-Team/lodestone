@@ -1,6 +1,5 @@
 import { CoreConnectionInfo } from 'data/LodestoneContext';
 import { isEdge } from 'react-device-detect';
-import { LabelColor } from 'components/Atoms/Label';
 import axios, { AxiosError, AxiosRequestConfig } from 'axios';
 import { ClientError } from 'bindings/ClientError';
 import { InstanceState } from 'bindings/InstanceState';
@@ -89,15 +88,6 @@ export const asyncCallWithTimeout = async (
 
 // a map from InstanceStatus to string names
 // instancestatus is a union type
-export const stateToLabelColor: { [key in InstanceState]: LabelColor } = {
-  Running: 'green',
-  Starting: 'yellow',
-  Stopping: 'yellow',
-  Stopped: 'gray',
-  Error: 'red',
-  // Loading: 'gray',
-};
-
 export const stateToColor: { [key in InstanceState]: string } = {
   Starting: 'text-yellow-300',
   Running: 'text-green-300',

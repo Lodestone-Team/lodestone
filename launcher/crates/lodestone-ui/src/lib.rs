@@ -4,7 +4,9 @@
 //! paint with.
 //!
 //! Each app opens its own windows and owns its pages; this crate has no app state.
-//! Run `cargo run -p lodestone-launcher --example components` to see the components.
+//! Run `cargo run -p lodestone-launcher --example components` to see the basic
+//! components, and the apps' `components` screenshot scenes for the readable ones
+//! (`components::readable`, `launcher/docs/readable-values.md`).
 
 pub mod assets;
 pub mod components;
@@ -16,6 +18,7 @@ pub mod sharing;
 pub mod skin;
 pub mod theme;
 pub mod undo;
+pub mod values;
 
 // Undo and Redo, which a focused text field takes first for its text, and an app's
 // window then for its settings (see `undo`). In the `launcher` namespace, as the
@@ -27,7 +30,7 @@ gpui::actions!(launcher, [Undo, Redo]);
 pub fn init(cx: &mut gpui::App) {
     if let Err(err) = assets::load_fonts(cx) {
         // GPUI falls back to the system font for families that did not load.
-        eprintln!("lodestone-ui: could not load the bundled fonts: {err:#}");
+        log::error!("couldn't load the bundled fonts: {err:#}");
     }
     components::init(cx);
 }

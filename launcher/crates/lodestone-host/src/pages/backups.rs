@@ -1,20 +1,34 @@
-//! An instance's Backups tab (not in the dashboard): backing up now, the schedule
-//! with how many automatic backups are kept, the storage used, and the list, with
-//! restoring (in place or as a new server), downloading, exporting as a `.lodeimg` for
-//! another Lodestone Host or a Launcher, pinning and deleting.
+//! An instance's Snapshots tab (not in the dashboard; the route and the core's API
+//! still call snapshots backups). Two sections:
 //!
-//! The core does the work (`launcher_core::cores::admin::backups`): taking and
-//! restoring run in the background, and their progression's events drive the
-//! progress bar; the end reloads the list and says how it went. Progress updates
-//! only reach owners and admins, so the page also asks the core again every few
-//! seconds while a job runs.
+//! - World backups ([`world`]): plain `.zip` files of the world, made when asked, with
+//!   restoring, downloading and deleting.
+//! - Snapshots: taking one now, the schedule with how many automatic snapshots are kept,
+//!   the storage used, and the list, with restoring (in place or as a new server),
+//!   downloading, exporting as a `.lodeimg` for another Lodestone Host or a Launcher,
+//!   pinning and deleting.
+//!
+//! The core does the work (`launcher_core::cores::admin::backups` and
+//! `world_backups`): taking and restoring run in the background, one job per server
+//! whichever kind it is, and their progression's events drive the job card above both
+//! sections; the end reloads the lists and says how it went. Progress updates only
+//! reach owners and admins, so the page also asks the core again every few seconds
+//! while a job runs.
 //!
 //! Reading needs the instance's file read permission (the tab is hidden without it).
-//! Backing up and pinning need its Settings permission, restoring, deleting and
-//! unpinning its file write permission, the schedule both, and restoring as a new
-//! server the core's create permission. A control that is off says why.
+//! Taking a snapshot, backing up the world and pinning need its Settings permission,
+//! restoring, deleting and unpinning its file write permission, the schedule both, and
+//! restoring as a new server the core's create permission. A control that is off says
+//! why.
 
-use std::{collections::HashSet, path::PathBuf, sync::Arc, time::Duration};
+mod world;
+
+use std::{
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+    sync::Arc,
+    time::Duration,
+};
 
 use gpui::{
     AnyElement, AppContext as _, Context, Entity, FocusHandle, IntoElement, ParentElement, Render,
@@ -24,10 +38,12 @@ use launcher_core::cores::admin::{
     EventInner,
     backups::{
         BackupInfo, BackupKind, BackupList, BackupPolicy, JobKind, RestoreRequest, RestoreScope,
+        RunningJob,
     },
     events::{ProgressionEndValue, ProgressionEvent, ProgressionEventInner, ProgressionStartValue},
     images::{EXTENSION, ExportedBackup, export_file_name, is_image_file},
     models::{CorePermission, Game, InstancePermission, InstanceState, MinecraftVariant},
+    world_backups::WorldBackupList,
 };
 use launcher_core::game::download::{CancelToken, Progress};
 use lodestone_ui::{
@@ -142,7 +158,7 @@ pub fn backup_label(backup: &BackupInfo, now: chrono::DateTime<chrono::Local>) -
     }
 }
 
-/// How long until unix second `at`: "Next backup in 2 h 5 min", or "soon".
+/// How long until unix second `at`: "Next snapshot in 2 h 5 min", or "soon".
 pub fn next_backup(at: i64, now: i64) -> String {
     let left = at - now;
     if left < 60 {
@@ -272,7 +288,8 @@ fn sentences(parts: &[String]) -> String {
         .join(" ")
 }
 
-/// The backup or restore of this server that is running, as far as the page knows.
+/// The job of this server that is running (a snapshot, a world backup or either's
+/// restore), as far as the page knows.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Job {
     pub task_id: i64,
@@ -292,11 +309,11 @@ pub enum Tracked {
         success: bool,
         message: String,
     },
-    /// Not about this server's backups.
+    /// Not about this server's snapshots or world backups.
     Other,
 }
 
-/// Follows this server's backup or restore through its progression events.
+/// Follows this server's job through its progression events.
 pub fn track(job: &mut Option<Job>, uuid: &str, event: &ProgressionEvent) -> Tracked {
     let id = event.event_id;
     match &event.progression_event_inner {
@@ -309,6 +326,12 @@ pub fn track(job: &mut Option<Job>, uuid: &str, event: &ProgressionEvent) -> Tra
                 }
                 ProgressionStartValue::Restore { instance_uuid } if instance_uuid == uuid => {
                     JobKind::Restore
+                }
+                ProgressionStartValue::WorldBackup { instance_uuid } if instance_uuid == uuid => {
+                    JobKind::WorldBackup
+                }
+                ProgressionStartValue::WorldRestore { instance_uuid } if instance_uuid == uuid => {
+                    JobKind::WorldRestore
                 }
                 _ => return Tracked::Other,
             };
@@ -347,6 +370,18 @@ pub fn track(job: &mut Option<Job>, uuid: &str, event: &ProgressionEvent) -> Tra
                     message,
                     ..
                 } if instance_uuid == uuid => (JobKind::Restore, *success, message.clone()),
+                ProgressionEndValue::WorldBackupCompleted {
+                    instance_uuid,
+                    success,
+                    message,
+                    ..
+                } if instance_uuid == uuid => (JobKind::WorldBackup, *success, message.clone()),
+                ProgressionEndValue::WorldRestoreCompleted {
+                    instance_uuid,
+                    success,
+                    message,
+                    ..
+                } if instance_uuid == uuid => (JobKind::WorldRestore, *success, message.clone()),
                 _ => return Tracked::Other,
             };
             *job = None;
@@ -360,9 +395,10 @@ pub fn track(job: &mut Option<Job>, uuid: &str, event: &ProgressionEvent) -> Tra
     }
 }
 
-/// The list said what runs: the page's job, with the newest progress it knows.
-fn job_from_list(job: &mut Option<Job>, list: &BackupList) {
-    let Some(running) = &list.running else {
+/// A list said what runs (either list: the two share one job per server): the page's
+/// job, with the newest progress it knows.
+fn job_from_running(job: &mut Option<Job>, running: Option<&RunningJob>) {
+    let Some(running) = running else {
         *job = None;
         return;
     };
@@ -396,8 +432,9 @@ struct Deleting {
     busy: bool,
 }
 
-/// An export of a backup as a `.lodeimg` file running: its download's progress (nothing
-/// until the core has written the file) and its Cancel.
+/// An export of a snapshot as a `.lodeimg` file running, or a world backup's download:
+/// its download's progress (for an export, nothing until the core has written the file)
+/// and its Cancel.
 #[derive(Clone)]
 struct ExportRun {
     progress: Arc<Progress>,
@@ -428,6 +465,8 @@ pub struct BackupsPage {
     pub uuid: String,
     list: Option<BackupList>,
     error: Option<String>,
+    world_list: Option<WorldBackupList>,
+    world_error: Option<String>,
     /// Counts the list's fetches, so only the newest one is kept.
     serial: u64,
     job: Option<Job>,
@@ -440,6 +479,13 @@ pub struct BackupsPage {
     deleting: DialogSlot<Self, Deleting>,
     restoring_new: DialogSlot<Self, RestoringAsNew>,
     exporting: DialogSlot<Self, Exporting>,
+    world_creating: DialogSlot<Self, world::CreatingWorld>,
+    world_restoring: DialogSlot<Self, world::RestoringWorld>,
+    world_deleting: DialogSlot<Self, world::DeletingWorld>,
+    /// World backups downloading, by id.
+    world_downloads: HashMap<String, ExportRun>,
+    /// A world job's Cancel was pressed and the core hasn't answered yet.
+    cancelling: bool,
     /// Fetches the list again while a job runs.
     poll: Option<Task<()>>,
     _tasks: Vec<Task<()>>,
@@ -463,6 +509,8 @@ impl BackupsPage {
             uuid,
             list: None,
             error: None,
+            world_list: None,
+            world_error: None,
             serial: 0,
             job: None,
             starting: false,
@@ -472,6 +520,11 @@ impl BackupsPage {
             deleting: DialogSlot::new(|this: &mut Self| &mut this.deleting),
             restoring_new: DialogSlot::new(|this: &mut Self| &mut this.restoring_new),
             exporting: DialogSlot::new(|this: &mut Self| &mut this.exporting),
+            world_creating: DialogSlot::new(|this: &mut Self| &mut this.world_creating),
+            world_restoring: DialogSlot::new(|this: &mut Self| &mut this.world_restoring),
+            world_deleting: DialogSlot::new(|this: &mut Self| &mut this.world_deleting),
+            world_downloads: HashMap::new(),
+            cancelling: false,
             poll: None,
             _tasks: Vec::new(),
             _subscriptions: subscriptions,
@@ -515,27 +568,45 @@ impl BackupsPage {
             .unwrap_or_default()
     }
 
-    /// Fetches the list again.
+    /// Fetches both lists again, at once.
     fn reload(&mut self, cx: &mut Context<Self>) {
         self.serial += 1;
         let serial = self.serial;
         let admin = self.state.read(cx).admin.clone();
         let uuid = self.uuid.clone();
         let task = cx.spawn(async move |this, cx| {
-            let list = cx
-                .background_spawn(async move { admin.list_backups(&uuid).await })
-                .await;
+            let snapshots = cx.background_spawn({
+                let (admin, uuid) = (admin.clone(), uuid.clone());
+                async move { admin.list_backups(&uuid).await }
+            });
+            let worlds = cx.background_spawn(async move { admin.list_world_backups(&uuid).await });
+            let (list, world_list) = (snapshots.await, worlds.await);
             this.update(cx, |this, cx| {
                 if serial != this.serial {
                     return;
                 }
+                let running = match (&list, &world_list) {
+                    (Ok(list), _) if list.running.is_some() => list.running.clone(),
+                    (_, Ok(world)) => world.running.clone(),
+                    (Ok(list), _) => list.running.clone(),
+                    _ => None,
+                };
+                if list.is_ok() || world_list.is_ok() {
+                    job_from_running(&mut this.job, running.as_ref());
+                }
                 match list {
                     Ok(list) => {
-                        job_from_list(&mut this.job, &list);
                         this.list = Some(list);
                         this.error = None;
                     }
                     Err(err) => this.error = Some(err.to_string()),
+                }
+                match world_list {
+                    Ok(world_list) => {
+                        this.world_list = Some(world_list);
+                        this.world_error = None;
+                    }
+                    Err(err) => this.world_error = Some(err.to_string()),
                 }
                 this.keep_polling(cx);
                 cx.notify();
@@ -589,6 +660,10 @@ impl BackupsPage {
                     t(match (kind, success) {
                         (JobKind::Restore, true) => M::RestoreDone,
                         (JobKind::Restore, false) => M::RestoreFailed,
+                        (JobKind::WorldBackup, true) => M::WorldBackupDone,
+                        (JobKind::WorldBackup, false) => M::WorldBackupFailed,
+                        (JobKind::WorldRestore, true) => M::WorldRestoreDone,
+                        (JobKind::WorldRestore, false) => M::WorldRestoreFailed,
                         (_, true) => M::BackupDone,
                         (_, false) => M::BackupFailed,
                     })
@@ -602,8 +677,9 @@ impl BackupsPage {
                     },
                     cx,
                 );
-                // the server's version and port may have changed with its files
-                if kind == JobKind::Restore && success {
+                // the server's version and port may have changed with its files (and a
+                // world restore changed what the Overview shows of the world)
+                if matches!(kind, JobKind::Restore | JobKind::WorldRestore) && success {
                     self.state.update(cx, |state, cx| state.reload(cx));
                 }
                 self.reload(cx);
@@ -612,7 +688,7 @@ impl BackupsPage {
         }
     }
 
-    // ---- Backing up ----
+    // ---- Taking a snapshot ----
 
     fn back_up_now(&mut self, cx: &mut Context<Self>) {
         if self.starting || self.job.is_some() {
@@ -1103,34 +1179,33 @@ impl BackupsPage {
             .loading(self.starting)
             .disabled(why.is_some() || self.starting || self.list.is_none())
             .on_click(cx.listener(|this, _, _, cx| this.back_up_now(cx)));
-        // the page's heading already says "Backups": the lead, and the button beside it
-        div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .justify_between()
-            .gap(px(16.))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .text_size(text::SMALL)
-                    .line_height(line_height(text::SMALL, leading::NORMAL))
-                    .text_color(ink::muted())
-                    .child(t(M::Lead)),
-            )
-            .child(
-                div()
-                    .flex_none()
-                    .child(why_not("backup-now-why", why, button)),
-            )
-            .into_any_element()
+        section_header(
+            t(M::SnapshotsSection),
+            t(M::Lead),
+            why_not("backup-now-why", why, button),
+        )
     }
 
-    fn render_job(&self, job: &Job) -> AnyElement {
+    fn render_job(&self, job: &Job, cx: &mut Context<Self>) -> AnyElement {
         let title = t(match job.kind {
             JobKind::Restore => M::Restoring,
+            JobKind::WorldBackup => M::WorldBackingUp,
+            JobKind::WorldRestore => M::WorldRestoring,
             _ => M::BackingUp,
+        });
+        // a world job can be cancelled (a restore until it puts the world in place), by
+        // whoever may start one: the core's cancel route asks the same permission
+        let may_cancel = match job.kind {
+            JobKind::WorldBackup => self.may(InstancePermission::Settings, cx),
+            JobKind::WorldRestore => self.may(InstancePermission::WriteFiles, cx),
+            _ => false,
+        };
+        let cancel = may_cancel.then(|| {
+            Button::new("world-job-cancel", t(CommonMsg::Cancel))
+                .size(ButtonSize::Slim)
+                .loading(self.cancelling)
+                .disabled(self.cancelling)
+                .on_click(cx.listener(|this, _, _, cx| this.cancel_world_job(cx)))
         });
         let track = div()
             .relative()
@@ -1168,7 +1243,7 @@ impl BackupsPage {
                     .items_center()
                     .justify_between()
                     .gap(px(8.))
-                    .child(div().text_color(ink::text()).child(title))
+                    .child(div().flex_1().text_color(ink::text()).child(title))
                     .when_some(job.progress, |this, p| {
                         this.child(
                             div()
@@ -1176,7 +1251,8 @@ impl BackupsPage {
                                 .text_color(ink::muted())
                                 .child(format::percent(p.round() as u64)),
                         )
-                    }),
+                    })
+                    .children(cancel),
             )
             .when(!job.message.is_empty(), |this| {
                 this.child(
@@ -1879,8 +1955,8 @@ impl BackupsPage {
         cx.notify();
     }
 
-    /// Sample backups, a running backup and the schedule on, for the development
-    /// screenshots' `--demo`.
+    /// Sample snapshots, a running snapshot and the schedule on, and sample world
+    /// backups, for the development screenshots' `--demo`.
     #[cfg(feature = "screenshot")]
     pub fn demo(&mut self, cx: &mut Context<Self>) {
         let now = chrono::Local::now().timestamp();
@@ -1924,8 +2000,10 @@ impl BackupsPage {
         // a fetch on its way (which fails for the made-up server) is dropped
         self.serial += 1;
         self.error = None;
-        job_from_list(&mut self.job, &list);
+        job_from_running(&mut self.job, list.running.as_ref());
         self.list = Some(list);
+        self.world_list = Some(Self::demo_world_list(now));
+        self.world_error = None;
         self.poll = None;
         cx.notify();
     }
@@ -1945,6 +2023,22 @@ fn why_not(
             .tooltip(text_tooltip(why))
             .into_any_element(),
     }
+}
+
+/// A section's heading with its lead under it, and its button beside them.
+fn section_header(title: &str, lead: &str, button: AnyElement) -> AnyElement {
+    div()
+        .flex()
+        .flex_row()
+        .items_end()
+        .justify_between()
+        .gap(px(16.))
+        .child(div().flex_1().min_w_0().child(settings::section(
+            title.to_string(),
+            Some(lead.to_string().into()),
+        )))
+        .child(div().flex_none().child(button))
+        .into_any_element()
 }
 
 /// A tag, with a tooltip saying what it means.
@@ -1985,10 +2079,18 @@ fn indeterminate() -> AnyElement {
 
 impl Render for BackupsPage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let mut sections: Vec<AnyElement> = vec![self.render_header(cx)];
-        if let Some(job) = &self.job {
-            sections.push(self.render_job(job));
+        let mut sections: Vec<AnyElement> = Vec::new();
+        if let Some(job) = self.job.clone() {
+            sections.push(self.render_job(&job, cx));
         }
+        let loading = self.list.is_none()
+            && self.world_list.is_none()
+            && self.error.is_none()
+            && self.world_error.is_none();
+        if !loading {
+            sections.push(self.render_world_section(cx));
+        }
+        sections.push(self.render_header(cx));
         if let Some(error) = &self.error {
             sections.push(parts::error(tr!(M::LoadFailed, error = error)));
         }
@@ -2021,6 +2123,18 @@ impl Render for BackupsPage {
         dialogs.extend(
             self.exporting
                 .render(window, |shown| Some(self.render_export(shown, cx))),
+        );
+        dialogs.extend(
+            self.world_creating
+                .render(window, |shown| Some(self.render_world_create(shown, cx))),
+        );
+        dialogs.extend(
+            self.world_restoring
+                .render(window, |shown| Some(self.render_world_restore(shown, cx))),
+        );
+        dialogs.extend(
+            self.world_deleting
+                .render(window, |shown| Some(self.render_world_delete(shown, cx))),
         );
         div()
             .id("backups")
@@ -2129,11 +2243,11 @@ mod tests {
         assert_eq!(backup_label(&backup, now), "Nov 3, 18:00", "a blank name");
         backup.name = Some("Before 1.21".into());
         assert_eq!(backup_label(&backup, now), "Before 1.21");
-        assert_eq!(next_backup(1000, 990), "Next backup soon");
-        assert_eq!(next_backup(1000 + 25 * 60, 1000), "Next backup in 25 min");
+        assert_eq!(next_backup(1000, 990), "Next snapshot soon");
+        assert_eq!(next_backup(1000 + 25 * 60, 1000), "Next snapshot in 25 min");
         assert_eq!(
             next_backup(1000 + 2 * 3600 + 5 * 60, 1000),
-            "Next backup in 2 h 5 min"
+            "Next snapshot in 2 h 5 min"
         );
     }
 
@@ -2148,28 +2262,28 @@ mod tests {
         // nobody on, and the time has passed: the core waits for a player
         assert_eq!(
             schedule_hint(&policy, Some(now - 3600), false, now),
-            "Next backup once a player joins"
+            "Next snapshot once a player joins"
         );
         // with players on it runs at the scheduler's next tick
         assert_eq!(
             schedule_hint(&policy, Some(now - 3600), true, now),
-            "Next backup soon"
+            "Next snapshot soon"
         );
         // still ahead: the time it's due
         assert_eq!(
             schedule_hint(&policy, Some(now + 25 * 60), false, now),
-            "Next backup in 25 min"
+            "Next snapshot in 25 min"
         );
         // backing up whether or not anyone played: it's due, so soon
         policy.only_when_active = false;
         assert_eq!(
             schedule_hint(&policy, Some(now - 3600), false, now),
-            "Next backup soon"
+            "Next snapshot soon"
         );
         policy.enabled = false;
         assert_eq!(
             schedule_hint(&policy, None, false, now),
-            "Nothing is saved when nothing changed since the last backup."
+            "Nothing is saved when nothing changed since the last snapshot."
         );
     }
 
@@ -2247,14 +2361,14 @@ mod tests {
         assert_eq!(running.progress, Some(10.0), "updates add up");
         assert_eq!(running.message, "Storing files");
         let end = progression(
-            r#"{"type":"ProgressionEnd","success":true,"inner":{"type":"BackupCompleted","instance_uuid":"i1","backup_id":null,"success":true,"message":"Nothing changed since the last backup"}}"#,
+            r#"{"type":"ProgressionEnd","success":true,"inner":{"type":"BackupCompleted","instance_uuid":"i1","backup_id":null,"success":true,"message":"Nothing changed since the last snapshot"}}"#,
         );
         assert_eq!(
             track(&mut job, "i1", &end),
             Tracked::Ended {
                 kind: JobKind::Backup,
                 success: true,
-                message: "Nothing changed since the last backup".into()
+                message: "Nothing changed since the last snapshot".into()
             }
         );
         assert!(job.is_none());
@@ -2277,11 +2391,70 @@ mod tests {
             progress: Some(35.0),
             message: String::new(),
         });
-        job_from_list(&mut job, &list);
+        job_from_running(&mut job, list.running.as_ref());
         assert_eq!(job.as_ref().unwrap().progress, Some(35.0));
         assert_eq!(job.as_ref().unwrap().message, "Staging");
         list.running = None;
-        job_from_list(&mut job, &list);
+        job_from_running(&mut job, list.running.as_ref());
         assert!(job.is_none(), "it ended");
+    }
+
+    #[test]
+    fn world_jobs_follow_their_events() {
+        let mut job = None;
+        let start = progression(
+            r#"{"type":"ProgressionStart","progression_name":"Backing up the world of SMP","total":100,"inner":{"type":"WorldBackup","instance_uuid":"i1"}}"#,
+        );
+        assert_eq!(track(&mut job, "i1", &start), Tracked::Started);
+        assert_eq!(job.as_ref().unwrap().kind, JobKind::WorldBackup);
+        let end = progression(
+            r#"{"type":"ProgressionEnd","success":false,"inner":{"type":"WorldBackupCompleted","instance_uuid":"i1","world_backup_id":null,"success":false,"message":"The world backup was cancelled"}}"#,
+        );
+        assert_eq!(
+            track(&mut job, "i1", &end),
+            Tracked::Ended {
+                kind: JobKind::WorldBackup,
+                success: false,
+                message: "The world backup was cancelled".into()
+            }
+        );
+        assert!(job.is_none());
+        let start = progression(
+            r#"{"type":"ProgressionStart","progression_name":"x","inner":{"type":"WorldRestore","instance_uuid":"i1"}}"#,
+        );
+        assert_eq!(track(&mut job, "i1", &start), Tracked::Started);
+        assert_eq!(job.as_ref().unwrap().kind, JobKind::WorldRestore);
+        let end = progression(
+            r#"{"type":"ProgressionEnd","success":true,"inner":{"type":"WorldRestoreCompleted","instance_uuid":"i1","world_backup_id":"w","safety_id":"s","success":true,"message":"Restored"}}"#,
+        );
+        assert!(matches!(
+            track(&mut job, "i1", &end),
+            Tracked::Ended {
+                kind: JobKind::WorldRestore,
+                success: true,
+                ..
+            }
+        ));
+        // another server's world job isn't this one's
+        let other = progression(
+            r#"{"type":"ProgressionStart","progression_name":"x","inner":{"type":"WorldBackup","instance_uuid":"other"}}"#,
+        );
+        assert_eq!(track(&mut job, "i1", &other), Tracked::Other);
+    }
+
+    /// Either list's `running` says what runs: they share one job per server.
+    #[test]
+    fn a_world_job_comes_from_the_world_list() {
+        let world: WorldBackupList = serde_json::from_value(serde_json::json!({
+            "running": {"kind": "world_restore", "task_id": "11", "progress": 60.0,
+                "message": "Putting the world in place"}
+        }))
+        .unwrap();
+        let mut job = None;
+        job_from_running(&mut job, world.running.as_ref());
+        let running = job.unwrap();
+        assert_eq!(running.kind, JobKind::WorldRestore);
+        assert_eq!(running.task_id, 11);
+        assert_eq!(running.progress, Some(60.0));
     }
 }

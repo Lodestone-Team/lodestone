@@ -21,7 +21,7 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use launcher_control::paths::{LOCATION_FILE, SOCKET_FILE, write_location};
+use launcher_control::paths::{LOCATION_FILE, LOGS_DIR, SOCKET_FILE, write_location};
 use serde::{Deserialize, Serialize};
 
 use crate::disk::Cancel;
@@ -35,9 +35,12 @@ pub const CLEANUP_FILE: &str = "data-move-cleanup.json";
 const IGNORABLE: &[&str] = &[".DS_Store", "desktop.ini", "Thumbs.db"];
 
 /// Top-level names that are never moved: the location files, which belong to the
-/// default directory, and the control socket, which the running launcher owns.
+/// default directory, the control socket, which the running launcher owns, and the
+/// logs, which the running launcher writes and which stay findable in the default
+/// directory ([`LOGS_DIR`]).
 fn stays_behind(name: &str) -> bool {
     name == LOCATION_FILE
+        || name == LOGS_DIR
         || name == CLEANUP_FILE
         || name == SOCKET_FILE
         || name.starts_with(&format!("{LOCATION_FILE}."))
@@ -164,10 +167,25 @@ pub fn run(
 
     // Same drive: one rename, when the target doesn't exist yet (an empty folder is
     // removed first). A file open in the data folder makes Windows refuse it; then
-    // it is copied like across drives.
-    if try_rename(from, to) {
-        // The running launcher's socket; the restarted one makes its own.
-        let _ = fs::remove_file(to.join(SOCKET_FILE));
+    // it is copied like across drives. The default folder holds the open log file,
+    // so the log is closed meanwhile (lines wait in memory) and its folder put back.
+    let moving_default = comparable(from) == comparable(default);
+    let renamed = {
+        let _released = moving_default.then(crate::logging::release_file);
+        try_rename(from, to).then(|| {
+            // The running launcher's socket; the restarted one makes its own.
+            let _ = fs::remove_file(to.join(SOCKET_FILE));
+            if moving_default {
+                keep_logs_behind(to, default)
+            } else {
+                Ok(())
+            }
+        })
+    };
+    if let Some(kept) = renamed {
+        if let Err(err) = kept {
+            log::warn!("couldn't keep the logs in the default data folder after a move: {err}");
+        }
         progress.total.store(1, Ordering::Relaxed);
         progress.done.store(1, Ordering::Relaxed);
         return point_at(request);
@@ -208,8 +226,8 @@ fn point_at(request: &MoveRequest) -> Result<(), MoveError> {
         into: to.clone(),
     };
     if let Err(err) = write_cleanup(default, &cleanup) {
-        eprintln!(
-            "lodestone-launcher: moved the data, but couldn't note {} for removal: {err}",
+        log::warn!(
+            "moved the data, but couldn't note {} for removal: {err}",
             from.display()
         );
     }
@@ -301,6 +319,18 @@ pub fn finish_pending(default: &Path, data_dir: &Path) -> Finished {
             error: err.to_string(),
         },
     }
+}
+
+/// After the default directory was renamed to `to` as a whole, puts its logs back:
+/// they belong to the default directory ([`stays_behind`]), where the running launcher
+/// reopens its log.
+fn keep_logs_behind(to: &Path, default: &Path) -> io::Result<()> {
+    let logs = to.join(LOGS_DIR);
+    if !logs.is_dir() {
+        return Ok(());
+    }
+    fs::create_dir_all(default)?;
+    fs::rename(&logs, default.join(LOGS_DIR))
 }
 
 /// Removes everything in `dir` except the top-level names `keep` accepts. Links are
@@ -491,8 +521,8 @@ fn undo_copy(to: &Path, created: bool, is_default: bool) {
         remove_contents(to, |name| IGNORABLE.contains(&name))
     };
     if let Err(err) = result {
-        eprintln!(
-            "lodestone-launcher: couldn't remove the unfinished copy in {}: {err}",
+        log::warn!(
+            "couldn't remove the unfinished copy in {}: {err}",
             to.display()
         );
     }
@@ -593,6 +623,8 @@ mod tests {
         fs::write(dir.join("settings.json"), "{}").unwrap();
         fs::write(world.join("level.dat"), vec![7u8; 3 << 20]).unwrap();
         fs::write(dir.join(SOCKET_FILE), "").unwrap();
+        fs::create_dir_all(dir.join(LOGS_DIR)).unwrap();
+        fs::write(dir.join(LOGS_DIR).join("launcher.log"), "a line\n").unwrap();
         let readonly = dir.join("instances/survival/instance.json");
         fs::write(&readonly, "{}").unwrap();
         let mut permissions = fs::metadata(&readonly).unwrap().permissions();
@@ -681,6 +713,7 @@ mod tests {
         .unwrap();
         assert_filled(&to);
         assert!(!to.join(SOCKET_FILE).exists(), "the socket stays behind");
+        assert!(!to.join(LOGS_DIR).exists(), "the logs stay behind");
         assert_eq!(
             launcher_control::paths::read_location(&w.default),
             Some(to.clone())
@@ -694,8 +727,11 @@ mod tests {
         let left: Vec<_> = fs::read_dir(&w.default)
             .unwrap()
             .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
             .collect();
-        assert_eq!(left, vec![LOCATION_FILE.to_string()]);
+        assert_eq!(left, vec![LOCATION_FILE.to_string(), LOGS_DIR.to_string()]);
+        assert!(w.default.join(LOGS_DIR).join("launcher.log").is_file());
         assert_eq!(finish_pending(&w.default, &to), Finished::Nothing);
 
         // And back to the default folder.
@@ -706,6 +742,7 @@ mod tests {
         )
         .unwrap();
         assert_filled(&w.default);
+        assert!(w.default.join(LOGS_DIR).join("launcher.log").is_file());
         assert_eq!(launcher_control::paths::read_location(&w.default), None);
         assert_eq!(
             finish_pending(&w.default, &w.default),
