@@ -144,6 +144,18 @@ pub fn text(message: M) -> &'static str {
             "Désactivé. Rejouez pour voir si le problème est réglé. Vous pouvez le réactiver ici ou dans l’onglet Contenu."
         }
         M::CopyLog => "Copier le journal",
+        M::ShowCode => "Afficher le code",
+        M::HideCode => "Masquer le code",
+        M::SiteFailedPatch => "Mixin qui n’a pas pu s’appliquer",
+        M::SiteEntrypoint => "Code de démarrage qui a échoué",
+        M::SiteCrashedHere => "A levé l’erreur",
+        M::SiteInjected => "Code de mixin ajouté au jeu",
+        M::SiteMixin => "Mixin sur une classe de la pile du plantage",
+        M::SiteCalled => "A appelé le code qui a planté",
+        M::SiteCaught => "A intercepté l’erreur et l’a transmise",
+        M::SiteRunsIn => "S’exécute dans {target}",
+        M::SitePatches => "Modifie {target}",
+        M::CopyForDevelopers => "Copier pour les développeurs",
 
         M::UpdateTitle => "Mettre à jour {name}\u{202F}?",
         M::ModpackSummary => {

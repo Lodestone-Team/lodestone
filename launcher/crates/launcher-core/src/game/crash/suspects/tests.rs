@@ -298,8 +298,17 @@ fn parses_frames() {
         frame("\tat knot//MC//net.minecraft.item.ItemStack.getTooltip(ItemStack.java:656)"),
         Some(Frame {
             class: "net.minecraft.item.ItemStack".into(),
-            method: "getTooltip".into()
+            method: "getTooltip".into(),
+            source: Some("ItemStack.java:656".into()),
         })
+    );
+    assert_eq!(
+        frame("at java.base/jdk.internal.misc.Unsafe.park(Native Method)").and_then(|f| f.source),
+        Some("Native Method".into())
+    );
+    assert_eq!(
+        frame("at com.example.Foo.bar(Unknown Source)").and_then(|f| f.source),
+        None
     );
     assert_eq!(
         frame("at TRANSFORMER/examplemod@1.0/com.example.Foo.bar(Foo.java:10) ~[examplemod-1.0.jar%23215!/:1.0] {re:classloading}")
@@ -339,4 +348,228 @@ fn names_the_mod_whose_entrypoint_failed() {
     assert_eq!(suspects[0].name, "India Effects");
     assert_eq!(suspects[0].evidence, Evidence::CrashedInItsCode);
     assert!(likely(&suspects));
+    assert_eq!(
+        sites_of(&suspects, "India Effects"),
+        [(
+            SiteKind::Entrypoint,
+            "com.example.india.IndiaMod",
+            None,
+            None
+        )]
+    );
+}
+
+/// The sites of the suspect named `name`, as (kind, code, source, target).
+fn sites_of<'a>(
+    suspects: &'a [Suspect],
+    name: &str,
+) -> Vec<(SiteKind, &'a str, Option<&'a str>, Option<&'a str>)> {
+    suspects
+        .iter()
+        .find(|s| s.name == name)
+        .unwrap_or_else(|| panic!("no suspect {name}"))
+        .sites
+        .iter()
+        .map(|s| {
+            (
+                s.kind,
+                s.code.as_str(),
+                s.source.as_deref(),
+                s.target.as_deref(),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn points_at_the_lines_in_each_mods_code() {
+    let (_dir, dirs) = enchantips_instance();
+    let suspects = find(&dirs, Some(ENCHANTIPS), &[]);
+    assert_eq!(
+        sites_of(&suspects, "Enchantips"),
+        [(
+            SiteKind::CrashedHere,
+            "com.fedpol1.enchantips.util.EnchantmentLevel.getColor",
+            Some("EnchantmentLevel.java:71"),
+            None,
+        )]
+    );
+    // Zenith's mixin handler, and the game method it was injected into.
+    assert_eq!(
+        sites_of(&suspects, "Zenith"),
+        [(
+            SiteKind::Injected,
+            "enchTooltipRewrite",
+            Some("ItemStack.java:2641"),
+            Some("net.minecraft.item.ItemStack.getTooltip (ItemStack.java:656)"),
+        )]
+    );
+    assert_eq!(
+        sites_of(&suspects, "Apotheosis"),
+        [(
+            SiteKind::Called,
+            "dev.shadowsoffire.apotheosis.ench.table.ApothEnchScreen.render",
+            Some("ApothEnchScreen.java:188"),
+            None,
+        )]
+    );
+}
+
+/// A mod in development calls the game's `ItemStack.getTooltip`, which Zenith's mixin
+/// changed, and Zenith's injected code throws.
+const DEV_MOD: &str = "---- Minecraft Crash Report ----
+Description: Rendering item tooltip
+
+java.lang.ClassCastException: class com.devmod.CustomData cannot be cast to class net.minecraft.nbt.NbtCompound
+\tat knot//MC//net.minecraft.item.ItemStack.handler$zzb000$zenith$onTooltip(ItemStack.java:2700)
+\tat knot//MC//net.minecraft.item.ItemStack.getTooltip(ItemStack.java:656)
+\tat knot//com.devmod.client.TooltipRenderer.draw(TooltipRenderer.java:42)
+\tat knot//MC//net.minecraft.client.gui.DrawContext.drawItemTooltip(DrawContext.java:100)
+
+A detailed walkthrough of the error, its code path and all known details is as follows:
+
+-- Head --
+Thread: Render thread
+Stacktrace:
+\tat knot//MC//net.minecraft.item.ItemStack.handler$zzb000$zenith$onTooltip(ItemStack.java:2700)
+Mixins in Stacktrace:
+\tnet.minecraft.item.ItemStack:
+\t\tdev.shadowsoffire.zenith.mixin.ItemStackMixin (zenith.mixins.json)
+\t\tcom.devmod.mixin.StackMixin (devmod.mixins.json)
+\tnet.minecraft.client.gui.DrawContext:
+\t\tcom.devmod.mixin.DrawMixin (devmod.mixins.json)
+
+-- System Details --
+";
+
+#[test]
+fn shows_both_sides_when_one_mod_breaks_another() {
+    let (_dir, dirs) = instance();
+    let mods = mods(&dirs);
+    jar(
+        &mods.join("zenith.jar"),
+        "zenith",
+        "Zenith",
+        &[
+            "zenith.mixins.json",
+            "dev/shadowsoffire/zenith/mixin/ItemStackMixin.class",
+        ],
+    );
+    jar(
+        &mods.join("devmod.jar"),
+        "devmod",
+        "Dev Mod",
+        &[
+            "devmod.mixins.json",
+            "com/devmod/client/TooltipRenderer.class",
+            "com/devmod/mixin/StackMixin.class",
+            "com/devmod/mixin/DrawMixin.class",
+        ],
+    );
+    let suspects = find(&dirs, Some(DEV_MOD), &[]);
+    assert_eq!(suspects[0].name, "Zenith");
+    assert_eq!(suspects[0].evidence, Evidence::CrashedInItsCode);
+    // The injected handler is named after Zenith's one mixin on ItemStack.
+    assert_eq!(
+        sites_of(&suspects, "Zenith"),
+        [
+            (
+                SiteKind::Injected,
+                "dev.shadowsoffire.zenith.mixin.ItemStackMixin.onTooltip",
+                Some("ItemStack.java:2700"),
+                Some("net.minecraft.item.ItemStack.getTooltip (ItemStack.java:656)"),
+            ),
+            (
+                SiteKind::Mixin,
+                "dev.shadowsoffire.zenith.mixin.ItemStackMixin",
+                Some("zenith.mixins.json"),
+                Some("net.minecraft.item.ItemStack"),
+            ),
+        ]
+    );
+    assert_eq!(
+        sites_of(&suspects, "Dev Mod"),
+        [
+            (
+                SiteKind::Mixin,
+                "com.devmod.mixin.StackMixin",
+                Some("devmod.mixins.json"),
+                Some("net.minecraft.item.ItemStack"),
+            ),
+            (
+                SiteKind::Mixin,
+                "com.devmod.mixin.DrawMixin",
+                Some("devmod.mixins.json"),
+                Some("net.minecraft.client.gui.DrawContext"),
+            ),
+            (
+                SiteKind::Called,
+                "com.devmod.client.TooltipRenderer.draw",
+                Some("TooltipRenderer.java:42"),
+                None,
+            ),
+        ]
+    );
+}
+
+#[test]
+fn names_the_mixin_that_failed_to_apply() {
+    let (_dir, dirs) = instance();
+    jar(&mods(&dirs).join("old-mod.jar"), "oldmod", "Old Mod", &[]);
+    let log = [LogLine::plain(
+        Stream::Stdout,
+        "[main/ERROR]: Mixin apply for mod oldmod failed oldmod.mixins.json:TitleMixin from mod oldmod -> net.minecraft.class_442: org.spongepowered.asm.mixin.injection.throwables.InvalidInjectionException: Critical injection failure",
+    )];
+    let suspects = find(&dirs, None, &log);
+    assert_eq!(suspects[0].sites.len(), 1);
+    let site = &suspects[0].sites[0];
+    assert_eq!(site.kind, SiteKind::FailedPatch);
+    assert_eq!(site.code, "oldmod.mixins.json:TitleMixin");
+    assert_eq!(site.target.as_deref(), Some("net.minecraft.class_442"));
+    assert!(
+        site.detail
+            .as_deref()
+            .is_some_and(|d| d.starts_with("Mixin apply for mod oldmod failed")),
+        "{site:?}"
+    );
+
+    // Forge's wording names no target class.
+    let (_dir, dirs) = instance();
+    jar(
+        &mods(&dirs).join("thing.jar"),
+        "thing",
+        "Thing",
+        &["thing.mixins.json"],
+    );
+    let log = [LogLine::plain(
+        Stream::Stdout,
+        "Mixin [thing.mixins.json:client.ScreenMixin] from phase [DEFAULT] in config [thing.mixins.json] FAILED during APPLY",
+    )];
+    let site = &find(&dirs, None, &log)[0].sites[0];
+    assert_eq!(site.code, "thing.mixins.json:client.ScreenMixin");
+    assert_eq!(site.target, None);
+}
+
+#[test]
+fn keeps_at_most_max_sites() {
+    let (_dir, dirs) = instance();
+    jar(
+        &mods(&dirs).join("deep.jar"),
+        "deep",
+        "Deep",
+        &["com/deep/Recursive.class"],
+    );
+    let mut report = String::from("Description: x\n\njava.lang.StackOverflowError\n");
+    for line in 0..40 {
+        report.push_str(&format!(
+            "\tat com.deep.Recursive.go(Recursive.java:{line})\n"
+        ));
+    }
+    let suspects = find(&dirs, Some(&report), &[]);
+    assert_eq!(suspects[0].sites.len(), MAX_SITES);
+    assert_eq!(suspects[0].sites[0].kind, SiteKind::CrashedHere);
+    assert_eq!(
+        suspects[0].sites[0].source.as_deref(),
+        Some("Recursive.java:0")
+    );
 }
