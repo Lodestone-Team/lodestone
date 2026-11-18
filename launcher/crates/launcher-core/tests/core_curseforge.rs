@@ -1101,15 +1101,23 @@ fn a_servers_curseforge_pack_has_a_newer_file() {
         ..Default::default()
     };
     // a release moves to the newest release, not to a beta
-    let newer = block_on(curseforge_pack::newer_file(&cf, &origin(9_001))).unwrap();
+    let newer = block_on(curseforge_pack::newer_file(&cf, &origin(9_001), "1.20.1")).unwrap();
     assert_eq!(newer.map(|f| f.id), Some(9_002));
     assert_eq!(
-        block_on(curseforge_pack::newer_file(&cf, &origin(9_002))).unwrap(),
+        block_on(curseforge_pack::newer_file(&cf, &origin(9_002), "1.20.1")).unwrap(),
         None
     );
+    // a server already on a newer Minecraft version isn't offered the older line
+    // the pack still publishes, and one on an older version is offered the newer
+    assert_eq!(
+        block_on(curseforge_pack::newer_file(&cf, &origin(9_001), "1.21.1")).unwrap(),
+        None
+    );
+    let newer = block_on(curseforge_pack::newer_file(&cf, &origin(9_001), "1.19.2")).unwrap();
+    assert_eq!(newer.map(|f| f.id), Some(9_002));
     // from a beta, nothing older
     assert_eq!(
-        block_on(curseforge_pack::newer_file(&cf, &origin(9_003))).unwrap(),
+        block_on(curseforge_pack::newer_file(&cf, &origin(9_003), "1.20.1")).unwrap(),
         None
     );
 }

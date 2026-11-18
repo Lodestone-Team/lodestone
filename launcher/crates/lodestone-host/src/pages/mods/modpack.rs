@@ -213,10 +213,16 @@ impl ModsPage {
             self.modpack_check = ModpackCheck::Checking;
             cx.notify();
         }
+        let game_version = self
+            .state
+            .read(cx)
+            .instance(&self.uuid)
+            .map(|instance| instance.version.clone())
+            .unwrap_or_default();
         let task = cx.spawn(async move |this, cx| {
             let found = cx
                 .background_spawn(launcher_core::http::in_http_runtime(async move {
-                    curseforge_pack::newer_file(&curseforge, &origin).await
+                    curseforge_pack::newer_file(&curseforge, &origin, &game_version).await
                 }))
                 .await;
             this.update(cx, |this, cx| {

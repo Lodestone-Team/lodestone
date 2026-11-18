@@ -518,13 +518,17 @@ fn write_pack(
 }
 
 /// The newest file of the modpack `origin` names that is newer than the one the server
-/// was made from, and at least as stable (the Launcher's rule for CurseForge packs).
+/// was made from, and at least as stable (the Launcher's rule for CurseForge packs),
+/// for the server's Minecraft version `game_version` or a newer one: as the core does
+/// for Modrinth's packs, a line the pack keeps for an older Minecraft version is never
+/// offered to a server on a newer one. A file tagged with no Minecraft version counts.
 /// `None` when the server is up to date. Server packs (an author's own zips of a ready
 /// server) are never offered: they aren't modpack files. One request: the project's
 /// newest files, among which a server's own file is unless it is far behind.
 pub async fn newer_file(
     cf: &CurseForge,
     origin: &CurseForgeOrigin,
+    game_version: &str,
 ) -> Result<Option<CfFile>, CurseForgeError> {
     // newest first
     let files = cf.latest_files(origin.project).await?;
@@ -534,8 +538,17 @@ pub async fn newer_file(
         // a file CurseForge no longer lists: anything newer than nothing
         None => ("release", ""),
     };
+    let for_this_or_newer = |file: &&CfFile| {
+        let games = file.tags().game_versions;
+        games.is_empty()
+            || games.iter().any(|game| {
+                lodestone_minecraft::versions::compare_versions(game, game_version)
+                    != std::cmp::Ordering::Less
+            })
+    };
     Ok(files
         .iter()
+        .filter(for_this_or_newer)
         .find(|f| curseforge_type_allowed(stability, f.version_type(), false))
         .filter(|newest| newest.id != origin.file && newest.file_date.as_str() > since)
         .cloned())

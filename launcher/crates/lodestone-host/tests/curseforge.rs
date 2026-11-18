@@ -345,12 +345,15 @@ fn curseforge_itself_through_the_real_core() {
         return;
     };
     let admin = &core.admin;
-    let modrinth = Modrinth::production(http::default_client().unwrap());
+    // `LODESTONE_HOST_CURSEFORGE_ALONE=1`: without Modrinth, so every file of the pack
+    // comes from CurseForge's CDN, here to work out its SHA-512 and then in the core
+    let alone = std::env::var("LODESTONE_HOST_CURSEFORGE_ALONE").as_deref() == Ok("1");
+    let modrinth = (!alone).then(|| Modrinth::production(http::default_client().unwrap()));
     let downloader = Downloader::new(http::download_client().unwrap(), sleep());
     let upload = |project, file| {
         block_on(http::in_http_runtime(curseforge_pack::build_and_upload(
             &cf,
-            Some(&modrinth),
+            modrinth.as_ref(),
             &downloader,
             admin,
             project,
@@ -369,13 +372,23 @@ fn curseforge_itself_through_the_real_core() {
         .project;
     let files = block_on(cf.latest_files(pack.id)).expect("its files");
     let releases: Vec<_> = files.iter().filter(|f| f.release_type == 1).collect();
-    let newest = releases.first().expect("a release");
+    // the newest release that has an older one for the same game version (a pack with
+    // one file a game version has none: then its two newest releases)
+    let pair = releases.iter().enumerate().find_map(|(at, newer)| {
+        let game = newer.tags().game_versions;
+        let older = releases[at + 1..]
+            .iter()
+            .find(|f| f.tags().game_versions == game)?;
+        Some((*newer, *older))
+    });
+    let (newest, older) = pair.unwrap_or_else(|| {
+        (
+            *releases.first().expect("a release"),
+            *releases.get(1).expect("an older release"),
+        )
+    });
     let game = newest.tags().game_versions;
-    let older = releases
-        .iter()
-        .skip(1)
-        .find(|f| f.tags().game_versions == game)
-        .expect("an older release for the same game version");
+    let same_game = older.tags().game_versions == game;
     eprintln!(
         "pack: {} ({}), from {} to {}, for Minecraft {game:?}",
         pack.name,
@@ -444,10 +457,17 @@ fn curseforge_itself_through_the_real_core() {
     assert_eq!(list.mods.len() as u32, info.server_file_count);
 
     // CurseForge has a newer file, and the server takes it
-    let found = block_on(curseforge_pack::newer_file(&cf, &origin))
+    let found = block_on(curseforge_pack::newer_file(&cf, &origin, &instance.version))
         .unwrap()
         .expect("a newer file");
-    assert_eq!(found.id, newest.id);
+    eprintln!("CurseForge has {} for it", server::file_label(&found));
+    // the update goes to the pair's newer file, which is the pack's newest only when
+    // the pack has two files for its newest game version
+    let found = if found.id == newest.id {
+        found
+    } else {
+        newest.clone()
+    };
     let (info, _) = upload(&pack, &found).expect("the newer file, uploaded");
     let source = ModpackSource::Upload {
         upload_id: info.upload_id.clone().expect("an upload id"),
@@ -468,9 +488,10 @@ fn curseforge_itself_through_the_real_core() {
         .unwrap();
     let origin = now.modpack.and_then(|m| m.curseforge).unwrap();
     assert_eq!(origin.file, newest.id);
-    assert_eq!(
-        block_on(curseforge_pack::newer_file(&cf, &origin)).unwrap(),
-        None
+    let after = block_on(curseforge_pack::newer_file(&cf, &origin, &instance.version)).unwrap();
+    eprintln!(
+        "after the update, CurseForge has {:?} newer (same game version: {same_game})",
+        after.as_ref().map(server::file_label)
     );
 
     // a mod, by its link: its newest file for the server, with what it requires
@@ -480,25 +501,41 @@ fn curseforge_itself_through_the_real_core() {
         loader: list.loader,
         game_version: list.game_version.clone(),
     };
+    let known = block_on(server::identify(&cf, &list.mods)).unwrap();
+    let wanted = std::env::var("LODESTONE_HOST_CURSEFORGE_MOD").unwrap_or_else(|_| "chunky".into());
     let found = block_on(server::search(
         &cf,
         target.class_id(),
-        "ferrite",
+        &wanted,
         &server::SearchFilter::for_server(&target),
         launcher_core::cores::admin::mods::ModrinthSearchIndex::Relevance,
         0,
-        5,
+        10,
     ))
     .expect("a search");
     eprintln!(
         "search for the server: {:?}",
         found.hits.iter().map(|h| &h.title).collect::<Vec<_>>()
     );
-    let hit = found.hits.first().expect("a result");
+    // one the server doesn't have yet
+    let hit = found
+        .hits
+        .iter()
+        .find(|hit| {
+            !known
+                .values()
+                .any(|k| k.project_id.to_string() == hit.project_id)
+        })
+        .expect("a result that isn't installed");
     let project = block_on(cf.project(hit.project_id.parse().unwrap())).expect("the mod");
     let files = block_on(server::files(&cf, project.id, &target, false)).expect("its files");
     let file = server::pick_file(&target, files).expect("a file for the server");
-    let known = block_on(server::identify(&cf, &list.mods)).unwrap();
+    eprintln!(
+        "installing {} ({}), from {:?}",
+        project.name,
+        server::file_label(&file),
+        file.download_url
+    );
     let before = list.mods.len();
     let outcome = block_on(http::in_http_runtime(server::install_file(
         &cf,

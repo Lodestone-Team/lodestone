@@ -1238,7 +1238,20 @@ impl ModpackFlow {
                             .flex_row()
                             .items_center()
                             .gap(px(8.))
-                            .child(VersionTag::new(version.version_number.clone()))
+                            .min_w_0()
+                            // a CurseForge file's name, whole: a version tag would cut
+                            // its middle out
+                            .child(if self.platform == Source::CurseForge {
+                                div()
+                                    .min_w_0()
+                                    .truncate()
+                                    .font_weight(weights::MEDIUMBOLD.face())
+                                    .text_color(ink::text())
+                                    .child(version.version_number.clone())
+                                    .into_any_element()
+                            } else {
+                                VersionTag::new(version.version_number.clone()).into_any_element()
+                            })
                             .children(version_type_label(version.version_type)),
                     )
                     .child(detail),

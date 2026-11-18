@@ -570,6 +570,27 @@ impl ModsPage {
             ));
         let picked = version.clone();
         let id = |part: &str| SharedString::from(format!("version-{index}-{part}"));
+        // A CurseForge file has a name ("Lithium mc1.21.4-0.14.8 Fabric"), not a version
+        // number: shown whole, where a version tag would cut its middle out and leave
+        // a project's files looking alike.
+        let on_curseforge = self
+            .project
+            .as_ref()
+            .is_some_and(|view| view.source == Source::CurseForge);
+        let number: AnyElement = if on_curseforge {
+            div()
+                .id(id("number"))
+                .min_w_0()
+                .truncate()
+                .font_weight(weights::MEDIUMBOLD.face())
+                .text_color(ink::text())
+                .child(version.version_number.clone())
+                .into_any_element()
+        } else {
+            VersionTag::new(version.version_number.clone())
+                .id(id("number"))
+                .into_any_element()
+        };
         div()
             .flex()
             .flex_row()
@@ -589,7 +610,8 @@ impl ModsPage {
                             .flex_row()
                             .items_center()
                             .gap(px(8.))
-                            .child(VersionTag::new(version.version_number.clone()).id(id("number")))
+                            .min_w_0()
+                            .child(number)
                             .child(StatusBadge::new(type_label, type_tone))
                             .when(installed_here, |this| {
                                 this.child(StatusBadge::new(t(M::ModsInstalledTag), Tone::Success))
