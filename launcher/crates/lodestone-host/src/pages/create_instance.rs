@@ -481,7 +481,9 @@ impl CreateInstance {
     }
 
     /// For screenshots: moves the dialog on to `step` (`games`, `basic`, `server`,
-    /// `auto`, `modpack`, `import`, `import:<folder>` to read a folder, or a sample
+    /// `auto`, `modpack`, `curseforge` (the modpack search on CurseForge),
+    /// `curseforge:<project>[/<file>]` (a CurseForge modpack, and one of its files read),
+    /// `import`, `import:<folder>` to read a folder, or a sample
     /// file's summary, `image`, `image-launcher` or `image-launcher-world`, its world list
     /// open, or `image-outcome`, the toast a server made from a file ends with) as soon as
     /// what it needs has loaded.
@@ -521,20 +523,38 @@ impl CreateInstance {
         if step == "modpack" {
             return self.open_modpack(cx);
         }
+        // the modpack search on CurseForge (in a copy with Lodestone's key)
+        #[cfg(feature = "screenshot")]
+        if step == "curseforge" {
+            self.open_modpack(cx);
+            if let Some(flow) = &self.modpack {
+                flow.update(cx, |flow, cx| flow.search_curseforge_for_screenshot(cx));
+            }
+            return;
+        }
         if step == "import" {
             return self.open_import(cx);
         }
         if let Some(path) = step.strip_prefix("import:") {
             return self.open_import_with(Some(path.to_string()), cx);
         }
-        if let Some(project) = step.strip_prefix("modpack:") {
+        // `modpack:<project>[/<version>]` on Modrinth, `curseforge:<project>[/<file>]`
+        // on CurseForge (which asks CurseForge, in a copy with Lodestone's key)
+        let preset = step
+            .strip_prefix("modpack:")
+            .map(|project| (crate::curseforge::Source::Modrinth, project))
+            .or_else(|| {
+                step.strip_prefix("curseforge:")
+                    .map(|project| (crate::curseforge::Source::CurseForge, project))
+            });
+        if let Some((source, project)) = preset {
             let (project_id, version_id) = match project.split_once('/') {
                 Some((p, v)) => (p.to_string(), Some(v.to_string())),
                 None => (project.to_string(), None),
             };
             return self.open_modpack_preset(
                 ModpackPreset {
-                    source: crate::curseforge::Source::Modrinth,
+                    source,
                     project_id,
                     version_id,
                 },

@@ -139,7 +139,9 @@ pub fn demo(view: &AnyView, cx: &mut App) {
 }
 
 /// Puts sample mods on the Mods tab's Installed view (development screenshots'
-/// `--mods many|last|pack|few[-end]`, with `--tab mods --fake-instance`).
+/// `--mods many|last|pack|few[-end]`, with `--tab mods --fake-instance`; and CurseForge's
+/// `curseforge`, `browse-curseforge[:query]` and `project-curseforge:<id>`, the last two
+/// asking CurseForge, or a stand-in at `LODESTONE_CURSEFORGE_API_URL` on this computer).
 #[cfg(feature = "screenshot")]
 pub fn mods_demo(view: &AnyView, scene: &str, cx: &mut App) {
     if let Ok(page) = view.clone().downcast::<mods::ModsPage>() {

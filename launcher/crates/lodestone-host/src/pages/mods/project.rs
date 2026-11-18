@@ -824,10 +824,13 @@ impl ModsPage {
                 other => other.into(),
             }
         };
+        // Modrinth's project doesn't name its author (the search result does);
+        // CurseForge's does
         let author = view
             .hit
             .as_ref()
             .map(|h| h.author.clone())
+            .or_else(|| Some(view.curseforge.as_ref()?.authors.first()?.name.clone()))
             .unwrap_or_else(|| project.slug.clone());
         // who made it, its downloads and followers, and whether servers need it
         let facts = FactLine::strip("project-facts")

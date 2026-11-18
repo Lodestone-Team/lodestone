@@ -1289,12 +1289,28 @@ impl ModsPage {
     /// `last` (their last page), `pack` (the client pack unfolded), `few` (a handful,
     /// with no pager and no fold) or `forge` (the handful on a Forge server, whose rows
     /// have "For players" too); with `-end` (`many-end`), scrolled to the bottom.
+    ///
+    /// CurseForge's scenes: `curseforge` is the handful with the jars Modrinth doesn't
+    /// know shown as CurseForge's files, one with an update (nothing is asked of
+    /// CurseForge). `browse-curseforge[:query]` and `project-curseforge:<id>` open
+    /// Browse on CurseForge and a CurseForge project, which do ask CurseForge: they
+    /// need a copy with Lodestone's key, and the network.
     #[cfg(feature = "screenshot")]
     pub fn demo_installed(&mut self, scene: &str, cx: &mut Context<Self>) {
         let (scene, end) = match scene.strip_suffix("-end") {
             Some(scene) => (scene, true),
             None => (scene, false),
         };
+        let (scene, argument) = match scene.split_once(':') {
+            Some((scene, argument)) => (scene, Some(argument.to_string())),
+            None => (scene, None),
+        };
+        let on_curseforge = matches!(
+            scene,
+            "curseforge" | "browse-curseforge" | "project-curseforge"
+        );
+        let asked = scene;
+        let scene = if on_curseforge { "few" } else { scene };
         const NAMES: [&str; 20] = [
             "Sodium",
             "Lithium",
@@ -1373,10 +1389,70 @@ impl ModsPage {
         self.history_serial += 1;
         self.modpack_check = super::modpack::ModpackCheck::Newest;
         self.modpack_history = None;
+        // the jars Modrinth doesn't know, as CurseForge's files
+        self.curseforge = if on_curseforge {
+            list.mods
+                .iter()
+                .filter(|m| m.modrinth.is_none())
+                .enumerate()
+                .map(|(index, m)| {
+                    let update = (index == 0).then(|| {
+                        serde_json::from_value(serde_json::json!({
+                            "id": 2, "modId": 1, "displayName": format!("{} 9.9.9.jar", m.name()),
+                            "fileName": "newer.jar",
+                        }))
+                        .expect("a sample file")
+                    });
+                    (
+                        m.file_name.clone(),
+                        server::CfInstalled {
+                            project_id: 1,
+                            file_id: 1,
+                            title: m.name().to_string(),
+                            page_url: "https://www.curseforge.com/projects/1".into(),
+                            icon_url: None,
+                            version: m.file_name.trim_end_matches(".jar").to_string(),
+                            version_type: "release",
+                            file_date: String::new(),
+                            update,
+                        },
+                    )
+                })
+                .collect()
+        } else {
+            Default::default()
+        };
+        self.curseforge_loading = false;
         self.list = Some(list);
         self.list_error = None;
         self.loading = false;
         self.pack_open = scene == "pack";
+        match asked {
+            "browse-curseforge" => {
+                self.view = super::SubView::Browse;
+                if let Some(target) = self.target(cx) {
+                    let admin = self.state.read(cx).admin.clone();
+                    let browse = super::browse::Browse::new(&target, admin, cx);
+                    browse.search_for_screenshot(
+                        crate::curseforge::Source::CurseForge,
+                        argument.as_deref().unwrap_or_default(),
+                        cx,
+                    );
+                    self.browse = Some(browse);
+                }
+            }
+            "project-curseforge" => {
+                self.view = super::SubView::Browse;
+                self.open_project(
+                    crate::curseforge::Source::CurseForge,
+                    argument.clone().unwrap_or_default(),
+                    None,
+                    None,
+                    cx,
+                );
+            }
+            _ => {}
+        }
         let last = pager::page_count(count) - 1;
         self.set_installed_page(if scene == "last" { last } else { 0 }, cx);
         if end {

@@ -107,6 +107,9 @@ pub struct ModpackFlow {
     curseforge_files: std::collections::HashMap<String, CfFile>,
     /// The CurseForge file `source` (an upload) was made from.
     curseforge_selected: Option<String>,
+    /// The file to read once the project's files have come: the one a link or a preset
+    /// named.
+    curseforge_wanted: Option<String>,
     /// What the Host is doing with the CurseForge pack being read.
     curseforge_step: Option<PackStep>,
     /// Stops that pack's downloads.
@@ -260,6 +263,7 @@ impl ModpackFlow {
             curseforge_project: None,
             curseforge_files: Default::default(),
             curseforge_selected: None,
+            curseforge_wanted: None,
             curseforge_step: None,
             curseforge_cancel: None,
             by_hand: Vec::new(),
@@ -303,6 +307,13 @@ impl ModpackFlow {
         }
     }
 
+    /// For screenshots: searches CurseForge.
+    #[cfg(feature = "screenshot")]
+    pub fn search_curseforge_for_screenshot(&mut self, cx: &mut Context<Self>) {
+        self.search
+            .update(cx, |search, cx| search.set_source(Source::CurseForge, cx));
+    }
+
     /// Shows a project's versions.
     /// For screenshots: opens the search's sort list.
     #[cfg(feature = "screenshot")]
@@ -325,6 +336,7 @@ impl ModpackFlow {
         self.curseforge_project = None;
         self.curseforge_files.clear();
         self.curseforge_selected = None;
+        self.curseforge_wanted = None;
         self.by_hand.clear();
         self.project_id = Some(id.clone());
         self.picked_hit = hit;
@@ -404,6 +416,10 @@ impl ModpackFlow {
                     ),
                     Err(err) => Load::Failed(err.to_string()),
                 });
+                // the file a link or a preset named, now that the files are here
+                if let Some(wanted) = this.curseforge_wanted.take() {
+                    this.inspect_curseforge(wanted, cx);
+                }
                 cx.notify();
             })
             .ok();
@@ -416,6 +432,11 @@ impl ModpackFlow {
     /// core reads, and uploads that. Only the latest request counts.
     fn inspect_curseforge(&mut self, file_id: String, cx: &mut Context<Self>) {
         self.cancel_inspect();
+        // asked for with the project (a link to a file): once its files have come
+        if matches!(self.versions, Some(Load::Loading)) {
+            self.curseforge_wanted = Some(file_id);
+            return;
+        }
         let (Some(curseforge), Some(downloader), Some(project), Some(file)) = (
             crate::curseforge::client(cx),
             crate::curseforge::downloader(cx),

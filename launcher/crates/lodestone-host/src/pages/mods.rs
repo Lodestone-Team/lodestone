@@ -591,7 +591,7 @@ impl Render for ModsPage {
             && let Some(target) = &target
         {
             let admin = self.state.read(cx).admin.clone();
-            self.browse = Some(Browse::new(target, admin, window, cx));
+            self.browse = Some(Browse::new(target, admin, cx));
         }
         let body: AnyElement = match &target {
             None => muted(t(M::ModsUnsupported)),
@@ -618,7 +618,7 @@ impl Render for ModsPage {
                 })
                 .on_select({
                     let this = cx.entity().downgrade();
-                    move |index, window, cx| {
+                    move |index, _, cx| {
                         this.update(cx, |this, cx| {
                             this.view = if *index == 0 {
                                 SubView::Installed
@@ -630,7 +630,7 @@ impl Render for ModsPage {
                                 && let Some(target) = this.target(cx)
                             {
                                 let admin = this.state.read(cx).admin.clone();
-                                this.browse = Some(Browse::new(&target, admin, window, cx));
+                                this.browse = Some(Browse::new(&target, admin, cx));
                             }
                             cx.notify();
                         })
