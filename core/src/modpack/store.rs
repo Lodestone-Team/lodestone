@@ -152,6 +152,7 @@ mod tests {
             server_download_size: 0,
             unsupported_reason: None,
             upload_id: None,
+            curseforge: None,
         }
     }
 

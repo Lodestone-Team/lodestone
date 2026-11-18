@@ -259,6 +259,7 @@ mod tests {
             name: "Pack".into(),
             version_number: None,
             icon_url: None,
+            curseforge: None,
         }
     }
 

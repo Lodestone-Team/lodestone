@@ -798,8 +798,9 @@ def describe(path: Path, build: int, commit: str) -> dict:
 # The cargo profile developer builds use (`.cargo/config.toml`): the release settings
 # without cross-crate LTO, so they build faster. Versions build with `release`.
 DEV_PROFILE = "dev-build"
-# The CurseForge API key, compiled into the launcher from the environment
-# (launcher-core's content/curseforge.rs). A build without it has no CurseForge.
+# The CurseForge API key, compiled into the launcher and into the Host from the
+# environment (launcher-core's content/curseforge.rs). A build without it has no
+# CurseForge. The core never has it: it has no CurseForge client.
 CURSEFORGE_KEY_ENV = "LODESTONE_CURSEFORGE_API_KEY"
 
 
@@ -813,7 +814,7 @@ def build_binary(target: str | None, build: int, commit: str, key: str, into: Pa
     A developer build (`dev`) has the dev channel compiled in, and its own profile."""
     env = dict(os.environ, **{PRODUCT.build_env: str(build), PRODUCT.commit_env: commit})
     env.pop(PRODUCT.channel_env, None)
-    if PRODUCT.key == "launcher" and not env.get(CURSEFORGE_KEY_ENV, "").strip():
+    if not env.get(CURSEFORGE_KEY_ENV, "").strip():
         print(f"note: {CURSEFORGE_KEY_ENV} isn't set, so this build won't offer CurseForge. "
               "Set it to the key CurseForge issued Lodestone and build again.", flush=True)
     if dev:

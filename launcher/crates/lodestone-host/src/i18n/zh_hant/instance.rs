@@ -75,6 +75,8 @@ pub fn text(message: M) -> &'static str {
         M::ModsRestartPlugin => "重新啟動伺服器以套用外掛變更",
         M::ModsSearchMod => "在 Modrinth 上搜尋模組，或貼上 Modrinth 連結",
         M::ModsSearchPlugin => "在 Modrinth 上搜尋外掛，或貼上 Modrinth 連結",
+        M::ModsSearchModBoth => "搜尋模組，或貼上 Modrinth 或 CurseForge 連結",
+        M::ModsSearchPluginBoth => "搜尋外掛，或貼上 Modrinth 或 CurseForge 連結",
         M::ModsSearchLabel => "搜尋 Modrinth",
         M::ModsOnlyCompatible => "僅顯示相容版本",
         M::ModsPlayersNeedToo => "玩家也需要安裝",
@@ -122,6 +124,14 @@ pub fn text(message: M) -> &'static str {
         M::ModsUpdateFailed => "無法更新：{error}",
         M::ModsUpdateTo => "更新至 {version}",
         M::ModsViewOnModrinth => "在 Modrinth 上檢視",
+        M::ModsViewOnCurseForge => "在 CurseForge 上檢視",
+        M::ModsUnknownCurseForge => {
+            "CurseForge 未說明玩家是否需要它，請查看該模組的頁面。如果玩家需要，請勾選「給玩家」。"
+        }
+        M::ModsEmptyModBoth => "尚未安裝任何模組。瀏覽 Modrinth 或 CurseForge，或上傳 .jar 檔案。",
+        M::ModsEmptyPluginBoth => {
+            "尚未安裝任何外掛。瀏覽 Modrinth 或 CurseForge，或上傳 .jar 檔案。"
+        }
         M::ModsDeleteLabel => "刪除 {name}",
         M::ModsUploaded => "已上傳",
         M::ModsUploadFailed => "上傳失敗：{error}",
@@ -200,6 +210,7 @@ pub fn text(message: M) -> &'static str {
         M::ModsWrongTypePlugin => "這是一個 {type} 專案。Lodestone 在這裡只安裝外掛。",
         M::ModsDescription => "說明",
         M::ModsRestOnModrinth => "其餘說明請在 Modrinth 上查看。",
+        M::ModsRestOnCurseForge => "其餘說明請在 CurseForge 上查看。",
         M::ModsVersions => "版本",
         M::ModsWithDependencies => "同時安裝必要的相依項目",
         M::ModsShowAll => "顯示所有版本",
@@ -211,6 +222,12 @@ pub fn text(message: M) -> &'static str {
         M::ModsNotFor => "不適用於此伺服器",
         M::ModsInstalledVersion => "已安裝",
         M::ModsInstallFailed => "無法安裝：{error}",
+        M::ModsCurseForgeByHand => {
+            "這些檔案只能從 CurseForge 網站下載。請在那裡下載後，再上傳到這裡。"
+        }
+        M::ModsOpenCurseForge => "開啟 CurseForge",
+        M::ModsCurseForgeFailed => "無法向 CurseForge 查詢已安裝的檔案：{error}",
+        M::ModsCurseForgeUnavailable => "此版本的 Lodestone Host 無法使用 CurseForge。",
         M::ModsIncompatibleTitle => "安裝不相容的版本？",
         M::ModsInstallAnyway => "仍要安裝",
         M::ModsIncompatibleBody => "它可能會導致伺服器當機。",

@@ -93,6 +93,10 @@ pub fn text(message: M) -> &'static str {
         }
         M::ModsSearchMod => "Rechercher des mods sur Modrinth, ou coller un lien Modrinth",
         M::ModsSearchPlugin => "Rechercher des plugins sur Modrinth, ou coller un lien Modrinth",
+        M::ModsSearchModBoth => "Rechercher des mods, ou coller un lien Modrinth ou CurseForge",
+        M::ModsSearchPluginBoth => {
+            "Rechercher des plugins, ou coller un lien Modrinth ou CurseForge"
+        }
         M::ModsSearchLabel => "Rechercher sur Modrinth",
         M::ModsOnlyCompatible => "Versions compatibles uniquement",
         M::ModsPlayersNeedToo => "Requis aussi pour les joueurs",
@@ -142,6 +146,16 @@ pub fn text(message: M) -> &'static str {
         M::ModsUpdateFailed => "Impossible de le mettre à jour : {error}",
         M::ModsUpdateTo => "Passer à {version}",
         M::ModsViewOnModrinth => "Voir sur Modrinth",
+        M::ModsViewOnCurseForge => "Voir sur CurseForge",
+        M::ModsUnknownCurseForge => {
+            "CurseForge n’indique pas si les joueurs en ont besoin. Consultez la page du mod, et cochez Pour les joueurs si c’est le cas."
+        }
+        M::ModsEmptyModBoth => {
+            "Aucun mod installé pour l’instant. Parcourez Modrinth ou CurseForge, ou importez un fichier .jar."
+        }
+        M::ModsEmptyPluginBoth => {
+            "Aucun plugin installé pour l’instant. Parcourez Modrinth ou CurseForge, ou importez un fichier .jar."
+        }
         M::ModsDeleteLabel => "Supprimer {name}",
         M::ModsUploaded => "Importé",
         M::ModsUploadFailed => "Échec de l’importation : {error}",
@@ -236,6 +250,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::ModsDescription => "Description",
         M::ModsRestOnModrinth => "La suite de la description est sur Modrinth.",
+        M::ModsRestOnCurseForge => "La suite de la description est sur CurseForge.",
         M::ModsVersions => "Versions",
         M::ModsWithDependencies => "Installer aussi les dépendances requises",
         M::ModsShowAll => "Afficher toutes les versions",
@@ -247,6 +262,16 @@ pub fn text(message: M) -> &'static str {
         M::ModsNotFor => "Pas pour ce serveur",
         M::ModsInstalledVersion => "Installé",
         M::ModsInstallFailed => "Impossible de l’installer : {error}",
+        M::ModsCurseForgeByHand => {
+            "Ces fichiers ne sont disponibles que sur le site de CurseForge. Téléchargez-les là-bas, puis importez-les ici."
+        }
+        M::ModsOpenCurseForge => "Ouvrir CurseForge",
+        M::ModsCurseForgeFailed => {
+            "Impossible d’interroger CurseForge sur les fichiers installés : {error}"
+        }
+        M::ModsCurseForgeUnavailable => {
+            "CurseForge n’est pas disponible dans cette copie de Lodestone Host."
+        }
         M::ModsIncompatibleTitle => "Installer une version incompatible ?",
         M::ModsInstallAnyway => "Installer quand même",
         M::ModsIncompatibleBody => "Il risque de faire planter le serveur.",

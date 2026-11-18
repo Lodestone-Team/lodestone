@@ -1,7 +1,9 @@
 //! The Installed view (`InstalledMods.tsx`, `ClientPackPanel.tsx`): the modpack panel
 //! (see [`super::modpack`]), the client modpack of a Fabric server (a big one folded to
 //! its first few mods), the toolbar (update all, check for updates, upload), and a row
-//! per mod with its update, Modrinth link, switch and delete, 20 to a page.
+//! per mod with its update, Modrinth link, switch and delete, 20 to a page. A jar
+//! Modrinth doesn't know but CurseForge does (see [`super::curseforge`]) shows
+//! CurseForge's name, picture, link and update instead.
 
 use std::path::PathBuf;
 
@@ -11,9 +13,12 @@ use gpui::{
 };
 #[cfg(feature = "screenshot")]
 use launcher_core::cores::admin::mods::InstalledModList;
-use launcher_core::cores::admin::mods::{
-    ClientRequirement, InstalledMod, InstalledModLoader, ModInstallRequest, ModInstallResult,
-    modrinth_project_url,
+use launcher_core::cores::admin::{
+    curseforge as server,
+    mods::{
+        ClientRequirement, InstalledMod, InstalledModLoader, ModInstallRequest, ModInstallResult,
+        modrinth_project_url,
+    },
 };
 use lodestone_ui::{
     components::{
@@ -71,9 +76,9 @@ fn mod_chip(name: &str) -> lodestone_ui::components::ObjectChip {
         .kind(lodestone_ui::components::Kind::Mod)
 }
 
-/// A project's icon from Modrinth's CDN, or a cube.
+/// A project's icon from Modrinth's CDN or CurseForge's media host, or a cube.
 pub(super) fn mod_icon(url: Option<&str>, size: f32, cx: &mut Context<ModsPage>) -> AnyElement {
-    let image = url.and_then(|url| crate::instance_icons::modrinth_image(url, cx));
+    let image = url.and_then(|url| crate::instance_icons::project_image(url, cx));
     div()
         .flex()
         .flex_none()
@@ -92,8 +97,14 @@ pub(super) fn mod_icon(url: Option<&str>, size: f32, cx: &mut Context<ModsPage>)
 
 /// Whether players need an installed mod (`ClientRequirementLabel`): optional mods
 /// show nothing. With `marks` (a mod on any mod loader, where the row has "For players"),
-/// the box says "players need this" instead of a tag.
-fn requirement_label(id: SharedString, m: &InstalledMod, marks: bool) -> Option<AnyElement> {
+/// the box says "players need this" instead of a tag. `on_curseforge`: the jar is a
+/// CurseForge file Modrinth doesn't know.
+fn requirement_label(
+    id: SharedString,
+    m: &InstalledMod,
+    marks: bool,
+    on_curseforge: bool,
+) -> Option<AnyElement> {
     match m.client_requirement {
         ClientRequirement::Required if marks => None,
         ClientRequirement::Required => {
@@ -124,6 +135,8 @@ fn requirement_label(id: SharedString, m: &InstalledMod, marks: bool) -> Option<
                 .child(t(M::ModsUnknown))
                 .tooltip(text_tooltip(t(if m.modrinth.is_some() {
                     M::ModsUnknownModrinth
+                } else if on_curseforge {
+                    M::ModsUnknownCurseForge
                 } else {
                     M::ModsUnknownNotOnModrinth
                 })))
@@ -219,6 +232,16 @@ impl ModsPage {
     }
 
     fn update_one(&mut self, m: &InstalledMod, cx: &mut Context<Self>) {
+        // a CurseForge file: the Host downloads the newer one and uploads it
+        if let Some(newer) = self.on_curseforge(m).and_then(|c| c.update.clone()) {
+            let file = m.file_name.clone();
+            if !self.busy_files.insert(file.clone()) {
+                return;
+            }
+            cx.notify();
+            let object = (self.mod_name(m), server::file_label(&newer));
+            return self.install_curseforge(newer, None, true, false, object, true, Some(file), cx);
+        }
         let Some(update) = m.modrinth.as_ref().and_then(|m| m.update.clone()) else {
             return;
         };
@@ -284,9 +307,36 @@ impl ModsPage {
                 Some((m.name().to_string(), update.version_id.clone()))
             })
             .collect();
-        if updates.is_empty() {
+        // CurseForge's, which the Host installs itself once the core is done with Modrinth's
+        let curseforge_updates: Vec<(String, launcher_core::content::curseforge::CfFile)> = list
+            .mods
+            .iter()
+            .filter_map(|m| {
+                let newer = self.on_curseforge(m)?.update.clone()?;
+                Some((self.mod_name(m), newer))
+            })
+            .collect();
+        if updates.is_empty() && curseforge_updates.is_empty() {
             return;
         }
+        let curseforge = match (
+            curseforge_updates.is_empty(),
+            crate::curseforge::client(cx),
+            crate::curseforge::downloader(cx),
+        ) {
+            (false, Some(client), Some(downloader)) => Some((
+                client,
+                downloader,
+                server::ServerTarget {
+                    kind: list.kind,
+                    loader: list.loader,
+                    game_version: list.game_version.clone(),
+                },
+                list.mods.clone(),
+                self.curseforge.clone(),
+            )),
+            _ => None,
+        };
         let uuid = self.uuid.clone();
         let started = self.state.update(cx, |state, cx| {
             let started = state.set_updating_mods(&uuid, true);
@@ -334,9 +384,56 @@ impl ModsPage {
                     }
                 }
             }
+            let mut by_hand = Vec::new();
+            if let Some((client, downloader, target, mods, known)) = curseforge {
+                for (name, file) in curseforge_updates {
+                    let result = cx
+                        .background_spawn(launcher_core::http::in_http_runtime({
+                            let (client, downloader, admin, uuid, target, mods, known) = (
+                                client.clone(),
+                                downloader.clone(),
+                                admin.clone(),
+                                uuid.clone(),
+                                target.clone(),
+                                mods.clone(),
+                                known.clone(),
+                            );
+                            async move {
+                                server::install_file(
+                                    &client,
+                                    &downloader,
+                                    &admin,
+                                    &uuid,
+                                    &target,
+                                    &mods,
+                                    &known,
+                                    file,
+                                    None,
+                                    true,
+                                    false,
+                                )
+                                .await
+                            }
+                        }))
+                        .await;
+                    match result {
+                        Ok(outcome) => {
+                            total.extend(outcome.result);
+                            by_hand.extend(outcome.blocked);
+                        }
+                        Err(err) => failures.push(
+                            lodestone_ui::components::readable::key_value(&name, &err.to_string())
+                                .to_string(),
+                        ),
+                    }
+                }
+            }
             state
                 .update(cx, |state, cx| {
                     state.set_updating_mods(&uuid, false);
+                    if let Some(toast) = super::curseforge::by_hand_toast(&by_hand) {
+                        state.toast(toast, cx);
+                    }
                     if !total.installed.is_empty() || !total.removed.is_empty() {
                         state.toast(
                             Self::result_toast(
@@ -689,7 +786,10 @@ impl ModsPage {
                     .bg(colors::GRAY_900)
                     .text_size(text::SMALL)
                     .child(mod_icon(
-                        m.modrinth.as_ref().and_then(|m| m.icon_url.as_deref()),
+                        m.modrinth
+                            .as_ref()
+                            .and_then(|m| m.icon_url.as_deref())
+                            .or(self.on_curseforge(m).and_then(|c| c.icon_url.as_deref())),
                         20.,
                         cx,
                     ))
@@ -784,8 +884,25 @@ impl ModsPage {
     ) -> AnyElement {
         let can_write = self.can_write(cx);
         let busy = self.busy_files.contains(&m.file_name);
-        let update = m.modrinth.as_ref().and_then(|m| m.update.clone());
-        let name = m.name().to_string();
+        let curseforge = self.on_curseforge(m).cloned();
+        // a newer version: Modrinth's, which the core installs, or CurseForge's
+        let update: Option<String> = m
+            .modrinth
+            .as_ref()
+            .and_then(|m| m.update.as_ref())
+            .map(|update| update.version_number.clone())
+            .or_else(|| {
+                curseforge
+                    .as_ref()
+                    .and_then(|c| c.update.as_ref())
+                    .map(server::file_label)
+            });
+        let name = self.mod_name(m);
+        // the jar's own version before CurseForge's file name
+        let version = m
+            .version()
+            .map(str::to_string)
+            .or_else(|| curseforge.as_ref().map(|c| c.version.clone()));
         let id = |part: &str| SharedString::from(format!("mod-{index}-{part}"));
         let (toggled, updated, deleted, marked) = (m.clone(), m.clone(), m.clone(), m.clone());
         // players install the server's image on every mod loader (Quilt servers list as
@@ -805,7 +922,10 @@ impl ModsPage {
             .px(px(16.))
             .py(px(12.))
             .child(mod_icon(
-                m.modrinth.as_ref().and_then(|m| m.icon_url.as_deref()),
+                m.modrinth
+                    .as_ref()
+                    .and_then(|m| m.icon_url.as_deref())
+                    .or(curseforge.as_ref().and_then(|c| c.icon_url.as_deref())),
                 40.,
                 cx,
             ))
@@ -827,7 +947,7 @@ impl ModsPage {
                                     .when(!m.enabled, |this| this.text_color(ink::muted())),
                             )
                             // the version never wraps away: the name is cut first
-                            .when_some(m.version().map(str::to_string), |this, v| {
+                            .when_some(version, |this, v| {
                                 this.child(
                                     div()
                                         .flex_none()
@@ -836,7 +956,12 @@ impl ModsPage {
                             })
                             // players never install plugins
                             .when(!target.is_plugin(), |this| {
-                                this.children(requirement_label(id("requirement"), m, marks))
+                                this.children(requirement_label(
+                                    id("requirement"),
+                                    m,
+                                    marks,
+                                    curseforge.is_some(),
+                                ))
                             })
                             // by the name, so the controls on the right line up on every row
                             .when_some(m.modrinth.clone(), |this, modrinth| {
@@ -848,6 +973,15 @@ impl ModsPage {
                                     IconButton::new(id("modrinth"), Icon::ArrowUpRightFromSquare)
                                         .small()
                                         .label(t(M::ModsViewOnModrinth))
+                                        .on_click(move |_, _, cx| cx.open_url(&url)),
+                                )
+                            })
+                            .when_some(curseforge.clone(), |this, curseforge| {
+                                let url = curseforge.page_url;
+                                this.child(
+                                    IconButton::new(id("curseforge"), Icon::ArrowUpRightFromSquare)
+                                        .small()
+                                        .label(t(M::ModsViewOnCurseForge))
                                         .on_click(move |_, _, cx| cx.open_url(&url)),
                                 )
                             }),
@@ -892,18 +1026,17 @@ impl ModsPage {
                         this.child(why_not(
                             id("update-why"),
                             can_write,
-                            Button::new(
-                                id("update"),
-                                tr!(M::ModsUpdateTo, version = update.version_number),
-                            )
-                            .variant(ButtonVariant::Primary)
-                            .size(ButtonSize::Slim)
-                            .icon(Icon::CircleUp)
-                            .loading(busy)
-                            .disabled(!can_write || busy)
-                            .on_click(
-                                cx.listener(move |this, _, _, cx| this.update_one(&updated, cx)),
-                            ),
+                            Button::new(id("update"), tr!(M::ModsUpdateTo, version = update))
+                                .variant(ButtonVariant::Primary)
+                                .size(ButtonSize::Slim)
+                                .icon(Icon::CircleUp)
+                                .loading(busy)
+                                .disabled(!can_write || busy)
+                                .on_click(
+                                    cx.listener(move |this, _, _, cx| {
+                                        this.update_one(&updated, cx)
+                                    }),
+                                ),
                         ))
                     })
                     .when(marks, |this| {
@@ -967,13 +1100,19 @@ impl ModsPage {
         let updating_all = self.state.read(cx).updating_mods(&self.uuid);
         let plugin = target.is_plugin();
         let first_load = self.list.is_none() && self.list_error.is_none();
+        // the core's check (Modrinth), then the Host's own (CurseForge)
+        let checking = self.check_updates && (self.loading || self.curseforge_loading);
+        let both = crate::curseforge::available(cx);
         let updates = self
             .list
             .as_ref()
             .map(|l| {
                 l.mods
                     .iter()
-                    .filter(|m| m.modrinth.as_ref().is_some_and(|m| m.update.is_some()))
+                    .filter(|m| {
+                        m.modrinth.as_ref().is_some_and(|m| m.update.is_some())
+                            || self.on_curseforge(m).is_some_and(|c| c.update.is_some())
+                    })
                     .count()
             })
             .unwrap_or(0);
@@ -1029,8 +1168,8 @@ impl ModsPage {
                     })
                     .child(
                         Button::new("check-updates", t(M::ModsCheckUpdates))
-                            .loading(self.check_updates && self.loading)
-                            .disabled(self.list.is_none() || (self.check_updates && self.loading))
+                            .loading(checking)
+                            .disabled(self.list.is_none() || checking)
                             .on_click(cx.listener(|this, _, _, cx| this.check_for_updates(cx))),
                     )
                     .child(why_not(
@@ -1068,10 +1207,11 @@ impl ModsPage {
                     .flex()
                     .justify_center()
                     .text_color(ink::muted())
-                    .child(t(if plugin {
-                        M::ModsEmptyPlugin
-                    } else {
-                        M::ModsEmptyMod
+                    .child(t(match (plugin, both) {
+                        (true, false) => M::ModsEmptyPlugin,
+                        (false, false) => M::ModsEmptyMod,
+                        (true, true) => M::ModsEmptyPluginBoth,
+                        (false, true) => M::ModsEmptyModBoth,
                     }))
                     .into_any_element()
             } else {

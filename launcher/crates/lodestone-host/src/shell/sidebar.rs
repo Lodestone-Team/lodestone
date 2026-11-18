@@ -264,7 +264,7 @@ pub fn render(shell: &HostShell, cx: &mut Context<HostShell>) -> impl IntoElemen
                     .child(crate::instance_icons::game_icon(
                         format!("instance-icon-{uuid}"),
                         &instance.game_type,
-                        instance.icon_url.as_deref(),
+                        instance.pack_icon(),
                         px(16.),
                         cx,
                     ))
@@ -766,7 +766,7 @@ fn selected_card(
                         .child(crate::instance_icons::game_icon(
                             "selected-instance-icon",
                             &instance.game_type,
-                            instance.icon_url.as_deref(),
+                            instance.pack_icon(),
                             px(16.),
                             cx,
                         ))

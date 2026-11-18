@@ -1,20 +1,31 @@
 //! Making a server from a Modrinth modpack (`ModpackCreateForm.tsx`): pick a pack
 //! (search, link or an uploaded `.mrpack`), pick a version, which the core downloads
 //! to read, then the server's settings. The core makes the server in the background.
+//!
+//! A CurseForge modpack (in a build with Lodestone's CurseForge key) goes the same way,
+//! except that the Host reads it: the core has no CurseForge client. Picking a version
+//! turns the pack into a `.mrpack` here (`launcher_core::cores::admin::curseforge_pack`)
+//! and uploads it, and from then on it is an uploaded pack like any other.
 
 use gpui::{
     AnyElement, Context, Entity, EventEmitter, IntoElement, ParentElement, Render, ScrollHandle,
     SharedString, Styled, Subscription, Task, Window, div, prelude::*,
 };
-use launcher_core::cores::{
-    CoreError,
-    admin::{
-        instances::{CreateModpackRequest, ModpackSource},
-        mods::{
-            ModpackInfo, ModrinthProject, ModrinthProjectType, ModrinthSearchHit, ModrinthVersion,
-            ModrinthVersionType,
+use launcher_core::{
+    content::curseforge::{CfFile, CfMod},
+    cores::{
+        CoreError,
+        admin::{
+            curseforge as server,
+            curseforge_pack::{self, ByHand, PackStep},
+            instances::{CreateModpackRequest, ModpackSource},
+            mods::{
+                ModpackInfo, ModrinthProject, ModrinthProjectType, ModrinthSearchHit,
+                ModrinthVersion, ModrinthVersionType,
+            },
         },
     },
+    game::download::CancelToken,
 };
 use lodestone_ui::{
     components::{
@@ -33,6 +44,7 @@ use super::{
     wizard,
 };
 use crate::{
+    curseforge::Source,
     i18n::{CommonMsg, FactMsg, InstancesMsg as M, InstancesPlural as P, t, tr, trn},
     instance_icons,
     state::HostState,
@@ -49,6 +61,8 @@ pub enum ModpackEvent {
 /// A modpack picked elsewhere (Mods › Browse: "Create server from this modpack").
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ModpackPreset {
+    /// Where the pack is: Modrinth, or CurseForge (its ids are numbers there).
+    pub source: crate::curseforge::Source,
     pub project_id: String,
     pub version_id: Option<String>,
 }
@@ -86,6 +100,19 @@ pub struct ModpackFlow {
     shown: usize,
     info: Option<ModpackInfo>,
     source: Option<ModpackSource>,
+    /// Where the open project is: Modrinth, or CurseForge.
+    platform: Source,
+    /// The open project as CurseForge gave it, and its files by id.
+    curseforge_project: Option<CfMod>,
+    curseforge_files: std::collections::HashMap<String, CfFile>,
+    /// The CurseForge file `source` (an upload) was made from.
+    curseforge_selected: Option<String>,
+    /// What the Host is doing with the CurseForge pack being read.
+    curseforge_step: Option<PackStep>,
+    /// Stops that pack's downloads.
+    curseforge_cancel: Option<CancelToken>,
+    /// The picked pack's files that only CurseForge's website has.
+    by_hand: Vec<ByHand>,
     /// The version being read, and which request is the latest.
     inspecting: Option<String>,
     inspect_request: u64,
@@ -205,7 +232,11 @@ impl ModpackFlow {
             ModrinthSearchView::new(
                 admin,
                 ModrinthProjectType::Modpack,
-                t(M::ModpackSearchPlaceholder),
+                t(if crate::curseforge::available(cx) {
+                    M::ModpackSearchPlaceholderBoth
+                } else {
+                    M::ModpackSearchPlaceholder
+                }),
                 cx,
             )
         });
@@ -225,6 +256,13 @@ impl ModpackFlow {
             shown: VERSIONS_PAGE,
             info: None,
             source: None,
+            platform: Source::Modrinth,
+            curseforge_project: None,
+            curseforge_files: Default::default(),
+            curseforge_selected: None,
+            curseforge_step: None,
+            curseforge_cancel: None,
+            by_hand: Vec::new(),
             inspecting: None,
             inspect_request: 0,
             uploading: None,
@@ -236,7 +274,7 @@ impl ModpackFlow {
             _tasks: Vec::new(),
         };
         if let Some(preset) = preset {
-            this.open_project(preset.project_id.clone(), None, cx);
+            this.open_project(preset.source, preset.project_id.clone(), None, cx);
             if let Some(version) = preset.version_id {
                 this.inspect(version, cx);
             }
@@ -259,7 +297,7 @@ impl ModpackFlow {
         }
         self.info = None;
         self.source = None;
-        self.open_project(pick.project_id, pick.hit, cx);
+        self.open_project(pick.source, pick.project_id, pick.hit, cx);
         if let Some(version) = pick.version_id {
             self.inspect(version, cx);
         }
@@ -275,13 +313,28 @@ impl ModpackFlow {
         });
     }
 
-    fn open_project(&mut self, id: String, hit: Option<ModrinthSearchHit>, cx: &mut Context<Self>) {
+    fn open_project(
+        &mut self,
+        platform: Source,
+        id: String,
+        hit: Option<ModrinthSearchHit>,
+        cx: &mut Context<Self>,
+    ) {
+        self.cancel_inspect();
+        self.platform = platform;
+        self.curseforge_project = None;
+        self.curseforge_files.clear();
+        self.curseforge_selected = None;
+        self.by_hand.clear();
         self.project_id = Some(id.clone());
         self.picked_hit = hit;
         self.project = Some(Load::Loading);
         self.versions = Some(Load::Loading);
         self.shown = VERSIONS_PAGE;
         self.step = Step::Version;
+        if platform == Source::CurseForge {
+            return self.open_curseforge_project(id, cx);
+        }
         let admin = self.admin(cx);
         let task = cx.spawn(async move |this, cx| {
             let (project, versions) = cx
@@ -308,9 +361,152 @@ impl ModpackFlow {
         cx.notify();
     }
 
+    /// Fetches a CurseForge modpack and its files: its versions.
+    fn open_curseforge_project(&mut self, id: String, cx: &mut Context<Self>) {
+        let (Some(curseforge), Ok(number)) = (crate::curseforge::client(cx), id.parse::<u64>())
+        else {
+            let why = t(M::ModpackCurseForgeUnavailable).to_string();
+            self.project = Some(Load::Failed(why.clone()));
+            self.versions = Some(Load::Failed(why));
+            return cx.notify();
+        };
+        let task = cx.spawn(async move |this, cx| {
+            let (project, files) = cx
+                .background_spawn(launcher_core::http::in_http_runtime(async move {
+                    let project = curseforge.project(number).await;
+                    // every file, newest first: a pack is for one game version
+                    let files = curseforge.files(number, None, None).await;
+                    (project, files)
+                }))
+                .await;
+            this.update(cx, |this, cx| {
+                if this.platform != Source::CurseForge || this.project_id.as_ref() != Some(&id) {
+                    return;
+                }
+                this.project = Some(match project {
+                    Ok(project) => {
+                        let shown = server::project(&project, String::new());
+                        this.curseforge_project = Some(project);
+                        Load::Ready(shown)
+                    }
+                    Err(err) => Load::Failed(err.to_string()),
+                });
+                this.versions = Some(match files {
+                    Ok(files) => Load::Ready(
+                        files
+                            .into_iter()
+                            .map(|file| {
+                                let version = server::version(&file);
+                                this.curseforge_files.insert(version.id.clone(), file);
+                                version
+                            })
+                            .collect(),
+                    ),
+                    Err(err) => Load::Failed(err.to_string()),
+                });
+                cx.notify();
+            })
+            .ok();
+        });
+        self._tasks.push(task);
+        cx.notify();
+    }
+
+    /// Reads a CurseForge modpack's file here: downloads it, turns it into a pack the
+    /// core reads, and uploads that. Only the latest request counts.
+    fn inspect_curseforge(&mut self, file_id: String, cx: &mut Context<Self>) {
+        self.cancel_inspect();
+        let (Some(curseforge), Some(downloader), Some(project), Some(file)) = (
+            crate::curseforge::client(cx),
+            crate::curseforge::downloader(cx),
+            self.curseforge_project.clone(),
+            self.curseforge_files.get(&file_id).cloned(),
+        ) else {
+            return self.toast(Toast::error(t(M::ModpackCurseForgeUnavailable)), cx);
+        };
+        let modrinth = crate::curseforge::modrinth(cx);
+        let request = self.inspect_request;
+        let cancel = CancelToken::new();
+        self.inspecting = Some(file_id.clone());
+        self.curseforge_step = Some(PackStep::Downloading);
+        self.curseforge_cancel = Some(cancel.clone());
+        let admin = self.admin(cx);
+        let (steps, mut shown) = futures::channel::mpsc::unbounded::<PackStep>();
+        let watching = cx.spawn(async move |this, cx| {
+            use futures::StreamExt as _;
+            while let Some(step) = shown.next().await {
+                let alive = this.update(cx, |this, cx| {
+                    if request == this.inspect_request {
+                        this.curseforge_step = Some(step);
+                        cx.notify();
+                    }
+                });
+                if alive.is_err() {
+                    break;
+                }
+            }
+        });
+        let task = cx.spawn(async move |this, cx| {
+            let built = cx
+                .background_spawn(launcher_core::http::in_http_runtime(async move {
+                    curseforge_pack::build_and_upload(
+                        &curseforge,
+                        modrinth.as_deref(),
+                        &downloader,
+                        &admin,
+                        &project,
+                        &file,
+                        &move |step| {
+                            steps.unbounded_send(step).ok();
+                        },
+                        &cancel,
+                    )
+                    .await
+                }))
+                .await;
+            this.update(cx, |this, cx| {
+                if request != this.inspect_request {
+                    return;
+                }
+                this.inspecting = None;
+                this.curseforge_step = None;
+                this.curseforge_cancel = None;
+                match built {
+                    Ok((info, by_hand)) => match info.upload_id.clone() {
+                        Some(upload_id) => {
+                            this.info = Some(info);
+                            this.source = Some(ModpackSource::Upload { upload_id });
+                            this.curseforge_selected = Some(file_id);
+                            this.by_hand = by_hand;
+                        }
+                        None => this.toast(
+                            Toast::error(tr!(
+                                M::ModpackInspectFailed,
+                                error = t(M::ModpackNoUploadId)
+                            )),
+                            cx,
+                        ),
+                    },
+                    Err(err) => {
+                        let text = tr!(M::ModpackInspectFailed, error = err);
+                        this.toast(Toast::error(text), cx);
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        });
+        self._tasks.push(watching);
+        self._tasks.push(task);
+        cx.notify();
+    }
+
     /// Asks the core to download a version and say what's in it. Only the latest
     /// request counts.
     fn inspect(&mut self, version_id: String, cx: &mut Context<Self>) {
+        if self.platform == Source::CurseForge {
+            return self.inspect_curseforge(version_id, cx);
+        }
         self.inspect_request += 1;
         let request = self.inspect_request;
         self.inspecting = Some(version_id.clone());
@@ -346,6 +542,11 @@ impl ModpackFlow {
     fn cancel_inspect(&mut self) {
         self.inspect_request += 1;
         self.inspecting = None;
+        self.curseforge_step = None;
+        // a CurseForge pack being read stops downloading
+        if let Some(cancel) = self.curseforge_cancel.take() {
+            cancel.cancel();
+        }
     }
 
     fn upload(&mut self, cx: &mut Context<Self>) {
@@ -388,6 +589,9 @@ impl ModpackFlow {
                     Ok(info) => match info.upload_id.clone() {
                         Some(upload_id) => {
                             this.cancel_inspect();
+                            this.platform = Source::Modrinth;
+                            this.curseforge_selected = None;
+                            this.by_hand.clear();
                             this.project_id = None;
                             this.picked_hit = None;
                             this.project = None;
@@ -428,6 +632,8 @@ impl ModpackFlow {
         self.step = Step::Source;
         self.info = None;
         self.source = None;
+        self.curseforge_selected = None;
+        self.by_hand.clear();
         cx.notify();
     }
 
@@ -713,7 +919,9 @@ impl ModpackFlow {
     }
 
     fn render_version(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        let uploaded = matches!(self.source, Some(ModpackSource::Upload { .. }));
+        // a CurseForge pack is uploaded too, by the Host: it has its project above
+        let uploaded =
+            matches!(self.source, Some(ModpackSource::Upload { .. })) && self.project_id.is_none();
         let header = self.project_id.is_some().then(|| {
             let (title, description, icon_url) = match &self.project {
                 Some(Load::Ready(project)) => (
@@ -732,7 +940,7 @@ impl ModpackFlow {
             };
             let icon = icon_url
                 .as_deref()
-                .and_then(|url| instance_icons::modrinth_image(url, cx));
+                .and_then(|url| instance_icons::project_image(url, cx));
             div()
                 .flex()
                 .flex_row()
@@ -774,6 +982,7 @@ impl ModpackFlow {
         });
         let selected = match &self.source {
             Some(ModpackSource::Modrinth { version_id }) => Some(version_id.clone()),
+            Some(ModpackSource::Upload { .. }) => self.curseforge_selected.clone(),
             _ => None,
         };
         let list: Option<AnyElement> = self.versions.as_ref().map(|versions| match versions {
@@ -844,12 +1053,33 @@ impl ModpackFlow {
                 .text_size(text::MEDIUM)
                 .text_color(ink::muted())
                 .child(LoadingDots)
-                .child(t(M::ModpackDownloading))
+                // what the Host is doing with a CurseForge pack; the core says nothing
+                // of its own reading
+                .child(match self.curseforge_step {
+                    Some(PackStep::Reading) => t(M::ModpackCurseForgeReading).to_string(),
+                    Some(PackStep::Hashing { done, total }) => {
+                        tr!(M::ModpackCurseForgeChecking, done = done, total = total)
+                    }
+                    Some(PackStep::Writing) => t(M::ModpackCurseForgeUploading).to_string(),
+                    Some(PackStep::Downloading) | None => t(M::ModpackDownloading).to_string(),
+                })
                 // the file's size, its own value
-                .when_some(inspecting_size, |this, size| this.child(Num::bytes(size)))
+                .when_some(
+                    inspecting_size.filter(|_| {
+                        matches!(self.curseforge_step, None | Some(PackStep::Downloading))
+                    }),
+                    |this, size| this.child(Num::bytes(size)),
+                )
                 .into_any_element()
         } else if let Some(info) = &self.info {
-            summary(info)
+            let by_hand = (!self.by_hand.is_empty()).then(|| self.render_by_hand(cx));
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(12.))
+                .child(summary(info))
+                .children(by_hand)
+                .into_any_element()
         } else {
             div()
                 .text_size(text::MEDIUM)
@@ -887,6 +1117,48 @@ impl ModpackFlow {
                     .flex_col()
                     .justify_center()
                     .child(below),
+            )
+            .into_any_element()
+    }
+
+    /// The picked CurseForge pack's files that only CurseForge's website has: the
+    /// server is made without them, and the owner adds them in its Mods tab.
+    fn render_by_hand(&self, cx: &mut Context<Self>) -> AnyElement {
+        let names: Vec<String> = self.by_hand.iter().map(|file| file.title.clone()).collect();
+        let pages: Vec<String> = self
+            .by_hand
+            .iter()
+            .map(|file| file.page_url.clone())
+            .collect();
+        div()
+            .flex()
+            .flex_row()
+            .items_start()
+            .gap(px(8.))
+            .p(px(12.))
+            .rounded(radius::MD)
+            .bg(colors::YELLOW_FADED.opacity(20))
+            .text_size(text::MEDIUM)
+            .text_color(colors::YELLOW)
+            .child(Icon::TriangleExclamation.render(px(14.), colors::YELLOW))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .gap(px(4.))
+                    .child(t(M::ModpackCurseForgeByHand))
+                    .child(div().text_color(ink::text()).child(names.join(", "))),
+            )
+            .child(
+                Button::new("modpack-by-hand", t(M::ModpackOpenCurseForge))
+                    .size(ButtonSize::Slim)
+                    .on_click(cx.listener(move |_, _, _, cx| {
+                        for page in &pages {
+                            cx.open_url(page);
+                        }
+                    })),
             )
             .into_any_element()
     }

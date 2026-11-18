@@ -534,6 +534,7 @@ impl CreateInstance {
             };
             return self.open_modpack_preset(
                 ModpackPreset {
+                    source: crate::curseforge::Source::Modrinth,
                     project_id,
                     version_id,
                 },
@@ -707,12 +708,18 @@ impl CreateInstance {
     fn render_games(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let mut body = vec![wizard::title(t(M::GameTypeTitle), None)];
         let modpack_game = HandlerGameType::MinecraftFabric.game();
+        // a copy of the Host with Lodestone's CurseForge key takes its modpacks too
+        let (modpack_title, modpack_description) = if crate::curseforge::available(cx) {
+            (M::GameTypeModpackBoth, M::GameTypeModpackDescriptionBoth)
+        } else {
+            (M::GameTypeModpack, M::GameTypeModpackDescription)
+        };
         body.push(
             game_card(
                 "game-modpack",
                 &modpack_game,
-                t(M::GameTypeModpack).into(),
-                Some(t(M::GameTypeModpackDescription)),
+                t(modpack_title).into(),
+                Some(t(modpack_description)),
                 Some(t(M::GameTypeNew)),
                 false,
                 cx,

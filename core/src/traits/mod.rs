@@ -148,6 +148,7 @@ mod tests {
             name: "Pack".into(),
             version_number: None,
             icon_url: Some("https://cdn.modrinth.com/i.png".into()),
+            curseforge: None,
         };
         let info = plain_info().with_details(InstanceDetails {
             icon_url: origin.icon_url.clone(),

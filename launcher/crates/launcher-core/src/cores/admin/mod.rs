@@ -15,6 +15,8 @@
 //! | [`files`] | the instance file manager | B |
 //! | [`instance_settings`] | settings manifest, auto start, listing, resource pack | C |
 //! | [`mods`] | mods, plugins, Modrinth, modpacks | A (modpacks) and C (mods) |
+//! | [`curseforge`] | CurseForge for a server's mods, asked from the Host | CurseForge |
+//! | [`curseforge_pack`] | a CurseForge modpack as a pack the core makes a server from | CurseForge |
 //! | [`backups`] | backups: list, take, restore, download, schedule | backups |
 //! | [`world_backups`] | world backups: list, make, restore, download, cancel | world backups |
 //! | [`images`] | a backup exported as a `.lodeimg`, a server made from one | images |
@@ -27,6 +29,8 @@
 pub mod backups;
 pub mod console;
 pub mod core_settings;
+pub mod curseforge;
+pub mod curseforge_pack;
 pub mod events;
 pub mod files;
 pub mod images;

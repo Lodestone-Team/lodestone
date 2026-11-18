@@ -587,6 +587,7 @@ async fn origin_from_a_modrinth_pack_keeps_cdn_icons_only() {
             name: "Title of pack".into(),
             version_number: Some("pv1-number".into()),
             icon_url: Some("https://cdn.modrinth.com/data/pack/icon.png".into()),
+            curseforge: None,
         }
     );
 
@@ -661,4 +662,115 @@ fn version_numbers_are_trimmed() {
     let mut blank = index(vec![], fabric());
     blank["versionId"] = json!("  ");
     assert_eq!(read(blank, &[]).unwrap().info.version_number, None);
+}
+
+#[test]
+fn a_pack_the_host_made_from_a_curseforge_modpack() {
+    // CurseForge's CDN is taken, with the hashes every file has
+    let files = vec![
+        file_entry(
+            "mods/only-on-curseforge.jar",
+            b"cf",
+            None,
+            "https://edge.forgecdn.net/files/1234/567/only-on-curseforge.jar",
+        ),
+        file_entry(
+            "mods/also.jar",
+            b"also",
+            None,
+            "https://mediafilez.forgecdn.net/files/1234/568/also.jar",
+        ),
+    ];
+    let mut made = index(files, fabric());
+    made["lodestone"] = json!({ "curseforge": {
+        "project": 238222,
+        "file": 4567890,
+        "pageUrl": "https://www.curseforge.com/minecraft/modpacks/a-pack",
+        "iconUrl": "https://media.forgecdn.net/avatars/1/2/logo.png",
+    }});
+    let info = read(made.clone(), &[]).unwrap().info;
+    assert_eq!(info.server_file_count, 2);
+    let from = info.curseforge.clone().unwrap();
+    assert_eq!((from.project, from.file), (238222, 4567890));
+    assert_eq!(
+        from.page_url.as_deref(),
+        Some("https://www.curseforge.com/minecraft/modpacks/a-pack")
+    );
+    assert_eq!(
+        from.icon_url.as_deref(),
+        Some("https://media.forgecdn.net/avatars/1/2/logo.png")
+    );
+    // the origin keeps it; Modrinth's ids stay empty, so nothing takes it for a
+    // Modrinth pack
+    let origin = ModpackOrigin::from_upload(&info);
+    assert_eq!(origin.curseforge, Some(from));
+    assert_eq!(
+        (origin.project_id.as_str(), origin.version_id.as_str()),
+        ("", "")
+    );
+    let written = serde_json::to_value(&origin).unwrap();
+    assert_eq!(written["curseforge"]["project"], 238222);
+    // and a pack without it writes no such field: older configs read as before
+    let plain = ModpackOrigin::from_upload(&read(index(vec![], fabric()), &[]).unwrap().info);
+    assert!(serde_json::to_value(&plain)
+        .unwrap()
+        .get("curseforge")
+        .is_none());
+    let old: ModpackOrigin = serde_json::from_value(json!({
+        "project_id": "", "version_id": "", "name": "Pack", "version_number": null, "icon_url": null
+    }))
+    .unwrap();
+    assert_eq!(old.curseforge, None);
+
+    // only CurseForge's own page and logo hosts
+    made["lodestone"]["curseforge"]["pageUrl"] = json!("https://evil.example/minecraft/modpacks/a");
+    made["lodestone"]["curseforge"]["iconUrl"] = json!("http://media.forgecdn.net/logo.png");
+    let from = read(made.clone(), &[]).unwrap().info.curseforge.unwrap();
+    assert_eq!((from.page_url, from.icon_url), (None, None));
+    // no project, no origin
+    made["lodestone"]["curseforge"]["project"] = json!(0);
+    assert_eq!(read(made, &[]).unwrap().info.curseforge, None);
+
+    // lookalike hosts are still refused, and a file still needs both hashes
+    for url in [
+        "https://edge.forgecdn.net.evil.com/files/1/2/a.jar",
+        "http://edge.forgecdn.net/files/1/2/a.jar",
+        "https://edge.forgecdn.net:444/files/1/2/a.jar",
+        "https://media.forgecdn.net/files/1/2/a.jar",
+    ] {
+        let files = vec![file_entry("mods/a.jar", b"a", None, url)];
+        let err = read(index(files, fabric()), &[]).unwrap_err();
+        assert!(err.source.to_string().contains("allowed host"), "{url}");
+    }
+    let mut no_sha512 = file_entry(
+        "mods/a.jar",
+        b"a",
+        None,
+        "https://edge.forgecdn.net/files/1/2/a.jar",
+    );
+    no_sha512["hashes"]
+        .as_object_mut()
+        .unwrap()
+        .remove("sha512");
+    assert!(read(index(vec![no_sha512], fabric()), &[]).is_err());
+}
+
+#[test]
+fn the_pack_format_itself_has_no_curseforge_hosts() {
+    // what a Launcher importing an .mrpack checks: Modrinth's allow-list alone
+    let files = vec![file_entry(
+        "mods/a.jar",
+        b"a",
+        None,
+        "https://edge.forgecdn.net/files/1/2/a.jar",
+    )];
+    let parsed: lodestone_minecraft::mrpack::Index =
+        serde_json::from_value(index(files, fabric())).unwrap();
+    let err = lodestone_minecraft::mrpack::check_files(
+        &parsed,
+        Side::Server,
+        &lodestone_minecraft::mrpack::WriteAll,
+    )
+    .unwrap_err();
+    assert!(err.to_string().contains("allowed host"), "{err}");
 }

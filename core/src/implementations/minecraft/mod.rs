@@ -1626,6 +1626,7 @@ mod tests {
             name: "Pack".into(),
             version_number: Some("1.0".into()),
             icon_url: Some("https://cdn.modrinth.com/data/p/icon.png".into()),
+            curseforge: None,
         });
         let written = serde_json::to_string(&config).unwrap();
         let read: RestoreConfig = serde_json::from_str(&written).unwrap();

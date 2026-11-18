@@ -507,6 +507,7 @@ async fn from_history(
         server_download_size: restore.download_size,
         unsupported_reason,
         upload_id: None,
+        curseforge: None,
     };
     Ok(Planned {
         change: Change::Restore(Box::new(target)),
@@ -760,6 +761,7 @@ async fn restored_pack(
                         name: "Modpack".into(),
                         version_number: None,
                         icon_url: None,
+                        curseforge: None,
                     });
             origin.project_id = project.clone();
             origin.version_id = version.clone();

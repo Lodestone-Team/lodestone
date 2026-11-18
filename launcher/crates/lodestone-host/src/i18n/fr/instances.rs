@@ -54,6 +54,10 @@ pub fn text(message: M) -> &'static str {
         M::GameTypeTitle => "Choisissez un jeu",
         M::GameTypeNew => "Nouveau",
         M::GameTypeModpack => "Modpack Modrinth",
+        M::GameTypeModpackBoth => "Modpack",
+        M::GameTypeModpackDescriptionBoth => {
+            "Créer un serveur Fabric, Forge ou NeoForge à partir d’un modpack Modrinth ou CurseForge"
+        }
         M::GameTypeModpackDescription => {
             "Créer un serveur Fabric, Forge ou NeoForge à partir d’un modpack Modrinth"
         }
@@ -133,6 +137,9 @@ pub fn text(message: M) -> &'static str {
         M::ModpackSourceTitle => "Choisissez un modpack",
         M::ModpackSourceDescription => "Modpacks Fabric, Forge et NeoForge uniquement.",
         M::ModpackSearchPlaceholder => "Rechercher des modpacks ou coller un lien Modrinth",
+        M::ModpackSearchPlaceholderBoth => {
+            "Rechercher des modpacks ou coller un lien Modrinth ou CurseForge"
+        }
         M::ModpackUpload => "Importer un .mrpack",
         M::ModpackVersionTitle => "Choisissez une version",
         M::ModpackVersionUploaded => "Le modpack importé.",
@@ -155,10 +162,23 @@ pub fn text(message: M) -> &'static str {
         M::ModpackNotAModpack => "Ce projet est de type {type}, pas un modpack",
         M::ModpackChooseMrpack => "Choisissez un fichier .mrpack",
         M::ModpackNoUploadId => "Le core n’a renvoyé aucun identifiant d’importation",
+        M::ModpackCurseForgeUnavailable => {
+            "CurseForge n’est pas disponible dans cette copie de Lodestone Host."
+        }
+        M::ModpackCurseForgeReading => "Interrogation de CurseForge sur les fichiers du modpack…",
+        M::ModpackCurseForgeChecking => {
+            "Téléchargement des fichiers propres à CurseForge, pour les vérifier ({done} sur {total})…"
+        }
+        M::ModpackCurseForgeUploading => "Envoi du modpack à Lodestone Core…",
+        M::ModpackCurseForgeByHand => {
+            "Ces fichiers ne sont disponibles que sur le site de CurseForge : le serveur est créé sans eux. Téléchargez-les là-bas, puis importez-les dans l’onglet Mods du serveur."
+        }
+        M::ModpackOpenCurseForge => "Ouvrir CurseForge",
         M::ModpackUploadFailed => "Impossible d’importer le modpack : {error}",
         M::ModpackUploading => "Envoi de {name}…",
         M::SortLabel => "Trier par",
         M::SortRelevance => "Pertinence",
+        M::SortPopularity => "Popularité",
         M::SortDownloads => "Téléchargements",
         M::SortFollows => "Abonnés",
         M::SortNewest => "Plus récents",

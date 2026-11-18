@@ -856,6 +856,12 @@ pub struct InstalledMod {
     #[serde(default)]
     pub size: u64,
     #[serde(default)]
+    pub sha512: String,
+    /// CurseForge's fingerprint of the file, which [`super::curseforge::identify`] asks
+    /// CurseForge about. Older cores never send one.
+    #[serde(default)]
+    pub curseforge_fingerprint: Option<u32>,
+    #[serde(default)]
     pub metadata: Option<ModFileMetadata>,
     #[serde(default)]
     pub modrinth: Option<ModrinthMatch>,

@@ -1,6 +1,7 @@
 //! The modpack panel of the Installed view, for a server made from a modpack: which
 //! version it runs, whether a newer one is out (the core checks on its own, and on
-//! "Check for an update"), an update from Modrinth or from an `.mrpack` file, and the
+//! "Check for an update"), an update from Modrinth or from an `.mrpack` file (or from
+//! CurseForge, for a server the Host made from a CurseForge modpack: see below), and the
 //! history: a timeline of the server's content images (every install, update and restore,
 //! and every other change to its mods and configs), with what each changed, and a button
 //! to go back to any of them. Each mod row says since when its file is as it is
@@ -8,14 +9,21 @@
 //!
 //! The core works out what an update or restore changes first; the dialog shows that,
 //! and it runs once the user confirms, with the server stopped.
+//!
+//! The core never asks CurseForge. For a server whose pack says it came from a
+//! CurseForge modpack, the Host asks CurseForge itself whether that modpack has a newer
+//! file (when the tab opens, and on "Check for an update"), and to update it turns the
+//! newer file into a pack the core reads and uploads it: from there it is the update
+//! from a file.
 
 use gpui::{
     AnyElement, AppContext as _, Context, IntoElement, ParentElement, PathPromptOptions,
     SharedString, Styled, div, prelude::*,
 };
 use launcher_core::cores::admin::{
+    curseforge as server, curseforge_pack,
     instances::ModpackSource,
-    models::{InstanceState, ModpackOrigin},
+    models::{CurseForgeOrigin, InstanceState, ModpackOrigin},
     mods::{
         AvailableUpdate, ChangeInfo, ChangeKind, HistoryEntryInfo, ModpackUpdatePlan, loader_title,
     },
@@ -186,8 +194,127 @@ impl ModsPage {
         self.push(task);
     }
 
+    /// The CurseForge modpack the server's pack was made from, in a build that can ask
+    /// CurseForge about it.
+    fn curseforge_pack(&self, cx: &mut Context<Self>) -> Option<CurseForgeOrigin> {
+        let origin = self.modpack_origin(cx)?.curseforge?;
+        crate::curseforge::available(cx).then_some(origin)
+    }
+
+    /// Asks CurseForge whether the modpack the server was made from has a newer file.
+    /// `quiet`: the look the tab takes on its own, which says nothing when it fails.
+    pub(super) fn check_curseforge_pack(&mut self, quiet: bool, cx: &mut Context<Self>) {
+        let (Some(origin), Some(curseforge)) =
+            (self.curseforge_pack(cx), crate::curseforge::client(cx))
+        else {
+            return;
+        };
+        if !quiet {
+            self.modpack_check = ModpackCheck::Checking;
+            cx.notify();
+        }
+        let task = cx.spawn(async move |this, cx| {
+            let found = cx
+                .background_spawn(launcher_core::http::in_http_runtime(async move {
+                    curseforge_pack::newer_file(&curseforge, &origin).await
+                }))
+                .await;
+            this.update(cx, |this, cx| {
+                match found {
+                    Ok(Some(file)) => {
+                        let shown = server::version(&file);
+                        this.modpack_check = ModpackCheck::Available(AvailableUpdate {
+                            version_id: shown.id,
+                            version_number: shown.version_number,
+                            name: shown.name,
+                            game_versions: shown.game_versions,
+                            date_published: shown.date_published,
+                            changelog: None,
+                        });
+                        this.curseforge_pack_update = Some(file);
+                    }
+                    Ok(None) if quiet => {}
+                    Ok(None) => this.modpack_check = ModpackCheck::Newest,
+                    Err(err) if quiet => {
+                        log::warn!("Could not ask CurseForge about the modpack: {err}")
+                    }
+                    Err(err) => this.modpack_check = ModpackCheck::Failed(err.to_string()),
+                }
+                cx.notify();
+            })
+            .ok();
+        });
+        self.push(task);
+    }
+
+    /// Updates to the newer CurseForge file the check found: the Host turns it into a
+    /// pack the core reads and uploads it, then the core says what the update changes.
+    fn update_from_curseforge(&mut self, cx: &mut Context<Self>) {
+        if self.modpack_busy {
+            return;
+        }
+        let (Some(origin), Some(file), Some(curseforge), Some(downloader)) = (
+            self.curseforge_pack(cx),
+            self.curseforge_pack_update.clone(),
+            crate::curseforge::client(cx),
+            crate::curseforge::downloader(cx),
+        ) else {
+            return;
+        };
+        let modrinth = crate::curseforge::modrinth(cx);
+        let admin = self.state.read(cx).admin.clone();
+        self.modpack_busy = true;
+        cx.notify();
+        let task = cx.spawn(async move |this, cx| {
+            let uploaded = cx
+                .background_spawn(launcher_core::http::in_http_runtime(async move {
+                    let project = curseforge.project(origin.project).await?;
+                    curseforge_pack::build_and_upload(
+                        &curseforge,
+                        modrinth.as_deref(),
+                        &downloader,
+                        &admin,
+                        &project,
+                        &file,
+                        &|_| {},
+                        &launcher_core::game::download::CancelToken::new(),
+                    )
+                    .await
+                }))
+                .await;
+            this.update(cx, |this, cx| {
+                this.modpack_busy = false;
+                match uploaded {
+                    Ok((info, by_hand)) => {
+                        if let Some(reason) = info.unsupported_reason {
+                            this.toast(
+                                Toast::error(tr!(M::ModpackDialogUnsupported, reason = reason)),
+                                cx,
+                            );
+                        } else if let Some(upload_id) = info.upload_id {
+                            if let Some(toast) = super::curseforge::pack_by_hand_toast(&by_hand) {
+                                this.toast(toast, cx);
+                            }
+                            this.plan_modpack(ModpackSource::Upload { upload_id }, cx);
+                        }
+                    }
+                    Err(err) => {
+                        this.toast(Toast::error(tr!(M::ModpackPlanFailed, error = err)), cx)
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        });
+        self.push(task);
+    }
+
     /// Asks the core to look for a newer version now.
     fn check_modpack(&mut self, cx: &mut Context<Self>) {
+        // a pack from CurseForge: the Host asks, the core can't
+        if self.curseforge_pack(cx).is_some() {
+            return self.check_curseforge_pack(false, cx);
+        }
         self.modpack_check = ModpackCheck::Checking;
         cx.notify();
         let admin = self.state.read(cx).admin.clone();
@@ -368,6 +495,7 @@ impl ModsPage {
                         lines.extend(counts);
                         lines.extend(done.skipped);
                         this.modpack_check = ModpackCheck::Idle;
+                        this.curseforge_pack_update = None;
                         if restore {
                             Toast::success(lines.join("\n"))
                                 .object(ObjectChip::new(pack).icon(Icon::CodeCompare))
@@ -412,6 +540,8 @@ impl ModsPage {
         let origin = self.modpack_origin(cx)?;
         let can_write = self.can_write(cx);
         let on_modrinth = !origin.project_id.is_empty();
+        // made from a CurseForge modpack, which the Host asks about
+        let on_curseforge = !on_modrinth && self.curseforge_pack(cx).is_some();
         let status = match &self.modpack_check {
             ModpackCheck::Newest => Some(muted(t(M::ModpackUpToDate))),
             ModpackCheck::Available(update) if update.changelog.is_some() => {
@@ -472,7 +602,26 @@ impl ModsPage {
                     ),
                 ))
             }
-            _ if on_modrinth => Some(
+            ModpackCheck::Available(update)
+                if on_curseforge && self.curseforge_pack_update.is_some() =>
+            {
+                // the Host makes the pack and uploads it, which needs what an upload does
+                let may = can_write && self.can_create(cx);
+                Some(why_not(
+                    "modpack-update-why",
+                    may,
+                    Button::new(
+                        "modpack-update",
+                        tr!(M::ModpackUpdateTo, version = update.version_number),
+                    )
+                    .variant(ButtonVariant::Primary)
+                    .icon(Icon::CircleUp)
+                    .loading(self.modpack_busy)
+                    .disabled(!may || self.modpack_busy)
+                    .on_click(cx.listener(|this, _, _, cx| this.update_from_curseforge(cx))),
+                ))
+            }
+            _ if on_modrinth || on_curseforge => Some(
                 Button::new("modpack-check", t(M::ModpackCheck))
                     .loading(matches!(self.modpack_check, ModpackCheck::Checking))
                     .disabled(matches!(self.modpack_check, ModpackCheck::Checking))

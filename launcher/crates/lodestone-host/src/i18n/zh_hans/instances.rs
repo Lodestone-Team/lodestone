@@ -48,6 +48,10 @@ pub fn text(message: M) -> &'static str {
         M::GameTypeTitle => "选择游戏",
         M::GameTypeNew => "新功能",
         M::GameTypeModpack => "Modrinth 整合包",
+        M::GameTypeModpackBoth => "整合包",
+        M::GameTypeModpackDescriptionBoth => {
+            "从 Modrinth 或 CurseForge 整合包创建 Fabric、Forge 或 NeoForge 服务器"
+        }
         M::GameTypeModpackDescription => "从 Modrinth 整合包创建 Fabric、Forge 或 NeoForge 服务器",
         M::GameTypeImport => "已有的服务器",
         M::GameTypeImportDescription => "导入你已有的 Minecraft 服务器，包括世界、设置、模组和插件",
@@ -109,6 +113,7 @@ pub fn text(message: M) -> &'static str {
         M::ModpackSourceTitle => "选择整合包",
         M::ModpackSourceDescription => "仅支持 Fabric、Forge 和 NeoForge 整合包。",
         M::ModpackSearchPlaceholder => "搜索整合包，或粘贴 Modrinth 链接",
+        M::ModpackSearchPlaceholderBoth => "搜索整合包，或粘贴 Modrinth 或 CurseForge 链接",
         M::ModpackUpload => "上传 .mrpack",
         M::ModpackVersionTitle => "选择版本",
         M::ModpackVersionUploaded => "已上传的整合包。",
@@ -131,10 +136,21 @@ pub fn text(message: M) -> &'static str {
         M::ModpackNotAModpack => "这是 {type}，不是整合包",
         M::ModpackChooseMrpack => "请选择 .mrpack 文件",
         M::ModpackNoUploadId => "核心未返回上传 ID",
+        M::ModpackCurseForgeUnavailable => "此版本的 Lodestone Host 无法使用 CurseForge。",
+        M::ModpackCurseForgeReading => "正在向 CurseForge 查询整合包的文件…",
+        M::ModpackCurseForgeChecking => {
+            "正在下载仅 CurseForge 提供的文件以进行校验（{done}/{total}）…"
+        }
+        M::ModpackCurseForgeUploading => "正在将整合包发送到 Lodestone Core…",
+        M::ModpackCurseForgeByHand => {
+            "这些文件只能从 CurseForge 网站下载，因此创建的服务器不包含它们。请在那里下载后，在服务器的“模组”标签页中上传。"
+        }
+        M::ModpackOpenCurseForge => "打开 CurseForge",
         M::ModpackUploadFailed => "上传整合包失败：{error}",
         M::ModpackUploading => "正在上传 {name}…",
         M::SortLabel => "排序方式",
         M::SortRelevance => "相关性",
+        M::SortPopularity => "热门程度",
         M::SortDownloads => "下载量",
         M::SortFollows => "关注数",
         M::SortNewest => "最新发布",

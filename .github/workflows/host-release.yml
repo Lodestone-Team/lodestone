@@ -187,8 +187,13 @@ jobs:
 
     # The tagged commit's own script builds it (the Host, and the core without Deno),
     # so a release branch's build fixes apply.
+    # With the LODESTONE_CURSEFORGE_API_KEY secret (the key CurseForge issued Lodestone),
+    # the key is compiled into the Host and it offers CurseForge; without it the build
+    # has no CurseForge. The core it ships never has the key: it has no CurseForge client.
     - name: Build and stage
       shell: bash
+      env:
+        LODESTONE_CURSEFORGE_API_KEY: ${{ secrets.LODESTONE_CURSEFORGE_API_KEY }}
       run: python launcher/scripts/publish_release.py --product host --stage "$RUNNER_TEMP/host-windows"
 
     - name: Keep the build

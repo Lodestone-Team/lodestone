@@ -94,6 +94,9 @@ crate::i18n::messages! {
         ModsRestartPlugin = "Restart the server to apply plugin changes",
         ModsSearchMod = "Search mods on Modrinth, or paste a Modrinth link",
         ModsSearchPlugin = "Search plugins on Modrinth, or paste a Modrinth link",
+        /// The same, in a copy of the Host that also searches CurseForge.
+        ModsSearchModBoth = "Search mods, or paste a Modrinth or CurseForge link",
+        ModsSearchPluginBoth = "Search plugins, or paste a Modrinth or CurseForge link",
         ModsSearchLabel = "Search Modrinth",
         /// {gameVersion} is a Minecraft version, {loader} a loader such as fabric.
         ModsOnlyCompatible = "Only compatible versions",
@@ -135,6 +138,12 @@ crate::i18n::messages! {
         ModsUpdateFailed = "Couldn’t update it: {error}",
         ModsUpdateTo = "Update to {version}",
         ModsViewOnModrinth = "View on Modrinth",
+        ModsViewOnCurseForge = "View on CurseForge",
+        /// Why a mod from CurseForge shows as unknown: CurseForge has no such field.
+        ModsUnknownCurseForge = "CurseForge doesn’t say whether players need it. Check the mod’s page, and tick For players if they do.",
+        /// The empty Installed view, in a copy of the Host that also searches CurseForge.
+        ModsEmptyModBoth = "No mods yet. Browse Modrinth or CurseForge, or upload a .jar file.",
+        ModsEmptyPluginBoth = "No plugins yet. Browse Modrinth or CurseForge, or upload a .jar file.",
         ModsDeleteLabel = "Delete {name}",
         ModsUploaded = "Uploaded",
         ModsUploadFailed = "Upload failed: {error}",
@@ -221,6 +230,7 @@ crate::i18n::messages! {
         ModsWrongTypePlugin = "This is a {type}. Lodestone only installs plugins here.",
         ModsDescription = "Description",
         ModsRestOnModrinth = "The rest of the description is on Modrinth.",
+        ModsRestOnCurseForge = "The rest of the description is on CurseForge.",
         ModsVersions = "Versions",
         ModsWithDependencies = "Also install required dependencies",
         ModsShowAll = "Show all versions",
@@ -230,6 +240,12 @@ crate::i18n::messages! {
         ModsNotFor = "Not for this server",
         ModsInstalledVersion = "Installed",
         ModsInstallFailed = "Couldn’t install it: {error}",
+        /// Files whose authors don't let other apps download them; their names follow, one a line.
+        ModsCurseForgeByHand = "Only CurseForge’s website has these files. Download them there, then upload them here.",
+        /// The button that opens those files' pages.
+        ModsOpenCurseForge = "Open CurseForge",
+        ModsCurseForgeFailed = "Couldn’t ask CurseForge about the installed files: {error}",
+        ModsCurseForgeUnavailable = "CurseForge isn’t available in this copy of Lodestone Host.",
         ModsIncompatibleTitle = "Install a version made for something else?",
         ModsInstallAnyway = "Install anyway",
         ModsIncompatibleBody = "It may crash the server.",

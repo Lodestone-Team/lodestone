@@ -852,7 +852,7 @@ impl OverviewPage {
                     .child(instance_icons::game_icon(
                         "overview-game",
                         &instance.game_type,
-                        instance.icon_url.as_deref(),
+                        instance.pack_icon(),
                         px(24.),
                         cx,
                     ))
@@ -1647,7 +1647,8 @@ impl OverviewPage {
                 .into_any_element()
         };
         let plain = |value: String| div().child(value).into_any_element();
-        // the modpack: its name (a link to Modrinth when it's there), then its version
+        // the modpack: its name (a link to Modrinth or CurseForge when it's there),
+        // then its version
         let modpack = instance.modpack.as_ref().map(|modpack| {
             let mut chip = ObjectChip::new(modpack.name.clone())
                 .kind(Kind::Modpack)
@@ -1657,6 +1658,12 @@ impl OverviewPage {
                     "https://modrinth.com/modpack/{}",
                     launcher_core::cores::admin::segment(&modpack.project_id)
                 );
+                chip = chip.on_click(move |_, _, cx| cx.open_url(&url));
+            } else if let Some(url) = modpack
+                .curseforge
+                .as_ref()
+                .and_then(|from| from.page_url.clone())
+            {
                 chip = chip.on_click(move |_, _, cx| cx.open_url(&url));
             }
             div()
