@@ -152,6 +152,26 @@ crate::i18n::messages! {
         TurnOnMod = "Turn on",
         ModTurnedOff = "Turned off. Play again to see if that fixed it. You can turn it back on here or in the Content tab.",
         CopyLog = "Copy log",
+        /// The crash dialog's button on a mod that shows (and hides) where in the
+        /// mod's code the crash points, for whoever makes the mod.
+        ShowCode = "Show code",
+        HideCode = "Hide code",
+        /// What a place in a mod's code (a Java method or mixin, shown under it) had
+        /// to do with the crash.
+        SiteFailedPatch = "Mixin that failed to apply",
+        SiteEntrypoint = "Start-up code that failed",
+        SiteCrashedHere = "Threw the error",
+        SiteInjected = "Mixin code it added to the game",
+        SiteMixin = "Mixin on a class in the crashing stack",
+        SiteCalled = "Called the code that crashed",
+        SiteCaught = "Caught the error and passed it on",
+        /// Under a mixin method: {target} is the game method it runs in, such as
+        /// "net.minecraft.item.ItemStack.getTooltip (ItemStack.java:656)".
+        SiteRunsIn = "Runs in {target}",
+        /// Under a mixin: {target} is the game class it changes.
+        SitePatches = "Changes {target}",
+        /// Copies the code the crash points at in every mod, as text for a bug report.
+        CopyForDevelopers = "Copy for developers",
 
         // A modpack update.
         /// The title of the dialog that updates an instance's modpack; the instance is in a card under it.

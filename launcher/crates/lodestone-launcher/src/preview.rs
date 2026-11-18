@@ -12,7 +12,7 @@ use launcher_core::{
     game::{
         crash::{
             Cause, CrashSummary,
-            suspects::{Evidence, Suspect},
+            suspects::{CodeSite, Evidence, SiteKind, Suspect},
         },
         download::ProgressSnapshot,
         install::{InstallProgress, Stage as InstallStage},
@@ -97,6 +97,7 @@ pub const SCENES: &[&str] = &[
     "instance-settings",
     "crash",
     "crash-mods",
+    "crash-code",
     "mod-finder",
     "mod-finder-found",
     "rosetta",
@@ -581,6 +582,7 @@ fn has_instances(scene: &str) -> bool {
             | "instance-settings"
             | "crash"
             | "crash-mods"
+            | "crash-code"
             | "mod-finder"
             | "mod-finder-found"
             | "rosetta"
@@ -916,7 +918,7 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
                 });
                 instances.preview_preparing(&first.id, progress);
             }
-            "logs" | "logs-select" | "crash" | "crash-mods" => {
+            "logs" | "logs-select" | "crash" | "crash-mods" | "crash-code" => {
                 instances.preview_log(&first.id, sample_log())
             }
             "logs-scroll" => instances.preview_log(&first.id, long_log()),
@@ -945,6 +947,34 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
 }
 
 /// A made-up console: launcher lines, Log4j events at each level, and a stack trace.
+/// The "crash-mods" scene's code sites for Zenith: its mixin method that threw, and
+/// its mixin on the class.
+fn zenith_sites() -> Vec<CodeSite> {
+    vec![
+        CodeSite {
+            kind: SiteKind::Injected,
+            code: "dev.shadowsoffire.zenith.mixin.ItemStackMixin.enchTooltipRewrite".into(),
+            source: Some("ItemStack.java:2641".into()),
+            target: Some("net.minecraft.class_1799.method_7950 (class_1799.java:656)".into()),
+            detail: None,
+        },
+        CodeSite {
+            kind: SiteKind::Mixin,
+            code: "dev.shadowsoffire.zenith.mixin.ItemStackMixin".into(),
+            source: Some("zenith.mixins.json".into()),
+            target: Some("net.minecraft.class_1799".into()),
+            detail: None,
+        },
+        CodeSite {
+            kind: SiteKind::Called,
+            code: "dev.shadowsoffire.zenith.util.TooltipUtil.rewrite".into(),
+            source: Some("TooltipUtil.java:88".into()),
+            target: None,
+            detail: None,
+        },
+    ]
+}
+
 fn sample_log() -> Vec<LogLine> {
     let base = 1_762_500_000_000u64;
     let event = |offset: u64, level: Level, thread: &str, message: &str| LogLine {
@@ -1162,7 +1192,7 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             },
             cx,
         ),
-        "crash-mods" => {
+        "crash-mods" | "crash-code" => {
             // A modded instance, so the dialog offers "Find it for me".
             let (instance_id, instance_name) = shell
                 .instances()
@@ -1184,15 +1214,16 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                     causes: Vec::new(),
                 },
                 suspects: [
-                    ("zenith-1.2.3.jar", "Zenith", Evidence::PatchedCrashingCode),
-                    ("fancymenu-3.5.0.jar", "FancyMenu", Evidence::PatchedCrashingCode),
-                    ("sodium-0.6.0.jar", "Sodium", Evidence::InStack),
+                    ("zenith-1.2.3.jar", "Zenith", Evidence::PatchedCrashingCode, zenith_sites()),
+                    ("fancymenu-3.5.0.jar", "FancyMenu", Evidence::PatchedCrashingCode, Vec::new()),
+                    ("sodium-0.6.0.jar", "Sodium", Evidence::InStack, Vec::new()),
                 ]
                 .into_iter()
-                .map(|(file_name, name, evidence)| Suspect {
+                .map(|(file_name, name, evidence, sites)| Suspect {
                     file_name: file_name.into(),
                     name: name.into(),
                     evidence,
+                    sites,
                 })
                 .collect(),
                 exit_code: Some(-1),
@@ -1203,6 +1234,10 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             },
             cx,
         );
+            if scene == "crash-code" {
+                // Where in Zenith's code the crash points, shown.
+                shell.toggle_crash_code("zenith-1.2.3.jar".into(), cx);
+            }
         }
         "mod-finder" | "mod-finder-found" => {
             let instances = shell.instances().clone();

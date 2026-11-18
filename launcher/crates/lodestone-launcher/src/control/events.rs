@@ -126,6 +126,7 @@ impl Notices {
                         "file": s.file_name,
                         "name": s.name,
                         "evidence": format!("{:?}", s.evidence),
+                        "sites": s.sites,
                     })).collect::<Vec<_>>(),
                     "likely": launcher_core::game::crash::suspects::likely(&crash.suspects),
                     "at_startup": crash.at_startup,
