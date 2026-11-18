@@ -42,7 +42,7 @@ use gpui::{
 use launcher_core::{
     game::crash::{
         Cause,
-        suspects::{self, Evidence},
+        suspects::{self, CodeSite, Evidence, SiteKind},
     },
     instances::{Instance, Loader},
 };
@@ -178,6 +178,12 @@ enum Modal {
         turned_off: Vec<String>,
         /// Why turning one off or on didn't work.
         error: Option<SharedString>,
+        /// The suspects whose code is shown, by file name.
+        code_open: Vec<String>,
+        /// Whether "Copy for developers" was just pressed.
+        code_copied: bool,
+        /// The body scrolls when the code shown makes it taller than the window.
+        scroll: gpui::ScrollHandle,
     },
     LaunchFailed {
         title: SharedString,
@@ -1376,9 +1382,25 @@ impl LauncherShell {
                 copied: false,
                 turned_off: Vec::new(),
                 error: None,
+                code_open: Vec::new(),
+                code_copied: false,
+                scroll: gpui::ScrollHandle::new(),
             },
             cx,
         );
+    }
+
+    /// Shows or hides where in a suspect's code the crash points.
+    pub(crate) fn toggle_crash_code(&mut self, file_name: String, cx: &mut Context<Self>) {
+        let Some(Modal::Crash { code_open, .. }) = self.modal.current_mut() else {
+            return;
+        };
+        if let Some(index) = code_open.iter().position(|f| *f == file_name) {
+            code_open.remove(index);
+        } else {
+            code_open.push(file_name);
+        }
+        cx.notify();
     }
 
     /// The instance a "Find it for me" search is running for, if one is open.
@@ -2543,6 +2565,9 @@ impl LauncherShell {
                 copied,
                 turned_off,
                 error,
+                code_open,
+                code_copied,
+                scroll,
             } => render_crash(
                 crash,
                 focus.clone(),
@@ -2551,6 +2576,9 @@ impl LauncherShell {
                     turned_off,
                     error: error.clone(),
                     can_find: self.can_find_mod(crash, cx),
+                    code_open,
+                    code_copied: *code_copied,
+                    scroll: scroll.clone(),
                     instance: self
                         .instances
                         .read(cx)
@@ -2894,6 +2922,153 @@ fn evidence_text(evidence: Evidence) -> &'static str {
     })
 }
 
+/// What a place in a mod's code had to do with the crash, in the current language.
+fn site_label(kind: SiteKind) -> &'static str {
+    t(match kind {
+        SiteKind::FailedPatch => M::SiteFailedPatch,
+        SiteKind::Entrypoint => M::SiteEntrypoint,
+        SiteKind::CrashedHere => M::SiteCrashedHere,
+        SiteKind::Injected => M::SiteInjected,
+        SiteKind::Mixin => M::SiteMixin,
+        SiteKind::Called => M::SiteCalled,
+        SiteKind::Caught => M::SiteCaught,
+    })
+}
+
+/// `com.example.Thing.run (Thing.java:42)`.
+fn site_code(site: &CodeSite) -> String {
+    match &site.source {
+        Some(source) => format!("{} ({source})", site.code),
+        None => site.code.clone(),
+    }
+}
+
+/// The game code a mixin changed: "Runs in …" for an injected method, "Changes …"
+/// for a mixin.
+fn site_target(site: &CodeSite) -> Option<String> {
+    let target = site.target.as_deref()?;
+    Some(if site.kind == SiteKind::Injected {
+        tr!(M::SiteRunsIn, target = target)
+    } else {
+        tr!(M::SitePatches, target = target)
+    })
+}
+
+/// "Copy for developers": the crash and the code it points at in each mod, as text
+/// for a bug report.
+fn developer_text(crash: &CrashInfo) -> String {
+    let mut text = String::new();
+    if let Some(description) = &crash.summary.description {
+        text.push_str(&format!("{description}\n"));
+    }
+    if let Some(exception) = &crash.summary.exception {
+        text.push_str(&format!("{exception}\n"));
+    }
+    for suspect in &crash.suspects {
+        text.push_str(&format!(
+            "\n{} ({})\n{}\n",
+            suspect.name,
+            suspect.file_name,
+            evidence_text(suspect.evidence)
+        ));
+        for site in &suspect.sites {
+            text.push_str(&format!(
+                "  {}: {}\n",
+                site_label(site.kind),
+                site_code(site)
+            ));
+            if let Some(target) = site_target(site) {
+                text.push_str(&format!("      {target}\n"));
+            }
+            if let Some(detail) = &site.detail {
+                text.push_str(&format!("      {detail}\n"));
+            }
+        }
+    }
+    text
+}
+
+/// Where in a suspect's code the crash points: each place's part in the crash, the
+/// code, and what it changed in the game.
+fn render_code_sites(
+    index: usize,
+    sites: &[CodeSite],
+    copied: bool,
+    copy_text: String,
+    cx: &mut Context<LauncherShell>,
+) -> AnyElement {
+    div()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .min_w_0()
+        .px_3()
+        .py_2()
+        .rounded(radius::LG)
+        .bg(colors::GRAY_900)
+        .border_1()
+        .border_color(crate::theme::ink::muted().opacity(30))
+        .children(sites.iter().map(|site| {
+            div()
+                .flex()
+                .flex_col()
+                .min_w_0()
+                .child(
+                    div()
+                        .text_size(theme::text_size(text::SMALL))
+                        .text_color(crate::theme::ink::muted())
+                        .child(site_label(site.kind)),
+                )
+                .child(
+                    div()
+                        .font_family(fonts::mono())
+                        .text_size(theme::text_size(text::SMALL))
+                        .text_color(crate::theme::ink::text())
+                        .child(site_code(site)),
+                )
+                .when_some(site_target(site), |this, target| {
+                    this.child(
+                        div()
+                            .font_family(fonts::mono())
+                            .text_size(theme::text_size(text::SMALL))
+                            .text_color(crate::theme::ink::secondary())
+                            .child(target),
+                    )
+                })
+                .when_some(site.detail.clone(), |this, detail| {
+                    this.child(
+                        div()
+                            .font_family(fonts::mono())
+                            .text_size(theme::text_size(text::SMALL))
+                            .text_color(colors::RED_200)
+                            .child(detail),
+                    )
+                })
+        }))
+        .child(
+            div().flex().child(
+                Button::new(
+                    ("crash-code-copy", index),
+                    if copied {
+                        t(CommonMsg::Copied)
+                    } else {
+                        t(M::CopyForDevelopers)
+                    },
+                )
+                .variant(ButtonVariant::Secondary)
+                .icon(crate::components::Icon::Copy)
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    cx.write_to_clipboard(ClipboardItem::new_string(copy_text.clone()));
+                    if let Some(Modal::Crash { code_copied, .. }) = this.modal.current_mut() {
+                        *code_copied = true;
+                    }
+                    cx.notify();
+                })),
+            ),
+        )
+        .into_any_element()
+}
+
 /// What the crash dialog keeps between frames.
 struct CrashState<'a> {
     copied: bool,
@@ -2901,6 +3076,11 @@ struct CrashState<'a> {
     error: Option<SharedString>,
     /// Whether to offer "Find it for me".
     can_find: bool,
+    /// The suspects whose code is shown, by file name.
+    code_open: &'a [String],
+    /// Whether "Copy for developers" was just pressed.
+    code_copied: bool,
+    scroll: gpui::ScrollHandle,
     /// The instance that crashed, for its card (`None` once it's gone).
     instance: Option<Instance>,
 }
@@ -2927,6 +3107,9 @@ fn render_suspects(
     } else {
         M::ModsInvolved
     };
+    // Everything the crash points at, for "Copy for developers" (all the suspects,
+    // not only those shown).
+    let copy_text = developer_text(crash);
     let rows: Vec<_> = shown
         .iter()
         .enumerate()
@@ -2934,7 +3117,10 @@ fn render_suspects(
             let off = state.turned_off.contains(&suspect.file_name);
             let file_name = suspect.file_name.clone();
             let action = t(if off { M::TurnOnMod } else { M::TurnOffMod });
-            div()
+            let code_open = state.code_open.contains(&suspect.file_name);
+            let code_label = t(if code_open { M::HideCode } else { M::ShowCode });
+            let toggle_file = suspect.file_name.clone();
+            let row = div()
                 .flex()
                 .items_center()
                 .gap_3()
@@ -2962,6 +3148,16 @@ fn render_suspects(
                                 }),
                         ),
                 )
+                .when(!suspect.sites.is_empty(), |this| {
+                    this.child(
+                        Button::new(("crash-code", index), code_label)
+                            .variant(ButtonVariant::Ghost)
+                            .accessible_label(format!("{code_label}: {}", suspect.name))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.toggle_crash_code(toggle_file.clone(), cx);
+                            })),
+                    )
+                })
                 .child(
                     Button::new(("crash-suspect", index), action)
                         .variant(ButtonVariant::Secondary)
@@ -2969,7 +3165,19 @@ fn render_suspects(
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.set_crash_mod_enabled(file_name.clone(), off, cx);
                         })),
-                )
+                );
+            div().flex().flex_col().gap_2().min_w_0().child(row).when(
+                code_open && !suspect.sites.is_empty(),
+                |this| {
+                    this.child(render_code_sites(
+                        index,
+                        &suspect.sites,
+                        state.code_copied,
+                        copy_text.clone(),
+                        cx,
+                    ))
+                },
+            )
         })
         .collect();
     Some(
@@ -3041,6 +3249,7 @@ fn render_crash(
     let suspects = render_suspects(crash, &state, cx);
     let finder_crash = crash.clone();
     Dialog::new("crash", t(M::CrashTitle), focus)
+        .scroll_body(state.scroll.clone())
         .on_close(on_close)
         .child(
             div()

@@ -17,12 +17,22 @@
 //! one. Only the report's first "Mixins in Stacktrace" block counts (the one under
 //! `-- Head --`): the later ones are for other stacks, such as the code that wrote the
 //! report.
+//!
+//! Turning a mod off is what a player needs; whoever makes the mod needs to know where
+//! in its code to look. So each suspect also carries its [`CodeSite`]s: the frames of
+//! its own classes (with the file and line), the mixin methods it injected and the game
+//! method they run in, the mixins it applied to the crashing classes, and the mixin that
+//! failed to apply. A mod developer whose mod crashes because another mod changed the
+//! game under it sees both sides: their frames, and the other mod's mixin on the code
+//! they called.
 
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     fs::File,
     io::{BufReader, Cursor, Read, Seek},
 };
+
+use serde::Serialize;
 
 use super::super::log4j::LogLine;
 use crate::content::{ContentKind, InstanceDirs, scan};
@@ -35,7 +45,58 @@ pub struct Suspect {
     /// The mod's name, or the file name without `.jar`.
     pub name: String,
     pub evidence: Evidence,
+    /// Where in the mod's code the crash points, the most telling first (at most
+    /// [`MAX_SITES`]).
+    pub sites: Vec<CodeSite>,
 }
+
+/// A place in a mod's code that the crash points at, for whoever makes the mod.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
+pub struct CodeSite {
+    pub kind: SiteKind,
+    /// The code, as a Java developer looks it up: a method
+    /// (`com.example.mod.Thing.run`), a mixin class
+    /// (`com.example.mod.mixin.ItemStackMixin`), a mixin handler
+    /// (`com.example.mod.mixin.ItemStackMixin.onTooltip`, or just `onTooltip` when the
+    /// mixin class isn't known), or a mixin in its config
+    /// (`example.mixins.json:client.ScreenMixin`).
+    pub code: String,
+    /// Where it is: `Thing.java:42` as the trace gives it, or a mixin's config
+    /// (`example.mixins.json`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    /// For a mixin: the game code it changed, such as
+    /// `net.minecraft.item.ItemStack.getTooltip (ItemStack.java:656)` for an injected
+    /// method (the method it runs in), or `net.minecraft.item.ItemStack` for a mixin.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+    /// For a mixin that failed to apply: the error, as the log gave it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
+/// What a [`CodeSite`] is, the most telling first.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SiteKind {
+    /// A mixin that couldn't be applied to the game.
+    FailedPatch,
+    /// The mod's start-up code (its entrypoint), which failed.
+    Entrypoint,
+    /// The frame that threw the error.
+    CrashedHere,
+    /// A method one of its mixins added to a game class, in the crashing stack.
+    Injected,
+    /// One of its mixins on a class in the crashing stack.
+    Mixin,
+    /// Its code further down the crashing stack: it called the code that crashed.
+    Called,
+    /// Its code in an outer exception: it caught the error and passed it on.
+    Caught,
+}
+
+/// The most code sites kept for a suspect.
+pub const MAX_SITES: usize = 10;
 
 /// Why a mod is a suspect, strongest first.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -97,11 +158,7 @@ pub fn find(dirs: &InstanceDirs, crash_report: Option<&str>, log: &[LogLine]) ->
 
     // The evidence for each jar, by its index in `mods`.
     let mut scores: BTreeMap<usize, (Evidence, u32)> = BTreeMap::new();
-    let mut add = |index: usize, evidence: Evidence| {
-        let entry = scores.entry(index).or_insert((evidence, 0));
-        entry.0 = entry.0.min(evidence);
-        entry.1 += evidence.weight();
-    };
+    let mut sites: HashMap<usize, Vec<Site>> = HashMap::new();
     for clue in &clues.list {
         let index = match &clue.target {
             Target::ModId(id) => by_id.get(id).copied(),
@@ -109,7 +166,12 @@ pub fn find(dirs: &InstanceDirs, crash_report: Option<&str>, log: &[LogLine]) ->
             Target::Config(config) => owners.get(config).copied(),
         };
         if let Some(index) = index {
-            add(index, clue.evidence);
+            let entry = scores.entry(index).or_insert((clue.evidence, 0));
+            entry.0 = entry.0.min(clue.evidence);
+            entry.1 += clue.evidence.weight();
+            if let Some(site) = &clue.site {
+                sites.entry(index).or_default().push(site.clone());
+            }
         }
     }
 
@@ -126,8 +188,51 @@ pub fn find(dirs: &InstanceDirs, crash_report: Option<&str>, log: &[LogLine]) ->
             file_name: mods[index].file_name.clone(),
             name: mods[index].display_name(),
             evidence,
+            sites: code_sites(sites.remove(&index).unwrap_or_default()),
         })
         .collect()
+}
+
+/// One mod's code sites, in the order they came in: names each injected method's mixin
+/// class where one of the mod's mixins is the only one on that game class, puts the
+/// most telling first, drops repeats and keeps [`MAX_SITES`].
+fn code_sites(sites: Vec<Site>) -> Vec<CodeSite> {
+    // The mod's mixin classes, by the game class they patch.
+    let mut mixins: HashMap<&str, Vec<&str>> = HashMap::new();
+    for site in &sites {
+        if let (SiteKind::Mixin, Some(patched)) = (site.code.kind, &site.patched) {
+            mixins
+                .entry(patched.as_str())
+                .or_default()
+                .push(site.code.code.as_str());
+        }
+    }
+    for list in mixins.values_mut() {
+        list.sort_unstable();
+        list.dedup();
+    }
+    let mut out: Vec<CodeSite> = sites
+        .iter()
+        .map(|site| {
+            let mut code = site.code.clone();
+            if code.kind == SiteKind::Injected
+                && let Some([mixin]) = site
+                    .patched
+                    .as_deref()
+                    .and_then(|p| mixins.get(p))
+                    .map(Vec::as_slice)
+            {
+                code.code = format!("{mixin}.{}", code.code);
+            }
+            code
+        })
+        .collect();
+    // Stable: within a kind, the order of the stack.
+    out.sort_by_key(|site| site.kind);
+    let mut seen = HashSet::new();
+    out.retain(|site| seen.insert(site.clone()));
+    out.truncate(MAX_SITES);
+    out
 }
 
 /// Something in the crash that points at a mod.
@@ -135,6 +240,52 @@ pub fn find(dirs: &InstanceDirs, crash_report: Option<&str>, log: &[LogLine]) ->
 struct Clue {
     target: Target,
     evidence: Evidence,
+    /// Where in the mod's code it points, when it points at code.
+    site: Option<Site>,
+}
+
+/// A [`CodeSite`] as a clue finds it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Site {
+    code: CodeSite,
+    /// The game class a mixin or injected method patched, to name an injected
+    /// method's mixin class.
+    patched: Option<String>,
+}
+
+impl Site {
+    fn new(kind: SiteKind, code: impl Into<String>) -> Self {
+        Self {
+            code: CodeSite {
+                kind,
+                code: code.into(),
+                source: None,
+                target: None,
+                detail: None,
+            },
+            patched: None,
+        }
+    }
+
+    fn source(mut self, source: Option<String>) -> Self {
+        self.code.source = source;
+        self
+    }
+
+    fn target(mut self, target: Option<String>) -> Self {
+        self.code.target = target;
+        self
+    }
+
+    fn detail(mut self, detail: Option<String>) -> Self {
+        self.code.detail = detail;
+        self
+    }
+
+    fn patched(mut self, class: Option<String>) -> Self {
+        self.patched = class;
+        self
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -157,8 +308,12 @@ impl Clues {
         self.list.is_empty()
     }
 
-    fn push(&mut self, target: Target, evidence: Evidence) {
-        self.list.push(Clue { target, evidence });
+    fn push(&mut self, target: Target, evidence: Evidence, site: Option<Site>) {
+        self.list.push(Clue {
+            target,
+            evidence,
+            site,
+        });
     }
 
     /// The `.class` paths to look for in the jars.
@@ -241,31 +396,82 @@ fn failed_patches(text: &str, clues: &mut Clues) {
         if !PATCH_FAILURES.iter().any(|sign| line.contains(sign)) {
             continue;
         }
+        let site = failed_patch_site(line);
         for marker in ["for mod ", "from mod "] {
             for (index, _) in line.match_indices(marker) {
                 let id = mod_id_at(&line[index + marker.len()..]);
                 if !id.is_empty() && !is_platform_mod(&id) {
-                    clues.push(Target::ModId(id), Evidence::FailedToPatch);
+                    clues.push(Target::ModId(id), Evidence::FailedToPatch, site.clone());
                 }
             }
         }
         for word in line.split(|c: char| c.is_whitespace() || "[](){}:,'\"".contains(c)) {
             if word.ends_with(".json") && word.contains("mixin") && !is_platform_config(word) {
-                clues.push(Target::Config(word.to_string()), Evidence::FailedToPatch);
+                clues.push(
+                    Target::Config(word.to_string()),
+                    Evidence::FailedToPatch,
+                    site.clone(),
+                );
             }
         }
     }
+}
+
+/// The mixin a failure line names (`oldmod.mixins.json:TitleMixin`), the game class it
+/// was for (`-> net.minecraft.class_442`), and the line itself without the log's
+/// `[main/ERROR]: ` prefix.
+fn failed_patch_site(line: &str) -> Option<Site> {
+    let mixin = line
+        .split(|c: char| c.is_whitespace() || "[](){},'\"".contains(c))
+        .find(|word| {
+            word.split_once(".json:")
+                .is_some_and(|(config, class)| config.contains("mixin") && !class.is_empty())
+        })?
+        .trim_end_matches(':');
+    let target = line.split_once("-> ").map(|(_, rest)| {
+        rest.split(|c: char| c.is_whitespace() || c == ',')
+            .next()
+            .unwrap_or_default()
+            .trim_end_matches(':')
+            .to_string()
+    });
+    let message = match line.find("]: ") {
+        Some(index) if index < 80 => &line[index + 3..],
+        _ => line,
+    };
+    Some(
+        Site::new(SiteKind::FailedPatch, mixin)
+            .target(target.filter(|t| !t.is_empty()))
+            .detail(Some(shorten(message.trim(), 400))),
+    )
+}
+
+/// `text`, cut to about `max` bytes with `…`.
+fn shorten(text: &str, max: usize) -> String {
+    if text.len() <= max {
+        return text.to_string();
+    }
+    let mut end = max;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}…", &text[..end])
 }
 
 /// Mods whose start-up code failed, as Fabric and Quilt name them: `Could not execute
 /// entrypoint stage 'main' due to errors, provided by 'india' at '...'`.
 fn failed_entrypoints(text: &str, clues: &mut Clues) {
     for line in text.lines().filter(|l| l.contains("entrypoint")) {
+        // The class it named: `... at 'com.example.india.IndiaMod'`.
+        let site = line.split_once(" at '").and_then(|(_, rest)| {
+            let class = rest.split('\'').next()?;
+            (!class.is_empty()).then(|| Site::new(SiteKind::Entrypoint, class))
+        });
         for marker in ["provided by '", "provided by mod '"] {
             for (index, _) in line.match_indices(marker) {
                 let id = mod_id_at(&line[index + marker.len()..]);
                 if !id.is_empty() && !is_platform_mod(&id) {
-                    clues.push(Target::ModId(id), Evidence::CrashedInItsCode);
+                    clues.push(Target::ModId(id), Evidence::CrashedInItsCode, site.clone());
                 }
             }
         }
@@ -285,24 +491,46 @@ fn mod_id_at(text: &str) -> String {
 struct Frame {
     class: String,
     method: String,
+    /// What's in the brackets: `Foo.java:12`, `Foo.java`, `Native Method`.
+    source: Option<String>,
+}
+
+impl Frame {
+    /// `net.minecraft.Foo.bar (Foo.java:12)`.
+    fn describe(&self) -> String {
+        match &self.source {
+            Some(source) => format!("{}.{} ({source})", self.class, self.method),
+            None => format!("{}.{}", self.class, self.method),
+        }
+    }
 }
 
 /// A stack trace, split at its `Caused by:` lines; the root cause is last.
 type Trace = Vec<Vec<Frame>>;
 
-/// Parses `at knot//MC//net.minecraft.Foo.bar(Foo.java:12) ~[x.jar:?]`: the class and
-/// method, without the class loader (`knot//`, `app//`) or module (`java.base/`).
+/// Parses `at knot//MC//net.minecraft.Foo.bar(Foo.java:12) ~[x.jar:?]`: the class,
+/// method and source, without the class loader (`knot//`, `app//`) or module
+/// (`java.base/`).
 fn frame(line: &str) -> Option<Frame> {
     let rest = line.trim_start().strip_prefix("at ")?;
-    let call = rest.split('(').next()?.trim();
-    let call = call.rsplit('/').next()?;
+    let (call, after) = match rest.split_once('(') {
+        Some((call, after)) => (call, Some(after)),
+        None => (rest, None),
+    };
+    let call = call.trim().rsplit('/').next()?;
     let (class, method) = call.rsplit_once('.')?;
     if class.is_empty() || method.is_empty() || class.contains(' ') {
         return None;
     }
+    let source = after
+        .and_then(|after| after.split(')').next())
+        .map(str::trim)
+        .filter(|s| !s.is_empty() && *s != "Unknown Source")
+        .map(str::to_string);
     Some(Frame {
         class: class.to_string(),
         method: method.to_string(),
+        source,
     })
 }
 
@@ -373,7 +601,7 @@ fn trace_clues(trace: &Trace, clues: &mut Clues) {
         }
         let at_crash = !seen_game_frame;
         seen_game_frame = true;
-        if let Some(id) = injected_by(&frame.method) {
+        if let Some((id, handler)) = injected(&frame.method) {
             let evidence = if at_crash {
                 Evidence::CrashedInItsCode
             } else if position < 12 {
@@ -381,22 +609,38 @@ fn trace_clues(trace: &Trace, clues: &mut Clues) {
             } else {
                 Evidence::InStack
             };
-            clues.push(Target::ModId(id), evidence);
+            // The game method it was injected into is the one that called it.
+            let site = Site::new(SiteKind::Injected, handler)
+                .source(frame.source.clone())
+                .target(root.get(position + 1).map(Frame::describe))
+                .patched(Some(frame.class.clone()));
+            clues.push(Target::ModId(id), evidence, Some(site));
         }
         if !is_platform_class(&frame.class) {
-            let evidence = if at_crash {
-                Evidence::CrashedInItsCode
+            let (evidence, kind) = if at_crash {
+                (Evidence::CrashedInItsCode, SiteKind::CrashedHere)
             } else {
-                Evidence::InStack
+                (Evidence::InStack, SiteKind::Called)
             };
-            clues.push(Target::Class(frame.class.clone()), evidence);
+            let site = Site::new(kind, format!("{}.{}", frame.class, frame.method))
+                .source(frame.source.clone());
+            clues.push(Target::Class(frame.class.clone()), evidence, Some(site));
         }
     }
     // The outer exceptions' frames: the code that caught the crash and rethrew it.
     for cause in &trace[..trace.len() - 1] {
         for frame in cause {
             if !is_library_class(&frame.class) && !is_platform_class(&frame.class) {
-                clues.push(Target::Class(frame.class.clone()), Evidence::InStack);
+                let site = Site::new(
+                    SiteKind::Caught,
+                    format!("{}.{}", frame.class, frame.method),
+                )
+                .source(frame.source.clone());
+                clues.push(
+                    Target::Class(frame.class.clone()),
+                    Evidence::InStack,
+                    Some(site),
+                );
             }
         }
     }
@@ -405,7 +649,15 @@ fn trace_clues(trace: &Trace, clues: &mut Clues) {
 /// The mod id in a method Mixin merged into a game class:
 /// `redirect$bakh000$zenith$enchTooltipRewrite` → `zenith`. Mixin without a mod id
 /// in its names (`handler$zza000$onRender`) gives nothing.
+#[cfg(test)]
 fn injected_by(method: &str) -> Option<String> {
+    injected(method).map(|(id, _)| id)
+}
+
+/// The mod id and the mixin's own method name in a method Mixin merged into a game
+/// class: `redirect$bakh000$zenith$enchTooltipRewrite` → (`zenith`,
+/// `enchTooltipRewrite`).
+fn injected(method: &str) -> Option<(String, String)> {
     let parts: Vec<&str> = method.split('$').collect();
     if parts.len() < 4 {
         return None;
@@ -416,7 +668,7 @@ fn injected_by(method: &str) -> Option<String> {
         && tag.chars().rev().take(3).all(|c| c.is_ascii_digit());
     let id = mod_id_at(parts[2]);
     (looks_like_tag && id.len() == parts[2].len() && !id.is_empty() && !is_platform_mod(&id))
-        .then_some(id)
+        .then(|| (id, parts[3..].join("$")))
 }
 
 /// The first "Mixins in Stacktrace" block: the mixins on each class in the crashing
@@ -433,6 +685,7 @@ fn head_mixins(report: &str, clues: &mut Clues) {
     }
     // The mixins, by the class they patch.
     let mut classes: Vec<Vec<(String, Option<String>)>> = Vec::new();
+    let mut patched: Vec<String> = Vec::new();
     for line in lines {
         let trimmed = line.trim();
         if trimmed.is_empty() || trimmed.starts_with("-- ") {
@@ -441,6 +694,7 @@ fn head_mixins(report: &str, clues: &mut Clues) {
         let depth = line.len() - line.trim_start().len();
         if trimmed.ends_with(':') && depth <= 1 {
             classes.push(Vec::new());
+            patched.push(trimmed.trim_end_matches(':').to_string());
             continue;
         }
         let Some(current) = classes.last_mut() else {
@@ -478,9 +732,13 @@ fn head_mixins(report: &str, clues: &mut Clues) {
             } else {
                 Evidence::InStack
             };
-            clues.push(Target::Class(class.clone()), evidence);
+            let site = Site::new(SiteKind::Mixin, class.clone())
+                .source(config.clone())
+                .target(Some(patched[index].clone()))
+                .patched(Some(patched[index].clone()));
+            clues.push(Target::Class(class.clone()), evidence, Some(site.clone()));
             if let Some(config) = config {
-                clues.push(Target::Config(config.clone()), evidence);
+                clues.push(Target::Config(config.clone()), evidence, Some(site));
             }
         }
     }
