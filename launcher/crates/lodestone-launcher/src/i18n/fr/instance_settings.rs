@@ -311,6 +311,9 @@ pub fn text(message: M) -> &'static str {
         M::CopyModsUnchecked => {
             "Impossible de vérifier ceux-ci sur Modrinth, donc ils restent\u{a0}: {names}."
         }
+        M::CopyModsUncheckedCurseForge => {
+            "Impossible de vérifier ceux-ci sur CurseForge, donc ils restent\u{a0}: {names}."
+        }
         M::CopyOrUncheckMods => "ou décochez Mods pour copier sans eux.",
         M::CopySameTarget => {
             "Choisissez une autre version de Minecraft ou un autre chargeur. Dupliquer, dans Maintenance, copie l’instance telle quelle."

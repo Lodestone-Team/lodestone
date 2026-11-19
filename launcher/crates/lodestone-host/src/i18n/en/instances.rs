@@ -140,6 +140,10 @@ crate::i18n::messages! {
         ModpackChooseMrpack = "Choose a .mrpack file",
         ModpackNoUploadId = "The core returned no upload id",
         ModpackCurseForgeUnavailable = "CurseForge isn’t available in this copy of Lodestone Host.",
+        /// A link or preset named a CurseForge modpack's server-files download, which isn't a pack Lodestone can read.
+        ModpackCurseForgeServerPack = "That file is the modpack’s server files, which Lodestone can’t make a server from. Pick one of the modpack’s versions instead.",
+        /// A link or preset named a CurseForge file that isn't one of this modpack's files.
+        ModpackCurseForgeNoFile = "CurseForge has no such file for this modpack. Pick one of its versions instead.",
         /// What the Host does with a CurseForge modpack once its file is downloaded.
         ModpackCurseForgeReading = "Asking CurseForge about the modpack’s files…",
         /// CurseForge gives no SHA-512, so each of its files is downloaded once to work one out. {done} and {total} are counts of files.

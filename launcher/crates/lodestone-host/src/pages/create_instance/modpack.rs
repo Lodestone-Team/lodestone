@@ -349,14 +349,19 @@ impl ModpackFlow {
         }
         let admin = self.admin(cx);
         let task = cx.spawn(async move |this, cx| {
+            let fetched = id.clone();
             let (project, versions) = cx
                 .background_spawn(async move {
-                    let project = admin.modrinth_project(&id).await;
-                    let versions = admin.modrinth_versions(&id, None, None).await;
+                    let project = admin.modrinth_project(&fetched).await;
+                    let versions = admin.modrinth_versions(&fetched, None, None).await;
                     (project, versions)
                 })
                 .await;
             this.update(cx, |this, cx| {
+                // another pack was opened meanwhile: a late answer mustn't show here
+                if this.platform != Source::Modrinth || this.project_id.as_ref() != Some(&id) {
+                    return;
+                }
                 this.project = Some(match project {
                     Ok(project) => Load::Ready(project),
                     Err(err) => Load::Failed(err.to_string()),
@@ -437,13 +442,25 @@ impl ModpackFlow {
             self.curseforge_wanted = Some(file_id);
             return;
         }
-        let (Some(curseforge), Some(downloader), Some(project), Some(file)) = (
+        let (Some(curseforge), Some(downloader)) = (
             crate::curseforge::client(cx),
             crate::curseforge::downloader(cx),
-            self.curseforge_project.clone(),
-            self.curseforge_files.get(&file_id).cloned(),
         ) else {
             return self.toast(Toast::error(t(M::ModpackCurseForgeUnavailable)), cx);
+        };
+        // the project failed to load (its files may still have): say why
+        let Some(project) = self.curseforge_project.clone() else {
+            let why = match &self.project {
+                Some(Load::Failed(why)) => why.clone(),
+                _ => t(M::ModpackCurseForgeNoFile).to_string(),
+            };
+            let text = tr!(M::ModpackInspectFailed, error = why);
+            return self.toast(Toast::error(text), cx);
+        };
+        let Some(file) = self.curseforge_files.get(&file_id).cloned() else {
+            // not among the pack's versions (a server-files file, one past the list's
+            // end, or the list failed): ask CurseForge for that one file
+            return self.fetch_curseforge_file(curseforge, project.id, file_id, cx);
         };
         let modrinth = crate::curseforge::modrinth(cx);
         let request = self.inspect_request;
@@ -518,6 +535,57 @@ impl ModpackFlow {
             .ok();
         });
         self._tasks.push(watching);
+        self._tasks.push(task);
+        cx.notify();
+    }
+
+    /// Asks CurseForge for one file of the open pack that its versions list lacks (a
+    /// link or preset named it), and reads it when it's a pack Lodestone can make a
+    /// server from: not the pack's server files, nor another project's file.
+    fn fetch_curseforge_file(
+        &mut self,
+        curseforge: std::sync::Arc<launcher_core::content::CurseForge>,
+        project: u64,
+        file_id: String,
+        cx: &mut Context<Self>,
+    ) {
+        let Ok(number) = file_id.parse::<u64>() else {
+            return self.toast(Toast::error(t(M::ModpackCurseForgeNoFile)), cx);
+        };
+        let request = self.inspect_request;
+        self.inspecting = Some(file_id.clone());
+        let task = cx.spawn(async move |this, cx| {
+            let file = cx
+                .background_spawn(launcher_core::http::in_http_runtime(async move {
+                    curseforge.file(project, number).await
+                }))
+                .await;
+            this.update(cx, |this, cx| {
+                if request != this.inspect_request {
+                    return;
+                }
+                this.inspecting = None;
+                match file {
+                    Ok(file) if file.mod_id != project => {
+                        this.toast(Toast::error(t(M::ModpackCurseForgeNoFile)), cx)
+                    }
+                    Ok(file) if file.is_server_pack == Some(true) => {
+                        this.toast(Toast::error(t(M::ModpackCurseForgeServerPack)), cx)
+                    }
+                    Ok(file) => {
+                        // found now, so this reads it rather than asking again
+                        this.curseforge_files.insert(file_id.clone(), file);
+                        this.inspect_curseforge(file_id, cx);
+                    }
+                    Err(err) => {
+                        let text = tr!(M::ModpackInspectFailed, error = err);
+                        this.toast(Toast::error(text), cx);
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        });
         self._tasks.push(task);
         cx.notify();
     }

@@ -367,11 +367,17 @@ pub fn copy_as(call: Call, cx: &mut App) -> Reply {
                 )
             });
             let Some(lookup) = lookup else {
-                return Err(api_error(
-                    codes::UNAVAILABLE,
-                    "Modrinth can't be reached, so the mods can't be copied. Pass --no-mods to copy without them.",
-                ));
+                // None: Modrinth can't be reached and has mods to find, or the mods are
+                // all CurseForge's and neither platform can be reached.
+                let message = if contents.mods.is_empty() {
+                    "Neither Modrinth nor CurseForge can be reached, so the mods can't be copied. Pass --no-mods to copy without them."
+                } else {
+                    "Modrinth can't be reached, so the mods can't be copied. Pass --no-mods to copy without them."
+                };
+                return Err(api_error(codes::UNAVAILABLE, message));
             };
+            // Only a Modrinth lookup fails the copy: CurseForge mods it couldn't look up
+            // stay behind, listed as unchecked in the plan.
             Some(lookup.await.map_err(|err| {
                 api_error(
                     codes::UNAVAILABLE,

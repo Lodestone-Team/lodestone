@@ -554,6 +554,18 @@ fn mods_status(
             names = format::list(&contents.unchecked)
         )
     });
+    // CurseForge's mods whose lookup failed stay behind too, under their own platform
+    let cf_unchecked: Vec<String> = resolved
+        .curseforge_unchecked
+        .iter()
+        .map(|m| m.title.clone())
+        .collect();
+    let cf_unchecked = (!cf_unchecked.is_empty()).then(|| {
+        tr!(
+            M::CopyModsUncheckedCurseForge,
+            names = format::list(&cf_unchecked)
+        )
+    });
     // CurseForge's mods that weren't looked for there (this copy can't reach it) stay
     // behind with the ones added by hand.
     let looked_for = |project: u64| {
@@ -562,6 +574,7 @@ fn mods_status(
             .iter()
             .map(|(source, _)| source)
             .chain(&resolved.curseforge_missing)
+            .chain(&resolved.curseforge_unchecked)
             .any(|source| source.project_id == project)
     };
     let staying: Vec<String> = contents
@@ -605,6 +618,9 @@ fn mods_status(
         lines.push(div().child(line).into_any_element());
     }
     if let Some(line) = unchecked {
+        lines.push(div().child(line).into_any_element());
+    }
+    if let Some(line) = cf_unchecked {
         lines.push(div().child(line).into_any_element());
     }
     div()

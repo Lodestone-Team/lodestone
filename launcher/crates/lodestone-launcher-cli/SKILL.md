@@ -234,8 +234,8 @@ version, but the API never copies them unasked), and only to the same or a newer
 the game upgrades them when it opens them and they can't go back (the originals stay).
 When mods stay behind or worlds are upgraded it needs `--yes`, and the refusal's
 `data.plan` lists what goes (`mods`, `curseforge_mods`, `worlds`, `resource_packs`) and
-what stays (`no_build`, `no_curseforge_build`, `not_on_modrinth`, and `unchecked`: mods whose Modrinth lookup failed, so
-it isn't known whether they are on Modrinth; try again later). The job's result has the
+what stays (`no_build`, `no_curseforge_build`, `not_on_modrinth`, and `unchecked`: mods whose Modrinth or CurseForge lookup
+failed, so it isn't known whether they have a build there; try again later). The job's result has the
 new `instance`.
 
 A share code holds the Minecraft version, the loader and its version, and exact Modrinth
@@ -313,7 +313,9 @@ or name. Some authors keep their files on CurseForge's website: an install or up
 lists those under `download_by_hand` (title, file, url) instead of downloading them. Tell
 the user to download each from its `url`: the instance's Content tab picks it up from
 their Downloads folder. `content list` gives each item's `modrinth` or `curseforge`
-source, and `content updates` / `content update` cover both (`source` says which).
+source, and `content updates` / `content update` cover both (`source` says which). When
+CurseForge can't be reached they still give Modrinth's updates, and the reply (the job's
+result, for `update`) has `curseforge_unchecked` saying why CurseForge's weren't checked.
 
 `content history` lists the instance's content images, newest first: the launcher records
 one after each change it makes to mods, packs, configs or the loader version (changes a

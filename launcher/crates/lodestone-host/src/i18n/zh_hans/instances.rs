@@ -137,6 +137,12 @@ pub fn text(message: M) -> &'static str {
         M::ModpackChooseMrpack => "请选择 .mrpack 文件",
         M::ModpackNoUploadId => "核心未返回上传 ID",
         M::ModpackCurseForgeUnavailable => "此版本的 Lodestone Host 无法使用 CurseForge。",
+        M::ModpackCurseForgeServerPack => {
+            "该文件是整合包的服务器文件，Lodestone 无法用它创建服务器。请改为选择整合包的某个版本。"
+        }
+        M::ModpackCurseForgeNoFile => {
+            "CurseForge 上没有该整合包的这个文件。请改为选择它的某个版本。"
+        }
         M::ModpackCurseForgeReading => "正在向 CurseForge 查询整合包的文件…",
         M::ModpackCurseForgeChecking => {
             "正在下载仅 CurseForge 提供的文件以进行校验（{done}/{total}）…"

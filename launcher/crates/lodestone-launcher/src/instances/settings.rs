@@ -1726,14 +1726,7 @@ impl InstanceSettings {
             let Some(path) = file_dialog::chosen(picked, &this, cx).await else {
                 return;
             };
-            // The extension says which pack it is: one typed without it gets it.
-            let path = if curseforge == super::export_is_curseforge(&path) {
-                path
-            } else {
-                let mut name = path.file_name().unwrap_or_default().to_os_string();
-                name.push(format!(".{extension}"));
-                path.with_file_name(name)
-            };
+            let path = with_export_extension(path, curseforge);
             this.update(cx, |this, cx| {
                 this.instances
                     .update(cx, |instances, cx| instances.export(&id, path, cx));
@@ -3331,9 +3324,39 @@ fn group_heading(title: &'static str, lead: Option<&str>) -> AnyElement {
         .into_any_element()
 }
 
+/// The path to export a pack to, with its extension: the extension says which pack it
+/// is, so a CurseForge pack's path that doesn't end in `.zip` gets it, and a Modrinth
+/// pack's that doesn't end in `.mrpack` gets that (typed without one, or as `.zip`).
+fn with_export_extension(path: std::path::PathBuf, curseforge: bool) -> std::path::PathBuf {
+    let extension = if curseforge { "zip" } else { "mrpack" };
+    let has_it = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case(extension));
+    if has_it {
+        return path;
+    }
+    let mut name = path.file_name().unwrap_or_default().to_os_string();
+    name.push(format!(".{extension}"));
+    path.with_file_name(name)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_exported_pack_gets_its_extension() {
+        use std::path::PathBuf;
+        let mrpack = |p: &str| with_export_extension(PathBuf::from(p), false);
+        let zip = |p: &str| with_export_extension(PathBuf::from(p), true);
+        assert_eq!(mrpack("MyPack"), PathBuf::from("MyPack.mrpack"));
+        assert_eq!(mrpack("MyPack.MRPACK"), PathBuf::from("MyPack.MRPACK"));
+        assert_eq!(mrpack("MyPack.zip"), PathBuf::from("MyPack.zip.mrpack"));
+        assert_eq!(zip("MyPack"), PathBuf::from("MyPack.zip"));
+        assert_eq!(zip("MyPack.ZIP"), PathBuf::from("MyPack.ZIP"));
+        assert_eq!(zip("MyPack.mrpack"), PathBuf::from("MyPack.mrpack.zip"));
+    }
 
     fn version(id: &str, kind: &str, date: &str) -> RawVersion {
         serde_json::from_value(serde_json::json!({

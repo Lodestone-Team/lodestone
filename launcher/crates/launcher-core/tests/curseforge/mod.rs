@@ -57,6 +57,9 @@ pub struct FakeFile {
     pub blocked: bool,
     /// Sent instead of the real fingerprint, to test damaged downloads.
     pub wrong_fingerprint: bool,
+    /// Served by the CDN instead of `bytes` (whose SHA-1 and fingerprint the API
+    /// sends), to test downloads that aren't the file.
+    pub served: Option<Vec<u8>>,
 }
 
 impl FakeFile {
@@ -80,7 +83,14 @@ impl FakeFile {
             bytes,
             blocked: false,
             wrong_fingerprint: false,
+            served: None,
         }
+    }
+
+    /// The CDN serves `bytes` instead of the file the API describes.
+    pub fn serving(mut self, bytes: Vec<u8>) -> Self {
+        self.served = Some(bytes);
+        self
     }
 
     pub fn requires(mut self, project: u64) -> Self {
@@ -272,7 +282,10 @@ fn route(state: &mut State, request: &Recorded) -> (u16, Vec<u8>) {
                     && Url::parse(&f.url()).unwrap().path()
                         == &request.path["/edge.forgecdn.net".len()..]
             }) {
-                Some(file) => (200, file.bytes.clone()),
+                Some(file) => (
+                    200,
+                    file.served.clone().unwrap_or_else(|| file.bytes.clone()),
+                ),
                 None => not_found,
             }
         }

@@ -783,10 +783,12 @@ pub async fn plan_install(
                 let Some(sha1) = planned.file.sha1() else {
                     continue;
                 };
+                // The core installs a version's primary file, so only a version whose
+                // primary file is these bytes will do; else the wrong jar would land.
                 planned.on_modrinth = found
                     .get(&sha1)
                     .filter(|version| {
-                        version.files.iter().any(|f| {
+                        version.primary_file().is_some_and(|f| {
                             f.hashes
                                 .sha1
                                 .as_deref()
@@ -1090,30 +1092,69 @@ pub async fn install_downloaded(
             file.file_name
         )));
     }
-    let too_large = std::fs::metadata(downloaded).is_ok_and(|m| m.len() > MAX_MOD_BYTES);
-    if too_large || !crate::content::curseforge_install::is_curseforge_file(downloaded, file) {
-        return Err(ServerCfError::Invalid(format!(
+    let not_it = || {
+        ServerCfError::Invalid(format!(
             "{} isn't {} from CurseForge",
             downloaded.display(),
             file.file_name
-        )));
+        ))
+    };
+    if std::fs::metadata(downloaded).is_ok_and(|m| m.len() > MAX_MOD_BYTES) {
+        return Err(not_it());
+    }
+    // The bytes are read once, and the ones checked are the ones uploaded: the file
+    // can't change in between.
+    let bytes =
+        std::fs::read(downloaded).map_err(|err| ServerCfError::Download(err.to_string()))?;
+    if bytes.len() as u64 > MAX_MOD_BYTES || !is_curseforge_bytes(&bytes, file) {
+        return Err(not_it());
     }
     let mut result = ModInstallResult::default();
     if known.values().any(|k| k.file_id == file.id) {
         return Ok(result);
     }
-    // the files of the same project that are there now
-    let mut replaces: Vec<String> = known
-        .iter()
-        .filter(|(_, k)| k.project_id == file.mod_id)
-        .map(|(name, _)| name.clone())
-        .collect();
-    replaces.sort();
-    let upload = upload_of(&by_name(mods), planned, &replaces, || {
-        std::fs::read(downloaded).map_err(|err| ServerCfError::Download(err.to_string()))
-    })?;
+    let on_server = by_name(mods);
+    let replaces = replaced_now(&on_server, known, planned);
+    let upload = upload_of(&on_server, planned, &replaces, || Ok(bytes))?;
     place(admin, uuid, vec![upload], &mut result).await?;
     Ok(result)
+}
+
+/// Whether `bytes` are the CurseForge file `file`: by its SHA-1, else (CurseForge gave
+/// none) by its fingerprint and, when known, its length. The rule of
+/// [`crate::content::curseforge_install::is_curseforge_file`], on bytes in memory.
+fn is_curseforge_bytes(bytes: &[u8], file: &CfFile) -> bool {
+    match file.sha1() {
+        Some(expected) => crate::game::download::sha1_hex(bytes).eq_ignore_ascii_case(&expected),
+        None => {
+            file.file_fingerprint != 0
+                && u64::from(curseforge::fingerprint(bytes)) == file.file_fingerprint
+                && (file.file_length == 0 || bytes.len() as u64 == file.file_length)
+        }
+    }
+}
+
+/// The files on the server now that `planned` replaces: those of its project that
+/// `known` (what [`identify`] makes of the server) has, and those the plan found, which
+/// still count when `known` came back empty (CurseForge out of reach). Only files still
+/// on the server, each once.
+fn replaced_now(
+    on_server: &HashMap<String, &InstalledMod>,
+    known: &HashMap<String, CfInstalled>,
+    planned: &PlannedFile,
+) -> Vec<String> {
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut replaces: Vec<String> = known
+        .iter()
+        .filter(|(_, k)| k.project_id == planned.file.mod_id)
+        .map(|(name, _)| name)
+        .chain(planned.replaces.iter())
+        .filter(|name| on_server.contains_key(&name.to_lowercase()))
+        .filter(|name| seen.insert(name.to_lowercase()))
+        .cloned()
+        .collect();
+    replaces.sort();
+    replaces
 }
 
 /// Plans and runs the install of `file` on the server `uuid` in one go: what the Mods

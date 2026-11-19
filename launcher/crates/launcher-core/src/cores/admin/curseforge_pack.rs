@@ -28,7 +28,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use futures::StreamExt as _;
+use futures::{StreamExt as _, TryStreamExt as _};
 use lodestone_minecraft::mrpack::{
     CURSEFORGE_DOWNLOAD_HOSTS, INDEX_FILE, MAX_PACK_FILE_BYTES, SkippedPath,
 };
@@ -47,7 +47,7 @@ use crate::{
         safe_download_name,
     },
     game::{
-        download::{CancelToken, DownloadItem, Downloader, Progress},
+        download::{CancelToken, DownloadError, DownloadItem, Downloader, Progress},
         loaders::LoaderKind,
     },
     modpack::curseforge::read_curseforge_pack,
@@ -108,6 +108,26 @@ struct Listed {
     sha1: String,
     sha512: String,
     size: u64,
+}
+
+/// Stops with the error a cancelled download gives, once `cancel` says so: the steps
+/// between downloads (the lookups, writing, uploading) check it too.
+fn check_cancel(cancel: &CancelToken) -> Result<(), ServerCfError> {
+    if cancel.is_cancelled() {
+        return Err(DownloadError::Cancelled.into());
+    }
+    Ok(())
+}
+
+/// Removes the staging folder when dropped, so it goes whether the build finishes,
+/// fails, or is dropped part way (the Host dropping its task when cancelled).
+struct StagingGuard(PathBuf);
+
+impl Drop for StagingGuard {
+    fn drop(&mut self) {
+        // best effort: a file still open elsewhere is left to the temp folder's cleanup
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
 }
 
 fn skip(path: impl Into<String>, reason: &str) -> SkippedPath {
@@ -285,6 +305,7 @@ pub async fn build(
         }
         _ => HashMap::new(),
     };
+    check_cancel(cancel)?;
 
     let mut listed: Vec<Listed> = Vec::new();
     let mut to_hash: Vec<Wanted> = Vec::new();
@@ -342,47 +363,46 @@ pub async fn build(
     let total = to_hash.len();
     progress(PackStep::Hashing { done: 0, total });
     let done = std::sync::atomic::AtomicUsize::new(0);
-    let hashed: Vec<Result<Listed, ServerCfError>> =
-        futures::stream::iter(to_hash.into_iter().map(|want| {
-            let done = &done;
-            async move {
-                let url = want
-                    .file
-                    .download_url
-                    .as_deref()
-                    .and_then(|url| url_on(url, &CURSEFORGE_DOWNLOAD_HOSTS))
-                    .ok_or_else(|| {
-                        invalid(format!(
-                            "{} isn't downloaded from CurseForge's CDN",
-                            want.file.file_name
-                        ))
-                    })?;
-                let dest = staging.join(format!("hash-{}.jar", want.file.id));
-                let fetched = fetch(cf, downloader, &want.file, &dest, cancel).await;
-                let sha512 = fetched.and_then(|()| {
-                    lodestone_minecraft::hash::sha512_of(&dest)
-                        .map_err(|err| ServerCfError::Download(err.to_string()))
-                });
-                let size = std::fs::metadata(&dest).map(|m| m.len()).unwrap_or(0);
-                let _ = std::fs::remove_file(&dest);
-                let sha512 = sha512?;
-                let n = done.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
-                progress(PackStep::Hashing { done: n, total });
-                Ok(Listed {
-                    path: want.path,
-                    url,
-                    sha1: want.sha1,
-                    sha512,
-                    size,
-                })
-            }
-        }))
-        .buffer_unordered(HASHED_AT_ONCE)
-        .collect()
-        .await;
-    for file in hashed {
-        listed.push(file?);
-    }
+    // the first file that fails stops the rest: the files still downloading are dropped
+    // (their partial downloads go with the staging folder)
+    let hashed: Vec<Listed> = futures::stream::iter(to_hash.into_iter().map(|want| {
+        let done = &done;
+        async move {
+            let url = want
+                .file
+                .download_url
+                .as_deref()
+                .and_then(|url| url_on(url, &CURSEFORGE_DOWNLOAD_HOSTS))
+                .ok_or_else(|| {
+                    invalid(format!(
+                        "{} isn't downloaded from CurseForge's CDN",
+                        want.file.file_name
+                    ))
+                })?;
+            let dest = staging.join(format!("hash-{}.jar", want.file.id));
+            let fetched = fetch(cf, downloader, &want.file, &dest, cancel).await;
+            let sha512 = fetched.and_then(|()| {
+                lodestone_minecraft::hash::sha512_of(&dest)
+                    .map_err(|err| ServerCfError::Download(err.to_string()))
+            });
+            let size = std::fs::metadata(&dest).map(|m| m.len()).unwrap_or(0);
+            let _ = std::fs::remove_file(&dest);
+            let sha512 = sha512?;
+            let n = done.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+            progress(PackStep::Hashing { done: n, total });
+            Ok::<_, ServerCfError>(Listed {
+                path: want.path,
+                url,
+                sha1: want.sha1,
+                sha512,
+                size,
+            })
+        }
+    }))
+    .buffer_unordered(HASHED_AT_ONCE)
+    .try_collect()
+    .await?;
+    listed.extend(hashed);
     listed.sort_by(|a, b| a.path.cmp(&b.path));
 
     progress(PackStep::Writing);
@@ -418,6 +438,7 @@ pub async fn build(
         } },
     });
     let out = staging.join(format!("curseforge-pack-{}.mrpack", file.id));
+    check_cancel(cancel)?;
     write_pack(&zip_path, &pack.overrides, &index, &out)?;
     let _ = std::fs::remove_file(&zip_path);
     skipped.extend(pack.skipped.iter().cloned());
@@ -450,19 +471,18 @@ pub async fn build_and_upload(
 ) -> Result<(super::mods::ModpackInfo, Vec<PlannedFile>), ServerCfError> {
     let staging =
         super::curseforge::staging_dir().map_err(|err| ServerCfError::Download(err.to_string()))?;
-    let result = async {
-        let pack = build(
-            cf, modrinth, downloader, project, file, &staging, progress, cancel,
-        )
-        .await?;
-        let bytes =
-            std::fs::read(&pack.path).map_err(|err| ServerCfError::Download(err.to_string()))?;
-        let info = admin.upload_modpack(&pack.file_name, &bytes).await?;
-        Ok((info, pack.by_hand))
-    }
-    .await;
-    let _ = std::fs::remove_dir_all(&staging);
-    result
+    // removed on return, and also when this future is dropped part way
+    let staging = StagingGuard(staging);
+    let pack = build(
+        cf, modrinth, downloader, project, file, &staging.0, progress, cancel,
+    )
+    .await?;
+    let bytes =
+        std::fs::read(&pack.path).map_err(|err| ServerCfError::Download(err.to_string()))?;
+    check_cancel(cancel)?;
+    let info = admin.upload_modpack(&pack.file_name, &bytes).await?;
+    drop(staging);
+    Ok((info, pack.by_hand))
 }
 
 /// Writes the `.mrpack`: its index, then the CurseForge pack's overrides, copied from
@@ -537,4 +557,28 @@ pub async fn newer_file(
         .find(|f| curseforge_type_allowed(stability, f.version_type(), false))
         .filter(|newest| newest.id != origin.file && newest.file_date.as_str() > since)
         .cloned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn staging_guard_removes_the_folder_with_its_files() {
+        let parent = tempfile::tempdir().unwrap();
+        let dir = parent.path().join("staging");
+        std::fs::create_dir_all(dir.join("nested")).unwrap();
+        std::fs::write(dir.join("pack.zip"), b"zip").unwrap();
+        std::fs::write(dir.join("nested").join("hash-1.jar"), b"jar").unwrap();
+        drop(StagingGuard(dir.clone()));
+        assert!(!dir.exists());
+    }
+
+    #[test]
+    fn check_cancel_stops_once_cancelled() {
+        let cancel = CancelToken::default();
+        assert!(check_cancel(&cancel).is_ok());
+        cancel.cancel();
+        assert!(check_cancel(&cancel).is_err());
+    }
 }

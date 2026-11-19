@@ -44,7 +44,9 @@ impl Instances {
     /// Finds each of `mods`' build for `target` on Modrinth, and each of
     /// `curseforge_mods`' file for it on CurseForge, in the background. `None` when
     /// Modrinth can't be reached and has mods to find, or neither platform can be.
-    /// Without CurseForge its mods aren't looked for, and stay behind.
+    /// Without CurseForge its mods aren't looked for, and stay behind. The error is
+    /// Modrinth's: a failed CurseForge lookup only leaves those mods unchecked (they
+    /// stay behind), so the Modrinth mods still go.
     pub fn resolve_copy_mods(
         &self,
         mods: Vec<SourceMod>,
@@ -64,10 +66,15 @@ impl Instances {
                     .map_err(|err| err.to_string())?,
                 None => ResolvedMods::default(),
             };
-            if let Some(cf) = &cf {
-                copy_as::resolve_curseforge_mods(cf, &curseforge_mods, &target, &mut resolved)
-                    .await
-                    .map_err(|err| err.to_string())?;
+            if let Some(cf) = &cf
+                && let Err(err) =
+                    copy_as::resolve_curseforge_mods(cf, &curseforge_mods, &target, &mut resolved)
+                        .await
+            {
+                log::warn!(
+                    "Couldn't look {} mod(s) up on CurseForge for a copy: {err}",
+                    resolved.curseforge_unchecked.len()
+                );
             }
             Ok(resolved)
         }))

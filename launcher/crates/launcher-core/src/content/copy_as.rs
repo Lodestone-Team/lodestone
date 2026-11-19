@@ -292,11 +292,14 @@ pub struct ResolvedMods {
     /// The mods with no build for it.
     pub missing: Vec<SourceMod>,
     /// Each mod only CurseForge knows, with its file for the target
-    /// ([`resolve_curseforge_mods`]). A CurseForge mod in neither list wasn't looked
-    /// for (CurseForge can't be reached), and stays behind.
+    /// ([`resolve_curseforge_mods`]). A CurseForge mod in none of the CurseForge lists
+    /// wasn't looked for (this launcher has no CurseForge), and stays behind.
     pub curseforge: Vec<(CfSourceMod, CfFile)>,
     /// The CurseForge mods with no file for it.
     pub curseforge_missing: Vec<CfSourceMod>,
+    /// The CurseForge mods whose lookup failed (CurseForge couldn't be reached, say):
+    /// they stay behind, as mods that couldn't be checked.
+    pub curseforge_unchecked: Vec<CfSourceMod>,
 }
 
 impl ResolvedMods {
@@ -347,6 +350,10 @@ pub async fn resolve_mods(
 /// Finds each CurseForge mod's file for `target` (as installing picks one), into
 /// `resolved`. Vanilla runs no mods, so none has one; nor does a project CurseForge no
 /// longer has.
+///
+/// A failed lookup doesn't stop the others, so a CurseForge outage never costs the copy
+/// its Modrinth mods: that mod goes to [`ResolvedMods::curseforge_unchecked`], and the
+/// first such error is returned once every mod has been sorted, for the caller to note.
 pub async fn resolve_curseforge_mods(
     cf: &CurseForge,
     mods: &[CfSourceMod],
@@ -357,6 +364,7 @@ pub async fn resolve_curseforge_mods(
         resolved.curseforge_missing.extend(mods.iter().cloned());
         return Ok(());
     }
+    let mut first_error = None;
     for chunk in mods.chunks(PARALLEL_LOOKUPS) {
         let found = future::join_all(chunk.iter().map(|source| async move {
             // Every loader's files: a Quilt instance takes Fabric's too, and the API
@@ -376,13 +384,20 @@ pub async fn resolve_curseforge_mods(
         }))
         .await;
         for (source, file) in chunk.iter().zip(found) {
-            match file? {
-                Some(file) => resolved.curseforge.push((source.clone(), file)),
-                None => resolved.curseforge_missing.push(source.clone()),
+            match file {
+                Ok(Some(file)) => resolved.curseforge.push((source.clone(), file)),
+                Ok(None) => resolved.curseforge_missing.push(source.clone()),
+                Err(err) => {
+                    resolved.curseforge_unchecked.push(source.clone());
+                    first_error.get_or_insert(err);
+                }
             }
         }
     }
-    Ok(())
+    match first_error {
+        Some(err) => Err(err),
+        None => Ok(()),
+    }
 }
 
 /// The build of `project` for `target`, if it has one.
@@ -426,7 +441,7 @@ pub struct CopyPlan {
     /// Mods Modrinth doesn't know: they stay behind. CurseForge's too, when they
     /// weren't looked for on CurseForge.
     pub not_on_modrinth: Vec<String>,
-    /// Mods that couldn't be looked up on Modrinth: they stay behind.
+    /// Mods that couldn't be looked up on Modrinth, or on CurseForge: they stay behind.
     pub unchecked: Vec<String>,
 }
 
@@ -470,13 +485,15 @@ pub fn plan(
             missing: contents.mods.clone(),
             ..ResolvedMods::default()
         });
-        // A CurseForge mod that wasn't looked for stays behind like one added by hand.
+        // A CurseForge mod that wasn't looked for stays behind like one added by hand;
+        // one whose lookup failed stays behind as unchecked.
         let looked_for = |m: &CfSourceMod| {
             resolved
                 .curseforge
                 .iter()
                 .map(|(source, _)| source)
                 .chain(&resolved.curseforge_missing)
+                .chain(&resolved.curseforge_unchecked)
                 .any(|source| source.project_id == m.project_id)
         };
         let mut not_on_modrinth: Vec<String> = contents
@@ -486,14 +503,16 @@ pub fn plan(
             .map(|m| m.title.clone())
             .collect();
         not_on_modrinth.extend(contents.other_mods.iter().cloned());
+        let mut unchecked = contents.unchecked.clone();
+        unchecked.extend(
+            resolved
+                .curseforge_unchecked
+                .iter()
+                .map(|m| m.title.clone()),
+        );
         curseforge_mods = resolved.curseforge;
         no_curseforge_build = resolved.curseforge_missing;
-        (
-            resolved.found,
-            resolved.missing,
-            not_on_modrinth,
-            contents.unchecked.clone(),
-        )
+        (resolved.found, resolved.missing, not_on_modrinth, unchecked)
     } else {
         (Vec::new(), Vec::new(), Vec::new(), Vec::new())
     };
@@ -1218,6 +1237,37 @@ mod tests {
         );
         assert_eq!(plan.unchecked, ["Mystery"]);
         assert_eq!(plan.left_behind(), ["Mystery"]);
+        assert!(plan.needs_confirmation());
+    }
+
+    #[test]
+    fn curseforge_mods_whose_lookup_failed_stay_behind_as_unchecked() {
+        let cf_mod = |project_id: u64, title: &str| CfSourceMod {
+            project_id,
+            title: title.into(),
+            file_name: format!("{title}.jar"),
+            enabled: true,
+        };
+        let mut contents = contents();
+        contents.other_mods.clear();
+        contents.curseforge_mods = vec![cf_mod(1, "Create"), cf_mod(2, "Waystones")];
+        // Modrinth's mods were found; CurseForge failed for Create and has no file of
+        // Waystones
+        let mut found = ResolvedMods::sort(&contents.mods, |m| Some(version(&m.project_id)));
+        found.curseforge_unchecked.push(cf_mod(1, "Create"));
+        found.curseforge_missing.push(cf_mod(2, "Waystones"));
+        let plan = plan(
+            &contents,
+            "1.21.1",
+            Loader::Fabric,
+            CopyAsOptions::default(),
+            WorldsRule::Same,
+            Some(&found),
+        );
+        assert_eq!(plan.mods.len(), 2);
+        assert_eq!(plan.unchecked, ["Create"]);
+        assert!(plan.not_on_modrinth.is_empty());
+        assert_eq!(plan.left_behind(), ["Waystones", "Create"]);
         assert!(plan.needs_confirmation());
     }
 

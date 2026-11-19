@@ -211,6 +211,8 @@ impl ModsPage {
             return self.open_curseforge_project(project_id, linked_version_id, cx);
         }
         let admin = self.state.read(cx).admin.clone();
+        // the slug or id the view was opened with, until the project answers
+        let requested = project_id.clone();
         let task = cx.spawn(async move |this, cx| {
             let (project, linked) = cx
                 .background_spawn(async move {
@@ -223,7 +225,12 @@ impl ModsPage {
                 })
                 .await;
             this.update(cx, |this, cx| {
-                let Some(view) = &mut this.project else {
+                // a late answer for a project that's no longer open is dropped
+                let Some(view) = this
+                    .project
+                    .as_mut()
+                    .filter(|view| view.source == Source::Modrinth && view.project_id == requested)
+                else {
                     return;
                 };
                 match project {
@@ -314,10 +321,13 @@ impl ModsPage {
             crate::curseforge::client(cx),
             view.project_id.parse::<u64>(),
         ) else {
-            return;
+            // say so instead of loading forever
+            view.versions = Some(Err(t(M::ModsCurseForgeUnavailable).to_string()));
+            return cx.notify();
         };
         view.serial += 1;
         let (serial, all) = (view.serial, view.show_all);
+        let project_id = view.project_id.clone();
         let task = cx.spawn(async move |this, cx| {
             let files = cx
                 .background_spawn(launcher_core::http::in_http_runtime(async move {
@@ -325,8 +335,11 @@ impl ModsPage {
                 }))
                 .await;
             this.update(cx, |this, cx| {
+                // a new view starts counting again, so the project is checked too
                 if let Some(view) = &mut this.project
                     && view.serial == serial
+                    && view.source == Source::CurseForge
+                    && view.project_id == project_id
                 {
                     view.versions = Some(match files {
                         Ok(files) => Ok(files
@@ -375,6 +388,7 @@ impl ModsPage {
             )
         };
         let admin = self.state.read(cx).admin.clone();
+        let project_id = id.clone();
         let task = cx.spawn(async move |this, cx| {
             let versions = cx
                 .background_spawn(async move {
@@ -384,8 +398,11 @@ impl ModsPage {
                 })
                 .await;
             this.update(cx, |this, cx| {
+                // a new view starts counting again, so the project is checked too
                 if let Some(view) = &mut this.project
                     && view.serial == serial
+                    && view.source == Source::Modrinth
+                    && view.project_id == project_id
                 {
                     view.versions = Some(versions.map_err(|err| err.to_string()));
                     cx.notify();

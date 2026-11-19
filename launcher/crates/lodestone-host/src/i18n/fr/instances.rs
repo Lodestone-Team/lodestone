@@ -165,6 +165,12 @@ pub fn text(message: M) -> &'static str {
         M::ModpackCurseForgeUnavailable => {
             "CurseForge n’est pas disponible dans cette copie de Lodestone Host."
         }
+        M::ModpackCurseForgeServerPack => {
+            "Ce fichier contient les fichiers serveur du modpack, à partir desquels Lodestone ne peut pas créer de serveur. Choisissez plutôt l’une des versions du modpack."
+        }
+        M::ModpackCurseForgeNoFile => {
+            "CurseForge n’a pas ce fichier pour ce modpack. Choisissez plutôt l’une de ses versions."
+        }
         M::ModpackCurseForgeReading => "Interrogation de CurseForge sur les fichiers du modpack…",
         M::ModpackCurseForgeChecking => {
             "Téléchargement des fichiers propres à CurseForge, pour les vérifier ({done} sur {total})…"

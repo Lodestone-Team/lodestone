@@ -1289,3 +1289,141 @@ fn a_file_downloaded_by_hand_is_found_and_uploaded() {
     assert!(again.installed.is_empty() && again.removed.is_empty());
     assert_eq!(core.requests().len(), before);
 }
+
+#[test]
+fn a_file_downloaded_by_hand_replaces_what_the_plan_found_when_curseforge_is_out_of_reach() {
+    let mock = CurseForgeMock::start();
+    projects(&mock);
+    let bytes = site_only(&mock);
+    let core = FakeCore::start();
+    core.put("lithium-0.11.jar", &bytes_of(&mock, 6001));
+    let plan = plan(&mock, &core, 6003, true).unwrap();
+    let mut planned = plan.blocked[0].clone();
+    assert_eq!(planned.replaces, ["lithium-0.11.jar"]);
+    // a file the plan saw that is gone since: not deleted
+    planned.replaces.push("lithium-gone.jar".into());
+
+    let downloads = tempfile::tempdir().unwrap();
+    let saved = downloads.path().join("lithium-site-only.jar");
+    std::fs::write(&saved, &bytes).unwrap();
+    // identify found nothing (CurseForge out of reach): the plan's files still go
+    let result = block_on(server::install_downloaded(
+        &core.admin(),
+        UUID,
+        &core.mods(),
+        &HashMap::new(),
+        &planned,
+        &saved,
+    ))
+    .unwrap();
+    assert_eq!(result.removed, ["lithium-0.11.jar"]);
+    assert_eq!(core.names(), ["lithium-site-only.jar"]);
+    assert_eq!(
+        core.requests(),
+        [
+            format!("POST /api/v1/instance/{UUID}/mods/upload"),
+            format!("DELETE /api/v1/instance/{UUID}/mods/lithium-0.11.jar"),
+        ]
+    );
+}
+
+fn sha1_hex(bytes: &[u8]) -> String {
+    use sha1::Digest as _;
+    format!("{:x}", sha1::Sha1::digest(bytes))
+}
+
+/// A Modrinth whose API answers every request with `body`.
+fn modrinth_answering(body: serde_json::Value) -> launcher_core::content::Modrinth {
+    let listener = TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let body = body.to_string();
+    // left running: the test's process ends it
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { continue };
+            if read_request(&mut stream).is_none() {
+                continue;
+            }
+            stream.write_all(&reply("200 OK", &body)).ok();
+            stream.shutdown(std::net::Shutdown::Both).ok();
+        }
+    });
+    let base = url::Url::parse(&format!("http://127.0.0.1:{port}/")).unwrap();
+    launcher_core::content::Modrinth::with_urls(
+        http::default_client().unwrap(),
+        base.join("v2").unwrap(),
+        None,
+    )
+}
+
+#[test]
+fn a_file_the_website_keeps_isnt_taken_from_modrinth_when_it_isnt_the_primary_file() {
+    let mock = CurseForgeMock::start();
+    projects(&mock);
+    let bytes = site_only(&mock);
+    // Modrinth's version has the very bytes, but as an extra file: the core would
+    // install its primary file, another jar
+    let version = json!({
+        "id": "lithiumV",
+        "project_id": "gvQqBUqZ",
+        "version_type": "release",
+        "files": [
+            {
+                "hashes": { "sha1": sha1_hex(b"another jar") },
+                "url": "https://cdn.modrinth.com/data/gvQqBUqZ/versions/lithiumV/lithium.jar",
+                "filename": "lithium.jar",
+                "primary": true,
+            },
+            {
+                "hashes": { "sha1": sha1_hex(&bytes) },
+                "url": "https://cdn.modrinth.com/data/gvQqBUqZ/versions/lithiumV/lithium-site-only.jar",
+                "filename": "lithium-site-only.jar",
+                "primary": false,
+            },
+        ],
+    });
+    let mut by_hash = serde_json::Map::new();
+    by_hash.insert(sha1_hex(&bytes), version);
+    let modrinth = modrinth_answering(serde_json::Value::Object(by_hash));
+    let plan = block_on(server::plan_install(
+        &mock.client(),
+        Some(&modrinth),
+        &fabric(),
+        &HashMap::new(),
+        file_of(&mock, 6003),
+        None,
+        true,
+        false,
+    ))
+    .unwrap();
+    assert!(plan.files.is_empty());
+    assert_eq!(plan.blocked.len(), 1);
+    assert_eq!(plan.blocked[0].on_modrinth, None);
+}
+
+#[test]
+fn a_download_that_isnt_curseforges_file_installs_nothing() {
+    let mock = CurseForgeMock::start();
+    projects(&mock);
+    mock.file(
+        FakeFile::new(
+            6005,
+            LITHIUM,
+            "lithium-damaged.jar",
+            &FABRIC,
+            NEW,
+            fabric_jar("lithium", "damaged"),
+        )
+        .serving(fabric_jar("something-else", "1")),
+    );
+    let core = FakeCore::start();
+    core.put("lithium-0.11.jar", &bytes_of(&mock, 6001));
+
+    let plan = plan(&mock, &core, 6005, true).unwrap();
+    assert_eq!(plan.files[0].replaces, ["lithium-0.11.jar"]);
+    let err = run(&mock, &core, plan).unwrap_err();
+    assert!(matches!(&err, ServerCfError::Download(_)), "{err}");
+    // nothing was uploaded or deleted
+    assert!(core.requests().is_empty());
+    assert_eq!(core.names(), ["lithium-0.11.jar"]);
+}

@@ -49,14 +49,23 @@ pub struct ByHandFiles {
     /// follow it: the user closes that window at the end.
     pub own_window: bool,
     /// Downloads that were found and couldn't be added, so they aren't tried on every
-    /// look: (index in `files`, path).
-    tried: HashSet<(usize, PathBuf)>,
+    /// look: (CurseForge file id, path). By id, as the files can change while an upload
+    /// runs ("Skip the rest", then others added).
+    tried: HashSet<(u64, PathBuf)>,
 }
 
 impl ByHandFiles {
     /// The first file not on the server yet.
     fn next_waiting(&self) -> Option<usize> {
         self.added.iter().position(|added| !added)
+    }
+
+    /// Where the CurseForge file `id` is, if it still waits.
+    fn waiting_at(&self, id: u64) -> Option<usize> {
+        self.files
+            .iter()
+            .zip(&self.added)
+            .position(|(file, added)| file.file.id == id && !added)
     }
 
     /// How many files aren't on the server yet.
@@ -76,10 +85,10 @@ pub struct ByHand {
     watch: Option<Task<()>>,
 }
 
-/// What a look at the folder works with.
+/// What a look at the folder works with: the files waiting, by server.
 type Look = (
     PathBuf,
-    Vec<(String, usize, PlannedFile)>,
+    Vec<(String, PlannedFile)>,
     launcher_core::cores::admin::AdminClient,
     Option<std::sync::Arc<launcher_core::content::CurseForge>>,
 );
@@ -126,8 +135,9 @@ impl HostState {
         let Some(server) = self.by_hand.servers.get_mut(uuid) else {
             return;
         };
-        server.tried.retain(|(tried, _)| *tried != index);
         if let Some(file) = server.files.get(index) {
+            let id = file.file.id;
+            server.tried.retain(|(tried, _)| *tried != id);
             cx.open_url(&file.file_page());
         }
     }
@@ -175,7 +185,7 @@ impl HostState {
             return Some(None);
         };
         // only servers that are there: one being made from a modpack isn't yet
-        let waiting: Vec<(String, usize, PlannedFile)> = self
+        let waiting: Vec<(String, PlannedFile)> = self
             .by_hand
             .servers
             .iter()
@@ -184,9 +194,9 @@ impl HostState {
                 server
                     .files
                     .iter()
-                    .enumerate()
-                    .filter(|(index, _)| !server.added[*index])
-                    .map(|(index, file)| (uuid.clone(), index, file.clone()))
+                    .zip(&server.added)
+                    .filter(|(_, added)| !**added)
+                    .map(|(file, _)| (uuid.clone(), file.clone()))
             })
             .collect();
         if waiting.is_empty() {
@@ -249,18 +259,22 @@ impl HostState {
                 let Some((folder, waiting, admin, curseforge)) = look else {
                     continue;
                 };
-                let files: Vec<PlannedFile> = waiting.iter().map(|(_, _, f)| f.clone()).collect();
+                let files: Vec<PlannedFile> = waiting.iter().map(|(_, f)| f.clone()).collect();
                 let found = cx
                     .background_spawn(async move { server::find_downloaded(&folder, &files) })
                     .await;
                 for (at, path) in found {
-                    let (uuid, index, planned) = waiting[at].clone();
+                    let Some((uuid, planned)) = waiting.get(at).cloned() else {
+                        continue;
+                    };
+                    let id = planned.file.id;
+                    // skipped too when it no longer waits: an earlier upload of this
+                    // look may have taken a while, and the user may have skipped it
                     let tried = this
                         .update(cx, |this, _| {
-                            this.by_hand
-                                .servers
-                                .get(&uuid)
-                                .is_none_or(|s| s.tried.contains(&(index, path.clone())))
+                            this.by_hand.servers.get(&uuid).is_none_or(|s| {
+                                s.waiting_at(id).is_none() || s.tried.contains(&(id, path.clone()))
+                            })
                         })
                         .unwrap_or(true);
                     if tried {
@@ -292,7 +306,7 @@ impl HostState {
                         }))
                         .await;
                     let alive = this.update(cx, |this, cx| {
-                        this.by_hand_found(&uuid, index, &planned, path, result, cx)
+                        this.by_hand_found(&uuid, &planned, path, result, cx)
                     });
                     if alive.is_err() {
                         return;
@@ -303,24 +317,33 @@ impl HostState {
         self.by_hand.watch = Some(task);
     }
 
-    /// A download was found and uploaded, or couldn't be.
+    /// A download was found and uploaded, or couldn't be. The file is found again by its
+    /// CurseForge id, not where it was: while the upload ran the user may have skipped
+    /// the rest and other files may wait now. One no longer waiting is left alone.
     fn by_hand_found(
         &mut self,
         uuid: &str,
-        index: usize,
         planned: &PlannedFile,
         path: PathBuf,
         result: Result<ModInstallResult, ServerCfError>,
         cx: &mut Context<Self>,
     ) {
-        let Some(server) = self.by_hand.servers.get_mut(uuid) else {
+        let id = planned.file.id;
+        let Some((server, index)) = self
+            .by_hand
+            .servers
+            .get_mut(uuid)
+            .and_then(|server| server.waiting_at(id).map(|index| (server, index)))
+        else {
+            if result.is_ok() {
+                // on the server all the same
+                cx.emit(HostEvent::ModsChanged(uuid.to_string()));
+            }
             return;
         };
         match result {
             Ok(_) => {
-                if let Some(added) = server.added.get_mut(index) {
-                    *added = true;
-                }
+                server.added[index] = true;
                 server.error = None;
                 // the next file's page, when the pages are opened one by one
                 let next = server
@@ -343,7 +366,7 @@ impl HostState {
                 cx.emit(HostEvent::ModsChanged(uuid.to_string()));
             }
             Err(err) => {
-                server.tried.insert((index, path));
+                server.tried.insert((id, path));
                 server.error = Some(tr!(
                     M::ModsByHandFailed,
                     name = planned.title(),
@@ -370,5 +393,32 @@ mod tests {
         assert_eq!((files.next_waiting(), files.waiting()), (Some(2), 1));
         files.added[2] = true;
         assert_eq!((files.next_waiting(), files.waiting()), (None, 0));
+    }
+
+    fn planned(id: u64) -> PlannedFile {
+        PlannedFile {
+            file: serde_json::from_value(serde_json::json!({
+                "id": id, "modId": id, "displayName": "a.jar", "fileName": "a.jar",
+            }))
+            .expect("a sample file"),
+            project: None,
+            depth: 0,
+            replaces: Vec::new(),
+            installed: false,
+            on_modrinth: None,
+        }
+    }
+
+    #[test]
+    fn a_file_is_found_by_its_id_while_it_waits() {
+        // "Skip the rest", then other files: the file uploaded isn't where it was
+        let files = ByHandFiles {
+            files: vec![planned(7), planned(5), planned(9)],
+            added: vec![false, true, false],
+            ..Default::default()
+        };
+        assert_eq!(files.waiting_at(9), Some(2));
+        assert_eq!(files.waiting_at(5), None, "already added");
+        assert_eq!(files.waiting_at(3), None, "no longer waited for");
     }
 }

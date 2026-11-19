@@ -270,6 +270,8 @@ impl ModsPage {
         let modrinth = crate::curseforge::modrinth(cx);
         let admin = self.state.read(cx).admin.clone();
         self.modpack_busy = true;
+        // an earlier pack's files are not this update's
+        self.curseforge_pack_by_hand = None;
         cx.notify();
         let task = cx.spawn(async move |this, cx| {
             let uploaded = cx
@@ -298,9 +300,10 @@ impl ModsPage {
                                 cx,
                             );
                         } else if let Some(upload_id) = info.upload_id {
-                            // kept for when the update has run
-                            this.curseforge_pack_by_hand = by_hand;
-                            this.plan_modpack(ModpackSource::Upload { upload_id }, cx);
+                            // kept for when the update of this very upload has run
+                            let source = ModpackSource::Upload { upload_id };
+                            this.curseforge_pack_by_hand = Some((source.clone(), by_hand));
+                            this.plan_modpack(source, cx);
                         }
                     }
                     Err(err) => {
@@ -346,6 +349,14 @@ impl ModsPage {
         if self.modpack_busy {
             return;
         }
+        // files kept for another pack's update are not this one's
+        if self
+            .curseforge_pack_by_hand
+            .as_ref()
+            .is_some_and(|(kept, _)| *kept != source)
+        {
+            self.curseforge_pack_by_hand = None;
+        }
         self.modpack_busy = true;
         cx.notify();
         let admin = self.state.read(cx).admin.clone();
@@ -367,6 +378,7 @@ impl ModsPage {
                         cx,
                     ),
                     Err(err) => {
+                        this.curseforge_pack_by_hand = None;
                         this.toast(Toast::error(tr!(M::ModpackPlanFailed, error = err)), cx)
                     }
                 }
@@ -466,6 +478,14 @@ impl ModsPage {
         self.modpack_busy = true;
         cx.notify();
         let restore = matches!(source, ModpackSource::History { .. });
+        // the files only CurseForge's website has, when this is the update of the
+        // CurseForge pack they came with; dropped either way, whatever the outcome
+        let by_hand = self
+            .curseforge_pack_by_hand
+            .take()
+            .filter(|(kept, _)| *kept == source)
+            .map(|(_, files)| files)
+            .unwrap_or_default();
         let admin = self.state.read(cx).admin.clone();
         let uuid = self.uuid.clone();
         let task = cx.spawn(async move |this, cx| {
@@ -502,7 +522,6 @@ impl ModsPage {
                         this.modpack_check = ModpackCheck::Idle;
                         this.curseforge_pack_update = None;
                         // the new version's files that only CurseForge's website has
-                        let by_hand = std::mem::take(&mut this.curseforge_pack_by_hand);
                         if !restore && !by_hand.is_empty() {
                             let uuid = this.uuid.clone();
                             this.state

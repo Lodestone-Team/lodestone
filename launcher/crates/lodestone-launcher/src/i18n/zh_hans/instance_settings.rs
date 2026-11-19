@@ -276,6 +276,9 @@ pub fn text(message: M) -> &'static str {
         M::CopyModsNoBuild => "没有适用于 {target} 的构建，以下模组不会复制：{names}。",
         M::CopyModsNotOnModrinth => "不在 Modrinth 上，以下模组不会复制：{names}。",
         M::CopyModsUnchecked => "无法在 Modrinth 上检查以下模组，因此不会复制：{names}。",
+        M::CopyModsUncheckedCurseForge => {
+            "无法在 CurseForge 上检查以下模组，因此不会复制：{names}。"
+        }
         M::CopyOrUncheckMods => "或取消勾选“模组”，不带模组复制。",
         M::CopySameTarget => {
             "请选择其他 Minecraft 版本或加载器。若要原样复制此实例，请使用“维护”中的“创建副本”。"

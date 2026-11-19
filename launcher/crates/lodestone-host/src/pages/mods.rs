@@ -168,8 +168,13 @@ pub struct ModsPage {
     /// Host found itself (`modpack_check` shows it).
     curseforge_pack_update: Option<launcher_core::content::curseforge::CfFile>,
     /// The files of the pack update being confirmed that only CurseForge's website
-    /// has: watched for once the update has run.
-    curseforge_pack_by_hand: Vec<launcher_core::cores::admin::curseforge::PlannedFile>,
+    /// has: watched for once the update has run. Kept with the uploaded pack's source,
+    /// so only the update of that very pack takes them; dropped when its dialog closes
+    /// or another update starts.
+    curseforge_pack_by_hand: Option<(
+        launcher_core::cores::admin::instances::ModpackSource,
+        Vec<launcher_core::cores::admin::curseforge::PlannedFile>,
+    )>,
     /// Preparing or running a modpack update.
     modpack_busy: bool,
     /// The modpack's history, once fetched.
@@ -222,7 +227,7 @@ impl ModsPage {
             pack_open: false,
             modpack_check: modpack::ModpackCheck::default(),
             curseforge_pack_update: None,
-            curseforge_pack_by_hand: Vec::new(),
+            curseforge_pack_by_hand: None,
             modpack_busy: false,
             modpack_history: None,
             modpack_history_error: None,
@@ -479,12 +484,18 @@ impl ModsPage {
                 )
             }
         };
+        let pack_update = matches!(shown.prompt, Prompt::ModpackUpdate { .. });
         Dialog::new("mods-dialog", title, shown.focus.clone())
             .on_close({
                 let this = cx.entity().downgrade();
                 move |_, cx| {
                     this.update(cx, |this, cx| {
                         this.dialog.close(cx);
+                        // a cancelled pack update leaves no files to watch for (another
+                        // prompt, closed while the update's plan is coming, leaves them)
+                        if pack_update {
+                            this.curseforge_pack_by_hand = None;
+                        }
                     })
                     .ok();
                 }

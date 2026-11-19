@@ -347,6 +347,8 @@ crate::i18n::messages! {
         CopyModsNotOnModrinth = "Not on Modrinth, so these stay behind: {names}.",
         /// {names} is a list of mods whose Modrinth lookup failed.
         CopyModsUnchecked = "Couldn't check these on Modrinth, so they stay behind: {names}.",
+        /// {names} is a list of mods whose CurseForge lookup failed.
+        CopyModsUncheckedCurseForge = "Couldn't check these on CurseForge, so they stay behind: {names}.",
         /// After "Try again", when the mods couldn't be checked.
         CopyOrUncheckMods = "or uncheck Mods to copy without them.",
         /// While the version and loader chosen are the instance's own.

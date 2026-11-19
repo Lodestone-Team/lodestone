@@ -773,6 +773,8 @@ struct Planned {
     requests: Vec<InstallRequest>,
     curseforge: Vec<CfInstallRequest>,
     updating: Option<Vec<String>>,
+    /// Why an update couldn't check CurseForge, when it went ahead with Modrinth's.
+    curseforge_unchecked: Option<String>,
 }
 
 /// Runs install requests as a content job of the instance.
@@ -801,6 +803,7 @@ fn start_install(
     let work = cx.spawn(async move |cx| {
         let _busy = busy;
         let planned = plan(cx).await?;
+        let cf_unchecked = planned.curseforge_unchecked.clone();
         let job_id = id.clone();
         let outcome = cx
             .background_spawn(async move {
@@ -851,6 +854,9 @@ fn start_install(
         }
         if let Some(why) = no_snapshot {
             reply["snapshot_failed"] = json!(why);
+        }
+        if let Some(why) = cf_unchecked {
+            reply["curseforge_unchecked"] = json!(why);
         }
         Ok(reply)
     });
@@ -1410,23 +1416,31 @@ async fn find_updates(
     Ok(all)
 }
 
-/// Newer files of installed content from CurseForge, by file, for each kind. None
-/// without CurseForge.
-async fn find_cf_updates(
+/// Newer files of installed content from CurseForge, by file, for each kind (none
+/// without CurseForge), and why some couldn't be checked when they couldn't. A
+/// CurseForge outage keeps Modrinth's updates, as the Content tab keeps each platform's
+/// apart, and a kind that fails keeps the other kinds' updates.
+async fn find_cf_updates_or_reason(
     cf: Option<Arc<CurseForge>>,
     dirs: InstanceDirs,
     target: Target,
     kinds: Vec<ContentKind>,
     prerelease: bool,
-) -> Result<Vec<(ContentKind, String, CurseForgeUpdate)>, ErrorObject> {
+) -> (Vec<(ContentKind, String, CurseForgeUpdate)>, Option<String>) {
     let Some(cf) = cf else {
-        return Ok(Vec::new());
+        return (Vec::new(), None);
     };
     let mut all = Vec::new();
+    let mut unchecked = None;
     for kind in kinds {
-        let updates = listing::check_curseforge_updates(&cf, &dirs, &target, kind, prerelease)
-            .await
-            .map_err(|err| api_error(codes::UNAVAILABLE, err.to_string()))?;
+        let updates =
+            match listing::check_curseforge_updates(&cf, &dirs, &target, kind, prerelease).await {
+                Ok(updates) => updates,
+                Err(err) => {
+                    unchecked.get_or_insert_with(|| err.to_string());
+                    continue;
+                }
+            };
         let mut updates: Vec<(String, CurseForgeUpdate)> = updates.into_iter().collect();
         updates.sort_by_key(|(_, update)| update.installed.project_id);
         all.extend(
@@ -1435,7 +1449,7 @@ async fn find_cf_updates(
                 .map(|(file, update)| (kind, file, update)),
         );
     }
-    Ok(all)
+    (all, unchecked)
 }
 
 pub fn updates(call: Call, cx: &mut App) -> Reply {
@@ -1451,7 +1465,8 @@ pub fn updates(call: Call, cx: &mut App) -> Reply {
     cx.background_spawn(async move {
         let updates =
             find_updates(api, dirs.clone(), target.clone(), kinds.clone(), prerelease).await?;
-        let cf_updates = find_cf_updates(cf, dirs, target, kinds, prerelease).await?;
+        let (cf_updates, cf_unchecked) =
+            find_cf_updates_or_reason(cf, dirs, target, kinds, prerelease).await;
         let mut list: Vec<Value> = updates
             .iter()
             .map(|(kind, file, version)| {
@@ -1477,7 +1492,12 @@ pub fn updates(call: Call, cx: &mut App) -> Reply {
                 "downloadable": update.downloadable(),
             })
         }));
-        Ok(json!({ "instance": id, "updates": list }))
+        let mut reply = json!({ "instance": id, "updates": list });
+        if let Some(why) = cf_unchecked {
+            // the list holds only Modrinth's updates then
+            reply["curseforge_unchecked"] = json!(why);
+        }
+        Ok(reply)
     })
 }
 
@@ -1514,7 +1534,8 @@ pub fn update(call: Call, cx: &mut App) -> Reply {
         async move |_cx| {
             let updates =
                 find_updates(api, dirs.clone(), target.clone(), kinds.clone(), prerelease).await?;
-            let cf_updates = find_cf_updates(cf, dirs, target, kinds, prerelease).await?;
+            let (cf_updates, cf_unchecked) =
+                find_cf_updates_or_reason(cf, dirs, target, kinds, prerelease).await;
             let names = |file: &str, project: &str| {
                 wanted.is_empty()
                     || wanted.iter().any(|w| {
@@ -1533,6 +1554,24 @@ pub fn update(call: Call, cx: &mut App) -> Reply {
                 .filter(|(_, file, update)| names(file, &update.installed.project_id.to_string()))
                 .collect();
             if chosen.is_empty() && cf_chosen.is_empty() {
+                // not "up to date" when CurseForge's updates weren't seen
+                if let Some(why) = cf_unchecked {
+                    return Err(if wanted.is_empty() {
+                        api_error(
+                            codes::UNAVAILABLE,
+                            format!("CurseForge couldn't be checked for updates: {why}"),
+                        )
+                    } else {
+                        // named items may well be Modrinth's, and up to date
+                        api_error(
+                            codes::NOT_FOUND,
+                            format!(
+                                "No update for {} on Modrinth, and CurseForge couldn't be                                  checked: {why}",
+                                wanted.join(", ")
+                            ),
+                        )
+                    });
+                }
                 return Err(api_error(
                     codes::NOT_FOUND,
                     if wanted.is_empty() {
@@ -1578,6 +1617,7 @@ pub fn update(call: Call, cx: &mut App) -> Reply {
                 requests,
                 curseforge,
                 updating: Some(titles),
+                curseforge_unchecked: cf_unchecked,
             })
         },
         refresh_kinds,
