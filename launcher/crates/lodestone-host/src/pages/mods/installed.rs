@@ -337,6 +337,7 @@ impl ModsPage {
             )),
             _ => None,
         };
+        let modrinth = crate::curseforge::modrinth(cx);
         let uuid = self.uuid.clone();
         let started = self.state.update(cx, |state, cx| {
             let started = state.set_updating_mods(&uuid, true);
@@ -389,8 +390,9 @@ impl ModsPage {
                 for (name, file) in curseforge_updates {
                     let result = cx
                         .background_spawn(launcher_core::http::in_http_runtime({
-                            let (client, downloader, admin, uuid, target, mods, known) = (
+                            let (client, modrinth, downloader, admin, uuid, target, mods, known) = (
                                 client.clone(),
+                                modrinth.clone(),
                                 downloader.clone(),
                                 admin.clone(),
                                 uuid.clone(),
@@ -401,6 +403,7 @@ impl ModsPage {
                             async move {
                                 server::install_file(
                                     &client,
+                                    modrinth.as_deref(),
                                     &downloader,
                                     &admin,
                                     &uuid,
@@ -431,9 +434,8 @@ impl ModsPage {
             state
                 .update(cx, |state, cx| {
                     state.set_updating_mods(&uuid, false);
-                    if let Some(toast) = super::curseforge::by_hand_toast(&by_hand) {
-                        state.toast(toast, cx);
-                    }
+                    // what only CurseForge's website has: watched for, and listed
+                    state.add_by_hand(&uuid, by_hand, cx);
                     if !total.installed.is_empty() || !total.removed.is_empty() {
                         state.toast(
                             Self::result_toast(
@@ -1292,7 +1294,7 @@ impl ModsPage {
     ///
     /// CurseForge's scenes: `curseforge` is the handful with the jars Modrinth doesn't
     /// know shown as CurseForge's files, one with an update (nothing is asked of
-    /// CurseForge). `browse-curseforge[:query]` and `project-curseforge:<id>` open
+    /// CurseForge), and `by-hand` adds the card of files to download from its website. `browse-curseforge[:query]` and `project-curseforge:<id>` open
     /// Browse on CurseForge and a CurseForge project, which do ask CurseForge: they
     /// need a copy with Lodestone's key, and the network.
     #[cfg(feature = "screenshot")]
@@ -1307,7 +1309,7 @@ impl ModsPage {
         };
         let on_curseforge = matches!(
             scene,
-            "curseforge" | "browse-curseforge" | "project-curseforge"
+            "curseforge" | "browse-curseforge" | "project-curseforge" | "by-hand"
         );
         let asked = scene;
         let scene = if on_curseforge { "few" } else { scene };
@@ -1428,6 +1430,12 @@ impl ModsPage {
         self.loading = false;
         self.pack_open = scene == "pack";
         match asked {
+            // files waiting to be downloaded from CurseForge's website
+            "by-hand" => {
+                let uuid = self.uuid.clone();
+                self.state
+                    .update(cx, |state, cx| state.demo_by_hand(&uuid, cx));
+            }
             "browse-curseforge" => {
                 self.view = super::SubView::Browse;
                 if let Some(target) = self.target(cx) {

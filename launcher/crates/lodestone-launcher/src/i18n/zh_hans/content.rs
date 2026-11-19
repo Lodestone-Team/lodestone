@@ -252,7 +252,8 @@ pub fn text(message: M) -> &'static str {
             "这些文件的作者不允许启动器下载。请在浏览器中逐个下载，然后选择保存它们的文件夹。"
         }
         M::BlockedOpen => "打开下载页面",
-        M::BlockedOpenAll => "打开所有页面",
+        M::BlockedOpenAll => "逐个打开页面",
+        M::BlockedOneByOne => "上一个文件到达后，会打开下一个页面。",
         M::BlockedAdded => "已添加",
         M::BlockedWaiting => "正在等待 {file}",
         M::BlockedChangeFolder => "监视其他文件夹…",

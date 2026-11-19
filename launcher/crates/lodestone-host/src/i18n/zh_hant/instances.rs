@@ -143,9 +143,8 @@ pub fn text(message: M) -> &'static str {
         }
         M::ModpackCurseForgeUploading => "正在將模組包傳送到 Lodestone Core…",
         M::ModpackCurseForgeByHand => {
-            "這些檔案只能從 CurseForge 網站下載，因此建立的伺服器不包含它們。請在那裡下載後，在伺服器的「模組」分頁中上傳。"
+            "這些檔案只能從 CurseForge 網站下載，因此建立的伺服器不包含它們。之後伺服器的「模組」分頁會請你下載它們，並在每個檔案到達時自動加入。"
         }
-        M::ModpackOpenCurseForge => "開啟 CurseForge",
         M::ModpackUploadFailed => "無法上傳模組包：{error}",
         M::ModpackUploading => "正在上傳 {name}…",
         M::SortLabel => "排序方式",

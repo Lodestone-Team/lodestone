@@ -18,9 +18,13 @@
 //!   An upload of a jar Modrinth doesn't know needs the core's permission to write any
 //!   file, which the owner has.
 //!
-//! A file whose author keeps it on CurseForge's website is never fetched: it is left in
-//! [`ServerInstallOutcome::blocked`] for the user to download there and upload.
-//! Nothing CurseForge returns is kept.
+//! A file whose author keeps it on CurseForge's website is never fetched from
+//! CurseForge, and no CDN address is ever made up for it. If Modrinth has the very same
+//! file (by SHA-1), the core installs it from Modrinth as it installs any Modrinth
+//! version. Otherwise it is left in [`ServerInstallOutcome::blocked`]: the user
+//! downloads it in their browser, [`find_downloaded`] spots it in their Downloads
+//! folder, and [`install_downloaded`] checks it and uploads it. Nothing CurseForge
+//! returns is kept.
 
 use std::{
     collections::{BTreeSet, HashMap, HashSet, VecDeque},
@@ -32,15 +36,15 @@ use futures::StreamExt as _;
 use super::{
     AdminClient,
     mods::{
-        InstalledMod, InstalledModKind, InstalledModLoader, ModInstallResult, ModInstallSkipped,
-        ModrinthDependency, ModrinthGalleryImage, ModrinthProject, ModrinthSearchHit,
-        ModrinthSearchIndex, ModrinthSearchResponse, ModrinthVersion, ModrinthVersionFile,
-        ModrinthVersionType,
+        InstalledMod, InstalledModKind, InstalledModLoader, ModInstallRequest, ModInstallResult,
+        ModInstallSkipped, ModrinthDependency, ModrinthGalleryImage, ModrinthProject,
+        ModrinthSearchHit, ModrinthSearchIndex, ModrinthSearchResponse, ModrinthVersion,
+        ModrinthVersionFile, ModrinthVersionType,
     },
 };
 use crate::{
     content::{
-        ContentKind, CurseForge, CurseForgeError, Target,
+        ContentKind, CurseForge, CurseForgeError, Modrinth, Target,
         curseforge::{
             self, CLASS_BUKKIT_PLUGINS, CLASS_MODPACKS, CLASS_MODS, CfFile, CfMod, CfSearch, CfSort,
         },
@@ -557,6 +561,9 @@ pub struct PlannedFile {
     pub replaces: Vec<String>,
     /// This very file is installed already: nothing is downloaded.
     pub installed: bool,
+    /// The Modrinth version that has this very file, for one CurseForge's website keeps
+    /// to itself: the core installs that version instead.
+    pub on_modrinth: Option<String>,
 }
 
 impl PlannedFile {
@@ -610,9 +617,12 @@ pub fn pick_file(target: &ServerTarget, mut files: Vec<CfFile>) -> Option<CfFile
 /// dependencies that aren't installed (the newest fitting file of each, at most
 /// [`MAX_DEPENDENCY_DEPTH`] levels deep), and which installed files each replaces.
 /// A file that doesn't fit the server is refused unless `force`, and nothing is
-/// planned if a planned file says it is incompatible with an installed project.
+/// planned if a planned file says it is incompatible with an installed project. With
+/// `modrinth`, a file CurseForge's website keeps to itself is looked for there.
+#[allow(clippy::too_many_arguments)]
 pub async fn plan_install(
     cf: &CurseForge,
+    modrinth: Option<&Modrinth>,
     target: &ServerTarget,
     installed: &HashMap<String, CfInstalled>,
     file: CfFile,
@@ -637,6 +647,7 @@ pub async fn plan_install(
         depth: 0,
         replaces: Vec::new(),
         installed: false,
+        on_modrinth: None,
     }];
     let mut seen: HashSet<u64> = HashSet::from([plan[0].file.mod_id]);
     let mut skipped_list = Vec::new();
@@ -685,6 +696,7 @@ pub async fn plan_install(
                             depth,
                             replaces: Vec::new(),
                             installed: false,
+                            on_modrinth: None,
                         });
                         queue.push_back(plan.len() - 1);
                     }
@@ -755,9 +767,39 @@ pub async fn plan_install(
             .collect();
         planned.replaces.sort();
     }
+    // Files the author keeps on CurseForge's website: the same bytes on Modrinth, which
+    // the core installs, else by hand.
+    let kept = |p: &PlannedFile| !p.installed && !p.file.downloadable();
+    if let Some(modrinth) = modrinth {
+        let hashes: Vec<String> = plan
+            .iter()
+            .filter(|p| kept(p))
+            .filter_map(|p| p.file.sha1())
+            .collect();
+        if !hashes.is_empty() {
+            // Modrinth being out of reach only means the user downloads them
+            let found = modrinth.versions_by_sha1(&hashes).await.unwrap_or_default();
+            for planned in plan.iter_mut().filter(|p| kept(p)) {
+                let Some(sha1) = planned.file.sha1() else {
+                    continue;
+                };
+                planned.on_modrinth = found
+                    .get(&sha1)
+                    .filter(|version| {
+                        version.files.iter().any(|f| {
+                            f.hashes
+                                .sha1
+                                .as_deref()
+                                .is_some_and(|h| h.eq_ignore_ascii_case(&sha1))
+                        })
+                    })
+                    .map(|version| version.id.clone());
+            }
+        }
+    }
     let (files, blocked): (Vec<_>, Vec<_>) = plan
         .into_iter()
-        .partition(|p| p.installed || p.file.downloadable());
+        .partition(|p| p.installed || p.file.downloadable() || p.on_modrinth.is_some());
     Ok(ServerInstallPlan {
         files,
         blocked,
@@ -834,69 +876,94 @@ async fn fetch(
     bytes
 }
 
-/// Runs `plan` on the server `uuid`: every file is downloaded first (so a failed
-/// download installs nothing), then uploaded to the core in one go, then the older
-/// files they replace are deleted. A file that replaces only disabled files comes
-/// disabled. `mods` is the server's list as the plan saw it: a planned file never takes
-/// the place of a file that isn't its own project's.
-#[allow(clippy::too_many_arguments)]
-pub async fn install(
-    cf: &CurseForge,
-    downloader: &Downloader,
-    admin: &AdminClient,
-    uuid: &str,
-    mods: &[InstalledMod],
-    plan: ServerInstallPlan,
-    staging: &Path,
-    cancel: &CancelToken,
-) -> Result<ServerInstallOutcome, ServerCfError> {
-    let on_server: HashMap<String, &InstalledMod> = mods
-        .iter()
+/// A jar to put on the server.
+struct Upload {
+    name: String,
+    bytes: Vec<u8>,
+    /// The installed files it replaces.
+    replaces: Vec<String>,
+    /// It replaces only disabled files, so it comes disabled.
+    disabled: bool,
+}
+
+/// The server's files by lowercase name.
+fn by_name(mods: &[InstalledMod]) -> HashMap<String, &InstalledMod> {
+    mods.iter()
         .map(|m| (m.file_name.to_lowercase(), m))
-        .collect();
-    let mut result = ModInstallResult {
-        skipped: plan.skipped.clone(),
-        ..Default::default()
-    };
-    let mut uploads: Vec<(String, Vec<u8>)> = Vec::new();
-    // (uploaded name, the files it replaces, whether it comes disabled)
-    let mut placed: Vec<(String, Vec<String>, bool)> = Vec::new();
-    let mut overwrite = false;
-    for planned in plan.files.iter().filter(|p| !p.installed) {
-        let name = jar_name(&planned.file)?;
-        let replaces_lower: HashSet<String> =
-            planned.replaces.iter().map(|n| n.to_lowercase()).collect();
-        for taken in [
-            name.to_lowercase(),
-            format!("{}.disabled", name.to_lowercase()),
-        ] {
-            if on_server.contains_key(&taken) && !replaces_lower.contains(&taken) {
-                return Err(ServerCfError::Invalid(format!(
-                    "A file named {name} is already on the server and isn't {}'s. Delete it first.",
-                    planned.title()
-                )));
-            }
-        }
-        if uploads.iter().any(|(n, _)| n.eq_ignore_ascii_case(&name)) {
+        .collect()
+}
+
+/// The upload of `bytes` as `planned`'s file, after checking that its name is free on
+/// the server or belongs to a file it replaces: a file never takes the place of a file
+/// that isn't its own project's.
+fn upload_of(
+    on_server: &HashMap<String, &InstalledMod>,
+    planned: &PlannedFile,
+    replaces: &[String],
+    bytes: impl FnOnce() -> Result<Vec<u8>, ServerCfError>,
+) -> Result<Upload, ServerCfError> {
+    let name = jar_name(&planned.file)?;
+    let replaces_lower: HashSet<String> = replaces.iter().map(|n| n.to_lowercase()).collect();
+    for taken in [
+        name.to_lowercase(),
+        format!("{}.disabled", name.to_lowercase()),
+    ] {
+        if on_server.contains_key(&taken) && !replaces_lower.contains(&taken) {
             return Err(ServerCfError::Invalid(format!(
-                "Two of the files to install are named {name}"
+                "A file named {name} is already on the server and isn't {}'s. Delete it first.",
+                planned.title()
             )));
         }
-        overwrite |= replaces_lower.contains(&name.to_lowercase());
-        let disabled = !planned.replaces.is_empty()
-            && planned
-                .replaces
-                .iter()
-                .all(|n| on_server.get(&n.to_lowercase()).is_some_and(|m| !m.enabled));
-        let bytes = fetch(cf, downloader, &planned.file, staging, cancel).await?;
-        uploads.push((name.clone(), bytes));
-        placed.push((name, planned.replaces.clone(), disabled));
     }
-    if !uploads.is_empty() {
-        let installed = admin.upload_mods(uuid, &uploads, overwrite).await?;
-        drop(uploads);
-        result.installed = installed;
+    let disabled = !replaces.is_empty()
+        && replaces
+            .iter()
+            .all(|n| on_server.get(&n.to_lowercase()).is_some_and(|m| !m.enabled));
+    Ok(Upload {
+        name,
+        bytes: bytes()?,
+        replaces: replaces.to_vec(),
+        disabled,
+    })
+}
+
+/// Uploads `uploads` to the core in one go, then deletes the files they replace and
+/// turns off the ones that come disabled. Adds what it did to `result`.
+async fn place(
+    admin: &AdminClient,
+    uuid: &str,
+    uploads: Vec<Upload>,
+    result: &mut ModInstallResult,
+) -> Result<(), ServerCfError> {
+    if uploads.is_empty() {
+        return Ok(());
     }
+    for (index, upload) in uploads.iter().enumerate() {
+        if uploads[..index]
+            .iter()
+            .any(|other| other.name.eq_ignore_ascii_case(&upload.name))
+        {
+            return Err(ServerCfError::Invalid(format!(
+                "Two of the files to install are named {}",
+                upload.name
+            )));
+        }
+    }
+    let overwrite = uploads.iter().any(|upload| {
+        upload
+            .replaces
+            .iter()
+            .any(|old| old.eq_ignore_ascii_case(&upload.name))
+    });
+    let mut files = Vec::new();
+    let mut placed = Vec::new();
+    for upload in uploads {
+        files.push((upload.name.clone(), upload.bytes));
+        placed.push((upload.name, upload.replaces, upload.disabled));
+    }
+    let installed = admin.upload_mods(uuid, &files, overwrite).await?;
+    drop(files);
+    result.installed.extend(installed);
     for (name, replaces, disabled) in placed {
         for old in replaces {
             // the upload took the place of a file of the same name
@@ -917,10 +984,136 @@ pub async fn install(
             }
         }
     }
+    Ok(())
+}
+
+/// Runs `plan` on the server `uuid`: every file is downloaded first (so a failed
+/// download installs nothing), then uploaded to the core in one go, then the older
+/// files they replace are deleted. A file that replaces only disabled files comes
+/// disabled. A file Modrinth has in CurseForge's stead is installed by the core, from
+/// Modrinth. `mods` is the server's list as the plan saw it: a planned file never takes
+/// the place of a file that isn't its own project's.
+#[allow(clippy::too_many_arguments)]
+pub async fn install(
+    cf: &CurseForge,
+    downloader: &Downloader,
+    admin: &AdminClient,
+    uuid: &str,
+    mods: &[InstalledMod],
+    plan: ServerInstallPlan,
+    staging: &Path,
+    cancel: &CancelToken,
+) -> Result<ServerInstallOutcome, ServerCfError> {
+    let on_server = by_name(mods);
+    let mut result = ModInstallResult {
+        skipped: plan.skipped.clone(),
+        ..Default::default()
+    };
+    let mut uploads: Vec<Upload> = Vec::new();
+    for planned in plan
+        .files
+        .iter()
+        .filter(|p| !p.installed && p.on_modrinth.is_none())
+    {
+        // the name is checked before anything is downloaded
+        let name_only = upload_of(&on_server, planned, &planned.replaces, || Ok(Vec::new()))?;
+        let bytes = fetch(cf, downloader, &planned.file, staging, cancel).await?;
+        uploads.push(Upload { bytes, ..name_only });
+    }
+    place(admin, uuid, uploads, &mut result).await?;
+    // The same files on Modrinth: the core downloads those itself, and replaces the
+    // versions of the project it knows. An older file only CurseForge knew goes after.
+    for planned in plan.files.iter().filter(|p| !p.installed) {
+        let Some(version_id) = &planned.on_modrinth else {
+            continue;
+        };
+        let installed = admin
+            .install_mod(
+                uuid,
+                &ModInstallRequest {
+                    version_id: version_id.clone(),
+                    install_dependencies: false,
+                    // it was checked against the server, or forced, as a CurseForge file
+                    force: true,
+                },
+            )
+            .await?;
+        let gone: HashSet<String> = installed.removed.iter().map(|n| n.to_lowercase()).collect();
+        let kept: HashSet<String> = installed
+            .installed
+            .iter()
+            .map(|m| m.file_name.to_lowercase())
+            .collect();
+        result.extend(installed);
+        for old in &planned.replaces {
+            let lower = old.to_lowercase();
+            if gone.contains(&lower) || kept.contains(&lower) {
+                continue;
+            }
+            match admin.delete_mod(uuid, old).await {
+                Ok(()) => result.removed.push(old.clone()),
+                Err(CoreError::NotFound(_)) => {}
+                Err(err) => return Err(err.into()),
+            }
+        }
+    }
     Ok(ServerInstallOutcome {
         result,
         blocked: plan.blocked,
     })
+}
+
+/// Looks in `folder` (not its subfolders) for the `blocked` files the user downloaded
+/// by hand: files named like one of them whose SHA-1 is CurseForge's. Returns (index in
+/// `blocked`, path) for each found.
+pub fn find_downloaded(folder: &Path, blocked: &[PlannedFile]) -> Vec<(usize, std::path::PathBuf)> {
+    let files: Vec<&CfFile> = blocked.iter().map(|planned| &planned.file).collect();
+    crate::content::curseforge_install::find_downloaded_files(folder, &files)
+}
+
+/// Uploads the file the user downloaded by hand (`downloaded`, checked to be
+/// `planned`'s) to the server, in place of the older files of its project. Their
+/// download stays where it is. `mods` is the server's list now, and `known` what
+/// [`identify`] makes of it. Nothing is done when the very file is installed already.
+pub async fn install_downloaded(
+    admin: &AdminClient,
+    uuid: &str,
+    mods: &[InstalledMod],
+    known: &HashMap<String, CfInstalled>,
+    planned: &PlannedFile,
+    downloaded: &Path,
+) -> Result<ModInstallResult, ServerCfError> {
+    let file = &planned.file;
+    if file.sha1().is_none() && file.file_fingerprint == 0 {
+        return Err(ServerCfError::Invalid(format!(
+            "CurseForge sent nothing to check {} against",
+            file.file_name
+        )));
+    }
+    let too_large = std::fs::metadata(downloaded).is_ok_and(|m| m.len() > MAX_MOD_BYTES);
+    if too_large || !crate::content::curseforge_install::is_curseforge_file(downloaded, file) {
+        return Err(ServerCfError::Invalid(format!(
+            "{} isn't {} from CurseForge",
+            downloaded.display(),
+            file.file_name
+        )));
+    }
+    let mut result = ModInstallResult::default();
+    if known.values().any(|k| k.file_id == file.id) {
+        return Ok(result);
+    }
+    // the files of the same project that are there now
+    let mut replaces: Vec<String> = known
+        .iter()
+        .filter(|(_, k)| k.project_id == file.mod_id)
+        .map(|(name, _)| name.clone())
+        .collect();
+    replaces.sort();
+    let upload = upload_of(&by_name(mods), planned, &replaces, || {
+        std::fs::read(downloaded).map_err(|err| ServerCfError::Download(err.to_string()))
+    })?;
+    place(admin, uuid, vec![upload], &mut result).await?;
+    Ok(result)
 }
 
 /// Plans and runs the install of `file` on the server `uuid` in one go: what the Mods
@@ -929,6 +1122,7 @@ pub async fn install(
 #[allow(clippy::too_many_arguments)]
 pub async fn install_file(
     cf: &CurseForge,
+    modrinth: Option<&Modrinth>,
     downloader: &Downloader,
     admin: &AdminClient,
     uuid: &str,
@@ -942,6 +1136,7 @@ pub async fn install_file(
 ) -> Result<ServerInstallOutcome, ServerCfError> {
     let plan = plan_install(
         cf,
+        modrinth,
         target,
         known,
         file,

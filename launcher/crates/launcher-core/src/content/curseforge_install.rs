@@ -565,14 +565,20 @@ pub fn downloads_folder() -> Option<PathBuf> {
 /// Whether the file at `path` is `planned`'s file: its SHA-1 matches CurseForge's (or
 /// its fingerprint, when CurseForge gave no SHA-1).
 pub fn is_planned_file(path: &Path, planned: &CfPlannedFile) -> bool {
-    match planned.file.sha1() {
+    is_curseforge_file(path, &planned.file)
+}
+
+/// Whether the file at `path` is the CurseForge file `file`, by its SHA-1 (or its
+/// fingerprint, when CurseForge gave no SHA-1).
+pub fn is_curseforge_file(path: &Path, file: &CfFile) -> bool {
+    match file.sha1() {
         Some(expected) => {
             hash::sha1_of(path).is_ok_and(|actual| actual.eq_ignore_ascii_case(&expected))
         }
         None => {
-            planned.file.file_fingerprint != 0
+            file.file_fingerprint != 0
                 && curseforge::fingerprint_file(path)
-                    .is_ok_and(|print| u64::from(print) == planned.file.file_fingerprint)
+                    .is_ok_and(|print| u64::from(print) == file.file_fingerprint)
         }
     }
 }
@@ -611,6 +617,13 @@ fn without_copy_number(stem: &str) -> &str {
 /// hand: files named like one of them whose SHA-1 matches. Returns (index in `blocked`,
 /// path) for each found.
 pub fn find_downloaded(folder: &Path, blocked: &[CfPlannedFile]) -> Vec<(usize, PathBuf)> {
+    let files: Vec<&CfFile> = blocked.iter().map(|planned| &planned.file).collect();
+    find_downloaded_files(folder, &files)
+}
+
+/// [`find_downloaded`] for CurseForge files as they are: (index in `wanted`, path) for
+/// each one found in `folder`.
+pub fn find_downloaded_files(folder: &Path, wanted: &[&CfFile]) -> Vec<(usize, PathBuf)> {
     let Ok(entries) = fs::read_dir(folder) else {
         return Vec::new();
     };
@@ -621,8 +634,8 @@ pub fn find_downloaded(folder: &Path, blocked: &[CfPlannedFile]) -> Vec<(usize, 
         .collect();
     candidates.sort();
     let mut found = Vec::new();
-    for (index, planned) in blocked.iter().enumerate() {
-        let wanted = &planned.file.file_name;
+    for (index, file) in wanted.iter().enumerate() {
+        let wanted = &file.file_name;
         let wanted_loose = loose_name(wanted.trim_end_matches(".jar").trim_end_matches(".zip"));
         let named_like = |name: &str| {
             if name.eq_ignore_ascii_case(wanted) {
@@ -633,7 +646,7 @@ pub fn find_downloaded(folder: &Path, blocked: &[CfPlannedFile]) -> Vec<(usize, 
         };
         if let Some((path, _)) = candidates
             .iter()
-            .find(|(path, name)| named_like(name) && is_planned_file(path, planned))
+            .find(|(path, name)| named_like(name) && is_curseforge_file(path, file))
         {
             found.push((index, path.clone()));
         }

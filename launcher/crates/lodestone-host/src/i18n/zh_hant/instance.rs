@@ -125,6 +125,23 @@ pub fn text(message: M) -> &'static str {
         M::ModsUpdateTo => "更新至 {version}",
         M::ModsViewOnModrinth => "在 Modrinth 上檢視",
         M::ModsViewOnCurseForge => "在 CurseForge 上檢視",
+        M::ModsByHandTitle => "請從 CurseForge 下載這些檔案",
+        M::ModsByHandLead => {
+            "這些檔案的作者不允許其他應用程式下載。請在瀏覽器中逐一下載，檔案一出現在 {folder} 中，Lodestone 就會把它加入伺服器。"
+        }
+        M::ModsByHandNoFolder => {
+            "這些檔案的作者不允許其他應用程式下載。請在瀏覽器中逐一下載，然後選擇儲存它們的資料夾。"
+        }
+        M::ModsByHandOpen => "開啟下載頁面",
+        M::ModsByHandOpenAll => "逐一開啟頁面",
+        M::ModsByHandOneByOne => "上一個檔案到達後，會開啟下一個頁面。",
+        M::ModsByHandAdded => "已加入",
+        M::ModsByHandWaiting => "正在等待 {file}",
+        M::ModsByHandChangeFolder => "監視其他資料夾…",
+        M::ModsByHandSkip => "略過其餘檔案",
+        M::ModsByHandFolderPrompt => "監視此資料夾",
+        M::ModsByHandFailed => "無法加入 {name}：{error}",
+        M::ModsByHandAddedToast => "已從你的下載中加入",
         M::ModsUnknownCurseForge => {
             "CurseForge 未說明玩家是否需要它，請查看該模組的頁面。如果玩家需要，請勾選「給玩家」。"
         }
@@ -222,10 +239,6 @@ pub fn text(message: M) -> &'static str {
         M::ModsNotFor => "不適用於此伺服器",
         M::ModsInstalledVersion => "已安裝",
         M::ModsInstallFailed => "無法安裝：{error}",
-        M::ModsCurseForgeByHand => {
-            "這些檔案只能從 CurseForge 網站下載。請在那裡下載後，再上傳到這裡。"
-        }
-        M::ModsOpenCurseForge => "開啟 CurseForge",
         M::ModsCurseForgeFailed => "無法向 CurseForge 查詢已安裝的檔案：{error}",
         M::ModsCurseForgeUnavailable => "此版本的 Lodestone Host 無法使用 CurseForge。",
         M::ModsIncompatibleTitle => "安裝不相容的版本？",

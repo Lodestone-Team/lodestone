@@ -33,7 +33,7 @@ use lodestone_ui::{
         text_tooltip,
     },
     i18n::format,
-    theme::{Tone, colors, ink, px, radius, text, weights},
+    theme::{Tone, colors, ink, leading, line_height, px, radius, text, weights},
     values::Product,
 };
 
@@ -968,6 +968,9 @@ impl ModsPage {
                                 div()
                                     .truncate()
                                     .text_size(text::H1)
+                                    // its own line height: the page's, for body text,
+                                    // is shorter than these letters, and cut them off
+                                    .line_height(line_height(text::H1, leading::TIGHT))
                                     .font_weight(weights::BOLD.face())
                                     .text_color(ink::text())
                                     .child(project.title.clone()),

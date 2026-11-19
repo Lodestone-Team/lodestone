@@ -16,8 +16,8 @@
 //!   publishes no SHA-512, it is downloaded here once to work its SHA-512 out (checked
 //!   by its SHA-1) and thrown away: the core downloads it again, and checks both;
 //! - a file whose author keeps it on CurseForge's website, and that Modrinth doesn't
-//!   have, is left out and listed ([`ServerPack::by_hand`]) for the user to download
-//!   and upload to the server once it is made;
+//!   have, is left out and listed ([`ServerPack::by_hand`]) for the user to download;
+//!   the Host uploads it to the server once it is made and the download has arrived;
 //! - the pack's overrides are copied as they are, and the index says which CurseForge
 //!   file the pack was made from (`lodestone.curseforge`), which the core keeps with
 //!   the server so the Host can look for a newer one ([`newer_file`]).
@@ -35,7 +35,7 @@ use lodestone_minecraft::mrpack::{
 use serde_json::json;
 
 use super::{
-    curseforge::{ServerCfError, file_label},
+    curseforge::{PlannedFile, ServerCfError, file_label},
     models::CurseForgeOrigin,
 };
 use crate::{
@@ -57,15 +57,6 @@ use crate::{
 const HASHED_AT_ONCE: usize = 4;
 /// Modrinth's CDN, where a file both platforms have is listed from.
 const MODRINTH_CDN: &str = "cdn.modrinth.com";
-
-/// A file the user has to download from curseforge.com and upload to the server.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ByHand {
-    pub title: String,
-    pub file_name: String,
-    /// Where it is downloaded.
-    pub page_url: String,
-}
 
 /// What [`build`] is doing, for the window that waits for it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -89,7 +80,9 @@ pub struct ServerPack {
     pub path: PathBuf,
     /// The name to upload it under.
     pub file_name: String,
-    pub by_hand: Vec<ByHand>,
+    /// The files only CurseForge's website has: the user downloads them, and
+    /// [`super::curseforge::install_downloaded`] uploads each to the server once made.
+    pub by_hand: Vec<PlannedFile>,
     /// What was left out, and why (the core says what else it skips).
     pub skipped: Vec<SkippedPath>,
 }
@@ -295,7 +288,7 @@ pub async fn build(
 
     let mut listed: Vec<Listed> = Vec::new();
     let mut to_hash: Vec<Wanted> = Vec::new();
-    let mut by_hand: Vec<ByHand> = Vec::new();
+    let mut by_hand: Vec<PlannedFile> = Vec::new();
     for want in wanted {
         let version = on_modrinth.get(&want.sha1);
         if version
@@ -329,21 +322,13 @@ pub async fn build(
         } else if want.file.downloadable() {
             to_hash.push(want);
         } else if want.required {
-            let page = want
-                .project
-                .as_ref()
-                .map(|p| p.page_url())
-                .unwrap_or_else(|| {
-                    format!("https://www.curseforge.com/projects/{}", want.file.mod_id)
-                });
-            by_hand.push(ByHand {
-                title: want
-                    .project
-                    .as_ref()
-                    .map(|p| p.name.clone())
-                    .unwrap_or_else(|| file_label(&want.file)),
-                file_name: want.file.file_name.clone(),
-                page_url: want.file.page_url(&page),
+            by_hand.push(PlannedFile {
+                file: want.file,
+                project: want.project,
+                depth: 0,
+                replaces: Vec::new(),
+                installed: false,
+                on_modrinth: None,
             });
         } else {
             skipped.push(skip(
@@ -462,7 +447,7 @@ pub async fn build_and_upload(
     file: &CfFile,
     progress: &(dyn Fn(PackStep) + Send + Sync),
     cancel: &CancelToken,
-) -> Result<(super::mods::ModpackInfo, Vec<ByHand>), ServerCfError> {
+) -> Result<(super::mods::ModpackInfo, Vec<PlannedFile>), ServerCfError> {
     let staging =
         super::curseforge::staging_dir().map_err(|err| ServerCfError::Download(err.to_string()))?;
     let result = async {

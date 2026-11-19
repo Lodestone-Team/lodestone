@@ -298,9 +298,8 @@ impl ModsPage {
                                 cx,
                             );
                         } else if let Some(upload_id) = info.upload_id {
-                            if let Some(toast) = super::curseforge::pack_by_hand_toast(&by_hand) {
-                                this.toast(toast, cx);
-                            }
+                            // kept for when the update has run
+                            this.curseforge_pack_by_hand = by_hand;
                             this.plan_modpack(ModpackSource::Upload { upload_id }, cx);
                         }
                     }
@@ -502,6 +501,13 @@ impl ModsPage {
                         lines.extend(done.skipped);
                         this.modpack_check = ModpackCheck::Idle;
                         this.curseforge_pack_update = None;
+                        // the new version's files that only CurseForge's website has
+                        let by_hand = std::mem::take(&mut this.curseforge_pack_by_hand);
+                        if !restore && !by_hand.is_empty() {
+                            let uuid = this.uuid.clone();
+                            this.state
+                                .update(cx, |state, cx| state.add_by_hand(&uuid, by_hand, cx));
+                        }
                         if restore {
                             Toast::success(lines.join("\n"))
                                 .object(ObjectChip::new(pack).icon(Icon::CodeCompare))

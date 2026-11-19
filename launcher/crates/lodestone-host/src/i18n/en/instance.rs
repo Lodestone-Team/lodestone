@@ -139,6 +139,26 @@ crate::i18n::messages! {
         ModsUpdateTo = "Update to {version}",
         ModsViewOnModrinth = "View on Modrinth",
         ModsViewOnCurseForge = "View on CurseForge",
+        /// The card for files only CurseForge's website has: the Host watches the Downloads folder for them.
+        ModsByHandTitle = "Download these from CurseForge",
+        /// {folder} is the folder watched for the downloads.
+        ModsByHandLead = "Their authors don’t let other apps download them. Download each one in your browser; Lodestone adds it to the server as soon as it appears in {folder}.",
+        ModsByHandNoFolder = "Their authors don’t let other apps download them. Download each one in your browser, then choose the folder it was saved to.",
+        ModsByHandOpen = "Open download page",
+        /// Opens the first page; each next one opens when a file arrives.
+        ModsByHandOpenAll = "Open the pages one by one",
+        /// Under the list, once the pages are being opened one by one.
+        ModsByHandOneByOne = "The next page opens when the file before it has arrived.",
+        ModsByHandAdded = "Added",
+        /// {file} is the file name to download.
+        ModsByHandWaiting = "Waiting for {file}",
+        ModsByHandChangeFolder = "Watch another folder…",
+        ModsByHandSkip = "Skip the rest",
+        /// The folder dialog's button.
+        ModsByHandFolderPrompt = "Watch this folder",
+        ModsByHandFailed = "Couldn’t add {name}: {error}",
+        /// The toast when a file the user downloaded was found and put on the server.
+        ModsByHandAddedToast = "Added from your downloads",
         /// Why a mod from CurseForge shows as unknown: CurseForge has no such field.
         ModsUnknownCurseForge = "CurseForge doesn’t say whether players need it. Check the mod’s page, and tick For players if they do.",
         /// The empty Installed view, in a copy of the Host that also searches CurseForge.
@@ -240,10 +260,6 @@ crate::i18n::messages! {
         ModsNotFor = "Not for this server",
         ModsInstalledVersion = "Installed",
         ModsInstallFailed = "Couldn’t install it: {error}",
-        /// Files whose authors don't let other apps download them; their names follow, one a line.
-        ModsCurseForgeByHand = "Only CurseForge’s website has these files. Download them there, then upload them here.",
-        /// The button that opens those files' pages.
-        ModsOpenCurseForge = "Open CurseForge",
         ModsCurseForgeFailed = "Couldn’t ask CurseForge about the installed files: {error}",
         ModsCurseForgeUnavailable = "CurseForge isn’t available in this copy of Lodestone Host.",
         ModsIncompatibleTitle = "Install a version made for something else?",

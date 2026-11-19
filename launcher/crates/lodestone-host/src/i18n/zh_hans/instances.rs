@@ -143,9 +143,8 @@ pub fn text(message: M) -> &'static str {
         }
         M::ModpackCurseForgeUploading => "正在将整合包发送到 Lodestone Core…",
         M::ModpackCurseForgeByHand => {
-            "这些文件只能从 CurseForge 网站下载，因此创建的服务器不包含它们。请在那里下载后，在服务器的“模组”标签页中上传。"
+            "这些文件只能从 CurseForge 网站下载，因此创建的服务器不包含它们。之后服务器的“模组”标签页会请你下载它们，并在每个文件到达时自动添加。"
         }
-        M::ModpackOpenCurseForge => "打开 CurseForge",
         M::ModpackUploadFailed => "上传整合包失败：{error}",
         M::ModpackUploading => "正在上传 {name}…",
         M::SortLabel => "排序方式",

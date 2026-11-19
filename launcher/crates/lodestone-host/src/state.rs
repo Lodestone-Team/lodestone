@@ -153,6 +153,9 @@ pub struct HostState {
     /// The instances whose mods "Update all" is updating. The batch outlives the Mods
     /// tab (switching tabs rebuilds it), so this is kept here, where a new tab sees it.
     mod_updates: std::collections::HashSet<String>,
+    /// The files only CurseForge's website has that servers wait for, and the watch on
+    /// the folder the user's browser saves them to (see [`crate::by_hand`]).
+    pub(crate) by_hand: crate::by_hand::ByHand,
     /// Made-up servers kept in the list across reloads, for the development
     /// screenshots' `--fake-instance` (a page that reloads the list keeps its server).
     #[cfg(feature = "screenshot")]
@@ -181,6 +184,7 @@ impl HostState {
             friends: None,
             own_file_toasts: OwnFileToasts::default(),
             mod_updates: Default::default(),
+            by_hand: Default::default(),
             #[cfg(feature = "screenshot")]
             fake_instances: Vec::new(),
             _tasks: Vec::new(),

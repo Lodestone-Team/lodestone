@@ -270,7 +270,8 @@ pub fn text(message: M) -> &'static str {
             "Leurs auteurs ne permettent pas aux lanceurs de les télécharger. Téléchargez-les dans votre navigateur, puis choisissez le dossier où ils ont été enregistrés."
         }
         M::BlockedOpen => "Ouvrir la page de téléchargement",
-        M::BlockedOpenAll => "Ouvrir toutes les pages",
+        M::BlockedOpenAll => "Ouvrir les pages une à une",
+        M::BlockedOneByOne => "La page suivante s’ouvre quand le fichier précédent est arrivé.",
         M::BlockedAdded => "Ajouté",
         M::BlockedWaiting => "En attente de {file}",
         M::BlockedChangeFolder => "Surveiller un autre dossier…",

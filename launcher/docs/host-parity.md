@@ -678,7 +678,8 @@ Conventions in the code that every area relies on:
   Only mods go in (no resource or shader packs, no mods marked for players only); a
   file Modrinth also has is listed from Modrinth's CDN, any other from CurseForge's CDN
   with a SHA-512 the Host works out by downloading it once; a file only CurseForge's
-  website has is left out and named, for the owner to upload in the Mods tab. The
+  website has is left out and named, and once the server is made its Mods tab asks for
+  it and adds it from the Downloads folder (§6.2). The
   pack's index says which CurseForge file it was made from (`lodestone.curseforge`),
   which the core keeps in the instance's `modpack.curseforge`.
 
@@ -970,8 +971,12 @@ Conventions in the code that every area relies on:
   followers or sides, which CurseForge doesn't have. Install downloads the file (and its
   required dependencies, by the Launcher's rules) on the Host, checks its SHA-1, and
   uploads it (`POST /instance/{uuid}/mods/upload`), then deletes the older files of the
-  same projects; a file its author keeps on CurseForge's website is named in a toast
-  with a button to its page. The Installed list asks CurseForge which jars are its
+  same projects. A file its author keeps on CurseForge's website is never fetched from
+  CurseForge: if Modrinth has the very same file the core installs it from there, else
+  it goes to the Host's watch on the Downloads folder (`by_hand.rs`), with a card on the
+  Mods tab that lists such files, opens their download pages (one by one, the next when
+  a file has arrived), and says "Added" once the Host found a download, checked it
+  against CurseForge's hash and uploaded it. The Installed list asks CurseForge which jars are its
   files by the `curseforge_fingerprint` the core reports for each (one request), and
   "Check for updates" asks for each such project's newer file; jars Modrinth knows keep
   Modrinth's name and updates. The modpack panel of a server made from a CurseForge

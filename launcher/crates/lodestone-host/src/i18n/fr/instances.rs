@@ -171,9 +171,8 @@ pub fn text(message: M) -> &'static str {
         }
         M::ModpackCurseForgeUploading => "Envoi du modpack à Lodestone Core…",
         M::ModpackCurseForgeByHand => {
-            "Ces fichiers ne sont disponibles que sur le site de CurseForge : le serveur est créé sans eux. Téléchargez-les là-bas, puis importez-les dans l’onglet Mods du serveur."
+            "Ces fichiers ne sont disponibles que sur le site de CurseForge : le serveur est créé sans eux. Son onglet Mods vous demande ensuite de les télécharger, et ajoute chacun dès qu’il arrive."
         }
-        M::ModpackOpenCurseForge => "Ouvrir CurseForge",
         M::ModpackUploadFailed => "Impossible d’importer le modpack : {error}",
         M::ModpackUploading => "Envoi de {name}…",
         M::SortLabel => "Trier par",

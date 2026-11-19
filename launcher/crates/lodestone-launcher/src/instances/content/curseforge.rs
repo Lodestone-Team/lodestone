@@ -91,6 +91,10 @@ pub struct BlockedDownloads {
     pub added: Vec<bool>,
     pub folder: Option<PathBuf>,
     pub error: Option<SharedString>,
+    /// "Open the pages one by one" was pressed: the next waiting file's page opens
+    /// each time a file arrives, so the user isn't left with a row of tabs to work
+    /// through (a download page starts its download itself).
+    pub one_by_one: bool,
     _watch: Option<Task<()>>,
 }
 
@@ -654,6 +658,7 @@ impl ContentView {
             added: vec![false; count],
             folder: curseforge_install::downloads_folder(),
             error: None,
+            one_by_one: false,
             _watch: None,
         });
         self.watch_blocked(cx);
@@ -754,6 +759,17 @@ impl ContentView {
             }
         }
         let done = blocked.added.iter().all(|added| *added);
+        // a file arrived: the next one's page, when they are opened one by one
+        if blocked.one_by_one
+            && !kinds.is_empty()
+            && let Some(next) = blocked
+                .files
+                .iter()
+                .zip(&blocked.added)
+                .find(|(_, added)| !**added)
+        {
+            cx.open_url(&next.0.file_page());
+        }
         let names: Vec<String> = blocked.files.iter().map(|f| f.title()).collect();
         if done {
             self.blocked = None;
@@ -778,13 +794,20 @@ impl ContentView {
         }
     }
 
+    /// "Open the pages one by one": the first waiting file's page now, and the next
+    /// each time a file arrives ([`Self::blocked_found`]).
     pub fn open_all_blocked_pages(&mut self, cx: &mut Context<Self>) {
-        if let Some(blocked) = &self.blocked {
-            for (file, added) in blocked.files.iter().zip(&blocked.added) {
-                if !added {
-                    cx.open_url(&file.file_page());
-                }
+        if let Some(blocked) = &mut self.blocked {
+            blocked.one_by_one = true;
+            if let Some((file, _)) = blocked
+                .files
+                .iter()
+                .zip(&blocked.added)
+                .find(|(_, added)| !**added)
+            {
+                cx.open_url(&file.file_page());
             }
+            cx.notify();
         }
     }
 
@@ -869,6 +892,7 @@ impl ContentView {
         }
         let waiting = blocked.added.iter().filter(|a| !**a).count();
         let error = blocked.error.clone();
+        let one_by_one = blocked.one_by_one && waiting > 0;
         Some(
             super::view::card()
                 .flex()
@@ -886,6 +910,9 @@ impl ContentView {
                 .child(rows)
                 .when_some(error, |this, error| {
                     this.child(small(error).text_color(colors::RED_200))
+                })
+                .when(one_by_one, |this| {
+                    this.child(small(t(M::BlockedOneByOne)).text_color(crate::theme::ink::faint()))
                 })
                 .child(
                     div()
@@ -1701,6 +1728,7 @@ pub(super) mod tests {
             added: vec![false, true, false],
             folder: None,
             error: None,
+            one_by_one: false,
             _watch: None,
         };
         let ids: Vec<u64> = blocked.unfinished().iter().map(|f| f.file.id).collect();

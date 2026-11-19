@@ -3,63 +3,36 @@
 //! installed jars are its files (by the fingerprints the core reports), which have a
 //! newer file, and, to install one, it downloads the file here and uploads it to the
 //! core as a jar. A build without Lodestone's key shows none of this.
+//!
+//! A file its author keeps on CurseForge's website goes to the Host's watch on the
+//! Downloads folder (`crate::by_hand`); the card that lists such files is drawn here.
 
 use std::collections::HashSet;
 
-use gpui::{AppContext as _, Context};
+use gpui::{
+    AnyElement, AppContext as _, Context, IntoElement, ParentElement, PathPromptOptions,
+    SharedString, Styled, div, prelude::*,
+};
 use launcher_core::{
     content::{
         CurseForgeError,
         curseforge::{CfFile, CfMod},
     },
     cores::admin::{
-        curseforge::{self as server, CfInstalled, PlannedFile},
-        curseforge_pack::ByHand,
+        curseforge::{self as server, CfInstalled},
         mods::InstalledMod,
     },
 };
-use lodestone_ui::components::{Kind, ObjectChip, Toast};
+use lodestone_ui::{
+    components::{
+        Button, ButtonSize, ButtonVariant, Icon, Kind, ObjectChip, PathText, StatusBadge, Toast,
+        readable::object_name, settings::card,
+    },
+    theme::{Tone, colors, ink, px, radius, text, weights},
+};
 
 use super::ModsPage;
 use crate::i18n::{InstanceMsg as M, t, tr};
-
-/// How long the note about files to download by hand stays: there is a page to open
-/// and a file to fetch before it can go.
-const BY_HAND_SECONDS: u64 = 30;
-
-/// The toast for files whose authors keep them on CurseForge's website: their names,
-/// and a button that opens their pages. The user downloads them there and uploads them.
-pub(super) fn by_hand_toast(blocked: &[PlannedFile]) -> Option<Toast> {
-    by_hand(
-        blocked.iter().map(|file| file.title()).collect(),
-        blocked.iter().map(|file| file.file_page()).collect(),
-    )
-}
-
-/// The same, for the files a CurseForge modpack's update leaves out.
-pub(super) fn pack_by_hand_toast(files: &[ByHand]) -> Option<Toast> {
-    by_hand(
-        files.iter().map(|file| file.title.clone()).collect(),
-        files.iter().map(|file| file.page_url.clone()).collect(),
-    )
-}
-
-fn by_hand(names: Vec<String>, pages: Vec<String>) -> Option<Toast> {
-    if names.is_empty() {
-        return None;
-    }
-    let mut lines = vec![t(M::ModsCurseForgeByHand).to_string()];
-    lines.extend(names);
-    Some(
-        Toast::warning(lines.join("\n"))
-            .duration(std::time::Duration::from_secs(BY_HAND_SECONDS))
-            .action(t(M::ModsOpenCurseForge), move |_, cx| {
-                for page in &pages {
-                    cx.open_url(page);
-                }
-            }),
-    )
-}
 
 impl ModsPage {
     /// The CurseForge file an installed jar is, where Modrinth doesn't know the jar:
@@ -167,11 +140,14 @@ impl ModsPage {
         let (mods, known) = (list.mods.clone(), self.curseforge.clone());
         let admin = self.state.read(cx).admin.clone();
         let uuid = self.uuid.clone();
+        // a file the website keeps to itself may be on Modrinth all the same
+        let modrinth = crate::curseforge::modrinth(cx);
         let task = cx.spawn(async move |this, cx| {
             let result = cx
                 .background_spawn(launcher_core::http::in_http_runtime(async move {
                     server::install_file(
                         &curseforge,
+                        modrinth.as_deref(),
                         &downloader,
                         &admin,
                         &uuid,
@@ -210,8 +186,13 @@ impl ModsPage {
                                 cx,
                             );
                         }
-                        if let Some(toast) = by_hand_toast(&outcome.blocked) {
-                            this.toast(toast, cx);
+                        // what only CurseForge's website has: watched for in the
+                        // Downloads folder, and listed on the tab
+                        if !outcome.blocked.is_empty() {
+                            let uuid = this.uuid.clone();
+                            this.state.update(cx, |state, cx| {
+                                state.add_by_hand(&uuid, outcome.blocked, cx)
+                            });
                         }
                     }
                     Err(err) => {
@@ -231,5 +212,208 @@ impl ModsPage {
             .ok();
         });
         self.push(task);
+    }
+}
+
+impl ModsPage {
+    /// "Watch another folder…": a folder dialog for where the browser saves downloads.
+    fn choose_by_hand_folder(&mut self, cx: &mut Context<Self>) {
+        let picked = cx.prompt_for_paths(PathPromptOptions {
+            files: false,
+            directories: true,
+            multiple: false,
+            prompt: Some(t(M::ModsByHandFolderPrompt).into()),
+        });
+        let task = cx.spawn(async move |this, cx| {
+            let Ok(Ok(Some(mut paths))) = picked.await else {
+                return;
+            };
+            let Some(folder) = paths.pop() else {
+                return;
+            };
+            this.update(cx, |this, cx| {
+                this.state
+                    .update(cx, |state, cx| state.set_by_hand_folder(folder, cx));
+            })
+            .ok();
+        });
+        self.push(task);
+    }
+
+    /// The card for the files the server waits for from CurseForge's website: each
+    /// with its download page, and "Added" once the Host found it in the Downloads
+    /// folder and put it on the server.
+    pub(super) fn render_by_hand(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let (files, added, error, one_by_one, folder) = {
+            let state = self.state.read(cx);
+            let waiting = state.by_hand(&self.uuid)?;
+            (
+                waiting.files.clone(),
+                waiting.added.clone(),
+                waiting.error.clone(),
+                waiting.one_by_one,
+                state.by_hand_folder().map(|f| f.display().to_string()),
+            )
+        };
+        let left = added.iter().filter(|added| !**added).count();
+        let rows: Vec<AnyElement> = files
+            .iter()
+            .zip(&added)
+            .enumerate()
+            .map(|(index, (file, added))| {
+                let id = |part: &str| SharedString::from(format!("by-hand-{index}-{part}"));
+                let status: AnyElement = if *added {
+                    StatusBadge::new(t(M::ModsByHandAdded), Tone::Success).into_any_element()
+                } else {
+                    let uuid = self.uuid.clone();
+                    Button::new(id("open"), t(M::ModsByHandOpen))
+                        .variant(ButtonVariant::Primary)
+                        .size(ButtonSize::Slim)
+                        .icon(Icon::ArrowUpRightFromSquare)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.state
+                                .update(cx, |state, cx| state.open_by_hand_page(&uuid, index, cx));
+                        }))
+                        .into_any_element()
+                };
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(px(12.))
+                    .px(px(16.))
+                    .py(px(8.))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .flex_1()
+                            .min_w_0()
+                            .child(object_name(file.title()))
+                            .child(
+                                div()
+                                    .text_size(text::SMALL)
+                                    .text_color(ink::muted())
+                                    .truncate()
+                                    .child(if *added {
+                                        file.file.file_name.clone()
+                                    } else {
+                                        tr!(M::ModsByHandWaiting, file = file.file.file_name)
+                                    }),
+                            ),
+                    )
+                    .child(status)
+                    .into_any_element()
+            })
+            .collect();
+        let lead: AnyElement = match folder {
+            Some(folder) => {
+                // the sentence, then the folder as the path it is
+                let (before, after) = {
+                    let sentence = tr!(M::ModsByHandLead, folder = "\u{1}");
+                    match sentence.split_once('\u{1}') {
+                        Some((before, after)) => (before.to_string(), after.to_string()),
+                        None => (sentence, String::new()),
+                    }
+                };
+                div()
+                    .flex()
+                    .flex_row()
+                    .flex_wrap()
+                    .items_baseline()
+                    .gap_x(px(4.))
+                    .child(before.trim_end().to_string())
+                    // the folder with what follows it, so no space comes before a full stop
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_baseline()
+                            .child(PathText::file(folder))
+                            .child(after.trim_start().to_string()),
+                    )
+                    .into_any_element()
+            }
+            None => div().child(t(M::ModsByHandNoFolder)).into_any_element(),
+        };
+        let uuid = self.uuid.clone();
+        let skip = self.uuid.clone();
+        Some(
+            div()
+                .id("mods-by-hand")
+                .flex()
+                .flex_col()
+                .gap(px(12.))
+                .p(px(16.))
+                .rounded(radius::XL)
+                .border_1()
+                .border_color(colors::YELLOW.opacity(40))
+                .bg(colors::GRAY_850)
+                .child(
+                    div()
+                        .text_size(text::H3)
+                        .font_weight(weights::BOLD.face())
+                        .text_color(ink::text())
+                        .child(t(M::ModsByHandTitle)),
+                )
+                .child(
+                    div()
+                        .text_size(text::SMALL)
+                        .text_color(ink::secondary())
+                        .child(lead),
+                )
+                .child(card(rows))
+                .when_some(error, |this, error| {
+                    this.child(
+                        div()
+                            .text_size(text::SMALL)
+                            .text_color(colors::RED_200)
+                            .child(error),
+                    )
+                })
+                .when(one_by_one && left > 0, |this| {
+                    this.child(
+                        div()
+                            .text_size(text::SMALL)
+                            .text_color(ink::muted())
+                            .child(t(M::ModsByHandOneByOne)),
+                    )
+                })
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .flex_wrap()
+                        .gap(px(8.))
+                        .when(left > 1, |this| {
+                            this.child(
+                                Button::new("by-hand-open-all", t(M::ModsByHandOpenAll))
+                                    .size(ButtonSize::Slim)
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.state.update(cx, |state, cx| {
+                                            state.open_by_hand_pages(&uuid, cx)
+                                        });
+                                    })),
+                            )
+                        })
+                        .child(
+                            Button::new("by-hand-folder", t(M::ModsByHandChangeFolder))
+                                .size(ButtonSize::Slim)
+                                .on_click(
+                                    cx.listener(|this, _, _, cx| this.choose_by_hand_folder(cx)),
+                                ),
+                        )
+                        .child(
+                            Button::new("by-hand-skip", t(M::ModsByHandSkip))
+                                .variant(ButtonVariant::Ghost)
+                                .size(ButtonSize::Slim)
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.state
+                                        .update(cx, |state, cx| state.dismiss_by_hand(&skip, cx));
+                                })),
+                        ),
+                )
+                .into_any_element(),
+        )
     }
 }

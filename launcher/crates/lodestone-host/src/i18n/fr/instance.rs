@@ -147,6 +147,23 @@ pub fn text(message: M) -> &'static str {
         M::ModsUpdateTo => "Passer à {version}",
         M::ModsViewOnModrinth => "Voir sur Modrinth",
         M::ModsViewOnCurseForge => "Voir sur CurseForge",
+        M::ModsByHandTitle => "À télécharger depuis CurseForge",
+        M::ModsByHandLead => {
+            "Leurs auteurs ne permettent pas aux autres applications de les télécharger. Téléchargez-les dans votre navigateur : Lodestone les ajoute au serveur dès qu’ils apparaissent dans {folder}."
+        }
+        M::ModsByHandNoFolder => {
+            "Leurs auteurs ne permettent pas aux autres applications de les télécharger. Téléchargez-les dans votre navigateur, puis choisissez le dossier où ils ont été enregistrés."
+        }
+        M::ModsByHandOpen => "Ouvrir la page de téléchargement",
+        M::ModsByHandOpenAll => "Ouvrir les pages une à une",
+        M::ModsByHandOneByOne => "La page suivante s’ouvre quand le fichier précédent est arrivé.",
+        M::ModsByHandAdded => "Ajouté",
+        M::ModsByHandWaiting => "En attente de {file}",
+        M::ModsByHandChangeFolder => "Surveiller un autre dossier…",
+        M::ModsByHandSkip => "Ignorer le reste",
+        M::ModsByHandFolderPrompt => "Surveiller ce dossier",
+        M::ModsByHandFailed => "Impossible d’ajouter {name} : {error}",
+        M::ModsByHandAddedToast => "Ajouté depuis vos téléchargements",
         M::ModsUnknownCurseForge => {
             "CurseForge n’indique pas si les joueurs en ont besoin. Consultez la page du mod, et cochez Pour les joueurs si c’est le cas."
         }
@@ -262,10 +279,6 @@ pub fn text(message: M) -> &'static str {
         M::ModsNotFor => "Pas pour ce serveur",
         M::ModsInstalledVersion => "Installé",
         M::ModsInstallFailed => "Impossible de l’installer : {error}",
-        M::ModsCurseForgeByHand => {
-            "Ces fichiers ne sont disponibles que sur le site de CurseForge. Téléchargez-les là-bas, puis importez-les ici."
-        }
-        M::ModsOpenCurseForge => "Ouvrir CurseForge",
         M::ModsCurseForgeFailed => {
             "Impossible d’interroger CurseForge sur les fichiers installés : {error}"
         }

@@ -4687,7 +4687,9 @@ Host asks CurseForge itself (`launcher_core::cores::admin::curseforge`,
 `curseforge_pack`) and hands the core plain files and a plain pack:
 
 - **A mod or plugin from CurseForge is an uploaded jar.** The Host downloads the file
-  from CurseForge's CDN, checks its SHA-1, and uploads it
+  from CurseForge's CDN (or, for a file its author keeps on CurseForge's website, takes
+  the copy the user's browser saved to their Downloads folder), checks its SHA-1, and
+  uploads it
   (`POST /instance/{uuid}/mods/upload`, which needs the permission to write any file,
   as for every jar Modrinth doesn't know). The content image records it as it records
   any uploaded jar: a plain file, its bytes in the store, no `curseforge` source. So a

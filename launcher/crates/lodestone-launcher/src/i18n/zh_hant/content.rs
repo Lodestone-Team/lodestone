@@ -256,7 +256,8 @@ pub fn text(message: M) -> &'static str {
             "這些檔案的作者不允許啟動器下載。請在瀏覽器中逐一下載，然後選擇儲存它們的資料夾。"
         }
         M::BlockedOpen => "開啟下載頁面",
-        M::BlockedOpenAll => "開啟所有頁面",
+        M::BlockedOpenAll => "逐一開啟頁面",
+        M::BlockedOneByOne => "上一個檔案到達後，會開啟下一個頁面。",
         M::BlockedAdded => "已加入",
         M::BlockedWaiting => "正在等待 {file}",
         M::BlockedChangeFolder => "監視其他資料夾…",

@@ -146,8 +146,7 @@ crate::i18n::messages! {
         ModpackCurseForgeChecking = "Downloading the files only CurseForge has, to check them ({done} of {total})…",
         ModpackCurseForgeUploading = "Sending the modpack to Lodestone Core…",
         /// Under a CurseForge modpack's summary; the files' names follow.
-        ModpackCurseForgeByHand = "Only CurseForge’s website has these files, so the server is made without them. Download them there, then upload them in the server’s Mods tab.",
-        ModpackOpenCurseForge = "Open CurseForge",
+        ModpackCurseForgeByHand = "Only CurseForge’s website has these files, so the server is made without them. Its Mods tab then asks you to download them, and adds each one as it arrives.",
         ModpackUploadFailed = "Failed to upload the modpack: {error}",
         ModpackUploading = "Uploading {name}…",
         /// Searching Modrinth.

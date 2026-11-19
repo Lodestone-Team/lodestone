@@ -286,7 +286,9 @@ crate::i18n::messages! {
         BlockedLead = "Their authors don't let launchers download them. Download each one in your browser; Lodestone adds it as soon as it appears in {folder}.",
         BlockedNoFolder = "Their authors don't let launchers download them. Download each one in your browser, then choose the folder it was saved to.",
         BlockedOpen = "Open download page",
-        BlockedOpenAll = "Open all pages",
+        BlockedOpenAll = "Open the pages one by one",
+        /// Under the list, once the pages are being opened one by one.
+        BlockedOneByOne = "The next page opens when the file before it has arrived.",
         BlockedAdded = "Added",
         /// {file} is the file name to download.
         BlockedWaiting = "Waiting for {file}",

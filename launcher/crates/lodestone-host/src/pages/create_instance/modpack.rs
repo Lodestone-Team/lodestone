@@ -17,7 +17,7 @@ use launcher_core::{
         CoreError,
         admin::{
             curseforge as server,
-            curseforge_pack::{self, ByHand, PackStep},
+            curseforge_pack::{self, PackStep},
             instances::{CreateModpackRequest, ModpackSource},
             mods::{
                 ModpackInfo, ModrinthProject, ModrinthProjectType, ModrinthSearchHit,
@@ -115,7 +115,7 @@ pub struct ModpackFlow {
     /// Stops that pack's downloads.
     curseforge_cancel: Option<CancelToken>,
     /// The picked pack's files that only CurseForge's website has.
-    by_hand: Vec<ByHand>,
+    by_hand: Vec<server::PlannedFile>,
     /// The version being read, and which request is the latest.
     inspecting: Option<String>,
     inspect_request: u64,
@@ -769,7 +769,14 @@ impl ModpackFlow {
             this.update(cx, |this, cx| {
                 this.submitting = false;
                 match result {
-                    Ok(_) => cx.emit(ModpackEvent::Done),
+                    Ok(uuid) => {
+                        // the pack's files that only CurseForge's website has: the new
+                        // server waits for them
+                        let by_hand = std::mem::take(&mut this.by_hand);
+                        this.state
+                            .update(cx, |state, cx| state.add_by_hand(&uuid, by_hand, cx));
+                        cx.emit(ModpackEvent::Done)
+                    }
                     Err(err) => {
                         let text = tr!(M::CreateFailed, error = err);
                         this.toast(Toast::error(text).key("create-instance"), cx);
@@ -1093,7 +1100,7 @@ impl ModpackFlow {
                 )
                 .into_any_element()
         } else if let Some(info) = &self.info {
-            let by_hand = (!self.by_hand.is_empty()).then(|| self.render_by_hand(cx));
+            let by_hand = (!self.by_hand.is_empty()).then(|| self.render_by_hand());
             div()
                 .flex()
                 .flex_col()
@@ -1143,14 +1150,10 @@ impl ModpackFlow {
     }
 
     /// The picked CurseForge pack's files that only CurseForge's website has: the
-    /// server is made without them, and the owner adds them in its Mods tab.
-    fn render_by_hand(&self, cx: &mut Context<Self>) -> AnyElement {
-        let names: Vec<String> = self.by_hand.iter().map(|file| file.title.clone()).collect();
-        let pages: Vec<String> = self
-            .by_hand
-            .iter()
-            .map(|file| file.page_url.clone())
-            .collect();
+    /// server is made without them, and its Mods tab then asks for them and adds each
+    /// as the user's browser saves it (`crate::by_hand`).
+    fn render_by_hand(&self) -> AnyElement {
+        let names: Vec<String> = self.by_hand.iter().map(|file| file.title()).collect();
         div()
             .flex()
             .flex_row()
@@ -1171,15 +1174,6 @@ impl ModpackFlow {
                     .gap(px(4.))
                     .child(t(M::ModpackCurseForgeByHand))
                     .child(div().text_color(ink::text()).child(names.join(", "))),
-            )
-            .child(
-                Button::new("modpack-by-hand", t(M::ModpackOpenCurseForge))
-                    .size(ButtonSize::Slim)
-                    .on_click(cx.listener(move |_, _, _, cx| {
-                        for page in &pages {
-                            cx.open_url(page);
-                        }
-                    })),
             )
             .into_any_element()
     }

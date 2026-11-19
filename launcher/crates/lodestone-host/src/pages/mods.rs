@@ -167,6 +167,9 @@ pub struct ModsPage {
     /// The newer file of the CurseForge modpack the server was made from, which the
     /// Host found itself (`modpack_check` shows it).
     curseforge_pack_update: Option<launcher_core::content::curseforge::CfFile>,
+    /// The files of the pack update being confirmed that only CurseForge's website
+    /// has: watched for once the update has run.
+    curseforge_pack_by_hand: Vec<launcher_core::cores::admin::curseforge::PlannedFile>,
     /// Preparing or running a modpack update.
     modpack_busy: bool,
     /// The modpack's history, once fetched.
@@ -219,6 +222,7 @@ impl ModsPage {
             pack_open: false,
             modpack_check: modpack::ModpackCheck::default(),
             curseforge_pack_update: None,
+            curseforge_pack_by_hand: Vec::new(),
             modpack_busy: false,
             modpack_history: None,
             modpack_history_error: None,
@@ -649,6 +653,8 @@ impl Render for ModsPage {
                     .flex_col()
                     .gap(px(16.))
                     .children(restart)
+                    // files to fetch from CurseForge's website, on either view
+                    .children(self.render_by_hand(cx))
                     .child(tabs)
                     .child(content)
                     .into_any_element()

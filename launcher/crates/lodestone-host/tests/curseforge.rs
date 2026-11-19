@@ -220,6 +220,7 @@ fn the_real_core_takes_what_the_host_makes_of_curseforge() {
         let file = block_on(cf.file(project, file)).unwrap();
         block_on(http::in_http_runtime(server::install_file(
             &cf,
+            None,
             &downloader,
             admin,
             &uuid,
@@ -278,6 +279,46 @@ fn the_real_core_takes_what_the_host_makes_of_curseforge() {
     let list = block_on(admin.installed_mods(&uuid, false)).unwrap();
     let names: Vec<&str> = list.mods.iter().map(|m| m.file_name.as_str()).collect();
     assert_eq!(names, ["create-0.5.1.jar", "fabric-api-0.92.jar.disabled"]);
+
+    // a file its author keeps on CurseForge's website: never fetched, found in the
+    // folder the browser saved it to, and uploaded in the older file's place
+    let site_only = fabric_jar("create", "0.5.2");
+    mock.file(
+        FakeFile::new(
+            5002,
+            CREATE,
+            "create-0.5.2.jar",
+            &TAGS,
+            "2025-03-01T00:00:00Z",
+            site_only.clone(),
+        )
+        .blocked(),
+    );
+    let outcome = install(5002).expect("planned");
+    assert!(outcome.result.installed.is_empty());
+    assert_eq!(outcome.blocked.len(), 1);
+    let downloads = tempfile::tempdir().unwrap();
+    assert!(server::find_downloaded(downloads.path(), &outcome.blocked).is_empty());
+    let saved = downloads.path().join("create-0.5.2 (1).jar");
+    std::fs::write(&saved, &site_only).unwrap();
+    let found = server::find_downloaded(downloads.path(), &outcome.blocked);
+    assert_eq!(found, [(0, saved.clone())]);
+    let list = block_on(admin.installed_mods(&uuid, false)).unwrap();
+    let known = block_on(server::identify(&cf, &list.mods)).unwrap();
+    let result = block_on(server::install_downloaded(
+        admin,
+        &uuid,
+        &list.mods,
+        &known,
+        &outcome.blocked[0],
+        &saved,
+    ))
+    .expect("uploaded");
+    assert_eq!(result.removed, ["create-0.5.1.jar"]);
+    let list = block_on(admin.installed_mods(&uuid, false)).unwrap();
+    let names: Vec<&str> = list.mods.iter().map(|m| m.file_name.as_str()).collect();
+    assert_eq!(names, ["create-0.5.2.jar", "fabric-api-0.92.jar.disabled"]);
+    assert!(saved.is_file(), "the download stays where it is");
 
     // a CurseForge modpack, made a pack here: the core reads it, CurseForge's hosts
     // and all, and keeps which CurseForge file it came from
@@ -406,7 +447,7 @@ fn curseforge_itself_through_the_real_core() {
         info.loader_version,
         info.server_file_count,
         info.server_download_size,
-        by_hand.iter().map(|f| &f.title).collect::<Vec<_>>()
+        by_hand.iter().map(|f| f.title()).collect::<Vec<_>>()
     );
     assert_eq!(info.unsupported_reason, None);
     let uuid = block_on(admin.create_modpack_instance(&CreateModpackRequest {
@@ -539,6 +580,7 @@ fn curseforge_itself_through_the_real_core() {
     let before = list.mods.len();
     let outcome = block_on(http::in_http_runtime(server::install_file(
         &cf,
+        modrinth.as_ref(),
         &downloader,
         admin,
         &uuid,
