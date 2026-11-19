@@ -88,13 +88,29 @@ pub fn downloader(cx: &App) -> Option<Downloader> {
     ))
 }
 
-/// Opens a CurseForge page (a file's download page) in the browser. Not with the local
-/// stand-in for CurseForge's API (`LODESTONE_CURSEFORGE_API_URL`, for tests and
-/// screenshots): its projects have no pages on curseforge.com.
-pub fn open_page(url: &str, cx: &mut App) {
-    if std::env::var_os("LODESTONE_CURSEFORGE_API_URL").is_some() {
-        log::info!("not opening {url}: CurseForge's API is a stand-in");
-        return;
+/// What background work calls to open the CurseForge page `url` (a file's download
+/// page) in the browser, the first call only, with the task on the app's thread that
+/// opens it. Never with the local stand-in for CurseForge's API
+/// (`LODESTONE_CURSEFORGE_API_URL`, for tests and screenshots): its projects have no
+/// pages on curseforge.com.
+pub fn page_opener<T: 'static>(
+    url: String,
+    cx: &mut gpui::Context<T>,
+) -> impl Fn() + Send + Sync + 'static {
+    let (asked, mut asks) = futures::channel::mpsc::unbounded::<()>();
+    cx.spawn(async move |_, cx| {
+        use futures::StreamExt as _;
+        if asks.next().await.is_none() {
+            return;
+        }
+        if std::env::var_os("LODESTONE_CURSEFORGE_API_URL").is_some() {
+            log::info!("not opening {url}: CurseForge's API is a stand-in");
+            return;
+        }
+        cx.update(|cx| cx.open_url(&url));
+    })
+    .detach();
+    move || {
+        asked.unbounded_send(()).ok();
     }
-    cx.open_url(url);
 }

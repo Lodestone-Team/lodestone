@@ -273,7 +273,7 @@ impl ModsPage {
         let cancel = launcher_core::game::download::CancelToken::new();
         // a version its author keeps on CurseForge's website: its page, where the
         // download starts, and the update waits for it in the Downloads folder
-        if !file.downloadable() {
+        let open_page = if !file.downloadable() {
             let page = origin
                 .page_url
                 .clone()
@@ -281,9 +281,11 @@ impl ModsPage {
                 .unwrap_or_else(|| {
                     format!("https://www.curseforge.com/projects/{}", origin.project)
                 });
-            crate::curseforge::open_page(&file.page_url(&page), cx);
             self.curseforge_pack_waiting = Some(cancel.clone());
-        }
+            Some(crate::curseforge::page_opener(file.page_url(&page), cx))
+        } else {
+            None
+        };
         self.modpack_busy = true;
         // an earlier pack's files are not this update's
         self.curseforge_pack_by_hand = None;
@@ -293,6 +295,7 @@ impl ModsPage {
             let uploaded = cx
                 .background_spawn(launcher_core::http::in_http_runtime(async move {
                     let project = curseforge.project(origin.project).await?;
+                    let open = || open_page.iter().for_each(|open| open());
                     curseforge_pack::build_and_upload(
                         &curseforge,
                         modrinth.as_deref(),
@@ -300,7 +303,12 @@ impl ModsPage {
                         &admin,
                         &project,
                         &file,
-                        downloads.as_deref(),
+                        downloads
+                            .as_deref()
+                            .map(|folder| curseforge_pack::WebsiteDownload {
+                                folder,
+                                open_page: &open,
+                            }),
                         &|_| {},
                         &cancel,
                     )

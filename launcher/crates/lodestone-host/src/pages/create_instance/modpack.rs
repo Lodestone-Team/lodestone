@@ -469,9 +469,8 @@ impl ModpackFlow {
         // a pack its author keeps on CurseForge's website: its page, where the download
         // starts, and the pack is read once it's in the Downloads folder
         let website = !file.downloadable();
-        if website {
-            crate::curseforge::open_page(&file.page_url(&project.page_url()), cx);
-        }
+        // opened only once its zip isn't found in the Downloads folder
+        let open_page = crate::curseforge::page_opener(file.page_url(&project.page_url()), cx);
         let downloads = self.state.read(cx).pack_downloads_folder();
         self.curseforge_step = Some(if website {
             PackStep::WaitingForDownload
@@ -505,7 +504,12 @@ impl ModpackFlow {
                         &admin,
                         &project,
                         &file,
-                        downloads.as_deref(),
+                        downloads
+                            .as_deref()
+                            .map(|folder| curseforge_pack::WebsiteDownload {
+                                folder,
+                                open_page: &open_page,
+                            }),
                         &move |step| {
                             steps.unbounded_send(step).ok();
                         },

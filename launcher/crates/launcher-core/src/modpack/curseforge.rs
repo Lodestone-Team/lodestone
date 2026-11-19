@@ -72,7 +72,8 @@ pub const WAIT_EVERY: std::time::Duration = std::time::Duration::from_secs(2);
 /// The modpack `file`, whose author keeps it on CurseForge's website, once the user has
 /// downloaded it there into `folder`: copied into `dir` as [`download`] puts it (the
 /// download stays where it is) and checked by its SHA-1, or its fingerprint when
-/// CurseForge gave none. The caller has opened the file's page
+/// CurseForge gave none. When the first look doesn't find it there (the user may have
+/// downloaded it before), `open_page` is called once: the caller opens the file's page
 /// ([`curseforge::CfFile::page_url`]), which starts the download. Looks every
 /// [`WAIT_EVERY`] until the file is there or `cancel` is set: a file still downloading,
 /// or another with a like name, doesn't match and is looked at again.
@@ -81,6 +82,7 @@ pub async fn wait_for_download(
     file: &curseforge::CfFile,
     folder: &Path,
     dir: &Path,
+    open_page: &(dyn Fn() + Send + Sync),
     cancel: &crate::game::download::CancelToken,
 ) -> Result<PathBuf, ModpackError> {
     use crate::content::curseforge_install::{find_downloaded_files, is_curseforge_file};
@@ -90,12 +92,23 @@ pub async fn wait_for_download(
             file.file_name
         )));
     }
+    // a first instance's folder may not be there yet
+    std::fs::create_dir_all(dir).map_err(|source| ModpackError::Io {
+        path: dir.to_path_buf(),
+        source,
+    })?;
     let dest = dir.join(format!(".lodestone-pack-{}.zip", file.id));
+    let mut page_opened = false;
     loop {
         if cancel.is_cancelled() {
             return Err(ModpackError::Cancelled);
         }
-        if let Some((_, found)) = find_downloaded_files(folder, &[file]).into_iter().next() {
+        let found = find_downloaded_files(folder, &[file]).into_iter().next();
+        if found.is_none() && !page_opened {
+            open_page();
+            page_opened = true;
+        }
+        if let Some((_, found)) = found {
             // the copy is what's checked and read: the download may change meanwhile
             let copied = std::fs::copy(&found, &dest).map_err(|source| ModpackError::Io {
                 path: dest.clone(),

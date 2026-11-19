@@ -385,7 +385,10 @@ fn the_real_core_takes_what_the_host_makes_of_curseforge() {
         admin,
         &project,
         &file,
-        Some(downloads.path()),
+        Some(curseforge_pack::WebsiteDownload {
+            folder: downloads.path(),
+            open_page: &|| panic!("the zip is there: no page to open"),
+        }),
         &|_| {},
         &CancelToken::new(),
     )))

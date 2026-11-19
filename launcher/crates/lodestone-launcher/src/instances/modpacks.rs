@@ -291,6 +291,23 @@ struct Source {
     share: Option<ShareCode>,
 }
 
+/// What background work calls to open `page` in the browser (the first call only),
+/// with the task on the app's thread that opens it: a pack only CurseForge's website
+/// serves opens its page once its zip isn't found in the Downloads folder.
+fn page_opener<T: 'static>(page: String, cx: &mut Context<T>) -> impl Fn() + Send + Sync + 'static {
+    let (asked, mut asks) = futures::channel::mpsc::unbounded::<()>();
+    cx.spawn(async move |_, cx| {
+        use futures::StreamExt as _;
+        if asks.next().await.is_some() {
+            cx.update(|cx| cx.open_url(&page));
+        }
+    })
+    .detach();
+    move || {
+        asked.unbounded_send(()).ok();
+    }
+}
+
 /// What a share code installed, counted, and what it couldn't install, listed.
 fn share_report(report: Report, outcome: &ShareOutcome) -> Report {
     report
@@ -439,11 +456,6 @@ impl Instances {
     ) {
         let record = curseforge_record(&project, &file);
         let title = name.clone().unwrap_or_else(|| project.name.clone());
-        // a pack its author keeps on CurseForge's website: its page, where the download
-        // starts, and the import waits for it in the Downloads folder
-        if !file.downloadable() {
-            cx.open_url(&file.page_url(&project.page_url()));
-        }
         self.start_import(
             title,
             Source {
@@ -647,6 +659,13 @@ impl Instances {
         let installer = self.installer.clone();
         let downloader = self.content_downloader.clone();
         let images = self.images();
+        // a pack its author keeps on CurseForge's website: its page, where the download
+        // starts, unless the zip is in the Downloads folder already
+        let open_page = source
+            .curseforge
+            .as_ref()
+            .filter(|(_, file)| !file.downloadable())
+            .map(|(project, file)| page_opener(file.page_url(&project.page_url()), cx));
         let work = {
             let progress = progress.clone();
             let cancel = cancel.clone();
@@ -697,6 +716,7 @@ impl Instances {
                             file,
                             &folder,
                             store.root(),
+                            &|| open_page.iter().for_each(|open| open()),
                             &cancel,
                         )
                         .await?
@@ -972,6 +992,7 @@ impl Instances {
         let dirs = self.content_dirs(id);
         let installer = self.installer.clone();
         let downloader = self.content_downloader.clone();
+        let mut open_page = None;
         if wait_for_website
             && let PackVersion::CurseForge(file) = &version
             && !file.downloadable()
@@ -985,7 +1006,7 @@ impl Instances {
                     let project = current.curseforge.as_ref().map_or(0, |p| p.project_id);
                     format!("https://www.curseforge.com/projects/{project}")
                 });
-            cx.open_url(&file.page_url(&project_page));
+            open_page = Some(page_opener(file.page_url(&project_page), cx));
         }
         Some(cx.background_spawn(async move {
             let progress = InstallProgress::default();
@@ -1043,6 +1064,7 @@ impl Instances {
                             &file,
                             &folder,
                             &dirs.instance,
+                            &|| open_page.iter().for_each(|open| open()),
                             &CancelToken::new(),
                         )
                         .await
@@ -1336,11 +1358,12 @@ impl Instances {
         let downloader = self.content_downloader.clone();
         // a pack its author keeps on CurseForge's website: its page, and the check waits
         // for the download in the Downloads folder (until the task is dropped)
-        if let AddSource::CurseForge(picked) = &source
-            && !picked.1.downloadable()
-        {
-            cx.open_url(&picked.1.page_url(&picked.0.page_url()));
-        }
+        let open_page = match &source {
+            AddSource::CurseForge(picked) if !picked.1.downloadable() => {
+                Some(page_opener(picked.1.page_url(&picked.0.page_url()), cx))
+            }
+            _ => None,
+        };
         cx.background_spawn(async move {
             let progress = InstallProgress::default();
             let cancel = CancelToken::new();
@@ -1385,6 +1408,7 @@ impl Instances {
                             file,
                             &folder,
                             &dirs.instance,
+                            &|| open_page.iter().for_each(|open| open()),
                             &cancel,
                         )
                         .await

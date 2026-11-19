@@ -1105,7 +1105,10 @@ fn a_pack_kept_on_curseforges_website_is_taken_from_the_downloads() {
         &downloader(),
         &project,
         &file,
-        Some(downloads.path()),
+        Some(curseforge_pack::WebsiteDownload {
+            folder: downloads.path(),
+            open_page: &|| {},
+        }),
         staging.path(),
         &move |step| seen.lock().unwrap().push(step),
         &CancelToken::new(),
@@ -1120,6 +1123,40 @@ fn a_pack_kept_on_curseforges_website_is_taken_from_the_downloads() {
         std::fs::read(downloads.path().join("a-pack (1).zip")).unwrap(),
         zip
     );
+}
+
+/// A pack from CurseForge's website not downloaded yet: its page opens once, the user
+/// downloads it (here, when the page "opens"), and it's taken into a folder that wasn't
+/// there yet (a first instance's).
+#[test]
+fn a_pack_from_curseforges_website_opens_its_page_once_until_it_arrives() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let zip = pack_zip(&[]);
+    let mock = CurseForgeMock::start();
+    mock.project(PACK, "a-pack", 4471)
+        .file(FakeFile::new(9_001, PACK, "a-pack.zip", &["1.20.1"], NEW, zip.clone()).blocked());
+    let cf = mock.client();
+    let file = block_on(cf.file(PACK, 9_001)).unwrap();
+    let downloads = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let dir = data.path().join("instances");
+    let opened = AtomicUsize::new(0);
+    let open_page = || {
+        opened.fetch_add(1, Ordering::SeqCst);
+        std::fs::write(downloads.path().join("a-pack.zip"), &zip).unwrap();
+    };
+    let taken = block_on(launcher_core::modpack::curseforge::wait_for_download(
+        &downloader(),
+        &file,
+        downloads.path(),
+        &dir,
+        &open_page,
+        &CancelToken::new(),
+    ))
+    .expect("taken from the download");
+    assert_eq!(opened.load(Ordering::SeqCst), 1);
+    assert_eq!(taken.parent(), Some(dir.as_path()));
+    assert_eq!(std::fs::read(&taken).unwrap(), zip);
 }
 
 /// Waiting for a pack from CurseForge's website stops when it's cancelled.
@@ -1141,7 +1178,10 @@ fn waiting_for_a_pack_from_curseforges_website_stops_when_cancelled() {
         &downloader(),
         &project,
         &file,
-        Some(downloads.path()),
+        Some(curseforge_pack::WebsiteDownload {
+            folder: downloads.path(),
+            open_page: &|| {},
+        }),
         staging.path(),
         &|_| {},
         &cancel,

@@ -157,7 +157,7 @@ pub fn text(message: M) -> &'static str {
         M::CurseForgePackWebsiteHint => {
             "此版本僅在 CurseForge 網站上提供：安裝時會開啟它的頁面並開始下載，Lodestone Launcher 會從你的「下載」資料夾中取得該 .zip。"
         }
-        M::CurseForgePackWaiting => "正在等待從 CurseForge 網站下載模組包",
+        M::CurseForgePackWaiting => "正在等待你的下載",
         M::CouldntImportModpack => "無法匯入模組包",
         M::CouldntUpdateModpack => "無法更新模組包",
         M::StopGameFirst => "請先停止遊戲。",
