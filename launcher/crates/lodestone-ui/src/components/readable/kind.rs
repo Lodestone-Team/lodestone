@@ -69,7 +69,8 @@ impl Kind {
             Kind::Modpack => Icon::Cube,
             Kind::Image => Icon::Image,
             Kind::Server => Icon::Server,
-            Kind::Instance => Icon::Play,
+            // not Play: on a card it looked like a button to press
+            Kind::Instance => Icon::Block,
             Kind::Archive => Icon::FileZipper,
             Kind::File => Icon::File,
             Kind::Backup => Icon::ClockRotateLeft,

@@ -1028,7 +1028,15 @@ impl LauncherShell {
             .list()
             .iter()
             .find(|instance| instance.id == prompt.instance_id)
-            .map(|instance| ObjectCard::new(instance.name.clone()).kind(Kind::Instance))
+            .map(|instance| {
+                ObjectCard::new(instance.name.clone())
+                    .kind(Kind::Instance)
+                    .thumbnail(crate::instances::appearance::instance_icon(
+                        self.instances.read(cx),
+                        instance,
+                        px(24.),
+                    ))
+            })
             .unwrap_or_else(|| crate::instances::facts::named_card(&prompt.instance_name))
             .compact(true);
         Dialog::new("modpack-update", t(M::UpdateInstanceTitle), focus)
@@ -1350,7 +1358,7 @@ impl LauncherShell {
     /// loader; its name alone when it is gone.
     fn instance_card(&self, id: &str, name: &str, cx: &App) -> ObjectCard {
         match self.instances.read(cx).list().iter().find(|i| i.id == id) {
-            Some(instance) => crate::instances::facts::card(instance),
+            Some(instance) => crate::instances::facts::card(self.instances.read(cx), instance),
             None => crate::instances::facts::named_card(name),
         }
     }
@@ -2570,6 +2578,7 @@ impl LauncherShell {
                 scroll,
             } => render_crash(
                 crash,
+                &self.instances.clone(),
                 focus.clone(),
                 CrashState {
                     copied: *copied,
@@ -2691,8 +2700,9 @@ impl LauncherShell {
                 let dismiss = answer(false, id.clone(), cx);
                 // the instance in a card with its game, under a title that says what
                 // happens
-                let card = match self.instances.read(cx).list().iter().find(|i| i.id == *id) {
-                    Some(instance) => crate::instances::facts::card(instance),
+                let instances = self.instances.read(cx);
+                let card = match instances.list().iter().find(|i| i.id == *id) {
+                    Some(instance) => crate::instances::facts::card(instances, instance),
                     None => {
                         ObjectCard::new(id.clone())
                             .kind(Kind::Instance)
@@ -2758,7 +2768,7 @@ impl LauncherShell {
             Modal::Report { report, focus } => {
                 Dialog::new("report", report.title.clone(), focus.clone())
                     .on_close(close(cx))
-                    .child(report.render())
+                    .child(report.render(self.instances.read(cx)))
                     .into_any_element()
             }
             Modal::DeleteInstance {
@@ -2779,7 +2789,9 @@ impl LauncherShell {
                     .list()
                     .iter()
                     .find(|instance| instance.id == id)
-                    .map(crate::instances::facts::card)
+                    .map(|instance| {
+                        crate::instances::facts::card(self.instances.read(cx), instance)
+                    })
                     .unwrap_or_else(|| crate::instances::facts::named_card(&name));
                 Dialog::new("delete-instance", t(M::DeleteInstanceTitle), focus.clone())
                     .on_close(close(cx))
@@ -3217,6 +3229,7 @@ fn render_suspects(
 /// report and log.
 fn render_crash(
     crash: &CrashInfo,
+    instances: &Entity<crate::instances::Instances>,
     focus: FocusHandle,
     state: CrashState,
     on_close: impl Fn(&mut Window, &mut gpui::App) + 'static,
@@ -3240,7 +3253,7 @@ fn render_crash(
     let card = state
         .instance
         .as_ref()
-        .map(crate::instances::facts::card)
+        .map(|instance| crate::instances::facts::card(instances.read(cx), instance))
         .unwrap_or_else(|| crate::instances::facts::named_card(&crash.instance_name));
     let report = crash.report.clone();
     let log_text = crash.log_text.clone();

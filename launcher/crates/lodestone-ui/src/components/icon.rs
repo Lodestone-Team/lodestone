@@ -90,10 +90,12 @@ pub enum Icon {
     Key,
     /// A computer.
     Desktop,
+    /// A block, standing for an instance (where it has no picture of its own).
+    Block,
 }
 
 impl Icon {
-    pub const ALL: [Icon; 72] = [
+    pub const ALL: [Icon; 73] = [
         Icon::ArrowDown,
         Icon::ArrowLeft,
         Icon::ArrowUp,
@@ -166,6 +168,7 @@ impl Icon {
         Icon::Image,
         Icon::Key,
         Icon::Desktop,
+        Icon::Block,
     ];
 
     /// The asset path of the icon's SVG.
@@ -243,6 +246,7 @@ impl Icon {
             Icon::Image => "icons/image.svg",
             Icon::Key => "icons/key.svg",
             Icon::Desktop => "icons/desktop.svg",
+            Icon::Block => "icons/block.svg",
         }
     }
 
@@ -319,7 +323,8 @@ impl Icon {
             | Icon::Forward
             | Icon::Image
             | Icon::Key
-            | Icon::Desktop => return format!("{self:?}").into(),
+            | Icon::Desktop
+            | Icon::Block => return format!("{self:?}").into(),
         };
         t(message).into()
     }

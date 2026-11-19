@@ -72,11 +72,16 @@ pub fn played_facts(instance: &Instance) -> Vec<Fact> {
     facts
 }
 
-/// The card naming an instance under a dialog's title, with its game and loader as
-/// phrases that need no key (it is still spoken).
-pub fn card(instance: &Instance) -> ObjectCard {
+/// The card naming an instance under a dialog's title, with its own icon, and its game
+/// and loader as phrases that need no key (it is still spoken).
+pub fn card(instances: &super::Instances, instance: &Instance) -> ObjectCard {
     let mut card = ObjectCard::new(instance.name.clone())
         .kind(Kind::Instance)
+        .thumbnail(super::appearance::instance_icon(
+            instances,
+            instance,
+            gpui::px(32.),
+        ))
         .fact(Fact::bare_named(
             t(FactMsg::Game),
             game(&instance.game_version),
