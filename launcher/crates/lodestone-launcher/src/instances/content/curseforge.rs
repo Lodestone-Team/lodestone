@@ -95,6 +95,9 @@ pub struct BlockedDownloads {
     /// each time a file arrives, so the user isn't left with a row of tabs to work
     /// through (a download page starts its download itself).
     pub one_by_one: bool,
+    /// The first of those pages opened in a browser window of its own, where the rest
+    /// follow it: the user closes that window at the end.
+    pub own_window: bool,
     _watch: Option<Task<()>>,
 }
 
@@ -659,6 +662,7 @@ impl ContentView {
             folder: curseforge_install::downloads_folder(),
             error: None,
             one_by_one: false,
+            own_window: false,
             _watch: None,
         });
         self.watch_blocked(cx);
@@ -795,7 +799,9 @@ impl ContentView {
     }
 
     /// "Open the pages one by one": the first waiting file's page now, and the next
-    /// each time a file arrives ([`Self::blocked_found`]).
+    /// each time a file arrives ([`Self::blocked_found`]). The first opens in a browser
+    /// window of its own where the browser can be asked for one
+    /// (`launcher_core::browser`); the pages after it then land in that window.
     pub fn open_all_blocked_pages(&mut self, cx: &mut Context<Self>) {
         if let Some(blocked) = &mut self.blocked {
             blocked.one_by_one = true;
@@ -805,7 +811,11 @@ impl ContentView {
                 .zip(&blocked.added)
                 .find(|(_, added)| !**added)
             {
-                cx.open_url(&file.file_page());
+                let page = file.file_page();
+                blocked.own_window = launcher_core::browser::open_in_new_window(&page);
+                if !blocked.own_window {
+                    cx.open_url(&page);
+                }
             }
             cx.notify();
         }
@@ -893,6 +903,7 @@ impl ContentView {
         let waiting = blocked.added.iter().filter(|a| !**a).count();
         let error = blocked.error.clone();
         let one_by_one = blocked.one_by_one && waiting > 0;
+        let own_window = blocked.own_window;
         Some(
             super::view::card()
                 .flex()
@@ -912,7 +923,15 @@ impl ContentView {
                     this.child(small(error).text_color(colors::RED_200))
                 })
                 .when(one_by_one, |this| {
-                    this.child(small(t(M::BlockedOneByOne)).text_color(crate::theme::ink::faint()))
+                    this.child(
+                        small(t(if own_window {
+                            M::BlockedOwnWindow
+                        } else {
+                            M::BlockedOneByOne
+                        }))
+                        .whitespace_normal()
+                        .text_color(crate::theme::ink::faint()),
+                    )
                 })
                 .child(
                     div()
@@ -1729,6 +1748,7 @@ pub(super) mod tests {
             folder: None,
             error: None,
             one_by_one: false,
+            own_window: false,
             _watch: None,
         };
         let ids: Vec<u64> = blocked.unfinished().iter().map(|f| f.file.id).collect();

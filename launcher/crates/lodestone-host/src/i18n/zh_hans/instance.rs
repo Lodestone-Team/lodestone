@@ -135,6 +135,9 @@ pub fn text(message: M) -> &'static str {
         M::ModsByHandOpen => "打开下载页面",
         M::ModsByHandOpenAll => "逐个打开页面",
         M::ModsByHandOneByOne => "上一个文件到达后，会打开下一个页面。",
+        M::ModsByHandOwnWindow => {
+            "这些页面会在单独的浏览器窗口中打开，上一个文件到达后才打开下一个。全部添加完成后，关闭该窗口即可。"
+        }
         M::ModsByHandAdded => "已添加",
         M::ModsByHandWaiting => "正在等待 {file}",
         M::ModsByHandChangeFolder => "监视其他文件夹…",

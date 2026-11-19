@@ -542,17 +542,27 @@ impl ContentView {
             }
         }
         self.was_active = active;
-        // Files an imported CurseForge pack left for the user to download.
-        if self.blocked.is_none()
-            && let Some(id) = self.instance_id.clone()
+        // Files a CurseForge pack or an install left for the user to download: a card
+        // for them, or more rows on the card that is there (so its pages, opened one by
+        // one, go on to them).
+        if let Some(id) = self.instance_id.clone()
             && self.instances.read(cx).has_pending_downloads(&id)
         {
             let files = self
                 .instances
                 .update(cx, |instances, _| instances.take_pending_downloads(&id))
                 .unwrap_or_default();
-            if !files.is_empty() {
-                self.show_blocked(files, cx);
+            match &mut self.blocked {
+                Some(blocked) => {
+                    for file in files {
+                        if !blocked.files.iter().any(|f| f.file.id == file.file.id) {
+                            blocked.files.push(file);
+                            blocked.added.push(false);
+                        }
+                    }
+                }
+                None if !files.is_empty() => self.show_blocked(files, cx),
+                None => {}
             }
         }
         cx.notify();

@@ -157,6 +157,9 @@ pub fn text(message: M) -> &'static str {
         M::ModsByHandOpen => "Ouvrir la page de téléchargement",
         M::ModsByHandOpenAll => "Ouvrir les pages une à une",
         M::ModsByHandOneByOne => "La page suivante s’ouvre quand le fichier précédent est arrivé.",
+        M::ModsByHandOwnWindow => {
+            "Les pages s’ouvrent dans une fenêtre de navigateur à part, la suivante quand le fichier précédent est arrivé. Fermez cette fenêtre une fois tous les fichiers ajoutés."
+        }
         M::ModsByHandAdded => "Ajouté",
         M::ModsByHandWaiting => "En attente de {file}",
         M::ModsByHandChangeFolder => "Surveiller un autre dossier…",

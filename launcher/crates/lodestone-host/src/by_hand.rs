@@ -9,7 +9,9 @@
 //! shown; a server's Mods tab has the card that lists them. "Open the pages one by one"
 //! opens the first file's download page (which starts the download itself) and the
 //! next one each time a file has arrived, so the user isn't left with a row of tabs to
-//! click through. A server still being made from a modpack gets its files once it is
+//! click through. Where the default browser can be asked for a new window
+//! (`launcher_core::browser`), the first page opens in one and the rest follow it
+//! there: a window to close at the end, not tabs among the user's own. A server still being made from a modpack gets its files once it is
 //! there.
 
 use std::{
@@ -43,6 +45,9 @@ pub struct ByHandFiles {
     pub error: Option<String>,
     /// "Open the pages one by one" was pressed: the next page opens when a file arrives.
     pub one_by_one: bool,
+    /// The first of those pages opened in a browser window of its own, where the rest
+    /// follow it: the user closes that window at the end.
+    pub own_window: bool,
     /// Downloads that were found and couldn't be added, so they aren't tried on every
     /// look: (index in `files`, path).
     tried: HashSet<(usize, PathBuf)>,
@@ -136,7 +141,13 @@ impl HostState {
         server.one_by_one = true;
         server.tried.clear();
         if let Some(file) = server.next_waiting().and_then(|at| server.files.get(at)) {
-            cx.open_url(&file.file_page());
+            // in a browser window of its own, where the browser can be asked for one:
+            // the pages after it land there too
+            let page = file.file_page();
+            server.own_window = launcher_core::browser::open_in_new_window(&page);
+            if !server.own_window {
+                cx.open_url(&page);
+            }
         }
         cx.notify();
     }

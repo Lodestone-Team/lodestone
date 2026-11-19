@@ -835,8 +835,10 @@ fn start_install(
             {
                 let blocked = blocked.clone();
                 cx.update(|cx| {
-                    control.instances.update(cx, |instances, _| {
-                        instances.put_back_pending_downloads(&id, blocked)
+                    control.instances.update(cx, |instances, cx| {
+                        instances.put_back_pending_downloads(&id, blocked);
+                        // the Content tab takes them when the instances change
+                        cx.notify();
                     })
                 });
             }

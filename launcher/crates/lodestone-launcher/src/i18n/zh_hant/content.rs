@@ -258,6 +258,9 @@ pub fn text(message: M) -> &'static str {
         M::BlockedOpen => "開啟下載頁面",
         M::BlockedOpenAll => "逐一開啟頁面",
         M::BlockedOneByOne => "上一個檔案到達後，會開啟下一個頁面。",
+        M::BlockedOwnWindow => {
+            "這些頁面會在獨立的瀏覽器視窗中開啟，上一個檔案到達後才開啟下一個。全部加入完成後，關閉該視窗即可。"
+        }
         M::BlockedAdded => "已加入",
         M::BlockedWaiting => "正在等待 {file}",
         M::BlockedChangeFolder => "監視其他資料夾…",

@@ -244,7 +244,7 @@ impl ModsPage {
     /// with its download page, and "Added" once the Host found it in the Downloads
     /// folder and put it on the server.
     pub(super) fn render_by_hand(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let (files, added, error, one_by_one, folder) = {
+        let (files, added, error, one_by_one, own_window, folder) = {
             let state = self.state.read(cx);
             let waiting = state.by_hand(&self.uuid)?;
             (
@@ -252,6 +252,7 @@ impl ModsPage {
                 waiting.added.clone(),
                 waiting.error.clone(),
                 waiting.one_by_one,
+                waiting.own_window,
                 state.by_hand_folder().map(|f| f.display().to_string()),
             )
         };
@@ -376,7 +377,11 @@ impl ModsPage {
                         div()
                             .text_size(text::SMALL)
                             .text_color(ink::muted())
-                            .child(t(M::ModsByHandOneByOne)),
+                            .child(t(if own_window {
+                                M::ModsByHandOwnWindow
+                            } else {
+                                M::ModsByHandOneByOne
+                            })),
                     )
                 })
                 .child(

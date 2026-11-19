@@ -272,6 +272,9 @@ pub fn text(message: M) -> &'static str {
         M::BlockedOpen => "Ouvrir la page de téléchargement",
         M::BlockedOpenAll => "Ouvrir les pages une à une",
         M::BlockedOneByOne => "La page suivante s’ouvre quand le fichier précédent est arrivé.",
+        M::BlockedOwnWindow => {
+            "Les pages s’ouvrent dans une fenêtre de navigateur à part, la suivante quand le fichier précédent est arrivé. Fermez cette fenêtre une fois tous les fichiers ajoutés."
+        }
         M::BlockedAdded => "Ajouté",
         M::BlockedWaiting => "En attente de {file}",
         M::BlockedChangeFolder => "Surveiller un autre dossier…",

@@ -149,6 +149,8 @@ crate::i18n::messages! {
         ModsByHandOpenAll = "Open the pages one by one",
         /// Under the list, once the pages are being opened one by one.
         ModsByHandOneByOne = "The next page opens when the file before it has arrived.",
+        /// The same, when the pages open in a browser window of their own.
+        ModsByHandOwnWindow = "The pages open in a browser window of their own, the next one when the file before it has arrived. Close that window once they are all in.",
         ModsByHandAdded = "Added",
         /// {file} is the file name to download.
         ModsByHandWaiting = "Waiting for {file}",

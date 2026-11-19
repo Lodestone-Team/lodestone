@@ -975,7 +975,9 @@ Conventions in the code that every area relies on:
   CurseForge: if Modrinth has the very same file the core installs it from there, else
   it goes to the Host's watch on the Downloads folder (`by_hand.rs`), with a card on the
   Mods tab that lists such files, opens their download pages (one by one, the next when
-  a file has arrived), and says "Added" once the Host found a download, checked it
+  a file has arrived; the first in a browser window of its own where the default
+  browser can be asked for one, `launcher_core::browser`, so the rest land there and
+  one window is closed at the end), and says "Added" once the Host found a download, checked it
   against CurseForge's hash and uploaded it. The Installed list asks CurseForge which jars are its
   files by the `curseforge_fingerprint` the core reports for each (one request), and
   "Check for updates" asks for each such project's newer file; jars Modrinth knows keep
