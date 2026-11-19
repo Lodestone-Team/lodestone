@@ -269,11 +269,27 @@ impl ModsPage {
         };
         let modrinth = crate::curseforge::modrinth(cx);
         let admin = self.state.read(cx).admin.clone();
+        let downloads = self.state.read(cx).pack_downloads_folder();
+        let cancel = launcher_core::game::download::CancelToken::new();
+        // a version its author keeps on CurseForge's website: its page, where the
+        // download starts, and the update waits for it in the Downloads folder
+        if !file.downloadable() {
+            let page = origin
+                .page_url
+                .clone()
+                .filter(|url| url.starts_with("https://www.curseforge.com/"))
+                .unwrap_or_else(|| {
+                    format!("https://www.curseforge.com/projects/{}", origin.project)
+                });
+            crate::curseforge::open_page(&file.page_url(&page), cx);
+            self.curseforge_pack_waiting = Some(cancel.clone());
+        }
         self.modpack_busy = true;
         // an earlier pack's files are not this update's
         self.curseforge_pack_by_hand = None;
         cx.notify();
         let task = cx.spawn(async move |this, cx| {
+            let stop = cancel.clone();
             let uploaded = cx
                 .background_spawn(launcher_core::http::in_http_runtime(async move {
                     let project = curseforge.project(origin.project).await?;
@@ -284,14 +300,20 @@ impl ModsPage {
                         &admin,
                         &project,
                         &file,
+                        downloads.as_deref(),
                         &|_| {},
-                        &launcher_core::game::download::CancelToken::new(),
+                        &cancel,
                     )
                     .await
                 }))
                 .await;
             this.update(cx, |this, cx| {
                 this.modpack_busy = false;
+                this.curseforge_pack_waiting = None;
+                // stopped while waiting for the download: nothing to say
+                if stop.is_cancelled() {
+                    return cx.notify();
+                }
                 match uploaded {
                     Ok((info, by_hand)) => {
                         if let Some(reason) = info.unsupported_reason {
@@ -574,6 +596,38 @@ impl ModsPage {
         // made from a CurseForge modpack, which the Host asks about
         let on_curseforge = !on_modrinth && self.curseforge_pack(cx).is_some();
         let status = match &self.modpack_check {
+            // the new version's download from CurseForge's website, with a way out
+            _ if self.curseforge_pack_waiting.is_some() => Some(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(8.))
+                    .child(muted(t(M::ModpackUpdateWebsite)))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(px(8.))
+                            .child(lodestone_ui::components::LoadingDots)
+                            .child(muted(t(M::ModpackWaitingForDownload)))
+                            .child(
+                                Button::new(
+                                    "modpack-stop-waiting",
+                                    t(crate::i18n::CommonMsg::Cancel),
+                                )
+                                .on_click(cx.listener(
+                                    |this, _, _, cx| {
+                                        if let Some(cancel) = this.curseforge_pack_waiting.take() {
+                                            cancel.cancel();
+                                        }
+                                        cx.notify();
+                                    },
+                                )),
+                            ),
+                    )
+                    .into_any_element(),
+            ),
             ModpackCheck::Newest => Some(muted(t(M::ModpackUpToDate))),
             ModpackCheck::Available(update) if update.changelog.is_some() => {
                 let open = self.update_changelog_open;

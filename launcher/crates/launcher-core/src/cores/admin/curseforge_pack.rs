@@ -63,6 +63,9 @@ const MODRINTH_CDN: &str = "cdn.modrinth.com";
 pub enum PackStep {
     /// Downloading the pack's zip.
     Downloading,
+    /// Waiting for the user to download the pack's zip from CurseForge's website (its
+    /// author keeps it there) into the Downloads folder.
+    WaitingForDownload,
     /// Asking CurseForge and Modrinth about its files.
     Reading,
     /// Working out the SHA-512 of the files only CurseForge has.
@@ -187,9 +190,9 @@ fn loader_dependency(kind: LoaderKind) -> &'static str {
 }
 
 /// Turns the CurseForge modpack `file` of `project` into a `.mrpack` in `staging` (a
-/// folder of the caller's, which it removes), as the module says. The pack's file must
-/// be one the Host may download: a pack its author keeps on CurseForge's website can't
-/// be made a server from here.
+/// folder of the caller's, which it removes), as the module says. A pack its author
+/// keeps on CurseForge's website is taken from `downloads` once the user downloaded it
+/// there (the caller opens its page): refused without that folder.
 #[allow(clippy::too_many_arguments)]
 pub async fn build(
     cf: &CurseForge,
@@ -197,13 +200,34 @@ pub async fn build(
     downloader: &Downloader,
     project: &CfMod,
     file: &CfFile,
+    downloads: Option<&Path>,
     staging: &Path,
     progress: &(dyn Fn(PackStep) + Send + Sync),
     cancel: &CancelToken,
 ) -> Result<ServerPack, ServerCfError> {
-    progress(PackStep::Downloading);
-    let zip_path = staging.join(format!("curseforge-pack-{}.zip", file.id));
-    fetch(cf, downloader, file, &zip_path, cancel).await?;
+    let zip_path = if file.downloadable() {
+        progress(PackStep::Downloading);
+        let zip_path = staging.join(format!("curseforge-pack-{}.zip", file.id));
+        fetch(cf, downloader, file, &zip_path, cancel).await?;
+        zip_path
+    } else {
+        let folder = downloads.ok_or_else(|| {
+            invalid(format!(
+                "{} can only be downloaded from CurseForge's website",
+                file.display_name_or_file()
+            ))
+        })?;
+        progress(PackStep::WaitingForDownload);
+        if file.file_length > MAX_PACK_FILE_BYTES {
+            return Err(invalid(format!("{} is too large", file.file_name)));
+        }
+        crate::modpack::curseforge::wait_for_download(downloader, file, folder, staging, cancel)
+            .await
+            .map_err(|err| match err {
+                crate::modpack::ModpackError::Cancelled => DownloadError::Cancelled.into(),
+                other => invalid(other),
+            })?
+    };
     let pack = read_curseforge_pack(&zip_path).map_err(invalid)?;
 
     progress(PackStep::Reading);
@@ -466,6 +490,7 @@ pub async fn build_and_upload(
     admin: &super::AdminClient,
     project: &CfMod,
     file: &CfFile,
+    downloads: Option<&Path>,
     progress: &(dyn Fn(PackStep) + Send + Sync),
     cancel: &CancelToken,
 ) -> Result<(super::mods::ModpackInfo, Vec<PlannedFile>), ServerCfError> {
@@ -474,7 +499,7 @@ pub async fn build_and_upload(
     // removed on return, and also when this future is dropped part way
     let staging = StagingGuard(staging);
     let pack = build(
-        cf, modrinth, downloader, project, file, &staging.0, progress, cancel,
+        cf, modrinth, downloader, project, file, downloads, &staging.0, progress, cancel,
     )
     .await?;
     let bytes =

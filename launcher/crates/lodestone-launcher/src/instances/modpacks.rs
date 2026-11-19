@@ -11,7 +11,7 @@ use launcher_core::{
     content::{
         InstanceDirs, Modrinth, Platforms, Target,
         curseforge::{CfFile, CfMod},
-        curseforge_install::CfPlannedFile,
+        curseforge_install::{self, CfPlannedFile},
         install::InstallProgress,
         share::{self, ShareCode, ShareOutcome},
     },
@@ -439,6 +439,11 @@ impl Instances {
     ) {
         let record = curseforge_record(&project, &file);
         let title = name.clone().unwrap_or_else(|| project.name.clone());
+        // a pack its author keeps on CurseForge's website: its page, where the download
+        // starts, and the import waits for it in the Downloads folder
+        if !file.downloadable() {
+            cx.open_url(&file.page_url(&project.page_url()));
+        }
         self.start_import(
             title,
             Source {
@@ -670,18 +675,32 @@ impl Instances {
                     let cf = cf
                         .as_deref()
                         .ok_or_else(|| ModpackError::Invalid(t(M::CurseForgeUnreachable).into()))?;
-                    if !file.downloadable() {
-                        return Err(ModpackError::Invalid(t(M::CurseForgePackOnWebsite).into()));
-                    }
-                    source.pack_path = modpack::curseforge::download(
-                        cf,
-                        &downloader,
-                        file,
-                        store.root(),
-                        &progress,
-                        &cancel,
-                    )
-                    .await?;
+                    source.pack_path = if file.downloadable() {
+                        modpack::curseforge::download(
+                            cf,
+                            &downloader,
+                            file,
+                            store.root(),
+                            &progress,
+                            &cancel,
+                        )
+                        .await?
+                    } else {
+                        // its author keeps it on CurseForge's website: its page opened
+                        // (`import_curseforge`), and the download is taken from the folder
+                        let folder = curseforge_install::downloads_folder().ok_or_else(|| {
+                            ModpackError::Invalid(t(M::CurseForgePackOnWebsite).into())
+                        })?;
+                        progress.set_label(t(M::CurseForgePackWaiting));
+                        modpack::curseforge::wait_for_download(
+                            &downloader,
+                            file,
+                            &folder,
+                            store.root(),
+                            &cancel,
+                        )
+                        .await?
+                    };
                 }
                 let result = async {
                     progress.set_label(t(M::ReadingModpack));
@@ -928,11 +947,15 @@ impl Instances {
         }))
     }
 
-    /// Downloads `version` of the instance's pack and plans the update to it.
+    /// Downloads `version` of the instance's pack and plans the update to it. A
+    /// CurseForge version only its website serves is refused, or with
+    /// `wait_for_website`, its page opens and the update waits for the download in the
+    /// Downloads folder (until the task is dropped).
     pub fn plan_modpack_update(
         &mut self,
         id: &str,
         version: PackVersion,
+        wait_for_website: bool,
         cx: &mut Context<Self>,
     ) -> Option<Task<Result<UpdatePrompt, String>>> {
         if self.is_active(id) || self.modpack_updates.contains_key(id) {
@@ -949,6 +972,21 @@ impl Instances {
         let dirs = self.content_dirs(id);
         let installer = self.installer.clone();
         let downloader = self.content_downloader.clone();
+        if wait_for_website
+            && let PackVersion::CurseForge(file) = &version
+            && !file.downloadable()
+        {
+            let project_page = current
+                .curseforge
+                .as_ref()
+                .map(|pack| pack.page_url.clone())
+                .filter(|url| url.starts_with("https://www.curseforge.com/"))
+                .unwrap_or_else(|| {
+                    let project = current.curseforge.as_ref().map_or(0, |p| p.project_id);
+                    format!("https://www.curseforge.com/projects/{project}")
+                });
+            cx.open_url(&file.page_url(&project_page));
+        }
         Some(cx.background_spawn(async move {
             let progress = InstallProgress::default();
             let (pack_path, planned) = match version {
@@ -984,19 +1022,32 @@ impl Instances {
                         .curseforge
                         .clone()
                         .ok_or_else(|| t(M::CurseForgeUnreachable).to_string())?;
-                    if !file.downloadable() {
-                        return Err(t(M::CurseForgeUpdateOnWebsite).to_string());
-                    }
-                    let pack_path = modpack::curseforge::download(
-                        &cf,
-                        &downloader,
-                        &file,
-                        &dirs.instance,
-                        &progress,
-                        &CancelToken::new(),
-                    )
-                    .await
-                    .map_err(|e| e.to_string())?;
+                    let pack_path = if file.downloadable() {
+                        modpack::curseforge::download(
+                            &cf,
+                            &downloader,
+                            &file,
+                            &dirs.instance,
+                            &progress,
+                            &CancelToken::new(),
+                        )
+                        .await
+                        .map_err(|e| e.to_string())?
+                    } else {
+                        // its page opened above: the download is taken from the folder
+                        let folder = curseforge_install::downloads_folder()
+                            .filter(|_| wait_for_website)
+                            .ok_or_else(|| t(M::CurseForgeUpdateOnWebsite).to_string())?;
+                        modpack::curseforge::wait_for_download(
+                            &downloader,
+                            &file,
+                            &folder,
+                            &dirs.instance,
+                            &CancelToken::new(),
+                        )
+                        .await
+                        .map_err(|e| e.to_string())?
+                    };
                     let planned = async {
                         let read = modpack::curseforge::read_curseforge_pack(&pack_path)?;
                         let resolved =
@@ -1283,6 +1334,13 @@ impl Instances {
         let dirs = self.content_dirs(id);
         let server = launcher_core::cores::link::load_link(&dirs.instance).map(|l| l.server_name);
         let downloader = self.content_downloader.clone();
+        // a pack its author keeps on CurseForge's website: its page, and the check waits
+        // for the download in the Downloads folder (until the task is dropped)
+        if let AddSource::CurseForge(picked) = &source
+            && !picked.1.downloadable()
+        {
+            cx.open_url(&picked.1.page_url(&picked.0.page_url()));
+        }
         cx.background_spawn(async move {
             let progress = InstallProgress::default();
             let cancel = CancelToken::new();
@@ -1308,19 +1366,30 @@ impl Instances {
                     let cf = cf
                         .as_deref()
                         .ok_or_else(|| t(M::CurseForgeUnreachable).to_string())?;
-                    if !file.downloadable() {
-                        return Err(t(M::CurseForgePackOnWebsite).into());
+                    if file.downloadable() {
+                        modpack::curseforge::download(
+                            cf,
+                            &downloader,
+                            file,
+                            &dirs.instance,
+                            &progress,
+                            &cancel,
+                        )
+                        .await
+                        .map_err(|e| e.to_string())?
+                    } else {
+                        let folder = curseforge_install::downloads_folder()
+                            .ok_or_else(|| t(M::CurseForgePackOnWebsite).to_string())?;
+                        modpack::curseforge::wait_for_download(
+                            &downloader,
+                            file,
+                            &folder,
+                            &dirs.instance,
+                            &cancel,
+                        )
+                        .await
+                        .map_err(|e| e.to_string())?
                     }
-                    modpack::curseforge::download(
-                        cf,
-                        &downloader,
-                        file,
-                        &dirs.instance,
-                        &progress,
-                        &cancel,
-                    )
-                    .await
-                    .map_err(|e| e.to_string())?
                 }
                 AddSource::File(path) => path.clone(),
             };

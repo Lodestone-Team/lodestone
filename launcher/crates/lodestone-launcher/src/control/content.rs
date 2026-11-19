@@ -2057,7 +2057,10 @@ pub fn modpack_update(call: Call, cx: &mut App) -> Reply {
         let planned = cx.update(|cx| {
             control
                 .instances
-                .update(cx, |instances, cx| instances.plan_modpack_update(&id, version, cx))
+                // the API never waits for a download by hand: it says so
+                .update(cx, |instances, cx| {
+                    instances.plan_modpack_update(&id, version, false, cx)
+                })
         });
         let Some(planned) = planned else {
             return Err(api_error(codes::BUSY, "The instance is running or updating."));

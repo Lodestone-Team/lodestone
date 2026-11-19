@@ -144,6 +144,10 @@ crate::i18n::messages! {
         CheckForUpdates = "Check for updates",
         ModrinthUnreachable = "Modrinth can't be reached.",
         CurseForgeUnreachable = "CurseForge can't be reached.",
+        /// Beside a spinner, while the app waits for a file in the Downloads folder.
+        WaitingForDownload = "Waiting for the download",
+        /// A CurseForge modpack version only its website serves: its page opened in the browser.
+        CurseForgeWaitingDownload = "This version is only on CurseForge's website, so its page opened in your browser. Download it there: Lodestone Launcher takes the .zip from your Downloads folder and carries on.",
         StopGameFirst = "Stop the game first, or wait for the update to finish.",
         /// {error} is the problem, in English.
         CouldntPrepareUpdate = "Couldn't prepare the update: {error}",

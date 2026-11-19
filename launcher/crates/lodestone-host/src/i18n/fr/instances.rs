@@ -172,6 +172,11 @@ pub fn text(message: M) -> &'static str {
             "CurseForge n’a pas ce fichier pour ce modpack. Choisissez plutôt l’une de ses versions."
         }
         M::ModpackCurseForgeReading => "Interrogation de CurseForge sur les fichiers du modpack…",
+        M::ModpackWebsiteDownload => "Sur le site uniquement",
+        M::ModpackWaitingForDownload => "En attente du téléchargement…",
+        M::ModpackCurseForgeWebsite => {
+            "Cette version n’est que sur le site de CurseForge, sa page s’est donc ouverte dans votre navigateur. Téléchargez-la là-bas : Lodestone Host prend le .zip dans votre dossier Téléchargements et continue."
+        }
         M::ModpackCurseForgeChecking => {
             "Téléchargement des fichiers propres à CurseForge, pour les vérifier ({done} sur {total})…"
         }

@@ -579,6 +579,29 @@ impl ModpackBrowser {
     }
 }
 
+impl ModpackBrowser {
+    /// Shows a CurseForge modpack picked, with `file` of its `files` chosen, for the
+    /// offscreen screenshots.
+    pub fn preview_curseforge(
+        &mut self,
+        project: CfMod,
+        files: Vec<CfFile>,
+        file: u64,
+        cx: &mut Context<Self>,
+    ) {
+        self.curseforge = true;
+        self.cf_picked = Some(CfPicked {
+            project: Load::Ready(project),
+            files: Load::Ready(files),
+            file: Some(file),
+            description: Load::Loading,
+            show_description: false,
+            _task: None,
+        });
+        cx.notify();
+    }
+}
+
 /// The image at a Modrinth CDN URL from `cache`, fetched the first time (`large` for
 /// description images, else icons).
 pub(crate) fn fetch_image<V: 'static>(
@@ -870,6 +893,10 @@ impl ModpackBrowser {
                     .text_color(crate::theme::ink::muted())
                     .into_any_element(),
                 Load::Ready(list) => {
+                    // the picked file only CurseForge's website serves: what installing does
+                    let website_only = list
+                        .iter()
+                        .any(|f| chosen == Some(f.id) && !f.downloadable());
                     let mut rows = div().flex().flex_col().gap_0p5();
                     for (index, file) in list.iter().take(50).enumerate() {
                         let selected = chosen == Some(file.id);
@@ -954,7 +981,19 @@ impl ModpackBrowser {
                                 ),
                         );
                     }
-                    rows.into_any_element()
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap_2()
+                        .when(website_only, |this| {
+                            this.child(
+                                small(t(M::CurseForgePackWebsiteHint))
+                                    .whitespace_normal()
+                                    .text_color(crate::theme::ink::muted()),
+                            )
+                        })
+                        .child(rows)
+                        .into_any_element()
                 }
                 Load::Failed(err) => small(err).text_color(colors::RED_200).into_any_element(),
                 _ => loading(M::LoadingVersions),

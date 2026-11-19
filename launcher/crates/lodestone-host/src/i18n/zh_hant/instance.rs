@@ -187,6 +187,10 @@ pub fn text(message: M) -> &'static str {
         M::ModpackCheck => "檢查更新",
         M::ModpackCheckFailed => "無法檢查更新：{error}",
         M::ModpackUpToDate => "已是最新版本。",
+        M::ModpackWaitingForDownload => "正在等待下載…",
+        M::ModpackUpdateWebsite => {
+            "此版本僅在 CurseForge 網站上提供，因此已在瀏覽器中開啟它的頁面。請在那裡下載：Lodestone Host 會從你的「下載」資料夾中取得該 .zip 並繼續。"
+        }
         M::ModpackUpdateTo => "更新到 {version}",
         M::ModpackFromFile => "從檔案更新",
         M::ModpackFilePrompt => "更新",

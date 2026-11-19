@@ -144,6 +144,11 @@ pub fn text(message: M) -> &'static str {
             "CurseForge 上沒有此模組包的這個檔案。請改為選擇它的某個版本。"
         }
         M::ModpackCurseForgeReading => "正在向 CurseForge 查詢模組包的檔案…",
+        M::ModpackWebsiteDownload => "僅限網站下載",
+        M::ModpackWaitingForDownload => "正在等待下載…",
+        M::ModpackCurseForgeWebsite => {
+            "此版本僅在 CurseForge 網站上提供，因此已在瀏覽器中開啟它的頁面。請在那裡下載：Lodestone Host 會從你的「下載」資料夾中取得該 .zip 並繼續。"
+        }
         M::ModpackCurseForgeChecking => {
             "正在下載僅 CurseForge 提供的檔案以進行驗證（{done}/{total}）…"
         }

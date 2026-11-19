@@ -125,6 +125,10 @@ pub fn text(message: M) -> &'static str {
         M::CheckForUpdates => "Rechercher des mises à jour",
         M::ModrinthUnreachable => "Modrinth est injoignable.",
         M::CurseForgeUnreachable => "CurseForge est injoignable.",
+        M::WaitingForDownload => "En attente du téléchargement",
+        M::CurseForgeWaitingDownload => {
+            "Cette version n’est que sur le site de CurseForge, sa page s’est donc ouverte dans votre navigateur. Téléchargez-la là-bas\u{a0}: Lodestone Launcher prend le .zip dans votre dossier Téléchargements et continue."
+        }
         M::StopGameFirst => "Arrêtez d’abord le jeu, ou attendez la fin de la mise à jour.",
         M::CouldntPrepareUpdate => "Impossible de préparer la mise à jour\u{a0}: {error}",
 

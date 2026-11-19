@@ -933,6 +933,7 @@ fn a_curseforge_modpack_becomes_a_pack_the_core_reads() {
         &downloader(),
         &project,
         &file,
+        None,
         staging.path(),
         &move |step| seen.lock().unwrap().push(step),
         &CancelToken::new(),
@@ -1071,12 +1072,82 @@ fn a_pack_kept_on_curseforges_website_cant_be_fetched() {
         &downloader(),
         &project,
         &file,
+        None,
         staging.path(),
         &|_| {},
         &CancelToken::new(),
     )))
     .unwrap_err();
     assert!(err.to_string().contains("CurseForge's website"), "{err}");
+}
+
+/// A pack its author keeps on CurseForge's website, once the user downloaded it there
+/// (and the browser renamed it, beside another file of its name): its copy is read, and
+/// the download stays where it is.
+#[test]
+fn a_pack_kept_on_curseforges_website_is_taken_from_the_downloads() {
+    let zip = pack_zip(&[]);
+    let mock = CurseForgeMock::start();
+    mock.project(PACK, "a-pack", 4471)
+        .file(FakeFile::new(9_001, PACK, "a-pack.zip", &["1.20.1"], NEW, zip.clone()).blocked());
+    let cf = mock.client();
+    let project = block_on(cf.project(PACK)).unwrap();
+    let file = block_on(cf.file(PACK, 9_001)).unwrap();
+    let downloads = tempfile::tempdir().unwrap();
+    std::fs::write(downloads.path().join("a-pack.zip"), b"another file").unwrap();
+    std::fs::write(downloads.path().join("a-pack (1).zip"), &zip).unwrap();
+    let staging = tempfile::tempdir().unwrap();
+    let steps: Arc<Mutex<Vec<PackStep>>> = Arc::default();
+    let seen = steps.clone();
+    let pack = block_on(http::in_http_runtime(curseforge_pack::build(
+        &cf,
+        None,
+        &downloader(),
+        &project,
+        &file,
+        Some(downloads.path()),
+        staging.path(),
+        &move |step| seen.lock().unwrap().push(step),
+        &CancelToken::new(),
+    )))
+    .expect("built from the download");
+    assert_eq!(pack.file_name, "a-pack-title-9001.mrpack");
+    assert_eq!(
+        steps.lock().unwrap().first(),
+        Some(&PackStep::WaitingForDownload)
+    );
+    assert_eq!(
+        std::fs::read(downloads.path().join("a-pack (1).zip")).unwrap(),
+        zip
+    );
+}
+
+/// Waiting for a pack from CurseForge's website stops when it's cancelled.
+#[test]
+fn waiting_for_a_pack_from_curseforges_website_stops_when_cancelled() {
+    let mock = CurseForgeMock::start();
+    mock.project(PACK, "a-pack", 4471)
+        .file(FakeFile::new(9_001, PACK, "a-pack.zip", &["1.20.1"], NEW, pack_zip(&[])).blocked());
+    let cf = mock.client();
+    let project = block_on(cf.project(PACK)).unwrap();
+    let file = block_on(cf.file(PACK, 9_001)).unwrap();
+    let downloads = tempfile::tempdir().unwrap();
+    let staging = tempfile::tempdir().unwrap();
+    let cancel = CancelToken::new();
+    cancel.cancel();
+    let err = block_on(http::in_http_runtime(curseforge_pack::build(
+        &cf,
+        None,
+        &downloader(),
+        &project,
+        &file,
+        Some(downloads.path()),
+        staging.path(),
+        &|_| {},
+        &cancel,
+    )))
+    .unwrap_err();
+    assert!(matches!(err, ServerCfError::Download(_)), "{err}");
 }
 
 #[test]

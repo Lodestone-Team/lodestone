@@ -105,6 +105,18 @@ impl HostState {
         self.by_hand.folder.as_deref()
     }
 
+    /// Where a modpack downloaded from CurseForge's website is looked for: the folder
+    /// watched for files by hand, else (none watched yet) the system's Downloads folder.
+    pub fn pack_downloads_folder(&self) -> Option<PathBuf> {
+        match &self.by_hand.folder {
+            Some(folder) => Some(folder.clone()),
+            None if !self.by_hand.chosen => {
+                launcher_core::content::curseforge_install::downloads_folder()
+            }
+            None => None,
+        }
+    }
+
     /// Adds `files` to what the server `uuid` waits for, and watches for them.
     pub fn add_by_hand(&mut self, uuid: &str, files: Vec<PlannedFile>, cx: &mut Context<Self>) {
         if files.is_empty() {

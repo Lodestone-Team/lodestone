@@ -167,6 +167,9 @@ pub struct ModsPage {
     /// The newer file of the CurseForge modpack the server was made from, which the
     /// Host found itself (`modpack_check` shows it).
     curseforge_pack_update: Option<launcher_core::content::curseforge::CfFile>,
+    /// The update to that file waits for its download from CurseForge's website (its
+    /// author keeps it there): cancelled to stop waiting.
+    curseforge_pack_waiting: Option<launcher_core::game::download::CancelToken>,
     /// The files of the pack update being confirmed that only CurseForge's website
     /// has: watched for once the update has run. Kept with the uploaded pack's source,
     /// so only the update of that very pack takes them; dropped when its dialog closes
@@ -227,6 +230,7 @@ impl ModsPage {
             pack_open: false,
             modpack_check: modpack::ModpackCheck::default(),
             curseforge_pack_update: None,
+            curseforge_pack_waiting: None,
             curseforge_pack_by_hand: None,
             modpack_busy: false,
             modpack_history: None,

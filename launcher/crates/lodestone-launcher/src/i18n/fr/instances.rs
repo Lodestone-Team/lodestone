@@ -178,6 +178,12 @@ pub fn text(message: M) -> &'static str {
         }
         M::Modpack => "Modpack",
         M::ReadingModpack => "Lecture du modpack",
+        M::CurseForgePackWebsiteHint => {
+            "Cette version n’est que sur le site de CurseForge\u{a0}: l’installer ouvre sa page, où le téléchargement commence, et Lodestone Launcher prend le .zip dans votre dossier Téléchargements."
+        }
+        M::CurseForgePackWaiting => {
+            "En attente du téléchargement du modpack depuis le site de CurseForge"
+        }
         M::CouldntImportModpack => "Impossible d’importer le modpack",
         M::CouldntUpdateModpack => "Impossible de mettre à jour le modpack",
         M::StopGameFirst => "Arrêtez d’abord le jeu.",

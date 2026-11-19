@@ -120,6 +120,10 @@ pub fn text(message: M) -> &'static str {
         M::CheckForUpdates => "检查更新",
         M::ModrinthUnreachable => "无法连接到 Modrinth。",
         M::CurseForgeUnreachable => "无法连接到 CurseForge。",
+        M::WaitingForDownload => "正在等待下载",
+        M::CurseForgeWaitingDownload => {
+            "此版本仅在 CurseForge 网站上提供，因此已在浏览器中打开它的页面。请在那里下载：Lodestone Launcher 会从你的“下载”文件夹中取得该 .zip 并继续。"
+        }
         M::StopGameFirst => "请先停止游戏，或等待更新完成。",
         M::CouldntPrepareUpdate => "无法准备更新：{error}",
 

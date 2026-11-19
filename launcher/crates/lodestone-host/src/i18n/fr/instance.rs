@@ -215,6 +215,10 @@ pub fn text(message: M) -> &'static str {
         M::ModpackCheck => "Rechercher une mise à jour",
         M::ModpackCheckFailed => "Impossible de rechercher une mise à jour : {error}",
         M::ModpackUpToDate => "C’est la version la plus récente.",
+        M::ModpackWaitingForDownload => "En attente du téléchargement…",
+        M::ModpackUpdateWebsite => {
+            "Cette version n’est que sur le site de CurseForge, sa page s’est donc ouverte dans votre navigateur. Téléchargez-la là-bas : Lodestone Host prend le .zip dans votre dossier Téléchargements et continue."
+        }
         M::ModpackUpdateTo => "Mettre à jour vers {version}",
         M::ModpackFromFile => "Mettre à jour depuis un fichier",
         M::ModpackFilePrompt => "Mettre à jour",

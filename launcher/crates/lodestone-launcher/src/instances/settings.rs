@@ -200,6 +200,9 @@ pub struct InstanceSettings {
     modpack_versions: Load<Vec<PackVersion>>,
     /// Downloading and planning an update.
     preparing_update: bool,
+    /// The update being prepared is a CurseForge version only its website serves: its
+    /// page opened, and the update waits for the download.
+    waiting_website: bool,
     /// "Unlink" was clicked and waits for the second click.
     confirm_unlink: bool,
     /// "Delete them" (images that can't be read) was clicked and waits for the second
@@ -413,6 +416,7 @@ impl InstanceSettings {
             confirm_remove_added: None,
             modpack_versions: Load::NotLoaded,
             preparing_update: false,
+            waiting_website: false,
             confirm_unlink: false,
             confirm_delete_unreadable: false,
             snapshot_menu: None,
@@ -1794,16 +1798,19 @@ impl InstanceSettings {
     /// Downloads the version and plans the update, then asks the window to confirm it.
     fn prepare_update(&mut self, version: PackVersion, cx: &mut Context<Self>) {
         let id = self.instance_id.clone();
+        let website = matches!(&version, PackVersion::CurseForge(file) if !file.downloadable());
         let Some(task) = self.instances.update(cx, |instances, cx| {
-            instances.plan_modpack_update(&id, version, cx)
+            instances.plan_modpack_update(&id, version, true, cx)
         }) else {
             return self.set_message(t(M::StopGameFirst), true, cx);
         };
         self.preparing_update = true;
+        self.waiting_website = website;
         self._modpack_task = Some(cx.spawn(async move |this, cx| {
             let result = task.await;
             this.update(cx, |this, cx| {
                 this.preparing_update = false;
+                this.waiting_website = false;
                 match result {
                     Ok(prompt) => cx.emit(prompt),
                     Err(err) => {
@@ -1815,6 +1822,13 @@ impl InstanceSettings {
             .ok();
         }));
         cx.notify();
+    }
+
+    /// Shows an update waiting for its download from CurseForge's website, for the
+    /// offscreen screenshots.
+    pub fn preview_waiting_website(&mut self) {
+        self.preparing_update = true;
+        self.waiting_website = true;
     }
 
     /// Shows the pack and an available update, for the offscreen screenshots.
@@ -1948,6 +1962,29 @@ impl InstanceSettings {
                     .children(percent)
                     .into_any_element(),
             )
+        } else if self.preparing_update && self.waiting_website {
+            // the download by hand (the row's hint says where), with a way out: dropping
+            // the task stops the wait
+            Some(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .child(working(t(M::WaitingForDownload).into()))
+                    .child(
+                        Button::new("cancel-modpack-download", t(CommonMsg::Cancel))
+                            .variant(ButtonVariant::Ghost)
+                            .size(ButtonSize::Slim)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this._modpack_task = None;
+                                this.preparing_update = false;
+                                this.waiting_website = false;
+                                cx.notify();
+                            })),
+                    )
+                    .into_any_element(),
+            )
         } else if self.preparing_update {
             Some(working(t(M::DownloadingNewVersion).into()))
         } else {
@@ -2007,7 +2044,12 @@ impl InstanceSettings {
                 }),
         ];
         if let Some(update) = update {
-            rows.push(SettingRow::new(t(M::CheckForUpdates)).child(update));
+            let waiting = self.preparing_update && self.waiting_website;
+            rows.push(
+                SettingRow::new(t(M::CheckForUpdates))
+                    .when(waiting, |row| row.hint(t(M::CurseForgeWaitingDownload)))
+                    .child(update),
+            );
         }
         query
             .section(t(M::Modpack), None)

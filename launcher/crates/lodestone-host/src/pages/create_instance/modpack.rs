@@ -34,7 +34,7 @@ use lodestone_ui::{
         VersionTag,
     },
     file_dialog::{Pick, ShowsError},
-    theme::{Tone, colors, ink, px, radius, text, weights},
+    theme::{Tone, colors, ink, leading, line_height, px, radius, text, weights},
     values::Product,
 };
 
@@ -466,7 +466,18 @@ impl ModpackFlow {
         let request = self.inspect_request;
         let cancel = CancelToken::new();
         self.inspecting = Some(file_id.clone());
-        self.curseforge_step = Some(PackStep::Downloading);
+        // a pack its author keeps on CurseForge's website: its page, where the download
+        // starts, and the pack is read once it's in the Downloads folder
+        let website = !file.downloadable();
+        if website {
+            crate::curseforge::open_page(&file.page_url(&project.page_url()), cx);
+        }
+        let downloads = self.state.read(cx).pack_downloads_folder();
+        self.curseforge_step = Some(if website {
+            PackStep::WaitingForDownload
+        } else {
+            PackStep::Downloading
+        });
         self.curseforge_cancel = Some(cancel.clone());
         let admin = self.admin(cx);
         let (steps, mut shown) = futures::channel::mpsc::unbounded::<PackStep>();
@@ -494,6 +505,7 @@ impl ModpackFlow {
                         &admin,
                         &project,
                         &file,
+                        downloads.as_deref(),
                         &move |step| {
                             steps.unbounded_send(step).ok();
                         },
@@ -1140,7 +1152,42 @@ impl ModpackFlow {
                     .map(|f| f.size),
                 _ => None,
             });
-        let below: AnyElement = if self.inspecting.is_some() {
+        let below: AnyElement = if self.inspecting.is_some()
+            && matches!(self.curseforge_step, Some(PackStep::WaitingForDownload))
+        {
+            // the pack's download from CurseForge's website, with a way out
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(10.))
+                .child(
+                    div()
+                        .text_size(text::MEDIUM)
+                        .line_height(line_height(text::MEDIUM, leading::NORMAL))
+                        .text_color(ink::secondary())
+                        .child(t(M::ModpackCurseForgeWebsite)),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .gap(px(8.))
+                        .items_center()
+                        .text_size(text::MEDIUM)
+                        .text_color(ink::muted())
+                        .child(LoadingDots)
+                        .child(t(M::ModpackWaitingForDownload))
+                        .child(
+                            Button::new("modpack-stop-waiting", t(CommonMsg::Cancel)).on_click(
+                                cx.listener(|this, _, _, cx| {
+                                    this.cancel_inspect();
+                                    cx.notify();
+                                }),
+                            ),
+                        ),
+                )
+                .into_any_element()
+        } else if self.inspecting.is_some() {
             div()
                 .flex()
                 .flex_row()
@@ -1157,7 +1204,9 @@ impl ModpackFlow {
                         tr!(M::ModpackCurseForgeChecking, done = done, total = total)
                     }
                     Some(PackStep::Writing) => t(M::ModpackCurseForgeUploading).to_string(),
-                    Some(PackStep::Downloading) | None => t(M::ModpackDownloading).to_string(),
+                    Some(PackStep::Downloading | PackStep::WaitingForDownload) | None => {
+                        t(M::ModpackDownloading).to_string()
+                    }
                 })
                 // the file's size, its own value
                 .when_some(
@@ -1314,7 +1363,20 @@ impl ModpackFlow {
                             } else {
                                 VersionTag::new(version.version_number.clone()).into_any_element()
                             })
-                            .children(version_type_label(version.version_type)),
+                            .children(version_type_label(version.version_type))
+                            // only CurseForge's website serves it: picking it opens its
+                            // page to download it
+                            .when(
+                                self.curseforge_files
+                                    .get(&version.id)
+                                    .is_some_and(|file| !file.downloadable()),
+                                |this| {
+                                    this.child(StatusBadge::new(
+                                        t(M::ModpackWebsiteDownload),
+                                        Tone::Neutral,
+                                    ))
+                                },
+                            ),
                     )
                     .child(detail),
             )

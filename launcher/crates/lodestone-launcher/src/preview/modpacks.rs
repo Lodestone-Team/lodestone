@@ -442,6 +442,45 @@ fn prompt(instances: &Instances, id: &str) -> UpdatePrompt {
     }
 }
 
+/// A CurseForge modpack whose newest version only its website serves.
+fn website_pack() -> (
+    launcher_core::content::curseforge::CfMod,
+    Vec<launcher_core::content::curseforge::CfFile>,
+) {
+    let project = serde_json::from_value(serde_json::json!({
+        "id": 900001,
+        "name": "All the Tests",
+        "slug": "all-the-tests",
+        "summary": "A kitchen sink modpack for trying things out",
+        "classId": 4471,
+        "links": {"websiteUrl": "https://www.curseforge.com/minecraft/modpacks/all-the-tests"}
+    }))
+    .expect("a sample project");
+    let file = |id: u64, name: &str, date: &str, blocked: bool| {
+        serde_json::from_value(serde_json::json!({
+            "id": id,
+            "modId": 900001,
+            "displayName": name,
+            "fileName": format!("{name}.zip"),
+            "releaseType": 1,
+            "fileDate": date,
+            "downloadUrl": if blocked { serde_json::Value::Null } else {
+                serde_json::json!(format!("https://edge.forgecdn.net/files/{id}/{name}.zip"))
+            },
+            "fileLength": 48_000_000,
+            "gameVersions": ["1.21.1", "NeoForge"]
+        }))
+        .expect("a sample file")
+    };
+    (
+        project,
+        vec![
+            file(9_003, "All the Tests 1.2", "2025-03-01T10:00:00Z", true),
+            file(9_002, "All the Tests 1.1", "2025-02-01T10:00:00Z", false),
+        ],
+    )
+}
+
 /// Shows an import in the sidebar.
 pub fn importing(instances: &mut Instances, cx: &mut Context<Instances>) {
     let progress = Arc::new(InstallProgress::default());
@@ -466,6 +505,38 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                         browser.preview("", results(), project(), versions(), icons(), cx)
                     });
                 });
+            }
+        }
+        // a CurseForge pack whose picked version only its website serves
+        "new-instance-modpack-website" => {
+            shell.open_new_instance_with(Some(("", "")), None, cx);
+            if let Some(dialog) = shell.new_instance_dialog() {
+                dialog.update(cx, |dialog, cx| {
+                    dialog.set_mode(Mode::Modpack, cx);
+                    let (project, files) = website_pack();
+                    dialog.modpack_browser().clone().update(cx, |browser, cx| {
+                        browser.preview_curseforge(project, files, 9_003, cx)
+                    });
+                });
+            }
+        }
+        "modpack-settings-website" => {
+            shell.select_tab(InstanceTab::Settings, cx);
+            if let Some(settings) = shell.settings_view() {
+                settings.update(cx, |settings, _| {
+                    settings.preview_modpack(record(), versions());
+                    settings.preview_waiting_website();
+                });
+            }
+        }
+        "modpack-add-website" => {
+            let id = shell.instances().read(cx).selected().map(|i| i.id.clone());
+            let Some(id) = id else {
+                return;
+            };
+            shell.open_add_modpack(&id, cx);
+            if let Some(dialog) = shell.add_modpack_dialog().cloned() {
+                dialog.update(cx, |dialog, cx| dialog.preview_waiting_website(cx));
             }
         }
         "modpack-settings" => {

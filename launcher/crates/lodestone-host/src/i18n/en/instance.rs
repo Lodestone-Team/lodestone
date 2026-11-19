@@ -204,6 +204,10 @@ crate::i18n::messages! {
         ModpackCheck = "Check for an update",
         ModpackCheckFailed = "Couldn’t check for an update: {error}",
         ModpackUpToDate = "It’s the newest version.",
+        /// Beside a spinner, while the Host waits for a file in the Downloads folder.
+        ModpackWaitingForDownload = "Waiting for the download…",
+        /// A CurseForge modpack version only its website serves: its page opened in the browser.
+        ModpackUpdateWebsite = "This version is only on CurseForge’s website, so its page opened in your browser. Download it there: Lodestone Host takes the .zip from your Downloads folder and carries on.",
         ModpackUpdateTo = "Update to {version}",
         ModpackFromFile = "Update from a file",
         ModpackFilePrompt = "Update",

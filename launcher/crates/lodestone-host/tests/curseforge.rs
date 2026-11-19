@@ -339,6 +339,7 @@ fn the_real_core_takes_what_the_host_makes_of_curseforge() {
         admin,
         &project,
         &file,
+        None,
         &|_| {},
         &CancelToken::new(),
     )))
@@ -360,6 +361,41 @@ fn the_real_core_takes_what_the_host_makes_of_curseforge() {
         from.page_url.as_deref(),
         Some("https://www.curseforge.com/minecraft/mc-mods/a-pack")
     );
+
+    // a modpack file its author keeps on CurseForge's website: taken from the
+    // Downloads folder once the user downloaded it there, and the core reads it too
+    let site_only_pack = pack_zip(&[(CREATE, 5001), (FABRIC_API, 4002)]);
+    mock.file(
+        FakeFile::new(
+            9002,
+            PACK,
+            "a-pack-2.6.zip",
+            &[GAME],
+            NEW,
+            site_only_pack.clone(),
+        )
+        .blocked(),
+    );
+    let file = block_on(cf.file(PACK, 9002)).unwrap();
+    std::fs::write(downloads.path().join("a-pack-2.6.zip"), &site_only_pack).unwrap();
+    let (info, by_hand) = block_on(http::in_http_runtime(curseforge_pack::build_and_upload(
+        &cf,
+        None,
+        &downloader,
+        admin,
+        &project,
+        &file,
+        Some(downloads.path()),
+        &|_| {},
+        &CancelToken::new(),
+    )))
+    .expect("uploaded from the download");
+    assert!(by_hand.is_empty());
+    assert_eq!(info.unsupported_reason, None);
+    assert!(info.upload_id.is_some());
+    let from = info.curseforge.expect("the pack says where it came from");
+    assert_eq!((from.project, from.file), (PACK, 9002));
+    assert!(downloads.path().join("a-pack-2.6.zip").is_file());
 }
 
 /// The same against CurseForge itself, for a developer to run by hand: needs
@@ -399,6 +435,7 @@ fn curseforge_itself_through_the_real_core() {
             admin,
             project,
             file,
+            None,
             &|step| eprintln!("  {step:?}"),
             &CancelToken::new(),
         )))

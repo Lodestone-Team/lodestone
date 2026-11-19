@@ -254,6 +254,11 @@ impl Downloader {
         }
     }
 
+    /// Waits `duration` on the downloader's timer (the app's executor's, or a test's).
+    pub async fn sleep(&self, duration: Duration) {
+        (self.sleep)(duration).await
+    }
+
     pub fn with_concurrency(mut self, concurrency: usize) -> Self {
         self.concurrency = concurrency.max(1);
         self

@@ -66,6 +66,56 @@ pub async fn download(
     }
     Ok(dest)
 }
+/// How often [`wait_for_download`] looks in the Downloads folder.
+pub const WAIT_EVERY: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// The modpack `file`, whose author keeps it on CurseForge's website, once the user has
+/// downloaded it there into `folder`: copied into `dir` as [`download`] puts it (the
+/// download stays where it is) and checked by its SHA-1, or its fingerprint when
+/// CurseForge gave none. The caller has opened the file's page
+/// ([`curseforge::CfFile::page_url`]), which starts the download. Looks every
+/// [`WAIT_EVERY`] until the file is there or `cancel` is set: a file still downloading,
+/// or another with a like name, doesn't match and is looked at again.
+pub async fn wait_for_download(
+    downloader: &crate::game::download::Downloader,
+    file: &curseforge::CfFile,
+    folder: &Path,
+    dir: &Path,
+    cancel: &crate::game::download::CancelToken,
+) -> Result<PathBuf, ModpackError> {
+    use crate::content::curseforge_install::{find_downloaded_files, is_curseforge_file};
+    if file.sha1().is_none() && file.file_fingerprint == 0 {
+        return Err(invalid(format!(
+            "CurseForge sent no hash for {}",
+            file.file_name
+        )));
+    }
+    let dest = dir.join(format!(".lodestone-pack-{}.zip", file.id));
+    loop {
+        if cancel.is_cancelled() {
+            return Err(ModpackError::Cancelled);
+        }
+        if let Some((_, found)) = find_downloaded_files(folder, &[file]).into_iter().next() {
+            // the copy is what's checked and read: the download may change meanwhile
+            let copied = std::fs::copy(&found, &dest).map_err(|source| ModpackError::Io {
+                path: dest.clone(),
+                source,
+            });
+            match copied {
+                Ok(_) if is_curseforge_file(&dest, file) => return Ok(dest),
+                Ok(_) => {
+                    let _ = std::fs::remove_file(&dest);
+                }
+                Err(err) => {
+                    let _ = std::fs::remove_file(&dest);
+                    return Err(err);
+                }
+            }
+        }
+        downloader.sleep(WAIT_EVERY).await;
+    }
+}
+
 const MAX_MANIFEST_BYTES: u64 = 16 * 1024 * 1024;
 
 #[derive(Deserialize)]

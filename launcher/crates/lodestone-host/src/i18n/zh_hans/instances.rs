@@ -144,6 +144,11 @@ pub fn text(message: M) -> &'static str {
             "CurseForge 上没有该整合包的这个文件。请改为选择它的某个版本。"
         }
         M::ModpackCurseForgeReading => "正在向 CurseForge 查询整合包的文件…",
+        M::ModpackWebsiteDownload => "仅限网站下载",
+        M::ModpackWaitingForDownload => "正在等待下载…",
+        M::ModpackCurseForgeWebsite => {
+            "此版本仅在 CurseForge 网站上提供，因此已在浏览器中打开它的页面。请在那里下载：Lodestone Host 会从你的“下载”文件夹中取得该 .zip 并继续。"
+        }
         M::ModpackCurseForgeChecking => {
             "正在下载仅 CurseForge 提供的文件以进行校验（{done}/{total}）…"
         }

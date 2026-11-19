@@ -154,6 +154,10 @@ pub fn text(message: M) -> &'static str {
         }
         M::Modpack => "整合包",
         M::ReadingModpack => "正在读取整合包",
+        M::CurseForgePackWebsiteHint => {
+            "此版本仅在 CurseForge 网站上提供：安装时会打开它的页面并开始下载，Lodestone Launcher 会从你的“下载”文件夹中取得该 .zip。"
+        }
+        M::CurseForgePackWaiting => "正在等待从 CurseForge 网站下载整合包",
         M::CouldntImportModpack => "无法导入整合包",
         M::CouldntUpdateModpack => "无法更新整合包",
         M::StopGameFirst => "请先停止游戏。",

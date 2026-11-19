@@ -194,6 +194,10 @@ crate::i18n::messages! {
         /// The name of a modpack whose file has no name.
         Modpack = "Modpack",
         ReadingModpack = "Reading the modpack",
+        /// Under a CurseForge modpack's versions, when the picked one is only on CurseForge's website.
+        CurseForgePackWebsiteHint = "This version is only on CurseForge's website: installing opens its page, where the download starts, and Lodestone Launcher takes the .zip from your Downloads folder.",
+        /// The import's step while it waits for a modpack the user downloads from CurseForge's website.
+        CurseForgePackWaiting = "Waiting for the modpack's download from CurseForge's website",
         CouldntImportModpack = "Couldn't import the modpack",
         CouldntUpdateModpack = "Couldn't update the modpack",
         StopGameFirst = "Stop the game first.",

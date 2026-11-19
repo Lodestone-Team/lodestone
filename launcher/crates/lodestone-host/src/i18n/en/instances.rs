@@ -146,6 +146,12 @@ crate::i18n::messages! {
         ModpackCurseForgeNoFile = "CurseForge has no such file for this modpack. Pick one of its versions instead.",
         /// What the Host does with a CurseForge modpack once its file is downloaded.
         ModpackCurseForgeReading = "Asking CurseForge about the modpack’s files…",
+        /// Tag on a CurseForge modpack version only its website serves.
+        ModpackWebsiteDownload = "Website download",
+        /// Beside a spinner, while the Host waits for a file in the Downloads folder.
+        ModpackWaitingForDownload = "Waiting for the download…",
+        /// A CurseForge modpack version only its website serves: its page opened in the browser.
+        ModpackCurseForgeWebsite = "This version is only on CurseForge’s website, so its page opened in your browser. Download it there: Lodestone Host takes the .zip from your Downloads folder and carries on.",
         /// CurseForge gives no SHA-512, so each of its files is downloaded once to work one out. {done} and {total} are counts of files.
         ModpackCurseForgeChecking = "Downloading the files only CurseForge has, to check them ({done} of {total})…",
         ModpackCurseForgeUploading = "Sending the modpack to Lodestone Core…",

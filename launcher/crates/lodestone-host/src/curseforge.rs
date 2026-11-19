@@ -87,3 +87,14 @@ pub fn downloader(cx: &App) -> Option<Downloader> {
         sleep,
     ))
 }
+
+/// Opens a CurseForge page (a file's download page) in the browser. Not with the local
+/// stand-in for CurseForge's API (`LODESTONE_CURSEFORGE_API_URL`, for tests and
+/// screenshots): its projects have no pages on curseforge.com.
+pub fn open_page(url: &str, cx: &mut App) {
+    if std::env::var_os("LODESTONE_CURSEFORGE_API_URL").is_some() {
+        log::info!("not opening {url}: CurseForge's API is a stand-in");
+        return;
+    }
+    cx.open_url(url);
+}
