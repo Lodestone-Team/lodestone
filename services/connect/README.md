@@ -235,6 +235,18 @@ and alt text), `og:site_name`, `og:type`, `theme-color` (the embed's side colour
 `GET /og/friend.png`, cached for a week. The crawler fetches them, not the page, so the
 Content-Security-Policy is unchanged.
 
+In Discord the pages show a richer card instead, from Discord's
+[component embed](https://discord.com/developers/docs/link-previews/component-embeds):
+a `<script id="discord:component-embed" type="application/json">` in `<head>` holding
+a Container with the card image, a heading and a line on what the link does, and link
+buttons to Lodestone Launcher's download page and lodestone.cc. The buttons can't open
+the link itself, since its key is after the `#` and never reaches the service, so the
+message's own link does that. Discord allows link buttons only, eight component types,
+40 components and 3,000 bytes; `componentEmbed()` throws when the embed is over, and an
+invalid one can leave Discord showing no preview, so test changes in Discord's
+[Embed Debugger](https://discord.com/developers/embeds). Discord caches a preview for
+about 30 minutes. Browsers never run a JSON script, so the CSP is unchanged.
+
 Like the pages, the cards are the same for every code: they name no server and no
 friend, because the service doesn't know which server an invite is for. They are made
 by `python tools/make_og_images.py` (Pillow) from `og-src/cover.png` and the launcher's

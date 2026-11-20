@@ -66,6 +66,61 @@ for (const [path, image, title] of [
   });
 }
 
+/// The page's Discord component embed: the JSON in `<script id="discord:component-embed">`
+/// (in <head>), its size in bytes as served, and the raw text.
+function componentEmbedOf(html) {
+  const match = /<script id="discord:component-embed" type="application\/json">(.*?)<\/script>/s.exec(html);
+  assert.ok(match, 'the page has a component embed');
+  assert.ok(match.index < html.indexOf('</head>'), 'in <head>');
+  return { embed: JSON.parse(match[1]), bytes: Buffer.byteLength(match[1]), raw: match[1] };
+}
+
+/// Every component in the tree, the container first.
+function allComponents(component) {
+  return [component, ...(component.components || []).flatMap(allComponents), ...(component.accessory ? [component.accessory] : [])];
+}
+
+for (const [path, image, title] of [
+  ['j', 'invite', 'Join my Minecraft server'],
+  ['f', 'friend', "Let's be friends on Lodestone"],
+]) {
+  test(`the ${image} page has a Discord component embed with the card and link buttons`, async () => {
+    const html = await (await fetch(`${s.base}/${path}/ABCDEFGH23`)).text();
+    const { embed, bytes, raw } = componentEmbedOf(html);
+
+    // Discord's rules (developers/link-previews/component-embeds): one Container at the
+    // top, at most 40 components, 3,000 bytes, only these types, link buttons only.
+    assert.deepEqual(Object.keys(embed), ['component']);
+    assert.equal(embed.component.type, 17);
+    assert.equal(embed.component.accent_color, parseInt(metas(html)['theme-color'].slice(1), 16));
+    assert.ok(bytes <= 3000, `${bytes} bytes`);
+    assert.doesNotMatch(raw, /[<>&]/, 'nothing in it can end the script tag');
+    const components = allComponents(embed.component);
+    assert.ok(components.length <= 40);
+    for (const c of components) assert.ok([1, 2, 9, 10, 11, 12, 14, 17].includes(c.type), `type ${c.type}`);
+    assert.equal(components.filter((c) => c.type === 17).length, 1);
+
+    const gallery = components.find((c) => c.type === 12);
+    assert.deepEqual(gallery.items.map((i) => i.media.url), [`${ORIGIN}/og/${image}.png`]);
+    assert.ok(gallery.items[0].description);
+
+    const text = components.filter((c) => c.type === 10).map((c) => c.content).join('\n');
+    assert.match(text, new RegExp(`^### ${title}$`, 'm'));
+    assert.match(text, /Lodestone Launcher/);
+
+    const buttons = components.filter((c) => c.type === 2);
+    assert.deepEqual(buttons.map((b) => b.url), ['https://www.lodestone.cc/launcher/', 'https://www.lodestone.cc/']);
+    for (const b of buttons) {
+      assert.equal(b.style, 5, 'link buttons only');
+      assert.ok(b.label && b.label.length <= 80);
+      assert.deepEqual(Object.keys(b).sort(), ['label', 'style', 'type', 'url'], 'any other key invalidates the embed');
+    }
+
+    // Like the card, the same for every code: it names no server, friend or code.
+    assert.doesNotMatch(raw, /ABCDEFGH23/);
+  });
+}
+
 test('the two cards differ, and only they exist', async () => {
   const invite = Buffer.from(await (await fetch(`${s.base}/og/invite.png`)).arrayBuffer());
   const friend = Buffer.from(await (await fetch(`${s.base}/og/friend.png`)).arrayBuffer());
