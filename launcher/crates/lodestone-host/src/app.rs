@@ -9,8 +9,8 @@
 //!    ends, the Host signs in again.
 //!
 //! Closing the window keeps the Host, the core and its servers running in the
-//! background (the menu bar icon and the Dock bring it back); Quit stops the core,
-//! whose servers stop first, then quits.
+//! background (the menu bar icon and the Dock bring it back); Quit (also Alt+F4 off
+//! macOS) stops the core, whose servers stop first, then quits.
 
 use std::sync::Arc;
 
