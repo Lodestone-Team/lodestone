@@ -9,6 +9,7 @@ pub mod components;
 /// The control socket for lodestone-launcher-cli.
 pub mod control;
 pub mod deep_link;
+pub mod discord;
 pub mod i18n;
 pub mod images;
 pub mod instances;

@@ -323,6 +323,8 @@ pub struct LauncherShell {
     settings_search: Entity<SettingsSearch>,
     /// Updating the launcher: Settings > General, and the top bar's notice.
     updater: Entity<Updater>,
+    /// The Discord status, and what Settings > General > Discord says about it.
+    discord: Entity<crate::discord::DiscordPresence>,
     /// The Settings tab of the selected instance, rebuilt when the selection changes.
     settings: Option<(Entity<InstanceSettings>, [Subscription; 9])>,
     page: Page,
@@ -511,6 +513,7 @@ impl LauncherShell {
                 }
                 InstancesEvent::GameWindowOpened(_) => this.game_window_opened(cx),
                 InstancesEvent::GameExited(_) => this.game_exited(cx),
+                InstancesEvent::ActivityChanged(_) => {}
                 // the Friends page's LAN sharing listens for it itself
                 InstancesEvent::LanOpened { .. } => {}
             }),
@@ -652,6 +655,11 @@ impl LauncherShell {
             cx.new(|cx| Updater::new(instances, cx))
         };
         observe.push(cx.observe(&updater, |_, _, cx| cx.notify()));
+        let discord = {
+            let instances = instances.clone();
+            cx.new(|cx| crate::discord::DiscordPresence::new(instances, cx))
+        };
+        observe.push(cx.observe(&discord, |_, _, cx| cx.notify()));
         let slideshow = {
             let instances = instances.clone();
             cx.new(|_| crate::instances::slideshow::Slideshow::new(instances))
@@ -672,6 +680,7 @@ impl LauncherShell {
             skin,
             settings_search,
             updater,
+            discord,
             settings: None,
             page: Page::default(),
             tab: InstanceTab::default(),

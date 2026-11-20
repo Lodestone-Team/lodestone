@@ -7,7 +7,9 @@ use gpui::{App, Context, Entity, Task};
 use launcher_core::settings::AfterLaunch;
 use launcher_core::{
     instances::{BACKGROUND_FILE, ICON_FILE, Instance},
-    settings::{CliAccess, CliSettings, InstanceDefaults, Settings, UpdateChannel},
+    settings::{
+        CliAccess, CliSettings, DiscordSettings, InstanceDefaults, Settings, UpdateChannel,
+    },
 };
 
 use super::{Instances, fields};
@@ -36,6 +38,7 @@ pub(crate) struct LauncherValues {
     auto_update: bool,
     update_channel: UpdateChannel,
     after_launch: AfterLaunch,
+    discord: DiscordSettings,
     skin: Option<String>,
     instance_defaults: InstanceDefaults,
     cli: CliSettings,
@@ -51,6 +54,7 @@ impl LauncherValues {
             auto_update: settings.auto_update,
             update_channel: settings.update_channel,
             after_launch: settings.after_launch,
+            discord: settings.discord,
             skin: settings.skin.clone(),
             instance_defaults: settings.instance_defaults.clone(),
             cli: settings.cli,
@@ -65,6 +69,7 @@ impl LauncherValues {
         settings.auto_update = self.auto_update;
         settings.update_channel = self.update_channel;
         settings.after_launch = self.after_launch;
+        settings.discord = self.discord;
         settings.skin = self.skin.clone();
         settings.instance_defaults = self.instance_defaults.clone();
         settings.cli = self.cli;
@@ -110,6 +115,20 @@ impl LauncherValues {
                 AfterLaunch::Quit => t(SM::AfterLaunchQuit),
             };
             arrow(t(SM::WhenAGameStarts), choice)
+        } else if self.discord != other.discord {
+            let (a, b) = (self.discord, other.discord);
+            let (setting, on) = if a.enabled != b.enabled {
+                (SM::DiscordShowPlaying, a.enabled)
+            } else if a.show_world != b.show_world {
+                (SM::DiscordShowWorld, a.show_world)
+            } else if a.show_coordinates != b.show_coordinates {
+                (SM::DiscordShowCoordinates, a.show_coordinates)
+            } else if a.show_server != b.show_server {
+                (SM::DiscordShowServer, a.show_server)
+            } else {
+                (SM::DiscordShowStats, a.show_stats)
+            };
+            arrow(t(setting), on_off(on))
         } else if self.skin != other.skin {
             let name = launcher_core::ui_skin::built_in(self.skin.as_deref().unwrap_or("default"))
                 .map(|spec| spec.name)
