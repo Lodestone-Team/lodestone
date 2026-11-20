@@ -45,6 +45,7 @@ JSON over HTTPS. Bodies are sent as `Content-Type: application/json`. Errors are
 | `DELETE /v1/invites/<code>` | `Authorization: Bearer <secret>` | `200 {"ok": true}` |
 | `GET /v1/health` | | `200 {"ok": true, "version": "1"}` |
 | `GET /j/<code>` | | `200`, the invite page (HTML) |
+| `GET /og/invite.png`, `/og/friend.png` | | `200`, the link pages' cards (PNG, 1200x630) |
 
 On the WebSocket the host sends `ping` at least every 30 seconds and gets `pong`
 (Cloudflare answers it without waking the invite's Durable Object, so a waiting invite
@@ -224,6 +225,21 @@ from), and offers **Open in Lodestone Launcher** (`lodestone://friend?link=<the 
 link, percent-encoded>`), **Copy link**, the download link, and a note that the link can be
 pasted into Lodestone Launcher › Friends › Add friend. It has the same
 Content-Security-Policy, with its own script's hash, and loads nothing from elsewhere.
+
+### Link previews
+
+Discord and other apps that read OpenGraph show a large image card when a link is
+pasted. Both pages carry `og:title`, `og:description`, `og:image` (with its size, type
+and alt text), `og:site_name`, `og:type`, `theme-color` (the embed's side colour) and
+`twitter:card` = `summary_large_image`. The cards are `GET /og/invite.png` and
+`GET /og/friend.png`, cached for a week. The crawler fetches them, not the page, so the
+Content-Security-Policy is unchanged.
+
+Like the pages, the cards are the same for every code: they name no server and no
+friend, because the service doesn't know which server an invite is for. They are made
+by `python tools/make_og_images.py` (Pillow) from `og-src/cover.png` and the launcher's
+Clash Grotesk font, which also writes `src/og-images.js`, the PNGs as base64 the Worker
+serves. Change the text or art there and run it again.
 
 ## Privacy
 
