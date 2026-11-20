@@ -347,7 +347,7 @@ function componentEmbed({ heading, text, image, imageAlt, note }) {
             { type: 2, style: 5, label: 'About Lodestone', url: HOME_PAGE },
           ],
         },
-        { type: 10, content: `-# ${note}` },
+        { type: 10, content: note }, // plain: Discord doesn't show subtext (-#) here
       ],
     },
   };
@@ -421,7 +421,7 @@ const INVITE_PAGE = pageHtml({
   ogImageAlt: 'Join my Minecraft server. The Lodestone logo over a field of blocks.',
   embed: componentEmbed({
     heading: 'Join my Minecraft server',
-    text: "Click the link above to open it in **Lodestone Launcher**, and you'll join my server. Your game connects straight to my computer.",
+    text: "Click the link above to open it in **Lodestone Launcher** and join my server.",
     image: 'invite',
     imageAlt: 'Join my Minecraft server. The Lodestone logo over a field of blocks.',
     note: "Don't have the launcher? Get it, then click the link again.",
@@ -454,7 +454,7 @@ const FRIEND_PAGE = pageHtml({
   ogImageAlt: "Let's be friends on Lodestone. The Lodestone logo over a field of blocks.",
   embed: componentEmbed({
     heading: "Let's be friends on Lodestone",
-    text: 'Click the link above to open it in **Lodestone Launcher** and add me. Friends see the servers we share, and join them without a link.',
+    text: 'Click the link above to open it in **Lodestone Launcher** and add me as a friend.',
     image: 'friend',
     imageAlt: "Let's be friends on Lodestone. The Lodestone logo over a field of blocks.",
     note: "Don't have the launcher? Get it, then click the link again. The link works for 24 hours.",
