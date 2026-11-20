@@ -224,6 +224,9 @@ impl HostApp {
                 let weak = cx.entity().downgrade();
                 state.friends = Some(cx.new(|cx| crate::friends::FriendSharing::new(weak, cx)));
             });
+            let weak = state.downgrade();
+            let discord = crate::discord::create(weak, cx);
+            state.update(cx, |state, _| state.discord = Some(discord));
         }
         self.crash_target = Some(state.downgrade());
         self.say_crash(cx);

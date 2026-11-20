@@ -10,6 +10,7 @@ pub mod components;
 pub mod control;
 pub mod deep_link;
 pub mod discord;
+pub mod discord_join;
 pub mod i18n;
 pub mod images;
 pub mod instances;

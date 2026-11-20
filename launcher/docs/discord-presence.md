@@ -54,3 +54,79 @@ out):
   stats. IP addresses and local names (`localhost`, `*.local`, Lodestone Connect
   tunnels) are never shown.
 - When several games run, the status shows the one started last.
+
+## Game invites for shared servers
+
+While a server of this computer's core runs and is shared with a Lodestone Connect
+invite, Lodestone Host can show it in the owner's Discord status, so Discord offers
+its game invites: "Ask to Join" on their profile, and an "Invite to join" card they
+can send in a chat. A friend who presses Join gets the invite in their Lodestone
+Launcher, which opens the join dialog as a `lodestone://join` link does (joining
+still needs their click on Play). Settings › Profile › Discord in the Host turns it
+on; it's off by default, because the invite, key included, goes through Discord to
+everyone the owner invites or lets in there.
+
+- `launcher-core/src/discord/invite.rs`: the join secret, the Host's and the
+  launcher's loops, and the command Discord starts the launcher with.
+- `lodestone-host/src/discord.rs`: which server to show (the first running one
+  that's shared), the status, and the "asks to join" toast with "Let them join".
+- `lodestone-launcher/src/discord_join.rs`: hands the invites Discord sends to the
+  join dialog, and registers the launch command.
+
+Join only works for friends whose launcher takes Discord's invites: an older one
+never connects or registers the launch command, and people without Lodestone have
+nothing to open. Discord refuses buttons on a status with a join secret, so the
+status can't carry the link. Instead the "asks to join" toast and Settings ›
+Profile › Discord (while a server shows) have **Copy invite link**, which copies the
+whole `https://connect.lodestone.cc/j/…` link to send them.
+
+What Discord wants (checked against the Discord app in November 2026):
+
+- `party.id` (2 to 128 characters), `party.size` (`[current, max]`, 0 people
+  allowed) and `secrets.join` (at most 128 characters). Discord then marks the
+  status joinable (`flags: 2`).
+- No `party.privacy`. A public party sets the PARTY_PRIVACY_FRIENDS or
+  PARTY_PRIVACY_VOICE_CHANNEL flag, and then Discord gives the join secret to any
+  friend who asks for it, without the host letting them in. With JOIN only, viewers
+  get "Ask to Join", and the secret only on an accepted request or an invite card.
+- What friends receive with the status (checked from a friend's account): details,
+  state, party id and size, `flags` and assets, never `secrets`. The party id is
+  seen, so the Host's is a hash of the instance id (`invite::party_id`).
+- Only `join` in `secrets`: another field, even null, makes invites arrive blank
+  (Lachee/discord-rpc-csharp#286). Buttons together with secrets are refused
+  (error 5005), so the Host's status has none.
+- `SUBSCRIBE` to `ACTIVITY_JOIN` and `ACTIVITY_JOIN_REQUEST` works for the
+  application without OAuth. Answers can come back out of order.
+- Legcord's and Vesktop's arRPC serve the same pipes but never answer `SUBSCRIBE`
+  and never send these events. The connection for events takes the app that
+  confirms within a second (`Connection::open_subscribed`), and the launcher lets an
+  unconfirmed one go and tries again later. The launcher's playing status prefers
+  the confirming app too (`Connection::open_preferred`, which probes with
+  `ACTIVITY_SPECTATE`), falling back to arRPC when it's the only one, so with both
+  open the status lands on the official profile.
+- The official app throttles handshakes: after many connections in a short time,
+  READY comes 10 s or more late. The app connects rarely, so it doesn't matter
+  outside tests that connect over and over.
+- The invite link is about 140 characters, longer than a secret may be, so the
+  secret writes the same invite more tightly: `1/<service>/<code>/<fingerprint and
+  token in base64url>`, about 100 characters.
+- To start the launcher for a join, Discord runs the command registered for
+  `discord-<application id>`: on Windows, `HKCU\Software\Classes\discord-<id>`
+  (the launcher with `lodestone://discord`); on macOS,
+  `~/Library/Application Support/discord/games/<id>.json` (`{"command":
+  "lodestone://discord"}`, which opens the launcher through its URL scheme). Release
+  builds write it as they start; development builds don't, so they leave the
+  installed launcher's alone. Then the launcher connects, and Discord hands over the
+  invite.
+
+Performance: the Host does nothing while the setting is off. While it's on, it reads
+the share status of running servers from the local core when they start, when the
+Overview reads or changes it, and once a minute. One thread talks to Discord, only
+while there's a status to show, sends it only when it changed (at most every 5 s),
+and looks for "Ask to Join" requests once a second meanwhile. The launcher's thread
+waits on Discord's connection without waking up, and retries every 5 s to 60 s
+while Discord is closed.
+
+Testing needs two Discord accounts: nobody sees their own invites.
+`cargo test -p launcher-core live_discord -- --ignored` checks that the Discord app
+on this computer confirms the subscriptions (and shows nothing).

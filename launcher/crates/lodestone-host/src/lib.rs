@@ -20,6 +20,7 @@ pub mod app;
 pub mod by_hand;
 pub mod core_process;
 pub mod curseforge;
+pub mod discord;
 pub mod friends;
 pub mod i18n;
 pub mod instance_icons;

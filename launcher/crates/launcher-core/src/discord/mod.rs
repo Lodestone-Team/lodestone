@@ -2,7 +2,8 @@
 //!
 //! The pieces, without GPUI and without threads of their own (the app runs them on
 //! one worker thread, off the window's):
-//! - [`ipc`]: the local connection to the Discord app and `SET_ACTIVITY`;
+//! - [`ipc`]: the local connection to the Discord app: statuses, subscriptions;
+//! - [`invite`]: game invites for servers shared with Lodestone Connect;
 //! - [`activity`]: where the player is (menus, single player, a server), from the
 //!   game's log lines;
 //! - [`world`]: the dimension, coordinates and stats from the single-player world's
@@ -12,6 +13,7 @@
 //! does, and only while it runs.
 
 pub mod activity;
+pub mod invite;
 pub mod ipc;
 pub mod world;
 

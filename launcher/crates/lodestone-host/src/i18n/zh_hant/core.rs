@@ -167,6 +167,17 @@ pub fn text(message: M) -> &'static str {
         M::StartAtLogin => "登入時開啟 Lodestone Host",
         M::StartAtLoginHint => "在背景開啟，並啟動設為自動啟動的伺服器。",
         M::StartAtLoginFailed => "無法變更啟動設定：{error}",
+        M::DiscordSection => "Discord",
+        M::DiscordInvites => "共享伺服器的 Discord 邀請",
+        M::DiscordInvitesHint => {
+            "伺服器以邀請連結共享時，你的 Discord 狀態會顯示它，並附上「要求加入」，你也可以在 Discord 聊天中邀請他人。邀請（包括金鑰）會經由 Discord 傳給你邀請或允許加入的每個人：和連結一樣，拿到它的人都能加入。只有 Lodestone Launcher 為最新版的朋友才能使用「加入」：請把邀請連結傳給其他人。"
+        }
+        M::DiscordShowing => "你的 Discord 狀態中：{name}",
+        M::DiscordShowingHint => "朋友按「加入」沒有反應時（啟動器版本較舊）：複製連結傳給他們。",
+        M::DiscordCopyLink => "複製邀請連結",
+        M::DiscordHosting => "正在主持 {name}",
+        M::DiscordAsksToJoin => "{name} 要求透過 Discord 加入 {server}",
+        M::DiscordLetJoin => "允許加入",
         M::Language => "語言",
         M::LanguageAuto => "系統預設（{language}）",
         M::Theme => "主題",

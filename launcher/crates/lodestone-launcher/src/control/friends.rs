@@ -152,6 +152,11 @@ struct OpenParams {
 /// friend link, as opening the link does.
 pub fn open(call: Call, cx: &mut App) -> Reply {
     let params: OpenParams = params!(call);
+    // Discord starting the launcher for a join (a second process passes it on)
+    if crate::discord_join::is_wake_link(&params.link) {
+        crate::discord_join::wake();
+        return ready(Ok(json!({ "opened": true })));
+    }
     // a friend link (`lodestone://friend?link=…`) opens the Add friend dialog
     if launcher_core::cores::friends::FriendLink::parse(&params.link).is_ok() {
         let servers = call.control.servers.clone();

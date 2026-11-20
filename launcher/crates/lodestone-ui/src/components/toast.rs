@@ -7,7 +7,8 @@
 //! - has a level ([`ToastLevel`]), which picks its icon and colour;
 //! - goes away by itself after its duration, but not while the pointer is on it;
 //! - closes when clicked, or with its close button;
-//! - may have one action button ("Undo", "Open folder"), which closes it too;
+//! - may have up to [`MAX_ACTIONS`] action buttons ("Undo", "Open folder"), which
+//!   close it too: one beside the message, more in a row under it;
 //! - may have a key: a new toast with the same key replaces the old one, so a
 //!   repeated "Saved" doesn't stack up.
 //!
@@ -42,6 +43,8 @@ pub const DEFAULT_DURATION: Duration = Duration::from_secs(5);
 pub const ERROR_DURATION: Duration = Duration::from_secs(8);
 /// The most toasts shown at once; a new one pushes the oldest out.
 pub const MAX_SHOWN: usize = 5;
+/// The most buttons a toast has (see [`Toast::action`]).
+pub const MAX_ACTIONS: usize = 2;
 /// How often the time left is counted down.
 const TICK: Duration = Duration::from_millis(200);
 
@@ -107,7 +110,7 @@ pub struct Toast {
     /// A toast with the same key replaces this one.
     pub key: Option<SharedString>,
     pub duration: Duration,
-    action: Option<ToastAction>,
+    actions: Vec<ToastAction>,
     /// What the toast is about, on its first line, with its state; the text is then
     /// the outcome under it.
     object: Option<super::ObjectChip>,
@@ -137,7 +140,7 @@ impl Toast {
             } else {
                 DEFAULT_DURATION
             },
-            action: None,
+            actions: Vec::new(),
             object: None,
             status: None,
             version: None,
@@ -191,17 +194,26 @@ impl Toast {
         self
     }
 
-    /// A button on the toast. Pressing it runs `handler` and closes the toast.
+    /// A button on the toast. Pressing it runs `handler` and closes the toast. The
+    /// first is the main one; a second call adds another after it, up to
+    /// [`MAX_ACTIONS`] (more don't fit).
     pub fn action(
         mut self,
         label: impl Into<SharedString>,
         handler: impl Fn(&mut Window, &mut App) + 'static,
     ) -> Self {
-        self.action = Some(ToastAction {
-            label: label.into(),
-            handler: Rc::new(handler),
-        });
+        if self.actions.len() < MAX_ACTIONS {
+            self.actions.push(ToastAction {
+                label: label.into(),
+                handler: Rc::new(handler),
+            });
+        }
         self
+    }
+
+    /// The buttons' labels, in order: for tests.
+    pub fn action_labels(&self) -> Vec<SharedString> {
+        self.actions.iter().map(|a| a.label.clone()).collect()
     }
 }
 
@@ -337,30 +349,88 @@ impl Render for Toasts {
                         this.update(cx, |this, cx| this.dismiss(id, cx)).ok();
                     }
                 };
-                let action = toast.action.clone().map(|action| {
-                    let this = this.clone();
-                    div()
-                        .id(("toast-action", id))
-                        .accessible(
-                            Role::Button,
-                            format!("toast-{id}-action"),
-                            action.label.clone(),
+                let actions = toast
+                    .actions
+                    .iter()
+                    .cloned()
+                    .enumerate()
+                    .map(|(index, action)| {
+                        let this = this.clone();
+                        // the first keeps the automation id scripts know
+                        let automation = if index == 0 {
+                            format!("toast-{id}-action")
+                        } else {
+                            format!("toast-{id}-action-{}", index + 1)
+                        };
+                        div()
+                            .id(SharedString::from(format!("toast-action-{id}-{index}")))
+                            .accessible(Role::Button, automation, action.label.clone())
+                            .flex_none()
+                            .px(px(8.))
+                            .py(px(2.))
+                            .rounded(radius::DEFAULT)
+                            .cursor_pointer()
+                            .text_color(theme::accent::light())
+                            .font_weight(weights::BOLD.into())
+                            .hover(|style| style.bg(colors::GRAY_700))
+                            .child(action.label.clone())
+                            .on_press(move |_, window, cx| {
+                                cx.stop_propagation();
+                                (action.handler)(window, cx);
+                                this.update(cx, |this, cx| this.dismiss(id, cx)).ok();
+                            })
+                    })
+                    .collect::<Vec<_>>();
+                // One action fits beside the message; with more, the message gets the
+                // full width and the actions a row of their own under it, at the end.
+                let stacked = actions.len() > 1;
+                let (beside, under) = if stacked {
+                    (Vec::new(), actions)
+                } else {
+                    (actions, Vec::new())
+                };
+                let message = div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .gap(px(6.))
+                    .child(match toast.object.clone() {
+                        None => div().child(toast.text.clone()),
+                        Some(object) => div()
+                            .flex()
+                            .flex_col()
+                            .min_w_0()
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_row()
+                                    .items_center()
+                                    .gap(px(8.))
+                                    .min_w_0()
+                                    .child(object)
+                                    .children(toast.version.clone())
+                                    .child(div().flex_1())
+                                    .children(toast.status.clone()),
+                            )
+                            .child(
+                                div()
+                                    .text_size(theme::text_size(text::SMALL))
+                                    .text_color(theme::ink::muted())
+                                    .child(toast.text.clone()),
+                            ),
+                    })
+                    .when(stacked, |message| {
+                        message.child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .flex_wrap()
+                                .justify_end()
+                                .gap(px(4.))
+                                .children(under),
                         )
-                        .flex_none()
-                        .px(px(8.))
-                        .py(px(2.))
-                        .rounded(radius::DEFAULT)
-                        .cursor_pointer()
-                        .text_color(theme::accent::light())
-                        .font_weight(weights::BOLD.into())
-                        .hover(|style| style.bg(colors::GRAY_700))
-                        .child(action.label.clone())
-                        .on_press(move |_, window, cx| {
-                            cx.stop_propagation();
-                            (action.handler)(window, cx);
-                            this.update(cx, |this, cx| this.dismiss(id, cx)).ok();
-                        })
-                });
+                    });
                 div()
                     .id(("toast", id))
                     .accessible(Role::Status, format!("toast-{id}"), toast.text.clone())
@@ -407,33 +477,8 @@ impl Render for Toasts {
                             .pt(px(2.))
                             .child(toast.level.icon().render(px(16.), color)),
                     )
-                    .child(match toast.object.clone() {
-                        None => div().flex_1().min_w_0().child(toast.text.clone()),
-                        Some(object) => div()
-                            .flex()
-                            .flex_col()
-                            .flex_1()
-                            .min_w_0()
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_row()
-                                    .items_center()
-                                    .gap(px(8.))
-                                    .min_w_0()
-                                    .child(object)
-                                    .children(toast.version.clone())
-                                    .child(div().flex_1())
-                                    .children(toast.status.clone()),
-                            )
-                            .child(
-                                div()
-                                    .text_size(theme::text_size(text::SMALL))
-                                    .text_color(theme::ink::muted())
-                                    .child(toast.text.clone()),
-                            ),
-                    })
-                    .children(action)
+                    .child(message)
+                    .children(beside)
                     .child(
                         div()
                             .id(("toast-close", id))
@@ -506,6 +551,21 @@ mod tests {
         toasts.shown[0].hovered = false;
         toasts.elapse(ERROR_DURATION);
         assert!(toasts.texts().is_empty());
+    }
+
+    #[test]
+    fn a_toast_keeps_two_actions_in_order() {
+        let toast = Toast::info("x")
+            .action("Let them join", |_, _| {})
+            .action("Copy invite link", |_, _| {})
+            .action("A third", |_, _| {});
+        assert_eq!(
+            toast.action_labels(),
+            vec![
+                SharedString::from("Let them join"),
+                SharedString::from("Copy invite link")
+            ]
+        );
     }
 
     #[test]

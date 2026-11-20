@@ -650,14 +650,38 @@ mod screenshot {
                     .update(cx, |app, _, cx| {
                         let state = app.shell()?.read(cx).state.clone();
                         state.update(cx, |state, cx| {
-                            state.toast(Toast::info("Uploading 3 files"), cx);
                             state.toast(Toast::success("Deleted server.properties"), cx);
-                            state.toast(Toast::warning("The core is reconnecting"), cx);
                             state.toast(
                                 Toast::error("Couldn’t send the command: the server is stopped")
                                     .action("Retry", |_, _| {}),
                                 cx,
                             );
+                            // two actions (Discord's Ask to Join), in the longest
+                            // languages too
+                            for (text, join, copy) in [
+                                (
+                                    "RE1L asks to join This server on Discord",
+                                    "Let them join",
+                                    "Copy invite link",
+                                ),
+                                (
+                                    "RE1L demande à rejoindre This server sur Discord",
+                                    "Accepter",
+                                    "Copier le lien d’invitation",
+                                ),
+                                (
+                                    "RE1L 请求通过 Discord 加入 This server",
+                                    "允许加入",
+                                    "复制邀请链接",
+                                ),
+                            ] {
+                                state.toast(
+                                    Toast::info(text)
+                                        .action(join, |_, _| {})
+                                        .action(copy, |_, _| {}),
+                                    cx,
+                                );
+                            }
                         });
                         Some(())
                     })
