@@ -121,6 +121,18 @@ pub fn text(message: M) -> &'static str {
             "已禁用。再玩一次，看看问题是否解决。你可以在这里或“内容”标签页中重新启用它。"
         }
         M::CopyLog => "复制日志",
+        M::ShowCode => "显示代码",
+        M::HideCode => "隐藏代码",
+        M::SiteFailedPatch => "未能应用的 Mixin",
+        M::SiteEntrypoint => "失败的启动代码",
+        M::SiteCrashedHere => "抛出了错误",
+        M::SiteInjected => "它添加到游戏中的 Mixin 代码",
+        M::SiteMixin => "崩溃调用栈中某个类上的 Mixin",
+        M::SiteCalled => "调用了崩溃的代码",
+        M::SiteCaught => "捕获了错误并继续抛出",
+        M::SiteRunsIn => "运行于 {target}",
+        M::SitePatches => "修改 {target}",
+        M::CopyForDevelopers => "复制给开发者",
 
         M::UpdateInstanceTitle => "更新实例？",
         M::NoFilesChange => "没有文件变化，只会记录新版本。",

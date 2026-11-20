@@ -198,6 +198,21 @@ mod screenshot {
         true
     }
 
+    /// Waits for answers from the network, drawing the hidden window between waits: a
+    /// draw is what asks for the pictures of what an answer brought.
+    async fn settle(window: WindowHandle<HostApp>, rounds: usize, cx: &mut gpui::AsyncApp) {
+        for _ in 0..rounds {
+            cx.background_executor()
+                .timer(Duration::from_millis(2000))
+                .await;
+            gpui::AppContext::update_window(cx, window.into(), |_, window, cx| {
+                window.refresh();
+                window.draw(cx).clear(cx);
+            })
+            .ok();
+        }
+    }
+
     pub fn schedule(window: WindowHandle<HostApp>, cx: &mut App) {
         let Some(path) = arg_after("--screenshot") else {
             return;
@@ -424,6 +439,11 @@ mod screenshot {
                     })
                     .ok();
                 cx.background_executor().timer(Duration::from_secs(4)).await;
+                // `curseforge` and `curseforge:<project>[/<file>]` ask CurseForge, and the
+                // second reads a modpack
+                if step.starts_with("curseforge") {
+                    settle(window, 6, cx).await;
+                }
             }
             if demo {
                 // the shell makes the page when it draws, and a hidden window hasn't
@@ -465,7 +485,8 @@ mod screenshot {
                     .timer(Duration::from_millis(500))
                     .await;
             }
-            // `--mods many|last|pack|few|forge[-end]`: sample mods on the Mods tab's Installed view
+            // `--mods many|last|pack|few|forge[-end]`: sample mods on the Mods tab's Installed view;
+            // `curseforge`, `browse-curseforge[:query]`, `project-curseforge:<id>`: CurseForge's
             // (with `--tab mods --fake-instance`)
             if let Some(scene) = arg_after("--mods") {
                 gpui::AppContext::update_window(cx, window.into(), |_, window, cx| {
@@ -483,6 +504,10 @@ mod screenshot {
                 cx.background_executor()
                     .timer(Duration::from_millis(500))
                     .await;
+                // the scenes that ask CurseForge (`browse-curseforge`, `project-curseforge`)
+                if scene.contains("-curseforge") {
+                    settle(window, 3, cx).await;
+                }
             }
             // `--backup-export options|running`: the Snapshots tab's export dialog (with
             // `--tab backups --demo`)

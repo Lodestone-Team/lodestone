@@ -190,6 +190,10 @@ pub struct Section {
     /// The file the list's next frame scrolls to, and whether its page was turned to
     /// show it (see [`ContentView::follow`]).
     reveal: Option<(String, bool)>,
+    /// The list's next frame starts from its top: a filter panel was opened there.
+    /// Scrolling before that frame wouldn't show it, since an entry put in at the
+    /// list's top goes in above where the list is.
+    to_top: bool,
     load_task: Option<Task<()>>,
     updates_task: Option<Task<()>>,
 }
@@ -233,6 +237,7 @@ impl Section {
             installed_page: 0,
             follow: None,
             reveal: None,
+            to_top: false,
             load_task: None,
             updates_task: None,
         }
@@ -537,17 +542,27 @@ impl ContentView {
             }
         }
         self.was_active = active;
-        // Files an imported CurseForge pack left for the user to download.
-        if self.blocked.is_none()
-            && let Some(id) = self.instance_id.clone()
+        // Files a CurseForge pack or an install left for the user to download: a card
+        // for them, or more rows on the card that is there (so its pages, opened one by
+        // one, go on to them).
+        if let Some(id) = self.instance_id.clone()
             && self.instances.read(cx).has_pending_downloads(&id)
         {
             let files = self
                 .instances
                 .update(cx, |instances, _| instances.take_pending_downloads(&id))
                 .unwrap_or_default();
-            if !files.is_empty() {
-                self.show_blocked(files, cx);
+            match &mut self.blocked {
+                Some(blocked) => {
+                    for file in files {
+                        if !blocked.files.iter().any(|f| f.file.id == file.file.id) {
+                            blocked.files.push(file);
+                            blocked.added.push(false);
+                        }
+                    }
+                }
+                None if !files.is_empty() => self.show_blocked(files, cx),
+                None => {}
             }
         }
         cx.notify();
@@ -956,17 +971,19 @@ impl ContentView {
         let prerelease = self.prerelease_updates(cx);
         self.section_mut(kind).checking_updates = true;
         let work = cx.background_spawn(async move {
+            // Each platform is asked on its own: one that can't be reached doesn't
+            // hide the other's updates.
             let modrinth = match &api {
-                Some(api) => listing::check_updates(api, &dirs, &target, kind, prerelease).await?,
-                None => HashMap::new(),
+                Some(api) => listing::check_updates(api, &dirs, &target, kind, prerelease).await,
+                None => Ok(HashMap::new()),
             };
             let curseforge = match &cf {
                 Some(cf) => {
-                    listing::check_curseforge_updates(cf, &dirs, &target, kind, prerelease).await?
+                    listing::check_curseforge_updates(cf, &dirs, &target, kind, prerelease).await
                 }
-                None => HashMap::new(),
+                None => Ok(HashMap::new()),
             };
-            Ok::<_, launcher_core::content::ContentError>((modrinth, curseforge))
+            (modrinth, curseforge)
         });
         let task = cx.spawn(async move |this, cx| {
             let result = work.await;
@@ -976,11 +993,21 @@ impl ContentView {
                 }
                 let section = this.section_mut(kind);
                 section.checking_updates = false;
-                match result {
-                    Ok((updates, cf_updates)) => {
-                        let count = updates.len() + cf_updates.len();
-                        section.updates = updates;
-                        section.cf_updates = cf_updates;
+                let (modrinth, curseforge) = result;
+                let failed = modrinth
+                    .as_ref()
+                    .err()
+                    .or(curseforge.as_ref().err())
+                    .map(ToString::to_string);
+                if let Ok(updates) = modrinth {
+                    section.updates = updates;
+                }
+                if let Ok(cf_updates) = curseforge {
+                    section.cf_updates = cf_updates;
+                }
+                let count = section.updates.len() + section.cf_updates.len();
+                match failed {
+                    None => {
                         if count == 0 && !quiet {
                             let message = match kind {
                                 ContentKind::Mod => M::AllModsUpToDate,
@@ -990,8 +1017,8 @@ impl ContentView {
                             this.set_message(t(message), false, cx);
                         }
                     }
-                    Err(_) if quiet => {}
-                    Err(err) => {
+                    Some(_) if quiet => {}
+                    Some(err) => {
                         this.set_message(tr!(M::CouldntCheckUpdates, error = err), true, cx)
                     }
                 }
@@ -1696,6 +1723,8 @@ impl ContentView {
             this.update(cx, |this, cx| {
                 if text.contains("modrinth.com/") {
                     this.open_link(kind, text.trim(), cx);
+                } else if text.contains("curseforge.com/") {
+                    this.open_cf_link(kind, text.trim(), cx);
                 } else {
                     this.search(kind, cx);
                     this.cf_search(kind, cx);
@@ -1734,10 +1763,9 @@ impl ContentView {
     pub fn toggle_filters_open(&mut self, kind: ContentKind, cx: &mut Context<Self>) {
         let section = self.section_mut(kind);
         section.browse.filters_open = !section.browse.filters_open;
-        // The panel opens at the top of the list: brought into sight from further down.
-        if section.browse.filters_open {
-            section.rows.scroll_to(gpui::ListOffset::default());
-        }
+        // The panel opens at the top of the list: brought into sight once it is in the
+        // list, on the next frame.
+        section.to_top = section.browse.filters_open;
         cx.notify();
     }
 
@@ -3167,6 +3195,7 @@ mod image_tests {
             pack: Arc::new(pack),
             snapshot_failed: None,
             without_snapshot: false,
+            blocked: Vec::new(),
         };
         instances.update(&mut cx, |instances, cx| {
             instances.apply_modpack_update(prompt, cx)

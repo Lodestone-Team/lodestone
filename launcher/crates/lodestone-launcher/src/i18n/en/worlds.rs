@@ -83,6 +83,8 @@ crate::i18n::messages! {
         /// {name} is a Modrinth project; {version} a Minecraft version.
         NoDataPackVersion = "{name} has no data pack for Minecraft {version}.",
         SearchingModrinth = "Searching Modrinth",
+        SearchingCurseForge = "Searching CurseForge",
+        CurseForgeUnavailable = "CurseForge can't be reached now; data packs can still be added from files.",
         NoDataPacksFound = "No data packs found for Minecraft {version}.",
         LinkNotDataPack = "That link isn't a data pack.",
         ModrinthUnavailable = "Modrinth can't be reached now; data packs can still be added from files.",

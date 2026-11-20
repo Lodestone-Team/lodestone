@@ -316,6 +316,7 @@ fn pack_hits() -> (Vec<PackHit>, Vec<(String, image::RgbaImage)>) {
         author: author.into(),
         icon_url: Some(format!("https://cdn.modrinth.com/preview/{id}.png")),
         downloads,
+        curseforge: None,
     };
     let hits = vec![
         hit(

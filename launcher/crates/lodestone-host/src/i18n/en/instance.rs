@@ -94,6 +94,9 @@ crate::i18n::messages! {
         ModsRestartPlugin = "Restart the server to apply plugin changes",
         ModsSearchMod = "Search mods on Modrinth, or paste a Modrinth link",
         ModsSearchPlugin = "Search plugins on Modrinth, or paste a Modrinth link",
+        /// The same, in a copy of the Host that also searches CurseForge.
+        ModsSearchModBoth = "Search mods, or paste a Modrinth or CurseForge link",
+        ModsSearchPluginBoth = "Search plugins, or paste a Modrinth or CurseForge link",
         ModsSearchLabel = "Search Modrinth",
         /// {gameVersion} is a Minecraft version, {loader} a loader such as fabric.
         ModsOnlyCompatible = "Only compatible versions",
@@ -135,6 +138,34 @@ crate::i18n::messages! {
         ModsUpdateFailed = "Couldn’t update it: {error}",
         ModsUpdateTo = "Update to {version}",
         ModsViewOnModrinth = "View on Modrinth",
+        ModsViewOnCurseForge = "View on CurseForge",
+        /// The card for files only CurseForge's website has: the Host watches the Downloads folder for them.
+        ModsByHandTitle = "Download these from CurseForge",
+        /// {folder} is the folder watched for the downloads.
+        ModsByHandLead = "Their authors don’t let other apps download them. Download each one in your browser; Lodestone adds it to the server as soon as it appears in {folder}.",
+        ModsByHandNoFolder = "Their authors don’t let other apps download them. Download each one in your browser, then choose the folder it was saved to.",
+        ModsByHandOpen = "Open download page",
+        /// Opens the first page; each next one opens when a file arrives.
+        ModsByHandOpenAll = "Open the pages one by one",
+        /// Under the list, once the pages are being opened one by one.
+        ModsByHandOneByOne = "The next page opens when the file before it has arrived.",
+        /// The same, when the pages open in a browser window of their own.
+        ModsByHandOwnWindow = "The pages open in a browser window of their own, the next one when the file before it has arrived. Close that window once they are all in.",
+        ModsByHandAdded = "Added",
+        /// {file} is the file name to download.
+        ModsByHandWaiting = "Waiting for {file}",
+        ModsByHandChangeFolder = "Watch another folder…",
+        ModsByHandSkip = "Skip the rest",
+        /// The folder dialog's button.
+        ModsByHandFolderPrompt = "Watch this folder",
+        ModsByHandFailed = "Couldn’t add {name}: {error}",
+        /// The toast when a file the user downloaded was found and put on the server.
+        ModsByHandAddedToast = "Added from your downloads",
+        /// Why a mod from CurseForge shows as unknown: CurseForge has no such field.
+        ModsUnknownCurseForge = "CurseForge doesn’t say whether players need it. Check the mod’s page, and tick For players if they do.",
+        /// The empty Installed view, in a copy of the Host that also searches CurseForge.
+        ModsEmptyModBoth = "No mods yet. Browse Modrinth or CurseForge, or upload a .jar file.",
+        ModsEmptyPluginBoth = "No plugins yet. Browse Modrinth or CurseForge, or upload a .jar file.",
         ModsDeleteLabel = "Delete {name}",
         ModsUploaded = "Uploaded",
         ModsUploadFailed = "Upload failed: {error}",
@@ -173,6 +204,10 @@ crate::i18n::messages! {
         ModpackCheck = "Check for an update",
         ModpackCheckFailed = "Couldn’t check for an update: {error}",
         ModpackUpToDate = "It’s the newest version.",
+        /// Beside a spinner, while the Host waits for a file in the Downloads folder.
+        ModpackWaitingForDownload = "Waiting for the download…",
+        /// A CurseForge modpack version only its website serves: its page opened in the browser.
+        ModpackUpdateWebsite = "This version is only on CurseForge’s website, so its page opened in your browser. Download it there: Lodestone Host takes the .zip from your Downloads folder and carries on.",
         ModpackUpdateTo = "Update to {version}",
         ModpackFromFile = "Update from a file",
         ModpackFilePrompt = "Update",
@@ -221,6 +256,7 @@ crate::i18n::messages! {
         ModsWrongTypePlugin = "This is a {type}. Lodestone only installs plugins here.",
         ModsDescription = "Description",
         ModsRestOnModrinth = "The rest of the description is on Modrinth.",
+        ModsRestOnCurseForge = "The rest of the description is on CurseForge.",
         ModsVersions = "Versions",
         ModsWithDependencies = "Also install required dependencies",
         ModsShowAll = "Show all versions",
@@ -230,6 +266,8 @@ crate::i18n::messages! {
         ModsNotFor = "Not for this server",
         ModsInstalledVersion = "Installed",
         ModsInstallFailed = "Couldn’t install it: {error}",
+        ModsCurseForgeFailed = "Couldn’t ask CurseForge about the installed files: {error}",
+        ModsCurseForgeUnavailable = "CurseForge isn’t available in this copy of Lodestone Host.",
         ModsIncompatibleTitle = "Install a version made for something else?",
         ModsInstallAnyway = "Install anyway",
         ModsIncompatibleBody = "It may crash the server.",

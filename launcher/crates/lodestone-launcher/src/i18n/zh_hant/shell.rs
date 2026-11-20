@@ -121,6 +121,18 @@ pub fn text(message: M) -> &'static str {
             "已停用。再玩一次，看看問題是否解決。你可以在這裡或「內容」分頁中重新啟用它。"
         }
         M::CopyLog => "複製日誌",
+        M::ShowCode => "顯示程式碼",
+        M::HideCode => "隱藏程式碼",
+        M::SiteFailedPatch => "未能套用的 Mixin",
+        M::SiteEntrypoint => "失敗的啟動程式碼",
+        M::SiteCrashedHere => "擲出了錯誤",
+        M::SiteInjected => "它加入遊戲的 Mixin 程式碼",
+        M::SiteMixin => "當機呼叫堆疊中某個類別上的 Mixin",
+        M::SiteCalled => "呼叫了當機的程式碼",
+        M::SiteCaught => "捕捉了錯誤並繼續擲出",
+        M::SiteRunsIn => "執行於 {target}",
+        M::SitePatches => "修改 {target}",
+        M::CopyForDevelopers => "複製給開發者",
 
         M::UpdateInstanceTitle => "更新實例？",
         M::NoFilesChange => "沒有檔案變更，只會記錄新版本。",

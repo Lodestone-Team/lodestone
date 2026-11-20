@@ -52,6 +52,7 @@ fn origin(version: &str) -> ModpackOrigin {
         name: "Test Pack".into(),
         version_number: Some(version.into()),
         icon_url: None,
+        curseforge: None,
     }
 }
 
@@ -795,6 +796,7 @@ impl Core {
             name: title.clone(),
             version_number: Some("v1-number".into()),
             icon_url: None,
+            curseforge: None,
         };
 
         let root = dir.path().join("instance");

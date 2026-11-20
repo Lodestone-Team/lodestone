@@ -313,6 +313,14 @@ pub(super) enum Entry {
     /// The open filter panel, with what it has picked (so it is measured again when
     /// that changes).
     ModrinthFilters(Filters),
+    /// CurseForge's categories, with the ones picked: how far they have loaded, how
+    /// many there are and how many are picked, so the panel is measured again when
+    /// its height changes.
+    CurseForgeFilters {
+        state: u8,
+        categories: usize,
+        picked: usize,
+    },
     ModrinthLoading,
     ModrinthFailed(SharedString),
     /// No network: Modrinth can't be searched.
@@ -1885,6 +1893,19 @@ impl ContentView {
         if self.curseforge(cx).is_none() {
             return;
         }
+        let browse = &self.section(kind).cf;
+        if browse.filters_open {
+            let (state, categories) = match &browse.categories {
+                Load::NotLoaded | Load::Loading => (0, 0),
+                Load::Ready(categories) => (1, categories.len()),
+                Load::Failed(_) => (2, 0),
+            };
+            plan.push(Entry::CurseForgeFilters {
+                state,
+                categories,
+                picked: browse.picked.len(),
+            });
+        }
         match &self.section(kind).cf.results {
             Load::NotLoaded | Load::Loading => plan.push(Entry::CurseForgeLoading),
             Load::Failed(err) => plan.push(Entry::CurseForgeFailed(err.clone())),
@@ -1966,6 +1987,12 @@ impl ContentView {
                 .unwrap_or(0);
         }
         self.sync_installed_list(kind, plan);
+        // After the entries are in: a panel just put in at the top is what it shows.
+        if std::mem::take(&mut self.section_mut(kind).to_top) {
+            self.section(kind)
+                .rows
+                .scroll_to(gpui::ListOffset::default());
+        }
         // Shown on this frame or not at all, so a file that didn't come back (changed
         // from outside meanwhile) isn't scrolled to later.
         let section = self.section_mut(kind);
@@ -2095,6 +2122,7 @@ impl ContentView {
             Entry::ModrinthOffline => muted(t(M::BrowsingNeedsNetwork)).into_any_element(),
             Entry::ModrinthNothing => muted(t(M::NothingMatches)).into_any_element(),
             Entry::ModrinthFilters(_) => self.render_modrinth_filters(kind, cx),
+            Entry::CurseForgeFilters { .. } => self.render_cf_filters(kind, cx),
             Entry::Hit {
                 index,
                 installed,
@@ -3281,7 +3309,7 @@ impl NeedsLoader {
 /// A pill that is on or off: the compatibility filter beside the Modrinth heading and
 /// the filter panel's choices, with `icon` (an asset path) before its label. One
 /// without an icon shows a check when it is on. The caller adds what pressing it does.
-fn filter_chip(
+pub(super) fn filter_chip(
     id: impl Into<gpui::ElementId>,
     automation_id: String,
     label: SharedString,

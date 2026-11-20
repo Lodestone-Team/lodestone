@@ -35,6 +35,11 @@ pub const DOWNLOAD_HOSTS: [&str; 4] = [
     "raw.githubusercontent.com",
     "gitlab.com",
 ];
+/// CurseForge's CDN. Not part of the pack format: only a pack Lodestone Host writes
+/// for a server from a CurseForge modpack names these hosts, and only a reader that
+/// asks for them takes them ([`check_files_from`]). Such a pack carries each file's
+/// SHA-512 like any other, worked out by the Host (CurseForge publishes none).
+pub const CURSEFORGE_DOWNLOAD_HOSTS: [&str; 2] = ["edge.forgecdn.net", "mediafilez.forgecdn.net"];
 
 /// The side a pack is installed for: a dedicated server or a game client.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -113,6 +118,31 @@ pub struct Index {
     pub files: Vec<IndexFile>,
     #[serde(default)]
     pub dependencies: HashMap<String, String>,
+    /// What Lodestone adds to the index of a pack it writes itself. Other programs
+    /// ignore it.
+    #[serde(default)]
+    pub lodestone: Option<IndexLodestone>,
+}
+
+/// Lodestone's own part of an index ([`Index::lodestone`]).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct IndexLodestone {
+    /// The CurseForge modpack file the pack was made from.
+    #[serde(default)]
+    pub curseforge: Option<IndexCurseForge>,
+}
+
+/// The CurseForge modpack a pack was made from: its project and file numbers there, and
+/// the project's page and logo.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IndexCurseForge {
+    pub project: u64,
+    pub file: u64,
+    #[serde(default)]
+    pub page_url: Option<String>,
+    #[serde(default)]
+    pub icon_url: Option<String>,
 }
 
 /// A file to download into the instance.
@@ -299,10 +329,15 @@ pub fn read_index<R: Read + Seek>(archive: &mut zip::ZipArchive<R>) -> Result<In
 /// Whether a pack file may be downloaded from `url`: HTTPS on one of [`DOWNLOAD_HOSTS`],
 /// with no port or user.
 pub fn is_allowed_download(url: &url::Url) -> bool {
+    is_download_from(url, &DOWNLOAD_HOSTS)
+}
+
+/// Whether `url` is HTTPS on one of `hosts`, with no port or user.
+pub fn is_download_from(url: &url::Url, hosts: &[&str]) -> bool {
     url.scheme() == "https"
         && url.port().is_none()
         && url.username().is_empty()
-        && url.host_str().is_some_and(|h| DOWNLOAD_HOSTS.contains(&h))
+        && url.host_str().is_some_and(|h| hosts.contains(&h))
 }
 
 /// Checks the files of the index that are for `side`: their paths, hosts, hashes and sizes.
@@ -310,6 +345,17 @@ pub fn check_files(
     index: &Index,
     side: Side,
     policy: &dyn PathPolicy,
+) -> Result<(Vec<PackDownload>, Vec<SkippedPath>), Error> {
+    check_files_from(index, side, policy, &DOWNLOAD_HOSTS)
+}
+
+/// [`check_files`] for a reader that takes downloads from `hosts` instead of the pack
+/// format's own [`DOWNLOAD_HOSTS`] (which it names too if it wants them).
+pub fn check_files_from(
+    index: &Index,
+    side: Side,
+    policy: &dyn PathPolicy,
+    hosts: &[&str],
 ) -> Result<(Vec<PackDownload>, Vec<SkippedPath>), Error> {
     let mut downloads = Vec::new();
     let mut skipped = Vec::new();
@@ -344,13 +390,13 @@ pub fn check_files(
             .downloads
             .iter()
             .filter_map(|u| url::Url::parse(u).ok())
-            .filter(is_allowed_download)
+            .filter(|url| is_download_from(url, hosts))
             .collect();
         if urls.is_empty() {
             return Err(unsafe_pack(format!(
                 "{} is not downloaded from an allowed host ({})",
                 file.path,
-                DOWNLOAD_HOSTS.join(", ")
+                hosts.join(", ")
             )));
         }
         downloads.push(PackDownload {

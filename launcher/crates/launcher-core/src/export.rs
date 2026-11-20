@@ -13,6 +13,13 @@
 //! in [`ExportPlan::curseforge_left_out`].
 //!
 //! See <https://support.modrinth.com/en/articles/8802351-modrinth-modpack-format-mrpack>.
+//!
+//! The same instance can be written as a CurseForge modpack instead ([`plan_curseforge`],
+//! [`write_curseforge`]): a `.zip` with `manifest.json`, which lists CurseForge files by
+//! project and file id, and the same `overrides/` folder. There it is the files only
+//! Modrinth has that can't be listed, and are left out
+//! ([`CurseForgeExportPlan::modrinth_left_out`]); [`find_on_curseforge`] first asks
+//! CurseForge which of them it has too, by fingerprint.
 
 use std::{
     collections::{BTreeMap, HashMap},
@@ -285,22 +292,296 @@ fn collect(
     Ok(())
 }
 
+/// A file on CurseForge.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CurseForgeFile {
+    pub project_id: u64,
+    pub file_id: u64,
+}
+
+/// The files of an instance that CurseForge knows, by SHA-512, from its `content.json`.
+pub fn curseforge_files(instance_dir: &Path) -> HashMap<String, CurseForgeFile> {
+    Provenance::load(instance_dir)
+        .files
+        .into_values()
+        .filter(|entry| !entry.sha512.is_empty())
+        .filter_map(|entry| {
+            let source = entry.curseforge?;
+            Some((
+                entry.sha512,
+                CurseForgeFile {
+                    project_id: source.project_id,
+                    file_id: source.file_id,
+                },
+            ))
+        })
+        .collect()
+}
+
+/// The files of an instance that came from Modrinth and that `content.json` doesn't
+/// place on CurseForge, by SHA-512, with their titles.
+pub fn modrinth_only_files(instance_dir: &Path) -> HashMap<String, String> {
+    Provenance::load(instance_dir)
+        .files
+        .into_values()
+        .filter(|entry| entry.curseforge.is_none() && !entry.sha512.is_empty())
+        .filter_map(|entry| Some((entry.sha512, entry.modrinth?.title)))
+        .collect()
+}
+
+/// Asks CurseForge, by fingerprint, which of the instance's mods and packs it has among
+/// those in `wanted` (by SHA-512: the ones `content.json` doesn't place there). Most
+/// mods are on both platforms, and an instance made from Modrinth knows only that side.
+pub async fn find_on_curseforge(
+    cf: &crate::content::CurseForge,
+    game_dir: &Path,
+    wanted: &HashMap<String, String>,
+) -> Result<HashMap<String, CurseForgeFile>, ExportError> {
+    let mut prints: HashMap<u32, String> = HashMap::new();
+    let mut skipped = Vec::new();
+    for top in ["mods", "resourcepacks", "shaderpacks"] {
+        let dir = game_dir.join(top);
+        if !dir.is_dir() {
+            continue;
+        }
+        let mut found = Vec::new();
+        collect(&dir, top, &mut found, &mut skipped)?;
+        for (relative, path) in found {
+            if index_candidate(&relative).is_none() {
+                continue;
+            }
+            let sha512 = lodestone_minecraft::hash::sha512_of(&path).map_err(io_error(&path))?;
+            if wanted.contains_key(&sha512) {
+                let print =
+                    crate::content::curseforge::fingerprint_file(&path).map_err(io_error(&path))?;
+                prints.insert(print, sha512);
+            }
+        }
+    }
+    let asked: Vec<u32> = prints.keys().copied().collect();
+    // CurseForge out of reach leaves them as they were: only on Modrinth.
+    let matches = cf.files_by_fingerprint(&asked).await.unwrap_or_default();
+    Ok(matches
+        .into_iter()
+        .filter_map(|(print, found)| {
+            Some((
+                prints.get(&print)?.clone(),
+                CurseForgeFile {
+                    project_id: found.mod_id,
+                    file_id: found.file.id,
+                },
+            ))
+        })
+        .collect())
+}
+
+/// `manifest.json` of a CurseForge modpack.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CurseForgeManifest {
+    pub minecraft: ManifestMinecraft,
+    pub manifest_type: String,
+    pub manifest_version: u32,
+    pub name: String,
+    pub version: String,
+    pub author: String,
+    pub files: Vec<ManifestFile>,
+    pub overrides: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManifestMinecraft {
+    pub version: String,
+    pub mod_loaders: Vec<ManifestLoader>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+pub struct ManifestLoader {
+    pub id: String,
+    pub primary: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+pub struct ManifestFile {
+    #[serde(rename = "projectID")]
+    pub project_id: u64,
+    #[serde(rename = "fileID")]
+    pub file_id: u64,
+    /// `false` for a mod that is turned off: it comes in turned off.
+    pub required: bool,
+}
+
+/// The loader as a CurseForge manifest names it: `forge-47.4.28`, `fabric-0.16.14`,
+/// `quilt-0.26.0`, `neoforge-21.1.77`, and `neoforge-1.20.1-47.1.84` for NeoForge on
+/// 1.20.1, as CurseForge writes it.
+pub fn manifest_loader_id(kind: LoaderKind, version: &str, game_version: &str) -> String {
+    match kind {
+        LoaderKind::Forge => format!("forge-{}", forge_display(version, game_version)),
+        LoaderKind::NeoForge if game_version == "1.20.1" => {
+            format!("neoforge-1.20.1-{}", version.trim_start_matches("1.20.1-"))
+        }
+        LoaderKind::NeoForge => format!("neoforge-{version}"),
+        LoaderKind::Fabric => format!("fabric-{version}"),
+        LoaderKind::Quilt => format!("quilt-{version}"),
+    }
+}
+
+/// A CurseForge pack ready to write.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CurseForgeExportPlan {
+    pub manifest: CurseForgeManifest,
+    /// The path in the zip (`overrides/...`) and the file on disk.
+    pub overrides: Vec<(String, PathBuf)>,
+    /// Files left out, and why.
+    pub skipped: Vec<(String, String)>,
+    /// The titles of the files left out because they are only on Modrinth.
+    pub modrinth_left_out: Vec<String>,
+}
+
+/// Plans the CurseForge pack of `instance`, whose game folder is `game_dir`.
+/// `on_curseforge` maps a file's SHA-512 to the CurseForge file it is
+/// ([`curseforge_files`], with [`find_on_curseforge`]'s); those are listed in the
+/// manifest. A file in `modrinth_only` (SHA-512 to title, from [`modrinth_only_files`])
+/// that isn't among them is left out rather than copied into the pack, which would
+/// hand out its author's file. Every other file is copied.
+pub fn plan_curseforge(
+    instance: &Instance,
+    game_dir: &Path,
+    on_curseforge: &HashMap<String, CurseForgeFile>,
+    modrinth_only: &HashMap<String, String>,
+) -> Result<CurseForgeExportPlan, ExportError> {
+    let mut modrinth_left_out = Vec::new();
+    let mut files: Vec<ManifestFile> = Vec::new();
+    let mut overrides = Vec::new();
+    let mut skipped = Vec::new();
+    for top in EXPORTED {
+        let path = game_dir.join(top);
+        let Ok(meta) = fs::symlink_metadata(&path) else {
+            continue;
+        };
+        let mut found = Vec::new();
+        if meta.is_dir() {
+            collect(&path, top, &mut found, &mut skipped)?;
+        } else if meta.is_file() {
+            found.push((top.to_string(), path));
+        }
+        for (relative, path) in found {
+            match mrpack::check_pack_path(&relative, false, &WriteAll) {
+                Ok(PathCheck::Write(_)) => {}
+                _ => {
+                    skipped.push((relative, "the name can't go into a modpack".into()));
+                    continue;
+                }
+            }
+            if index_candidate(&relative).is_some() {
+                let sha512 =
+                    lodestone_minecraft::hash::sha512_of(&path).map_err(io_error(&path))?;
+                if let Some(file) = on_curseforge.get(&sha512) {
+                    // One entry per file: a manifest that lists a file twice is refused
+                    // by some launchers.
+                    if !files.iter().any(|f| f.file_id == file.file_id) {
+                        files.push(ManifestFile {
+                            project_id: file.project_id,
+                            file_id: file.file_id,
+                            required: !crate::content::is_disabled_name(&relative),
+                        });
+                    }
+                    continue;
+                }
+                if let Some(title) = modrinth_only.get(&sha512) {
+                    skipped.push((
+                        relative,
+                        "it is only on Modrinth, which a CurseForge pack can't download from"
+                            .into(),
+                    ));
+                    modrinth_left_out.push(title.clone());
+                    continue;
+                }
+            }
+            overrides.push((format!("overrides/{relative}"), path));
+        }
+    }
+    files.sort_by_key(|f| (f.project_id, f.file_id));
+    overrides.sort();
+    let mod_loaders = instance
+        .loader_choice()
+        .map(|choice| ManifestLoader {
+            id: manifest_loader_id(choice.kind, &choice.version, &instance.game_version),
+            primary: true,
+        })
+        .into_iter()
+        .collect();
+    Ok(CurseForgeExportPlan {
+        manifest: CurseForgeManifest {
+            minecraft: ManifestMinecraft {
+                version: instance.game_version.clone(),
+                mod_loaders,
+            },
+            manifest_type: "minecraftModpack".into(),
+            manifest_version: 1,
+            name: instance.name.clone(),
+            version: "1.0.0".into(),
+            author: String::new(),
+            files,
+            overrides: "overrides".into(),
+        },
+        overrides,
+        skipped,
+        modrinth_left_out,
+    })
+}
+
+/// Writes the CurseForge pack to `out`: the manifest, then the overrides. It is
+/// written to a temporary file next to `out` and renamed into place.
+pub fn write_curseforge(plan: &CurseForgeExportPlan, out: &Path) -> Result<(), ExportError> {
+    let manifest = serde_json::to_vec_pretty(&plan.manifest).map_err(|err| ExportError::Io {
+        path: out.to_owned(),
+        source: err.into(),
+    })?;
+    write_pack(
+        crate::modpack::curseforge::MANIFEST_FILE,
+        &manifest,
+        &plan.overrides,
+        out,
+        "zip.part",
+    )
+}
+
 /// Writes the pack to `out`: the index, then the overrides. It is written to a
 /// temporary file next to `out` and renamed into place.
 pub fn write(plan: &ExportPlan, out: &Path) -> Result<(), ExportError> {
-    let tmp = out.with_extension("mrpack.part");
+    let index = serde_json::to_vec_pretty(&plan.index).map_err(|err| ExportError::Io {
+        path: out.to_owned(),
+        source: err.into(),
+    })?;
+    write_pack(
+        mrpack::INDEX_FILE,
+        &index,
+        &plan.overrides,
+        out,
+        "mrpack.part",
+    )
+}
+
+/// Writes a pack's zip to `out`: `index` as `index_name`, then the overrides, through
+/// a temporary file next to `out` (with the extension `part`).
+fn write_pack(
+    index_name: &str,
+    index: &[u8],
+    overrides: &[(String, PathBuf)],
+    out: &Path,
+    part: &str,
+) -> Result<(), ExportError> {
+    let tmp = out.with_extension(part);
     let result = (|| {
         let file = File::create(&tmp).map_err(io_error(&tmp))?;
         let mut zip = zip::ZipWriter::new(io::BufWriter::with_capacity(1 << 20, file));
         let deflated = zip::write::SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Deflated);
-        zip.start_file(mrpack::INDEX_FILE, deflated)?;
-        let index = serde_json::to_vec_pretty(&plan.index).map_err(|err| ExportError::Io {
-            path: out.to_owned(),
-            source: err.into(),
-        })?;
-        zip.write_all(&index).map_err(io_error(out))?;
-        for (name, path) in &plan.overrides {
+        zip.start_file(index_name, deflated)?;
+        zip.write_all(index).map_err(io_error(out))?;
+        for (name, path) in overrides {
             // Jars are compressed already.
             let options = if name.ends_with(".jar") || name.ends_with(".zip") {
                 zip::write::SimpleFileOptions::default()

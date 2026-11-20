@@ -93,6 +93,10 @@ pub fn text(message: M) -> &'static str {
         }
         M::ModsSearchMod => "Rechercher des mods sur Modrinth, ou coller un lien Modrinth",
         M::ModsSearchPlugin => "Rechercher des plugins sur Modrinth, ou coller un lien Modrinth",
+        M::ModsSearchModBoth => "Rechercher des mods, ou coller un lien Modrinth ou CurseForge",
+        M::ModsSearchPluginBoth => {
+            "Rechercher des plugins, ou coller un lien Modrinth ou CurseForge"
+        }
         M::ModsSearchLabel => "Rechercher sur Modrinth",
         M::ModsOnlyCompatible => "Versions compatibles uniquement",
         M::ModsPlayersNeedToo => "Requis aussi pour les joueurs",
@@ -142,6 +146,36 @@ pub fn text(message: M) -> &'static str {
         M::ModsUpdateFailed => "Impossible de le mettre à jour : {error}",
         M::ModsUpdateTo => "Passer à {version}",
         M::ModsViewOnModrinth => "Voir sur Modrinth",
+        M::ModsViewOnCurseForge => "Voir sur CurseForge",
+        M::ModsByHandTitle => "À télécharger depuis CurseForge",
+        M::ModsByHandLead => {
+            "Leurs auteurs ne permettent pas aux autres applications de les télécharger. Téléchargez-les dans votre navigateur : Lodestone les ajoute au serveur dès qu’ils apparaissent dans {folder}."
+        }
+        M::ModsByHandNoFolder => {
+            "Leurs auteurs ne permettent pas aux autres applications de les télécharger. Téléchargez-les dans votre navigateur, puis choisissez le dossier où ils ont été enregistrés."
+        }
+        M::ModsByHandOpen => "Ouvrir la page de téléchargement",
+        M::ModsByHandOpenAll => "Ouvrir les pages une à une",
+        M::ModsByHandOneByOne => "La page suivante s’ouvre quand le fichier précédent est arrivé.",
+        M::ModsByHandOwnWindow => {
+            "Les pages s’ouvrent dans une fenêtre de navigateur à part, la suivante quand le fichier précédent est arrivé. Fermez cette fenêtre une fois tous les fichiers ajoutés."
+        }
+        M::ModsByHandAdded => "Ajouté",
+        M::ModsByHandWaiting => "En attente de {file}",
+        M::ModsByHandChangeFolder => "Surveiller un autre dossier…",
+        M::ModsByHandSkip => "Ignorer le reste",
+        M::ModsByHandFolderPrompt => "Surveiller ce dossier",
+        M::ModsByHandFailed => "Impossible d’ajouter {name} : {error}",
+        M::ModsByHandAddedToast => "Ajouté depuis vos téléchargements",
+        M::ModsUnknownCurseForge => {
+            "CurseForge n’indique pas si les joueurs en ont besoin. Consultez la page du mod, et cochez Pour les joueurs si c’est le cas."
+        }
+        M::ModsEmptyModBoth => {
+            "Aucun mod installé pour l’instant. Parcourez Modrinth ou CurseForge, ou importez un fichier .jar."
+        }
+        M::ModsEmptyPluginBoth => {
+            "Aucun plugin installé pour l’instant. Parcourez Modrinth ou CurseForge, ou importez un fichier .jar."
+        }
         M::ModsDeleteLabel => "Supprimer {name}",
         M::ModsUploaded => "Importé",
         M::ModsUploadFailed => "Échec de l’importation : {error}",
@@ -181,6 +215,10 @@ pub fn text(message: M) -> &'static str {
         M::ModpackCheck => "Rechercher une mise à jour",
         M::ModpackCheckFailed => "Impossible de rechercher une mise à jour : {error}",
         M::ModpackUpToDate => "C’est la version la plus récente.",
+        M::ModpackWaitingForDownload => "En attente du téléchargement…",
+        M::ModpackUpdateWebsite => {
+            "Cette version n’est que sur le site de CurseForge, sa page s’est donc ouverte dans votre navigateur. Téléchargez-la là-bas : Lodestone Host prend le .zip dans votre dossier Téléchargements et continue."
+        }
         M::ModpackUpdateTo => "Mettre à jour vers {version}",
         M::ModpackFromFile => "Mettre à jour depuis un fichier",
         M::ModpackFilePrompt => "Mettre à jour",
@@ -236,6 +274,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::ModsDescription => "Description",
         M::ModsRestOnModrinth => "La suite de la description est sur Modrinth.",
+        M::ModsRestOnCurseForge => "La suite de la description est sur CurseForge.",
         M::ModsVersions => "Versions",
         M::ModsWithDependencies => "Installer aussi les dépendances requises",
         M::ModsShowAll => "Afficher toutes les versions",
@@ -247,6 +286,12 @@ pub fn text(message: M) -> &'static str {
         M::ModsNotFor => "Pas pour ce serveur",
         M::ModsInstalledVersion => "Installé",
         M::ModsInstallFailed => "Impossible de l’installer : {error}",
+        M::ModsCurseForgeFailed => {
+            "Impossible d’interroger CurseForge sur les fichiers installés : {error}"
+        }
+        M::ModsCurseForgeUnavailable => {
+            "CurseForge n’est pas disponible dans cette copie de Lodestone Host."
+        }
         M::ModsIncompatibleTitle => "Installer une version incompatible ?",
         M::ModsInstallAnyway => "Installer quand même",
         M::ModsIncompatibleBody => "Il risque de faire planter le serveur.",

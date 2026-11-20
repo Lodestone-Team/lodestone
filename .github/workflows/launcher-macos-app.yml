@@ -20,6 +20,10 @@ name: Launcher - macOS app
 #   MACOS_SIGNING_IDENTITY      e.g. "Developer ID Application: Name (TEAMID)"
 #   APPLE_ID, APPLE_TEAM_ID,    the Apple account that notarizes, and an
 #   APPLE_APP_PASSWORD          app-specific password for it
+#
+# CurseForge: with the LODESTONE_CURSEFORGE_API_KEY secret (the key CurseForge issued
+# Lodestone), the key is compiled into the launcher and it offers CurseForge. Without
+# it the build has no CurseForge.
 on:
   workflow_dispatch:
     inputs:
@@ -47,6 +51,10 @@ jobs:
     # Apple silicon; it builds the Intel binary too.
     runs-on: macos-latest
     timeout-minutes: 120
+    # For the whole job, not only the Build step: the staging step builds again, and
+    # a build without the key would compile the launcher a second time, without it.
+    env:
+      LODESTONE_CURSEFORGE_API_KEY: ${{ secrets.LODESTONE_CURSEFORGE_API_KEY }}
 
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

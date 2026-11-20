@@ -129,17 +129,25 @@ crate::i18n::messages! {
 
         // Modpack.
         FromModrinth = "From Modrinth",
+        FromCurseForge = "From CurseForge",
         /// {server} is a server's name.
         FromServerMods = "From the mods of {server}: Play keeps them in step with the server.",
         FromMrpack = "From a .mrpack file that isn't on Modrinth, so it can't be updated here.",
         ViewOnModrinth = "View on Modrinth",
+        ViewOnCurseForge = "View on CurseForge",
         DownloadingNewVersion = "Downloading the new version…",
         CheckingModrinth = "Checking Modrinth…",
+        CheckingCurseForge = "Checking CurseForge…",
         /// The modpack's update button, beside the change from its version to the new one; it opens the update's dialog.
         UpdateModpack = "Update…",
         UpToDate = "Up to date",
         CheckForUpdates = "Check for updates",
         ModrinthUnreachable = "Modrinth can't be reached.",
+        CurseForgeUnreachable = "CurseForge can't be reached.",
+        /// Beside a spinner, while the app waits for a file in the Downloads folder.
+        WaitingForDownload = "Waiting for the download",
+        /// A CurseForge modpack version only its website serves: its page opened in the browser.
+        CurseForgeWaitingDownload = "This version is only on CurseForge's website, so its page opened in your browser. Download it there: Lodestone Launcher takes the .zip from your Downloads folder and carries on.",
         StopGameFirst = "Stop the game first, or wait for the update to finish.",
         /// {error} is the problem, in English.
         CouldntPrepareUpdate = "Couldn't prepare the update: {error}",
@@ -292,7 +300,11 @@ crate::i18n::messages! {
         FindCrashingModKeywords = "crash conflict broken incompatible troubleshoot",
         Export = "Export",
         ExportHint = "As a .mrpack file.",
+        /// Under Export, in a launcher that can reach CurseForge: the two buttons beside it.
+        ExportHintBoth = "As a Modrinth .mrpack file, or a CurseForge .zip.",
         ExportButton = "Export…",
+        ExportCurseForgeButton = "CurseForge .zip…",
+        ExportModrinthButton = "Modrinth .mrpack…",
         Exporting = "Exporting…",
         Duplicate = "Duplicate",
         /// The Duplicate button while the copy is being made.
@@ -339,6 +351,8 @@ crate::i18n::messages! {
         CopyModsNotOnModrinth = "Not on Modrinth, so these stay behind: {names}.",
         /// {names} is a list of mods whose Modrinth lookup failed.
         CopyModsUnchecked = "Couldn't check these on Modrinth, so they stay behind: {names}.",
+        /// {names} is a list of mods whose CurseForge lookup failed.
+        CopyModsUncheckedCurseForge = "Couldn't check these on CurseForge, so they stay behind: {names}.",
         /// After "Try again", when the mods couldn't be checked.
         CopyOrUncheckMods = "or uncheck Mods to copy without them.",
         /// While the version and loader chosen are the instance's own.

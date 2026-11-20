@@ -28,7 +28,11 @@ use gpui::{
     SharedString, Subscription, Task, Window, div, img, prelude::*,
 };
 use launcher_core::{
-    content::{InstanceDirs, packs::Compatibility},
+    content::{
+        InstanceDirs,
+        curseforge::{CLASS_DATA_PACKS, CfMod, CfSearch},
+        packs::Compatibility,
+    },
     datapacks::{self, PackState, WorldDataPacks},
     game::download::{CancelToken, Progress},
     images::{ImageError, Images, RestoreScope, SnapshotRecord},
@@ -79,15 +83,38 @@ pub enum WorldPanel {
     DataPacks,
 }
 
-/// A data pack found on Modrinth.
+/// A data pack found on Modrinth or CurseForge.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PackHit {
+    /// The Modrinth project id, or a CurseForge project's key
+    /// ([`datapacks::curseforge_key`]): what an installed pack is remembered under.
     pub project_id: String,
     pub title: String,
     pub description: String,
     pub author: String,
     pub icon_url: Option<String>,
     pub downloads: u64,
+    /// The CurseForge project, for a pack found there.
+    pub curseforge: Option<u64>,
+}
+
+impl From<CfMod> for PackHit {
+    fn from(project: CfMod) -> Self {
+        Self {
+            project_id: datapacks::curseforge_key(project.id),
+            author: project
+                .authors
+                .first()
+                .map(|author| author.name.clone())
+                .unwrap_or_default(),
+            title: project.name,
+            description: project.summary,
+            // CurseForge's logos come from its own host, which this list doesn't load.
+            icon_url: None,
+            downloads: project.download_count as u64,
+            curseforge: Some(project.id),
+        }
+    }
 }
 
 impl From<ModrinthSearchHit> for PackHit {
@@ -99,6 +126,7 @@ impl From<ModrinthSearchHit> for PackHit {
             author: hit.author,
             icon_url: hit.icon_url,
             downloads: hit.downloads,
+            curseforge: None,
         }
     }
 }
@@ -112,6 +140,7 @@ impl From<ModrinthProject> for PackHit {
             author: String::new(),
             icon_url: project.icon_url,
             downloads: project.downloads,
+            curseforge: None,
         }
     }
 }
@@ -278,6 +307,8 @@ pub struct WorldsView {
     /// What the search was last run with.
     pack_query: String,
     pub pack_results: Load<Vec<PackHit>>,
+    /// Whether data packs are searched for on CurseForge rather than Modrinth.
+    pub pack_curseforge: bool,
     hit_icons: HashMap<String, RemoteIcon>,
     pack_search_task: Option<Task<()>>,
     datapacks_task: Option<Task<()>>,
@@ -369,6 +400,7 @@ impl WorldsView {
             pack_search,
             pack_query: String::new(),
             pack_results: Load::NotLoaded,
+            pack_curseforge: false,
             hit_icons: HashMap::new(),
             pack_search_task: None,
             datapacks_task: None,
@@ -1135,6 +1167,9 @@ impl WorldsView {
         hit: PackHit,
         cx: &mut Context<Self>,
     ) {
+        if let Some(project) = hit.curseforge {
+            return self.install_curseforge_pack(folder, name, hit, project, cx);
+        }
         let Some(api) = self.instances.read(cx).modrinth() else {
             self.set_message(t(M::ModrinthUnavailable), true, cx);
             return;
@@ -1186,6 +1221,123 @@ impl WorldsView {
         );
     }
 
+    /// [`Self::install_pack`], for a pack found on CurseForge: its newest file that
+    /// fits the instance's Minecraft version (a release when there is one).
+    fn install_curseforge_pack(
+        &mut self,
+        folder: String,
+        name: String,
+        hit: PackHit,
+        project: u64,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(cf) = self.instances.read(cx).curseforge() else {
+            self.set_message(t(M::CurseForgeUnavailable), true, cx);
+            return;
+        };
+        let Some(game_version) = self.game_version(cx) else {
+            return;
+        };
+        let downloader = self.instances.read(cx).content_downloader();
+        self.run_async(
+            JobLabel::InstallingDataPack(hit.title.clone()),
+            move |dirs, progress, cancel| async move {
+                let files = cf
+                    .files(project, Some(&game_version), None)
+                    .await
+                    .map_err(|err| WorldError::Invalid(err.to_string()))?;
+                // One its author keeps on CurseForge's website says so, rather than
+                // "no data pack for this version".
+                let blocked = files
+                    .iter()
+                    .filter(|f| !f.downloadable())
+                    .find_map(|f| datapacks::curseforge_incompatibility(f, &game_version));
+                let file =
+                    datapacks::pick_curseforge_file(&game_version, files).ok_or_else(|| {
+                        WorldError::Invalid(blocked.unwrap_or_else(|| {
+                            tr!(
+                                M::NoDataPackVersion,
+                                name = hit.title,
+                                version = game_version
+                            )
+                        }))
+                    })?;
+                let installed = datapacks::install_curseforge(
+                    &cf,
+                    &downloader,
+                    &dirs,
+                    &folder,
+                    &file,
+                    &progress,
+                    &cancel,
+                )
+                .await?;
+                Ok(match installed.replaced {
+                    Some(old) => tr!(
+                        M::UpdatedDataPack,
+                        pack = installed.name,
+                        name = name,
+                        old = old
+                    ),
+                    None => tr!(M::InstalledDataPack, pack = installed.name, name = name),
+                })
+            },
+            cx,
+        );
+    }
+
+    /// Searches Modrinth (`false`) or CurseForge for data packs.
+    pub fn set_pack_platform(&mut self, curseforge: bool, cx: &mut Context<Self>) {
+        if self.pack_curseforge == curseforge {
+            return;
+        }
+        self.pack_curseforge = curseforge;
+        self.run_pack_search(cx);
+    }
+
+    /// [`Self::run_pack_search`] on CurseForge: its data packs for `game_version`, or
+    /// what a pasted curseforge.com link points to.
+    fn run_curseforge_pack_search(
+        &mut self,
+        text: String,
+        game_version: String,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(cf) = self.instances.read(cx).curseforge() else {
+            self.pack_results = Load::Failed(t(M::CurseForgeUnavailable).into());
+            cx.notify();
+            return;
+        };
+        self.pack_results = Load::Loading;
+        let work = cx.background_spawn(async move {
+            if text.contains("curseforge.com/") {
+                let target = cf.resolve_link(&text).await.map_err(|e| e.to_string())?;
+                return if target.project.class_id == Some(CLASS_DATA_PACKS) {
+                    Ok(vec![PackHit::from(target.project)])
+                } else {
+                    Err(t(M::LinkNotDataPack).to_string())
+                };
+            }
+            let mut search = CfSearch::new(CLASS_DATA_PACKS, &text);
+            search.game_version = Some(game_version);
+            search.limit = PACK_RESULTS as usize;
+            let results = cf.search(&search).await.map_err(|e| e.to_string())?;
+            Ok(results.hits.into_iter().map(PackHit::from).collect())
+        });
+        self.pack_search_task = Some(cx.spawn(async move |this, cx| {
+            let result: Result<Vec<PackHit>, String> = work.await;
+            this.update(cx, |this, cx| {
+                this.pack_results = match result {
+                    Ok(hits) => Load::Ready(hits),
+                    Err(err) => Load::Failed(err.into()),
+                };
+                cx.notify();
+            })
+            .ok();
+        }));
+        cx.notify();
+    }
+
     fn pack_search_changed(&mut self, cx: &mut Context<Self>) {
         let text = self.pack_search.read(cx).text().trim().to_string();
         if text == self.pack_query {
@@ -1202,6 +1354,15 @@ impl WorldsView {
     pub fn run_pack_search(&mut self, cx: &mut Context<Self>) {
         let text = self.pack_search.read(cx).text().trim().to_string();
         self.pack_query = text.clone();
+        // A pasted link says which platform it is, whichever is being searched.
+        let on_curseforge = text.contains("curseforge.com/")
+            || (self.pack_curseforge && !text.contains("modrinth.com/"));
+        if on_curseforge {
+            let Some(game_version) = self.game_version(cx) else {
+                return;
+            };
+            return self.run_curseforge_pack_search(text, game_version, cx);
+        }
         let Some(api) = self.instances.read(cx).modrinth() else {
             self.pack_results = Load::Failed(t(M::ModrinthUnavailable).into());
             cx.notify();
@@ -2005,7 +2166,11 @@ impl WorldsView {
                 installed_projects = packs
                     .packs
                     .iter()
-                    .filter_map(|p| p.modrinth_project.clone())
+                    .filter_map(|p| {
+                        p.modrinth_project
+                            .clone()
+                            .or_else(|| p.curseforge_project.map(datapacks::curseforge_key))
+                    })
                     .collect();
                 let mut rows = div().flex().flex_col().gap_1();
                 if !packs.switchable {
@@ -2192,8 +2357,21 @@ impl WorldsView {
             .gap_1()
             .pt_2()
             .border_t_1()
-            .border_color(colors::GRAY_FADED.opacity(15))
-            .child(self.pack_search.clone());
+            .border_color(colors::GRAY_FADED.opacity(15));
+        // With CurseForge in reach, the search is on one platform or the other.
+        let on_curseforge = self.pack_curseforge;
+        if self.instances.read(cx).curseforge().is_some() {
+            let entity = cx.entity();
+            panel = panel.child(div().flex().child(pills(
+                "datapack-platform",
+                vec!["Modrinth".into(), "CurseForge".into()],
+                usize::from(on_curseforge),
+                move |index, _, cx| {
+                    entity.update(cx, |this, cx| this.set_pack_platform(index == 1, cx))
+                },
+            )));
+        }
+        let mut panel = panel.child(self.pack_search.clone());
         let hits = match &self.pack_results {
             Load::NotLoaded => return panel.into_any_element(),
             Load::Loading => {
@@ -2206,7 +2384,11 @@ impl WorldsView {
                             .py_1()
                             .text_color(crate::theme::ink::muted())
                             .child(LoadingDots)
-                            .child(t(M::SearchingModrinth)),
+                            .child(t(if on_curseforge {
+                                M::SearchingCurseForge
+                            } else {
+                                M::SearchingModrinth
+                            })),
                     )
                     .into_any_element();
             }

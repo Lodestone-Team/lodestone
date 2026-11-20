@@ -5,7 +5,7 @@
 
 use std::collections::HashSet;
 
-use gpui::{AnyElement, AppContext as _, Context, Entity, IntoElement, Subscription, Window};
+use gpui::{AnyElement, AppContext as _, Context, Entity, IntoElement, Subscription};
 use launcher_core::cores::admin::mods::ModrinthProjectType;
 
 use super::{ModsPage, Target};
@@ -23,10 +23,10 @@ impl Browse {
     pub fn new(
         target: &Target,
         admin: launcher_core::cores::admin::AdminClient,
-        _window: &mut Window,
         cx: &mut Context<ModsPage>,
     ) -> Self {
         let plugin = target.is_plugin();
+        let both = crate::curseforge::available(cx);
         let label = t(M::ModsOnlyCompatible).to_string();
         let (game_version, loader) = (
             target.game_version.clone(),
@@ -40,10 +40,11 @@ impl Browse {
                 } else {
                     ModrinthProjectType::Mod
                 },
-                t(if plugin {
-                    M::ModsSearchPlugin
-                } else {
-                    M::ModsSearchMod
+                t(match (plugin, both) {
+                    (true, false) => M::ModsSearchPlugin,
+                    (false, false) => M::ModsSearchMod,
+                    (true, true) => M::ModsSearchPluginBoth,
+                    (false, true) => M::ModsSearchModBoth,
                 }),
                 cx,
             )
@@ -56,6 +57,7 @@ impl Browse {
         });
         let subscription = cx.subscribe(&search, |this, _, event, cx| match event {
             ModrinthSearchEvent::Picked(pick) => this.open_project(
+                pick.source,
                 pick.project_id.clone(),
                 pick.version_id.clone(),
                 pick.hit.clone(),
@@ -66,6 +68,23 @@ impl Browse {
             search,
             _subscription: subscription,
         }
+    }
+}
+
+impl Browse {
+    /// For the development screenshots: searches `source` for `query`.
+    #[cfg(feature = "screenshot")]
+    pub(super) fn search_for_screenshot(
+        &self,
+        source: crate::curseforge::Source,
+        query: &str,
+        cx: &mut Context<ModsPage>,
+    ) {
+        self.search.update(cx, |search, cx| {
+            search.set_source(source, cx);
+            let input = search.input.clone();
+            input.update(cx, |input, cx| input.set_text(query.to_string(), cx));
+        });
     }
 }
 
@@ -80,9 +99,15 @@ impl ModsPage {
             .flat_map(|l| l.mods.iter())
             .filter_map(|m| m.modrinth.as_ref().map(|m| m.project_id.clone()))
             .collect();
-        browse
-            .search
-            .update(cx, |search, cx| search.set_installed(installed, cx));
+        let on_curseforge: HashSet<String> = self
+            .curseforge
+            .values()
+            .map(|installed| installed.project_id.to_string())
+            .collect();
+        browse.search.update(cx, |search, cx| {
+            search.set_installed(installed, cx);
+            search.set_installed_curseforge(on_curseforge, cx);
+        });
         browse.search.clone().into_any_element()
     }
 }

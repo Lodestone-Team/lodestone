@@ -53,6 +53,9 @@ crate::i18n::messages! {
         GameTypeTitle = "Select a game",
         GameTypeNew = "New",
         GameTypeModpack = "Modrinth modpack",
+        /// The same card, in a copy of the Host that also takes CurseForge modpacks.
+        GameTypeModpackBoth = "Modpack",
+        GameTypeModpackDescriptionBoth = "Create a Fabric, Forge or NeoForge server from a Modrinth or CurseForge modpack",
         GameTypeModpackDescription = "Create a Fabric, Forge or NeoForge server from a Modrinth modpack",
         /// The "Existing server" card and its two steps: a Minecraft server folder on this computer becomes a Lodestone server.
         GameTypeImport = "Existing server",
@@ -114,6 +117,8 @@ crate::i18n::messages! {
         ModpackSourceTitle = "Select a modpack",
         ModpackSourceDescription = "Fabric, Forge and NeoForge modpacks only.",
         ModpackSearchPlaceholder = "Search modpacks, or paste a Modrinth link",
+        /// The same, in a copy of the Host that also searches CurseForge.
+        ModpackSearchPlaceholderBoth = "Search modpacks, or paste a Modrinth or CurseForge link",
         ModpackUpload = "Upload .mrpack",
         ModpackVersionTitle = "Select a version",
         ModpackVersionUploaded = "The uploaded modpack.",
@@ -134,11 +139,31 @@ crate::i18n::messages! {
         ModpackNotAModpack = "That is a {type}, not a modpack",
         ModpackChooseMrpack = "Choose a .mrpack file",
         ModpackNoUploadId = "The core returned no upload id",
+        ModpackCurseForgeUnavailable = "CurseForge isn’t available in this copy of Lodestone Host.",
+        /// A link or preset named a CurseForge modpack's server-files download, which isn't a pack Lodestone can read.
+        ModpackCurseForgeServerPack = "That file is the modpack’s server files, which Lodestone can’t make a server from. Pick one of the modpack’s versions instead.",
+        /// A link or preset named a CurseForge file that isn't one of this modpack's files.
+        ModpackCurseForgeNoFile = "CurseForge has no such file for this modpack. Pick one of its versions instead.",
+        /// What the Host does with a CurseForge modpack once its file is downloaded.
+        ModpackCurseForgeReading = "Asking CurseForge about the modpack’s files…",
+        /// Tag on a CurseForge modpack version only its website serves.
+        ModpackWebsiteDownload = "Website download",
+        /// Beside a spinner, while the Host waits for a file in the Downloads folder.
+        ModpackWaitingForDownload = "Waiting for the download…",
+        /// A CurseForge modpack version only its website serves: its page opened in the browser.
+        ModpackCurseForgeWebsite = "This version is only on CurseForge’s website, so its page opened in your browser. Download it there: Lodestone Host takes the .zip from your Downloads folder and carries on.",
+        /// CurseForge gives no SHA-512, so each of its files is downloaded once to work one out. {done} and {total} are counts of files.
+        ModpackCurseForgeChecking = "Downloading the files only CurseForge has, to check them ({done} of {total})…",
+        ModpackCurseForgeUploading = "Sending the modpack to Lodestone Core…",
+        /// Under a CurseForge modpack's summary; the files' names follow.
+        ModpackCurseForgeByHand = "Only CurseForge’s website has these files, so the server is made without them. Its Mods tab then asks you to download them, and adds each one as it arrives.",
         ModpackUploadFailed = "Failed to upload the modpack: {error}",
         ModpackUploading = "Uploading {name}…",
         /// Searching Modrinth.
         SortLabel = "Sort by",
         SortRelevance = "Relevance",
+        /// CurseForge's first order, which has no relevance.
+        SortPopularity = "Popularity",
         SortDownloads = "Downloads",
         SortFollows = "Follows",
         SortNewest = "Newest",

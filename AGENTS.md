@@ -76,6 +76,12 @@ Make one only when a developer asks for it.
   `--target`) and adds it to the draft. It needs a clean checkout of the tagged
   commit, the Rust toolchain, and `gh` signed in with write access. On Windows it
   also builds the installer, which needs Inno Setup 6.
+- **CurseForge needs Lodestone's API key compiled in**, from
+  `LODESTONE_CURSEFORGE_API_KEY` (`launcher-core/src/content/curseforge.rs`). The
+  workflows take it from the repository secret of that name; a local build takes it
+  from the environment, and the script says so when it's missing. A build without it
+  doesn't offer CurseForge. Never commit the key, print it, or put it in a command
+  line. The GPUI Host takes the same key the same way; the core never has it.
 - **Test a locally built release on this machine first.** The dry run
   (`--dry-run --tag ...`) stages the build and prints copies to test: run one and
   check it works (window, instances, Settings › General › Updates showing the new
@@ -125,6 +131,11 @@ asks for it.
   rights). **Mac users install with `LodestoneHost.dmg`**: "Lodestone Host.app" with
   the Tauri app's bundle id (`com.lodestone.cc`), so it replaces that app in place.
   Installing and updating never touch the core's data (`~/.lodestone`).
+- **The Host needs the CurseForge key too; the core never gets it.** The Host is built
+  with `LODESTONE_CURSEFORGE_API_KEY` as the launcher is (**Host - Release** and
+  **Host - macOS app** take the repository secret); without it the build offers
+  Modrinth alone. The core it ships has no CurseForge client and no key: see
+  "Lodestone Host (GPUI)".
 - **Updating stops servers, so the Host asks first.** It downloads an update in the
   background (`lodestone-host/src/updater.rs`) and installs it only after the core,
   and its servers, stopped: when the Host quits, or restarts to update. Restarting
@@ -142,6 +153,15 @@ plan: how the Host works, the feature checklist and the work packages. In short:
 - It signs in as the owner through the core's local claim (`"session": true`).
 - It shares `launcher/crates/lodestone-ui` (components, theme, fonts, i18n plumbing)
   with the launcher, and talks to the core through `launcher-core`'s `cores::admin`.
+- **CurseForge is asked from the Host, never from the core.** The core has no CurseForge
+  client and no key (anyone signed in to a core can call it; the key is for the apps
+  people run). The Host searches CurseForge itself, downloads a picked file and uploads
+  it to the core as a jar, and turns a CurseForge modpack into a `.mrpack` it uploads
+  (`lodestone-host/src/curseforge.rs`, `launcher-core`'s `cores::admin::curseforge` and
+  `curseforge_pack`). The core only reports each jar's CurseForge fingerprint, takes
+  CurseForge's CDN among an uploaded pack's download hosts, and keeps which CurseForge
+  file a pack was made from. Keep it that way: don't add a CurseForge client to the
+  core.
 - Tests and dev bundles must not use `~/.lodestone`: set `LODESTONE_PATH` (and
   `LODESTONE_HOST_DATA_DIR`) to temp folders. `launcher/scripts/host_dev_bundle.py`
   makes a runnable `Lodestone Host Dev.app` that does this.

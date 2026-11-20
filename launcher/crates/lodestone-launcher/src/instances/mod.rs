@@ -668,6 +668,29 @@ fn gpui_sleep(cx: &App) -> Sleep {
     })
 }
 
+/// Whether a pack exported to `out` is a CurseForge one: its name ends in `.zip`.
+pub fn export_is_curseforge(out: &std::path::Path) -> bool {
+    out.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("zip"))
+}
+
+/// The plan of an instance's CurseForge pack: with `cf`, the files only Modrinth is
+/// known to have are looked for on CurseForge first, by fingerprint.
+pub async fn curseforge_export_plan(
+    cf: Option<&CurseForge>,
+    instance: &Instance,
+    game_dir: &std::path::Path,
+    instance_dir: &std::path::Path,
+) -> Result<export::CurseForgeExportPlan, export::ExportError> {
+    let mut on_curseforge = export::curseforge_files(instance_dir);
+    let modrinth_only = export::modrinth_only_files(instance_dir);
+    if let Some(cf) = cf {
+        on_curseforge.extend(export::find_on_curseforge(cf, game_dir, &modrinth_only).await?);
+    }
+    export::plan_curseforge(instance, game_dir, &on_curseforge, &modrinth_only)
+}
+
 impl Instances {
     /// Adds the decoded icons, Play backgrounds and sidebar banners, for the
     /// performance monitor.
@@ -1585,14 +1608,17 @@ impl Instances {
         Ok(())
     }
 
-    /// Writes the instance as a Modrinth modpack to `out`, in the background, and
-    /// says how it went.
+    /// Writes the instance as a modpack to `out`, in the background, and says how it
+    /// went: a CurseForge pack when `out` ends in `.zip`, else a Modrinth one.
     pub fn export(&mut self, id: &str, out: PathBuf, cx: &mut Context<Self>) {
         let Ok(instance) = self.store.get(id) else {
             return;
         };
         let game_dir = self.store.game_dir(id);
         let instance_dir = self.store.dir(id);
+        if export_is_curseforge(&out) {
+            return self.export_curseforge(instance, game_dir, instance_dir, out, cx);
+        }
         let write = cx.background_spawn(async move {
             // Files that came from Modrinth are listed by URL; the rest are copied.
             // Files only on CurseForge are left out rather than handed out.
@@ -1637,6 +1663,78 @@ impl Instances {
                                     P::CurseForgeLeftOut,
                                     plan.curseforge_left_out.len(),
                                     names = crate::i18n::format::list(&plan.curseforge_left_out)
+                                )
+                            );
+                        }
+                        InstancesEvent::Notice {
+                            title: t(M::ModpackExported).into(),
+                            message: message.into(),
+                            about: About::Instance(id.clone()),
+                        }
+                    }
+                    Err(err) => InstancesEvent::LaunchFailed {
+                        title: t(M::CouldntExportModpack).into(),
+                        message: err.to_string().into(),
+                        about: About::Instance(id.clone()),
+                    },
+                });
+            })
+            .ok();
+        }));
+    }
+
+    /// [`Self::export`], as a CurseForge pack: files CurseForge has are listed in its
+    /// manifest (it is asked about the ones only Modrinth is known to have), the rest
+    /// are copied, and files only on Modrinth are left out rather than handed out.
+    fn export_curseforge(
+        &mut self,
+        instance: Instance,
+        game_dir: PathBuf,
+        instance_dir: PathBuf,
+        out: PathBuf,
+        cx: &mut Context<Self>,
+    ) {
+        let cf = self.curseforge.clone();
+        let id = instance.id.clone();
+        let write = cx.background_spawn(async move {
+            let plan =
+                curseforge_export_plan(cf.as_deref(), &instance, &game_dir, &instance_dir).await?;
+            export::write_curseforge(&plan, &out)?;
+            Ok::<_, export::ExportError>((plan, out))
+        });
+        self.exporting += 1;
+        self.exports.push(cx.spawn(async move |this, cx| {
+            let result = write.await;
+            this.update(cx, |this, cx| {
+                this.exporting -= 1;
+                cx.emit(match result {
+                    Ok((plan, out)) => {
+                        let saved = trn!(
+                            P::FilesSaved,
+                            plan.overrides.len() + plan.manifest.files.len(),
+                            path = out.display()
+                        );
+                        let others = plan.skipped.len() - plan.modrinth_left_out.len();
+                        let mut message = match plan
+                            .skipped
+                            .iter()
+                            .find(|(_, why)| !why.contains("Modrinth"))
+                        {
+                            Some((first, _)) if others > 0 => tr!(
+                                M::TwoSentences,
+                                first = saved,
+                                second = trn!(P::FilesLeftOut, others, name = first)
+                            ),
+                            _ => saved,
+                        };
+                        if !plan.modrinth_left_out.is_empty() {
+                            message = tr!(
+                                M::TwoSentences,
+                                first = message,
+                                second = trn!(
+                                    P::ModrinthLeftOut,
+                                    plan.modrinth_left_out.len(),
+                                    names = crate::i18n::format::list(&plan.modrinth_left_out)
                                 )
                             );
                         }

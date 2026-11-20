@@ -65,6 +65,8 @@ pub fn text(message: M) -> &'static str {
         M::PackTurnedOff => "{pack} 已停用，下次開啟世界時不再載入。",
         M::NoDataPackVersion => "{name} 沒有適用於 Minecraft {version} 的資料包。",
         M::SearchingModrinth => "正在搜尋 Modrinth",
+        M::SearchingCurseForge => "正在搜尋 CurseForge",
+        M::CurseForgeUnavailable => "目前無法連線到 CurseForge；仍然可以從檔案加入資料包。",
         M::NoDataPacksFound => "找不到適用於 Minecraft {version} 的資料包。",
         M::LinkNotDataPack => "這個連結不是資料包。",
         M::ModrinthUnavailable => "目前無法連線到 Modrinth；仍然可以從檔案加入資料包。",

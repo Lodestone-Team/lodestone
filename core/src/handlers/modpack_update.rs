@@ -507,6 +507,7 @@ async fn from_history(
         server_download_size: restore.download_size,
         unsupported_reason,
         upload_id: None,
+        curseforge: None,
     };
     Ok(Planned {
         change: Change::Restore(Box::new(target)),
@@ -707,7 +708,10 @@ async fn after_change(state: &AppState, prepared: &Prepared, uuid: &InstanceUuid
 /// `.mrpack` when Lodestone can get it and it is the one the image names (by SHA-512);
 /// otherwise the `pack.json` has the base without files, so the next update falls back to
 /// the pack itself. An image without a pack keeps the origin (the server may still be made
-/// from an uploaded pack) and a `pack.json` without base or files.
+/// from an uploaded pack) and a `pack.json` without base or files. A pack the Host made
+/// from a CurseForge modpack has no base either, and images don't name its CurseForge file,
+/// so a restore back past the update or install that brought the current file forgets it
+/// ([`origin_after_curseforge_restore`]).
 async fn restored_pack(
     state: &AppState,
     prepared: &Prepared,
@@ -721,10 +725,17 @@ async fn restored_pack(
             .ok()
             .flatten()
     };
+    let kept_origin = origin_after_curseforge_restore(
+        state,
+        uuid,
+        &target.id,
+        prepared.instance.modpack_origin().await,
+    )
+    .await;
     if current.as_ref().and_then(|info| info.base.as_ref()) == target.base.as_ref() {
         return After {
             pack: None,
-            origin: None,
+            origin: kept_origin,
         };
     }
     let without_files =
@@ -737,7 +748,7 @@ async fn restored_pack(
     else {
         return After {
             pack: Some(without_files),
-            origin: None,
+            origin: kept_origin,
         };
     };
     let origin = match tokio::time::timeout(
@@ -749,22 +760,7 @@ async fn restored_pack(
         Ok(Ok(origin)) if origin.project_id == *project => origin,
         _ => {
             warn!("Could not look up the modpack version {version}; keeping the pack's name");
-            let mut origin =
-                prepared
-                    .instance
-                    .modpack_origin()
-                    .await
-                    .unwrap_or_else(|| ModpackOrigin {
-                        project_id: String::new(),
-                        version_id: String::new(),
-                        name: "Modpack".into(),
-                        version_number: None,
-                        icon_url: None,
-                    });
-            origin.project_id = project.clone();
-            origin.version_id = version.clone();
-            origin.version_number = None;
-            origin
+            fallback_modrinth_origin(prepared.instance.modpack_origin().await, project, version)
         }
     };
     let pack = match tokio::time::timeout(MODRINTH_WAIT, modrinth_pack(state, version)).await {
@@ -802,6 +798,113 @@ async fn restored_pack(
         pack: Some(pack.unwrap_or(without_files)),
         origin: Some(origin),
     }
+}
+
+/// The origin of a restore to the Modrinth pack version `version` of `project` when
+/// Modrinth couldn't be asked: the current origin's name and icon, with the version's ids.
+/// Never a CurseForge file: the server is on a Modrinth pack now.
+fn fallback_modrinth_origin(
+    current: Option<ModpackOrigin>,
+    project: &str,
+    version: &str,
+) -> ModpackOrigin {
+    let mut origin = current.unwrap_or_else(|| ModpackOrigin {
+        project_id: String::new(),
+        version_id: String::new(),
+        name: "Modpack".into(),
+        version_number: None,
+        icon_url: None,
+        curseforge: None,
+    });
+    origin.project_id = project.to_string();
+    origin.version_id = version.to_string();
+    origin.version_number = None;
+    origin.curseforge = None;
+    origin
+}
+
+/// At most this many images are walked back from the current one to a restore's target.
+const MAX_LINEAGE_STEPS: usize = 10_000;
+
+/// Whether going from the content image `current` back to `target` undoes an image
+/// labelled one of `labels`: walks `current`'s parents (`load` gives an image's label and
+/// parent) until it reaches `target`. True too when it can't reach it, since then nothing
+/// says the images between didn't change the pack.
+fn restore_undoes(
+    mut load: impl FnMut(&str) -> Option<(Option<String>, Option<String>)>,
+    current: &str,
+    target: &str,
+    labels: &[String],
+) -> bool {
+    let mut id = current.to_string();
+    for _ in 0..MAX_LINEAGE_STEPS {
+        if id == target {
+            return false;
+        }
+        let Some((label, parent)) = load(&id) else {
+            return true;
+        };
+        if label.is_some_and(|label| labels.contains(&label)) {
+            return true;
+        }
+        match parent {
+            Some(parent) => id = parent,
+            None => return true,
+        }
+    }
+    true
+}
+
+/// `origin` without its CurseForge file, whose version it no longer knows either. The
+/// project stays: the Host keeps checking it for updates, and with file 0 (which
+/// CurseForge never lists) it offers the project's newest release.
+fn without_curseforge_file(origin: ModpackOrigin) -> ModpackOrigin {
+    ModpackOrigin {
+        curseforge: origin
+            .curseforge
+            .clone()
+            .map(|curseforge| crate::modpack::CurseForgeOrigin {
+                file: 0,
+                ..curseforge
+            }),
+        version_number: None,
+        ..origin
+    }
+}
+
+/// The origin after a restore to the image `target` of a server whose pack is the
+/// CurseForge file in `origin`, `None` when it stays as it is. Images don't name the
+/// CurseForge file (the pack has no base), so the file is known only while the restore
+/// stays after the image the install or update of that file recorded (labelled with the
+/// origin). Going back past it, the server may have an older file's content: the origin
+/// forgets the file (keeping the project) rather than keep naming the newer one, which would have the Host say
+/// the server is up to date. A pack that isn't from CurseForge keeps its origin.
+async fn origin_after_curseforge_restore(
+    state: &AppState,
+    uuid: &InstanceUuid,
+    target: &str,
+    origin: Option<ModpackOrigin>,
+) -> Option<ModpackOrigin> {
+    let origin = origin.filter(|origin| origin.curseforge.is_some())?;
+    let labels = vec![
+        lineage::install_label(&origin),
+        lineage::update_label(&origin),
+    ];
+    let current = state.images().current_content(uuid).await;
+    let (store, uuid, target) = (state.images().store(), uuid.clone(), target.to_string());
+    let undone = spawn_blocking(move || {
+        let Some(current) = current else {
+            return Ok(true);
+        };
+        let load = |id: &str| {
+            let image = store.load_manifest(uuid.as_ref(), id).ok()?;
+            Some((image.label, image.parent))
+        };
+        Ok(restore_undoes(load, &current, &target, &labels))
+    })
+    .await
+    .unwrap_or(true);
+    undone.then(|| without_curseforge_file(origin))
 }
 
 /// Stages, places and records the files of `prepared`, and installs the server software
@@ -1142,6 +1245,80 @@ mod tests {
         );
         // adding is the other check's
         assert!(protected_removals(&adds(&["config/native.dll"])).is_empty());
+    }
+
+    fn curseforge_origin(file: u64, version: &str) -> ModpackOrigin {
+        ModpackOrigin {
+            project_id: String::new(),
+            version_id: String::new(),
+            name: "A Pack".into(),
+            version_number: Some(version.into()),
+            icon_url: None,
+            curseforge: Some(crate::modpack::CurseForgeOrigin {
+                project: 238222,
+                file,
+                page_url: None,
+                icon_url: None,
+            }),
+        }
+    }
+
+    /// A restore forgets the CurseForge file only when it goes back past the image the
+    /// update to that file recorded, or can't tell.
+    #[test]
+    fn a_restore_past_the_curseforge_update_forgets_the_file() {
+        let origin = curseforge_origin(200, "2");
+        let labels = [
+            lineage::install_label(&origin),
+            lineage::update_label(&origin),
+        ];
+        // newest first: id, label, parent
+        let chain = [
+            ("e", "Added JEI", Some("d")),
+            ("d", "Updated A Pack to 2", Some("c")),
+            ("c", "Before a modpack update", Some("b")),
+            ("b", "Updated JEI", Some("a")),
+            ("a", "Installed A Pack 1", None),
+        ];
+        let load = |id: &str| {
+            chain
+                .iter()
+                .find(|(i, _, _)| *i == id)
+                .map(|(_, label, parent)| (Some(label.to_string()), parent.map(str::to_string)))
+        };
+        assert!(!restore_undoes(load, "e", "d", &labels));
+        assert!(restore_undoes(load, "e", "c", &labels));
+        assert!(restore_undoes(load, "e", "a", &labels));
+        // not among the current image's ancestors
+        assert!(restore_undoes(load, "e", "x", &labels));
+        // a broken lineage
+        assert!(restore_undoes(load, "gone", "d", &labels));
+
+        let forgot = without_curseforge_file(origin.clone());
+        let curseforge = forgot.curseforge.as_ref().expect("the project stays");
+        assert_eq!(curseforge.file, 0);
+        assert_eq!(
+            Some(curseforge.project),
+            origin.curseforge.as_ref().map(|c| c.project)
+        );
+        assert_eq!(forgot.version_number, None);
+        assert_eq!(forgot.name, origin.name);
+    }
+
+    /// Restoring a Modrinth pack version without Modrinth keeps the pack's name, never a
+    /// CurseForge file.
+    #[test]
+    fn a_modrinth_restore_without_modrinth_drops_the_curseforge_file() {
+        let origin = fallback_modrinth_origin(Some(curseforge_origin(200, "2")), "proj", "ver");
+        assert_eq!(origin.project_id, "proj");
+        assert_eq!(origin.version_id, "ver");
+        assert_eq!(origin.version_number, None);
+        assert_eq!(origin.curseforge, None);
+        assert_eq!(origin.name, "A Pack");
+        assert_eq!(
+            fallback_modrinth_origin(None, "proj", "ver").name,
+            "Modpack"
+        );
     }
 
     /// A restore by a user who can't write global files puts a jar into `mods/` only when

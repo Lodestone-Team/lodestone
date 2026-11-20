@@ -12,9 +12,12 @@ use gpui::{App, AppContext as _, AsyncApp};
 use launcher_control::{ErrorObject, codes};
 use launcher_core::{
     content::{
-        ContentKind, InstanceDirs, Modrinth, Target, files,
+        ContentKind, CurseForge, InstanceDirs, Modrinth, Platforms, Target,
+        curseforge::{self as cf_api, CfFile, CfMod, CfSearch, CfSearchResults, CfSort},
+        curseforge_install::{self, CfInstallRequest, CfPlannedFile},
+        files,
         install::{self, InstallOutcome, InstallProgress, InstallRequest},
-        listing::{self, Item},
+        listing::{self, CurseForgeUpdate, Item},
         shaders::{self, ShaderModOffer},
         share,
     },
@@ -39,7 +42,7 @@ use super::{
 };
 use crate::instances::{
     modpacks::{AddPrompt, AddSource},
-    settings::update_candidate,
+    modpacks::{PackVersion, update_candidate},
 };
 
 /// Results per search page, as the Content tab shows.
@@ -95,6 +98,117 @@ fn modrinth(control: &Control, cx: &App) -> Result<Arc<Modrinth>, ErrorObject> {
         .read(cx)
         .modrinth()
         .ok_or_else(|| api_error(codes::UNAVAILABLE, "Modrinth isn't available."))
+}
+
+fn curseforge(control: &Control, cx: &App) -> Result<Arc<CurseForge>, ErrorObject> {
+    control.instances.read(cx).curseforge().ok_or_else(|| {
+        api_error(
+            codes::UNAVAILABLE,
+            "CurseForge isn't available in this copy of Lodestone Launcher.",
+        )
+    })
+}
+
+/// Whether a command is for CurseForge: `source` says so, or (without it) the project
+/// is a curseforge.com link.
+fn wants_curseforge(source: Option<&str>, project: Option<&str>) -> Result<bool, ErrorObject> {
+    match source.map(|s| s.trim().to_ascii_lowercase()).as_deref() {
+        Some("curseforge") => Ok(true),
+        Some("modrinth") => Ok(false),
+        Some(other) => Err(api_error(
+            codes::INVALID_PARAMS,
+            format!("No source \"{other}\". Sources: modrinth, curseforge."),
+        )),
+        None => Ok(project.is_some_and(|p| p.contains("curseforge.com/"))),
+    }
+}
+
+fn cf_sort(text: Option<&str>) -> Result<CfSort, ErrorObject> {
+    Ok(match text.map(str::to_ascii_lowercase).as_deref() {
+        None | Some("relevance" | "popularity") => CfSort::Popularity,
+        Some("downloads") => CfSort::TotalDownloads,
+        Some("updated" | "newest") => CfSort::LastUpdated,
+        Some("name") => CfSort::Name,
+        Some(other) => {
+            return Err(api_error(
+                codes::INVALID_PARAMS,
+                format!(
+                    "No sort \"{other}\" on CurseForge. Sorts: popularity, downloads, updated, name."
+                ),
+            ));
+        }
+    })
+}
+
+/// A CurseForge project by id, curseforge.com link or slug (among the projects of
+/// `class`), with the file a link names.
+async fn resolve_cf_project(
+    cf: &CurseForge,
+    reference: &str,
+    class: u32,
+) -> Result<(CfMod, Option<CfFile>), ErrorObject> {
+    let reference = reference.trim();
+    if reference.contains("curseforge.com") || reference.starts_with("http") {
+        let target = cf
+            .resolve_link(reference)
+            .await
+            .map_err(|err| api_error(codes::NOT_FOUND, err.to_string()))?;
+        return Ok((target.project, target.file));
+    }
+    let project = match reference.parse::<u64>() {
+        Ok(id) => cf.project(id).await,
+        Err(_) => cf.project_by_slug(class, reference).await,
+    }
+    .map_err(|err| {
+        api_error(
+            codes::NOT_FOUND,
+            format!("CurseForge has no project \"{reference}\": {err}"),
+        )
+    })?;
+    Ok((project, None))
+}
+
+fn cf_hits_json(results: &CfSearchResults) -> Value {
+    json!({
+        "total": results.total,
+        "offset": results.offset,
+        "source": "curseforge",
+        "hits": results.hits.iter().map(|h| json!({
+            "project_id": h.id,
+            "slug": h.slug,
+            "title": h.name,
+            "description": h.summary,
+            "author": h.authors.first().map(|a| a.name.clone()),
+            "downloads": h.download_count as u64,
+            "updated": h.date_modified,
+            "url": h.page_url(),
+        })).collect::<Vec<_>>(),
+    })
+}
+
+fn cf_file_json(file: &CfFile, target: Option<(&Target, ContentKind)>) -> Value {
+    let tags = file.tags();
+    json!({
+        "id": file.id.to_string(),
+        "version_number": file.display_name_or_file(),
+        "name": file.file_name,
+        "type": file.version_type(),
+        "game_versions": tags.game_versions,
+        "loaders": tags.loaders.iter().map(|l| l.label()).collect::<Vec<_>>(),
+        "published": file.file_date,
+        // false: its author keeps it on CurseForge's website, for the user to download
+        "downloadable": file.downloadable(),
+        "incompatible": target.and_then(|(target, kind)| target.curseforge_incompatibility(kind, file)),
+    })
+}
+
+/// A file the user downloads from curseforge.com.
+fn blocked_json(planned: &CfPlannedFile) -> Value {
+    json!({
+        "title": planned.project.as_ref().map(|p| p.name.clone()),
+        "file": planned.file.file_name,
+        "url": planned.project.as_ref().map(|p| planned.file.page_url(&p.page_url())),
+    })
 }
 
 /// The instance's folders and what it accepts, with its shader mod, as the Content tab
@@ -171,6 +285,14 @@ fn item_json(item: &Item) -> Value {
             "version_id": m.version_id,
             "version_number": m.version_number,
         })),
+        "curseforge": item.curseforge.as_ref().map(|c| json!({
+            "project_id": c.project_id,
+            "file_id": c.file_id,
+            "slug": c.slug,
+            "title": c.title,
+            "version_number": c.display_name,
+            "url": c.page_url,
+        })),
     })
 }
 
@@ -194,11 +316,13 @@ pub fn list(call: Call, cx: &mut App) -> Reply {
     let kinds = tri!(kinds(params.kind.as_deref()));
     let (dirs, target) = tri!(context(&control, &instance, cx));
     let api = control.instances.read(cx).modrinth();
+    let cf = control.instances.read(cx).curseforge();
     let work = cx.background_spawn(async move {
         let mut out = serde_json::Map::new();
         let mut shaders = Value::Null;
         for kind in kinds {
-            let listing = listing::list(api.as_deref(), &dirs, &target, kind)
+            let platforms = Platforms::new(api.as_deref(), cf.as_deref());
+            let listing = listing::list(platforms, &dirs, &target, kind)
                 .await
                 .map_err(|err| api_error(codes::FAILED, err.to_string()))?;
             if kind == ContentKind::ShaderPack {
@@ -282,6 +406,9 @@ struct SearchParams {
     limit: Option<u32>,
     #[serde(default)]
     offset: Option<u32>,
+    /// `modrinth` (the default) or `curseforge`.
+    #[serde(default)]
+    source: Option<String>,
 }
 
 fn hits_json(response: &lodestone_minecraft::modrinth::ModrinthSearchResponse) -> Value {
@@ -309,6 +436,37 @@ pub fn search(call: Call, cx: &mut App) -> Reply {
     let params: SearchParams = params!(call);
     let control = call.control.clone();
     let kind = tri!(parse_kind(params.kind.as_deref().unwrap_or("mod")));
+    if tri!(wants_curseforge(params.source.as_deref(), None)) {
+        let cf = tri!(curseforge(&control, cx));
+        let mut search = CfSearch::new(
+            cf_api::class_of(kind),
+            params.query.as_deref().unwrap_or(""),
+        );
+        if let (Some(reference), false) = (&params.instance, params.all) {
+            let instance = tri!(control.instance(reference, cx));
+            let (_, target) = tri!(context(&control, &instance, cx));
+            if kind == ContentKind::Mod {
+                search.loaders = cf_api::accepted_loaders(target.loader, &target.game_version);
+            }
+            search.game_version = Some(target.game_version);
+        }
+        search.sort = tri!(cf_sort(params.sort.as_deref()));
+        search.offset = params.offset.unwrap_or(0) as usize;
+        search.limit = params.limit.unwrap_or(PAGE_SIZE) as usize;
+        return cx.background_spawn(async move {
+            let results = cf
+                .search(&search)
+                .await
+                .map_err(|err| api_error(codes::UNAVAILABLE, err.to_string()))?;
+            let mut value = cf_hits_json(&results);
+            value["kind"] = json!(kind_name(kind));
+            value["filtered_by"] = json!({
+                "game_version": search.game_version,
+                "loaders": search.loaders.iter().map(|l| l.label()).collect::<Vec<_>>(),
+            });
+            Ok(value)
+        });
+    }
     let api = tri!(modrinth(&control, cx));
     let (game_version, loaders) = match &params.instance {
         Some(reference) if !params.all => {
@@ -388,12 +546,17 @@ struct VersionsParams {
     instance: Option<String>,
     #[serde(default)]
     limit: Option<usize>,
+    /// `modrinth` (the default) or `curseforge`.
+    #[serde(default)]
+    source: Option<String>,
+    /// On CurseForge, the kind a slug is looked for among (mods without it).
+    #[serde(default)]
+    kind: Option<String>,
 }
 
 pub fn versions(call: Call, cx: &mut App) -> Reply {
     let params: VersionsParams = params!(call);
     let control = call.control.clone();
-    let api = tri!(modrinth(&control, cx));
     let target = match &params.instance {
         Some(reference) => {
             let instance = tri!(control.instance(reference, cx));
@@ -401,6 +564,30 @@ pub fn versions(call: Call, cx: &mut App) -> Reply {
         }
         None => None,
     };
+    if tri!(wants_curseforge(
+        params.source.as_deref(),
+        Some(&params.project)
+    )) {
+        let cf = tri!(curseforge(&control, cx));
+        let class = cf_api::class_of(tri!(parse_kind(params.kind.as_deref().unwrap_or("mod"))));
+        return cx.background_spawn(async move {
+            let (project, _) = resolve_cf_project(&cf, &params.project, class).await?;
+            let files = cf
+                .files(project.id, None, None)
+                .await
+                .map_err(|err| api_error(codes::UNAVAILABLE, err.to_string()))?;
+            let fit = target.as_ref().zip(project.kind());
+            Ok(json!({
+                "project": { "id": project.id, "slug": project.slug, "title": project.name, "source": "curseforge", "url": project.page_url() },
+                "versions": files
+                    .iter()
+                    .take(params.limit.unwrap_or(usize::MAX))
+                    .map(|f| cf_file_json(f, fit))
+                    .collect::<Vec<_>>(),
+            }))
+        });
+    }
+    let api = tri!(modrinth(&control, cx));
     cx.background_spawn(async move {
         let (project, _) = resolve_project(&api, &params.project).await?;
         let kind = ContentKind::from_project_type(&project.project_type);
@@ -433,6 +620,9 @@ struct InstallParams {
     /// Install a version that doesn't fit the instance.
     #[serde(default)]
     force: bool,
+    /// `modrinth` (the default) or `curseforge`. A curseforge.com link needs none.
+    #[serde(default)]
+    source: Option<String>,
 }
 
 /// The Content tab's install: each request planned and run in turn (a shader mod
@@ -441,15 +631,19 @@ struct InstallParams {
 #[allow(clippy::too_many_arguments)]
 async fn run_requests(
     api: Arc<Modrinth>,
+    cf: Option<Arc<CurseForge>>,
     downloader: launcher_core::game::download::Downloader,
     images: (Arc<Images>, String),
     dirs: InstanceDirs,
     mut target: Target,
-    requests: Vec<InstallRequest>,
+    planned: Planned,
     progress: Arc<InstallProgress>,
     cancel: CancelToken,
-) -> Result<InstallOutcome, ErrorObject> {
+) -> Result<(InstallOutcome, Vec<CfPlannedFile>), ErrorObject> {
     let (images, id) = images;
+    let requests = planned.requests;
+    let cf_requests = planned.curseforge;
+    let mut blocked: Vec<CfPlannedFile> = Vec::new();
     let content_error = |err: launcher_core::content::ContentError| {
         let text = err.to_string();
         if cancel.is_cancelled() {
@@ -496,11 +690,71 @@ async fn run_requests(
                 target.shader_loader = listing::shader_state(&dirs).map_err(content_error)?.loader;
             }
         }
+        // CurseForge's, the same way. Files their authors keep on CurseForge's website
+        // are left for the user to download.
+        for request in cf_requests {
+            let cf = cf.as_deref().ok_or_else(|| {
+                api_error(
+                    codes::UNAVAILABLE,
+                    "CurseForge isn't available in this copy of Lodestone Launcher.",
+                )
+            })?;
+            let kind = request.kind;
+            progress.set_label(format!(
+                "Checking {}",
+                request
+                    .project
+                    .as_ref()
+                    .map_or("the dependencies", |p| p.name.as_str())
+            ));
+            let platforms = Platforms::new(Some(&api), Some(cf));
+            let plan = curseforge_install::plan(cf, platforms, &dirs, &target, request)
+                .await
+                .map_err(content_error)?;
+            let title = plan
+                .files
+                .first()
+                .map(|f| f.file.display_name_or_file().to_string())
+                .unwrap_or_default();
+            let outcome = match curseforge_install::execute(
+                cf,
+                Some(&api),
+                &downloader,
+                &dirs,
+                &target,
+                &plan,
+                &progress,
+                &cancel,
+            )
+            .await
+            {
+                Ok(outcome) => outcome,
+                Err(err) => {
+                    operation.note(labels::partly_installed(&title));
+                    return Err(content_error(err));
+                }
+            };
+            if let Some(label) = labels::installed(&outcome, kind) {
+                operation.note(label);
+            }
+            total.installed.extend(outcome.installed);
+            total.removed.extend(outcome.removed);
+            total.skipped.extend(outcome.skipped);
+            total.skipped.extend(plan.skipped);
+            for file in plan.blocked {
+                if !blocked.iter().any(|b| b.file.id == file.file.id) {
+                    blocked.push(file);
+                }
+            }
+            if kind == ContentKind::Mod {
+                target.shader_loader = listing::shader_state(&dirs).map_err(content_error)?.loader;
+            }
+        }
         Ok(())
     }
     .await;
     operation.succeed();
-    result.map(|()| total)
+    result.map(|()| (total, blocked))
 }
 
 fn outcome_json(outcome: &InstallOutcome) -> Value {
@@ -511,9 +765,17 @@ fn outcome_json(outcome: &InstallOutcome) -> Value {
     })
 }
 
-/// What an install job runs: its requests, and for an update the titles it updates (a
-/// snapshot is taken first, as before the Content tab's updates).
-type Planned = (Vec<InstallRequest>, Option<Vec<String>>);
+/// What an install job runs: its requests on each platform (Modrinth's first), and for
+/// an update the titles it updates (a snapshot is taken first, as before the Content
+/// tab's updates).
+#[derive(Default)]
+struct Planned {
+    requests: Vec<InstallRequest>,
+    curseforge: Vec<CfInstallRequest>,
+    updating: Option<Vec<String>>,
+    /// Why an update couldn't check CurseForge, when it went ahead with Modrinth's.
+    curseforge_unchecked: Option<String>,
+}
 
 /// Runs install requests as a content job of the instance.
 fn start_install(
@@ -526,6 +788,7 @@ fn start_install(
 ) -> Reply {
     let control = call.control.clone();
     let api = tri!(modrinth(&control, cx));
+    let cf = control.instances.read(cx).curseforge();
     let (dirs, target) = tri!(context(&control, instance, cx));
     let downloader = control.instances.read(cx).content_downloader();
     let images = control.instances.read(cx).images();
@@ -539,11 +802,12 @@ fn start_install(
     let id = instance.id.clone();
     let work = cx.spawn(async move |cx| {
         let _busy = busy;
-        let (requests, updating) = plan(cx).await?;
+        let planned = plan(cx).await?;
+        let cf_unchecked = planned.curseforge_unchecked.clone();
         let job_id = id.clone();
         let outcome = cx
             .background_spawn(async move {
-                let no_snapshot = match &updating {
+                let no_snapshot = match &planned.updating {
                     Some(titles) => crate::instances::content::snapshot_before_update(
                         &images, &job_id, titles, &progress, &cancel,
                     )
@@ -552,11 +816,12 @@ fn start_install(
                 };
                 run_requests(
                     api,
+                    cf,
                     downloader,
                     (images, job_id),
                     dirs,
                     target,
-                    requests,
+                    planned,
                     progress,
                     cancel,
                 )
@@ -567,12 +832,31 @@ fn start_install(
         if let Some(control) = refresh.upgrade() {
             let mut all = kinds.clone();
             all.push(ContentKind::ShaderPack);
+            // The Content tab's card asks for the files to download by hand.
+            if let Ok(((_, blocked), _)) = &outcome
+                && !blocked.is_empty()
+            {
+                let blocked = blocked.clone();
+                cx.update(|cx| {
+                    control.instances.update(cx, |instances, cx| {
+                        instances.put_back_pending_downloads(&id, blocked);
+                        // the Content tab takes them when the instances change
+                        cx.notify();
+                    })
+                });
+            }
             cx.update(|cx| refresh_view(&control, &id, &all, cx));
         }
-        let (outcome, no_snapshot) = outcome?;
+        let ((outcome, blocked), no_snapshot) = outcome?;
         let mut reply = outcome_json(&outcome);
+        if !blocked.is_empty() {
+            reply["download_by_hand"] = json!(blocked.iter().map(blocked_json).collect::<Vec<_>>());
+        }
         if let Some(why) = no_snapshot {
             reply["snapshot_failed"] = json!(why);
+        }
+        if let Some(why) = cf_unchecked {
+            reply["curseforge_unchecked"] = json!(why);
         }
         Ok(reply)
     });
@@ -600,6 +884,118 @@ pub fn install(call: Call, cx: &mut App) -> Reply {
     };
     let label = format!("Installing {} in {}", params.project, instance.name);
     let kinds = wanted_kind.into_iter().collect::<Vec<_>>();
+    if tri!(wants_curseforge(
+        params.source.as_deref(),
+        Some(&params.project)
+    )) {
+        let cf = tri!(curseforge(&control, cx));
+        return start_install(
+            &call,
+            &instance,
+            label,
+            async move |_cx| {
+                let class = cf_api::class_of(wanted_kind.unwrap_or(ContentKind::Mod));
+                let (project, linked) = resolve_cf_project(&cf, &params.project, class).await?;
+                let kind = match (wanted_kind, project.kind()) {
+                    (Some(kind), _) => kind,
+                    (None, Some(kind)) => kind,
+                    (None, None) => {
+                        return Err(api_error(
+                            codes::INVALID_PARAMS,
+                            format!(
+                                "{} isn't a mod, resource pack or shader. Install modpacks with `modpacks install`.",
+                                project.name
+                            ),
+                        ));
+                    }
+                };
+                let file = match (params.version.as_deref(), linked) {
+                    (None, Some(file)) => file,
+                    (wanted, _) => {
+                        let files = cf
+                            .files(project.id, None, None)
+                            .await
+                            .map_err(|err| api_error(codes::UNAVAILABLE, err.to_string()))?;
+                        match wanted {
+                            Some(wanted) => files
+                                .into_iter()
+                                .find(|f| f.id.to_string() == wanted || f.display_name_or_file() == wanted || f.file_name == wanted)
+                                .ok_or_else(|| {
+                                    api_error(
+                                        codes::NOT_FOUND,
+                                        format!("{} has no file \"{wanted}\". List them with `content versions {} --source curseforge`.", project.name, project.id),
+                                    )
+                                })?,
+                            None if params.force => files.into_iter().next().ok_or_else(|| {
+                                api_error(codes::NOT_FOUND, format!("{} has no files.", project.name))
+                            })?,
+                            None => curseforge_install::pick_file(&target, kind, files).ok_or_else(|| {
+                                api_error(
+                                    codes::NOT_FOUND,
+                                    format!(
+                                        "{} has no file for Minecraft {} with {}. Pick one with --version and --force, or see `content versions {} --source curseforge`.",
+                                        project.name,
+                                        target.game_version,
+                                        target.loader.label(),
+                                        project.id
+                                    ),
+                                )
+                            })?,
+                        }
+                    }
+                };
+                if !params.force
+                    && let Some(reason) = target.curseforge_incompatibility(kind, &file)
+                {
+                    return Err(api_error(
+                        codes::CONFLICT,
+                        format!(
+                            "{} {} doesn't fit this instance: {reason} Pass --force to install it anyway.",
+                            project.name,
+                            file.display_name_or_file()
+                        ),
+                    ));
+                }
+                let mut planned = Planned::default();
+                if kind == ContentKind::ShaderPack && target.shader_loader.is_none() {
+                    // shaders need a shader mod: the Content tab installs it first
+                    match shaders::find_shader_mod(&api, &target)
+                        .await
+                        .map_err(|err| api_error(codes::UNAVAILABLE, err.to_string()))?
+                    {
+                        ShaderModOffer::Install { version, .. } => {
+                            planned.requests.push(InstallRequest {
+                                kind: ContentKind::Mod,
+                                version: *version,
+                                project: None,
+                                install_dependencies: true,
+                                force: false,
+                            })
+                        }
+                        ShaderModOffer::NeedsModLoader => {
+                            return Err(api_error(
+                                codes::CONFLICT,
+                                "Shader packs need a mod loader, and this instance is vanilla (its loader never changes). Make a copy with Fabric first: `instances copy-as <instance> --loader fabric`.",
+                            ));
+                        }
+                        ShaderModOffer::Unavailable { reason } => {
+                            return Err(api_error(codes::UNAVAILABLE, reason));
+                        }
+                    }
+                }
+                planned.curseforge.push(CfInstallRequest {
+                    kind,
+                    file,
+                    project: Some(project),
+                    install_dependencies: !params.no_deps,
+                    force: params.force,
+                });
+                Ok(planned)
+            },
+            kinds,
+            cx,
+        );
+    }
     start_install(
         &call,
         &instance,
@@ -700,7 +1096,10 @@ pub fn install(call: Call, cx: &mut App) -> Reply {
                 install_dependencies: !params.no_deps,
                 force: params.force,
             });
-            Ok((requests, None))
+            Ok(Planned {
+                requests,
+                ..Planned::default()
+            })
         },
         kinds,
         cx,
@@ -1017,27 +1416,88 @@ async fn find_updates(
     Ok(all)
 }
 
+/// Newer files of installed content from CurseForge, by file, for each kind (none
+/// without CurseForge), and why some couldn't be checked when they couldn't. A
+/// CurseForge outage keeps Modrinth's updates, as the Content tab keeps each platform's
+/// apart, and a kind that fails keeps the other kinds' updates.
+async fn find_cf_updates_or_reason(
+    cf: Option<Arc<CurseForge>>,
+    dirs: InstanceDirs,
+    target: Target,
+    kinds: Vec<ContentKind>,
+    prerelease: bool,
+) -> (Vec<(ContentKind, String, CurseForgeUpdate)>, Option<String>) {
+    let Some(cf) = cf else {
+        return (Vec::new(), None);
+    };
+    let mut all = Vec::new();
+    let mut unchecked = None;
+    for kind in kinds {
+        let updates =
+            match listing::check_curseforge_updates(&cf, &dirs, &target, kind, prerelease).await {
+                Ok(updates) => updates,
+                Err(err) => {
+                    unchecked.get_or_insert_with(|| err.to_string());
+                    continue;
+                }
+            };
+        let mut updates: Vec<(String, CurseForgeUpdate)> = updates.into_iter().collect();
+        updates.sort_by_key(|(_, update)| update.installed.project_id);
+        all.extend(
+            updates
+                .into_iter()
+                .map(|(file, update)| (kind, file, update)),
+        );
+    }
+    (all, unchecked)
+}
+
 pub fn updates(call: Call, cx: &mut App) -> Reply {
     let params: UpdatesParams = params!(call);
     let control = call.control.clone();
     let instance = tri!(control.instance_param(&call, cx));
     let kinds = tri!(kinds(params.kind.as_deref()));
     let api = tri!(modrinth(&control, cx));
+    let cf = control.instances.read(cx).curseforge();
     let (dirs, target) = tri!(context(&control, &instance, cx));
     let id = instance.id.clone();
     let prerelease = instance.prerelease_updates;
     cx.background_spawn(async move {
-        let updates = find_updates(api, dirs, target, kinds, prerelease).await?;
-        Ok(json!({
-            "instance": id,
-            "updates": updates.iter().map(|(kind, file, version)| json!({
+        let updates =
+            find_updates(api, dirs.clone(), target.clone(), kinds.clone(), prerelease).await?;
+        let (cf_updates, cf_unchecked) =
+            find_cf_updates_or_reason(cf, dirs, target, kinds, prerelease).await;
+        let mut list: Vec<Value> = updates
+            .iter()
+            .map(|(kind, file, version)| {
+                json!({
+                    "kind": kind_name(*kind),
+                    "file": file,
+                    "source": "modrinth",
+                    "project_id": version.project_id,
+                    "version_id": version.id,
+                    "version_number": version.version_number,
+                })
+            })
+            .collect();
+        list.extend(cf_updates.iter().map(|(kind, file, update)| {
+            json!({
                 "kind": kind_name(*kind),
                 "file": file,
-                "project_id": version.project_id,
-                "version_id": version.id,
-                "version_number": version.version_number,
-            })).collect::<Vec<_>>(),
-        }))
+                "source": "curseforge",
+                "project_id": update.installed.project_id.to_string(),
+                "version_id": update.file.id.to_string(),
+                "version_number": update.file.display_name_or_file(),
+                // false: the user downloads it from CurseForge's website
+                "downloadable": update.downloadable(),
+            })
+        }));
+        let mut reply = json!({ "instance": id, "updates": list });
+        if let Some(why) = cf_unchecked {
+            // the list holds only Modrinth's updates then
+            reply["curseforge_unchecked"] = json!(why);
+        }
+        Ok(reply)
     })
 }
 
@@ -1057,6 +1517,7 @@ pub fn update(call: Call, cx: &mut App) -> Reply {
     tri!(can_change(&control, &instance, cx));
     let kinds = tri!(kinds(params.kind.as_deref()));
     let api = tri!(modrinth(&control, cx));
+    let cf = control.instances.read(cx).curseforge();
     let (dirs, target) = tri!(context(&control, &instance, cx));
     let label = if params.items.is_empty() {
         format!("Updating {}'s content", instance.name)
@@ -1071,20 +1532,46 @@ pub fn update(call: Call, cx: &mut App) -> Reply {
         &instance,
         label,
         async move |_cx| {
-            let updates = find_updates(api, dirs, target, kinds, prerelease).await?;
+            let updates =
+                find_updates(api, dirs.clone(), target.clone(), kinds.clone(), prerelease).await?;
+            let (cf_updates, cf_unchecked) =
+                find_cf_updates_or_reason(cf, dirs, target, kinds, prerelease).await;
+            let names = |file: &str, project: &str| {
+                wanted.is_empty()
+                    || wanted.iter().any(|w| {
+                        w == file
+                            || launcher_core::content::enabled_name(w)
+                                == launcher_core::content::enabled_name(file)
+                            || w == project
+                    })
+            };
             let chosen: Vec<_> = updates
                 .into_iter()
-                .filter(|(_, file, version)| {
-                    wanted.is_empty()
-                        || wanted.iter().any(|w| {
-                            w == file
-                                || launcher_core::content::enabled_name(w)
-                                    == launcher_core::content::enabled_name(file)
-                                || w == &version.project_id
-                        })
-                })
+                .filter(|(_, file, version)| names(file, &version.project_id))
                 .collect();
-            if chosen.is_empty() {
+            let cf_chosen: Vec<_> = cf_updates
+                .into_iter()
+                .filter(|(_, file, update)| names(file, &update.installed.project_id.to_string()))
+                .collect();
+            if chosen.is_empty() && cf_chosen.is_empty() {
+                // not "up to date" when CurseForge's updates weren't seen
+                if let Some(why) = cf_unchecked {
+                    return Err(if wanted.is_empty() {
+                        api_error(
+                            codes::UNAVAILABLE,
+                            format!("CurseForge couldn't be checked for updates: {why}"),
+                        )
+                    } else {
+                        // named items may well be Modrinth's, and up to date
+                        api_error(
+                            codes::NOT_FOUND,
+                            format!(
+                                "No update for {} on Modrinth, and CurseForge couldn't be                                  checked: {why}",
+                                wanted.join(", ")
+                            ),
+                        )
+                    });
+                }
                 return Err(api_error(
                     codes::NOT_FOUND,
                     if wanted.is_empty() {
@@ -1100,6 +1587,21 @@ pub fn update(call: Call, cx: &mut App) -> Reply {
             let titles = chosen
                 .iter()
                 .map(|(_, file, _)| launcher_core::content::enabled_name(file))
+                .chain(
+                    cf_chosen
+                        .iter()
+                        .map(|(_, file, _)| launcher_core::content::enabled_name(file)),
+                )
+                .collect();
+            let curseforge = cf_chosen
+                .into_iter()
+                .map(|(kind, _, update)| CfInstallRequest {
+                    kind,
+                    file: update.file,
+                    project: None,
+                    install_dependencies: true,
+                    force: false,
+                })
                 .collect();
             let requests = chosen
                 .into_iter()
@@ -1111,7 +1613,12 @@ pub fn update(call: Call, cx: &mut App) -> Reply {
                     force: false,
                 })
                 .collect();
-            Ok((requests, Some(titles)))
+            Ok(Planned {
+                requests,
+                curseforge,
+                updating: Some(titles),
+                curseforge_unchecked: cf_unchecked,
+            })
         },
         refresh_kinds,
         cx,
@@ -1130,10 +1637,30 @@ struct ModpackSearchParams {
     limit: Option<u32>,
     #[serde(default)]
     offset: Option<u32>,
+    /// `modrinth` (the default) or `curseforge`.
+    #[serde(default)]
+    source: Option<String>,
 }
 
 pub fn modpack_search(call: Call, cx: &mut App) -> Reply {
     let params: ModpackSearchParams = params!(call);
+    if tri!(wants_curseforge(params.source.as_deref(), None)) {
+        let cf = tri!(curseforge(&call.control, cx));
+        let mut search = CfSearch::new(
+            cf_api::CLASS_MODPACKS,
+            params.query.as_deref().unwrap_or(""),
+        );
+        search.sort = tri!(cf_sort(params.sort.as_deref()));
+        search.offset = params.offset.unwrap_or(0) as usize;
+        search.limit = params.limit.unwrap_or(PAGE_SIZE) as usize;
+        return cx.background_spawn(async move {
+            let results = cf
+                .search(&search)
+                .await
+                .map_err(|err| api_error(codes::UNAVAILABLE, err.to_string()))?;
+            Ok(cf_hits_json(&results))
+        });
+    }
     let api = tri!(modrinth(&call.control, cx));
     let search = tri!(
         ClientSearchParams::new(
@@ -1173,11 +1700,14 @@ struct ModpackInstallParams {
     project: Option<String>,
     #[serde(default)]
     version: Option<String>,
-    /// A `.mrpack` file instead of a Modrinth project.
+    /// A `.mrpack` file, or a CurseForge pack's `.zip`, instead of a project.
     #[serde(default)]
     file: Option<PathBuf>,
     #[serde(default)]
     name: Option<String>,
+    /// `modrinth` (the default) or `curseforge`. A curseforge.com link needs none.
+    #[serde(default)]
+    source: Option<String>,
 }
 
 pub fn modpack_install(call: Call, cx: &mut App) -> Reply {
@@ -1187,15 +1717,24 @@ pub fn modpack_install(call: Call, cx: &mut App) -> Reply {
         (Some(_), Some(_)) | (None, None) => {
             return ready(Err(api_error(
                 codes::INVALID_PARAMS,
-                "Give a Modrinth project or a .mrpack file.",
+                "Give a project, or a modpack file (.mrpack, or a CurseForge pack's .zip).",
             )));
         }
         (None, Some(file)) => {
             tri!(absolute(file));
-            if file.extension().and_then(|e| e.to_str()) != Some("mrpack") {
+            let extension = file
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(str::to_ascii_lowercase);
+            let is_pack = match extension.as_deref() {
+                Some("mrpack") => true,
+                Some("zip") => launcher_core::modpack::curseforge::is_curseforge_pack(file),
+                _ => false,
+            };
+            if !is_pack {
                 return ready(Err(api_error(
                     codes::INVALID_PARAMS,
-                    "A modpack file ends in .mrpack.",
+                    "A modpack file ends in .mrpack, or is a CurseForge pack's .zip (with a manifest.json in it).",
                 )));
             }
             let seq = control.notices.borrow().last_seq();
@@ -1214,8 +1753,65 @@ pub fn modpack_install(call: Call, cx: &mut App) -> Reply {
         }
         (Some(_), None) => {}
     }
-    let api = tri!(modrinth(&control, cx));
     let reference = params.project.clone().unwrap_or_default();
+    if tri!(wants_curseforge(params.source.as_deref(), Some(&reference))) {
+        let cf = tri!(curseforge(&control, cx));
+        let call_for_job = Rc::new(call);
+        return cx.spawn(async move |cx| {
+            let (project, linked) =
+                resolve_cf_project(&cf, &reference, cf_api::CLASS_MODPACKS).await?;
+            if project.class_id != Some(cf_api::CLASS_MODPACKS) {
+                return Err(api_error(
+                    codes::INVALID_PARAMS,
+                    format!("{} isn't a modpack. Install it into an instance with `content install`.", project.name),
+                ));
+            }
+            let file = match (params.version.as_deref(), linked) {
+                (None, Some(file)) => file,
+                (wanted, _) => {
+                    let files = cf
+                        .files(project.id, None, None)
+                        .await
+                        .map_err(|err| api_error(codes::UNAVAILABLE, err.to_string()))?;
+                    match wanted {
+                        Some(wanted) => files
+                            .into_iter()
+                            .find(|f| f.id.to_string() == wanted || f.display_name_or_file() == wanted)
+                            .ok_or_else(|| api_error(codes::NOT_FOUND, format!("{} has no file \"{wanted}\".", project.name)))?,
+                        // as the modpack browser picks: the newest release it can download
+                        None => files
+                            .iter()
+                            .find(|f| f.release_type == 1 && f.downloadable())
+                            .or_else(|| files.iter().find(|f| f.downloadable()))
+                            .or_else(|| files.first())
+                            .cloned()
+                            .ok_or_else(|| api_error(codes::NOT_FOUND, format!("{} has no files.", project.name)))?,
+                    }
+                }
+            };
+            if !file.downloadable() {
+                return Err(api_error(
+                    codes::UNAVAILABLE,
+                    format!(
+                        "{} can only be downloaded from CurseForge's website: {}. Download it there, then pass the .zip with --file.",
+                        file.display_name_or_file(),
+                        file.page_url(&project.page_url())
+                    ),
+                ));
+            }
+            let label = format!("Installing {} {}", project.name, file.display_name_or_file());
+            let reply = cx.update(|cx| {
+                let seq = control.notices.borrow().last_seq();
+                let before = last_import(&control, cx);
+                control.instances.update(cx, |instances, cx| {
+                    instances.import_curseforge(project, file, params.name.clone(), cx)
+                });
+                follow_import(&call_for_job, before, seq, label, cx)
+            });
+            reply.await
+        });
+    }
+    let api = tri!(modrinth(&control, cx));
     let call_for_job = Rc::new(call);
     cx.spawn(async move |cx| {
         let (project, linked) = resolve_project(&api, &reference).await?;
@@ -1326,40 +1922,74 @@ pub fn modpack_check(call: Call, cx: &mut App) -> Reply {
             format!("{} wasn't made from a modpack.", instance.name),
         )));
     };
-    if !record.on_modrinth() {
+    if !record.updatable() {
         return ready(Ok(json!({
             "instance": instance.id,
             "modpack": { "title": record.title, "version_number": record.version_number },
             "on_modrinth": false,
+            "on_curseforge": false,
             "update_available": false,
         })));
     }
-    let Some(fetch) = control.instances.update(cx, |instances, cx| {
-        instances.modpack_versions(&record.project_id, cx)
-    }) else {
-        return ready(Err(api_error(
-            codes::UNAVAILABLE,
-            "Modrinth isn't available.",
-        )));
+    let Some(fetch) = control
+        .instances
+        .update(cx, |instances, cx| instances.modpack_versions(&record, cx))
+    else {
+        return ready(Err(platform_unavailable(&record)));
     };
     cx.spawn(async move |_| {
         let versions = fetch
             .await
             .map_err(|err| api_error(codes::UNAVAILABLE, err))?;
         let candidate = update_candidate(&versions, &record);
-        Ok(json!({
-            "instance": instance.id,
-            "modpack": {
+        let modpack = match record.curseforge_updates() {
+            Some(pack) => json!({
+                "title": record.title,
+                "curseforge_project": pack.project_id,
+                "curseforge_file": pack.file_id,
+                "version_number": record.version_number,
+            }),
+            None => json!({
                 "title": record.title,
                 "project_id": record.project_id,
                 "version_id": record.version_id,
                 "version_number": record.version_number,
-            },
-            "on_modrinth": true,
+            }),
+        };
+        Ok(json!({
+            "instance": instance.id,
+            "modpack": modpack,
+            "on_modrinth": record.on_modrinth(),
+            "on_curseforge": record.curseforge_updates().is_some(),
             "update_available": candidate.is_some(),
-            "latest": candidate.as_ref().map(|v| version_json(v, None)),
+            "latest": candidate.as_ref().map(pack_version_json),
         }))
     })
+}
+
+/// The error for a pack whose platform this launcher can't reach now.
+fn platform_unavailable(record: &launcher_core::modpack::ModpackRecord) -> ErrorObject {
+    match record.curseforge_updates() {
+        Some(_) => api_error(codes::UNAVAILABLE, "CurseForge isn't available."),
+        None => api_error(codes::UNAVAILABLE, "Modrinth isn't available."),
+    }
+}
+
+/// A version of a modpack: a Modrinth version as `version_json` writes it, or a
+/// CurseForge file.
+fn pack_version_json(version: &PackVersion) -> Value {
+    match version {
+        PackVersion::Modrinth(version) => version_json(version, None),
+        PackVersion::CurseForge(file) => json!({
+            "id": file.id.to_string(),
+            "version_number": file.display_name_or_file(),
+            "version_type": file.version_type(),
+            "date_published": file.file_date,
+            "file_name": file.file_name,
+            "size": file.file_length,
+            "source": "curseforge",
+        }),
+    }
 }
 
 #[derive(Deserialize)]
@@ -1399,19 +2029,17 @@ pub fn modpack_update(call: Call, cx: &mut App) -> Reply {
             format!("{} wasn't made from a modpack.", instance.name),
         )));
     };
-    if !record.on_modrinth() {
+    if !record.updatable() {
         return ready(Err(api_error(
             codes::UNAVAILABLE,
-            "The modpack isn't from Modrinth, so it can't be updated.",
+            "The modpack isn't from Modrinth or CurseForge, so it can't be updated.",
         )));
     }
-    let Some(fetch) = control.instances.update(cx, |instances, cx| {
-        instances.modpack_versions(&record.project_id, cx)
-    }) else {
-        return ready(Err(api_error(
-            codes::UNAVAILABLE,
-            "Modrinth isn't available.",
-        )));
+    let Some(fetch) = control
+        .instances
+        .update(cx, |instances, cx| instances.modpack_versions(&record, cx))
+    else {
+        return ready(Err(platform_unavailable(&record)));
     };
     let call = Rc::new(call);
     cx.spawn(async move |cx| {
@@ -1419,7 +2047,7 @@ pub fn modpack_update(call: Call, cx: &mut App) -> Reply {
         let version = match &params.version {
             Some(wanted) => versions
                 .into_iter()
-                .find(|v| &v.id == wanted || &v.version_number == wanted)
+                .find(|v| v.is_named(wanted))
                 .ok_or_else(|| api_error(codes::NOT_FOUND, format!("The modpack has no version \"{wanted}\".")))?,
             None => update_candidate(&versions, &record).ok_or_else(|| {
                 api_error(codes::NOT_FOUND, "The modpack is up to date.")
@@ -1429,7 +2057,10 @@ pub fn modpack_update(call: Call, cx: &mut App) -> Reply {
         let planned = cx.update(|cx| {
             control
                 .instances
-                .update(cx, |instances, cx| instances.plan_modpack_update(&id, version, cx))
+                // the API never waits for a download by hand: it says so
+                .update(cx, |instances, cx| {
+                    instances.plan_modpack_update(&id, version, false, cx)
+                })
         });
         let Some(planned) = planned else {
             return Err(api_error(codes::BUSY, "The instance is running or updating."));

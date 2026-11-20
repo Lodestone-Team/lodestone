@@ -75,6 +75,8 @@ pub fn text(message: M) -> &'static str {
         M::ModsRestartPlugin => "重新啟動伺服器以套用外掛變更",
         M::ModsSearchMod => "在 Modrinth 上搜尋模組，或貼上 Modrinth 連結",
         M::ModsSearchPlugin => "在 Modrinth 上搜尋外掛，或貼上 Modrinth 連結",
+        M::ModsSearchModBoth => "搜尋模組，或貼上 Modrinth 或 CurseForge 連結",
+        M::ModsSearchPluginBoth => "搜尋外掛，或貼上 Modrinth 或 CurseForge 連結",
         M::ModsSearchLabel => "搜尋 Modrinth",
         M::ModsOnlyCompatible => "僅顯示相容版本",
         M::ModsPlayersNeedToo => "玩家也需要安裝",
@@ -122,6 +124,34 @@ pub fn text(message: M) -> &'static str {
         M::ModsUpdateFailed => "無法更新：{error}",
         M::ModsUpdateTo => "更新至 {version}",
         M::ModsViewOnModrinth => "在 Modrinth 上檢視",
+        M::ModsViewOnCurseForge => "在 CurseForge 上檢視",
+        M::ModsByHandTitle => "請從 CurseForge 下載這些檔案",
+        M::ModsByHandLead => {
+            "這些檔案的作者不允許其他應用程式下載。請在瀏覽器中逐一下載，檔案一出現在 {folder} 中，Lodestone 就會把它加入伺服器。"
+        }
+        M::ModsByHandNoFolder => {
+            "這些檔案的作者不允許其他應用程式下載。請在瀏覽器中逐一下載，然後選擇儲存它們的資料夾。"
+        }
+        M::ModsByHandOpen => "開啟下載頁面",
+        M::ModsByHandOpenAll => "逐一開啟頁面",
+        M::ModsByHandOneByOne => "上一個檔案到達後，會開啟下一個頁面。",
+        M::ModsByHandOwnWindow => {
+            "這些頁面會在獨立的瀏覽器視窗中開啟，上一個檔案到達後才開啟下一個。全部加入完成後，關閉該視窗即可。"
+        }
+        M::ModsByHandAdded => "已加入",
+        M::ModsByHandWaiting => "正在等待 {file}",
+        M::ModsByHandChangeFolder => "監視其他資料夾…",
+        M::ModsByHandSkip => "略過其餘檔案",
+        M::ModsByHandFolderPrompt => "監視此資料夾",
+        M::ModsByHandFailed => "無法加入 {name}：{error}",
+        M::ModsByHandAddedToast => "已從你的下載中加入",
+        M::ModsUnknownCurseForge => {
+            "CurseForge 未說明玩家是否需要它，請查看該模組的頁面。如果玩家需要，請勾選「給玩家」。"
+        }
+        M::ModsEmptyModBoth => "尚未安裝任何模組。瀏覽 Modrinth 或 CurseForge，或上傳 .jar 檔案。",
+        M::ModsEmptyPluginBoth => {
+            "尚未安裝任何外掛。瀏覽 Modrinth 或 CurseForge，或上傳 .jar 檔案。"
+        }
         M::ModsDeleteLabel => "刪除 {name}",
         M::ModsUploaded => "已上傳",
         M::ModsUploadFailed => "上傳失敗：{error}",
@@ -157,6 +187,10 @@ pub fn text(message: M) -> &'static str {
         M::ModpackCheck => "檢查更新",
         M::ModpackCheckFailed => "無法檢查更新：{error}",
         M::ModpackUpToDate => "已是最新版本。",
+        M::ModpackWaitingForDownload => "正在等待下載…",
+        M::ModpackUpdateWebsite => {
+            "此版本僅在 CurseForge 網站上提供，因此已在瀏覽器中開啟它的頁面。請在那裡下載：Lodestone Host 會從你的「下載」資料夾中取得該 .zip 並繼續。"
+        }
         M::ModpackUpdateTo => "更新到 {version}",
         M::ModpackFromFile => "從檔案更新",
         M::ModpackFilePrompt => "更新",
@@ -200,6 +234,7 @@ pub fn text(message: M) -> &'static str {
         M::ModsWrongTypePlugin => "這是一個 {type} 專案。Lodestone 在這裡只安裝外掛。",
         M::ModsDescription => "說明",
         M::ModsRestOnModrinth => "其餘說明請在 Modrinth 上查看。",
+        M::ModsRestOnCurseForge => "其餘說明請在 CurseForge 上查看。",
         M::ModsVersions => "版本",
         M::ModsWithDependencies => "同時安裝必要的相依項目",
         M::ModsShowAll => "顯示所有版本",
@@ -211,6 +246,8 @@ pub fn text(message: M) -> &'static str {
         M::ModsNotFor => "不適用於此伺服器",
         M::ModsInstalledVersion => "已安裝",
         M::ModsInstallFailed => "無法安裝：{error}",
+        M::ModsCurseForgeFailed => "無法向 CurseForge 查詢已安裝的檔案：{error}",
+        M::ModsCurseForgeUnavailable => "此版本的 Lodestone Host 無法使用 CurseForge。",
         M::ModsIncompatibleTitle => "安裝不相容的版本？",
         M::ModsInstallAnyway => "仍要安裝",
         M::ModsIncompatibleBody => "它可能會導致伺服器當機。",

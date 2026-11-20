@@ -144,7 +144,7 @@ impl Report {
     }
 
     /// The dialog's content, under its title.
-    pub fn render(&self) -> AnyElement {
+    pub fn render(&self, instances: &super::Instances) -> AnyElement {
         let mut list = FactList::new("report-facts");
         let mut has_list = false;
         let mut fields = Vec::new();
@@ -190,7 +190,11 @@ impl Report {
             .flex_col()
             .gap_3()
             .text_color(crate::theme::ink::secondary())
-            .children(self.instance.as_ref().map(super::facts::card))
+            .children(
+                self.instance
+                    .as_ref()
+                    .map(|instance| super::facts::card(instances, instance)),
+            )
             .when(has_list, |this| this.child(list))
             .children(fields)
             .children(

@@ -58,6 +58,8 @@ windows-sys = { workspace = true, features = [
     "Win32_System_Registry",
     "Win32_System_SystemInformation",
     "Win32_System_Threading",
+    # the default browser's program, to open a page in a window of its own
+    "Win32_UI_Shell",
 ] }
 
 [dev-dependencies]

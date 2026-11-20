@@ -57,6 +57,9 @@ pub struct FakeFile {
     pub blocked: bool,
     /// Sent instead of the real fingerprint, to test damaged downloads.
     pub wrong_fingerprint: bool,
+    /// Served by the CDN instead of `bytes` (whose SHA-1 and fingerprint the API
+    /// sends), to test downloads that aren't the file.
+    pub served: Option<Vec<u8>>,
 }
 
 impl FakeFile {
@@ -80,7 +83,14 @@ impl FakeFile {
             bytes,
             blocked: false,
             wrong_fingerprint: false,
+            served: None,
         }
+    }
+
+    /// The CDN serves `bytes` instead of the file the API describes.
+    pub fn serving(mut self, bytes: Vec<u8>) -> Self {
+        self.served = Some(bytes);
+        self
     }
 
     pub fn requires(mut self, project: u64) -> Self {
@@ -272,7 +282,10 @@ fn route(state: &mut State, request: &Recorded) -> (u16, Vec<u8>) {
                     && Url::parse(&f.url()).unwrap().path()
                         == &request.path["/edge.forgecdn.net".len()..]
             }) {
-                Some(file) => (200, file.bytes.clone()),
+                Some(file) => (
+                    200,
+                    file.served.clone().unwrap_or_else(|| file.bytes.clone()),
+                ),
                 None => not_found,
             }
         }
@@ -292,11 +305,26 @@ fn route(state: &mut State, request: &Recorded) -> (u16, Vec<u8>) {
                 .projects
                 .iter()
                 .filter(|p| p.3 == class && p.1.contains(&text))
+                .filter(|p| request.query.get("slug").is_none_or(|slug| &p.1 == slug))
                 .filter_map(|p| project_json(state, p.0))
                 .collect();
             ok(
                 json!({ "data": hits, "pagination": { "index": 0, "pageSize": hits.len(), "resultCount": hits.len(), "totalCount": hits.len() } }),
             )
+        }
+        ("GET", ["v1", "categories"]) => {
+            let class: u32 = request
+                .query
+                .get("classId")
+                .and_then(|c| c.parse().ok())
+                .unwrap_or(0);
+            // The class itself comes in the list, as on CurseForge.
+            ok(json!({ "data": [
+                { "id": class, "name": "The class", "classId": null, "isClass": true },
+                { "id": 420, "name": "Storage", "classId": class, "parentCategoryId": class, "isClass": false },
+                { "id": 412, "name": "Technology", "classId": class, "parentCategoryId": class, "isClass": false },
+                { "id": 4843, "name": "automation", "classId": class, "parentCategoryId": 412, "isClass": false },
+            ] }))
         }
         ("POST", ["v1", "mods"]) => {
             let ids: Vec<u64> = serde_json::from_value(body["modIds"].clone()).unwrap_or_default();

@@ -406,6 +406,10 @@ pub struct ModpackInfo {
     /// For `create_modpack`, to reuse the downloaded or uploaded pack.
     #[serde(default)]
     pub upload_id: Option<String>,
+    /// The CurseForge modpack the pack was made from, when Lodestone Host made it
+    /// (`curseforge_pack`). Older cores never say.
+    #[serde(default)]
+    pub curseforge: Option<super::models::CurseForgeOrigin>,
 }
 
 /// A loader's name as people read it: `neoforge` is "NeoForge". An unknown one is shown
@@ -855,6 +859,12 @@ pub struct InstalledMod {
     pub enabled: bool,
     #[serde(default)]
     pub size: u64,
+    #[serde(default)]
+    pub sha512: String,
+    /// CurseForge's fingerprint of the file, which [`super::curseforge::identify`] asks
+    /// CurseForge about. Older cores never send one.
+    #[serde(default)]
+    pub curseforge_fingerprint: Option<u32>,
     #[serde(default)]
     pub metadata: Option<ModFileMetadata>,
     #[serde(default)]

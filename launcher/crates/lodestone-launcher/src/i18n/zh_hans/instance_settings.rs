@@ -107,15 +107,23 @@ pub fn text(message: M) -> &'static str {
         M::Beta => "测试版",
 
         M::FromModrinth => "来自 Modrinth",
+        M::FromCurseForge => "来自 CurseForge",
         M::FromServerMods => "来自 {server} 的模组：“开始游戏”会让它们与服务器保持一致。",
         M::FromMrpack => "来自不在 Modrinth 上的 .mrpack 文件，因此无法在此更新。",
         M::ViewOnModrinth => "在 Modrinth 上查看",
+        M::ViewOnCurseForge => "在 CurseForge 上查看",
         M::DownloadingNewVersion => "正在下载新版本…",
         M::CheckingModrinth => "正在检查 Modrinth…",
+        M::CheckingCurseForge => "正在检查 CurseForge…",
         M::UpdateModpack => "更新…",
         M::UpToDate => "已是最新",
         M::CheckForUpdates => "检查更新",
         M::ModrinthUnreachable => "无法连接到 Modrinth。",
+        M::CurseForgeUnreachable => "无法连接到 CurseForge。",
+        M::WaitingForDownload => "正在等待下载",
+        M::CurseForgeWaitingDownload => {
+            "此版本仅在 CurseForge 网站上提供，因此已在浏览器中打开它的页面。请在那里下载：Lodestone Launcher 会从你的“下载”文件夹中取得该 .zip 并继续。"
+        }
         M::StopGameFirst => "请先停止游戏，或等待更新完成。",
         M::CouldntPrepareUpdate => "无法准备更新：{error}",
 
@@ -237,7 +245,10 @@ pub fn text(message: M) -> &'static str {
         M::FindCrashingModKeywords => "崩溃 冲突 损坏 不兼容 排查",
         M::Export => "导出",
         M::ExportHint => "导出为 .mrpack 文件。",
+        M::ExportHintBoth => "导出为 Modrinth 的 .mrpack 文件，或 CurseForge 的 .zip 文件。",
         M::ExportButton => "导出…",
+        M::ExportCurseForgeButton => "导出 CurseForge .zip…",
+        M::ExportModrinthButton => "导出 Modrinth .mrpack…",
         M::Exporting => "正在导出…",
         M::Duplicate => "创建副本",
         M::Duplicating => "正在创建副本…",
@@ -269,6 +280,9 @@ pub fn text(message: M) -> &'static str {
         M::CopyModsNoBuild => "没有适用于 {target} 的构建，以下模组不会复制：{names}。",
         M::CopyModsNotOnModrinth => "不在 Modrinth 上，以下模组不会复制：{names}。",
         M::CopyModsUnchecked => "无法在 Modrinth 上检查以下模组，因此不会复制：{names}。",
+        M::CopyModsUncheckedCurseForge => {
+            "无法在 CurseForge 上检查以下模组，因此不会复制：{names}。"
+        }
         M::CopyOrUncheckMods => "或取消勾选“模组”，不带模组复制。",
         M::CopySameTarget => {
             "请选择其他 Minecraft 版本或加载器。若要原样复制此实例，请使用“维护”中的“创建副本”。"

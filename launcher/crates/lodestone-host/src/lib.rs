@@ -8,6 +8,8 @@
 //! - [`shell`], [`routes`] and [`pages`]: the dashboard's layout, navigation and pages;
 //! - [`friends`] and [`keychain`]: sharing servers with the friends added in
 //!   Lodestone Launcher;
+//! - [`curseforge`]: CurseForge, which the Host asks itself (the core has no key for it),
+//!   and [`by_hand`]: the files only its website has, taken from the Downloads folder;
 //! - [`tray`] and [`single_instance`]: the menu bar icon and one Host at a time.
 //!
 //! The components, theme, fonts and the translations' plumbing are shared with
@@ -15,7 +17,9 @@
 //! `launcher/docs/host-parity.md` lists what is left to build, by work package.
 
 pub mod app;
+pub mod by_hand;
 pub mod core_process;
+pub mod curseforge;
 pub mod discord;
 pub mod friends;
 pub mod i18n;
