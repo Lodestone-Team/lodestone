@@ -1822,6 +1822,19 @@ def release_title(tag: str) -> str:
     return f"{PRODUCT.name} {tag[len(TAG_PREFIX):] if match else tag}"
 
 
+def download_url(tag: str, name: str) -> str:
+    """Where the file `name` of the release `tag` downloads from, once it's published."""
+    return f"https://github.com/{REPO}/releases/download/{tag}/{name}"
+
+
+def download_lines(tag: str) -> list[str]:
+    """The notes' links to the installers, one per platform."""
+    return [
+        f"- **Windows** (64-bit): [{STABLE_INSTALLER}]({download_url(tag, STABLE_INSTALLER)})",
+        f"- **macOS** (Apple silicon and Intel): [{STABLE_DMG}]({download_url(tag, STABLE_DMG)})",
+    ]
+
+
 def release_notes(tag: str, commit: str) -> str:
     """A new draft's notes, for a developer to finish (the release workflow's
     release-draft.yml writes the same)."""
@@ -1837,9 +1850,7 @@ def release_notes(tag: str, commit: str) -> str:
         "",
         "## Download",
         "",
-        f"- **Windows:** `{STABLE_INSTALLER}`. It installs for your account, without "
-        "administrator rights.",
-        f"- **macOS:** `{STABLE_DMG}`. Open it and drag Lodestone Launcher into Applications.",
+        *download_lines(tag),
         "- The `-standalone` files run without installing, from wherever you put them.",
         "",
         f"Once this release is published, {channel} updates to it.",
@@ -1860,10 +1871,7 @@ def host_release_notes(tag: str, commit: str) -> str:
         "",
         "## Download",
         "",
-        f"- **Windows:** `{STABLE_INSTALLER}`. It installs for your account, without "
-        "administrator rights.",
-        f"- **macOS:** `{STABLE_DMG}`. Open it and drag Lodestone Host into Applications. It "
-        "replaces the old Lodestone Host app; your servers stay where they are.",
+        *download_lines(tag),
         "- The `-standalone` and `-core` files are what the Host updates itself with.",
         "",
         f"Once this release is published, {channel} updates to it.",

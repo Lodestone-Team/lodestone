@@ -689,7 +689,12 @@ class Host(unittest.TestCase):
         self.assertEqual(pr.alias_for(pr.dmg_name(7, ["macos-aarch64"])), "LodestoneHost.dmg")
         self.assertIsNone(pr.alias_for(pr.core_name(7, "windows-x86_64")))
         self.assertEqual(pr.release_title("host-v0.6.0"), "Lodestone Host 0.6.0")
-        self.assertIn("LodestoneHost.dmg", pr.release_notes("host-v0.6.0", "abc"))
+        notes = pr.release_notes("host-v0.6.0", "abc")
+        base = "https://github.com/Lodestone-Team/lodestone/releases/download/host-v0.6.0"
+        self.assertIn(f"[LodestoneHost.dmg]({base}/LodestoneHost.dmg)", notes)
+        self.assertIn(f"[LodestoneHostSetup.exe]({base}/LodestoneHostSetup.exe)", notes)
+        self.assertNotIn("administrator", notes)
+        self.assertNotIn("Applications", notes)
         self.assertEqual(pr.LAUNCHER_PATHS, ["launcher", "core", "crates"])
 
     def test_the_core_has_no_build_of_its_own_but_is_cleaned_up_with_its_host(self):
