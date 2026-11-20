@@ -105,25 +105,6 @@ export const useCoreInfo = (refetchInterval: number | false = false) => {
 };
 
 /**
- * The optional features of the core, from /info. A feature the core doesn't
- * report (an older core) counts as available. While /info loads, `isPending`
- * is true: wait before showing anything that may turn out to be unavailable.
- *
- * - `docker`: a Docker daemon was reachable, so containers can be instances.
- *
- * (`capabilities.macros` and `generic_instances` are always false now: macros,
- * extensions and atom instances were removed with the core's Deno runtime.)
- */
-export const useCoreCapabilities = () => {
-  const { data, isPending } = useCoreInfo();
-  const capabilities = data?.capabilities;
-  return {
-    isPending,
-    docker: capabilities?.docker ?? true,
-  };
-};
-
-/**
  * Whether this dashboard can reach a core on this machine: in Lodestone
  * Host, or when the dashboard page itself is served over http. An https page
  * can't call the local core (plain http), browsers block it as mixed content.

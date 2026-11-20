@@ -519,8 +519,7 @@ struct ContentScope {
 
 impl ContentScope {
     /// The scope of the instance `uuid`, whose folder the handler resolved as `root`.
-    /// `None` when no images are kept for it (a Docker container, an id the store can't
-    /// name) or it is gone.
+    /// `None` when no images are kept for it (an id the store can't name) or it is gone.
     async fn of(state: &AppState, uuid: &InstanceUuid, root: &FsPath) -> Option<ContentScope> {
         if !ImageService::accepts(uuid) {
             return None;
@@ -710,13 +709,6 @@ async fn list_instance_files(
         &UserAction::ReadInstanceFile(uuid.clone()),
         state.safe_mode(),
     )?;
-    if uuid.to_string().starts_with("DOCKER-") {
-        let files = state
-            .docker_bridge
-            .list_files(&uuid, relative_path.into())
-            .await?;
-        return Ok(Json(files));
-    }
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Server not found"),
@@ -760,13 +752,6 @@ async fn read_instance_file(
         &UserAction::ReadInstanceFile(uuid.clone()),
         state.safe_mode(),
     )?;
-    if uuid.to_string().starts_with("DOCKER-") {
-        let file = state
-            .docker_bridge
-            .read_container_file(&uuid, relative_path.into())
-            .await?;
-        return Ok(file);
-    }
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Server not found"),
@@ -799,27 +784,6 @@ async fn write_instance_file(
     )?;
     refuse_during_restore(&state, &uuid)?;
     let can_write_protected = can_write_protected(&requester);
-    if uuid.to_string().starts_with("DOCKER-") {
-        // Container paths are `<mount name>/<path in the mount>`, so check them by name:
-        // the path asked for, and the path it resolves to (through links in the mount).
-        let check = |path: &FsPath| {
-            if !can_write_protected && is_instance_protected(FsPath::new(""), path, false) {
-                return Err(protected_error(
-                    "You don't have permission to write to this file",
-                ));
-            }
-            if is_code_path(path, false) {
-                require_code_write(&state, &requester)?;
-            }
-            Ok(())
-        };
-        check(FsPath::new(&relative_path))?;
-        state
-            .docker_bridge
-            .write_container_file(&uuid, relative_path.into(), &body, check)
-            .await?;
-        return Ok(Json(()));
-    }
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Server not found"),
@@ -3083,7 +3047,7 @@ mod tests {
             FsPath::new("/elsewhere/a.txt"),
             false
         ));
-        // a container's paths are relative
+        // a path relative to the server folder (a backup restore's) is checked by name too
         assert!(is_instance_protected(
             FsPath::new(""),
             FsPath::new(".lodestone_modpack/notes.json"),

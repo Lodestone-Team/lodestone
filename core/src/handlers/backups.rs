@@ -13,9 +13,8 @@
 //! | `GET /instance/{uuid}/backups/policy` | ReadInstanceFile |
 //! | `PUT /instance/{uuid}/backups/policy` | AccessSetting and WriteInstanceFile (a policy can prune history) |
 //!
-//! Every route checks the permission, then that the server exists (404 otherwise, also for
-//! Docker containers, which have no backups), then the uuid's shape, before touching the
-//! store.
+//! Every route checks the permission, then that the server exists (404 otherwise), then the
+//! uuid's shape, before touching the store.
 
 #[cfg(test)]
 mod tests;
@@ -149,7 +148,7 @@ pub struct ExportedBackup {
     pub secrets_withheld: NameList,
 }
 
-/// The Minecraft server `uuid`. 404 when there is none (Docker containers included).
+/// The Minecraft server `uuid`. 404 when there is none.
 pub(super) fn minecraft(state: &AppState, uuid: &InstanceUuid) -> Result<MinecraftInstance, Error> {
     let GameInstance::MinecraftInstance(instance) = get_instance(state, uuid)?;
     Ok(instance)

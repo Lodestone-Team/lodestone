@@ -166,13 +166,14 @@ mod tests {
         let mut reader = user.clone();
         reader.permissions.can_read_instance_file.push("i1".into());
         assert!(InstanceTab::Backups.visible(&cx(&reader, &vanilla, None)));
-        let docker: InstanceInfo = serde_json::from_value(serde_json::json!({
-            "uuid": "DOCKER-abc", "name": "Box", "port": 0, "state": "Running",
+        // an older core's non-Minecraft server (an atom instance or a Docker container)
+        let generic: InstanceInfo = serde_json::from_value(serde_json::json!({
+            "uuid": "atom-1", "name": "Box", "port": 0, "state": "Running",
             "game_type": { "type": "Generic", "game_name": "x", "game_display_name": "x" },
         }))
         .unwrap();
         assert!(
-            !InstanceTab::Backups.visible(&cx(&owner, &docker, None)),
+            !InstanceTab::Backups.visible(&cx(&owner, &generic, None)),
             "only Minecraft servers have backups"
         );
         assert_eq!(

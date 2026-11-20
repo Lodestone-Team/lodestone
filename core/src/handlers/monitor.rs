@@ -139,7 +139,7 @@ mod tests {
             },
         )
         .await;
-        let uuid = InstanceUuid::from("DOCKER-monitored".to_string());
+        let uuid = InstanceUuid::default();
         let member = User::new(
             "member".to_string(),
             "pw",

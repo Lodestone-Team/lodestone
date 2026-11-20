@@ -91,9 +91,8 @@ impl WorldStore {
         &self.root
     }
 
-    /// `<uuid>/`: a uuid images aren't kept for ([`ImageService::accepts`]: a Docker
-    /// container, or one from a URL that isn't a uuid) is a bad request and never reaches
-    /// the disk.
+    /// `<uuid>/`: a uuid images aren't kept for ([`ImageService::accepts`]: one from a URL
+    /// that isn't a uuid) is a bad request and never reaches the disk.
     pub fn dir(&self, uuid: &InstanceUuid) -> Result<PathBuf, Error> {
         if !ImageService::accepts(uuid) {
             return Err(err(ErrorKind::BadRequest, "Invalid server id"));
@@ -695,7 +694,7 @@ pub(crate) mod tests {
     #[test]
     fn bad_uuids_and_ids_never_reach_the_disk() {
         let store = WorldStore::new(PathBuf::from("/nowhere"));
-        for bad in ["", "..", "a/b", "DOCKER-x", "con"] {
+        for bad in ["", "..", "a/b", "con"] {
             let uuid = InstanceUuid::from(bad.to_string());
             assert!(
                 matches!(store.dir(&uuid).unwrap_err().kind, ErrorKind::BadRequest),

@@ -11,8 +11,8 @@
 //! | `POST /instance/{uuid}/world-backups/tasks/{task_id}/cancel` | AccessSetting for a world backup, WriteInstanceFile for a restore |
 //!
 //! The same permissions as the matching snapshot routes (`super::backups`). Every route
-//! checks the permission, then that the server exists (404 otherwise, also for Docker
-//! containers), then the uuid's shape, before touching the store.
+//! checks the permission, then that the server exists (404 otherwise), then the uuid's
+//! shape, before touching the store.
 
 #[cfg(test)]
 mod tests;

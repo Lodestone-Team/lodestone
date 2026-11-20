@@ -405,7 +405,7 @@ pub(crate) mod tests {
     #[test]
     fn uuids_images_cant_name_never_reach_the_disk() {
         let store = Store::new(PathBuf::from("/nowhere"));
-        for bad in ["", "..", "a/b", "DOCKER-x", "con"] {
+        for bad in ["", "..", "a/b", "con"] {
             let uuid = InstanceUuid::from(bad.to_string());
             assert!(store.instance_dir(&uuid).is_err(), "{bad:?}");
             assert!(store.load_records(&uuid).is_err(), "{bad:?}");

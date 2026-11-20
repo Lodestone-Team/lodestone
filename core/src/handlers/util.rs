@@ -136,16 +136,6 @@ pub fn require_code_write(state: &AppState, user: &User) -> Result<(), Error> {
     check_code_write(user.is_owner, &state.code_execution)
 }
 
-/// The rule for adding a Docker container to the watch list (`PUT /generic_setup_manifest`).
-///
-/// Lodestone runs no code of its own for a Docker instance, it only
-/// starts, stops and reads an existing container through the Docker daemon. So this needs
-/// the normal `CreateInstance` permission, is not owner only, and is not stopped by the
-/// code execution kill switch.
-pub fn check_watch_docker_container(user: &User, safe_mode: bool) -> Result<(), Error> {
-    user.try_action(&UserAction::CreateInstance, safe_mode)
-}
-
 /// The address the request came from, when the server records it (it always does
 /// outside tests). An IPv4 address that arrived over IPv6 (`::ffff:a.b.c.d`) is given as
 /// IPv4.
@@ -309,28 +299,6 @@ mod tests {
             crate::global_settings::CODE_EXECUTION_DISABLED_MESSAGE
         );
         assert!(check_code_write(false, &off).is_err());
-    }
-
-    fn non_owner(permissions: crate::auth::permission::UserPermission) -> User {
-        User::new("user".to_string(), "pw", false, false, permissions)
-    }
-
-    #[test]
-    fn docker_watch_list_needs_create_instance_only() {
-        let off = CodeExecutionSwitch::new(false);
-        let creator = non_owner(crate::auth::permission::UserPermission {
-            can_create_instance: true,
-            ..Default::default()
-        });
-        let nobody = non_owner(Default::default());
-
-        // a non-owner with CreateInstance may add a container, whether or not code
-        // execution is on (the switch is not an input to the rule at all)
-        assert!(off.check().is_err());
-        assert!(check_watch_docker_container(&creator, false).is_ok());
-        assert!(check_watch_docker_container(&creator, true).is_ok());
-        let err = check_watch_docker_container(&nobody, false).unwrap_err();
-        assert!(matches!(err.kind, ErrorKind::PermissionDenied));
     }
 
     #[tokio::test]

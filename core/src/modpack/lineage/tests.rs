@@ -522,7 +522,7 @@ fn the_history_lists_content_images_newest_first() {
     assert_eq!(history_len(&p), 3);
     // a server the store can't name has none
     assert!(
-        super::history(&p.images, &InstanceUuid::from("DOCKER-x".to_string()), None)
+        super::history(&p.images, &InstanceUuid::from("a/b".to_string()), None)
             .entries
             .is_empty()
     );

@@ -24,7 +24,7 @@
 //! the store's own collection lock (see [`gc`]).
 //!
 //! Every blocking store call runs on `spawn_blocking`. Instance ids are the core's instance
-//! uuids; Docker instances and ids the store can't name are ignored everywhere.
+//! uuids; ids the store can't name are ignored everywhere.
 
 pub mod base;
 pub mod check;
@@ -281,11 +281,9 @@ impl ImageService {
         self.hints.get(sha512)
     }
 
-    /// Whether images are kept for this instance: a valid store id, and not a Docker
-    /// container.
+    /// Whether images are kept for this instance: a valid store id.
     pub fn accepts(uuid: &InstanceUuid) -> bool {
-        let id: &str = uuid.as_ref();
-        valid_instance_id(id) && !id.starts_with("DOCKER-")
+        valid_instance_id(uuid.as_ref())
     }
 
     pub(crate) fn slot(&self, uuid: &InstanceUuid) -> Arc<Slot> {
@@ -482,8 +480,8 @@ pub(crate) fn remove_tree(dir: &Path) -> std::io::Result<()> {
 
 /// The image folder of `uuid` under the store's root, `images/<uuid>/`, which holds the
 /// core's own files of the server beside its manifests. A uuid images aren't kept for
-/// ([`ImageService::accepts`]: a Docker container, or a uuid from a URL that isn't one the
-/// store can name) is a bad request, so no id from a request can lead out of the store.
+/// ([`ImageService::accepts`]: a uuid from a URL that isn't one the store can name) is a
+/// bad request, so no id from a request can lead out of the store.
 pub(crate) fn instance_dir(store_root: &Path, uuid: &InstanceUuid) -> Result<PathBuf, Error> {
     if !ImageService::accepts(uuid) {
         return Err(Error {

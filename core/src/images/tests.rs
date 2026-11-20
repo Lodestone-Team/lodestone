@@ -251,7 +251,7 @@ async fn a_failed_operation_records_nothing() {
 #[tokio::test]
 async fn instances_without_images_are_ignored() {
     let s = setup();
-    for id in ["DOCKER-abc", "", "a/b", "CON"] {
+    for id in ["", "a/b", "CON"] {
         let mut ctx = context(&s.root, fabric());
         ctx.uuid = InstanceUuid::from(id.to_string());
         assert!(!ImageService::accepts(&ctx.uuid));

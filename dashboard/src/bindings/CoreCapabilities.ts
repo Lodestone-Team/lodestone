@@ -2,21 +2,17 @@
 
 /**
  * The optional features of a core. A client talking to an older core, which sends no
- * `capabilities`, should treat every capability as available.
+ * `capabilities`, should treat every capability as available. This core has none of them.
  */
 export type CoreCapabilities = { 
 /**
- * Macros, tasks, instance scripts (prelaunch) and extensions. Always false: they ran
- * on the Deno runtime, which was removed. Kept for older clients.
+ * Macros, tasks, instance scripts (prelaunch) and extensions. They ran on the Deno
+ * runtime, which Lodestone Core no longer has, so this is always false. Kept so that
+ * clients that read it hide those features instead of assuming an older core.
  */
 macros: boolean, 
 /**
- * Atom (generic TypeScript) instances. Always false: they also ran on Deno. Kept for
- * older clients. Docker instances do not need it.
+ * Atom (generic TypeScript) instances, which also ran on Deno. Always false, like
+ * `macros`.
  */
-generic_instances: boolean, 
-/**
- * Whether a Docker daemon was reachable when the core started, so Docker containers
- * can be managed as instances.
- */
-docker: boolean, };
+generic_instances: boolean, };

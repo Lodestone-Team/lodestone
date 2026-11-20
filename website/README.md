@@ -107,9 +107,8 @@ The launcher page's layout in Host's green, with the dashboard's logo.
   servers; Fabric modpacks only; sharing with friends through Lodestone Connect,
   from the friend list or by invite link; players' launchers getting the
   server's mods; only this computer's apps reaching it until other devices are
-  allowed; users and permissions; API keys and the CLI. Docker management isn't
-  finished, so the page leaves it out. The page doesn't call Host a desktop app
-  until the download button offers one.
+  allowed; users and permissions; API keys and the CLI. The page doesn't call Host
+  a desktop app until the download button offers one.
 - **Screenshots.** `src/host/images/<view>.webp` (2240×1400) and
   `<view>-1120.webp`: the dashboard at `/host/app` in Edge, 1493×933 at 150%,
   dark theme, against a local Host with three servers on 26.3 (a Fabric one

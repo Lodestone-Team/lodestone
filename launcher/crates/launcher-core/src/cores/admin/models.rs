@@ -56,8 +56,8 @@ pub enum Game {
         variant: MinecraftVariant,
     },
     MinecraftBedrock,
-    /// A Docker container managed as an instance. An older core's atom (scripted)
-    /// instances read as this too, and show as any non-Minecraft server.
+    /// A non-Minecraft server from an older core: an atom (scripted) instance or a Docker
+    /// container. Shows as any non-Minecraft server.
     Generic {
         game_name: String,
         game_display_name: String,
@@ -168,13 +168,6 @@ pub struct InstanceInfo {
     pub min_ram: Option<u32>,
     #[serde(default)]
     pub max_ram: Option<u32>,
-}
-
-impl InstanceInfo {
-    /// A Docker container managed as an instance (its id starts `DOCKER-`).
-    pub fn is_docker(&self) -> bool {
-        self.uuid.starts_with("DOCKER-")
-    }
 }
 
 /// What a user may do (`UserPermission`). The per-instance lists hold instance ids.
@@ -325,21 +318,6 @@ pub struct TlsInfo {
     pub fingerprint_sha256: Option<String>,
 }
 
-/// The core's optional features (`CoreCapabilities`). A core that doesn't say has
-/// them all. The core still sends `macros` and `generic_instances`, now always false;
-/// nothing reads them since macros and atom instances were removed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct CoreCapabilities {
-    pub docker: bool,
-}
-
-impl Default for CoreCapabilities {
-    fn default() -> Self {
-        Self { docker: true }
-    }
-}
-
 /// Everything `GET /info` says (the dashboard's `CoreInfo`). Needs no sign-in.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -358,7 +336,6 @@ pub struct FullCoreInfo {
     /// Unix seconds.
     pub up_since: i64,
     pub tls: TlsInfo,
-    pub capabilities: CoreCapabilities,
     pub product: CoreProduct,
     pub launched_by: LaunchedBy,
     /// Whether other devices may use the core. Older cores don't say: they always allow
@@ -442,7 +419,15 @@ mod tests {
         }))
         .unwrap();
         assert!(matches!(info.game_type, Game::Generic { .. }));
-        assert!(!info.is_docker());
+        // and so does an older core's Docker container
+        let info: InstanceInfo = serde_json::from_value(serde_json::json!({
+            "uuid": "DOCKER-box", "name": "box", "port": 0, "state": "Running",
+            "game_type": { "type": "Generic", "game_name": "Generic", "game_display_name": "Docker" },
+            "path": "/no_peek/Volume", "creation_time": 1,
+        }))
+        .unwrap();
+        assert_eq!(info.uuid, "DOCKER-box");
+        assert!(matches!(info.game_type, Game::Generic { .. }));
         // its players, which only atom instances had, don't fail the list
         let players: Vec<Player> = serde_json::from_value(serde_json::json!([
             { "type": "GenericPlayer", "id": "p1", "name": "Bot" },
@@ -460,16 +445,17 @@ mod tests {
         let game: Game = serde_json::from_str(r#"{"type":"Terraria"}"#).unwrap();
         assert_eq!(game, Game::Unknown);
         let info: FullCoreInfo = serde_json::from_str(r#"{"uuid":"u","version":"0.5.1"}"#).unwrap();
-        assert!(
-            info.capabilities.docker,
-            "an older core has every capability"
-        );
-        // a core's capabilities with the macro and atom fields it still sends
-        let info: FullCoreInfo = serde_json::from_str(
-            r#"{"capabilities":{"macros":false,"generic_instances":false,"docker":false}}"#,
-        )
-        .unwrap();
-        assert!(!info.capabilities.docker);
+        assert_eq!(info.version, "0.5.1");
+        // the capabilities a core sends (an older one's with `docker`) are ignored
+        for capabilities in [
+            r#"{"macros":false,"generic_instances":false}"#,
+            r#"{"macros":false,"generic_instances":false,"docker":true}"#,
+        ] {
+            let info: FullCoreInfo =
+                serde_json::from_str(&format!(r#"{{"uuid":"u","capabilities":{capabilities}}}"#))
+                    .unwrap();
+            assert_eq!(info.uuid, "u");
+        }
         // settings from a core before Lodestone Connect, with its playit.gg switch
         let settings: GlobalSettingsData = serde_json::from_str(
             r#"{"core_name":"Home","safe_mode":true,"domain":null,"playit_enabled":true,

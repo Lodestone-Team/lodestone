@@ -1,4 +1,4 @@
-//! Crash-safe writes for small state files (settings, watch lists, secrets).
+//! Crash-safe writes for small state files (settings, secrets).
 
 use std::io::Write;
 use std::path::{Path, PathBuf};

@@ -693,7 +693,7 @@ async fn a_backup_is_downloaded_as_a_zip() {
 async fn uuids_that_leave_the_store_are_refused() {
     let core = core().await;
     let owner = core.owner().await;
-    for uuid in ["..%2F..%2Fstores", "%2Ftmp%2Fx", "C:%5Cx", "DOCKER-abc"] {
+    for uuid in ["..%2F..%2Fstores", "%2Ftmp%2Fx", "C:%5Cx"] {
         for (method, path) in [
             (Method::GET, "/backups".to_string()),
             (Method::GET, "/backups/policy".to_string()),

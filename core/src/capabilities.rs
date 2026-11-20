@@ -4,8 +4,9 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 /// The optional features of a core. A client talking to an older core, which sends no
-/// `capabilities`, should treat every capability as available.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+/// `capabilities`, should treat every capability as available. This core has none of them.
+// `Default` is this core's: every capability false.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct CoreCapabilities {
     /// Macros, tasks, instance scripts (prelaunch) and extensions. They ran on the Deno
@@ -13,22 +14,8 @@ pub struct CoreCapabilities {
     /// clients that read it hide those features instead of assuming an older core.
     pub macros: bool,
     /// Atom (generic TypeScript) instances, which also ran on Deno. Always false, like
-    /// `macros`. Docker instances do not need it.
+    /// `macros`.
     pub generic_instances: bool,
-    /// Whether a Docker daemon was reachable when the core started, so Docker containers
-    /// can be managed as instances.
-    pub docker: bool,
-}
-
-impl CoreCapabilities {
-    /// The capabilities of this core, with `docker` from the running core.
-    pub fn new(docker: bool) -> Self {
-        CoreCapabilities {
-            macros: false,
-            generic_instances: false,
-            docker,
-        }
-    }
 }
 
 #[cfg(test)]
@@ -37,11 +24,9 @@ mod tests {
 
     #[test]
     fn macros_and_atoms_are_never_available() {
-        let capabilities = CoreCapabilities::new(false);
+        let capabilities = CoreCapabilities::default();
         assert!(!capabilities.macros);
         assert!(!capabilities.generic_instances);
-        assert!(!capabilities.docker);
-        assert!(CoreCapabilities::new(true).docker);
     }
 
     #[tokio::test]
@@ -60,8 +45,6 @@ mod tests {
             serde_json::json!({
                 "macros": false,
                 "generic_instances": false,
-                // the test state has no Docker daemon
-                "docker": false,
             })
         );
     }
@@ -83,6 +66,7 @@ mod tests {
             (Method::GET, "/extension/gitstatus"),
             (Method::PUT, "/extension/install"),
             (Method::POST, "/instance/create_generic"),
+            (Method::PUT, "/generic_setup_manifest"),
         ] {
             let response = client
                 .request(method.clone(), format!("{base}{path}"))

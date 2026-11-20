@@ -210,3 +210,51 @@ async fn the_eula_of_a_missing_server_is_not_found() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
+
+/// Older cores managed Docker containers as instances, with `DOCKER-<name>` ids. A client
+/// may still ask this core for one: it is a server that doesn't exist, like any other.
+#[tokio::test]
+async fn an_older_cores_docker_instance_is_not_found() {
+    let core = core().await;
+    let owner = core.user("owner", true, Default::default()).await;
+    let root: String = base64::Engine::encode(
+        &base64::engine::general_purpose::URL_SAFE_NO_PAD,
+        "data/level.dat",
+    );
+    for (method, path) in [
+        (Method::PUT, "start".to_string()),
+        (Method::PUT, "stop".to_string()),
+        (Method::PUT, "restart".to_string()),
+        (Method::PUT, "kill".to_string()),
+        (Method::GET, "state".to_string()),
+        (Method::GET, "info".to_string()),
+        (Method::GET, "settings".to_string()),
+        (Method::GET, format!("fs/{root}/ls")),
+        (Method::GET, format!("fs/{root}/read")),
+        (Method::PUT, format!("fs/{root}/write")),
+    ] {
+        let url = format!("{}/instance/DOCKER-box/{path}", core.base);
+        let response = core
+            .client
+            .request(method.clone(), &url)
+            .bearer_auth(&owner)
+            .body("x")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND, "{method} {url}");
+    }
+    // the list has only the real server
+    let list: Vec<Value> = core
+        .client
+        .get(format!("{}/instance/list", core.base))
+        .bearer_auth(&owner)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0]["uuid"], json!(core.uuid));
+}

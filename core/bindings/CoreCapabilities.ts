@@ -2,7 +2,7 @@
 
 /**
  * The optional features of a core. A client talking to an older core, which sends no
- * `capabilities`, should treat every capability as available.
+ * `capabilities`, should treat every capability as available. This core has none of them.
  */
 export type CoreCapabilities = { 
 /**
@@ -13,11 +13,6 @@ export type CoreCapabilities = {
 macros: boolean, 
 /**
  * Atom (generic TypeScript) instances, which also ran on Deno. Always false, like
- * `macros`. Docker instances do not need it.
+ * `macros`.
  */
-generic_instances: boolean, 
-/**
- * Whether a Docker daemon was reachable when the core started, so Docker containers
- * can be managed as instances.
- */
-docker: boolean, };
+generic_instances: boolean, };
