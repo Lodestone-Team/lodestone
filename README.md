@@ -64,7 +64,6 @@ Lodestone CLI is available for Windows (x86_64), Linux (x86_64 and ARM64) and ma
 To use Docker instead, see the [Docker Support](https://github.com/Lodestone-Team/lodestone/wiki/Docker-Support) page.
 
 ### Future features
-- [ ] Complete [Docker integrations](https://github.com/Lodestone-Team/lodestone/wiki/Docker-Instance) (work in progress)
 - [ ] Event viewer
 
 If you have a feature request, let us know by creating an issue.

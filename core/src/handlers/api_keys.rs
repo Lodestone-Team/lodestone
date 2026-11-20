@@ -23,7 +23,7 @@ use super::util::AuthedUser;
 /// Fails unless every instance a custom scope names exists.
 async fn check_scope_instances(state: &AppState, scope: &ApiKeyScope) -> Result<(), Error> {
     for uuid in api_key::scope_instances(scope) {
-        if !state.instances.contains_key(uuid) && !state.docker_bridge.is_watched(uuid).await {
+        if !state.instances.contains_key(uuid) {
             return Err(Error {
                 kind: ErrorKind::BadRequest,
                 source: eyre!("Server {uuid} does not exist"),
@@ -179,9 +179,8 @@ mod tests {
         types::InstanceUuid,
     };
 
-    /// A container on the Docker watch list: the only kind of instance that exists without
-    /// setting up a real server.
-    const INSTANCE: &str = "DOCKER-api-key-test";
+    /// A never-started Minecraft server, see [`crate::test_util::add_minecraft_instances`].
+    const INSTANCE: &str = "api-key-test";
 
     struct Core {
         _dir: tempfile::TempDir,
@@ -208,12 +207,8 @@ mod tests {
     async fn core_with(settings: GlobalSettingsData) -> Core {
         crate::test_util::install_crypto_provider();
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("docker_bridge.json"),
-            serde_json::to_string(&[INSTANCE]).unwrap(),
-        )
-        .unwrap();
         let state = test_app_state(dir.path(), settings).await;
+        crate::test_util::add_minecraft_instances(&state, dir.path(), &[INSTANCE]).await;
         let owner = add_user(&state, "owner", true, false, Default::default()).await;
         let owner_jwt = owner.create_jwt().unwrap().to_string();
         let base = serve_api(state.clone()).await;
@@ -752,20 +747,29 @@ mod tests {
             .await;
 
         // monitor: a query token, checked against ViewInstance before the instance is
-        // looked up (it is a watched container with no monitor, hence 404 once allowed)
+        // looked up
         let monitor =
             |token: &str| core.ws_url(&format!("/monitor/{INSTANCE}?token={}", query_token(token)));
         assert_eq!(
             ws_status(&monitor(&nothing)).await,
             Err(StatusCode::FORBIDDEN)
         );
-        assert_eq!(
-            ws_status(&monitor(&narrow)).await,
-            Err(StatusCode::NOT_FOUND)
-        );
+        assert_eq!(ws_status(&monitor(&narrow)).await, Ok(()));
         assert_eq!(
             ws_status(&monitor("lsk_nope")).await,
             Err(StatusCode::UNAUTHORIZED)
+        );
+        // a server that does not exist: refused before the lookup, so a key without the
+        // permission can't tell whether it exists; only the owner learns it doesn't
+        let monitor_missing =
+            |token: &str| core.ws_url(&format!("/monitor/missing?token={}", query_token(token)));
+        assert_eq!(
+            ws_status(&monitor_missing(&nothing)).await,
+            Err(StatusCode::FORBIDDEN)
+        );
+        assert_eq!(
+            ws_status(&monitor_missing(&core.owner_jwt)).await,
+            Err(StatusCode::NOT_FOUND)
         );
 
         // console: a query token. Reading it needs the console permission; a key that can
@@ -828,7 +832,7 @@ mod tests {
         let (mut nothing_stream, _) = tokio_tungstenite::connect_async(&events(&nothing))
             .await
             .unwrap();
-        let other = InstanceUuid::from("DOCKER-other".to_string());
+        let other = InstanceUuid::from("other".to_string());
         // not visible to either key, then visible to `narrow` only
         core.state
             .event_broadcaster

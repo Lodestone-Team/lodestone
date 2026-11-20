@@ -1,6 +1,6 @@
 //! Launcher keys and the console: the opt-ins chosen at sign-in, always within the
-//! user's own permissions, against a core on a loopback port. The instances are
-//! containers on the Docker watch list, which exist without setting up a server.
+//! user's own permissions, against a core on a loopback port, with two never-started
+//! Minecraft servers.
 
 use futures::StreamExt;
 use reqwest::{Method, StatusCode};
@@ -15,8 +15,8 @@ use crate::{
     types::Snowflake,
 };
 
-const MINE: &str = "DOCKER-launcher-live-mine";
-const OTHER: &str = "DOCKER-launcher-live-other";
+const MINE: &str = "launcher-live-mine";
+const OTHER: &str = "launcher-live-other";
 
 fn mine() -> InstanceUuid {
     InstanceUuid::from(MINE.to_string())
@@ -37,11 +37,6 @@ struct Core {
 async fn core() -> Core {
     crate::test_util::install_crypto_provider();
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(
-        dir.path().join("docker_bridge.json"),
-        serde_json::to_string(&[MINE, OTHER]).unwrap(),
-    )
-    .unwrap();
     let state = test_app_state(
         dir.path(),
         GlobalSettingsData {
@@ -50,6 +45,7 @@ async fn core() -> Core {
         },
     )
     .await;
+    crate::test_util::add_minecraft_instances(&state, dir.path(), &[MINE, OTHER]).await;
     let owner = add_user(&state, "owner", true, Default::default()).await;
     let owner_jwt = owner.create_jwt().unwrap().to_string();
     let base = serve_api(state.clone()).await;
@@ -152,7 +148,7 @@ impl Core {
     }
 
     /// The status of sending a command: 403 when refused; anything else got past the
-    /// permission check (the watched containers have no console, so 404 or similar).
+    /// permission check (the servers are never started, so the command itself fails).
     async fn send_command(&self, token: &str, uuid: &str) -> StatusCode {
         self.call(
             Method::POST,
@@ -311,7 +307,7 @@ async fn the_opt_ins_are_separate() {
     );
 
     // still nothing beyond the launcher scope
-    for path in ["/instance/DOCKER-launcher-live-mine/settings", "/user/list"] {
+    for path in ["/instance/launcher-live-mine/settings", "/user/list"] {
         let (status, body) = core.call(Method::GET, path, &both, None).await;
         assert!(
             status == StatusCode::FORBIDDEN || status == StatusCode::NOT_FOUND,

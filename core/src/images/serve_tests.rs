@@ -702,9 +702,9 @@ async fn without_a_content_image_the_first_is_recorded_once() {
         .await
         .unwrap()
         .is_none());
-    // Docker containers and ids the store can't name aren't served
-    let docker = InstanceUuid::from("DOCKER-abc".to_string());
-    assert!(fx.service.client_view(&docker).await.is_err());
+    // ids the store can't name aren't served
+    let bad = InstanceUuid::from("a/b".to_string());
+    assert!(fx.service.client_view(&bad).await.is_err());
 
     // a running server, which the startup sweep leaves for its stop
     let root = fx.dir.path().join("server");

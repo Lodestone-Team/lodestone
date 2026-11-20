@@ -24,10 +24,6 @@ use crate::{
 
 use super::util::{get_instance, AuthedUser};
 
-fn is_docker(uuid: &InstanceUuid) -> bool {
-    uuid.to_string().starts_with("DOCKER-")
-}
-
 pub async fn start_instance(
     State(state): State<AppState>,
     Path(uuid): Path<InstanceUuid>,
@@ -36,10 +32,6 @@ pub async fn start_instance(
     requester
         .require(&state, UserAction::StartInstance(uuid.clone()))
         .await?;
-    if is_docker(&uuid) {
-        state.docker_bridge.start_container(&uuid).await?;
-        return Ok(Json(()));
-    }
     let instance = get_instance(&state, &uuid)?;
     let port = instance.port().await;
 
@@ -63,10 +55,6 @@ pub async fn stop_instance(
     requester
         .require(&state, UserAction::StopInstance(uuid.clone()))
         .await?;
-    if is_docker(&uuid) {
-        state.docker_bridge.stop_container(&uuid).await?;
-        return Ok(Json(()));
-    }
     let instance = get_instance(&state, &uuid)?;
     instance.stop(requester.caused_by(), false).await?;
     Ok(Json(()))
@@ -83,10 +71,6 @@ pub async fn restart_instance(
     requester
         .require(&state, UserAction::StartInstance(uuid.clone()))
         .await?;
-    if is_docker(&uuid) {
-        state.docker_bridge.restart_container(&uuid).await?;
-        return Ok(Json(()));
-    }
     let instance = get_instance(&state, &uuid)?;
     instance.restart(requester.caused_by(), false).await?;
     Ok(Json(()))
@@ -100,10 +84,6 @@ pub async fn kill_instance(
     requester
         .require(&state, UserAction::StopInstance(uuid.clone()))
         .await?;
-    if is_docker(&uuid) {
-        state.docker_bridge.kill_container(&uuid).await?;
-        return Ok(Json(json!("ok")));
-    }
     let instance = get_instance(&state, &uuid)?;
     instance.kill(requester.caused_by()).await?;
     Ok(Json(json!("ok")))
@@ -133,10 +113,6 @@ pub async fn get_instance_state(
     requester
         .require(&state, UserAction::ViewInstance(uuid.clone()))
         .await?;
-    if is_docker(&uuid) {
-        let state = state.docker_bridge.get_container_state(&uuid).await?;
-        return Ok(Json(json!(state)));
-    }
     Ok(Json(json!(get_instance(&state, &uuid)?.state().await)))
 }
 

@@ -92,7 +92,6 @@ mod command_console;
 pub mod connect;
 mod core_uuid;
 pub mod db;
-mod docker_bridge;
 pub mod error;
 mod event_broadcaster;
 mod events;
@@ -152,9 +151,8 @@ pub(crate) mod test_util {
     }
 
     /// An [`AppState`](crate::AppState) whose files all live in `dir`, with no instances,
-    /// no Docker daemon, a fake Modrinth and an in-memory database. Nothing in it touches
-    /// the network or the global Lodestone paths. `settings` are the global settings to
-    /// start with.
+    /// a fake Modrinth and an in-memory database. Nothing in it touches the network or the
+    /// global Lodestone paths. `settings` are the global settings to start with.
     pub(crate) async fn test_app_state(
         dir: &std::path::Path,
         settings: crate::global_settings::GlobalSettingsData,
@@ -236,11 +234,6 @@ pub(crate) mod test_util {
             ),
             global_settings: Arc::new(Mutex::new(global_settings)),
             sqlite_pool: sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap(),
-            docker_bridge: crate::docker_bridge::DockerBridge::without_docker(
-                tx,
-                dir.join("docker_bridge.json"),
-            )
-            .await,
             local_claims: Arc::new(crate::local_claim::LocalClaims::new(dir)),
             // an address nothing answers on: tests never reach connect.lodestone.cc
             connect: Arc::new(crate::connect::ConnectShares::new(
@@ -258,6 +251,71 @@ pub(crate) mod test_util {
                 dir.join("image-uploads"),
                 large_writes,
             )),
+        }
+    }
+
+    /// Adds a vanilla Minecraft server for each of `uuids` to `state`, restored from folders
+    /// written to `dir/instances`, for tests that only need servers to exist (permissions,
+    /// API key scopes, console buffers). They are never started. Sets the global Lodestone
+    /// paths to a temporary folder if no test has yet.
+    pub(crate) async fn add_minecraft_instances(
+        state: &crate::AppState,
+        dir: &std::path::Path,
+        uuids: &[&str],
+    ) {
+        static LODESTONE_DIR: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
+        let lodestone = LODESTONE_DIR.get_or_init(|| tempfile::tempdir().unwrap());
+        crate::prelude::try_init_paths(lodestone.path().to_owned()).unwrap();
+
+        let instances = dir.join("instances");
+        for (i, uuid) in uuids.iter().enumerate() {
+            let root = instances.join(uuid);
+            std::fs::create_dir_all(&root).unwrap();
+            let port = 25600 + i;
+            std::fs::write(
+                root.join(".lodestone_config"),
+                serde_json::to_string(&crate::types::DotLodestoneConfig::new(
+                    crate::types::InstanceUuid::from(uuid.to_string()),
+                    crate::traits::t_configurable::GameType::MinecraftJava,
+                ))
+                .unwrap(),
+            )
+            .unwrap();
+            std::fs::write(
+                root.join(".lodestone_minecraft_config.json"),
+                serde_json::json!({
+                    "name": uuid, "version": "1.21.1", "flavour": "vanilla",
+                    "description": "", "cmd_args": [], "java_cmd": "java",
+                    "port": port, "min_ram": 1024, "max_ram": 2048, "auto_start": false,
+                    "restart_on_crash": false, "backup_period": null, "jre_major_version": 21,
+                    "has_started": false
+                })
+                .to_string(),
+            )
+            .unwrap();
+            std::fs::write(
+                root.join("server.properties"),
+                format!("server-port={port}\n"),
+            )
+            .unwrap();
+        }
+        let restored = crate::restore_instances(
+            &instances,
+            state.event_broadcaster.clone(),
+            crate::global_settings::CodeExecutionSwitch::new(false),
+        )
+        .await
+        .unwrap();
+        for (uuid, instance) in crate::snapshot_instances(&restored) {
+            state.instances.insert(uuid, instance);
+        }
+        for uuid in uuids {
+            assert!(
+                state
+                    .instances
+                    .contains_key(&crate::types::InstanceUuid::from(uuid.to_string())),
+                "{uuid} was not restored"
+            );
         }
     }
 
@@ -326,7 +384,6 @@ pub struct AppState {
     first_time_setup_key: Arc<Mutex<Option<String>>>,
     download_urls: Arc<Mutex<HashMap<String, DownloadableFile>>>,
     sqlite_pool: sqlx::SqlitePool,
-    docker_bridge: docker_bridge::DockerBridge,
     /// The current safe mode setting, kept in sync by [`GlobalSettings`].
     safe_mode: Arc<AtomicBool>,
     /// The code execution kill switch, kept in sync by [`GlobalSettings`].
@@ -836,25 +893,15 @@ async fn any_server_running(instances: &DashMap<InstanceUuid, GameInstance>) -> 
 }
 
 /// Removes console buffers that belong to no instance: deleted instances, or UUIDs a macro
-/// made up. Docker containers are not in `instances`, so watched containers are kept.
+/// made up.
 async fn prune_console_buffers(
     console_out_buffer: &Mutex<HashMap<InstanceUuid, AllocRingBuffer<Event>>>,
     instances: &DashMap<InstanceUuid, GameInstance>,
-    docker_bridge: &docker_bridge::DockerBridge,
 ) {
-    let keys: Vec<InstanceUuid> = console_out_buffer.lock().await.keys().cloned().collect();
-    let mut stale = Vec::new();
-    for uuid in keys {
-        if !instances.contains_key(&uuid) && !docker_bridge.is_watched(&uuid).await {
-            stale.push(uuid);
-        }
-    }
-    if !stale.is_empty() {
-        let mut console_out_buffer = console_out_buffer.lock().await;
-        for uuid in stale {
-            console_out_buffer.remove(&uuid);
-        }
-    }
+    console_out_buffer
+        .lock()
+        .await
+        .retain(|uuid, _| instances.contains_key(uuid));
 }
 
 /// Clones every instance out of the map.
@@ -1231,9 +1278,8 @@ pub async fn run_with(
     let (stop_requests, mut stop_signal) = listen_for_stop_signals();
     // Stdin closing asks the core to stop like a signal does: reading it from the start
     // notices that it closed (Lodestone Host quitting while the core starts, say) before
-    // the core decides whether to start servers. Commands typed meanwhile wait for the
-    // core's state.
-    let console = command_console::start(options.stop_with_stdin.then(|| {
+    // the core decides whether to start servers.
+    command_console::start(options.stop_with_stdin.then(|| {
         let stop_requests = stop_requests.clone();
         Box::new(move || {
             stop_requests.request(StopSource::Stdin, "Stdin closed, shutting down");
@@ -1497,11 +1543,6 @@ pub async fn run_with(
                 kind: ErrorKind::Internal,
                 source: Report::msg("Failed to create sqlite pool"),
             })?,
-        docker_bridge: docker_bridge::DockerBridge::new(
-            tx.clone(),
-            path_to_stores().join("docker_bridge.json"),
-        )
-        .await?,
     };
 
     // the core's events, for the owner's debug traces (local only)
@@ -1514,8 +1555,6 @@ pub async fn run_with(
     // a second signal kills these
     stop_requests.set_instances(shared_state.instances.clone());
 
-    // the commands typed so far run now
-    console.ready(shared_state.clone());
     init_app_state(shared_state.clone());
     // mod changes made while an instance runs need a restart; this notices the restart
     tokio::spawn(shared_state.mods.restart.clone().watch(tx.subscribe()));
@@ -1620,7 +1659,6 @@ pub async fn run_with(
         let monitor_buffer = shared_state.monitor_buffer.clone();
         let console_out_buffer = shared_state.console_out_buffer.clone();
         let instances = shared_state.instances.clone();
-        let docker_bridge = shared_state.docker_bridge.clone();
         let mut events = tx.subscribe();
         async move {
             let mut interval = tokio::time::interval(Duration::from_secs(1));
@@ -1639,21 +1677,20 @@ pub async fn run_with(
                     // server starts, which sends events. A `/monitor` stream asks its
                     // instance for reports itself, so it needs no history.
                     monitor_buffer.lock().await.clear();
-                    prune_console_buffers(&console_out_buffer, &instances, &docker_bridge).await;
+                    prune_console_buffers(&console_out_buffer, &instances).await;
                     // only events from now on, not the backlog from while servers ran
                     events = events.resubscribe();
                     while !any_server_running(&instances).await {
                         loop {
                             match events.recv().await {
-                                // console lines (of watched Docker containers) start nothing
+                                // console lines start nothing
                                 Ok(event) if event.is_event_console_message() => {}
                                 Ok(_) | Err(RecvError::Lagged(_)) => break,
                                 Err(RecvError::Closed) => std::future::pending::<()>().await,
                             }
                         }
                         // maybe an instance was deleted: its console lines go too
-                        prune_console_buffers(&console_out_buffer, &instances, &docker_bridge)
-                            .await;
+                        prune_console_buffers(&console_out_buffer, &instances).await;
                     }
                     continue;
                 }
@@ -1684,7 +1721,7 @@ pub async fn run_with(
                     monitor_buffer.retain(|uuid, _| instances.contains_key(uuid));
                 }
                 if ticks.is_multiple_of(BUFFER_PRUNE_INTERVAL_TICKS) {
-                    prune_console_buffers(&console_out_buffer, &instances, &docker_bridge).await;
+                    prune_console_buffers(&console_out_buffer, &instances).await;
                 }
                 ticks = ticks.wrapping_add(1);
             }

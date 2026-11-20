@@ -287,12 +287,13 @@ Conventions in the code that every area relies on:
   (`bindings/ClientError.ts`, `utils/util.ts` `errorToString`). Network errors have their own messages.
 - Owner bypasses all permission checks client-side (`data/UserInfo.ts` `isUserAuthorized`): `is_owner` →
   true; boolean perms → value; per-instance perms (arrays of instance UUIDs) → membership.
-- "Atom" instance = `game_type.type === 'Generic'` and UUID not starting `DOCKER-`; owner-only to control
-  (`data/CodeExecution.ts`). Removed: the Host shows one from an older core as any `Generic` server. "Docker" instance = UUID starts with `DOCKER-`, normal permissions apply.
+- "Atom" instance = `game_type.type === 'Generic'`; owner-only to control. Removed: the Host shows one
+  from an older core as any `Generic` server, as it does an older core's Docker container (UUID starting
+  `DOCKER-`), which the core no longer manages either.
 - Code-execution switch: `useCodeExecution()` → `enabled` (= !`code_execution_locked` && `code_execution_enabled`,
   default true), `locked`, `canManage` (= `is_owner`), `canRun` (= canManage && enabled).
 - Core capabilities (`/info` → `capabilities`, missing = available): `macros`, `generic_instances`
-  (now always false; the Host doesn't read them) (`docker` exists in the type but the dashboard never reads it).
+  (now always false; the Host doesn't read them). Older cores also send `docker`, which nothing reads.
 - "Saved" toast: one small reusable toast (`components/Settings/savedToast.ts`, id `settings-saved`,
   1.5 s) after any auto-saving setting.
 
@@ -637,7 +638,8 @@ Conventions in the code that every area relies on:
   restart_on_crash, setting_sections: {sectionId: {settings: {id: {value}}}}}`; failure → toast, dialog
   stays open; success closes dialog; the instance appears through progression events (pill → list).
 - [x] **Removed** (Lodestone dropped Deno, with macros, tasks, instance scripts, extensions and atom instances). Generic/atom path: `PUT /generic_setup_manifest {url}` and `POST /instance/create_generic
-  {url, setup_value}` existed in code but there was no URL field in the UI **(dead)**. No Docker-instance UI.
+  {url, setup_value}` existed in code but there was no URL field in the UI **(dead)**. Docker instances
+  were removed from the core too, with `PUT /generic_setup_manifest`.
   - *Host:* Not applicable: removed from the core.
 - [x] Dialog skeleton while code loads (`CreateInstanceFlow.tsx`); Back keeps typed values.
 
@@ -1333,9 +1335,7 @@ All paths are under `/api/v1`. Bodies are JSON unless noted. Types are in `dashb
 |---|---|---|---|
 | GET | `/games` | – | `HandlerGameType[]` |
 | GET | `/setup_manifest/{HandlerGameType}` | – | `SetupManifest` |
-| PUT | `/generic_setup_manifest` | `{url}` | `SetupManifest` (dead path) |
 | POST | `/instance/create/{HandlerGameType}` | `SetupValue` | – (progress via events) |
-| POST | `/instance/create_generic` | `{url, setup_value: SetupValue}` | – (dead path) |
 | POST | `/instance/create_modpack` | `CreateModpackInstanceRequest` | `InstanceUuid` |
 | GET | `/instance/list` | – | `InstanceInfo[]` |
 | DELETE | `/instance/{uuid}` | – | – (progress via events) |
@@ -1425,8 +1425,9 @@ routes'.
 
 ### 10.7 Macros / tasks (removed)
 
-These routes are gone from the core, with `/task/*`, `/history/*`, `/extension/*` and
-`/instance/create_generic`. What they were:
+These routes are gone from the core, with `/task/*`, `/history/*`, `/extension/*`,
+`POST /instance/create_generic` and `PUT /generic_setup_manifest` (404 on current cores).
+What they were:
 
 | Method | Path | Request | Response |
 |---|---|---|---|

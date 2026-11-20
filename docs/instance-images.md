@@ -640,7 +640,7 @@ and the bytes of the files only it has. The core does this (`core/src/images/ser
 
 **Routes.** Every route has three forms, with the same query and answers; each checks
 access exactly as the client pack's route beside it does, and answers 404 alike for a
-server that doesn't exist, isn't listed, isn't shared or is a Docker container:
+server that doesn't exist, isn't listed or isn't shared:
 
 | Prefix | Who | Access |
 | --- | --- | --- |
@@ -1490,7 +1490,7 @@ of M2 adds its own subsection.
     layout, is content or a folder that can hold content (the server folder itself can: an
     unzip there may write anything); when the layout can't be read, everything counts, since a
     record that finds nothing changed writes no image. Reads and downloads never record.
-    Docker instances never do. While a backup is being restored into the server, every Files
+    While a backup is being restored into the server, every Files
     API change is refused (409), and an upload that streamed while the restore began places
     nothing: the restore swaps whole folders. A job that began before the restore isn't
     stopped. The global Files API (`handlers/global_fs.rs`, for users with

@@ -1,4 +1,3 @@
-import { InstanceInfo } from 'bindings/InstanceInfo';
 import { useGlobalSettings } from './GlobalSettings';
 import { useUserInfo } from './UserInfo';
 import { useT } from 'i18n';
@@ -28,15 +27,6 @@ export const useCodeExecution = () => {
   const canManage = user?.is_owner ?? false;
   return { enabled, locked, canManage, canRun: canManage && enabled };
 };
-
-/**
- * A Docker instance: an existing container the core manages through the
- * Docker daemon. The core gives them `DOCKER-<container name>` UUIDs and
- * routes every request for such a UUID to Docker. They run no Lodestone code,
- * so the owner-only and code execution rules don't apply to them.
- */
-export const isDockerInstance = (instance: Pick<InstanceInfo, 'uuid'>) =>
-  instance.uuid.startsWith('DOCKER-');
 
 // Settings that choose the program an instance runs and its arguments.
 export const COMMAND_LINE_SETTINGS = ['java_cmd', 'cmd_args'];

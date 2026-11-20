@@ -95,17 +95,6 @@ pub async fn get_instance_list(
             list_of_configs.push(instance.get_instance_info().await);
         }
     }
-    let containers = state
-        .docker_bridge
-        .list_containers()
-        .await
-        .unwrap_or_default();
-    list_of_configs.extend(
-        containers.into_iter().filter(|info| {
-            requester.can_perform_action(&UserAction::ViewInstance(info.uuid.clone()))
-        }),
-    );
-
     list_of_configs.sort_by_key(|a| a.creation_time);
 
     Ok(Json(list_of_configs))

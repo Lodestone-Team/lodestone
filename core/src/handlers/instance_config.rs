@@ -40,9 +40,6 @@ pub async fn get_instance_settings(
 ) -> Result<Json<ConfigurableManifest>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(&UserAction::AccessSetting(uuid.clone()), state.safe_mode())?;
-    if uuid.to_string().starts_with("DOCKER-") {
-        return Ok(Json(ConfigurableManifest::default()));
-    }
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Server not found"),

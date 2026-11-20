@@ -90,7 +90,7 @@ pub async fn get_core_info(
         uuid: state.uuid.clone(),
         up_since: state.up_since,
         tls: (*state.tls_info).clone(),
-        capabilities: CoreCapabilities::new(state.docker_bridge.is_available()),
+        capabilities: CoreCapabilities::default(),
         product: state.product,
         launched_by: state.launched_by,
         remote_access: state.remote_access.allowed(),
