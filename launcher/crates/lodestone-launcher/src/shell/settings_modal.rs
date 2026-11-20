@@ -687,51 +687,53 @@ impl LauncherShell {
                     })),
             )
         };
-        let mut rows = vec![toggle(
-            "discord-enabled",
-            M::DiscordShowPlaying,
-            M::DiscordShowPlayingHint,
-            settings.enabled && !unavailable,
-            unavailable,
-            |s, on| s.enabled = on,
-            cx,
-        )];
-        rows.push(toggle(
-            "discord-world",
-            M::DiscordShowWorld,
-            M::DiscordShowWorldHint,
-            settings.show_world,
-            off,
-            |s, on| s.show_world = on,
-            cx,
-        ));
-        rows.push(toggle(
-            "discord-coordinates",
-            M::DiscordShowCoordinates,
-            M::DiscordShowCoordinatesHint,
-            settings.show_coordinates,
-            off,
-            |s, on| s.show_coordinates = on,
-            cx,
-        ));
-        rows.push(toggle(
-            "discord-server",
-            M::DiscordShowServer,
-            M::DiscordShowServerHint,
-            settings.show_server,
-            off,
-            |s, on| s.show_server = on,
-            cx,
-        ));
-        rows.push(toggle(
-            "discord-stats",
-            M::DiscordShowStats,
-            M::DiscordShowStatsHint,
-            settings.show_stats,
-            off,
-            |s, on| s.show_stats = on,
-            cx,
-        ));
+        let mut rows = vec![
+            toggle(
+                "discord-enabled",
+                M::DiscordShowPlaying,
+                M::DiscordShowPlayingHint,
+                settings.enabled && !unavailable,
+                unavailable,
+                |s, on| s.enabled = on,
+                cx,
+            ),
+            toggle(
+                "discord-world",
+                M::DiscordShowWorld,
+                M::DiscordShowWorldHint,
+                settings.show_world,
+                off,
+                |s, on| s.show_world = on,
+                cx,
+            ),
+            toggle(
+                "discord-coordinates",
+                M::DiscordShowCoordinates,
+                M::DiscordShowCoordinatesHint,
+                settings.show_coordinates,
+                off,
+                |s, on| s.show_coordinates = on,
+                cx,
+            ),
+            toggle(
+                "discord-server",
+                M::DiscordShowServer,
+                M::DiscordShowServerHint,
+                settings.show_server,
+                off,
+                |s, on| s.show_server = on,
+                cx,
+            ),
+            toggle(
+                "discord-stats",
+                M::DiscordShowStats,
+                M::DiscordShowStatsHint,
+                settings.show_stats,
+                off,
+                |s, on| s.show_stats = on,
+                cx,
+            ),
+        ];
         let note = match status {
             Status::Unavailable => Some(t(M::DiscordUnavailable)),
             Status::Off => None,

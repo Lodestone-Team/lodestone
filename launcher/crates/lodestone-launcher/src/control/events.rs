@@ -165,9 +165,9 @@ impl Notices {
                 &About::Instance(prompt.instance_id.clone()),
             ),
             // Traced as game.window and game.exit.
-            InstancesEvent::GameWindowOpened(_)
-            | InstancesEvent::GameExited(_)
-            | InstancesEvent::ActivityChanged(_) => {}
+            InstancesEvent::GameWindowOpened(_) | InstancesEvent::GameExited(_) => {}
+            // The Discord status follows it; nothing to trace.
+            InstancesEvent::ActivityChanged(_) => {}
             // Traced as game.log; the Friends page shares it when the person chose to.
             InstancesEvent::LanOpened { .. } => {}
             // The dialogs they open record themselves in traces.
