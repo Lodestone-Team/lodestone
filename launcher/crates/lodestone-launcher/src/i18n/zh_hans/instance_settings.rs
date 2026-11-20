@@ -69,6 +69,9 @@ pub fn text(message: M) -> &'static str {
         M::AddToSlideshow => "添加到幻灯片",
         M::SlideshowNoScreenshots => "还没有截图。在有截图之前显示默认插图。",
         M::SlideshowNoImages => "还没有图片。添加一些，或在下方选择截图。",
+        M::DefaultShowsScreenshots => {
+            "此实例的截图会在“开始游戏”标签页中轮流显示。在有截图之前，显示默认插图。"
+        }
         M::BlocksAndItems => "方块与物品",
         M::Emoji => "表情符号",
         M::UploadImage => "上传图片…",

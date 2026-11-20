@@ -1405,6 +1405,10 @@ impl InstanceSettings {
                 .child(text_)
         };
         let body: AnyElement = match self.background_tab {
+            // what the default is: the skin's picture, or the instance's screenshots
+            BackgroundTab::Default if !crate::shell::skin_hero(cx) => {
+                note(t(M::DefaultShowsScreenshots))
+            }
             BackgroundTab::Default => div().into_any_element(),
             BackgroundTab::Banner => self.banners_grid(cx),
             BackgroundTab::Image => div()

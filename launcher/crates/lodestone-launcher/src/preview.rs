@@ -186,6 +186,7 @@ pub const SCENES: &[&str] = &[
     "background-picker",
     "play-slideshow",
     "play-slideshow-fade",
+    "play-screenshots",
     "background-picker-slideshow",
     "instance-settings-narrow",
     "instance-settings-narrow-open",
@@ -530,6 +531,7 @@ fn is_appearance_scene(scene: &str) -> bool {
         || scene.starts_with("background-picker")
         || scene == "skin-banner"
         || scene.starts_with("play-slideshow")
+        || scene.starts_with("play-screenshots")
 }
 
 /// A made-up landscape for the background scenes: a pale sky over a snowfield (bright
@@ -548,6 +550,34 @@ fn background_image(bright: bool) -> image::RgbaImage {
                 (18.0 + 26.0 * fy) as u8,
                 (40.0 + 50.0 * fy) as u8,
             ],
+        };
+        image::Rgba([rgb[0], rgb[1], rgb[2], 255])
+    })
+}
+
+/// A made-up forest floor like a real screenshot: blocky leaves and grass of middling
+/// brightness with pale flowers and sky showing through, the busy kind of picture
+/// that leaves the hero's text hard to read.
+fn foliage_image(seed: u32) -> image::RgbaImage {
+    let noise = |x: u32, y: u32| -> u32 {
+        let mut h = x.wrapping_mul(374_761_393) ^ y.wrapping_mul(668_265_263) ^ seed.wrapping_mul(2_246_822_519);
+        h = (h ^ (h >> 13)).wrapping_mul(1_274_126_177);
+        h ^ (h >> 16)
+    };
+    image::RgbaImage::from_fn(1600, 900, |x, y| {
+        let (bx, by) = (x / 24, y / 24);
+        let n = noise(bx, by);
+        let shade = (n % 60) as f32 / 60.0;
+        let rgb = if y < 300 && n % 7 == 0 {
+            [150, 190, 245] // sky through the leaves
+        } else if y > 560 && n % 9 == 0 {
+            [245, 225, 90] // flowers
+        } else if y > 560 && n % 11 == 0 {
+            [235, 238, 240]
+        } else if y > 560 {
+            [(70.0 + 50.0 * shade) as u8, (120.0 + 60.0 * shade) as u8, (40.0 + 30.0 * shade) as u8]
+        } else {
+            [(40.0 + 50.0 * shade) as u8, (85.0 + 70.0 * shade) as u8, (35.0 + 30.0 * shade) as u8]
         };
         image::Rgba([rgb[0], rgb[1], rgb[2], 255])
     })
@@ -793,6 +823,19 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
                             let bright = scene == "play-background";
                             if background_image(bright).save(&file).is_ok() {
                                 let _ = store.set_background(&instance.id, &file);
+                            }
+                        }
+                        // No background chosen, and two more screenshots, busy ones
+                        // and the newest: the hero shows them by default.
+                        if scene.starts_with("play-screenshots") {
+                            let shots = store
+                                .game_dir(&instance.id)
+                                .join(launcher_core::screenshots::SCREENSHOTS);
+                            if std::fs::create_dir_all(&shots).is_ok() {
+                                for (i, seed) in [7u32, 11].into_iter().enumerate() {
+                                    let _ = foliage_image(seed)
+                                        .save(shots.join(format!("2026-11-1{i}_12.00.0{i}.png")));
+                                }
                             }
                         }
                         // A slideshow of its own two images: the bright one, then the dark.

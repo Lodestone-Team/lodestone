@@ -76,6 +76,8 @@ crate::i18n::messages! {
         AddToSlideshow = "Add to slideshow",
         SlideshowNoScreenshots = "No screenshots yet. The default artwork shows until there are.",
         SlideshowNoImages = "No images yet. Add some, or pick screenshots below.",
+        /// Under the Play background picker's Default tab.
+        DefaultShowsScreenshots = "This instance's screenshots take turns on the Play tab. Until it has some, the default artwork shows.",
         /// The icon picker's tabs.
         BlocksAndItems = "Blocks & items",
         Emoji = "Emoji",

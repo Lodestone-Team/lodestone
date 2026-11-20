@@ -4,7 +4,7 @@
 use crate::skin::Skinned;
 use crate::theme::px;
 use gpui::{AnyElement, Context, IntoElement, ObjectFit, SharedString, div, img, prelude::*};
-use launcher_core::instances::{BackgroundMode, Instance};
+use launcher_core::instances::{BackgroundMode, Instance, SlideshowSource};
 use launcher_core::ui_skin::SurfaceId;
 
 use lodestone_ui::{theme::Tone, values::truncate::sanitize};
@@ -106,16 +106,29 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
                 .py_5()
                 .child(match (tab, &instance) {
                     (InstanceTab::Play, _) => {
-                        let backdrop = match instance.as_ref().map(Instance::background_mode) {
-                            Some(BackgroundMode::Slideshow(_)) => {
-                                Backdrop::Slideshow(shell.slideshow.clone().into_any_element())
-                            }
-                            _ => instance
-                                .as_ref()
-                                .and_then(|i| shell.instances.read(cx).background(&i.id).cloned())
-                                // the skin's hero for an instance without its own image
-                                .or_else(|| crate::skin::look(cx).hero.clone())
-                                .map_or(Backdrop::Artwork, Backdrop::Image),
+                        // the chosen slideshow; or, with no background chosen, the
+                        // instance's screenshots once the slideshow has found some
+                        // (whether it has found any: the text's halo is only for them)
+                        let slideshow = instance.as_ref().and_then(|i| {
+                            let (source, needs_images) = hero_slideshow(i, cx)?;
+                            let found = shell.slideshow.read(cx).has_images(&i.id, source);
+                            (!needs_images || found).then_some(found)
+                        });
+                        let own = instance
+                            .as_ref()
+                            .and_then(|i| shell.instances.read(cx).background(&i.id).cloned());
+                        let backdrop = match (slideshow, own) {
+                            (Some(found), _) => Backdrop::Slideshow(
+                                shell.slideshow.clone().into_any_element(),
+                                found,
+                            ),
+                            (None, Some(own)) => Backdrop::Image(own, true),
+                            // the skin's hero for an instance without its own image, with
+                            // the shade the skin chose
+                            (None, None) => crate::skin::look(cx)
+                                .hero
+                                .clone()
+                                .map_or(Backdrop::Artwork, |hero| Backdrop::Image(hero, false)),
                         };
                         hero(instance.as_ref(), backdrop, cx).into_any_element()
                     }
@@ -138,14 +151,56 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
         .child(play_bar(shell, instance.as_ref(), cx))
 }
 
+/// A blurred shade the size of the hero's text, behind it: GPUI draws no text
+/// shadows, so this keeps white text off the brightest parts of a picture, where the
+/// scrim's gradients alone leave it faint.
+fn text_halo() -> impl IntoElement {
+    let mut shade: gpui::Hsla = colors::GRAY_900.into();
+    shade.a = 0.55;
+    div()
+        .absolute()
+        .top(px(28.))
+        .bottom(px(28.))
+        .left(px(24.))
+        .right(px(24.))
+        .rounded(px(48.))
+        .shadow(vec![
+            gpui::BoxShadow::new(gpui::px(0.), gpui::px(0.), shade)
+                .blur_radius(gpui::px(56.))
+                .spread_radius(gpui::px(12.)),
+        ])
+}
+
+/// Where the Play tab's slideshow takes `instance`'s images from, and whether it
+/// shows only once it has found some: the slideshow chosen in its settings; or, for an
+/// instance with no background chosen, its own screenshots, unless the skin gives the
+/// Play tab a picture or paint of its own.
+pub(super) fn hero_slideshow(instance: &Instance, cx: &gpui::App) -> Option<(SlideshowSource, bool)> {
+    match instance.background_mode() {
+        BackgroundMode::Slideshow(source) => Some((source, false)),
+        BackgroundMode::Default if !skin_hero(cx) => Some((SlideshowSource::Instance, true)),
+        BackgroundMode::Default | BackgroundMode::Image | BackgroundMode::Banner => None,
+    }
+}
+
+/// The skin gives the Play tab a picture, or paints it. Read from the skin's spec, not
+/// its prepared images, so an instance's screenshots don't flash while a skin loads.
+pub(crate) fn skin_hero(cx: &gpui::App) -> bool {
+    crate::skin::look(cx)
+        .spec
+        .surface(SurfaceId::Hero)
+        .is_some_and(|surface| surface.fill.is_some())
+}
+
 /// What the banner shows behind the name.
 enum Backdrop {
     /// The launcher's artwork.
     Artwork,
-    /// The instance's own image.
-    Image(Background),
-    /// The slideshow, which draws its own images and scrim.
-    Slideshow(AnyElement),
+    /// An image: the instance's own (`true`) or the skin's hero.
+    Image(Background, bool),
+    /// The slideshow, which draws its own images and scrim, and whether it has found
+    /// any (it draws the artwork until then).
+    Slideshow(AnyElement, bool),
 }
 
 /// The banner: our own artwork in the dashboard's colours, with the instance's name,
@@ -156,6 +211,9 @@ fn hero(
     cx: &mut Context<LauncherShell>,
 ) -> impl IntoElement {
     let lit = !matches!(backdrop, Backdrop::Artwork);
+    // the instance's own pictures get a shade behind the text; a skin's hero keeps the
+    // shade its author chose, and the artwork needs none
+    let halo = matches!(backdrop, Backdrop::Image(_, true) | Backdrop::Slideshow(_, true));
     // the same facts as the header's, as a line of their own; the sentence keeps only
     // the call to action, before the first game
     let (title, body, hero_facts): (SharedString, Option<SharedString>, Option<FactLine>) =
@@ -172,7 +230,7 @@ fn hero(
                 (
                     instance.name.clone().into(),
                     (!played).then(|| t(M::HeroNotPlayed).into()),
-                    Some(FactLine::strip("hero-facts").facts(hero_facts)),
+                    Some(FactLine::strip("hero-facts").facts(hero_facts).on_picture()),
                 )
             }
             None => (
@@ -211,9 +269,9 @@ fn hero(
         .border_color(crate::theme::ink::border())
         .bg(colors::GRAY_900)
         .map(|this| match backdrop {
-            Backdrop::Slideshow(slideshow) => this.child(slideshow),
+            Backdrop::Slideshow(slideshow, _) => this.child(slideshow),
             // The instance's own image, with a scrim as dark as it needs under the text.
-            Backdrop::Image(background) => this
+            Backdrop::Image(background, _) => this
                 .child(
                     img(background.image.clone())
                         .absolute()
@@ -246,6 +304,9 @@ fn hero(
                 .gap_2()
                 .p_8()
                 .max_w(px(460.))
+                // over a picture, a soft shade right behind the text, on top of the
+                // scrim, so the name and facts stay readable on a busy screenshot
+                .when(halo, |this| this.child(text_halo()))
                 .child(
                     div()
                         .id("hero-title")
@@ -259,12 +320,11 @@ fn hero(
                         .text_color(colors::WHITE)
                         .child(title),
                 )
-                .children(hero_facts.map(|line| {
-                    // over the artwork or a picture: the strip's inks, kept light
-                    div().child(line)
-                }))
+                // over the artwork or a picture: the strip's light inks
+                .children(hero_facts.map(|line| div().relative().child(line)))
                 .children(body.map(|body| {
                     div()
+                        .relative()
                         .text_size(theme::text_size(text::H3))
                         .line_height(theme::line_height(text::H3, leading::NORMAL))
                         .text_color(if lit {
