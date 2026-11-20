@@ -107,6 +107,7 @@ for (const [path, image, title] of [
     const text = components.filter((c) => c.type === 10).map((c) => c.content).join('\n');
     assert.match(text, new RegExp(`^### ${title}$`, 'm'));
     assert.match(text, /Lodestone Launcher/);
+    assert.doesNotMatch(text, /^-# /m, "Discord shows subtext markdown literally in an embed");
 
     const buttons = components.filter((c) => c.type === 2);
     assert.deepEqual(buttons.map((b) => b.url), ['https://www.lodestone.cc/launcher/', 'https://www.lodestone.cc/']);
