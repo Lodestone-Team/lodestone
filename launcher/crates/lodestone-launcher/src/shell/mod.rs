@@ -11,6 +11,7 @@ mod launcher_settings;
 mod narrator_offer;
 pub(crate) mod perf_monitor;
 mod play;
+pub(crate) use play::skin_hero;
 mod settings_modal;
 mod shared_settings;
 mod sidebar;
@@ -656,6 +657,12 @@ impl LauncherShell {
             let instances = instances.clone();
             cx.new(|_| crate::instances::slideshow::Slideshow::new(instances))
         };
+        // an instance with no background chosen shows its screenshots once some are
+        // found, so the hero is drawn again then
+        observe.push(cx.subscribe(
+            &slideshow,
+            |_, _, _: &crate::instances::slideshow::ImagesChanged, cx| cx.notify(),
+        ));
         let mut this = Self {
             slideshow,
             accounts,
@@ -2280,6 +2287,9 @@ impl LauncherShell {
 
     /// A game exited: the window comes back if a game minimized it and none still runs.
     fn game_exited(&mut self, cx: &mut Context<Self>) {
+        // the screenshots the game took join the Play tab's slideshow
+        self.slideshow
+            .update(cx, |slideshow, cx| slideshow.refresh(cx));
         if self.minimized_for_game && !self.instances.read(cx).any_running() {
             self.minimized_for_game = false;
             self.bring_back_soon(cx);
@@ -3411,12 +3421,8 @@ impl LauncherShell {
     /// Points the slideshow at the selected instance, and runs it only while the Play
     /// tab is on screen.
     fn sync_slideshow(&mut self, cx: &mut Context<Self>) {
-        use launcher_core::instances::BackgroundMode;
         let target = self.instances.read(cx).selected().and_then(|instance| {
-            match instance.background_mode() {
-                BackgroundMode::Slideshow(source) => Some((instance.id.clone(), source)),
-                _ => None,
-            }
+            play::hero_slideshow(instance, cx).map(|(source, _)| (instance.id.clone(), source))
         });
         let shown = self.page == Page::Instance && self.tab == InstanceTab::Play;
         self.slideshow

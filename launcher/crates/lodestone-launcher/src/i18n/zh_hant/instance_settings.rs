@@ -69,6 +69,9 @@ pub fn text(message: M) -> &'static str {
         M::AddToSlideshow => "加入投影片",
         M::SlideshowNoScreenshots => "還沒有截圖。在有截圖之前顯示預設插圖。",
         M::SlideshowNoImages => "還沒有圖片。新增一些，或在下方選擇截圖。",
+        M::DefaultShowsScreenshots => {
+            "此實例的截圖會在「開始遊戲」分頁中輪流顯示。在有截圖之前，顯示預設插圖。"
+        }
         M::BlocksAndItems => "方塊與物品",
         M::Emoji => "表情符號",
         M::UploadImage => "上傳圖片…",

@@ -22,7 +22,7 @@ use super::{Fact, FactKey, FactTooltip, Place};
 use crate::{
     components::a11y::{Accessible, Role},
     i18n::format,
-    theme::{self, fonts, ink, px, text, weights},
+    theme::{self, colors, fonts, ink, px, text, weights},
 };
 
 /// The gap between a row's facts.
@@ -40,6 +40,8 @@ pub struct FactLine {
     facts: Vec<Fact>,
     /// Facts only the tooltip and screen readers get, after the shown ones.
     tooltip_facts: Vec<Fact>,
+    /// Drawn over a picture: light inks whatever the theme.
+    on_picture: bool,
 }
 
 impl FactLine {
@@ -50,6 +52,7 @@ impl FactLine {
             strip: false,
             facts: Vec::new(),
             tooltip_facts: Vec::new(),
+            on_picture: false,
         }
     }
 
@@ -60,6 +63,7 @@ impl FactLine {
             strip: true,
             facts: Vec::new(),
             tooltip_facts: Vec::new(),
+            on_picture: false,
         }
     }
 
@@ -80,6 +84,13 @@ impl FactLine {
         self
     }
 
+    /// For a strip over a picture (the Play tab's hero): white values and light keys
+    /// and dividers in both themes, as the picture under them is the same in each.
+    pub fn on_picture(mut self) -> Self {
+        self.on_picture = true;
+        self
+    }
+
     /// Every fact as "key: value", for its accessible name.
     fn label(&self) -> SharedString {
         let facts = self.facts.iter();
@@ -96,7 +107,7 @@ impl RenderOnce for FactLine {
     fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
         let label = self.label();
         if self.strip {
-            return strip(self.id, label, self.facts).into_any_element();
+            return strip(self.id, label, self.facts, self.on_picture).into_any_element();
         }
         let rows: Vec<(Option<SharedString>, SharedString)> = self
             .facts
@@ -123,8 +134,22 @@ impl RenderOnce for FactLine {
 /// (the divider and a cell's padding) to the left inside a clipping frame, so the
 /// first cell of each wrapped line lines up with the edge and its divider is cut
 /// off, and no line ends with a divider.
-fn strip(id: ElementId, label: SharedString, facts: Vec<Fact>) -> impl IntoElement {
+fn strip(
+    id: ElementId,
+    label: SharedString,
+    facts: Vec<Fact>,
+    on_picture: bool,
+) -> impl IntoElement {
     const PULL: f32 = 13.;
+    let (key_ink, value_ink, divider): (gpui::Hsla, gpui::Hsla, gpui::Hsla) = if on_picture {
+        (
+            gpui::hsla(0., 0., 1., 0.78),
+            colors::WHITE.into(),
+            gpui::hsla(0., 0., 1., 0.35),
+        )
+    } else {
+        (ink::faint().into(), ink::text().into(), ink::border().into())
+    };
     div()
         .id(id.clone())
         .accessible_id(Role::Group, &id, label)
@@ -157,7 +182,7 @@ fn strip(id: ElementId, label: SharedString, facts: Vec<Fact>) -> impl IntoEleme
                                 div()
                                     .text_size(theme::text_size(text::SMALL))
                                     .font_weight(weights::MEDIUM.into())
-                                    .text_color(ink::faint())
+                                    .text_color(key_ink)
                                     .child(key),
                             )
                         })
@@ -168,14 +193,14 @@ fn strip(id: ElementId, label: SharedString, facts: Vec<Fact>) -> impl IntoEleme
                                 .text_size(theme::text_size(text::MEDIUM))
                                 .font_weight(weights::MEDIUMBOLD.into())
                                 .font_features(fonts::tabular())
-                                .text_color(ink::text())
+                                .text_color(value_ink)
                                 .child(fact.value.render(Place::Strip)),
                         );
                     div()
                         .flex()
                         .flex_row()
                         .items_center()
-                        .child(div().flex_none().w(px(1.)).h(px(16.)).bg(ink::border()))
+                        .child(div().flex_none().w(px(1.)).h(px(16.)).bg(divider))
                         .child(cell)
                 })),
         )

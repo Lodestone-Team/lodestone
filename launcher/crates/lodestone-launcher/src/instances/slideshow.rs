@@ -87,6 +87,13 @@ fn decode(cache: &HeroCache, path: &std::path::Path) -> Option<(Arc<RenderImage>
 /// What the slideshow shows: an instance and where its images come from.
 type Key = (String, SlideshowSource, u64);
 
+/// The slideshow found images for an instance, or lost them: an instance with no
+/// chosen background shows its screenshots only while it has some, so the shell
+/// draws the hero again. Not sent for each frame of a fade.
+pub struct ImagesChanged;
+
+impl gpui::EventEmitter<ImagesChanged> for Slideshow {}
+
 pub struct Slideshow {
     instances: Entity<Instances>,
     key: Option<Key>,
@@ -131,9 +138,10 @@ impl Slideshow {
     ) {
         let revision = self.instances.read(cx).slideshow_revision();
         let key = target.map(|(id, source)| (id, source, revision));
-        if key != self.key {
+        let changed = key != self.key;
+        if changed {
             self.key = key;
-            self.paths.clear();
+            self.set_paths(Vec::new(), cx);
             self.index = 0;
             self.set_current(None, cx);
             if let Some((next, _)) = self.next.take() {
@@ -149,6 +157,10 @@ impl Slideshow {
         if shown != self.shown {
             self.shown = shown;
             if shown {
+                // back on the Play tab: screenshots taken or deleted meanwhile count
+                if !changed {
+                    self.refresh(cx);
+                }
                 self.schedule(cx);
             } else {
                 // Off screen: no timer, and a fade under way just ends.
@@ -158,6 +170,20 @@ impl Slideshow {
                     self.index = next_index(self.index, self.paths.len());
                 }
             }
+        }
+    }
+
+    /// Lists the screenshots again (a game just quit, or the Play tab is back), so new
+    /// ones join and deleted ones leave; with nothing on screen yet, the first is
+    /// decoded too. Its own set of images changes the revision instead.
+    pub fn refresh(&mut self, cx: &mut Context<Self>) {
+        if self
+            .key
+            .as_ref()
+            .is_some_and(|key| key.1 != SlideshowSource::Custom)
+        {
+            let first = self.current.is_none();
+            self.list(first, cx);
         }
     }
 
@@ -197,7 +223,12 @@ impl Slideshow {
                 if this.key != key {
                     return;
                 }
-                this.paths = paths;
+                this.set_paths(paths, cx);
+                if this.paths.is_empty() {
+                    // every image was deleted: back to the artwork
+                    this.timer = None;
+                    this.set_current(None, cx);
+                }
                 if first {
                     this.index = 0;
                     this.set_current(
@@ -298,6 +329,26 @@ impl Slideshow {
             self.next = Some((Background { image, scrim }, Instant::now()));
             cx.notify();
         }
+    }
+
+    /// Replaces the listed images, and says so when the slideshow goes from none to
+    /// some or back.
+    fn set_paths(&mut self, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
+        let had = !self.paths.is_empty();
+        self.paths = paths;
+        if had != !self.paths.is_empty() {
+            cx.emit(ImagesChanged);
+        }
+    }
+
+    /// Whether the slideshow shows `id`'s images from `source` and has found some, so
+    /// the hero can show it instead of the artwork.
+    pub fn has_images(&self, id: &str, source: SlideshowSource) -> bool {
+        !self.paths.is_empty()
+            && self
+                .key
+                .as_ref()
+                .is_some_and(|(key_id, key_source, _)| key_id == id && *key_source == source)
     }
 
     /// Whether the images are listed and the first is decoded, for the offscreen

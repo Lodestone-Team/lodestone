@@ -220,6 +220,9 @@ pub struct Scrim {
     pub dim: f32,
 }
 
+/// The least scrim under the text: a busy picture of middling brightness (leaves,
+/// grass) measures as readable but isn't, so even a dark one is shaded this much.
+const MIN_TEXT_SCRIM: f32 = 0.5;
 /// The colour the scrim darkens towards (the theme's darkest grey).
 const SCRIM_LUMINANCE: f32 = 0.012;
 /// The highest background luminance under the text that keeps white text at a
@@ -277,7 +280,7 @@ pub fn scrim_for(image: &image::RgbaImage) -> Scrim {
     };
     let mean = total / count.max(1) as f32;
     Scrim {
-        text: needed.clamp(0.35, 0.92),
+        text: needed.clamp(MIN_TEXT_SCRIM, 0.92),
         dim: ((mean - 0.35) * 0.5).clamp(0.0, 0.25),
     }
 }
@@ -690,7 +693,7 @@ mod tests {
         assert!(white.text > 0.8, "{white:?}");
         assert!(white.dim > 0.2, "{white:?}");
         let dark = scrim_for(&filled([20, 22, 26]));
-        assert_eq!(dark.text, 0.35);
+        assert_eq!(dark.text, MIN_TEXT_SCRIM);
         assert_eq!(dark.dim, 0.0);
     }
 
@@ -707,11 +710,21 @@ mod tests {
 
     #[test]
     fn the_scrim_is_just_enough_for_white_text() {
-        // Mid grey: luminance about 0.22, a little too bright for 4.5:1.
+        // Mid grey: luminance about 0.22, a little too bright for 4.5:1; the least
+        // scrim is more than that needs.
         let grey = scrim_for(&filled([130, 130, 130]));
         let under = 0.2232 * (1.0 - grey.text) + SCRIM_LUMINANCE * grey.text;
         assert!((1.05 / (under + 0.05)) >= 4.5, "{grey:?}");
-        assert!(grey.text < 0.5, "{grey:?}");
+        assert_eq!(grey.text, MIN_TEXT_SCRIM);
+        // Light grey: luminance about 0.58, which needs more than the least scrim, and
+        // gets just that much.
+        let light = scrim_for(&filled([200, 200, 200]));
+        let l = luminance(&image::Rgba([200, 200, 200, 255]));
+        let under = l * (1.0 - light.text) + SCRIM_LUMINANCE * light.text;
+        let contrast = 1.05 / (under + 0.05);
+        assert!(contrast >= 4.5, "{light:?}");
+        assert!(contrast < 4.6, "{light:?} gives {contrast}");
+        assert!(light.text > MIN_TEXT_SCRIM, "{light:?}");
     }
 
     #[test]

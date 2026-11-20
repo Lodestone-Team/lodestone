@@ -68,6 +68,9 @@ pub fn text(message: M) -> &'static str {
         M::SlideshowNoImages => {
             "Pas encore d’images. Ajoutez-en, ou choisissez des captures ci-dessous."
         }
+        M::DefaultShowsScreenshots => {
+            "Les captures d’écran de cette instance défilent dans l’onglet Jouer. Tant qu’elle n’en a pas, l’illustration par défaut s’affiche."
+        }
         M::BlocksAndItems => "Blocs et objets",
         M::Emoji => "Emoji",
         M::UploadImage => "Importer une image…",
