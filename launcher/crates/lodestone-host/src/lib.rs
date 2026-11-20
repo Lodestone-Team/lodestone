@@ -108,6 +108,10 @@ pub fn init(cx: &mut App) {
     #[cfg(not(target_os = "macos"))]
     cx.bind_keys([
         KeyBinding::new("ctrl-q", Quit, None),
+        // Alt+F4 quits, stopping the core and its servers, where the close button
+        // keeps the Host running in the background. GPUI matches the binding before
+        // Windows sees the keystroke, so it never turns into the window's Close.
+        KeyBinding::new("alt-f4", Quit, None),
         KeyBinding::new("ctrl-=", ZoomIn, None),
         KeyBinding::new("ctrl-+", ZoomIn, None),
         KeyBinding::new("ctrl--", ZoomOut, None),

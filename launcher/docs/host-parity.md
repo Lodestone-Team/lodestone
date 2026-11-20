@@ -76,7 +76,8 @@ be built in parallel with little file overlap. Tick items (`[x]`) as you build t
 - **Dialogs** live in a `lodestone_ui::components::DialogSlot` (not an `Option`) and
   are drawn with `window_layer`, so they fade out when they close.
 - **Window.** Closing the window keeps the Host, the core and its servers running
-  (macOS: the app hides; elsewhere it minimizes). The macOS menu bar icon (`tray.rs`,
+  (macOS: the app hides; elsewhere it minimizes). Alt+F4, off macOS, quits like
+  Ctrl+Q instead (a key binding, so the close button still only minimizes). The macOS menu bar icon (`tray.rs`,
   AppKit through `objc2`) shows the window or quits; the Dock icon and a second start
   (`single_instance.rs`) show it too. Development builds show a DEV badge, an amber
   line under the top bar, and the DEV Dock icon.
