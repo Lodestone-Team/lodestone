@@ -111,6 +111,8 @@ jobs:
         if url="$(gh release view "$TAG" --repo "$REPO" --json url --jq .url 2>/dev/null)"; then
           echo "The release already exists, kept as it is: $url"
         else
+          # the installers' links, which work once the release is published
+          download="https://github.com/$REPO/releases/download/$TAG"
           if [[ "$TAG" == launcher-* ]]; then
             title="Lodestone Launcher ${version}"
             channel="every installed launcher"
@@ -120,8 +122,8 @@ jobs:
             install=$(printf '%s\n' \
               "## Download" \
               "" \
-              "- **Windows:** \`LodestoneLauncherSetup.exe\`. It installs for your account, without administrator rights." \
-              "- **macOS:** \`LodestoneLauncher.dmg\`. Open it and drag Lodestone Launcher into Applications." \
+              "- **Windows** (64-bit): [LodestoneLauncherSetup.exe]($download/LodestoneLauncherSetup.exe)" \
+              "- **macOS** (Apple silicon and Intel): [LodestoneLauncher.dmg]($download/LodestoneLauncher.dmg)" \
               "- The \`-standalone\` files run without installing, from wherever you put them." \
               "" \
               "Once this release is published, $channel updates to it.")
@@ -136,8 +138,8 @@ jobs:
             install=$(printf '%s\n' \
               "## Download" \
               "" \
-              "- **Windows:** \`LodestoneHostSetup.exe\`. It installs for your account, without administrator rights." \
-              "- **macOS:** \`LodestoneHost.dmg\`. Open it and drag Lodestone Host into Applications. It replaces the old Lodestone Host app; your servers stay where they are." \
+              "- **Windows** (64-bit): [LodestoneHostSetup.exe]($download/LodestoneHostSetup.exe)" \
+              "- **macOS** (Apple silicon and Intel): [LodestoneHost.dmg]($download/LodestoneHost.dmg)" \
               "- The \`-standalone\` and \`-core\` files are what the Host updates itself with." \
               "" \
               "Once this release is published, $channel updates to it.")
