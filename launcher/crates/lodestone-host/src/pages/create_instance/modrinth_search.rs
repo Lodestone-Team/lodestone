@@ -3,26 +3,38 @@
 //! linked project is picked as soon as it resolves. Typing waits for a pause (300 ms)
 //! before it searches; a pasted link resolves at once.
 //!
+//! In a build with Lodestone's CurseForge key, a switch above the results searches
+//! CurseForge instead, which the Host asks itself (`crate::curseforge`): the core has
+//! no key. Its results are shown as Modrinth's are, and a curseforge.com link opens its
+//! project whichever platform the switch is on.
+//!
 //! Made for the modpack flow; the Mods tab uses it too (`project_type`, and the options
 //! below: one box for the server's game version and loader, the "Installed" tag, and
 //! whether players need a mod).
 
-use std::{collections::HashSet, time::Duration};
+use std::{collections::HashSet, sync::Arc, time::Duration};
 
 use gpui::{
     AnyElement, Context, Entity, EventEmitter, IntoElement, ParentElement, Render, SharedString,
     Styled, Task, Window, div, img, prelude::*,
 };
-use launcher_core::cores::admin::{
-    AdminClient,
-    mods::{
-        ModrinthProjectType, ModrinthSearch, ModrinthSearchHit, ModrinthSearchIndex,
-        ModrinthSearchResponse, ModrinthUrlTarget, looks_like_modrinth_link,
+use launcher_core::{
+    content::{
+        CurseForge,
+        curseforge::{CLASS_BUKKIT_PLUGINS, CLASS_MODPACKS, CLASS_MODS},
+    },
+    cores::admin::{
+        AdminClient, curseforge as server,
+        mods::{
+            ModrinthProjectType, ModrinthSearch, ModrinthSearchHit, ModrinthSearchIndex,
+            ModrinthSearchResponse, ModrinthUrlTarget, looks_like_modrinth_link,
+        },
     },
 };
 use lodestone_ui::{
     components::{
         Accessible as _, Checkbox, Dropdown, Icon, KeyboardFocus as _, LoadingDots, TextInput,
+        segmented,
         settings::{popover_panel, select_button},
         text_tooltip,
     },
@@ -31,6 +43,7 @@ use lodestone_ui::{
 
 use super::Load;
 use crate::{
+    curseforge::Source,
     i18n::{InstancesMsg as M, t, tr},
     instance_icons,
     pages::pager,
@@ -42,6 +55,9 @@ const PAUSE: Duration = Duration::from_millis(300);
 /// A project picked from the results, or from a link.
 #[derive(Clone, Debug)]
 pub struct ModrinthPick {
+    /// Where the project is: on CurseForge, `project_id` is its number there, and
+    /// `version_id` a file's.
+    pub source: Source,
     pub project_id: String,
     pub version_id: Option<String>,
     pub project_type: String,
@@ -50,8 +66,9 @@ pub struct ModrinthPick {
 }
 
 impl ModrinthPick {
-    fn from_target(target: &ModrinthUrlTarget) -> Self {
+    fn from_target(source: Source, target: &ModrinthUrlTarget) -> Self {
         Self {
+            source,
             project_id: target.project_id.clone(),
             version_id: target.version_id.clone(),
             project_type: target.project_type.clone(),
@@ -77,6 +94,13 @@ pub struct ModrinthSearchView {
     compat: Option<(String, String, String, bool)>,
     /// Projects installed on the server, tagged "Installed".
     installed: HashSet<String>,
+    /// The same for CurseForge's projects, by their numbers there.
+    installed_curseforge: HashSet<String>,
+    /// Where the results come from.
+    source: Source,
+    /// The CurseForge client, in a build that has Lodestone's key: the switch between
+    /// the platforms shows with it.
+    curseforge: Option<Arc<CurseForge>>,
     /// Mods: whether players need a result too (its `client_side`).
     client_side: bool,
     index: ModrinthSearchIndex,
@@ -85,8 +109,8 @@ pub struct ModrinthSearchView {
     query: String,
     page: u32,
     results: Load<ModrinthSearchResponse>,
-    /// The link being resolved, and what it resolved to.
-    link: Option<(String, Load<ModrinthUrlTarget>)>,
+    /// The link being resolved, and what it resolved to on which platform.
+    link: Option<(String, Load<(Source, ModrinthUrlTarget)>)>,
     picked_link: Option<String>,
     last_text: String,
     _debounce: Option<Task<()>>,
@@ -119,6 +143,9 @@ impl ModrinthSearchView {
             loader: None,
             compat: None,
             installed: HashSet::new(),
+            installed_curseforge: HashSet::new(),
+            source: Source::Modrinth,
+            curseforge: crate::curseforge::client(cx),
             client_side: false,
             index: ModrinthSearchIndex::Relevance,
             sort_open: false,
@@ -184,6 +211,77 @@ impl ModrinthSearchView {
         }
     }
 
+    /// The projects installed on the server from CurseForge, by their numbers there.
+    pub fn set_installed_curseforge(&mut self, installed: HashSet<String>, cx: &mut Context<Self>) {
+        if self.installed_curseforge != installed {
+            self.installed_curseforge = installed;
+            cx.notify();
+        }
+    }
+
+    /// Whether the switch between Modrinth and CurseForge shows.
+    pub fn offers_curseforge(&self) -> bool {
+        self.curseforge.is_some()
+    }
+
+    /// The platform the results come from.
+    pub fn source(&self) -> Source {
+        self.source
+    }
+
+    /// Searches the other platform, from its first page. CurseForge has fewer orders:
+    /// one it lacks becomes its first.
+    pub fn set_source(&mut self, source: Source, cx: &mut Context<Self>) {
+        if self.source == source || (source == Source::CurseForge && self.curseforge.is_none()) {
+            return;
+        }
+        self.source = source;
+        if !self.sorts().contains(&self.index) {
+            self.index = ModrinthSearchIndex::Relevance;
+        }
+        self.sort_open = false;
+        self.page = 0;
+        self.results = Load::Loading;
+        self.search(cx);
+    }
+
+    /// The orders the platform offers.
+    fn sorts(&self) -> &'static [ModrinthSearchIndex] {
+        match self.source {
+            Source::Modrinth => &ModrinthSearchIndex::ALL,
+            Source::CurseForge => &server::SORTS,
+        }
+    }
+
+    /// The CurseForge class of what is searched for.
+    fn curseforge_class(&self) -> u32 {
+        match self.project_type {
+            ModrinthProjectType::Mod => CLASS_MODS,
+            ModrinthProjectType::Plugin => CLASS_BUKKIT_PLUGINS,
+            ModrinthProjectType::Modpack => CLASS_MODPACKS,
+        }
+    }
+
+    /// What `params` limit a CurseForge search to: the game version, and the loader
+    /// with the loaders whose files it also runs (plugins have none).
+    fn curseforge_filter(&self, params: &ModrinthSearch) -> server::SearchFilter {
+        let game_version = params.game_version.clone();
+        let loaders = match (
+            self.project_type,
+            params.loader.as_deref().and_then(server::loader_named),
+        ) {
+            (ModrinthProjectType::Plugin, _) | (_, None) => Vec::new(),
+            (_, Some(loader)) => launcher_core::content::curseforge::accepted_loaders(
+                loader,
+                game_version.as_deref().unwrap_or_default(),
+            ),
+        };
+        server::SearchFilter {
+            game_version,
+            loaders,
+        }
+    }
+
     fn params(&self) -> ModrinthSearch {
         let compat = self.compat.as_ref().filter(|(.., on)| *on);
         ModrinthSearch {
@@ -212,7 +310,9 @@ impl ModrinthSearchView {
         // a paste adds many characters at once: resolve a pasted link at once
         let pasted = text.len() > self.last_text.len() + 8;
         self.last_text = text.clone();
-        if looks_like_modrinth_link(&text) {
+        let is_link = looks_like_modrinth_link(&text)
+            || (self.curseforge.is_some() && server::looks_like_curseforge_link(&text));
+        if is_link {
             self._debounce = None;
             if pasted {
                 self.resolve(text, cx);
@@ -244,27 +344,57 @@ impl ModrinthSearchView {
     fn resolve(&mut self, link: String, cx: &mut Context<Self>) {
         self.link = Some((link.clone(), Load::Loading));
         let admin = self.admin.clone();
+        // a curseforge.com link is asked of CurseForge, whichever platform is searched
+        let curseforge = self
+            .curseforge
+            .clone()
+            .filter(|_| server::looks_like_curseforge_link(&link));
+        let wanted = link.clone();
+        let resolving = match curseforge {
+            Some(curseforge) => {
+                cx.background_spawn(launcher_core::http::in_http_runtime(async move {
+                    let found = curseforge
+                        .resolve_server_link(&wanted)
+                        .await
+                        .map_err(|err| err.to_string())?;
+                    let hit = server::search_hit(&found.project);
+                    Ok((
+                        Source::CurseForge,
+                        ModrinthUrlTarget {
+                            project_id: hit.project_id,
+                            slug: hit.slug,
+                            project_type: hit.project_type,
+                            version_id: found.file.map(|file| file.id.to_string()),
+                        },
+                    ))
+                }))
+            }
+            None => cx.background_spawn(async move {
+                admin
+                    .modrinth_resolve(&wanted)
+                    .await
+                    .map(|target| (Source::Modrinth, target))
+                    .map_err(|err| err.to_string())
+            }),
+        };
         self._resolve = Some(cx.spawn(async move |this, cx| {
-            let wanted = link.clone();
-            let target = cx
-                .background_spawn(async move { admin.modrinth_resolve(&wanted).await })
-                .await;
+            let target: Result<(Source, ModrinthUrlTarget), String> = resolving.await;
             this.update(cx, |this, cx| {
                 if this.link.as_ref().map(|(l, _)| l) != Some(&link) {
                     return;
                 }
                 match target {
-                    Ok(target) => {
+                    Ok((source, target)) => {
                         // pick a resolved link once, so going back doesn't reopen it
                         if this.picked_link.as_ref() != Some(&link) {
                             this.picked_link = Some(link.clone());
                             cx.emit(ModrinthSearchEvent::Picked(ModrinthPick::from_target(
-                                &target,
+                                source, &target,
                             )));
                         }
-                        this.link = Some((link, Load::Ready(target)));
+                        this.link = Some((link, Load::Ready((source, target))));
                     }
-                    Err(err) => this.link = Some((link, Load::Failed(err.to_string()))),
+                    Err(err) => this.link = Some((link, Load::Failed(err))),
                 }
                 cx.notify();
             })
@@ -275,23 +405,50 @@ impl ModrinthSearchView {
 
     fn search(&mut self, cx: &mut Context<Self>) {
         let params = self.params();
+        let source = self.source;
         let admin = self.admin.clone();
         // the last results stay while the next page loads, so nothing jumps
         if matches!(self.results, Load::Failed(_)) {
             self.results = Load::Loading;
         }
+        let wanted = params.clone();
+        let searching = match self
+            .curseforge
+            .clone()
+            .filter(|_| source == Source::CurseForge)
+        {
+            Some(curseforge) => {
+                let (class, filter) = (self.curseforge_class(), self.curseforge_filter(&params));
+                cx.background_spawn(launcher_core::http::in_http_runtime(async move {
+                    server::search(
+                        &curseforge,
+                        class,
+                        &wanted.query,
+                        &filter,
+                        wanted.index,
+                        wanted.offset,
+                        wanted.limit,
+                    )
+                    .await
+                    .map_err(|err| err.to_string())
+                }))
+            }
+            None => cx.background_spawn(async move {
+                admin
+                    .modrinth_search(&wanted)
+                    .await
+                    .map_err(|err| err.to_string())
+            }),
+        };
         self._search = Some(cx.spawn(async move |this, cx| {
-            let wanted = params.clone();
-            let results = cx
-                .background_spawn(async move { admin.modrinth_search(&wanted).await })
-                .await;
+            let results: Result<ModrinthSearchResponse, String> = searching.await;
             this.update(cx, |this, cx| {
-                if this.params() != params {
+                if this.params() != params || this.source != source {
                     return;
                 }
                 this.results = match results {
                     Ok(results) => Load::Ready(results),
-                    Err(err) => Load::Failed(err.to_string()),
+                    Err(err) => Load::Failed(err),
                 };
                 cx.notify();
             })
@@ -306,8 +463,12 @@ impl ModrinthSearchView {
     }
 
     fn render_sort(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        let name = |index: ModrinthSearchIndex| {
+        // CurseForge has no relevance: its first order is by popularity
+        let popularity = self.source == Source::CurseForge;
+        let sorts = self.sorts();
+        let name = move |index: ModrinthSearchIndex| {
             t(match index {
+                ModrinthSearchIndex::Relevance if popularity => M::SortPopularity,
                 ModrinthSearchIndex::Relevance => M::SortRelevance,
                 ModrinthSearchIndex::Downloads => M::SortDownloads,
                 ModrinthSearchIndex::Follows => M::SortFollows,
@@ -343,7 +504,7 @@ impl ModrinthSearchView {
                         this.sort_open = false;
                         cx.notify();
                     });
-                    let options = ModrinthSearchIndex::ALL.map(|index| {
+                    let options = sorts.iter().copied().map(|index| {
                         div()
                             .id(SharedString::from(format!("sort-{}", index.as_str())))
                             .accessible(
@@ -384,8 +545,14 @@ impl ModrinthSearchView {
         let icon = hit
             .icon_url
             .as_deref()
-            .and_then(|url| instance_icons::modrinth_image(url, cx));
+            .and_then(|url| instance_icons::project_image(url, cx));
+        let installed = match self.source {
+            Source::Modrinth => &self.installed,
+            Source::CurseForge => &self.installed_curseforge,
+        }
+        .contains(&hit.project_id);
         let pick = ModrinthPick {
+            source: self.source,
             project_id: hit.project_id.clone(),
             version_id: None,
             project_type: hit.project_type.clone(),
@@ -458,7 +625,7 @@ impl ModrinthSearchView {
                                         ),
                                     )),
                             )
-                            .when(self.installed.contains(&hit.project_id), |this| {
+                            .when(installed, |this| {
                                 this.child(lodestone_ui::components::settings::tag(
                                     t(crate::i18n::InstanceMsg::ModsInstalledTag),
                                     colors::GREEN,
@@ -594,8 +761,8 @@ impl Render for ModrinthSearchView {
                     .child(tr!(M::SearchLinkFailed, error = error))
                     .into_any_element(),
             ),
-            Some((_, Load::Ready(target))) => {
-                let pick = ModrinthPick::from_target(target);
+            Some((_, Load::Ready((source, target)))) => {
+                let pick = ModrinthPick::from_target(*source, target);
                 Some(
                     div()
                         .id("open-link")
@@ -656,6 +823,21 @@ impl Render for ModrinthSearchView {
                     this.search(cx);
                 },
             ))
+        });
+        // the platform searched, in a build that offers CurseForge
+        let sources = self.curseforge.is_some().then(|| {
+            let this = cx.entity().downgrade();
+            segmented(
+                "search-source",
+                [Source::Modrinth, Source::CurseForge]
+                    .map(|source| (source, SharedString::from(source.name())))
+                    .to_vec(),
+                Some(&self.source),
+                false,
+                move |source, _, cx| {
+                    this.update(cx, |this, cx| this.set_source(source, cx)).ok();
+                },
+            )
         });
         let results: AnyElement = match &self.results {
             Load::Failed(error) => div()
@@ -730,6 +912,7 @@ impl Render for ModrinthSearchView {
                     .items_center()
                     .justify_between()
                     .gap(px(12.))
+                    .children(sources)
                     .children(filter)
                     .children(compat)
                     .child(self.render_sort(cx)),

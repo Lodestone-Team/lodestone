@@ -54,6 +54,10 @@ pub fn text(message: M) -> &'static str {
         M::GameTypeTitle => "Choisissez un jeu",
         M::GameTypeNew => "Nouveau",
         M::GameTypeModpack => "Modpack Modrinth",
+        M::GameTypeModpackBoth => "Modpack",
+        M::GameTypeModpackDescriptionBoth => {
+            "Créer un serveur Fabric, Forge ou NeoForge à partir d’un modpack Modrinth ou CurseForge"
+        }
         M::GameTypeModpackDescription => {
             "Créer un serveur Fabric, Forge ou NeoForge à partir d’un modpack Modrinth"
         }
@@ -133,6 +137,9 @@ pub fn text(message: M) -> &'static str {
         M::ModpackSourceTitle => "Choisissez un modpack",
         M::ModpackSourceDescription => "Modpacks Fabric, Forge et NeoForge uniquement.",
         M::ModpackSearchPlaceholder => "Rechercher des modpacks ou coller un lien Modrinth",
+        M::ModpackSearchPlaceholderBoth => {
+            "Rechercher des modpacks ou coller un lien Modrinth ou CurseForge"
+        }
         M::ModpackUpload => "Importer un .mrpack",
         M::ModpackVersionTitle => "Choisissez une version",
         M::ModpackVersionUploaded => "Le modpack importé.",
@@ -155,10 +162,33 @@ pub fn text(message: M) -> &'static str {
         M::ModpackNotAModpack => "Ce projet est de type {type}, pas un modpack",
         M::ModpackChooseMrpack => "Choisissez un fichier .mrpack",
         M::ModpackNoUploadId => "Le core n’a renvoyé aucun identifiant d’importation",
+        M::ModpackCurseForgeUnavailable => {
+            "CurseForge n’est pas disponible dans cette copie de Lodestone Host."
+        }
+        M::ModpackCurseForgeServerPack => {
+            "Ce fichier contient les fichiers serveur du modpack, à partir desquels Lodestone ne peut pas créer de serveur. Choisissez plutôt l’une des versions du modpack."
+        }
+        M::ModpackCurseForgeNoFile => {
+            "CurseForge n’a pas ce fichier pour ce modpack. Choisissez plutôt l’une de ses versions."
+        }
+        M::ModpackCurseForgeReading => "Interrogation de CurseForge sur les fichiers du modpack…",
+        M::ModpackWebsiteDownload => "Sur le site uniquement",
+        M::ModpackWaitingForDownload => "En attente du téléchargement…",
+        M::ModpackCurseForgeWebsite => {
+            "Cette version n’est que sur le site de CurseForge, sa page s’est donc ouverte dans votre navigateur. Téléchargez-la là-bas : Lodestone Host prend le .zip dans votre dossier Téléchargements et continue."
+        }
+        M::ModpackCurseForgeChecking => {
+            "Téléchargement des fichiers propres à CurseForge, pour les vérifier ({done} sur {total})…"
+        }
+        M::ModpackCurseForgeUploading => "Envoi du modpack à Lodestone Core…",
+        M::ModpackCurseForgeByHand => {
+            "Ces fichiers ne sont disponibles que sur le site de CurseForge : le serveur est créé sans eux. Son onglet Mods vous demande ensuite de les télécharger, et ajoute chacun dès qu’il arrive."
+        }
         M::ModpackUploadFailed => "Impossible d’importer le modpack : {error}",
         M::ModpackUploading => "Envoi de {name}…",
         M::SortLabel => "Trier par",
         M::SortRelevance => "Pertinence",
+        M::SortPopularity => "Popularité",
         M::SortDownloads => "Téléchargements",
         M::SortFollows => "Abonnés",
         M::SortNewest => "Plus récents",

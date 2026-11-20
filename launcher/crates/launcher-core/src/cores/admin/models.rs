@@ -126,6 +126,40 @@ pub struct ModpackOrigin {
     /// Only ever a `https://cdn.modrinth.com/` URL.
     #[serde(default)]
     pub icon_url: Option<String>,
+    /// The CurseForge modpack an uploaded pack was made from, when Lodestone Host made
+    /// it (see [`super::curseforge_pack`]). Older cores never say.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub curseforge: Option<CurseForgeOrigin>,
+}
+
+impl InstanceInfo {
+    /// The picture of the modpack the server was made from: Modrinth's, or CurseForge's
+    /// for a pack Lodestone Host made from a CurseForge modpack.
+    pub fn pack_icon(&self) -> Option<&str> {
+        self.icon_url.as_deref().or_else(|| {
+            self.modpack
+                .as_ref()?
+                .curseforge
+                .as_ref()?
+                .icon_url
+                .as_deref()
+        })
+    }
+}
+
+/// The CurseForge modpack file a server's pack was made from (`CurseForgeOrigin`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CurseForgeOrigin {
+    /// The project's number on CurseForge.
+    pub project: u64,
+    /// The file's number there.
+    pub file: u64,
+    /// The project's page, only ever a `https://www.curseforge.com/` URL.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_url: Option<String>,
+    /// The project's logo, only ever a `https://media.forgecdn.net/` URL.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_url: Option<String>,
 }
 
 /// An instance as `GET /instance/list` describes it (`InstanceInfo`).

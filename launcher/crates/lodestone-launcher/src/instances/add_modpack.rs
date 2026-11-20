@@ -44,6 +44,9 @@ pub struct AddModpackDialog {
     server: Option<String>,
     browser: Entity<ModpackBrowser>,
     stage: Stage,
+    /// The pack being checked is one only CurseForge's website serves: its page opened,
+    /// and the check waits for the download.
+    waiting_website: bool,
     error: Option<SharedString>,
     focus: FocusHandle,
     _task: Option<Task<()>>,
@@ -90,6 +93,7 @@ impl AddModpackDialog {
             server,
             browser,
             stage: Stage::Browse,
+            waiting_website: false,
             error: None,
             focus: cx.focus_handle(),
             _task: None,
@@ -99,6 +103,14 @@ impl AddModpackDialog {
     /// The browser, for the offscreen screenshots.
     pub fn browser(&self) -> &Entity<ModpackBrowser> {
         &self.browser
+    }
+
+    /// Shows the check waiting for a pack's download from CurseForge's website, for the
+    /// offscreen screenshots.
+    pub fn preview_waiting_website(&mut self, cx: &mut Context<Self>) {
+        self.stage = Stage::Checking;
+        self.waiting_website = true;
+        cx.notify();
     }
 
     /// Shows a review, for the offscreen screenshots.
@@ -118,6 +130,8 @@ impl AddModpackDialog {
             }
         };
         let id = self.instance_id.clone();
+        self.waiting_website =
+            matches!(&source, AddSource::CurseForge(picked) if !picked.1.downloadable());
         let work = self.instances.update(cx, |instances, cx| {
             instances.plan_add_modpack(&id, source, cx)
         });
@@ -143,6 +157,9 @@ impl AddModpackDialog {
     /// Back to the browser, forgetting the downloaded pack.
     fn back(&mut self, cx: &mut Context<Self>) {
         self.discard(cx);
+        // a check still running (waiting for a download by hand) stops
+        self._task = None;
+        self.waiting_website = false;
         self.stage = Stage::Browse;
         cx.notify();
     }
@@ -329,6 +346,30 @@ impl Render for AddModpackDialog {
                 )
                 .child(self.browser.clone())
                 .into_any_element(),
+            Stage::Checking if self.waiting_website => div()
+                .flex()
+                .flex_col()
+                .items_center()
+                .gap_3()
+                .py_8()
+                .text_color(crate::theme::ink::secondary())
+                .child(
+                    div()
+                        .max_w(px(560.))
+                        .whitespace_normal()
+                        .text_center()
+                        .child(t(M::CurseForgeWaitingDownload)),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_2()
+                        .child(LoadingDots)
+                        .child(t(M::WaitingForDownload)),
+                )
+                .into_any_element(),
             Stage::Checking => div()
                 .flex()
                 .flex_row()
@@ -376,11 +417,19 @@ impl Render for AddModpackDialog {
                     .disabled(!selected)
                     .on_click(cx.listener(|this, _, _, cx| this.check(cx))),
             ),
-            Stage::Checking => dialog.footer(
-                Button::new("check-add-modpack", t(M::AddModpackButton))
-                    .variant(ButtonVariant::Primary)
-                    .disabled(true),
-            ),
+            Stage::Checking => dialog
+                .when(self.waiting_website, |dialog| {
+                    dialog.footer_start(
+                        Button::new("back-add-modpack", t(CommonMsg::Back))
+                            .variant(ButtonVariant::Ghost)
+                            .on_click(cx.listener(|this, _, _, cx| this.back(cx))),
+                    )
+                })
+                .footer(
+                    Button::new("check-add-modpack", t(M::AddModpackButton))
+                        .variant(ButtonVariant::Primary)
+                        .disabled(true),
+                ),
             Stage::Review(prompt) => dialog
                 .footer_start(
                     Button::new("back-add-modpack", t(CommonMsg::Back))

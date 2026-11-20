@@ -17,6 +17,10 @@ name: Host - macOS app
 # them everything is signed ad hoc.
 #   MACOS_CERTIFICATE, MACOS_CERTIFICATE_PASSWORD, MACOS_SIGNING_IDENTITY,
 #   APPLE_ID, APPLE_TEAM_ID, APPLE_APP_PASSWORD
+#
+# CurseForge: with the LODESTONE_CURSEFORGE_API_KEY secret (the key CurseForge issued
+# Lodestone), the key is compiled into the Host and it offers CurseForge. Without it
+# the build has no CurseForge. The core never has the key: it has no CurseForge client.
 on:
   workflow_dispatch:
     inputs:
@@ -44,6 +48,10 @@ jobs:
     # Apple silicon; it builds the Intel binaries too.
     runs-on: macos-latest
     timeout-minutes: 150
+    # For the whole job, not only the Build step: the staging step builds again, and
+    # a build without the key would compile the Host a second time, without it.
+    env:
+      LODESTONE_CURSEFORGE_API_KEY: ${{ secrets.LODESTONE_CURSEFORGE_API_KEY }}
 
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

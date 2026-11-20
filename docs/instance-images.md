@@ -1306,7 +1306,9 @@ section above the snapshots (see "WB1 decisions").
    `.lodeimg`, and the structured end of a creation from a file (done: "M6b decisions").
    CurseForge downloads stay out of the core: the developer decided so (see "M6a
    decisions", Making it); a CurseForge file the `.lodeimg` doesn't carry is left out and
-   the summary says so.
+   the summary says so. The GPUI Host has CurseForge since ("CurseForge in the Host"):
+   it asks CurseForge itself and uploads what it downloads, and the core still has no
+   client.
 
 Nothing converts old data in any milestone.
 
@@ -4674,3 +4676,45 @@ alongside these milestones but is not part of instance images: `lodestone_image`
 this format are unchanged (nothing added, renamed or removed). Its decisions (ports saved
 in `servers.json`, forwarders for servers on other hosts, a server on this computer at
 its own port) are in `launcher/docs/friends.md`, "Magic localhost for every server".
+
+### CurseForge in the Host
+
+Not an image milestone: what the core and the images are told when Lodestone Host puts
+CurseForge content on a server. The decision of M6a stands: **the core has no CurseForge
+client and no API key.** A core answers anyone signed in to it, over the network; the key
+CurseForge issued Lodestone is compiled into the Launcher and the GPUI Host only. So the
+Host asks CurseForge itself (`launcher_core::cores::admin::curseforge`,
+`curseforge_pack`) and hands the core plain files and a plain pack:
+
+- **A mod or plugin from CurseForge is an uploaded jar.** The Host downloads the file
+  from CurseForge's CDN (or, for a file its author keeps on CurseForge's website, takes
+  the copy the user's browser saved to their Downloads folder), checks its SHA-1, and
+  uploads it
+  (`POST /instance/{uuid}/mods/upload`, which needs the permission to write any file,
+  as for every jar Modrinth doesn't know). The content image records it as it records
+  any uploaded jar: a plain file, its bytes in the store, no `curseforge` source. So a
+  server's images still never carry a `curseforge` entry or a `curseforge_pack` base,
+  and the Launcher's handling of those stays tested against the mocks only.
+- **The core reports each jar's CurseForge fingerprint** (`InstalledMod.curseforge_fingerprint`,
+  the 32-bit MurmurHash2 CurseForge identifies files by, worked out with the SHA-512 and
+  cached with it). The Host asks CurseForge which files those are, for names, pictures
+  and updates. The fingerprint identifies nothing to the core and grants nothing: a jar
+  CurseForge knows is still a jar "not on Modrinth" for the permission to add it.
+- **A CurseForge modpack reaches the core as an uploaded `.mrpack`** the Host wrote:
+  every file has its SHA-1 and SHA-512 (CurseForge publishes no SHA-512, so the Host
+  downloads a file only CurseForge has once to work it out), a file Modrinth also has
+  is listed from Modrinth's CDN, and the others from CurseForge's CDN
+  (`edge.forgecdn.net`, `mediafilez.forgecdn.net`). The core takes those two hosts among
+  an uploaded pack's downloads (`mrpack::check_files_from`; the pack format's own
+  allow-list, which a Launcher importing an `.mrpack` checks, is unchanged) and checks
+  each download against both hashes as for any pack file. In the images such a file is
+  a pack file without a Modrinth URL: a plain file once placed.
+- **The pack's origin names the CurseForge file** (`lodestone.curseforge` in the index:
+  the project and file numbers, the project's page and logo, kept only when they are on
+  `www.curseforge.com` and `media.forgecdn.net`). The core copies it to the instance's
+  `ModpackOrigin.curseforge`; Modrinth's `project_id` and `version_id` stay empty, so
+  the base is not a `modrinth_pack` and the core's own update check skips the server.
+  The Host asks CurseForge for a newer file and updates with another uploaded pack.
+- **Still left out:** a Launcher's `.lodeimg` whose CurseForge files it doesn't carry
+  is imported without them, as in M6a (the summary names them); the web dashboard has
+  no CurseForge, since it only has the core.

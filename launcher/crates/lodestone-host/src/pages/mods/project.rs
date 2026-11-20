@@ -1,6 +1,12 @@
 //! A Modrinth project picked in Browse (`ModrinthProjectView.tsx`): its header, links,
 //! gallery and description, and its versions to install; for a modpack, a button that
 //! makes a server from it instead.
+//!
+//! A CurseForge project is shown the same way: the Host asks CurseForge for it and
+//! turns what it gets into the values Modrinth's have
+//! (`launcher_core::cores::admin::curseforge`); its files are its versions. CurseForge
+//! has no followers and doesn't say which side a mod runs on, so those facts are left
+//! out.
 
 use std::{collections::HashMap, sync::Arc};
 
@@ -9,9 +15,13 @@ use gpui::{
     Styled, div, img, prelude::*,
 };
 use launcher_core::{
-    cores::admin::mods::{
-        ModInstallRequest, ModrinthProject, ModrinthSearchHit, ModrinthVersion,
-        ModrinthVersionType, is_version_compatible, modrinth_project_url,
+    content::curseforge::{CfFile, CfMod},
+    cores::admin::{
+        curseforge as server,
+        mods::{
+            ModInstallRequest, ModrinthProject, ModrinthSearchHit, ModrinthVersion,
+            ModrinthVersionType, is_version_compatible, modrinth_project_url,
+        },
     },
     markdown::{Block, safe_link},
 };
@@ -23,7 +33,7 @@ use lodestone_ui::{
         text_tooltip,
     },
     i18n::format,
-    theme::{Tone, colors, ink, px, radius, text, weights},
+    theme::{Tone, colors, ink, leading, line_height, px, radius, text, weights},
     values::Product,
 };
 
@@ -33,6 +43,7 @@ use super::{
     muted, warning,
 };
 use crate::{
+    curseforge::Source,
     i18n::{CommonMsg, FactMsg, InstanceMsg as M, InstancePlural as P, t, tr, trn},
     pages::create_instance::ModpackPreset,
 };
@@ -96,6 +107,12 @@ pub(super) struct Mismatch {
 const VERSIONS_PAGE: usize = 20;
 
 pub struct ProjectView {
+    /// Where the project is. On CurseForge its id and its versions' ids are numbers.
+    pub source: Source,
+    /// The project as CurseForge gave it, for its page and its files' installs.
+    curseforge: Option<CfMod>,
+    /// The CurseForge files the listed versions are, by id.
+    files: HashMap<String, CfFile>,
     pub project_id: String,
     /// The version a pasted link named: listed first.
     pub linked_version_id: Option<String>,
@@ -109,18 +126,22 @@ pub struct ProjectView {
     shown: usize,
     with_dependencies: bool,
     /// The version being installed.
-    installing: Option<String>,
+    pub(super) installing: Option<String>,
     /// Counts the versions' fetches, so only the newest is kept.
     serial: u64,
 }
 
 impl ProjectView {
     pub fn new(
+        source: Source,
         project_id: String,
         linked_version_id: Option<String>,
         hit: Option<ModrinthSearchHit>,
     ) -> Self {
         Self {
+            source,
+            curseforge: None,
+            files: HashMap::new(),
             project_id,
             linked_version_id,
             hit,
@@ -133,6 +154,18 @@ impl ProjectView {
             with_dependencies: true,
             installing: None,
             serial: 0,
+        }
+    }
+
+    /// Whether `version` runs on the server without "Install anyway": the core's rule
+    /// for Modrinth's versions, the Launcher's for CurseForge's files.
+    fn fits(&self, version: &ModrinthVersion, target: &Target) -> bool {
+        match self.source {
+            Source::Modrinth => is_version_compatible(version, target.loader, &target.game_version),
+            Source::CurseForge => self
+                .files
+                .get(&version.id)
+                .is_some_and(|file| target.server().fits(file)),
         }
     }
 }
@@ -162,17 +195,24 @@ impl ModsPage {
     /// Opens a project picked in Browse, and fetches it, its versions and the linked one.
     pub(super) fn open_project(
         &mut self,
+        source: Source,
         project_id: String,
         linked_version_id: Option<String>,
         hit: Option<ModrinthSearchHit>,
         cx: &mut Context<Self>,
     ) {
         self.project = Some(ProjectView::new(
+            source,
             project_id.clone(),
             linked_version_id.clone(),
             hit,
         ));
+        if source == Source::CurseForge {
+            return self.open_curseforge_project(project_id, linked_version_id, cx);
+        }
         let admin = self.state.read(cx).admin.clone();
+        // the slug or id the view was opened with, until the project answers
+        let requested = project_id.clone();
         let task = cx.spawn(async move |this, cx| {
             let (project, linked) = cx
                 .background_spawn(async move {
@@ -185,7 +225,12 @@ impl ModsPage {
                 })
                 .await;
             this.update(cx, |this, cx| {
-                let Some(view) = &mut this.project else {
+                // a late answer for a project that's no longer open is dropped
+                let Some(view) = this
+                    .project
+                    .as_mut()
+                    .filter(|view| view.source == Source::Modrinth && view.project_id == requested)
+                else {
                     return;
                 };
                 match project {
@@ -205,6 +250,116 @@ impl ModsPage {
         self.push(task);
     }
 
+    /// Fetches a CurseForge project, its description and the file a link named.
+    fn open_curseforge_project(
+        &mut self,
+        project_id: String,
+        linked_file: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        let fail = |this: &mut Self, why: String| {
+            if let Some(view) = &mut this.project {
+                view.project = Some(Err(why));
+            }
+        };
+        let Some(curseforge) = crate::curseforge::client(cx) else {
+            fail(self, t(M::ModsCurseForgeUnavailable).to_string());
+            return cx.notify();
+        };
+        let Ok(id) = project_id.parse::<u64>() else {
+            fail(self, t(M::ModsCurseForgeUnavailable).to_string());
+            return cx.notify();
+        };
+        let linked_file = linked_file.and_then(|file| file.parse::<u64>().ok());
+        let task = cx.spawn(async move |this, cx| {
+            let fetched = cx
+                .background_spawn(launcher_core::http::in_http_runtime(async move {
+                    let project = curseforge.project(id).await?;
+                    // a project without a description still has its files
+                    let description = curseforge.description(id).await.unwrap_or_default();
+                    let linked = match linked_file {
+                        Some(file) => curseforge.file(id, file).await.ok(),
+                        None => None,
+                    };
+                    Ok::<_, launcher_core::content::CurseForgeError>((project, description, linked))
+                }))
+                .await;
+            this.update(cx, |this, cx| {
+                let Some(view) = this.project.as_mut().filter(|view| {
+                    view.source == Source::CurseForge && view.project_id == project_id
+                }) else {
+                    return;
+                };
+                match fetched {
+                    Ok((project, description, linked)) => {
+                        let shown = server::project(&project, description);
+                        view.blocks = Some(Arc::new(launcher_core::markdown::parse(&shown.body)));
+                        view.project = Some(Ok(shown));
+                        view.curseforge = Some(project);
+                        view.linked = linked.map(|file| {
+                            let version = server::version(&file);
+                            view.files.insert(version.id.clone(), file);
+                            version
+                        });
+                    }
+                    Err(err) => view.project = Some(Err(err.to_string())),
+                }
+                this.load_versions(cx);
+                cx.notify();
+            })
+            .ok();
+        });
+        self.push(task);
+    }
+
+    /// Fetches a CurseForge project's files: the ones for the server, or all of them.
+    fn load_curseforge_files(&mut self, target: Target, cx: &mut Context<Self>) {
+        let Some(view) = &mut self.project else {
+            return;
+        };
+        let (Some(curseforge), Ok(id)) = (
+            crate::curseforge::client(cx),
+            view.project_id.parse::<u64>(),
+        ) else {
+            // say so instead of loading forever
+            view.versions = Some(Err(t(M::ModsCurseForgeUnavailable).to_string()));
+            return cx.notify();
+        };
+        view.serial += 1;
+        let (serial, all) = (view.serial, view.show_all);
+        let project_id = view.project_id.clone();
+        let task = cx.spawn(async move |this, cx| {
+            let files = cx
+                .background_spawn(launcher_core::http::in_http_runtime(async move {
+                    server::files(&curseforge, id, &target.server(), all).await
+                }))
+                .await;
+            this.update(cx, |this, cx| {
+                // a new view starts counting again, so the project is checked too
+                if let Some(view) = &mut this.project
+                    && view.serial == serial
+                    && view.source == Source::CurseForge
+                    && view.project_id == project_id
+                {
+                    view.versions = Some(match files {
+                        Ok(files) => Ok(files
+                            .into_iter()
+                            .map(|file| {
+                                let version = server::version(&file);
+                                view.files.insert(version.id.clone(), file);
+                                version
+                            })
+                            .collect()),
+                        Err(err) => Err(err.to_string()),
+                    });
+                    cx.notify();
+                }
+            })
+            .ok();
+        });
+        self.push(task);
+    }
+
     fn load_versions(&mut self, cx: &mut Context<Self>) {
         let Some(target) = self.target(cx) else {
             return;
@@ -214,6 +369,9 @@ impl ModsPage {
         };
         if !matches!(view.project, Some(Ok(_))) {
             return;
+        }
+        if view.source == Source::CurseForge {
+            return self.load_curseforge_files(target, cx);
         }
         view.serial += 1;
         let serial = view.serial;
@@ -230,6 +388,7 @@ impl ModsPage {
             )
         };
         let admin = self.state.read(cx).admin.clone();
+        let project_id = id.clone();
         let task = cx.spawn(async move |this, cx| {
             let versions = cx
                 .background_spawn(async move {
@@ -239,8 +398,11 @@ impl ModsPage {
                 })
                 .await;
             this.update(cx, |this, cx| {
+                // a new view starts counting again, so the project is checked too
                 if let Some(view) = &mut this.project
                     && view.serial == serial
+                    && view.source == Source::Modrinth
+                    && view.project_id == project_id
                 {
                     view.versions = Some(versions.map_err(|err| err.to_string()));
                     cx.notify();
@@ -256,7 +418,11 @@ impl ModsPage {
         let Some(target) = self.target(cx) else {
             return;
         };
-        if is_version_compatible(version, target.loader, &target.game_version) {
+        if self
+            .project
+            .as_ref()
+            .is_some_and(|view| view.fits(version, &target))
+        {
             return self.install_version(version.id.clone(), false, cx);
         }
         let title = self
@@ -307,6 +473,25 @@ impl ModsPage {
             .map(|v| v.version_number.clone())
             .unwrap_or_default();
         view.installing = Some(version_id.clone());
+        if view.source == Source::CurseForge {
+            // the Host downloads the file and uploads it to the core
+            let Some(file) = view.files.get(&version_id).cloned() else {
+                view.installing = None;
+                return;
+            };
+            let (project, with_dependencies) = (view.curseforge.clone(), view.with_dependencies);
+            cx.notify();
+            return self.install_curseforge(
+                file,
+                project,
+                with_dependencies,
+                force,
+                (title, number),
+                false,
+                None,
+                cx,
+            );
+        }
         let request = ModInstallRequest {
             version_id,
             install_dependencies: view.with_dependencies,
@@ -355,7 +540,10 @@ impl ModsPage {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let can_write = self.can_write(cx);
-        let compatible = is_version_compatible(version, target.loader, &target.game_version);
+        let compatible = self
+            .project
+            .as_ref()
+            .is_some_and(|view| view.fits(version, target));
         let installing = self
             .project
             .as_ref()
@@ -399,6 +587,27 @@ impl ModsPage {
             ));
         let picked = version.clone();
         let id = |part: &str| SharedString::from(format!("version-{index}-{part}"));
+        // A CurseForge file has a name ("Lithium mc1.21.4-0.14.8 Fabric"), not a version
+        // number: shown whole, where a version tag would cut its middle out and leave
+        // a project's files looking alike.
+        let on_curseforge = self
+            .project
+            .as_ref()
+            .is_some_and(|view| view.source == Source::CurseForge);
+        let number: AnyElement = if on_curseforge {
+            div()
+                .id(id("number"))
+                .min_w_0()
+                .truncate()
+                .font_weight(weights::MEDIUMBOLD.face())
+                .text_color(ink::text())
+                .child(version.version_number.clone())
+                .into_any_element()
+        } else {
+            VersionTag::new(version.version_number.clone())
+                .id(id("number"))
+                .into_any_element()
+        };
         div()
             .flex()
             .flex_row()
@@ -418,7 +627,8 @@ impl ModsPage {
                             .flex_row()
                             .items_center()
                             .gap(px(8.))
-                            .child(VersionTag::new(version.version_number.clone()).id(id("number")))
+                            .min_w_0()
+                            .child(number)
                             .child(StatusBadge::new(type_label, type_tone))
                             .when(installed_here, |this| {
                                 this.child(StatusBadge::new(t(M::ModsInstalledTag), Tone::Success))
@@ -457,12 +667,19 @@ impl ModsPage {
             return div().into_any_element();
         };
         let can_write = self.can_write(cx);
-        let installed_ids: std::collections::HashSet<String> = self
-            .list
-            .iter()
-            .flat_map(|l| l.mods.iter())
-            .filter_map(|m| m.modrinth.as_ref().map(|m| m.version_id.clone()))
-            .collect();
+        let installed_ids: std::collections::HashSet<String> = match view.source {
+            Source::Modrinth => self
+                .list
+                .iter()
+                .flat_map(|l| l.mods.iter())
+                .filter_map(|m| m.modrinth.as_ref().map(|m| m.version_id.clone()))
+                .collect(),
+            Source::CurseForge => self
+                .curseforge
+                .values()
+                .map(|installed| installed.file_id.to_string())
+                .collect(),
+        };
         let header = div()
             .flex()
             .flex_row()
@@ -525,12 +742,14 @@ impl ModsPage {
                 .child(tr!(M::ModsVersionsFailed, error = error))
                 .into_any_element(),
             Some(Ok(versions)) => {
+                // CurseForge's files come already limited to the server's, unless all
+                // were asked for
                 let list = listed_versions(
                     versions,
                     view.linked.as_ref(),
                     &view.project_id,
                     target,
-                    view.show_all,
+                    view.show_all || view.source == Source::CurseForge,
                 );
                 if list.is_empty() {
                     // what the server runs, that no version is for
@@ -631,6 +850,7 @@ impl ModsPage {
             }
             Some(Ok(project)) => project.clone(),
         };
+        let on_curseforge = view.source == Source::CurseForge;
         let is_modpack = project.project_type == "modpack";
         let installable = matches!(project.project_type.as_str(), "mod" | "plugin");
         let side = |value: &str| -> String {
@@ -643,10 +863,13 @@ impl ModsPage {
                 other => other.into(),
             }
         };
+        // Modrinth's project doesn't name its author (the search result does);
+        // CurseForge's does
         let author = view
             .hit
             .as_ref()
             .map(|h| h.author.clone())
+            .or_else(|| Some(view.curseforge.as_ref()?.authors.first()?.name.clone()))
             .unwrap_or_else(|| project.slug.clone());
         // who made it, its downloads and followers, and whether servers need it
         let facts = FactLine::strip("project-facts")
@@ -662,14 +885,17 @@ impl ModsPage {
                     Num::count(project.downloads).plain(),
                 ),
             ))
-            .fact(Fact::new(
-                t(FactMsg::Followers),
-                Num::count(project.followers),
-            ))
-            .fact(Fact::new(
-                t(M::ModsServerSide),
-                FactValue::text(side(&project.server_side)),
-            ));
+            // CurseForge has neither followers nor sides
+            .facts(
+                (!on_curseforge)
+                    .then(|| Fact::new(t(FactMsg::Followers), Num::count(project.followers))),
+            )
+            .facts((!on_curseforge).then(|| {
+                Fact::new(
+                    t(M::ModsServerSide),
+                    FactValue::text(side(&project.server_side)),
+                )
+            }));
         let stats = div()
             .flex()
             .flex_row()
@@ -700,11 +926,18 @@ impl ModsPage {
             );
         // Modrinth and Discord are names
         let links: Vec<(&str, String, Option<String>)> = vec![
-            (
-                "modrinth",
-                "Modrinth".into(),
-                Some(modrinth_project_url(&project.project_type, &project.slug)),
-            ),
+            match &view.curseforge {
+                Some(curseforge) if on_curseforge => (
+                    "curseforge",
+                    Source::CurseForge.name().into(),
+                    Some(curseforge.page_url()),
+                ),
+                _ => (
+                    "modrinth",
+                    Source::Modrinth.name().into(),
+                    Some(modrinth_project_url(&project.project_type, &project.slug)),
+                ),
+            },
             (
                 "source",
                 t(M::ModsSource).into(),
@@ -752,6 +985,9 @@ impl ModsPage {
                                 div()
                                     .truncate()
                                     .text_size(text::H1)
+                                    // its own line height: the page's, for body text,
+                                    // is shorter than these letters, and cut them off
+                                    .line_height(line_height(text::H1, leading::TIGHT))
                                     .font_weight(weights::BOLD.face())
                                     .text_color(ink::text())
                                     .child(project.title.clone()),
@@ -774,7 +1010,7 @@ impl ModsPage {
             .enumerate()
             .filter_map(|(index, image)| {
                 let url = safe_link(&image.url)?;
-                let picture = crate::instance_icons::modrinth_image(&image.url, cx);
+                let picture = crate::instance_icons::project_image(&image.url, cx);
                 Some(
                     div()
                         .id(("gallery", index))
@@ -799,6 +1035,7 @@ impl ModsPage {
         let action: AnyElement = if is_modpack {
             if self.can_create(cx) {
                 let preset = ModpackPreset {
+                    source: view.source,
                     project_id: project.id.clone(),
                     version_id: view.linked_version_id.clone(),
                 };
@@ -834,7 +1071,7 @@ impl ModsPage {
         let description = view.blocks.clone().map(|blocks| {
             let mut images: HashMap<String, Arc<RenderImage>> = HashMap::new();
             for url in lodestone_ui::markdown::image_urls(&blocks).iter().take(20) {
-                if let Some(image) = crate::instance_icons::modrinth_image(url, cx) {
+                if let Some(image) = crate::instance_icons::project_image(url, cx) {
                     images.insert(url.clone(), image);
                 }
             }
@@ -842,7 +1079,11 @@ impl ModsPage {
                 format!("project-description-{}", project.id),
                 &blocks,
                 &images,
-                t(M::ModsRestOnModrinth),
+                t(if on_curseforge {
+                    M::ModsRestOnCurseForge
+                } else {
+                    M::ModsRestOnModrinth
+                }),
             )
         });
         column

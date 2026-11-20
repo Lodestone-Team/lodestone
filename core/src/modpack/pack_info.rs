@@ -328,6 +328,7 @@ mod tests {
             name: "Pack".into(),
             version_number: None,
             icon_url: None,
+            curseforge: None,
         };
         let info = base_info(&origin, None, &record, &files);
         // without the .mrpack there is no base

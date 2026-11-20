@@ -107,15 +107,23 @@ pub fn text(message: M) -> &'static str {
         M::Beta => "測試版",
 
         M::FromModrinth => "來自 Modrinth",
+        M::FromCurseForge => "來自 CurseForge",
         M::FromServerMods => "來自 {server} 的模組：「開始遊戲」會讓它們與伺服器保持一致。",
         M::FromMrpack => "來自不在 Modrinth 上的 .mrpack 檔案，因此無法在這裡更新。",
         M::ViewOnModrinth => "在 Modrinth 上查看",
+        M::ViewOnCurseForge => "在 CurseForge 上查看",
         M::DownloadingNewVersion => "正在下載新版本…",
         M::CheckingModrinth => "正在檢查 Modrinth…",
+        M::CheckingCurseForge => "正在檢查 CurseForge…",
         M::UpdateModpack => "更新…",
         M::UpToDate => "已是最新版本",
         M::CheckForUpdates => "檢查更新",
         M::ModrinthUnreachable => "無法連線至 Modrinth。",
+        M::CurseForgeUnreachable => "無法連線至 CurseForge。",
+        M::WaitingForDownload => "正在等待下載",
+        M::CurseForgeWaitingDownload => {
+            "此版本僅在 CurseForge 網站上提供，因此已在瀏覽器中開啟它的頁面。請在那裡下載：Lodestone Launcher 會從你的「下載」資料夾中取得該 .zip 並繼續。"
+        }
         M::StopGameFirst => "請先停止遊戲，或等待更新完成。",
         M::CouldntPrepareUpdate => "無法準備更新：{error}",
 
@@ -237,7 +245,10 @@ pub fn text(message: M) -> &'static str {
         M::FindCrashingModKeywords => "當機 崩潰 衝突 損壞 不相容 排查",
         M::Export => "匯出",
         M::ExportHint => "匯出為 .mrpack 檔案。",
+        M::ExportHintBoth => "匯出為 Modrinth 的 .mrpack 檔案，或 CurseForge 的 .zip 檔案。",
         M::ExportButton => "匯出…",
+        M::ExportCurseForgeButton => "匯出 CurseForge .zip…",
+        M::ExportModrinthButton => "匯出 Modrinth .mrpack…",
         M::Exporting => "正在匯出…",
         M::Duplicate => "製作副本",
         M::Duplicating => "正在製作副本…",
@@ -269,6 +280,9 @@ pub fn text(message: M) -> &'static str {
         M::CopyModsNoBuild => "沒有適用於 {target} 的組建，以下模組不會複製：{names}。",
         M::CopyModsNotOnModrinth => "不在 Modrinth 上，以下模組不會複製：{names}。",
         M::CopyModsUnchecked => "無法在 Modrinth 上檢查以下模組，因此不會複製：{names}。",
+        M::CopyModsUncheckedCurseForge => {
+            "無法在 CurseForge 上檢查以下模組，因此不會複製：{names}。"
+        }
         M::CopyOrUncheckMods => "或取消勾選「模組」，不帶模組複製。",
         M::CopySameTarget => {
             "請選擇其他 Minecraft 版本或載入器。若要原樣複製此實例，請使用「維護」中的「製作副本」。"

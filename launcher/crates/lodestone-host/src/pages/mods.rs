@@ -2,20 +2,23 @@
 //! installed (`InstalledMods.tsx`, with the client modpack of a Fabric server, and the
 //! update of a server made from a modpack), and
 //! Modrinth through the core to find more (`ModrinthSearch.tsx`,
-//! `ModrinthProjectView.tsx`).
+//! `ModrinthProjectView.tsx`). In a build with Lodestone's CurseForge key, CurseForge
+//! too, which the Host asks itself ([`curseforge`]).
 //!
 //! Reading needs the instance's file read permission (the tab is hidden without it);
 //! every change needs the write permission, and its button says why when it is off.
-//! The core does the work: installs, updates, uploads, enabling and deleting.
+//! The core does the work: installs, updates, uploads, enabling and deleting. A
+//! CurseForge file is the exception: the Host downloads it and uploads it to the core.
 
 mod browse;
+mod curseforge;
 mod installed;
 mod modpack;
 mod project;
 #[cfg(test)]
 mod tests;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use gpui::{
     AnyElement, AppContext as _, Context, Entity, FocusHandle, IntoElement, ParentElement, Render,
@@ -23,6 +26,7 @@ use gpui::{
 };
 use launcher_core::cores::admin::{
     InstanceInfo,
+    curseforge::{CfInstalled, ServerTarget},
     models::{CorePermission, InstancePermission},
     mods::{InstalledModKind, InstalledModList, InstalledModLoader, ModInstallResult},
 };
@@ -92,6 +96,15 @@ impl Target {
     pub fn is_plugin(&self) -> bool {
         self.kind == InstalledModKind::Plugin
     }
+
+    /// The same, as CurseForge's files are checked against it.
+    pub fn server(&self) -> ServerTarget {
+        ServerTarget {
+            kind: self.kind,
+            loader: self.loader,
+            game_version: self.game_version.clone(),
+        }
+    }
 }
 
 /// A confirmation dialog of the tab.
@@ -133,6 +146,11 @@ pub struct ModsPage {
     list: Option<InstalledModList>,
     list_error: Option<String>,
     loading: bool,
+    /// The installed jars that are CurseForge's files, by file name, as CurseForge
+    /// answered for the list (see [`curseforge`]). Empty in a build without its key.
+    curseforge: HashMap<String, CfInstalled>,
+    /// CurseForge is being asked about the list.
+    curseforge_loading: bool,
     /// Updates are checked from the first "Check for updates" on.
     check_updates: bool,
     /// Mods being turned on or off, or updated, by file name.
@@ -146,6 +164,20 @@ pub struct ModsPage {
     pack_open: bool,
     /// The check for a newer version of the server's modpack.
     modpack_check: modpack::ModpackCheck,
+    /// The newer file of the CurseForge modpack the server was made from, which the
+    /// Host found itself (`modpack_check` shows it).
+    curseforge_pack_update: Option<launcher_core::content::curseforge::CfFile>,
+    /// The update to that file waits for its download from CurseForge's website (its
+    /// author keeps it there): cancelled to stop waiting.
+    curseforge_pack_waiting: Option<launcher_core::game::download::CancelToken>,
+    /// The files of the pack update being confirmed that only CurseForge's website
+    /// has: watched for once the update has run. Kept with the uploaded pack's source,
+    /// so only the update of that very pack takes them; dropped when its dialog closes
+    /// or another update starts.
+    curseforge_pack_by_hand: Option<(
+        launcher_core::cores::admin::instances::ModpackSource,
+        Vec<launcher_core::cores::admin::curseforge::PlannedFile>,
+    )>,
     /// Preparing or running a modpack update.
     modpack_busy: bool,
     /// The modpack's history, once fetched.
@@ -188,6 +220,8 @@ impl ModsPage {
             list: None,
             list_error: None,
             loading: false,
+            curseforge: HashMap::new(),
+            curseforge_loading: false,
             check_updates: false,
             busy_files: HashSet::new(),
             uploading: false,
@@ -195,6 +229,9 @@ impl ModsPage {
             installed_page: 0,
             pack_open: false,
             modpack_check: modpack::ModpackCheck::default(),
+            curseforge_pack_update: None,
+            curseforge_pack_waiting: None,
+            curseforge_pack_by_hand: None,
             modpack_busy: false,
             modpack_history: None,
             modpack_history_error: None,
@@ -209,6 +246,8 @@ impl ModsPage {
         };
         this.reload(cx);
         this.load_modpack_history(cx);
+        // the core looks for Modrinth packs' updates on its own; CurseForge's are the Host's
+        this.check_curseforge_pack(true, cx);
         this
     }
 
@@ -275,8 +314,12 @@ impl ModsPage {
                             crate::pages::pager::clamp(this.installed_page, list.mods.len());
                         this.list = Some(list);
                         this.list_error = None;
+                        this.load_curseforge(check, serial, cx);
                     }
-                    Err(err) => this.list_error = Some(err.to_string()),
+                    Err(err) => {
+                        this.list_error = Some(err.to_string());
+                        this.curseforge_loading = false;
+                    }
                 }
                 cx.notify();
             })
@@ -445,12 +488,18 @@ impl ModsPage {
                 )
             }
         };
+        let pack_update = matches!(shown.prompt, Prompt::ModpackUpdate { .. });
         Dialog::new("mods-dialog", title, shown.focus.clone())
             .on_close({
                 let this = cx.entity().downgrade();
                 move |_, cx| {
                     this.update(cx, |this, cx| {
                         this.dialog.close(cx);
+                        // a cancelled pack update leaves no files to watch for (another
+                        // prompt, closed while the update's plan is coming, leaves them)
+                        if pack_update {
+                            this.curseforge_pack_by_hand = None;
+                        }
                     })
                     .ok();
                 }
@@ -561,7 +610,7 @@ impl Render for ModsPage {
             && let Some(target) = &target
         {
             let admin = self.state.read(cx).admin.clone();
-            self.browse = Some(Browse::new(target, admin, window, cx));
+            self.browse = Some(Browse::new(target, admin, cx));
         }
         let body: AnyElement = match &target {
             None => muted(t(M::ModsUnsupported)),
@@ -588,7 +637,7 @@ impl Render for ModsPage {
                 })
                 .on_select({
                     let this = cx.entity().downgrade();
-                    move |index, window, cx| {
+                    move |index, _, cx| {
                         this.update(cx, |this, cx| {
                             this.view = if *index == 0 {
                                 SubView::Installed
@@ -600,7 +649,7 @@ impl Render for ModsPage {
                                 && let Some(target) = this.target(cx)
                             {
                                 let admin = this.state.read(cx).admin.clone();
-                                this.browse = Some(Browse::new(&target, admin, window, cx));
+                                this.browse = Some(Browse::new(&target, admin, cx));
                             }
                             cx.notify();
                         })
@@ -619,6 +668,8 @@ impl Render for ModsPage {
                     .flex_col()
                     .gap(px(16.))
                     .children(restart)
+                    // files to fetch from CurseForge's website, on either view
+                    .children(self.render_by_hand(cx))
                     .child(tabs)
                     .child(content)
                     .into_any_element()

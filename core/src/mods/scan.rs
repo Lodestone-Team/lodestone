@@ -20,6 +20,9 @@ pub struct ScannedFile {
     pub enabled: bool,
     pub size: u64,
     pub sha512: String,
+    /// CurseForge's fingerprint of the file, which a client with a CurseForge key looks
+    /// the file up by (the core has no CurseForge client). `None` if it couldn't be read.
+    pub curseforge_fingerprint: Option<u32>,
     pub metadata: Option<ModFileMetadata>,
     /// Where the jar says it runs (Fabric and Quilt only).
     pub environment: Option<JarEnvironment>,
@@ -32,6 +35,7 @@ struct CachedScan {
     size: u64,
     modified: Option<SystemTime>,
     sha512: String,
+    curseforge_fingerprint: Option<u32>,
     info: JarInfo,
 }
 
@@ -67,6 +71,8 @@ fn scan_file_blocking(path: &Path, loader: InstalledModLoader) -> Result<Scanned
                 size,
                 modified,
                 sha512: sha512_of(path).with_context(|| format!("Failed to read {file_name}"))?,
+                curseforge_fingerprint: lodestone_minecraft::hash::curseforge_fingerprint_of(path)
+                    .ok(),
                 info: metadata::read_jar_info(path, loader),
             };
             let mut cache = SCAN_CACHE.lock().unwrap_or_else(|e| e.into_inner());
@@ -82,6 +88,7 @@ fn scan_file_blocking(path: &Path, loader: InstalledModLoader) -> Result<Scanned
         file_name,
         size: scan.size,
         sha512: scan.sha512,
+        curseforge_fingerprint: scan.curseforge_fingerprint,
         metadata: scan.info.metadata,
         environment: scan.info.environment,
         depends: scan.info.depends,
@@ -178,6 +185,12 @@ mod tests {
         assert_eq!(
             files[1].sha512,
             hex::encode(sha2::Sha512::digest(b"not a zip"))
+        );
+        assert_eq!(
+            files[1].curseforge_fingerprint,
+            Some(lodestone_minecraft::hash::curseforge_fingerprint(
+                b"not a zip"
+            ))
         );
     }
 }

@@ -12,6 +12,10 @@
 //!   while downloading, SHA-512 after) and remembers the project in
 //!   `<instance>/datapacks.json`, so a newer version of the same project replaces the
 //!   old file and keeps its place in the lists.
+//! - **Installing from CurseForge** ([`install_curseforge`]) does the same with one of a
+//!   project's files (SHA-1 and size checked while downloading), remembered under
+//!   `curseforge:<project id>`. A file its author keeps on CurseForge's website can't be
+//!   downloaded here.
 //! - **Deleting** moves the pack to the Trash and drops it from the lists.
 //!
 //! Nothing here checks whether the game is running; the app refuses changes then, since
@@ -36,7 +40,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     content::{
-        ContentError, ContentKind, InstanceDirs, MAX_FILE_BYTES, Modrinth, is_plain_name,
+        ContentError, ContentKind, CurseForge, InstanceDirs, MAX_FILE_BYTES, Modrinth,
+        curseforge::{self, CfFile},
+        is_plain_name,
         modrinth::sort_newest_first,
         packs::{Compatibility, FormatRange, PackFormat},
         safe_download_name,
@@ -153,6 +159,8 @@ pub struct DataPack {
     pub state: PackState,
     /// The Modrinth project it was installed from.
     pub modrinth_project: Option<String>,
+    /// The CurseForge project it was installed from.
+    pub curseforge_project: Option<u64>,
 }
 
 impl DataPack {
@@ -277,7 +285,13 @@ pub fn list(dirs: &InstanceDirs, world: &str) -> Result<WorldDataPacks, WorldErr
                 modified: metadata.and_then(|m| m.modified().ok()),
                 meta: read_meta(&path, is_dir),
                 state,
-                modrinth_project: provenance.get(world, &name).map(|e| e.project_id.clone()),
+                modrinth_project: provenance
+                    .get(world, &name)
+                    .map(|e| e.project_id.clone())
+                    .filter(|project| curseforge_project(project).is_none()),
+                curseforge_project: provenance
+                    .get(world, &name)
+                    .and_then(|e| curseforge_project(&e.project_id)),
                 name,
                 is_dir,
             });
@@ -700,6 +714,220 @@ pub async fn install_with(
         Entry {
             project_id: version.project_id.clone(),
             version_id: version.id.clone(),
+            sha1: Some(sha1),
+        },
+    );
+    provenance.save(dirs).map_err(io_error(&dirs.instance))?;
+    Ok(Installed { name, replaced })
+}
+
+// ---- CurseForge ----
+
+/// The project a CurseForge install is remembered under, in `datapacks.json`:
+/// `curseforge:<project id>`, which no Modrinth project id is.
+pub fn curseforge_key(project: u64) -> String {
+    format!("curseforge:{project}")
+}
+
+/// The CurseForge project a record's project names, if it is a CurseForge one.
+fn curseforge_project(key: &str) -> Option<u64> {
+    key.strip_prefix("curseforge:")?.parse().ok()
+}
+
+/// Why `file` isn't a data pack to install for `game_version`, or `None` if it is one.
+pub fn curseforge_incompatibility(file: &CfFile, game_version: &str) -> Option<String> {
+    let name = file.display_name_or_file();
+    if !file.file_name.to_ascii_lowercase().ends_with(".zip") {
+        return Some(format!("{name} isn't a .zip file to put in a world"));
+    }
+    let tags = file.tags();
+    if !tags.game_versions.is_empty() && !tags.game_versions.iter().any(|v| v == game_version) {
+        let mut shown: Vec<&str> = tags
+            .game_versions
+            .iter()
+            .take(5)
+            .map(String::as_str)
+            .collect();
+        if tags.game_versions.len() > 5 {
+            shown.push("…");
+        }
+        return Some(format!(
+            "{name} is for Minecraft {}, but this instance runs {game_version}",
+            shown.join(", ")
+        ));
+    }
+    if !file.downloadable() {
+        return Some(format!(
+            "{name} can only be downloaded from CurseForge's website; download it there and add the file"
+        ));
+    }
+    None
+}
+
+/// The newest release among `files` that is a data pack for `game_version`, or else the
+/// newest such file.
+pub fn pick_curseforge_file(game_version: &str, mut files: Vec<CfFile>) -> Option<CfFile> {
+    files.retain(|f| curseforge_incompatibility(f, game_version).is_none());
+    curseforge::sort_newest_first(&mut files);
+    let release = files.iter().position(|f| f.release_type == 1);
+    match release {
+        Some(i) => Some(files.swap_remove(i)),
+        None => files.into_iter().next(),
+    }
+}
+
+/// Downloads the CurseForge `file` into the world's data packs. An older file of the
+/// same project is moved to the Trash once the new one is in place, and the new one
+/// takes its place in the lists (so a pack turned off stays off).
+pub async fn install_curseforge(
+    cf: &CurseForge,
+    downloader: &Downloader,
+    dirs: &InstanceDirs,
+    world: &str,
+    file: &CfFile,
+    progress: &Progress,
+    cancel: &CancelToken,
+) -> Result<Installed, WorldError> {
+    install_curseforge_with(
+        cf,
+        downloader,
+        dirs,
+        world,
+        file,
+        progress,
+        cancel,
+        |path| trash::delete(path).map_err(|e| e.to_string()),
+    )
+    .await
+}
+
+/// Like [`install_curseforge`], with `remove` removing the older file (tests don't use
+/// the Trash).
+#[allow(clippy::too_many_arguments)]
+pub async fn install_curseforge_with(
+    cf: &CurseForge,
+    downloader: &Downloader,
+    dirs: &InstanceDirs,
+    world: &str,
+    file: &CfFile,
+    progress: &Progress,
+    cancel: &CancelToken,
+    remove: impl FnOnce(&Path) -> Result<(), String>,
+) -> Result<Installed, WorldError> {
+    let folder = dir(dirs, world)?;
+    if !file.file_name.to_ascii_lowercase().ends_with(".zip") {
+        return Err(WorldError::Invalid(format!(
+            "{} isn't a .zip file to put in a world",
+            file.file_name
+        )));
+    }
+    if file.file_length > MAX_FILE_BYTES {
+        return Err(WorldError::Invalid(format!(
+            "{} is larger than {} MB",
+            file.file_name,
+            MAX_FILE_BYTES / (1024 * 1024)
+        )));
+    }
+    let sha1 = file.sha1().ok_or_else(|| {
+        WorldError::Invalid(format!(
+            "CurseForge sent no SHA-1 for {}, so it can't be checked",
+            file.file_name
+        ))
+    })?;
+    let name = safe_download_name(ContentKind::ResourcePack, &file.file_name).ok_or_else(|| {
+        WorldError::Invalid(format!(
+            "{} isn't a file name that can be used",
+            file.file_name
+        ))
+    })?;
+    let project = curseforge_key(file.mod_id);
+    let version = file.id.to_string();
+    let provenance = Provenance::load(dirs);
+    // The file of this project that the app installed, to replace: only one that is
+    // still the file installed (see `install_with`). CurseForge records always have a
+    // hash; one without can't be checked, and is dropped.
+    let mut old = None;
+    let mut stale = Vec::new();
+    for (file, entry) in provenance.of_project(world, &project) {
+        let installed = recorded_file(dirs, world, &file, &entry) == Recorded::Same;
+        if installed && old.is_none() {
+            old = Some(file);
+        } else if !installed {
+            stale.push(file);
+        }
+    }
+    if old.as_deref() == Some(name.as_str())
+        && provenance
+            .get(world, &name)
+            .is_some_and(|e| e.version_id == version)
+    {
+        return Ok(Installed {
+            name,
+            replaced: None,
+        });
+    }
+    let dest = folder.join(&name);
+    if old.as_deref() != Some(name.as_str()) && fs::symlink_metadata(&dest).is_ok() {
+        return Err(WorldError::Conflict(format!(
+            "{name} is already in this world's data packs."
+        )));
+    }
+
+    fs::create_dir_all(&folder).map_err(io_error(&folder))?;
+    let url = cf
+        .download_url(file)
+        .map_err(|err| content_error(err.into()))?;
+    let staging = folder.join(format!(".lodestone-{sha1}.download"));
+    let item = DownloadItem {
+        url,
+        dest: staging.clone(),
+        sha1: sha1.clone(),
+        size: (file.file_length > 0).then_some(file.file_length),
+        executable: false,
+    };
+    progress.set(ProgressSnapshot {
+        files_total: 1,
+        files_done: 0,
+        bytes_total: file.file_length,
+        bytes_done: 0,
+    });
+    if let Err(err) = downloader.fetch(&item, progress, cancel).await {
+        let _ = fs::remove_file(&staging);
+        return Err(content_error(err.into()));
+    }
+    if let Some(problem) = read_meta(&staging, false).problem {
+        let _ = fs::remove_file(&staging);
+        return Err(WorldError::Invalid(format!(
+            "{}: {problem}",
+            file.file_name
+        )));
+    }
+    crate::fsx::rename(&staging, &dest).map_err(io_error(&dest))?;
+
+    // The new file takes the old one's place in the lists.
+    let replaced = old.filter(|old| old != &name);
+    if let Some(old) = &replaced {
+        let (old_id, new_id) = (DataPackLists::file_id(old), DataPackLists::file_id(&name));
+        let _ = change_lists(dirs, world, |lists| {
+            for list in [&mut lists.enabled, &mut lists.disabled] {
+                for id in list.iter_mut().filter(|id| **id == old_id) {
+                    *id = new_id.clone();
+                }
+            }
+        });
+        let _ = existing(dirs, world, old).map(|path| remove(&path));
+    }
+    // Loaded again: see `install_with`.
+    let mut provenance = Provenance::load(dirs);
+    for file in stale.iter().chain(&replaced) {
+        provenance.remove(world, file);
+    }
+    provenance.insert(
+        world,
+        &name,
+        Entry {
+            project_id: project,
+            version_id: version,
             sha1: Some(sha1),
         },
     );

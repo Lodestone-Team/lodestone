@@ -19,8 +19,6 @@
 //! whitespace removed.
 
 use std::{
-    io::{self, Read},
-    path::Path,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -49,6 +47,9 @@ pub const RATE_LIMIT_PAUSE: Duration = Duration::from_secs(30);
 /// pageSize`), per the API documentation.
 pub const PAGE_SIZE: usize = 50;
 pub const MAX_SEARCH_RESULTS: usize = 10_000;
+/// The most categories one search may filter by (`categoryIds`), per the API
+/// documentation.
+pub const MAX_SEARCH_CATEGORIES: usize = 10;
 /// The most files read for one project, in pages of [`PAGE_SIZE`].
 pub const MAX_FILES: usize = 2_000;
 /// Hosts CurseForge serves files from. Anything else is refused.
@@ -355,6 +356,8 @@ pub fn loader_type(loader: Loader) -> Option<u8> {
 
 /// CurseForge's class ids for Minecraft content.
 pub const CLASS_MODS: u32 = 6;
+/// Bukkit plugins, which Paper and Spigot servers run. Only Lodestone Host asks for these.
+pub const CLASS_BUKKIT_PLUGINS: u32 = 5;
 pub const CLASS_RESOURCE_PACKS: u32 = 12;
 pub const CLASS_WORLDS: u32 = 17;
 pub const CLASS_MODPACKS: u32 = 4471;
@@ -438,6 +441,9 @@ pub struct CfSearch {
     pub sort: CfSort,
     pub offset: usize,
     pub limit: usize,
+    /// Only projects in these categories ([`CurseForge::categories`]); none for no
+    /// filter. The API takes [`MAX_SEARCH_CATEGORIES`] at most.
+    pub categories: Vec<u32>,
 }
 
 impl CfSearch {
@@ -486,8 +492,138 @@ impl CfSearch {
                 serde_json::to_string(&types).unwrap_or_default(),
             ));
         }
+        match self.categories.as_slice() {
+            [] => {}
+            [one] => pairs.push(("categoryId", one.to_string())),
+            many => {
+                let many = &many[..many.len().min(MAX_SEARCH_CATEGORIES)];
+                pairs.push((
+                    "categoryIds",
+                    serde_json::to_string(many).unwrap_or_default(),
+                ));
+            }
+        }
         pairs
     }
+}
+
+/// A category of a class's projects, as CurseForge names it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CfCategory {
+    pub id: u32,
+    pub name: String,
+    /// The category it is under, when it isn't directly under its class.
+    #[serde(default)]
+    pub parent_category_id: Option<u32>,
+    /// Whether it is a class (Mods, Resource Packs) rather than a category of one.
+    #[serde(default)]
+    pub is_class: Option<bool>,
+}
+
+/// What a curseforge.com link names: a project, and maybe one of its files.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CfLink {
+    pub project: CfLinkProject,
+    pub file: Option<u64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CfLinkProject {
+    /// `curseforge.com/projects/<id>`.
+    Id(u64),
+    /// `curseforge.com/minecraft/<class>/<slug>`.
+    Slug { class_id: u32, slug: String },
+}
+
+/// The project and file a link points to, found on CurseForge.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CfLinkTarget {
+    pub project: CfMod,
+    pub file: Option<CfFile>,
+}
+
+/// The class a curseforge.com path names (`/minecraft/<this>/<slug>`).
+fn class_of_path(segment: &str) -> Option<u32> {
+    Some(match segment {
+        "mc-mods" => CLASS_MODS,
+        "texture-packs" => CLASS_RESOURCE_PACKS,
+        "shaders" => CLASS_SHADERS,
+        "modpacks" => CLASS_MODPACKS,
+        "data-packs" => CLASS_DATA_PACKS,
+        "worlds" => CLASS_WORLDS,
+        _ => return None,
+    })
+}
+
+/// Reads a link to a Minecraft project on curseforge.com:
+/// `https://www.curseforge.com/minecraft/mc-mods/jei`, with `/files/<id>` or
+/// `/download/<id>` for one of its files, or `https://www.curseforge.com/projects/<id>`.
+/// The scheme may be left out. Anything else is refused.
+pub fn parse_curseforge_url(link: &str) -> Result<CfLink, CurseForgeError> {
+    parse_link(link, false)
+}
+
+/// [`parse_curseforge_url`] for a server's content: a link to a Bukkit plugin
+/// (`/minecraft/bukkit-plugins/<slug>`) is read too. The Launcher has no use for those.
+pub fn parse_server_url(link: &str) -> Result<CfLink, CurseForgeError> {
+    parse_link(link, true)
+}
+
+fn parse_link(link: &str, plugins: bool) -> Result<CfLink, CurseForgeError> {
+    let not_a_link =
+        || CurseForgeError::Invalid(format!("{link} isn't a link to a CurseForge project"));
+    let link_text = link.trim();
+    let with_scheme = if link_text.contains("://") {
+        link_text.to_string()
+    } else {
+        format!("https://{link_text}")
+    };
+    let url = Url::parse(&with_scheme).map_err(|_| not_a_link())?;
+    let host = url.host_str().unwrap_or_default().to_ascii_lowercase();
+    if !matches!(url.scheme(), "https" | "http")
+        || !matches!(host.as_str(), "www.curseforge.com" | "curseforge.com")
+    {
+        return Err(not_a_link());
+    }
+    let segments: Vec<&str> = url
+        .path_segments()
+        .map(|parts| parts.filter(|part| !part.is_empty()).collect())
+        .unwrap_or_default();
+    let (project, rest) = match segments.as_slice() {
+        ["projects", id, rest @ ..] => (
+            CfLinkProject::Id(id.parse().map_err(|_| not_a_link())?),
+            rest,
+        ),
+        ["minecraft", class, slug, rest @ ..] => {
+            let class = class.to_ascii_lowercase();
+            let class_id = match class.as_str() {
+                "bukkit-plugins" if plugins => CLASS_BUKKIT_PLUGINS,
+                other => class_of_path(other).ok_or_else(not_a_link)?,
+            };
+            let valid = !slug.is_empty()
+                && slug.len() <= 128
+                && slug
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
+            if !valid {
+                return Err(not_a_link());
+            }
+            (
+                CfLinkProject::Slug {
+                    class_id,
+                    slug: slug.to_ascii_lowercase(),
+                },
+                rest,
+            )
+        }
+        _ => return Err(not_a_link()),
+    };
+    let file = match rest {
+        ["files" | "download", id, ..] => id.parse().ok(),
+        _ => None,
+    };
+    Ok(CfLink { project, file })
 }
 
 /// A file CurseForge matched by fingerprint, with its project id.
@@ -688,6 +824,20 @@ impl CurseForge {
         })
     }
 
+    /// The categories of the projects of `class_id`, by name. Not kept: they are
+    /// asked for again when they are next shown.
+    pub async fn categories(&self, class_id: u32) -> Result<Vec<CfCategory>, CurseForgeError> {
+        let mut url = self.url("categories")?;
+        url.query_pairs_mut()
+            .append_pair("gameId", &GAME_ID.to_string())
+            .append_pair("classId", &class_id.to_string());
+        let data: Data<Vec<CfCategory>> = self.get(url, "The categories").await?;
+        let mut categories = data.data;
+        categories.retain(|c| c.is_class != Some(true) && c.id != class_id);
+        categories.sort_by_key(|c| c.name.to_lowercase());
+        Ok(categories)
+    }
+
     pub async fn project(&self, id: u64) -> Result<CfMod, CurseForgeError> {
         let data: Data<CfMod> = self
             .get(self.url(&format!("mods/{id}"))?, "That project")
@@ -705,6 +855,47 @@ impl CurseForge {
             projects.extend(data.data);
         }
         Ok(projects)
+    }
+
+    /// The project of `class_id` whose page on curseforge.com ends in `slug`.
+    pub async fn project_by_slug(
+        &self,
+        class_id: u32,
+        slug: &str,
+    ) -> Result<CfMod, CurseForgeError> {
+        let mut url = self.url("mods/search")?;
+        url.query_pairs_mut()
+            .append_pair("gameId", &GAME_ID.to_string())
+            .append_pair("classId", &class_id.to_string())
+            .append_pair("slug", slug);
+        let page: Page<CfMod> = self.get(url, "That project").await?;
+        page.data
+            .into_iter()
+            .find(|project| project.slug.eq_ignore_ascii_case(slug))
+            .ok_or_else(|| CurseForgeError::NotFound(slug.to_string()))
+    }
+
+    /// The project (and file) a pasted curseforge.com link points to.
+    pub async fn resolve_link(&self, link: &str) -> Result<CfLinkTarget, CurseForgeError> {
+        self.resolve(parse_curseforge_url(link)?).await
+    }
+
+    /// [`CurseForge::resolve_link`] for a server's content: plugins' links too
+    /// ([`parse_server_url`]).
+    pub async fn resolve_server_link(&self, link: &str) -> Result<CfLinkTarget, CurseForgeError> {
+        self.resolve(parse_server_url(link)?).await
+    }
+
+    async fn resolve(&self, parsed: CfLink) -> Result<CfLinkTarget, CurseForgeError> {
+        let project = match &parsed.project {
+            CfLinkProject::Id(id) => self.project(*id).await?,
+            CfLinkProject::Slug { class_id, slug } => self.project_by_slug(*class_id, slug).await?,
+        };
+        let file = match parsed.file {
+            Some(file) => Some(self.file(project.id, file).await?),
+            None => None,
+        };
+        Ok(CfLinkTarget { project, file })
     }
 
     /// The project's description, as HTML.
@@ -746,6 +937,20 @@ impl CurseForge {
                 break;
             }
         }
+        files.retain(|file| file.is_server_pack != Some(true));
+        sort_newest_first(&mut files);
+        Ok(files)
+    }
+
+    /// The newest files of `project`, in one request: at most [`PAGE_SIZE`], newest
+    /// first, without server packs. Enough to see whether something newer is out.
+    pub async fn latest_files(&self, project: u64) -> Result<Vec<CfFile>, CurseForgeError> {
+        let mut url = self.url(&format!("mods/{project}/files"))?;
+        url.query_pairs_mut()
+            .append_pair("index", "0")
+            .append_pair("pageSize", &PAGE_SIZE.to_string());
+        let page: Page<CfFile> = self.get(url, "That project").await?;
+        let mut files = page.data;
         files.retain(|file| file.is_server_pack != Some(true));
         sort_newest_first(&mut files);
         Ok(files)
@@ -909,196 +1114,73 @@ pub fn sort_newest_first(files: &mut [CfFile]) {
 // ---------------------------------------------------------------------------
 // Fingerprints
 
-/// CurseForge's fingerprint of a file's bytes: 32-bit MurmurHash2 with seed 1 over the
-/// bytes left after removing tabs, line feeds, carriage returns and spaces.
-pub fn fingerprint(bytes: &[u8]) -> u32 {
-    let mut hasher = Murmur2::seeded(
-        1,
-        bytes.iter().filter(|b| !is_whitespace(**b)).count() as u32,
-    );
-    hasher.update(bytes);
-    hasher.finish()
-}
-
-/// [`fingerprint`] of a file, read twice in chunks (the length of the filtered bytes is
-/// part of the hash's seed) rather than into memory at once.
-pub fn fingerprint_file(path: &Path) -> io::Result<u32> {
-    let mut length = 0u32;
-    read_chunks(path, |chunk| {
-        length = length.wrapping_add(chunk.iter().filter(|b| !is_whitespace(**b)).count() as u32)
-    })?;
-    let mut hasher = Murmur2::seeded(1, length);
-    read_chunks(path, |chunk| hasher.update(chunk))?;
-    Ok(hasher.finish())
-}
-
-fn read_chunks(path: &Path, mut each: impl FnMut(&[u8])) -> io::Result<()> {
-    let mut file = std::fs::File::open(path)?;
-    let mut buffer = vec![0u8; 1 << 20];
-    loop {
-        let read = file.read(&mut buffer)?;
-        if read == 0 {
-            return Ok(());
-        }
-        each(&buffer[..read]);
-    }
-}
-
-fn is_whitespace(byte: u8) -> bool {
-    matches!(byte, 0x09 | 0x0a | 0x0d | 0x20)
-}
-
-const M: u32 = 0x5bd1_e995;
-
-/// MurmurHash2 over whitespace-filtered bytes fed in any number of pieces.
-struct Murmur2 {
-    h: u32,
-    pending: [u8; 4],
-    filled: usize,
-}
-
-impl Murmur2 {
-    /// CurseForge's seed is 1; other seeds are for checking against known answers.
-    fn seeded(seed: u32, length: u32) -> Self {
-        Self {
-            h: seed ^ length,
-            pending: [0; 4],
-            filled: 0,
-        }
-    }
-
-    fn update(&mut self, bytes: &[u8]) {
-        for &byte in bytes {
-            if is_whitespace(byte) {
-                continue;
-            }
-            self.pending[self.filled] = byte;
-            self.filled += 1;
-            if self.filled == 4 {
-                let mut k = u32::from_le_bytes(self.pending);
-                k = k.wrapping_mul(M);
-                k ^= k >> 24;
-                k = k.wrapping_mul(M);
-                self.h = self.h.wrapping_mul(M) ^ k;
-                self.filled = 0;
-            }
-        }
-    }
-
-    fn finish(mut self) -> u32 {
-        let tail = &self.pending[..self.filled];
-        if tail.len() >= 3 {
-            self.h ^= u32::from(tail[2]) << 16;
-        }
-        if tail.len() >= 2 {
-            self.h ^= u32::from(tail[1]) << 8;
-        }
-        if !tail.is_empty() {
-            self.h ^= u32::from(tail[0]);
-            self.h = self.h.wrapping_mul(M);
-        }
-        self.h ^= self.h >> 13;
-        self.h = self.h.wrapping_mul(M);
-        self.h ^= self.h >> 15;
-        self.h
-    }
-}
+pub use lodestone_minecraft::hash::{
+    curseforge_fingerprint as fingerprint, curseforge_fingerprint_of as fingerprint_file,
+};
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// A straightforward MurmurHash2 (seed 1) over already-filtered bytes, to check the
-    /// streaming one against.
-    fn reference(data: &[u8]) -> u32 {
-        let mut h = 1u32 ^ data.len() as u32;
-        let (chunks, tail) = data.as_chunks::<4>();
-        for chunk in chunks {
-            let mut k = u32::from_le_bytes(*chunk);
-            k = k.wrapping_mul(M);
-            k ^= k >> 24;
-            k = k.wrapping_mul(M);
-            h = h.wrapping_mul(M) ^ k;
-        }
-        match tail.len() {
-            3 => {
-                h ^= u32::from(tail[2]) << 16;
-                h ^= u32::from(tail[1]) << 8;
-                h ^= u32::from(tail[0]);
-                h = h.wrapping_mul(M);
-            }
-            2 => {
-                h ^= u32::from(tail[1]) << 8;
-                h ^= u32::from(tail[0]);
-                h = h.wrapping_mul(M);
-            }
-            1 => {
-                h ^= u32::from(tail[0]);
-                h = h.wrapping_mul(M);
-            }
-            _ => {}
-        }
-        h ^= h >> 13;
-        h = h.wrapping_mul(M);
-        h ^= h >> 15;
-        h
-    }
-
-    /// Known answers for MurmurHash2 from github.com/aviddiviner/go-murmur's tests,
-    /// the implementation packwiz uses for CurseForge fingerprints.
     #[test]
-    fn murmur2_matches_published_values() {
-        let hash = |data: &[u8], seed: u32| {
-            let mut hasher = Murmur2::seeded(seed, data.len() as u32);
-            hasher.update(data);
-            hasher.finish()
+    fn reads_curseforge_links() {
+        let slug = |class_id, slug: &str| CfLinkProject::Slug {
+            class_id,
+            slug: slug.into(),
         };
-        assert_eq!(hash(b"foo", 123), 1_412_061_192);
-        assert_eq!(hash(b"zztop", 123), 1_878_194_508);
-        assert_eq!(hash(b"foobarbaz", 234), 1_777_016_281);
-        assert_eq!(hash(b"blam", 777), 1_668_928_339);
-    }
-
-    #[test]
-    fn fingerprints_ignore_whitespace() {
-        assert_eq!(fingerprint(b"a b\tc\r\nd"), fingerprint(b"abcd"));
-        assert_ne!(fingerprint(b"abcd"), fingerprint(b"abce"));
-        // Only those four bytes count as whitespace.
-        assert_ne!(fingerprint(b"ab\x0bcd"), fingerprint(b"abcd"));
-    }
-
-    #[test]
-    fn fingerprints_match_murmur2_with_seed_1() {
-        // The empty input: h = 1 ^ 0, then the final mix.
-        let mut h = 1u32;
-        h ^= h >> 13;
-        h = h.wrapping_mul(M);
-        h ^= h >> 15;
-        assert_eq!(fingerprint(b""), h);
-        for data in [
-            &b"x"[..],
-            b"xy",
-            b"xyz",
-            b"wxyz",
-            b"hello, world!",
-            &[0xffu8; 37],
+        assert_eq!(
+            parse_curseforge_url("https://www.curseforge.com/minecraft/mc-mods/jei").unwrap(),
+            CfLink {
+                project: slug(CLASS_MODS, "jei"),
+                file: None
+            }
+        );
+        // No scheme, a file, a query and capitals.
+        assert_eq!(
+            parse_curseforge_url(
+                " curseforge.com/minecraft/Modpacks/All-The-Mods-9/files/5125809?x=1 "
+            )
+            .unwrap(),
+            CfLink {
+                project: slug(CLASS_MODPACKS, "all-the-mods-9"),
+                file: Some(5125809)
+            }
+        );
+        assert_eq!(
+            parse_curseforge_url("https://www.curseforge.com/minecraft/shaders/bsl/download/42")
+                .unwrap()
+                .file,
+            Some(42)
+        );
+        assert_eq!(
+            parse_curseforge_url("https://www.curseforge.com/projects/238222").unwrap(),
+            CfLink {
+                project: CfLinkProject::Id(238222),
+                file: None
+            }
+        );
+        for refused in [
+            "https://www.curseforge.com/minecraft/mc-mods",
+            "https://www.curseforge.com/wow/addons/details",
+            "https://www.curseforge.com/minecraft/bukkit-plugins/worldedit",
+            "https://www.curseforge.com.evil.example/minecraft/mc-mods/jei",
+            "https://modrinth.com/mod/sodium",
+            "ftp://www.curseforge.com/minecraft/mc-mods/jei",
+            "https://www.curseforge.com/minecraft/mc-mods/a%2Fb",
         ] {
-            let filtered: Vec<u8> = data
-                .iter()
-                .copied()
-                .filter(|b| !is_whitespace(*b))
-                .collect();
-            assert_eq!(fingerprint(data), reference(&filtered), "{data:?}");
+            assert!(parse_curseforge_url(refused).is_err(), "{refused}");
         }
-    }
-
-    #[test]
-    fn a_files_fingerprint_is_read_in_chunks() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("big.jar");
-        let bytes: Vec<u8> = (0..3_000_001u32).map(|i| (i * 7 % 251) as u8).collect();
-        std::fs::write(&path, &bytes).unwrap();
-        assert_eq!(fingerprint_file(&path).unwrap(), fingerprint(&bytes));
+        // a plugin's link is one only for a server
+        assert_eq!(
+            parse_server_url("https://www.curseforge.com/minecraft/bukkit-plugins/worldedit")
+                .unwrap()
+                .project,
+            CfLinkProject::Slug {
+                class_id: CLASS_BUKKIT_PLUGINS,
+                slug: "worldedit".into()
+            }
+        );
+        assert!(parse_server_url("https://www.curseforge.com/wow/addons/details").is_err());
     }
 
     #[test]

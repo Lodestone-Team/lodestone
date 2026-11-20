@@ -138,6 +138,7 @@ pub const SCENES: &[&str] = &[
     "instance-settings-game",
     "instance-settings-maintenance",
     "new-instance-modpack",
+    "new-instance-modpack-website",
     "new-instance-code",
     "new-instance-code-pack",
     "share-code",
@@ -147,6 +148,8 @@ pub const SCENES: &[&str] = &[
     "modpack-update",
     "modpack-add",
     "modpack-add-review",
+    "modpack-add-website",
+    "modpack-settings-website",
     "modpack-added-settings",
     "worlds",
     "worlds-backups",
@@ -591,7 +594,7 @@ fn has_instances(scene: &str) -> bool {
             | "rosetta-override"
     ) || scene.starts_with("content-")
         || scene.starts_with("modpack-")
-        || scene == "new-instance-modpack"
+        || scene.starts_with("new-instance-modpack")
         || scene == "share-code"
         || scene == "share-code-pack"
         || is_worlds_scene(scene)
@@ -1277,10 +1280,13 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             view.update(cx, |view, cx| worlds::apply(scene, view, cx));
         }
         "new-instance-modpack"
+        | "new-instance-modpack-website"
         | "modpack-settings"
+        | "modpack-settings-website"
         | "modpack-update"
         | "modpack-add"
         | "modpack-add-review"
+        | "modpack-add-website"
         | "modpack-added-settings" => modpacks::apply(scene, shell, cx),
         scene if scene.starts_with("content-") => {
             shell.select_tab(InstanceTab::Content, cx);

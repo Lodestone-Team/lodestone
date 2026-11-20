@@ -668,6 +668,21 @@ Conventions in the code that every area relies on:
   version_id} | {type:'upload', upload_id}, name, port, description, min_ram, max_ram, auto_start,
   restart_on_crash}` → `InstanceUuid`; progress via progression events.
 
+- Host notes for §2.4, **CurseForge modpacks (Host only)**: a copy of the Host built
+  with Lodestone's CurseForge key has a Modrinth / CurseForge switch over the search
+  (`ModrinthSearchView`), and the card reads "Modpack". The core has no CurseForge
+  client, so the Host does the work (`pages/create_instance/modpack.rs`,
+  `launcher_core::cores::admin::curseforge_pack`): picking a version downloads the
+  pack's zip, asks CurseForge which files its manifest names, and writes a `.mrpack`
+  that it uploads (`POST /modpack/upload`); from there the flow is the uploaded pack's.
+  Only mods go in (no resource or shader packs, no mods marked for players only); a
+  file Modrinth also has is listed from Modrinth's CDN, any other from CurseForge's CDN
+  with a SHA-512 the Host works out by downloading it once; a file only CurseForge's
+  website has is left out and named, and once the server is made its Mods tab asks for
+  it and adds it from the Downloads folder (§6.2). The
+  pack's index says which CurseForge file it was made from (`lodestone.curseforge`),
+  which the core keeps in the instance's `modpack.curseforge`.
+
 ### 2.4b Import an existing server (Host only)
 **Package: A.**
 
@@ -947,6 +962,28 @@ Conventions in the code that every area relies on:
   chooses (the dashboard opens the download in the browser). There are no `?modrinth=`
   deep links: the Host has no URLs. Results and projects aren't cached in the Host (the
   core caches Modrinth for 5 minutes).
+- Host notes for §6.2, **CurseForge (Host only)** (`pages/mods/curseforge.rs`,
+  `crate::curseforge`, `launcher_core::cores::admin::curseforge`): in a copy of the Host
+  built with Lodestone's CurseForge key, Browse has a Modrinth / CurseForge switch, and
+  a pasted curseforge.com link opens its project. The Host asks CurseForge itself (the
+  core has no client or key, and nothing CurseForge returns is kept): mods are class 6,
+  plugins class 5 (Bukkit plugins), shown through the same views as Modrinth's, without
+  followers or sides, which CurseForge doesn't have. Install downloads the file (and its
+  required dependencies, by the Launcher's rules) on the Host, checks its SHA-1, and
+  uploads it (`POST /instance/{uuid}/mods/upload`), then deletes the older files of the
+  same projects. A file its author keeps on CurseForge's website is never fetched from
+  CurseForge: if Modrinth has the very same file the core installs it from there, else
+  it goes to the Host's watch on the Downloads folder (`by_hand.rs`), with a card on the
+  Mods tab that lists such files, opens their download pages (one by one, the next when
+  a file has arrived; the first in a browser window of its own where the default
+  browser can be asked for one, `launcher_core::browser`, so the rest land there and
+  one window is closed at the end), and says "Added" once the Host found a download, checked it
+  against CurseForge's hash and uploaded it. The Installed list asks CurseForge which jars are its
+  files by the `curseforge_fingerprint` the core reports for each (one request), and
+  "Check for updates" asks for each such project's newer file; jars Modrinth knows keep
+  Modrinth's name and updates. The modpack panel of a server made from a CurseForge
+  modpack checks CurseForge when the tab opens and on "Check for an update", and
+  updates by turning the newer file into a `.mrpack` and uploading it (§2.4).
 
 ### 6.3 Macros tab (removed)
 

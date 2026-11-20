@@ -48,6 +48,10 @@ pub fn text(message: M) -> &'static str {
         M::GameTypeTitle => "選擇遊戲",
         M::GameTypeNew => "新功能",
         M::GameTypeModpack => "Modrinth 模組包",
+        M::GameTypeModpackBoth => "模組包",
+        M::GameTypeModpackDescriptionBoth => {
+            "從 Modrinth 或 CurseForge 模組包建立 Fabric、Forge 或 NeoForge 伺服器"
+        }
         M::GameTypeModpackDescription => "從 Modrinth 模組包建立 Fabric、Forge 或 NeoForge 伺服器",
         M::GameTypeImport => "現有的伺服器",
         M::GameTypeImportDescription => "匯入你已有的 Minecraft 伺服器，包含世界、設定、模組和外掛",
@@ -109,6 +113,7 @@ pub fn text(message: M) -> &'static str {
         M::ModpackSourceTitle => "選擇模組包",
         M::ModpackSourceDescription => "僅支援 Fabric、Forge 和 NeoForge 模組包。",
         M::ModpackSearchPlaceholder => "搜尋模組包，或貼上 Modrinth 連結",
+        M::ModpackSearchPlaceholderBoth => "搜尋模組包，或貼上 Modrinth 或 CurseForge 連結",
         M::ModpackUpload => "上傳 .mrpack",
         M::ModpackVersionTitle => "選擇版本",
         M::ModpackVersionUploaded => "已上傳的模組包。",
@@ -131,10 +136,31 @@ pub fn text(message: M) -> &'static str {
         M::ModpackNotAModpack => "這是 {type}，不是模組包",
         M::ModpackChooseMrpack => "請選擇 .mrpack 檔案",
         M::ModpackNoUploadId => "核心未傳回上傳 ID",
+        M::ModpackCurseForgeUnavailable => "此版本的 Lodestone Host 無法使用 CurseForge。",
+        M::ModpackCurseForgeServerPack => {
+            "該檔案是模組包的伺服器檔案，Lodestone 無法用它建立伺服器。請改為選擇模組包的某個版本。"
+        }
+        M::ModpackCurseForgeNoFile => {
+            "CurseForge 上沒有此模組包的這個檔案。請改為選擇它的某個版本。"
+        }
+        M::ModpackCurseForgeReading => "正在向 CurseForge 查詢模組包的檔案…",
+        M::ModpackWebsiteDownload => "僅限網站下載",
+        M::ModpackWaitingForDownload => "正在等待下載…",
+        M::ModpackCurseForgeWebsite => {
+            "此版本僅在 CurseForge 網站上提供，因此已在瀏覽器中開啟它的頁面。請在那裡下載：Lodestone Host 會從你的「下載」資料夾中取得該 .zip 並繼續。"
+        }
+        M::ModpackCurseForgeChecking => {
+            "正在下載僅 CurseForge 提供的檔案以進行驗證（{done}/{total}）…"
+        }
+        M::ModpackCurseForgeUploading => "正在將模組包傳送到 Lodestone Core…",
+        M::ModpackCurseForgeByHand => {
+            "這些檔案只能從 CurseForge 網站下載，因此建立的伺服器不包含它們。之後伺服器的「模組」分頁會請你下載它們，並在每個檔案到達時自動加入。"
+        }
         M::ModpackUploadFailed => "無法上傳模組包：{error}",
         M::ModpackUploading => "正在上傳 {name}…",
         M::SortLabel => "排序方式",
         M::SortRelevance => "關聯性",
+        M::SortPopularity => "熱門程度",
         M::SortDownloads => "下載次數",
         M::SortFollows => "追蹤數",
         M::SortNewest => "最新發布",

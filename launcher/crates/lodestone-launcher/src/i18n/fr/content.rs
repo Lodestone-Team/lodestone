@@ -12,6 +12,9 @@ pub fn text(message: M) -> &'static str {
         M::SearchInstalled => "Rechercher parmi les contenus installés",
         M::SearchModrinth => "Rechercher sur Modrinth",
         M::SearchCurseForge => "Rechercher sur CurseForge",
+        M::CurseForgeLinkUnavailable => {
+            "C’est un lien CurseForge, et cette copie de Lodestone Launcher ne peut pas joindre CurseForge."
+        }
         M::BrowseModrinth => "Parcourir Modrinth",
         M::BrowseCurseForge => "Parcourir CurseForge",
         M::BackToTop => "Revenir en haut",
@@ -31,11 +34,9 @@ pub fn text(message: M) -> &'static str {
             "Le jeu est en marche. Arrêtez-le pour modifier son contenu\u{a0}: il réécrit options.txt et les réglages des shaders lorsqu’il se ferme."
         }
 
-        M::AllModsUpToDate => "Tous les mods venant de Modrinth sont à jour.",
-        M::AllResourcePacksUpToDate => {
-            "Tous les packs de ressources venant de Modrinth sont à jour."
-        }
-        M::AllShaderPacksUpToDate => "Tous les packs de shaders venant de Modrinth sont à jour.",
+        M::AllModsUpToDate => "Tous les mods sont à jour.",
+        M::AllResourcePacksUpToDate => "Tous les packs de ressources sont à jour.",
+        M::AllShaderPacksUpToDate => "Tous les packs de shaders sont à jour.",
         M::CouldntCheckUpdates => "Impossible de rechercher les mises à jour\u{a0}: {error}",
 
         M::CheckingProject => "Vérification de {name}",
@@ -83,9 +84,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::ReadingFolder => "Lecture du dossier {folder}",
         M::CouldntReadFolder => "Impossible de lire le dossier {folder}\u{a0}: {error}",
-        M::SomeFilesNotMatched => {
-            "Certains fichiers n’ont pas pu être associés à Modrinth\u{a0}: {error}"
-        }
+        M::SomeFilesNotMatched => "Certains fichiers n’ont pas pu être recherchés\u{a0}: {error}",
         M::ShadersOff => "Shaders désactivés",
 
         M::ModsNeedLoader => "Les mods ont besoin d’un chargeur de mods",
@@ -271,7 +270,11 @@ pub fn text(message: M) -> &'static str {
             "Leurs auteurs ne permettent pas aux lanceurs de les télécharger. Téléchargez-les dans votre navigateur, puis choisissez le dossier où ils ont été enregistrés."
         }
         M::BlockedOpen => "Ouvrir la page de téléchargement",
-        M::BlockedOpenAll => "Ouvrir toutes les pages",
+        M::BlockedOpenAll => "Ouvrir les pages une à une",
+        M::BlockedOneByOne => "La page suivante s’ouvre quand le fichier précédent est arrivé.",
+        M::BlockedOwnWindow => {
+            "Les pages s’ouvrent dans une fenêtre de navigateur à part, la suivante quand le fichier précédent est arrivé. Fermez cette fenêtre une fois tous les fichiers ajoutés."
+        }
         M::BlockedAdded => "Ajouté",
         M::BlockedWaiting => "En attente de {file}",
         M::BlockedChangeFolder => "Surveiller un autre dossier…",
@@ -307,6 +310,10 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::MoreVersions => [
             "{count} autre version est sur Modrinth.",
             "{count} autres versions sont sur Modrinth.",
+        ],
+        P::MoreFilesOnCurseForge => [
+            "{count} autre fichier est sur CurseForge.",
+            "{count} autres fichiers sont sur CurseForge.",
         ],
     }
 }

@@ -12,6 +12,9 @@ pub fn text(message: M) -> &'static str {
         M::SearchInstalled => "搜尋已安裝內容",
         M::SearchModrinth => "搜尋 Modrinth",
         M::SearchCurseForge => "搜尋 CurseForge",
+        M::CurseForgeLinkUnavailable => {
+            "這是 CurseForge 連結，而此 Lodestone Launcher 無法連線至 CurseForge。"
+        }
         M::BrowseModrinth => "瀏覽 Modrinth",
         M::BrowseCurseForge => "瀏覽 CurseForge",
         M::BackToTop => "回到頂端",
@@ -29,9 +32,9 @@ pub fn text(message: M) -> &'static str {
             "遊戲正在執行。停止遊戲後才能變更其內容：遊戲結束時會覆寫 options.txt 和光影設定。"
         }
 
-        M::AllModsUpToDate => "來自 Modrinth 的模組皆已是最新版本。",
-        M::AllResourcePacksUpToDate => "來自 Modrinth 的資源包皆已是最新版本。",
-        M::AllShaderPacksUpToDate => "來自 Modrinth 的光影包皆已是最新版本。",
+        M::AllModsUpToDate => "所有模組皆已是最新版本。",
+        M::AllResourcePacksUpToDate => "所有資源包皆已是最新版本。",
+        M::AllShaderPacksUpToDate => "所有光影包皆已是最新版本。",
         M::CouldntCheckUpdates => "無法檢查更新：{error}",
 
         M::CheckingProject => "正在檢查 {name}",
@@ -73,7 +76,7 @@ pub fn text(message: M) -> &'static str {
         M::NoShaderPacksYet => "還沒有光影包。瀏覽 Modrinth，或將 .zip 檔案或資料夾拖放到這裡。",
         M::ReadingFolder => "正在讀取 {folder} 資料夾",
         M::CouldntReadFolder => "無法讀取 {folder} 資料夾：{error}",
-        M::SomeFilesNotMatched => "部分檔案無法與 Modrinth 比對：{error}",
+        M::SomeFilesNotMatched => "部分檔案無法查詢：{error}",
         M::ShadersOff => "關閉光影",
 
         M::ModsNeedLoader => "模組需要模組載入器",
@@ -253,7 +256,11 @@ pub fn text(message: M) -> &'static str {
             "這些檔案的作者不允許啟動器下載。請在瀏覽器中逐一下載，然後選擇儲存它們的資料夾。"
         }
         M::BlockedOpen => "開啟下載頁面",
-        M::BlockedOpenAll => "開啟所有頁面",
+        M::BlockedOpenAll => "逐一開啟頁面",
+        M::BlockedOneByOne => "上一個檔案到達後，會開啟下一個頁面。",
+        M::BlockedOwnWindow => {
+            "這些頁面會在獨立的瀏覽器視窗中開啟，上一個檔案到達後才開啟下一個。全部加入完成後，關閉該視窗即可。"
+        }
         M::BlockedAdded => "已加入",
         M::BlockedWaiting => "正在等待 {file}",
         M::BlockedChangeFolder => "監視其他資料夾…",
@@ -285,5 +292,6 @@ pub fn text(message: M) -> &'static str {
 pub fn plural(message: P) -> [&'static str; 2] {
     match message {
         P::MoreVersions => ["Modrinth 上還有 {count} 個版本。"; 2],
+        P::MoreFilesOnCurseForge => ["CurseForge 上還有 {count} 個檔案。"; 2],
     }
 }

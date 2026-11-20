@@ -1,8 +1,9 @@
 //! Instances' game icons (`GameIcon.tsx`) and the pictures the Host downloads: modpack
-//! and project icons from Modrinth's CDN, and players' heads from mc-heads.net.
+//! and project icons from Modrinth's CDN and CurseForge's media host, and players'
+//! heads from mc-heads.net.
 //!
 //! Downloaded pictures are kept for the session in [`RemoteImages`], fetched once each.
-//! Only those two hosts are ever asked, over HTTPS.
+//! Only those three hosts are ever asked, over HTTPS.
 
 use std::{collections::HashMap, sync::Arc};
 
@@ -46,6 +47,32 @@ pub fn modrinth_image(url: &str, cx: &mut App) -> Option<Arc<RenderImage>> {
     }
     fetch(url, cx, |url, modrinth| async move {
         modrinth.image(&url).await.ok()
+    })
+}
+
+/// A project's picture: from Modrinth's CDN, or from CurseForge's media host
+/// (`https://media.forgecdn.net/…`) in a build that offers CurseForge. `None` while it
+/// downloads, if it can't be had, or for any other host.
+pub fn project_image(url: &str, cx: &mut App) -> Option<Arc<RenderImage>> {
+    if is_modrinth_cdn(url) {
+        return modrinth_image(url, cx);
+    }
+    if !is_curseforge_media(url) {
+        return None;
+    }
+    let curseforge = crate::curseforge::client(cx)?;
+    fetch(url, cx, move |url, _| async move {
+        curseforge.image(&url).await.ok()
+    })
+}
+
+/// Whether `url` is an HTTPS URL on CurseForge's media host, where its projects' logos
+/// and screenshots are.
+pub fn is_curseforge_media(url: &str) -> bool {
+    url::Url::parse(url).is_ok_and(|u| {
+        u.scheme() == "https"
+            && u.host_str() == Some(launcher_core::content::curseforge::MEDIA_HOST)
+            && u.port().is_none()
     })
 }
 
@@ -146,8 +173,8 @@ pub fn game_title(game: &Game) -> String {
     game.title()
 }
 
-/// An instance's icon: its modpack's (from Modrinth's CDN) when it has one, else its
-/// game's; with the game's name as a tooltip.
+/// An instance's icon: its modpack's (from Modrinth's CDN or CurseForge's media host)
+/// when it has one, else its game's; with the game's name as a tooltip.
 pub fn game_icon(
     id: impl Into<SharedString>,
     game: &Game,
@@ -155,7 +182,7 @@ pub fn game_icon(
     size: Pixels,
     cx: &mut App,
 ) -> AnyElement {
-    let remote = icon_url.and_then(|url| modrinth_image(url, cx));
+    let remote = icon_url.and_then(|url| project_image(url, cx));
     let picture = match remote {
         Some(image) => img(image)
             .size(size)
@@ -204,6 +231,22 @@ mod tests {
         ));
         assert!(!is_modrinth_cdn("https://cdn.modrinth.com:8443/x.png"));
         assert!(!is_modrinth_cdn("not a url"));
+    }
+
+    #[test]
+    fn only_curseforges_media_host() {
+        assert!(is_curseforge_media(
+            "https://media.forgecdn.net/avatars/1/2/logo.png"
+        ));
+        assert!(!is_curseforge_media(
+            "http://media.forgecdn.net/avatars/1/2/logo.png"
+        ));
+        assert!(!is_curseforge_media(
+            "https://media.forgecdn.net.evil.example/x.png"
+        ));
+        assert!(!is_curseforge_media(
+            "https://edge.forgecdn.net/files/1/2/a.jar"
+        ));
     }
 
     #[test]

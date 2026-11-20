@@ -19,8 +19,8 @@ use std::path::{Path, PathBuf};
 use color_eyre::eyre::{eyre, Context};
 use futures::TryStreamExt;
 use lodestone_minecraft::mrpack::{
-    self, check_files, check_overrides, check_zip_limits, for_each_override, open_pack, read_index,
-    OverrideItem, PathPolicy, Side,
+    self, check_files_from, check_overrides, check_zip_limits, for_each_override, open_pack,
+    read_index, OverrideItem, PathPolicy, Side,
 };
 pub use lodestone_minecraft::mrpack::{
     PackDownload, SkippedPath, MAX_ENTRIES, MAX_PACK_FILE_BYTES, MAX_UNCOMPRESSED_BYTES,
@@ -67,6 +67,63 @@ pub struct ModpackInfo {
     pub unsupported_reason: Option<String>,
     /// Pass this to `create_modpack` to reuse the downloaded or uploaded pack.
     pub upload_id: Option<String>,
+    /// The CurseForge modpack the pack was made from, when its index says so.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub curseforge: Option<CurseForgeOrigin>,
+}
+
+/// The CurseForge modpack file an uploaded pack was made from. The core has no
+/// CurseForge client: Lodestone Host turns a CurseForge modpack into a `.mrpack` whose
+/// index names the file it came from (`lodestone.curseforge`), uploads it, and later
+/// asks CurseForge itself whether that project has a newer file.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct CurseForgeOrigin {
+    /// The project's number on CurseForge.
+    #[ts(type = "number")]
+    pub project: u64,
+    /// The file's number on CurseForge.
+    #[ts(type = "number")]
+    pub file: u64,
+    /// The project's page, only ever a `https://www.curseforge.com/` URL.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub page_url: Option<String>,
+    /// The project's logo, only ever a `https://media.forgecdn.net/` URL.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub icon_url: Option<String>,
+}
+
+/// CurseForge's website, where its projects' pages are.
+const CURSEFORGE_SITE: &str = "www.curseforge.com";
+/// Where CurseForge keeps its projects' logos.
+const CURSEFORGE_MEDIA: &str = "media.forgecdn.net";
+
+/// `url` if it is a plain HTTPS URL on `host`, else `None`.
+fn https_url_on(url: Option<&str>, host: &str) -> Option<String> {
+    let parsed = url::Url::parse(url?).ok()?;
+    let ok = parsed.scheme() == "https"
+        && parsed.host_str() == Some(host)
+        && parsed.port().is_none()
+        && parsed.username().is_empty()
+        && parsed.password().is_none();
+    ok.then(|| parsed.to_string())
+}
+
+impl CurseForgeOrigin {
+    /// What a pack's index says about the CurseForge file it was made from, with only
+    /// the URLs that are where CurseForge's pages and logos are.
+    fn from_index(index: &lodestone_minecraft::mrpack::Index) -> Option<Self> {
+        let from = index.lodestone.as_ref()?.curseforge.as_ref()?;
+        (from.project > 0 && from.file > 0).then(|| CurseForgeOrigin {
+            project: from.project,
+            file: from.file,
+            page_url: https_url_on(from.page_url.as_deref(), CURSEFORGE_SITE),
+            icon_url: https_url_on(from.icon_url.as_deref(), CURSEFORGE_MEDIA),
+        })
+    }
 }
 
 /// Where an instance created from a modpack came from. Kept in the instance's config.
@@ -81,6 +138,11 @@ pub struct ModpackOrigin {
     pub version_number: Option<String>,
     /// The project icon, only ever a `https://cdn.modrinth.com/` URL.
     pub icon_url: Option<String>,
+    /// The CurseForge modpack an uploaded pack was made from (see [`CurseForgeOrigin`]).
+    /// `project_id` and `version_id` stay empty: those are Modrinth's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub curseforge: Option<CurseForgeOrigin>,
 }
 
 /// `url` if it is an `https://cdn.modrinth.com/` URL, else `None`.
@@ -106,6 +168,7 @@ impl ModpackOrigin {
             name: project.title,
             version_number: Some(version.version_number).filter(|v| !v.trim().is_empty()),
             icon_url: modrinth_cdn_url(project.icon_url.as_deref()),
+            curseforge: None,
         })
     }
 
@@ -117,6 +180,7 @@ impl ModpackOrigin {
             name: info.name.clone(),
             version_number: info.version_number.clone(),
             icon_url: None,
+            curseforge: info.curseforge.clone(),
         }
     }
 }
@@ -317,7 +381,14 @@ pub fn read_pack(path: &Path, allow_scripts: bool) -> Result<Pack, Error> {
     {
         reason = Some("The pack's Minecraft version is not valid".into());
     }
-    let (downloads, mut skipped) = check_files(&index, Side::Server, &policy)?;
+    // Modrinth's hosts, and CurseForge's CDN for a pack the Host made from a
+    // CurseForge modpack; each download is checked against the index's hashes
+    let hosts: Vec<&str> = lodestone_minecraft::mrpack::DOWNLOAD_HOSTS
+        .into_iter()
+        .chain(lodestone_minecraft::mrpack::CURSEFORGE_DOWNLOAD_HOSTS)
+        .collect();
+    let (downloads, mut skipped) = check_files_from(&index, Side::Server, &policy, &hosts)?;
+    let curseforge = CurseForgeOrigin::from_index(&index);
     skipped.extend(check_overrides(&mut archive, Side::Server, &policy)?);
     let name = index.name.trim().to_string();
     let info = ModpackInfo {
@@ -345,6 +416,7 @@ pub fn read_pack(path: &Path, allow_scripts: bool) -> Result<Pack, Error> {
         server_download_size: downloads.iter().map(|d| d.size).sum(),
         unsupported_reason: reason,
         upload_id: None,
+        curseforge,
     };
     Ok(Pack {
         info,

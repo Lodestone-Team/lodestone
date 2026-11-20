@@ -7,7 +7,13 @@ export type InstalledMod = {
 /**
  * The current name on disk, including `.disabled`.
  */
-file_name: string, enabled: boolean, size: number, sha512: string, metadata: ModFileMetadata | null, modrinth: ModrinthMatch | null, 
+file_name: string, enabled: boolean, size: number, sha512: string, 
+/**
+ * CurseForge's fingerprint of the file (a 32-bit MurmurHash2 of its bytes without
+ * whitespace), for clients that ask CurseForge which file it is. The core never
+ * asks CurseForge itself.
+ */
+curseforge_fingerprint?: number, metadata: ModFileMetadata | null, modrinth: ModrinthMatch | null, 
 /**
  * Whether players need this mod too.
  */

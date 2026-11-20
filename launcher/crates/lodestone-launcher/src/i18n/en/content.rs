@@ -17,6 +17,8 @@ crate::i18n::messages! {
         SearchInstalled = "Search what's installed",
         SearchModrinth = "Search Modrinth",
         SearchCurseForge = "Search CurseForge",
+        /// A curseforge.com link was pasted into the search field, in a copy that can't reach CurseForge (no API key, or offline).
+        CurseForgeLinkUnavailable = "That is a CurseForge link, and this copy of Lodestone Launcher can't reach CurseForge.",
         /// Below what's installed, with buttons that switch to a platform's view.
         BrowseModrinth = "Browse Modrinth",
         BrowseCurseForge = "Browse CurseForge",
@@ -45,9 +47,9 @@ crate::i18n::messages! {
         WaitForInstall = "Wait for the install to finish.",
         GameRunning = "The game is running. Stop it to change its content: it rewrites options.txt and the shader settings when it exits.",
 
-        AllModsUpToDate = "Every mod from Modrinth is up to date.",
-        AllResourcePacksUpToDate = "Every resource pack from Modrinth is up to date.",
-        AllShaderPacksUpToDate = "Every shader pack from Modrinth is up to date.",
+        AllModsUpToDate = "Every mod is up to date.",
+        AllResourcePacksUpToDate = "Every resource pack is up to date.",
+        AllShaderPacksUpToDate = "Every shader pack is up to date.",
         CouldntCheckUpdates = "Couldn't check for updates: {error}",
 
         /// The progress line of an install: {name} is a Modrinth project's title.
@@ -101,7 +103,7 @@ crate::i18n::messages! {
         /// {folder} is the folder's name: "mods".
         ReadingFolder = "Reading the {folder} folder",
         CouldntReadFolder = "Couldn't read the {folder} folder: {error}",
-        SomeFilesNotMatched = "Some files couldn't be matched to Modrinth: {error}",
+        SomeFilesNotMatched = "Some files couldn't be looked up: {error}",
         ShadersOff = "Shaders off",
 
         // A vanilla instance: content that needs a mod loader.
@@ -284,7 +286,11 @@ crate::i18n::messages! {
         BlockedLead = "Their authors don't let launchers download them. Download each one in your browser; Lodestone adds it as soon as it appears in {folder}.",
         BlockedNoFolder = "Their authors don't let launchers download them. Download each one in your browser, then choose the folder it was saved to.",
         BlockedOpen = "Open download page",
-        BlockedOpenAll = "Open all pages",
+        BlockedOpenAll = "Open the pages one by one",
+        /// Under the list, once the pages are being opened one by one.
+        BlockedOneByOne = "The next page opens when the file before it has arrived.",
+        /// The same, when the pages open in a browser window of their own.
+        BlockedOwnWindow = "The pages open in a browser window of their own, the next one when the file before it has arrived. Close that window once they are all in.",
         BlockedAdded = "Added",
         /// {file} is the file name to download.
         BlockedWaiting = "Waiting for {file}",
@@ -320,5 +326,7 @@ crate::i18n::messages! {
 
     pub enum ContentPlural {
         MoreVersions = ("{count} more version is on Modrinth.", "{count} more versions are on Modrinth."),
+        /// Under a CurseForge project's list of files, which shows the newest 40.
+        MoreFilesOnCurseForge = ("{count} more file is on CurseForge.", "{count} more files are on CurseForge."),
     }
 }

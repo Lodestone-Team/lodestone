@@ -101,6 +101,12 @@ pub struct InstalledMod {
     #[ts(type = "number")]
     pub size: u64,
     pub sha512: String,
+    /// CurseForge's fingerprint of the file (a 32-bit MurmurHash2 of its bytes without
+    /// whitespace), for clients that ask CurseForge which file it is. The core never
+    /// asks CurseForge itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub curseforge_fingerprint: Option<u32>,
     pub metadata: Option<ModFileMetadata>,
     pub modrinth: Option<ModrinthMatch>,
     /// Whether players need this mod too.
@@ -143,6 +149,7 @@ impl InstalledMod {
             enabled: file.enabled,
             size: file.size,
             sha512: file.sha512,
+            curseforge_fingerprint: file.curseforge_fingerprint,
             metadata: file.metadata,
             modrinth,
             client_requirement,
