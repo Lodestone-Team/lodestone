@@ -35,6 +35,7 @@
 // this file.
 
 import { DurableObject } from 'cloudflare:workers';
+import { OG_IMAGES } from './og-images.js';
 
 const VERSION = '1';
 const CODE_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'; // Crockford base32: no I, L, O, U
@@ -311,7 +312,55 @@ function pageScript(pattern, deepLink) {
 `;
 }
 
-function pageHtml({ title, ogTitle, ogDescription, body, script }) {
+/// Where the link pages' cards are served from. Absolute and fixed, so every code's page
+/// is the same: the card names no server and no friend. Discord's crawler fetches it,
+/// not the page, so the page's CSP doesn't mention it.
+const SITE_ORIGIN = 'https://connect.lodestone.cc';
+const OG_IMAGE_WIDTH = 1200;
+const OG_IMAGE_HEIGHT = 630;
+/// The embed's side colour in Discord.
+const OG_THEME_COLOR = '#3b82b8';
+const HOME_PAGE = 'https://www.lodestone.cc/';
+/// Discord's limit on a component embed, in bytes as served.
+const COMPONENT_EMBED_MAX_BYTES = 3000;
+
+/// Discord's component embed for a link page: the card, what the link does, and buttons to
+/// get Lodestone Launcher. Discord shows it in place of the OpenGraph card when it can
+/// (https://discord.com/developers/docs/link-previews/component-embeds), and the tags
+/// above stay for every other app. The buttons can't open the link itself: its key is
+/// after the "#", which never reaches this service, so the message's own link does that.
+///
+/// Inside `<script type="application/json">`, which browsers never run, so the page's CSP
+/// doesn't need to allow it. `<`, `>` and `&` are escaped so nothing in it can end the tag.
+function componentEmbed({ heading, text, image, imageAlt, note }) {
+  const embed = {
+    component: {
+      type: 17, // Container
+      accent_color: parseInt(OG_THEME_COLOR.slice(1), 16),
+      components: [
+        { type: 12, items: [{ media: { url: `${SITE_ORIGIN}/og/${image}.png` }, description: imageAlt }] }, // Media Gallery
+        { type: 10, content: `### ${heading}\n${text}` }, // Text Display
+        {
+          type: 1, // Action Row of link Buttons
+          components: [
+            { type: 2, style: 5, label: 'Get Lodestone Launcher', url: DOWNLOAD_PAGE },
+            { type: 2, style: 5, label: 'About Lodestone', url: HOME_PAGE },
+          ],
+        },
+        { type: 10, content: `-# ${note}` },
+      ],
+    },
+  };
+  const json = JSON.stringify(embed)
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026');
+  // Over the limit, Discord may show no preview at all.
+  if (new TextEncoder().encode(json).length > COMPONENT_EMBED_MAX_BYTES) throw new Error(`The "${heading}" component embed is over Discord's limit`);
+  return json;
+}
+
+function pageHtml({ title, ogTitle, ogDescription, ogImage, ogImageAlt, embed, body, script }) {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -322,6 +371,19 @@ function pageHtml({ title, ogTitle, ogDescription, body, script }) {
 <title>${title}</title>
 <meta property="og:title" content="${ogTitle}">
 <meta property="og:description" content="${ogDescription}">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Lodestone">
+<meta property="og:image" content="${SITE_ORIGIN}/og/${ogImage}.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="${OG_IMAGE_WIDTH}">
+<meta property="og:image:height" content="${OG_IMAGE_HEIGHT}">
+<meta property="og:image:alt" content="${ogImageAlt}">
+<meta name="theme-color" content="${OG_THEME_COLOR}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="${ogTitle}">
+<meta name="twitter:description" content="${ogDescription}">
+<meta name="twitter:image" content="${SITE_ORIGIN}/og/${ogImage}.png">
+<script id="discord:component-embed" type="application/json">${embed}</script>
 <style>
   :root { color-scheme: light dark; --bg: #f6f6f4; --card: #ffffff; --text: #1b1b1a; --muted: #5d5d58; --accent: #2f6f3e; --line: #deded8; }
   @media (prefers-color-scheme: dark) { :root { --bg: #151514; --card: #1f1f1d; --text: #ececea; --muted: #a3a39c; --accent: #4fae66; --line: #34342f; } }
@@ -355,6 +417,15 @@ const INVITE_PAGE = pageHtml({
   title: 'Join a Minecraft server with Lodestone',
   ogTitle: 'Join my Minecraft server',
   ogDescription: 'Open this link in Lodestone Launcher to play together.',
+  ogImage: 'invite',
+  ogImageAlt: 'Join my Minecraft server. The Lodestone logo over a field of blocks.',
+  embed: componentEmbed({
+    heading: 'Join my Minecraft server',
+    text: "Click the link above to open it in **Lodestone Launcher**, and you'll join my server. Your game connects straight to my computer.",
+    image: 'invite',
+    imageAlt: 'Join my Minecraft server. The Lodestone logo over a field of blocks.',
+    note: "Don't have the launcher? Get it, then click the link again.",
+  }),
   script: INVITE_SCRIPT,
   body: `  <div id="link" hidden>
     <h1>You're invited to a Minecraft server</h1>
@@ -379,6 +450,15 @@ const FRIEND_PAGE = pageHtml({
   title: 'Become friends on Lodestone',
   ogTitle: "Let's be friends on Lodestone",
   ogDescription: 'Open this link in Lodestone Launcher to add me as a friend.',
+  ogImage: 'friend',
+  ogImageAlt: "Let's be friends on Lodestone. The Lodestone logo over a field of blocks.",
+  embed: componentEmbed({
+    heading: "Let's be friends on Lodestone",
+    text: 'Click the link above to open it in **Lodestone Launcher** and add me. Friends see the servers we share, and join them without a link.',
+    image: 'friend',
+    imageAlt: "Let's be friends on Lodestone. The Lodestone logo over a field of blocks.",
+    note: "Don't have the launcher? Get it, then click the link again. The link works for 24 hours.",
+  }),
   script: FRIEND_SCRIPT,
   body: `  <div id="link" hidden>
     <h1>You've been invited to be friends on Lodestone</h1>
@@ -423,6 +503,28 @@ async function linkPage(validLinkCode, page, script) {
   });
 }
 
+/// The cards the link pages' OpenGraph tags name (`/og/invite.png`, `/og/friend.png`),
+/// decoded once. The same bytes for everyone.
+const ogImages = new Map();
+
+function ogImage(name) {
+  const base64 = Object.hasOwn(OG_IMAGES, name) ? OG_IMAGES[name] : null;
+  if (!base64) return new Response('No such image.', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8', 'x-content-type-options': 'nosniff' } });
+  let bytes = ogImages.get(name);
+  if (!bytes) {
+    bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+    ogImages.set(name, bytes);
+  }
+  return new Response(bytes, {
+    status: 200,
+    headers: {
+      'content-type': 'image/png',
+      'cache-control': 'public, max-age=604800',
+      'x-content-type-options': 'nosniff',
+    },
+  });
+}
+
 // ---------------------------------------------------------------------------
 // The Worker
 
@@ -447,6 +549,9 @@ async function route(request, env, ctx) {
   }
   if (parts[0] === 'f' && parts.length === 2 && (request.method === 'GET' || request.method === 'HEAD')) {
     return linkPage(validCode(parts[1].toUpperCase()), FRIEND_PAGE, FRIEND_SCRIPT);
+  }
+  if (parts[0] === 'og' && parts.length === 2 && parts[1].endsWith('.png') && (request.method === 'GET' || request.method === 'HEAD')) {
+    return ogImage(parts[1].slice(0, -4));
   }
   if (parts[0] === 'v2') return routeV2(request, env, parts, ctx);
   if (parts[0] !== 'v1') return error(404, 'unknown', 'Unknown request.');
