@@ -84,8 +84,9 @@ Make one only when a developer asks for it.
   (cargo-xwin, Wine, fxc.exe, Inno Setup), and the script finds what it installed;
   Microsoft's C runtime and SDK are only downloaded with `--accept-microsoft-license`,
   which is the developer's call. A Mac can't run the result: test it on Windows (a
-  Windows 11 on Arm VM in VMware Fusion with `ui_drive.ps1` day to day, a real x64 PC for
-  a release's final check) before uploading, or hand it to a developer who has
+  Windows 11 on Arm VM in VMware Fusion, made and driven by `windows_vm.py`, day to
+  day; a real x64 PC for a release's final check) before uploading, or hand it to a
+  developer who has
   Windows and wait for their go-ahead. `launcher/docs/cross-windows.md` has the
   details.
 - **Test a locally built release first**, on this machine (on Windows, for a

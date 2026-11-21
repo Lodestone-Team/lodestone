@@ -72,10 +72,11 @@ run and the upload to put both architectures in the app.
 A Mac builds the Host's Windows build too, with `--target x86_64-pc-windows-msvc`: the
 Host, its core (with the static C runtime) and `LodestoneHostSetup.exe`. Set up and test
 it as "Windows builds from a Mac" in the launcher's skill says
-(`launcher/docs/cross-windows.md`): the Mac can't run it, so it's tested on Windows (a
-Windows 11 on Arm VM in VMware Fusion with `ui_drive.ps1`, a real x64 PC for a release)
-before it's uploaded; leave out `--open` for a Windows-only run. Never start a
-Minecraft server there either.
+(`launcher/docs/cross-windows.md`): the Mac can't run it, so it's tested on Windows
+before it's uploaded (`python3 launcher/scripts/windows_vm.py test host --staged <target
+dir>/release-candidate`, in the Windows 11 on Arm VM; a real x64 PC for a release's final
+check); leave out `--open` for a Windows-only run. Never start a Minecraft server there
+either; the test doesn't.
 
 ```bash
 the script --product host --dev --dry-run --target x86_64-pc-windows-msvc
