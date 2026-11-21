@@ -266,7 +266,8 @@ their own launchers to and debug. Users never get it.
   `launcher-dev-3612-ab12cd3`). The script makes it **published at once, as a
   pre-release**, because launchers can't read drafts. That's the one release an
   agent may publish, and only when a developer asks for a developer build. It is
-  still a public page on GitHub, so it says it's not for use.
+  still a public page on GitHub, so its notes (a version's, with download links)
+  start with a warning that it isn't stable.
 - **Who gets it:** stable and beta launchers never read `launcher-dev-*` tags, and
   neither do launchers from before developer builds, which only read
   `launcher-v*`. Only launchers with **Settings › General › Updates › Developer
