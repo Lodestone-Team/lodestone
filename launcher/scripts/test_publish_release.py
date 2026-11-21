@@ -1286,10 +1286,39 @@ class Dev(unittest.TestCase):
         pr.use_product("host")
         try:
             self.assertEqual(pr.dev_tag(12, "ab12cd3ef0"), "host-dev-12-ab12cd3")
-            self.assertIn("Settings › Updates › **Developer builds**",
-                          pr.dev_release_notes("host-dev-12-ab12cd3", "ab12cd3ef0"))
+            notes = pr.dev_release_notes("host-dev-12-ab12cd3", "ab12cd3ef0")
+            self.assertIn("Settings › Updates › **Developer builds**", notes)
+            self.assertIn("releases/download/host-dev-12-ab12cd3/LodestoneHostSetup.exe", notes)
+            self.assertIn("`-core`", notes)
         finally:
             pr.use_product("launcher")
+
+    def test_developer_builds_notes_are_a_versions_with_a_warning(self):
+        notes = pr.dev_release_notes("launcher-dev-12-ab12cd3", "ab12cd3ef0")
+        lines = notes.splitlines()
+        self.assertEqual(lines[0], f"> **{pr.DEV_WARNING}**")
+        version = pr.release_notes("launcher-v1.0.0-beta.1", "ab12cd3ef0")
+        # the same sections and download links as a version's notes, for its own tag
+        for heading in ("## What's new", "## Download"):
+            self.assertIn(heading, notes)
+            self.assertIn(heading, version)
+        self.assertIn("- **Windows** (64-bit): [LodestoneLauncherSetup.exe](https://github.com/"
+                      f"{pr.REPO}/releases/download/launcher-dev-12-ab12cd3/"
+                      "LodestoneLauncherSetup.exe)", notes)
+        self.assertIn("LodestoneLauncher.dmg](", notes)
+        self.assertIn("- The `-standalone` files run without installing", notes)
+        self.assertIn("Settings › General › **Developer builds**", notes)
+        self.assertEqual(lines[-1], "Built from ab12cd3ef0.")
+
+    def test_developer_builds_notes_link_only_the_installers_there(self):
+        notes = pr.dev_release_notes("launcher-dev-12-ab12cd3", "ab12cd3ef0",
+                                     {"LodestoneLauncher.dmg", "latest.json"})
+        self.assertIn("LodestoneLauncher.dmg](", notes)
+        self.assertNotIn("LodestoneLauncherSetup.exe", notes)
+        self.assertNotIn("Windows", notes)
+        # a version's draft still lists both: CI builds both
+        self.assertIn("LodestoneLauncherSetup.exe",
+                      pr.release_notes("launcher-v1.0.0-beta.1", "ab12cd3ef0"))
 
 
 class Workflows(unittest.TestCase):

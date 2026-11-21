@@ -1950,7 +1950,7 @@ class DevRelease(GitHubRelease):
         step(f"Publishing the {self.tag} developer build release")
         self.gh("release", "create", self.tag, "--repo", self.repo, "--verify-tag",
                 "--prerelease", "--latest=false", "--title", dev_release_title(self.tag),
-                "--notes", dev_release_notes(self.tag, commit))
+                "--notes", dev_release_notes(self.tag, commit, set()))
         self.info(fresh=True)
 
     def prepare(self, stages: list[tuple[Path, dict]], force: bool, skip_existing: bool,
@@ -1998,7 +1998,15 @@ class DevRelease(GitHubRelease):
         return launcher_releases(self.repo, dev=True)
 
     def finished(self, manifest: dict) -> None:
+        self.update_notes()
         prune_dev_releases(self.repo, keep_tag=self.tag)
+
+    def update_notes(self) -> None:
+        """Links the installers the release has now, this upload's and earlier ones'."""
+        commit = self.tag_commit()
+        if commit:
+            self.gh("release", "edit", self.tag, "--repo", self.repo,
+                    "--notes", dev_release_notes(self.tag, commit, set(self.names())))
 
 
 def old_dev_builds(releases: list[dict], keep_tag: str | None = None,
@@ -2026,23 +2034,31 @@ def dev_release_title(tag: str) -> str:
     return f"{PRODUCT.name} developer build {build} ({commit})"
 
 
-def dev_release_notes(tag: str, commit: str) -> str:
-    where = ("Settings › General › Updates" if PRODUCT.key == "launcher"
-             else "Settings › Updates")
-    files = (f"`{STABLE_INSTALLER}` (Windows), `{STABLE_DMG}` (macOS) or a `-standalone` file"
-             if PRODUCT.key == "launcher" else
-             f"`{STABLE_INSTALLER}` (Windows) or `{STABLE_DMG}` (macOS)")
+DEV_WARNING = "Developer build is not considered stable. Use at your own risk!"
+
+
+def dev_release_notes(tag: str, commit: str, have: set[str] | None = None) -> str:
+    """A developer build's notes: a version's (release_notes), with a warning on top,
+    linking only the installers in `have` (each platform's build comes from a developer
+    with that platform, so a release may lack some). Rewritten after each upload."""
+    if PRODUCT.key == "launcher":
+        files = "- The `-standalone` files run without installing, from wherever you put them."
+        who = "Launchers with Settings › General › **Developer builds** on update to it"
+    else:
+        files = "- The `-standalone` and `-core` files are what the Host updates itself with."
+        who = "Lodestone Host with Settings › Updates › **Developer builds** on updates to it"
     return "\n".join([
-        f"**For Lodestone's developers, not for use.** A build of {commit[:7]}, to test and "
-        "debug work in progress. It may not work.",
+        f"> **{DEV_WARNING}**",
         "",
-        f"Only {PRODUCT.name} with {where} › **Developer builds** on updates to it. That "
-        "setting only shows in a developer build, or once it's on. To start, install "
-        f"{files} from here, then turn it on: it then updates to the newest developer build, "
-        "beta or release, whichever is newer. Turn it off to wait for a release newer than "
-        "your build.",
+        "## What's new",
         "",
-        f"Only the newest {KEEP_DEV} developer builds are kept; older ones are deleted.",
+        "## Download",
+        "",
+        *download_lines(tag, have),
+        files,
+        "",
+        f"{who}. That setting only shows in a developer build, or once it's on. Only the "
+        f"newest {KEEP_DEV} developer builds are kept.",
         "",
         f"Built from {commit}.",
     ])
@@ -2141,12 +2157,16 @@ def download_url(tag: str, name: str) -> str:
     return f"https://github.com/{REPO}/releases/download/{tag}/{name}"
 
 
-def download_lines(tag: str) -> list[str]:
-    """The notes' links to the installers, one per platform."""
-    return [
-        f"- **Windows** (64-bit): [{STABLE_INSTALLER}]({download_url(tag, STABLE_INSTALLER)})",
-        f"- **macOS** (Apple silicon and Intel): [{STABLE_DMG}]({download_url(tag, STABLE_DMG)})",
+def download_lines(tag: str, have: set[str] | None = None) -> list[str]:
+    """The notes' links to the installers, one per platform: all of them, or only those
+    in `have` (the files a release has)."""
+    lines = [
+        (STABLE_INSTALLER,
+         f"- **Windows** (64-bit): [{STABLE_INSTALLER}]({download_url(tag, STABLE_INSTALLER)})"),
+        (STABLE_DMG,
+         f"- **macOS** (Apple silicon and Intel): [{STABLE_DMG}]({download_url(tag, STABLE_DMG)})"),
     ]
+    return [line for name, line in lines if have is None or name in have]
 
 
 def release_notes(tag: str, commit: str) -> str:
