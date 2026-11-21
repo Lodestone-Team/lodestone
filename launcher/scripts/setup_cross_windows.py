@@ -12,8 +12,10 @@ installer on a Mac with what this installs (launcher/docs/cross-windows.md):
 - Wine (Gcenx's macOS build, pinned by SHA-256; it runs under Rosetta), and in
   its own Wine prefix Inno Setup 6 (pinned by SHA-256), which builds the installer.
 - fxc.exe, Microsoft's HLSL compiler from the Windows SDK, which GPUI's shaders
-  compile with, located through the Visual Studio manifest and checked against
-  the SHA-256 the manifest lists.
+  compile with, located through the Visual Studio manifest (itself checked against
+  the SHA-256 the channel lists) and checked against the SHA-256 the manifest
+  lists; also only with --accept-microsoft-license, as it's under the Windows
+  SDK's license terms.
 - `bin/fxc` and `bin/iscc`, which run fxc and Inno Setup's compiler under Wine and
   turn the Unix paths they're given into Wine's (Z:\\...).
 
@@ -21,7 +23,8 @@ Everything goes into one folder, ~/Library/Application Support/Lodestone/cross-w
 (or $LODESTONE_CROSS_WINDOWS_DIR, or --dir), where publish_release.py finds it, so
 nothing needs setting. Each download goes to a folder of its own under
 `downloads/` and is checked before it's used. Running it again only does what's
-missing; --check reports what's there without downloading or installing anything.
+missing; --check reports what's there without downloading or installing anything
+(and runs nothing under Wine unless everything Wine needs is there).
 
 Usage:
 
@@ -46,6 +49,8 @@ import shlex
 import shutil
 import subprocess
 import sys
+import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -94,6 +99,10 @@ SDK_TOOLS_MSI = "Windows SDK for Windows Store Apps Tools-x86_en-us.msi"
 WINE_ENV = {"WINEDEBUG": "-all", "WINEDLLOVERRIDES": "mscoree,mshtml=",
             "MVK_CONFIG_LOG_LEVEL": "0"}
 INNO_DIR = r"C:\InnoSetup6"
+# The Windows SDK's license terms, which fxc.exe and D3DCOMPILER_47.dll come under
+# (the SDK's download page shows them; the SDK's installers carry them too).
+WINDOWS_SDK_LICENSE = "https://developer.microsoft.com/windows/downloads/windows-sdk/"
+LICENSE_FLAG = "--accept-microsoft-license"
 
 
 class Failure(Exception):
@@ -115,6 +124,8 @@ class Layout:
         self.sdk_record = self.sdk_dir / "fxc.json"
         self.prefix = root / "wine-prefix"
         self.iscc_exe = self.prefix / "drive_c" / "InnoSetup6" / "ISCC.exe"
+        # The SHA-256 of the Inno Setup installer that finished installing there.
+        self.inno_record = self.prefix / "inno-setup.sha256"
         self.bin = root / "bin"
         self.fxc_wrapper = self.bin / "fxc"
         self.iscc_wrapper = self.bin / "iscc"
@@ -163,9 +174,45 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+class HttpsOnlyRedirects(urllib.request.HTTPRedirectHandler):
+    """Follows redirects only to https URLs."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if urllib.parse.urlsplit(newurl).scheme != "https":
+            raise Failure(f"{req.full_url} redirects to {newurl}, which isn't https")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+OPENER = urllib.request.build_opener(HttpsOnlyRedirects)
+
+
+def check_https(url: object) -> str:
+    if not isinstance(url, str) or urllib.parse.urlsplit(url).scheme != "https":
+        raise Failure(f"refusing to download {url!r}: it isn't an https URL")
+    return url
+
+
+def open_url(url: str, timeout: int):
+    """`url` (https only, redirects too) opened for reading."""
+    return OPENER.open(check_https(url), timeout=timeout)
+
+
 def fetch(url: str) -> bytes:
-    with urllib.request.urlopen(url, timeout=120) as response:
-        return response.read()
+    try:
+        with open_url(url, 120) as response:
+            return response.read()
+    except (urllib.error.URLError, OSError, ValueError) as err:
+        raise Failure(f"couldn't download {url}: {err}")
+
+
+def fetch_json(url: str) -> dict:
+    try:
+        data = json.loads(fetch(url))
+    except ValueError as err:
+        raise Failure(f"{url} isn't the JSON expected: {err}")
+    if not isinstance(data, dict):
+        raise Failure(f"{url} isn't the JSON object expected")
+    return data
 
 
 def have_download(download: Download, folder: Path) -> Path | None:
@@ -186,12 +233,18 @@ def ensure_download(download: Download, folder: Path) -> tuple[Path, bool]:
     partial = folder / (download.name + ".partial")
     digest = hashlib.sha256()
     size = 0
-    with urllib.request.urlopen(download.url, timeout=300) as response, \
-            partial.open("wb") as file:
-        for chunk in iter(lambda: response.read(1 << 20), b""):
-            digest.update(chunk)
-            file.write(chunk)
-            size += len(chunk)
+    try:
+        with open_url(download.url, 300) as response, partial.open("wb") as file:
+            for chunk in iter(lambda: response.read(1 << 20), b""):
+                digest.update(chunk)
+                file.write(chunk)
+                size += len(chunk)
+    except (urllib.error.URLError, OSError, ValueError) as err:
+        partial.unlink(missing_ok=True)
+        raise Failure(f"couldn't download {download.url}: {err}")
+    except Failure:
+        partial.unlink(missing_ok=True)
+        raise
     if digest.hexdigest() != download.sha256.lower():
         partial.unlink()
         raise Failure(f"{download.url} isn't the file expected: its SHA-256 is "
@@ -318,7 +371,11 @@ def step_wine(layout: Layout, check: bool) -> tuple[str, str]:
 def sdk_package(manifest: dict) -> tuple[dict, str | None]:
     """The Windows SDK to take fxc.exe from: SDK_PACKAGE, or the newest Windows 11 SDK
     (with a note) if the manifest no longer lists it."""
-    sdks = [p for p in manifest.get("packages", []) if p.get("id", "").startswith("Win11SDK_10.0.")]
+    packages = manifest.get("packages")
+    if not isinstance(packages, list):
+        raise Failure("Visual Studio's manifest has no package list")
+    sdks = [p for p in packages
+            if isinstance(p, dict) and str(p.get("id", "")).startswith("Win11SDK_10.0.")]
     for package in sdks:
         if package["id"] == SDK_PACKAGE:
             return package, None
@@ -330,7 +387,11 @@ def sdk_package(manifest: dict) -> tuple[dict, str | None]:
 
 def sdk_payloads(package: dict) -> dict[str, dict]:
     """The SDK's files by name (`Installers/x.msi` -> `x.msi`)."""
-    return {p["fileName"].replace("\\", "/").rsplit("/", 1)[-1]: p for p in package["payloads"]}
+    payloads = package.get("payloads")
+    if not isinstance(payloads, list):
+        raise Failure(f"{package.get('id')} lists no files in Visual Studio's manifest")
+    return {str(p["fileName"]).replace("\\", "/").rsplit("/", 1)[-1]: p
+            for p in payloads if isinstance(p, dict) and p.get("fileName")}
 
 
 def media_cabinets(media_table: str) -> list[str]:
@@ -353,23 +414,59 @@ def find_fxc(folder: Path) -> Path | None:
     return None
 
 
-def step_fxc(layout: Layout, check: bool) -> tuple[str, str]:
+def manifest_download(channel: dict) -> Download:
+    """Visual Studio's manifest, as the channel lists it (https URL and SHA-256)."""
+    items = channel.get("channelItems")
+    item = next((i for i in items if isinstance(i, dict) and i.get("type") == "Manifest"
+                 and i.get("id") == VS_MANIFEST_ID), None) if isinstance(items, list) else None
+    if not item:
+        raise Failure(f"Visual Studio's channel has no {VS_MANIFEST_ID}")
+    payloads = item.get("payloads")
+    payload = payloads[0] if isinstance(payloads, list) and payloads else None
+    if not isinstance(payload, dict) or not payload.get("url") or not payload.get("sha256"):
+        raise Failure(f"Visual Studio's channel lists {VS_MANIFEST_ID} without a URL and SHA-256")
+    return Download(check_https(payload["url"]), str(payload["sha256"]), "VisualStudio.vsman")
+
+
+def payload_download(package: dict, payloads: dict[str, dict], name: str) -> Download:
+    """One of the SDK's files (https URL and SHA-256, from the manifest)."""
+    payload = payloads.get(name)
+    if not payload:
+        raise Failure(f"{package.get('id')} has no {name}")
+    if not payload.get("url") or not payload.get("sha256"):
+        raise Failure(f"Visual Studio's manifest lists {name} without a URL and SHA-256")
+    return Download(check_https(payload["url"]), str(payload["sha256"]), name)
+
+
+def sdk_license_missing() -> str:
+    return (
+        "fxc.exe and D3DCOMPILER_47.dll come from Microsoft's Windows SDK, under the Windows "
+        f"SDK's license terms ({WINDOWS_SDK_LICENSE}). Once you've read and accepted them, run "
+        f"this again with {LICENSE_FLAG} (it covers these and the C runtime below)"
+    )
+
+
+def step_fxc(layout: Layout, check: bool, accept: bool) -> tuple[str, str]:
     fxc = layout.fxc_exe()
     if fxc:
         record = json.loads(layout.sdk_record.read_text(encoding="utf-8"))
         return "ok", f"fxc.exe from {record.get('package')} {record.get('version')}"
+    if not accept:
+        return "missing", sdk_license_missing()
     if check:
         return "missing", f"fxc.exe isn't unpacked in {layout.sdk_dir}"
     msiinfo, msiextract = find_program("msiinfo"), find_program("msiextract")
     if not (msiinfo and msiextract):
         raise Failure("msitools (msiinfo, msiextract) isn't installed: `brew install msitools`")
     note(f"reading Visual Studio's manifest ({VS_CHANNEL})")
-    channel = json.loads(fetch(VS_CHANNEL))
-    item = next((i for i in channel.get("channelItems", [])
-                 if i.get("type") == "Manifest" and i.get("id") == VS_MANIFEST_ID), None)
-    if not item:
-        raise Failure(f"Visual Studio's channel has no {VS_MANIFEST_ID}")
-    manifest = json.loads(fetch(item["payloads"][0]["url"]))
+    vsman, _ = ensure_download(manifest_download(fetch_json(VS_CHANNEL)),
+                               layout.downloads / "vs-manifest")
+    try:
+        manifest = json.loads(vsman.read_text(encoding="utf-8"))
+    except ValueError as err:
+        raise Failure(f"Visual Studio's manifest isn't the JSON expected: {err}")
+    if not isinstance(manifest, dict):
+        raise Failure("Visual Studio's manifest isn't the JSON object expected")
     package, why = sdk_package(manifest)
     if why:
         note(why)
@@ -377,10 +474,7 @@ def step_fxc(layout: Layout, check: bool) -> tuple[str, str]:
     folder = layout.downloads / "windows-sdk"
 
     def get(name: str) -> Path:
-        payload = payloads.get(name)
-        if not payload:
-            raise Failure(f"{package['id']} has no {name}")
-        path, _ = ensure_download(Download(payload["url"], payload["sha256"], name), folder)
+        path, _ = ensure_download(payload_download(package, payloads, name), folder)
         return path
 
     msi = get(SDK_TOOLS_MSI)
@@ -404,11 +498,32 @@ def step_fxc(layout: Layout, check: bool) -> tuple[str, str]:
     return "done", f"unpacked fxc.exe from {package['id']} {package.get('version')}"
 
 
+def installed_inno_setup(layout: Layout) -> str | None:
+    """The SHA-256 of the Inno Setup installer that finished installing in the prefix."""
+    if not layout.iscc_exe.is_file():
+        return None
+    try:
+        return layout.inno_record.read_text(encoding="utf-8").strip() or None
+    except OSError:
+        return None
+
+
 def step_inno_setup(layout: Layout, check: bool) -> tuple[str, str]:
-    if layout.iscc_exe.is_file():
-        return "ok", f"Inno Setup in {layout.prefix} ({INNO_DIR})"
+    installed = installed_inno_setup(layout)
+    if installed == INNO_SETUP.sha256:
+        return "ok", f"Inno Setup {INNO_SETUP_VERSION} in {layout.prefix} ({INNO_DIR})"
+    if not layout.iscc_exe.is_file():
+        state = f"Inno Setup {INNO_SETUP_VERSION} isn't installed in {layout.prefix}"
+    elif installed:
+        state = (f"the Inno Setup in {layout.prefix} isn't {INNO_SETUP_VERSION}, the pinned one "
+                 "(it was installed from another installer)")
+    else:
+        state = (f"there's an Inno Setup in {layout.prefix}, but no record that "
+                 f"{INNO_SETUP_VERSION}'s installer finished installing it")
     if check:
-        return "missing", f"Inno Setup {INNO_SETUP_VERSION} isn't installed in {layout.prefix}"
+        return "missing", state
+    note(state + "; installing it")
+    layout.inno_record.unlink(missing_ok=True)
     if not layout.wine.is_file():
         raise Failure("Wine isn't set up, so Inno Setup can't be installed")
     installer, _ = ensure_download(INNO_SETUP, layout.downloads / "inno-setup")
@@ -435,6 +550,7 @@ def step_inno_setup(layout: Layout, check: bool) -> tuple[str, str]:
         shutil.rmtree(staging, ignore_errors=True)
     if not layout.iscc_exe.is_file():
         raise Failure(f"Inno Setup's installer finished, but there's no {layout.iscc_exe}")
+    layout.inno_record.write_text(INNO_SETUP.sha256 + "\n", encoding="utf-8")
     return "done", f"installed Inno Setup {INNO_SETUP_VERSION} ({INNO_DIR} in the prefix)"
 
 
@@ -473,7 +589,7 @@ def write_if_changed(path: Path, text: str) -> bool:
 
 def step_wrappers(layout: Layout, check: bool) -> tuple[str, str]:
     fxc = layout.fxc_exe()
-    if not (fxc and layout.wine.is_file() and layout.iscc_exe.is_file()):
+    if not (fxc and layout.wine.is_file() and installed_inno_setup(layout) == INNO_SETUP.sha256):
         return "missing", "waiting for Wine, fxc.exe and Inno Setup"
     scripts = {
         layout.fxc_wrapper: wrapper(
@@ -516,19 +632,32 @@ def step_crt(check: bool, accept: bool) -> tuple[str, str]:
     return "done", f"downloaded into {cache}"
 
 
-def final_check(layout: Layout) -> list[tuple[str, bool, str]]:
-    """Runs fxc and Inno Setup's compiler under Wine, and publish_release.py's own
-    check of what a Windows build needs."""
-    results = []
+# The steps that must all be there before the wrappers run anything under Wine: Wine
+# creates (or upgrades) its prefix when it runs, so a check never runs it before.
+WINE_STEPS = ("Wine", "fxc.exe", "Inno Setup", "Wrappers")
+
+
+def final_check(layout: Layout, wine_ready: bool) -> list[tuple[str, bool | None, str]]:
+    """Runs fxc and Inno Setup's compiler under Wine (only when `wine_ready`: every
+    WINE_STEPS step is there), and publish_release.py's own check of what a Windows
+    build needs. Each result is ok (True), failed (False) or not run (None)."""
+    results: list[tuple[str, bool | None, str]] = []
     for name, path, expect in (("fxc /?", layout.fxc_wrapper, "Direct3D Shader Compiler"),
                                ("iscc /?", layout.iscc_wrapper, "Inno Setup 6")):
-        if not path.is_file():
-            results.append((name, False, f"no {path}"))
+        if not wine_ready:
+            results.append((name, None, f"waiting for {', '.join(WINE_STEPS)}"))
             continue
         # Both print their usage and exit with 1.
-        result = subprocess.run([str(path), "/?"], text=True, errors="replace",
-                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT, timeout=300)
+        try:
+            result = subprocess.run([str(path), "/?"], text=True, errors="replace",
+                                    stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                    stderr=subprocess.STDOUT, timeout=300)
+        except subprocess.TimeoutExpired:
+            results.append((name, False, f"{path} didn't finish within 5 minutes"))
+            continue
+        except OSError as err:
+            results.append((name, False, f"couldn't run {path}: {err}"))
+            continue
         out = result.stdout or ""
         first = next((line.strip() for line in out.splitlines() if expect in line), None)
         results.append((name, bool(first), first or out.strip()[:300]))
@@ -547,15 +676,19 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--check", action="store_true",
                         help="only report what's there; download and install nothing")
     parser.add_argument("--accept-microsoft-license", action="store_true",
-                        help="you have read and accept the license terms of Microsoft's C "
-                             f"runtime and Windows SDK ({pr.MICROSOFT_LICENSE}): let "
-                             "cargo-xwin download them")
+                        help="you have read and accept Microsoft's license terms for the "
+                             f"MSVC C runtime and Windows SDK libraries ({pr.MICROSOFT_LICENSE}),"
+                             " which cargo-xwin downloads, and the Windows SDK's "
+                             f"({WINDOWS_SDK_LICENSE}), which fxc.exe and D3DCOMPILER_47.dll "
+                             "come under: let this download them")
     parser.add_argument("--dir", type=Path,
                         help="the folder to set up (default: $LODESTONE_CROSS_WINDOWS_DIR, or "
                              f"{pr.cross_windows_dir()})")
     args = parser.parse_args(argv)
     if sys.platform != "darwin":
         raise Failure("this sets up a Mac; on Windows, publish_release.py builds natively")
+    # publish_release.py finds the folder by itself only when it's this one.
+    found_by_default = pr.cross_windows_dir()
     if args.dir:
         os.environ[pr.CROSS_WINDOWS_DIR_ENV] = str(args.dir.expanduser().resolve())
     layout = Layout(pr.cross_windows_dir())
@@ -569,7 +702,7 @@ def main(argv: list[str]) -> int:
         ("cargo-xwin", lambda: step_cargo_xwin(args.check)),
         ("Rust target", lambda: step_rust_target(args.check)),
         ("Wine", lambda: step_wine(layout, args.check)),
-        ("fxc.exe", lambda: step_fxc(layout, args.check)),
+        ("fxc.exe", lambda: step_fxc(layout, args.check, args.accept_microsoft_license)),
         ("Inno Setup", lambda: step_inno_setup(layout, args.check)),
         ("Wrappers", lambda: step_wrappers(layout, args.check)),
         ("Microsoft CRT and SDK", lambda: step_crt(args.check, args.accept_microsoft_license)),
@@ -581,25 +714,34 @@ def main(argv: list[str]) -> int:
             state, detail = action()
         except Failure as err:
             state, detail = "failed", str(err)
+        except Exception as err:  # noqa: BLE001  (report it, and carry on with the rest)
+            state, detail = "failed", f"{type(err).__name__}: {err}"
         note(f"{state}: {detail}")
         results.append((name, state, detail))
 
     say("Final check")
-    checks = final_check(layout)
+    states = {name: state for name, state, _ in results}
+    wine_ready = all(states.get(name) in ("ok", "done") for name in WINE_STEPS)
+    checks = final_check(layout, wine_ready)
     for name, ok, detail in checks:
-        note(f"{'ok' if ok else 'FAILED'}: {name}: {detail}")
+        note(f"{'ok' if ok else 'not run' if ok is None else 'FAILED'}: {name}: {detail}")
 
     print("\nSummary:")
     for name, state, detail in results:
         print(f"  {state:<8} {name}: {detail.splitlines()[0] if detail else ''}")
-    ready = all(state in ("ok", "done") for _, state, _ in results) and all(ok for _, ok, _ in checks)
+    ready = (all(state in ("ok", "done") for _, state, _ in results)
+             and all(ok is True for _, ok, _ in checks))
     changed = [name for name, state, _ in results if state == "done"]
     if changed:
         print("\nSet up now: " + ", ".join(changed) + ".")
     elif not args.check and ready:
         print("\nEverything was already set up; nothing changed.")
-    if ready:
+    if ready and layout.root == found_by_default:
         print("Ready: `publish_release.py --target x86_64-pc-windows-msvc` finds these by itself.")
+    elif ready:
+        print(f"Ready, in a folder publish_release.py doesn't look in by itself. Set "
+              f"{pr.CROSS_WINDOWS_DIR_ENV} for it (in your shell's profile, to keep it):")
+        print(f"    export {pr.CROSS_WINDOWS_DIR_ENV}={shlex.quote(str(layout.root))}")
     else:
         print("Not ready; see the lines above"
               + (" (run it without --check to set up what's missing)." if args.check else "."))

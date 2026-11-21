@@ -56,7 +56,8 @@ Make one only when a developer asks for it.
   launcher commits since the newest release, for the developer to confirm.
 - **"Build and release the latest version"**: add this machine's build to the open
   draft. `--find-draft` shows it (version, commit, platforms it has and lacks).
-  Build its commit in a worktree with `--dry-run --tag draft --open`, test the
+  Build its commit in a worktree with `--dry-run --tag draft --open` (no `--open`
+  for a Windows build made on a Mac, which is tested on Windows), test the
   opened copy in the background with `launcher/scripts/ui_drive` (see "Testing the
   launcher's and Host's UI"; otherwise hand it to the developer and wait for their
   go-ahead), then upload with `--tag draft`.

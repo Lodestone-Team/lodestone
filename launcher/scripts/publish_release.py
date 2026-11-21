@@ -863,9 +863,12 @@ def core_build_command(profile: str, target: str | None) -> list[str]:
 def build_core(target: str | None, build: int, key: str, into: Path, dev: bool = False,
                cross: CrossBuild | None = None) -> Path:
     """Builds Lodestone Core, which the Host runs, for `target`, from the repository's
-    root workspace, with `--no-default-features`. `cross` as for `build_binary`."""
+    root workspace, with `--no-default-features`. `cross` as for `build_binary`, with
+    cargo-xwin's environment for the root workspace (`CrossBuild.core_env`)."""
     profile = cargo_profile(dev)
-    env = dict(os.environ, **cross.env) if cross else None
+    if cross and not cross.core_env:
+        raise Failure("there's no cargo-xwin environment for the core's Windows build")
+    env = dict(os.environ, **cross.core_env) if cross else None
     run(core_build_command(profile, target), cwd=ROOT, env=env, quiet=False)
     copy = copy_built(ROOT, CORE_PACKAGE, target, key, into / core_name(build, key), profile)
     if cross:
@@ -975,10 +978,15 @@ XWIN_ENV_LEFT_OUT = ("RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS")
 @dataclass(frozen=True)
 class CrossBuild:
     """How to build for a Windows target on another system."""
-    # cargo-xwin's environment, for every cargo build for the target.
+    # cargo-xwin's environment for the launcher's workspace (the launcher's and Host's
+    # build). cargo-xwin bakes the workspace's config rustflags into it, so it's only
+    # for that workspace.
     env: dict
     # GPUI's shader compiler (fxc.exe under Wine), for the launcher's and Host's build.
     fxc: str
+    # cargo-xwin's environment for the root workspace (the core's build, for the Host):
+    # with the static C runtime, and without the launcher's flags.
+    core_env: dict | None = None
 
     def gpui_env(self) -> dict:
         return dict(self.env, GPUI_FXC_PATH=self.fxc)
@@ -1141,14 +1149,28 @@ def parse_xwin_env(text: str) -> dict:
     return env
 
 
-def xwin_env(target: str) -> dict:
-    """cargo-xwin's environment for building `target` with plain cargo."""
+# The core's flags for `cargo xwin env` in the root workspace, which has no rustflags
+# config of its own (CORE_CARGO_CONFIG is passed to the build, not read by cargo-xwin).
+# cargo-xwin only links the static C runtime's libucrt (-defaultlib:libucrt) when it
+# sees +crt-static in the rustflags it reads, and folds them into
+# CARGO_TARGET_<triple>_RUSTFLAGS.
+CORE_XWIN_RUSTFLAGS = "-C target-feature=+crt-static"
+
+
+def xwin_env(target: str, workspace: Path = LAUNCHER, rustflags: str | None = None) -> dict:
+    """cargo-xwin's environment for building `target` with plain cargo in `workspace`.
+    cargo-xwin reads that workspace's config rustflags (and `rustflags`, if given) into
+    CARGO_TARGET_<triple>_RUSTFLAGS, so the environment is for that workspace only."""
     path = cross_tool_path()
     if not has_xwin_crt():
         step("cargo-xwin is downloading Microsoft's C runtime and Windows SDK libraries "
              "(XWIN_ACCEPT_LICENSE is set)")
-    out = run(["cargo", "xwin", "env", "--target", target], cwd=LAUNCHER,
-              env=dict(os.environ, PATH=path))
+    call_env = dict(os.environ, PATH=path)
+    for name in XWIN_ENV_LEFT_OUT:
+        call_env.pop(name, None)
+    if rustflags:
+        call_env["RUSTFLAGS"] = rustflags
+    out = run(["cargo", "xwin", "env", "--target", target], cwd=workspace, env=call_env)
     env = parse_xwin_env(out)
     if not any(name.startswith("CARGO_TARGET_") and name.endswith("_LINKER") for name in env):
         raise Failure(f"`cargo xwin env --target {target}` didn't print a linker:\n{out}")
@@ -1177,7 +1199,9 @@ def cross_windows_builds(targets: list[str | None], installer: bool) -> dict[str
             f"it installs everything into {cross_windows_dir()}, where this script finds it."
         )
     fxc, _ = find_fxc()
-    return {target: CrossBuild(env=xwin_env(target), fxc=fxc)}
+    env = xwin_env(target)
+    core_env = xwin_env(target, ROOT, CORE_XWIN_RUSTFLAGS) if PRODUCT.core else None
+    return {target: CrossBuild(env=env, fxc=fxc, core_env=core_env)}
 
 
 def check_static_crt(path: Path) -> None:
@@ -2696,6 +2720,13 @@ def main(argv: list[str]) -> int:
         note = tag_version_note(args.tag, version)
         if note:
             print(f"    Note: {note}")
+    if args.open and key_for_target(host_target()) not in keys:
+        raise Failure(
+            f"--open opens this machine's ({key_for_target(host_target())}) test copy, and "
+            f"this dry run only builds {', '.join(keys)}: there'd be nothing to open. "
+            "Drop --open; a Windows build made here is tested on Windows "
+            "(launcher/docs/cross-windows.md)"
+        )
     installer = not args.no_installer
     # Windows builds on a Mac: check the tools are there before the long build.
     cross = cross_windows_builds(targets, installer) if not publishing else {}
@@ -2751,7 +2782,8 @@ def main(argv: list[str]) -> int:
             print("    The Windows build can't run on this machine: test it on Windows (a VM "
                   "or a PC,")
             print("    launcher/docs/cross-windows.md).")
-        upload = "--dev" if args.dev else f"--tag {TAG_PREFIX}X.Y.Z"
+        upload = "--dev" if args.dev else f"--tag {tag or TAG_PREFIX + 'X.Y.Z'}"
+        upload += "".join(f" --target {target}" for target in args.target or [])
         print(f"    Then upload it from this checkout without changes ({upload});")
         print("    the script uploads exactly these files.")
         if args.open:
