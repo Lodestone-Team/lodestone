@@ -156,13 +156,15 @@ A Mac can't truly run a Windows build, so a build made on a Mac is tested on Win
 before it's uploaded, like every build ("Test a locally built release first" in
 AGENTS.md, "Test before uploading" in the launcher's skill).
 
-- **Day to day: a Windows 11 on Arm VM in VMware Fusion.** Fusion is free (Broadcom's
+- **Day to day: a Windows 11 on Arm VM in VMware Fusion**, which `windows_vm.py` makes
+  and drives (below). Fusion is free (Broadcom's
   download, behind a free account), and its Windows 11 on Arm guests get Direct3D 11,
   which GPUI's renderer uses. Windows' own Prism emulator runs the x64 programs at close
   to native speed. The installer, the Start Menu shortcut and Settings › Apps all behave
-  as on a PC. How an agent on the Mac tests there is below. Parallels Desktop (paid) works
-  the same way with its `prlctl`; UTM has no 3D acceleration for Windows guests, so GPUI
-  would draw with Windows' software renderer there.
+  as on a PC. How an agent on the Mac tests there is below. Parallels Desktop (paid) also
+  gives Windows on Arm guests Direct3D 11, but `windows_vm.py` only drives Fusion; UTM has
+  no 3D acceleration for Windows guests, so GPUI would draw with Windows' software
+  renderer there.
 - **A release's final check: a real x64 Windows PC.** Before a developer publishes a
   version whose Windows build came from a Mac, someone runs it on an x64 PC: real GPU
   drivers, no emulation, the machines most users have. The agent's report says this
@@ -177,63 +179,108 @@ AGENTS.md, "Test before uploading" in the launcher's skill).
 
 ### Testing in the VM from the Mac
 
-The developer sets the VM up once:
+`launcher/scripts/windows_vm.py` makes the VM and runs the checklist in it, all from the
+Mac and in the background: the VM has no window (Fusion's `vmrun ... nogui`), so it never
+takes the developer's screen, pointer or keyboard.
 
-- VMware Fusion, a Windows 11 on Arm VM with VMware Tools installed in it (Fusion's
-  Virtual Machine › Install VMware Tools), and a local Windows account that's signed in,
-  so its desktop session is running: UI Automation sees no windows without one.
-- They tell the agent the VM's `.vmx` path (`vmrun -T fusion list` lists the running
-  ones) and the account's name, and put its password where the agent reads it without
-  printing it (the `LODESTONE_VM_PASSWORD` environment variable, or the macOS Keychain).
-  The agent never prints, logs or echoes it.
-
-Then, from the Mac, with Fusion's `vmrun`
-(`/Applications/VMware Fusion.app/Contents/Library/vmrun`):
+**Once: make the VM.** The developer installs VMware Fusion (Broadcom's support portal,
+free; "for Personal Use") and gets Microsoft's Windows 11 Arm64 ISO
+(microsoft.com/software-download/windows11arm64, "Windows 11 (multi-edition ISO for
+Arm64)"; the agent fetches it only with their OK, through that page). Then:
 
 ```bash
-VMRUN="/Applications/VMware Fusion.app/Contents/Library/vmrun"
-VMX="$HOME/Virtual Machines.localized/Windows 11.vmwarevm/Windows 11.vmx"   # the developer's
-G=(-T fusion -gu "$VM_USER" -gp "$LODESTONE_VM_PASSWORD")
-# Copy the dry run's test copy and ui_drive.ps1 in:
-"$VMRUN" "${G[@]}" createDirectoryInGuest "$VMX" 'C:\lodestone-test'
-"$VMRUN" "${G[@]}" copyFileFromHostToGuest "$VMX" <the staged exe> 'C:\lodestone-test\<name>.exe'
-"$VMRUN" "${G[@]}" copyFileFromHostToGuest "$VMX" launcher/scripts/ui_drive.ps1 'C:\lodestone-test\ui_drive.ps1'
-# Start it in the signed-in session (-interactive), without waiting for it:
-"$VMRUN" "${G[@]}" runProgramInGuest "$VMX" -noWait -activeWindow -interactive 'C:\lodestone-test\<name>.exe'
-# Drive it with ui_drive.ps1 in that session, writing to a file, and copy the file out:
-"$VMRUN" "${G[@]}" runProgramInGuest "$VMX" -interactive \
-  'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe' \
-  '-NoProfile -Command "& C:\lodestone-test\ui_drive.ps1 --app launcher tree > C:\lodestone-test\tree.txt"'
-"$VMRUN" "${G[@]}" copyFileFromGuestToHost "$VMX" 'C:\lodestone-test\tree.txt' /tmp/tree.txt
-# A picture of the whole VM screen:
-"$VMRUN" "${G[@]}" captureScreen "$VMX" /tmp/vm.png
+python3 launcher/scripts/windows_vm.py create --iso <the ISO> --accept-windows-license
 ```
 
-`ui_drive.ps1` works there as on any Windows machine ("Testing the launcher's and Host's
-UI" in AGENTS.md, `launcher/docs/ui-automation.md`); its `screenshot` saves inside the VM,
-to copy out the same way. If PowerShell's execution policy refuses to run the script,
-that's the developer's to set in the VM; the agent never changes it. The installer is
-tested the same way (`<the setup exe> /VERYSILENT /CURRENTUSER`, then the Start Menu
-shortcut and Settings › Apps). Give the test copy its own data folders
-(`LODESTONE_LAUNCHER_DATA_DIR`; `LODESTONE_PATH` and `LODESTONE_HOST_DATA_DIR` for the
-Host) unless the developer wants it on the VM's own data.
+`--accept-windows-license` accepts Windows' license terms in the unattended install,
+which is the developer's call; without it `create` stops. It takes 20 to 40 minutes,
+with no clicks:
 
-- **The checklist's game launch** needs an instance and a signed-in Minecraft account
-  in the VM, and agents never sign in or type credentials. The developer prepares them
-  once in the VM (signed in, with an instance; `lodestone-launcher-cli` can make the
-  instance); until then, launching a game is the developer's to check, and the agent's
-  report says it wasn't checked. For the Host, never start a Minecraft server there.
-- **If the agent can't reach the VM** (no Fusion, no `vmrun`, no `.vmx` path or account,
-  no VMware Tools, or nobody signed in), it doesn't improvise: it hands the test files to
-  the developer and waits for their go-ahead. It doesn't reach for computer-use tools
-  without asking.
+- It makes `~/Virtual Machines.localized/Lodestone Windows Test.vmwarevm` (4 cores,
+  8 GB, a 64 GB disk that grows as used; `--cpus`, `--memory-gb`, `--disk-gb`), which
+  Fusion's library shows too.
+- Its install disc is Microsoft's ISO rebuilt with Fusion's `mkisofs`: booting with
+  `efisys_noprompt.bin` (no "Press any key to boot from CD or DVD"; Fusion's `vmcli`
+  can't press keys), with `autounattend.xml` and VMware Tools' installer added.
+- Windows 11 Pro installs unactivated (a watermark; the generic Pro key only picks the
+  edition). The VM has no virtual TPM (Fusion only adds one to an encrypted VM), so Setup
+  skips Windows 11's TPM and Secure Boot checks (`LabConfig`).
+- A local account, `lodestone`, signs in by itself at every start, so a desktop session
+  is always running (UI Automation needs one). Its password is made up and kept in the
+  macOS Keychain ("Lodestone Windows test VM"); `LODESTONE_VM_PASSWORD`, if set, wins
+  over it, for `create` and the rest alike. Nothing prints it, but `vmrun` takes it only
+  on its command line (`-gp`), where other programs on the Mac can see it while a guest
+  operation runs: it's a throwaway test account's, used for nothing else. The install
+  disc, which holds it, is deleted afterwards (also when `create` fails).
+- The first sign-in (the only step that runs elevated) installs VMware Tools (the
+  network and display drivers, and the guest operations `vmrun` uses), turns off sleep,
+  the screen saver and signing in on wake, Windows Update's automatic updates (so `fresh`
+  stays as it was made) and Windows Firewall's "allow this app?" prompts (the core
+  listens on every interface; nobody is there to answer). Then `create` snapshots the
+  signed-in desktop as `fresh`, and marks the VM as its own: `reset` and `test` won't
+  power off or roll back any other.
+
+**Each build: test it.** After a Windows dry run
+(`publish_release.py --dry-run --target x86_64-pc-windows-msvc`, `--product host` for the
+Host):
+
+```bash
+python3 launcher/scripts/windows_vm.py test launcher --staged <cargo target dir>/release-candidate
+python3 launcher/scripts/windows_vm.py test host --staged <the Host's target dir>/release-candidate
+```
+
+It goes back to `fresh` (`--keep` skips that), checks the staged files against
+`stage.json`, copies them in with `ui_drive.ps1` and `windows_vm_test.ps1`, runs that in
+the signed-in session as the account (not elevated, so UAC applies as on a person's PC),
+and copies the results out (into the release-candidate folder, or `--out`; it only ever
+empties a folder it made). A Launcher's run takes about two minutes, a Host's four:
+
+- **standalone:** the `-standalone` exe opens its window with empty data folders of its
+  own, Settings shows "Build N" (and the commit), and closing the window quits it. The
+  Host's runs the dry run's core and signs in by itself; its data folders are under
+  `%LOCALAPPDATA%`, as on Windows the core only lets the Host claim it when its data
+  folder is inside the account's own folder. Closing the Host's window keeps it in the
+  tray; its Quit is in the tray icon's menu, which UI Automation can't reach, so the test
+  ends the Host instead and checks that its core stops with it, and leaves Quit to a
+  person (a `check` line).
+- **install:** the installer installs silently for this user (`/CURRENTUSER`; an
+  administrator prompt would stall it, and the five-minute limit catches that),
+  Settings › Apps lists it with "(build N)", and its Start Menu shortcut opens it, with
+  Settings showing the build again (the installed Host's core on a data folder of its
+  own, so nothing left in the VM's `~\.lodestone` starts).
+- **uninstall:** a silent uninstall removes the program, the shortcut and the Apps entry,
+  and keeps the data folder.
+
+Each line is `ok`, `FAIL`, or `check` (read it off the screenshot: the build line wasn't
+in Settings' controls). The screenshots, the controls' tree, Setup's log and
+`results.json` are in the results folder, with the apps' own logs in `logs/`; look at the
+screenshots before calling a build good. PowerShell runs there with `-ExecutionPolicy Bypass` for that one process; the VM's
+execution policy is never changed.
+
+Other commands: `status`, `start`, `stop`, `reset` (back to `fresh`), and
+`screenshot FILE.png` (the VM's screen, without signing in).
+
+- **Not checked there:** launching a game (it needs a signed-in Minecraft account, and
+  agents never sign in), and for the Host, starting a server (never; it accepts
+  Minecraft's EULA) and Quit from the tray. The report says so. A developer can check a
+  game by hand in Fusion's window; `test` always goes back to `fresh`, so keep anything
+  signed in out of that snapshot.
+- **Fusion's quirks** the script works around: `vmcli`'s key presses don't reach the
+  guest (hence the no-prompt disc), `vmrun checkToolsState` says "installed" while Tools
+  runs (it waits on guest operations instead), PowerShell started straight from `vmrun
+  runProgramInGuest` gets its arguments as one string and exits (it goes through
+  `cmd.exe /c`), and `vmrun start` leaves the VM holding its output (read through files,
+  not pipes).
+- **Without a VM** (no Fusion, no ISO, or the developer would rather not), the agent
+  hands the test files to a developer with Windows and waits for their go-ahead. It
+  doesn't reach for computer-use tools without asking.
 
 ## The rules stay the same
 
 - Agents never publish a version's release, and never run `--bridge`. A developer build
   (`--dev`) publishes itself, only when a developer asks for one.
 - Test before uploading: a Windows build from a Mac is tested on Windows first, by the
-  agent in a VM with `ui_drive.ps1` ("Testing in the VM from the Mac"), or by a
+  agent in the VM with `windows_vm.py test` ("Testing in the VM from the Mac"), or by a
   developer, who says it works.
 - CI still builds macOS and Windows when a `launcher-v*` tag is pushed (and on "Host -
   Release"), and leaves a platform a developer uploaded before its build finished alone.

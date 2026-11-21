@@ -58,9 +58,9 @@ Nothing to set up. Run it with PowerShell 7 or Windows PowerShell:
 pwsh launcher/scripts/ui_drive.ps1 tree
 ```
 
-A Windows build made on a Mac is tested in a Windows VM, driven from the Mac with
-`prlctl exec --current-user`: `launcher/docs/cross-windows.md`, "Testing in the VM from
-the Mac".
+A Windows build made on a Mac is tested in a Windows VM in VMware Fusion, where
+`launcher/scripts/windows_vm.py test` runs `ui_drive.ps1` in the VM's signed-in session:
+`launcher/docs/cross-windows.md`, "Testing in the VM from the Mac".
 
 ## Commands
 
