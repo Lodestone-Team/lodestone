@@ -31,6 +31,8 @@ pub mod lan;
 pub mod lan_share;
 pub mod local;
 mod magic;
+mod rejoin;
+pub use rejoin::RejoinPhase;
 pub mod view;
 // What the control API (`crate::control`) does with cores and servers.
 pub(crate) mod control;
@@ -822,6 +824,8 @@ pub struct InstanceLink {
     pub checking: bool,
     /// The core is still in the launcher.
     pub core_known: bool,
+    /// Rejoining the server after it restarted, once it stopped while the game played.
+    pub rejoin: Option<rejoin::RejoinPhase>,
     /// The core and server, to find the server's row on the Lodestone Host page.
     pub core_uuid: String,
     pub server_uuid: String,
@@ -911,6 +915,8 @@ pub struct Servers {
     magic: magic::MagicState,
     /// Games opening worlds to LAN, and exiting, for [`lan_share`].
     _instances_events: Option<Subscription>,
+    /// Games watched for their server restarting, to join it again.
+    rejoin: rejoin::Rejoin,
 }
 
 impl EventEmitter<ServersEvent> for Servers {}
@@ -962,12 +968,16 @@ impl Servers {
             lan_share: lan_share::LanShare::default(),
             magic: Default::default(),
             _instances_events: None,
+            rejoin: rejoin::Rejoin::default(),
         };
         this._instances_changed = Some(cx.observe(&this.instances, |this, _, cx| {
             this.friend_games_changed(cx);
             this.lan_share_apply_setting(cx);
         }));
         this._instances_events = Some(cx.subscribe(&this.instances, |this, _, event, cx| {
+            if let crate::instances::InstancesEvent::GameExited(id) = event {
+                this.rejoin_game_exited(id, cx);
+            }
             this.lan_share_event(event, cx)
         }));
         // once the window is set up (the offscreen screenshots say so first)
@@ -2063,6 +2073,7 @@ impl Servers {
                 server_name: link.server_name.clone(),
                 live,
                 blocks_play: live.blocks_play(),
+                rejoin: self.rejoin_phase(instance_id),
                 friend: true,
                 checking: self.friend_checking(&link.core_uuid),
                 core_uuid: link.core_uuid.clone(),
@@ -2095,6 +2106,7 @@ impl Servers {
             server_name: link.server_name.clone(),
             live,
             blocks_play: false,
+            rejoin: self.rejoin_phase(instance_id),
             friend: false,
             checking: false,
             core_name: core.map_or_else(|| link.core_url.clone(), |c| c.saved.name.clone()),
@@ -3036,6 +3048,13 @@ impl Servers {
                             etag,
                             without_snapshot: false,
                         };
+                        // rejoining after the server restarted: its new mods without
+                        // asking (a host not trusted for mods still shows its advisory)
+                        if this.rejoining(&pending.instance_id) {
+                            this.gate(PendingPull::Sync(pending), PullKind::ModSync, cx);
+                            cx.notify();
+                            return;
+                        }
                         let focus = cx.focus_handle();
                         this.prompt
                             .open(UpdatePrompt::for_pack(pending, None, focus), cx);
@@ -3564,6 +3583,7 @@ impl Servers {
             };
             let id = instance_id.to_string();
             self.friend_started(cx);
+            self.watch_for_restart(&id, core_uuid, &server.uuid, cx);
             self.instances.update(cx, |instances, cx| {
                 instances.play_joining(&id, Some(target), cx)
             });
@@ -3591,6 +3611,7 @@ impl Servers {
             return self.fail_with(server_failed(notice, name), cx);
         };
         let id = instance_id.to_string();
+        self.watch_for_restart(&id, core_uuid, &server.uuid, cx);
         self.instances.update(cx, |instances, cx| {
             instances.play_joining(&id, Some(target), cx)
         });

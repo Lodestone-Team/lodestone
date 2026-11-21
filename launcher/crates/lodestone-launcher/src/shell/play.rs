@@ -19,7 +19,7 @@ use crate::{
     i18n::{FactMsg, ServersMsg, ShellMsg as M, format, t, tr},
     instances::appearance::{Background, scrim_layers},
     instances::{PlayState, facts, play_time},
-    servers::{InstanceLink, friends::Liveness},
+    servers::{InstanceLink, RejoinPhase, friends::Liveness},
     theme::{self, colors, fonts, leading, radius, text, weights},
 };
 
@@ -54,7 +54,10 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
                 .into_any_element(),
         ),
     };
-    let check = link.as_ref().and_then(|link| check_button(link, cx));
+    let check = link
+        .as_ref()
+        .zip(instance.as_ref())
+        .and_then(|(link, instance)| link_buttons(link, &instance.id, cx));
     div()
         .flex()
         .flex_col()
@@ -432,28 +435,49 @@ fn linked_server(link: &InstanceLink, cx: &mut Context<LauncherShell>) -> Fact {
     )
 }
 
-/// "Check", which asks a friend's server again when it isn't running.
-fn check_button(link: &InstanceLink, cx: &mut Context<LauncherShell>) -> Option<AnyElement> {
+/// The buttons under the header for a linked server: "Check", which asks a friend's
+/// server again when it isn't running, and "Don't rejoin", which stops waiting for the
+/// server to come back after it stopped.
+fn link_buttons(
+    link: &InstanceLink,
+    instance_id: &str,
+    cx: &mut Context<LauncherShell>,
+) -> Option<AnyElement> {
     let checkable = link.friend
+        && link.rejoin.is_none()
         && matches!(
             link.live,
             Liveness::Stopped | Liveness::Starting | Liveness::Unreachable
         );
-    checkable.then(|| {
+    let check = checkable.then(|| {
         let friend = link.core_uuid.clone();
+        Button::new("linked-server-check", t(ServersMsg::FriendCheck))
+            .size(ButtonSize::Slim)
+            .variant(ButtonVariant::Ghost)
+            .disabled(link.checking)
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.servers
+                    .update(cx, |servers, cx| servers.check_friend(&friend, cx))
+            }))
+    });
+    let dont_rejoin = link.rejoin.is_some().then(|| {
+        let instance = instance_id.to_string();
+        Button::new("linked-server-dont-rejoin", t(M::DontRejoin))
+            .size(ButtonSize::Slim)
+            .variant(ButtonVariant::Ghost)
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.servers
+                    .update(cx, |servers, cx| servers.cancel_rejoin(&instance, cx))
+            }))
+    });
+    (check.is_some() || dont_rejoin.is_some()).then(|| {
         div()
             .flex()
+            .flex_row()
+            .gap_2()
             .mt_1()
-            .child(
-                Button::new("linked-server-check", t(ServersMsg::FriendCheck))
-                    .size(ButtonSize::Slim)
-                    .variant(ButtonVariant::Ghost)
-                    .disabled(link.checking)
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.servers
-                            .update(cx, |servers, cx| servers.check_friend(&friend, cx))
-                    })),
-            )
+            .children(check)
+            .children(dont_rejoin)
             .into_any_element()
     })
 }
@@ -515,6 +539,22 @@ impl LauncherShell {
         let busy = servers.instance_busy(id).map(|busy| busy.caption());
         let joins = link.is_some() && matches!(state, PlayButtonState::Ready);
         let (state, caption) = match (&link, busy) {
+            // the server restarts: the game closes and joins again once it runs
+            (Some(link), _) if link.rejoin.is_some() => (
+                if joins && link.blocks_play {
+                    PlayButtonState::Disabled
+                } else {
+                    state
+                },
+                Some(tr!(
+                    if link.rejoin == Some(RejoinPhase::Waiting) {
+                        M::RejoinWaitingCaption
+                    } else {
+                        M::RejoiningCaption
+                    },
+                    server = link.server_name
+                )),
+            ),
             (Some(_), Some(busy)) if joins => (PlayButtonState::Disabled, Some(busy)),
             // a friend's server that is stopped or starting: Minecraft couldn't join it
             // ("Play without joining" still plays)
