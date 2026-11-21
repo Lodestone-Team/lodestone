@@ -2057,8 +2057,7 @@ def dev_release_notes(tag: str, commit: str, have: set[str] | None = None) -> st
         *download_lines(tag, have),
         files,
         "",
-        f"{who}. That setting only shows in a developer build, or once it's on. Only the "
-        f"newest {KEEP_DEV} developer builds are kept.",
+        f"{who}.",
         "",
         f"Built from {commit}.",
     ])
