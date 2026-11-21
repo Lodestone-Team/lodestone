@@ -234,14 +234,14 @@ the installer: add `--target x86_64-pc-windows-msvc` to the dry run and to the u
   and the setup script. It refuses a program that would need VCRUNTIME140.dll; don't
   work around that.
 - **Testing:** the Mac can't run it, and "Testing on this machine" doesn't apply to it.
-  Test it on Windows before uploading: in a Windows 11 on Arm VM (Parallels, with real
-  Direct3D 11; x64 runs through Prism), driven from the Mac with `prlctl exec
-  --current-user` and `ui_drive.ps1` as "Testing in the VM from the Mac" in
-  `launcher/docs/cross-windows.md` says, with the usual checklist and the installer.
+  Test it on Windows before uploading: in a Windows 11 on Arm VM (VMware Fusion, free,
+  with Direct3D 11; x64 runs through Prism), driven from the Mac with `vmrun
+  runProgramInGuest -interactive` and `ui_drive.ps1` as "Testing in the VM from the Mac"
+  in `launcher/docs/cross-windows.md` says, with the usual checklist and the installer.
   Launching a game needs an instance and account the developer prepared in the VM;
   without them, say in the report that it wasn't checked. Without a reachable VM, hand
-  the test files to a developer with Windows and wait for their go-ahead. Running it
-  under Wine only shows that it starts; it never counts as the test.
+  the test files to a developer with Windows and wait for their go-ahead. Wine can't run
+  it (no `icuuc.dll`).
 - **Uploading:** `the script --dev --target x86_64-pc-windows-msvc` (or `--tag ...`),
   with the same `--target` options as the dry run. A version's draft then has this
   Windows build, and CI leaves it alone if it's there before CI's Windows build

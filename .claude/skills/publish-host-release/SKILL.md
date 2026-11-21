@@ -73,7 +73,7 @@ A Mac builds the Host's Windows build too, with `--target x86_64-pc-windows-msvc
 Host, its core (with the static C runtime) and `LodestoneHostSetup.exe`. Set up and test
 it as "Windows builds from a Mac" in the launcher's skill says
 (`launcher/docs/cross-windows.md`): the Mac can't run it, so it's tested on Windows (a
-Windows 11 on Arm VM in Parallels with `ui_drive.ps1`, a real x64 PC for a release)
+Windows 11 on Arm VM in VMware Fusion with `ui_drive.ps1`, a real x64 PC for a release)
 before it's uploaded; leave out `--open` for a Windows-only run. Never start a
 Minecraft server there either.
 

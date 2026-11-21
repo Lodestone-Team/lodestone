@@ -156,10 +156,13 @@ A Mac can't truly run a Windows build, so a build made on a Mac is tested on Win
 before it's uploaded, like every build ("Test a locally built release first" in
 AGENTS.md, "Test before uploading" in the launcher's skill).
 
-- **Day to day: a Windows 11 on Arm VM in Parallels Desktop.** It has real Direct3D 11
-  through Parallels' graphics driver, and Windows' own Prism emulator runs the x64
-  programs at close to native speed. The installer, the Start Menu shortcut and Settings ›
-  Apps all behave as on a PC. How an agent on the Mac tests there is below.
+- **Day to day: a Windows 11 on Arm VM in VMware Fusion.** Fusion is free (Broadcom's
+  download, behind a free account), and its Windows 11 on Arm guests get Direct3D 11,
+  which GPUI's renderer uses. Windows' own Prism emulator runs the x64 programs at close
+  to native speed. The installer, the Start Menu shortcut and Settings › Apps all behave
+  as on a PC. How an agent on the Mac tests there is below. Parallels Desktop (paid) works
+  the same way with its `prlctl`; UTM has no 3D acceleration for Windows guests, so GPUI
+  would draw with Windows' software renderer there.
 - **A release's final check: a real x64 Windows PC.** Before a developer publishes a
   version whose Windows build came from a Mac, someone runs it on an x64 PC: real GPU
   drivers, no emulation, the machines most users have. The agent's report says this
@@ -168,50 +171,62 @@ AGENTS.md, "Test before uploading" in the launcher's skill).
   full-system emulation, with no GPU acceleration: Windows runs very slowly and Direct3D
   falls back to software (WARP). It tests less than the Arm VM, which runs the same x64
   programs through Prism on real Direct3D.
-- **Wine only smoke-tests startup.** Running the standalone exe under the setup folder's
-  Wine shows it loads and starts writing its log, which catches a missing DLL or a crash
-  at start. Wine's Direct3D, file dialogs and installer behaviour aren't Windows', so it
-  never replaces the VM. Give it its own data folders, never the developer's.
+- **Wine can't run them.** Wine has no `icuuc.dll`, the ICU library Windows ships in
+  System32 since Windows 10 1903 and GPUI imports, so the Launcher and Host don't even
+  start under it. The setup folder's Wine is only for fxc and Inno Setup.
 
 ### Testing in the VM from the Mac
 
-The developer sets the VM up once: Parallels Desktop with a Windows 11 on Arm VM, the
-Mac's home folder shared with it (Parallels' shared folders show it in Windows as
-`\\Mac\Home`), and signed in to Windows so its desktop session is running. They
-tell the agent the VM's name (`prlctl list -a` lists them). Then, from the Mac, with
-`prlctl` (Parallels' command line tool; `--current-user` runs a command in the signed-in
-user's session, without which UI Automation sees no windows):
+The developer sets the VM up once:
+
+- VMware Fusion, a Windows 11 on Arm VM with VMware Tools installed in it (Fusion's
+  Virtual Machine › Install VMware Tools), and a local Windows account that's signed in,
+  so its desktop session is running: UI Automation sees no windows without one.
+- They tell the agent the VM's `.vmx` path (`vmrun -T fusion list` lists the running
+  ones) and the account's name, and put its password where the agent reads it without
+  printing it (the `LODESTONE_VM_PASSWORD` environment variable, or the macOS Keychain).
+  The agent never prints, logs or echoes it.
+
+Then, from the Mac, with Fusion's `vmrun`
+(`/Applications/VMware Fusion.app/Contents/Library/vmrun`):
 
 ```bash
-VM="Windows 11"     # the developer's VM
-# The dry run's test copy, through the shared folder (the dry run prints its Mac path;
-# /Users/<name>/... is \\Mac\Home\... in the VM):
-prlctl exec "$VM" --current-user powershell -NoProfile -Command \
-  "New-Item -ItemType Directory -Force \$env:TEMP\lodestone-test | Out-Null;
-   Copy-Item '\\Mac\Home\...\release-candidate\test\*.exe' \$env:TEMP\lodestone-test -Force"
-# Start it and read its process id:
-prlctl exec "$VM" --current-user powershell -NoProfile -Command \
-  "(Start-Process \$env:TEMP\lodestone-test\<the exe> -PassThru).Id"
-# Drive it with ui_drive.ps1 from the checkout, by that process id:
-prlctl exec "$VM" --current-user powershell -NoProfile \
-  -File '\\Mac\Home\...\launcher\scripts\ui_drive.ps1' --pid <PID> tree
+VMRUN="/Applications/VMware Fusion.app/Contents/Library/vmrun"
+VMX="$HOME/Virtual Machines.localized/Windows 11.vmwarevm/Windows 11.vmx"   # the developer's
+G=(-T fusion -gu "$VM_USER" -gp "$LODESTONE_VM_PASSWORD")
+# Copy the dry run's test copy and ui_drive.ps1 in:
+"$VMRUN" "${G[@]}" createDirectoryInGuest "$VMX" 'C:\lodestone-test'
+"$VMRUN" "${G[@]}" copyFileFromHostToGuest "$VMX" <the staged exe> 'C:\lodestone-test\<name>.exe'
+"$VMRUN" "${G[@]}" copyFileFromHostToGuest "$VMX" launcher/scripts/ui_drive.ps1 'C:\lodestone-test\ui_drive.ps1'
+# Start it in the signed-in session (-interactive), without waiting for it:
+"$VMRUN" "${G[@]}" runProgramInGuest "$VMX" -noWait -activeWindow -interactive 'C:\lodestone-test\<name>.exe'
+# Drive it with ui_drive.ps1 in that session, writing to a file, and copy the file out:
+"$VMRUN" "${G[@]}" runProgramInGuest "$VMX" -interactive \
+  'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe' \
+  '-NoProfile -Command "& C:\lodestone-test\ui_drive.ps1 --app launcher tree > C:\lodestone-test\tree.txt"'
+"$VMRUN" "${G[@]}" copyFileFromGuestToHost "$VMX" 'C:\lodestone-test\tree.txt' /tmp/tree.txt
+# A picture of the whole VM screen:
+"$VMRUN" "${G[@]}" captureScreen "$VMX" /tmp/vm.png
 ```
 
 `ui_drive.ps1` works there as on any Windows machine ("Testing the launcher's and Host's
-UI" in AGENTS.md, `launcher/docs/ui-automation.md`): `screenshot` saves into a folder the
-Mac sees through the share. If PowerShell's execution policy refuses to run the script,
-that's the developer's to set in the VM; the agent never changes it. The installer is tested the same way
-(`<the setup exe> /VERYSILENT /CURRENTUSER`, then the Start Menu shortcut and Settings ›
-Apps).
+UI" in AGENTS.md, `launcher/docs/ui-automation.md`); its `screenshot` saves inside the VM,
+to copy out the same way. If PowerShell's execution policy refuses to run the script,
+that's the developer's to set in the VM; the agent never changes it. The installer is
+tested the same way (`<the setup exe> /VERYSILENT /CURRENTUSER`, then the Start Menu
+shortcut and Settings › Apps). Give the test copy its own data folders
+(`LODESTONE_LAUNCHER_DATA_DIR`; `LODESTONE_PATH` and `LODESTONE_HOST_DATA_DIR` for the
+Host) unless the developer wants it on the VM's own data.
 
 - **The checklist's game launch** needs an instance and a signed-in Minecraft account
   in the VM, and agents never sign in or type credentials. The developer prepares them
   once in the VM (signed in, with an instance; `lodestone-launcher-cli` can make the
   instance); until then, launching a game is the developer's to check, and the agent's
   report says it wasn't checked. For the Host, never start a Minecraft server there.
-- **If the agent can't reach the VM** (no Parallels, no `prlctl`, no VM name, or the VM
-  isn't signed in), it doesn't improvise: it hands the test files to the developer and
-  waits for their go-ahead. It doesn't reach for computer-use tools without asking.
+- **If the agent can't reach the VM** (no Fusion, no `vmrun`, no `.vmx` path or account,
+  no VMware Tools, or nobody signed in), it doesn't improvise: it hands the test files to
+  the developer and waits for their go-ahead. It doesn't reach for computer-use tools
+  without asking.
 
 ## The rules stay the same
 
