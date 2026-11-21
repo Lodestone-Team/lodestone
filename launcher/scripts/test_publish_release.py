@@ -7,6 +7,7 @@ import tempfile
 import tomllib
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import publish_release as pr
 
@@ -786,6 +787,358 @@ class Host(unittest.TestCase):
         self.assertEqual(scope, 'cfg(all(windows, target_env = "msvc"))')
         self.assertEqual(config["target"][scope]["rustflags"], ["-C", "target-feature=+crt-static"])
         self.assertNotIn("--target", pr.core_build_command("dev-build", None))
+
+
+XWIN_ENV_SAMPLE = '''export AR_x86_64_pc_windows_msvc="llvm-lib";
+export CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER="lld-link";
+export CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS="-C target-feature=+crt-static --cfg windows_slim_errors -C linker-flavor=lld-link -C link-arg=-nodefaultlib:ucrt -C link-arg=-defaultlib:libucrt -Lnative=/c/crt/lib/x86_64";
+export CC_x86_64_pc_windows_msvc="clang-cl";
+export CFLAGS_x86_64_pc_windows_msvc="--target=x86_64-pc-windows-msvc /imsvc /c/crt/include ";
+export LIB="/c/crt/lib/x86_64;/c/sdk/lib/um/x86_64";
+export PATH="/usr/bin:/bin:/c";
+export RUSTFLAGS="";
+export TARGET_CC="clang-cl";
+'''
+
+# What it prints in the root workspace (no rustflags config) with
+# RUSTFLAGS=CORE_XWIN_RUSTFLAGS in its environment.
+XWIN_CORE_ENV_SAMPLE = XWIN_ENV_SAMPLE.replace(
+    "+crt-static --cfg windows_slim_errors", "+crt-static")
+
+WIN = "x86_64-pc-windows-msvc"
+MAC = "aarch64-apple-darwin"
+
+
+def executable(path, text="#!/bin/sh\nexit 0\n"):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+    path.chmod(0o755)
+    return path
+
+
+class CrossWindows(unittest.TestCase):
+    """Windows builds on a Mac (launcher/docs/cross-windows.md)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+        self.cross_dir = self.dir / "cross"
+        # A machine with nothing set up: no tools on PATH, no Homebrew, an empty
+        # home, cargo-xwin cache and setup folder; not Windows, whatever runs the test.
+        empty = self.dir / "empty-path"
+        empty.mkdir()
+        self.env = mock.patch.dict(os.environ, {
+            "PATH": str(empty), "HOME": str(self.dir / "home"),
+            "CARGO_HOME": str(self.dir / "cargo"), "XWIN_CACHE_DIR": str(self.dir / "xwin"),
+            pr.CROSS_WINDOWS_DIR_ENV: str(self.cross_dir), "HOMEBREW_PREFIX": "",
+        })
+        self.env.start()
+        for name in ("RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS", "XWIN_ACCEPT_LICENSE",
+                     "GPUI_FXC_PATH", "ISCC", "LOCALAPPDATA", "ProgramFiles(x86)",
+                     "ProgramFiles", "TARGET_CC"):
+            os.environ.pop(name, None)
+        self.patches = [mock.patch.object(pr, "HOMEBREW_PREFIXES", ()),
+                        mock.patch.object(pr, "on_windows", lambda: False)]
+        for patch in self.patches:
+            patch.start()
+
+    def tearDown(self):
+        for patch in reversed(self.patches):
+            patch.stop()
+        self.env.stop()
+        self.tmp.cleanup()
+
+    def set_up_everything(self):
+        """What setup_cross_windows.py leaves: the tools, its wrappers, the CRT."""
+        tools = self.dir / "tools"
+        for name in ("clang-cl", "llvm-lib", "lld-link"):
+            executable(tools / name)
+        executable(self.dir / "cargo" / "bin" / "cargo-xwin")
+        executable(self.cross_dir / "bin" / "fxc")
+        executable(self.cross_dir / "bin" / "iscc")
+        (self.dir / "xwin" / "xwin").mkdir(parents=True)
+        (self.dir / "xwin" / "xwin" / "DONE").write_text("x86_64 aarch64\nsome.msi\n")
+        os.environ["PATH"] = str(tools)
+
+    def fake_run(self, calls, out=XWIN_ENV_SAMPLE, root_out=XWIN_CORE_ENV_SAMPLE):
+        def run(cmd, cwd=pr.ROOT, env=None, quiet=True, shown=None):
+            calls.append((cmd, cwd, env))
+            if cmd[:3] != ["cargo", "xwin", "env"]:
+                return ""
+            # cargo-xwin reads the workspace's config: only the launcher's has rustflags
+            return out if cwd == pr.LAUNCHER else root_out
+        return run
+
+    # The environment cargo-xwin prints
+
+    def test_xwin_env_is_parsed_without_the_empty_rustflags(self):
+        env = pr.parse_xwin_env("Some progress line\n" + XWIN_ENV_SAMPLE)
+        self.assertEqual(env["CC_x86_64_pc_windows_msvc"], "clang-cl")
+        self.assertEqual(env["LIB"], "/c/crt/lib/x86_64;/c/sdk/lib/um/x86_64")
+        self.assertEqual(env["CFLAGS_x86_64_pc_windows_msvc"],
+                         "--target=x86_64-pc-windows-msvc /imsvc /c/crt/include ")
+        self.assertEqual(env["PATH"], "/usr/bin:/bin:/c")
+        # RUSTFLAGS="" would replace the config's +crt-static: VCRUNTIME140.dll.
+        self.assertNotIn("RUSTFLAGS", env)
+        self.assertEqual(len(env), 8)
+
+    # Which builds get it
+
+    def test_macos_only_and_windows_hosts_check_and_run_nothing(self):
+        def refuse(*args, **kwargs):
+            raise AssertionError("ran a command")
+        with mock.patch.object(pr, "run", refuse):
+            self.assertEqual(pr.cross_windows_builds([None], True), {})
+            self.assertEqual(pr.cross_windows_builds([MAC, "x86_64-apple-darwin"], True), {})
+            with mock.patch.object(pr, "on_windows", lambda: True):
+                self.assertEqual(pr.cross_windows_builds([WIN], True), {})
+                self.assertFalse(pr.is_cross_windows(WIN))
+
+    def test_only_x64_windows_is_cross_built(self):
+        with self.assertRaisesRegex(pr.Failure, "only x86_64-pc-windows-msvc .* not aarch64-pc-windows-msvc"):
+            pr.cross_windows_builds(["aarch64-pc-windows-msvc"], False)
+
+    def test_a_ready_machine_gets_cargo_xwins_environment_and_the_setup_folders_fxc(self):
+        self.set_up_everything()
+        calls = []
+        with mock.patch.object(pr, "run", self.fake_run(calls)), \
+                mock.patch.object(pr, "has_rust_target", lambda target: True):
+            cross = pr.cross_windows_builds([MAC, WIN], True)
+        self.assertEqual(list(cross), [WIN])
+        build = cross[WIN]
+        self.assertEqual(build.fxc, str(self.cross_dir / "bin" / "fxc"))
+        self.assertEqual(build.env["TARGET_CC"], "clang-cl")
+        self.assertNotIn("RUSTFLAGS", build.env)
+        self.assertEqual(build.gpui_env()["GPUI_FXC_PATH"], build.fxc)
+        self.assertNotIn("GPUI_FXC_PATH", build.env)
+        # the launcher has no core: one environment, for the launcher's workspace
+        self.assertIsNone(build.core_env)
+        (cmd, cwd, env), = calls
+        self.assertEqual(cmd, ["cargo", "xwin", "env", "--target", WIN])
+        self.assertEqual(cwd, pr.LAUNCHER)
+        self.assertNotIn("RUSTFLAGS", env)
+        # cargo-xwin found after the developer's PATH, not before it
+        self.assertEqual(env["PATH"].split(os.pathsep),
+                         [str(self.dir / "tools"), str(self.dir / "cargo" / "bin")])
+
+    def test_the_hosts_core_gets_the_root_workspaces_environment_not_the_launchers(self):
+        pr.use_product("host")
+        self.addCleanup(pr.use_product, "launcher")
+        self.set_up_everything()
+        calls = []
+        with mock.patch.object(pr, "run", self.fake_run(calls)), \
+                mock.patch.object(pr, "has_rust_target", lambda target: True):
+            build = pr.cross_windows_builds([WIN], True)[WIN]
+        (_, app_cwd, app_call), (cmd, core_cwd, core_call) = calls
+        self.assertEqual((app_cwd, core_cwd), (pr.LAUNCHER, pr.ROOT))
+        self.assertEqual(cmd, ["cargo", "xwin", "env", "--target", WIN])
+        # cargo-xwin sees the static C runtime for the core, and only in that call
+        self.assertEqual(core_call["RUSTFLAGS"], "-C target-feature=+crt-static")
+        self.assertNotIn("RUSTFLAGS", app_call)
+        self.assertNotIn("RUSTFLAGS", build.core_env)
+        app_flags = build.env["CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS"]
+        core_flags = build.core_env["CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS"]
+        self.assertIn("--cfg windows_slim_errors", app_flags)
+        self.assertNotIn("windows_slim_errors", core_flags)
+        for flag in ("+crt-static", "-defaultlib:libucrt", "-nodefaultlib:ucrt"):
+            self.assertIn(flag, core_flags)
+        self.assertEqual(build.core_env["TARGET_CC"], "clang-cl")
+
+    def test_one_message_names_everything_missing_and_the_setup_script(self):
+        os.environ["RUSTFLAGS"] = "-C opt-level=1"
+        with mock.patch.object(pr, "has_rust_target", lambda target: False), \
+                self.assertRaises(pr.Failure) as raised:
+            pr.cross_windows_builds([WIN], True)
+        message = str(raised.exception)
+        for expected in ("can't build windows-x86_64 yet", "cargo-xwin isn't installed",
+                         "--version " + pr.CARGO_XWIN_VERSION, "clang-cl isn't on PATH",
+                         "llvm-lib isn't on PATH", "lld-link isn't on PATH or in Homebrew's lld",
+                         "rustup target add x86_64-pc-windows-msvc",
+                         "--accept-microsoft-license", pr.MICROSOFT_LICENSE,
+                         f"no {self.cross_dir / 'bin' / 'fxc'}", "Inno Setup isn't set up",
+                         "RUSTFLAGS is set", "python3 launcher/scripts/setup_cross_windows.py",
+                         "launcher/docs/cross-windows.md", str(self.cross_dir)):
+            self.assertIn(expected, message)
+        self.assertEqual(message.count("\n  - "), 9)
+
+    def test_no_installer_needs_no_inno_setup(self):
+        self.set_up_everything()
+        (self.cross_dir / "bin" / "iscc").unlink()
+        with mock.patch.object(pr, "has_rust_target", lambda target: True):
+            self.assertEqual(pr.cross_windows_problems(WIN, installer=False), [])
+            (problem,) = pr.cross_windows_problems(WIN, installer=True)
+        self.assertIn("pass --no-installer", problem)
+
+    def test_the_license_can_be_accepted_for_cargo_xwin_to_download_the_crt(self):
+        self.set_up_everything()
+        (self.dir / "xwin" / "xwin" / "DONE").unlink()
+        with mock.patch.object(pr, "has_rust_target", lambda target: True):
+            (problem,) = pr.cross_windows_problems(WIN, installer=True)
+            self.assertIn("Microsoft's license", problem)
+            os.environ["XWIN_ACCEPT_LICENSE"] = "1"
+            self.assertEqual(pr.cross_windows_problems(WIN, installer=True), [])
+
+    def test_a_cache_for_another_architecture_doesnt_count(self):
+        self.set_up_everything()
+        (self.dir / "xwin" / "xwin" / "DONE").write_text("aarch64\n")
+        self.assertFalse(pr.has_xwin_crt())
+
+    # Finding the tools
+
+    def test_the_setup_folder_defaults_to_application_support(self):
+        del os.environ[pr.CROSS_WINDOWS_DIR_ENV]
+        with mock.patch.object(pr.sys, "platform", "darwin"):
+            self.assertEqual(pr.cross_windows_dir(), self.dir / "home" / "Library" /
+                             "Application Support" / "Lodestone" / "cross-windows")
+        os.environ[pr.CROSS_WINDOWS_DIR_ENV] = "~/elsewhere"
+        self.assertEqual(pr.cross_windows_dir(), self.dir / "home" / "elsewhere")
+
+    def test_homebrews_keg_only_llvm_and_lld_are_found(self):
+        brew = self.dir / "brew"
+        executable(brew / "opt" / "llvm" / "bin" / "clang-cl")
+        executable(brew / "opt" / "lld" / "bin" / "lld-link")
+        with mock.patch.object(pr, "HOMEBREW_PREFIXES", (str(brew),)):
+            self.assertEqual(pr.find_cross_tool("clang-cl"), str(brew / "opt" / "llvm" / "bin" / "clang-cl"))
+            self.assertIsNone(pr.find_cross_tool("llvm-lib"))
+            path = pr.cross_tool_path().split(os.pathsep)
+        self.assertEqual(path[1:], [str(brew / "opt" / "llvm" / "bin"), str(brew / "opt" / "lld" / "bin")])
+
+    def test_gpui_fxc_path_overrides_the_setup_folder(self):
+        self.set_up_everything()
+        own = executable(self.dir / "my-fxc")
+        os.environ["GPUI_FXC_PATH"] = str(own)
+        self.assertEqual(pr.find_fxc(), (str(own), None))
+        os.environ["GPUI_FXC_PATH"] = str(self.dir / "missing")
+        fxc, problem = pr.find_fxc()
+        self.assertIsNone(fxc)
+        self.assertIn("GPUI_FXC_PATH is", problem)
+
+    def test_iscc_is_found_in_the_setup_folder_off_windows_only(self):
+        with self.assertRaisesRegex(pr.Failure, "setup_cross_windows.py"):
+            pr.find_iscc()
+        wrapper = executable(self.cross_dir / "bin" / "iscc")
+        self.assertEqual(pr.find_iscc(), wrapper)
+        os.environ["ISCC"] = str(executable(self.dir / "own-iscc"))
+        self.assertEqual(pr.find_iscc(), self.dir / "own-iscc")
+        del os.environ["ISCC"]
+        with mock.patch.object(pr, "on_windows", lambda: True):
+            self.assertNotIn(str(wrapper), pr.iscc_candidates())
+            with self.assertRaisesRegex(pr.Failure, "winget install"):
+                pr.find_iscc()
+
+    # The builds
+
+    def cross_build(self):
+        return pr.CrossBuild(env={"TARGET_CC": "clang-cl", "PATH": "/x",
+                                  "CC_x86_64_pc_windows_msvc": "clang-cl",
+                                  "WORKSPACE": "launcher"}, fxc="/f/fxc",
+                             core_env={"TARGET_CC": "clang-cl", "PATH": "/x",
+                                       "WORKSPACE": "root"})
+
+    def built(self, calls, data=b"MZ static"):
+        def copy_built(workspace, program, target, key, copy, profile="release"):
+            copy.write_bytes(data)
+            return copy
+        return mock.patch.object(pr, "copy_built", copy_built)
+
+    def test_a_cross_build_is_the_same_cargo_command_with_cargo_xwins_environment(self):
+        calls = []
+        with mock.patch.object(pr, "run", self.fake_run(calls)), self.built(calls):
+            pr.build_binary(WIN, 9, "abc", "windows-x86_64", self.dir, True, self.cross_build())
+            pr.build_binary(WIN, 9, "abc", "windows-x86_64", self.dir, True)
+        (cross_cmd, cross_cwd, cross_env), (cmd, cwd, env) = calls
+        self.assertEqual(cross_cmd, ["cargo", "build", "--profile", "dev-build", "--locked",
+                                     "-p", "lodestone-launcher", "--target", WIN])
+        self.assertEqual((cross_cmd, cross_cwd), (cmd, cwd))
+        self.assertEqual(cross_env["TARGET_CC"], "clang-cl")
+        self.assertEqual(cross_env["GPUI_FXC_PATH"], "/f/fxc")
+        self.assertEqual(cross_env["PATH"], "/x")
+        self.assertEqual(cross_env["LODESTONE_LAUNCHER_CHANNEL"], "dev")
+        self.assertEqual(cross_env["LODESTONE_LAUNCHER_BUILD"], "9")
+        self.assertNotIn("TARGET_CC", env)
+        self.assertNotIn("GPUI_FXC_PATH", env)
+        self.assertEqual(env, {**os.environ, "LODESTONE_LAUNCHER_BUILD": "9",
+                               "LODESTONE_LAUNCHER_COMMIT": "abc",
+                               "LODESTONE_LAUNCHER_CHANNEL": "dev"})
+
+    def test_the_cores_cross_build_gets_cargo_xwins_environment_without_fxc(self):
+        calls = []
+        with mock.patch.object(pr, "run", self.fake_run(calls)), self.built(calls):
+            pr.build_core(WIN, 9, "windows-x86_64", self.dir, False, self.cross_build())
+            pr.build_core(MAC, 9, "macos-aarch64", self.dir, False)
+        (cross_cmd, cross_cwd, cross_env), (cmd, cwd, env) = calls
+        self.assertEqual(cross_cmd, pr.core_build_command("release", WIN))
+        self.assertEqual(cross_cwd, pr.ROOT)
+        self.assertEqual(cross_env["TARGET_CC"], "clang-cl")
+        self.assertEqual(cross_env["WORKSPACE"], "root")
+        self.assertNotIn("GPUI_FXC_PATH", cross_env)
+        # unchanged: the core's macOS build inherits the environment, as before
+        self.assertEqual((cmd, cwd, env), (pr.core_build_command("release", MAC), pr.ROOT, None))
+
+    def test_a_cross_build_without_the_cores_environment_is_refused(self):
+        cross = pr.CrossBuild(env={"TARGET_CC": "clang-cl"}, fxc="/f/fxc")
+        with mock.patch.object(pr, "run", self.fake_run([])), self.built([]), \
+                self.assertRaisesRegex(pr.Failure, "no cargo-xwin environment for the core"):
+            pr.build_core(WIN, 9, "windows-x86_64", self.dir, False, cross)
+
+    def test_open_with_only_a_windows_build_is_refused_before_building(self):
+        def run(cmd, cwd=pr.ROOT, env=None, quiet=True, shown=None):
+            return {"rev-parse": "abc1234def", "rev-list": "9"}.get(cmd[1], "")
+
+        def refuse(*args, **kwargs):
+            raise AssertionError("started the build")
+        with mock.patch.object(pr, "run", run), \
+                mock.patch.object(pr, "workspace_version", lambda: "0.1.0"), \
+                mock.patch.object(pr, "host_target", lambda: MAC), \
+                mock.patch.object(pr, "cross_windows_builds", refuse), \
+                mock.patch.object(pr, "stage", refuse), \
+                self.assertRaises(pr.Failure) as raised:
+            pr.main(["--dev", "--dry-run", "--open", "--allow-dirty", "--target", WIN])
+        message = str(raised.exception)
+        self.assertIn("nothing to open", message)
+        self.assertIn("Drop --open", message)
+        self.assertIn("tested on Windows", message)
+
+    def test_a_cross_build_that_needs_vcruntime_is_refused(self):
+        with mock.patch.object(pr, "run", self.fake_run([])), \
+                self.built([], b"MZ ... VCRUNTIME140.dll ..."), \
+                self.assertRaisesRegex(pr.Failure, "links the C runtime dynamically"):
+            pr.build_binary(WIN, 9, "abc", "windows-x86_64", self.dir, False, self.cross_build())
+
+    def test_mixed_targets_each_get_only_their_own_environment(self):
+        pr.use_product("host")
+        self.addCleanup(pr.use_product, "launcher")
+        seen = []
+
+        def build_binary(target, build, commit, key, into, dev=False, cross=None):
+            seen.append(("app", target, cross))
+            path = into / pr.asset_name(build, key)
+            path.write_bytes(b"app")
+            return path
+
+        def build_core(target, build, key, into, dev=False, cross=None):
+            seen.append(("core", target, cross))
+            path = into / pr.core_name(build, key)
+            path.write_bytes(b"core")
+            return path
+
+        def build_dmg(app, name, identity, into):
+            (into / name).write_bytes(b"dmg")
+            return into / name
+
+        cross = {WIN: self.cross_build()}
+        with mock.patch.object(pr, "build_binary", build_binary), \
+                mock.patch.object(pr, "build_core", build_core), \
+                mock.patch.object(pr, "host_target", lambda: MAC), \
+                mock.patch.object(pr, "codesign", lambda *a, **k: None), \
+                mock.patch.object(pr, "build_app", lambda *a, **k: self.dir / "app"), \
+                mock.patch.object(pr, "build_dmg", build_dmg), \
+                mock.patch.object(pr, "notarize", lambda dmg: False):
+            record = pr.stage([MAC, WIN], 9, "abc", "0.1.0", self.dir / "stage", False, True,
+                              cross)
+        self.assertEqual(seen, [("app", MAC, None), ("core", MAC, None),
+                                ("app", WIN, cross[WIN]), ("core", WIN, cross[WIN])])
+        self.assertEqual(set(record["assets"]), {"macos-aarch64", "windows-x86_64"})
 
 
 def staged_dev(folder, build, keys, commit="abc1234def", extras=()):

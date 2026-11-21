@@ -28,7 +28,8 @@ Host to a commit's build and debug it; users never get them. Each commit's build
 its own release, `launcher-dev-<build>-<commit>` (`host-dev-...`), which is
 published at once as a pre-release, by `publish_release.py --dev`. They're built
 locally, never on GitHub's machines (they cost money): each developer builds their
-own platform, so a Mac developer makes the Mac build. Only copies with
+own platform, so a Mac developer makes the Mac build, and can make the Windows build
+too (`launcher/docs/cross-windows.md`), tested on Windows before it's uploaded. Only copies with
 Settings › Updates › **Developer builds** on read them, and that setting only shows
 in a developer build or once it's on. Only the newest 5 of each product's are kept.
 Make one only when a developer asks for it.
@@ -55,7 +56,8 @@ Make one only when a developer asks for it.
   launcher commits since the newest release, for the developer to confirm.
 - **"Build and release the latest version"**: add this machine's build to the open
   draft. `--find-draft` shows it (version, commit, platforms it has and lacks).
-  Build its commit in a worktree with `--dry-run --tag draft --open`, test the
+  Build its commit in a worktree with `--dry-run --tag draft --open` (no `--open`
+  for a Windows build made on a Mac, which is tested on Windows), test the
   opened copy in the background with `launcher/scripts/ui_drive` (see "Testing the
   launcher's and Host's UI"; otherwise hand it to the developer and wait for their
   go-ahead), then upload with `--tag draft`.
@@ -76,7 +78,18 @@ Make one only when a developer asks for it.
   `--target`) and adds it to the draft. It needs a clean checkout of the tagged
   commit, the Rust toolchain, and `gh` signed in with write access. On Windows it
   also builds the installer, which needs Inno Setup 6.
-- **Test a locally built release on this machine first.** The dry run
+- **A Mac builds Windows too**, with `--target x86_64-pc-windows-msvc`: the
+  standalone exe (the Host's core too) and the installer, for versions and developer
+  builds. `python3 launcher/scripts/setup_cross_windows.py` sets the Mac up once
+  (cargo-xwin, Wine, fxc.exe, Inno Setup), and the script finds what it installed;
+  Microsoft's C runtime and SDK are only downloaded with `--accept-microsoft-license`,
+  which is the developer's call. A Mac can't run the result: test it on Windows (a
+  Windows 11 on Arm VM in VMware Fusion with `ui_drive.ps1` day to day, a real x64 PC for
+  a release's final check) before uploading, or hand it to a developer who has
+  Windows and wait for their go-ahead. `launcher/docs/cross-windows.md` has the
+  details.
+- **Test a locally built release first**, on this machine (on Windows, for a
+  Windows build made on a Mac). The dry run
   (`--dry-run --tag ...`) stages the build and prints copies to test: run one and
   check it works (window, instances, Settings › General › Updates showing the new
   build, launching a game). Then upload from the same unchanged checkout; the
@@ -117,6 +130,9 @@ asks for it.
 - **Each build is two programs:** the Host and the Lodestone Core it runs, built from
   the root workspace with `--no-default-features`. Never build or ship Deno: core no
   longer has it, but commits before its removal still have a default `deno` feature.
+- **A Mac builds the Host's Windows build too** (`--product host --target
+  x86_64-pc-windows-msvc`: the Host, its core and the installer), the launcher's way
+  (`launcher/docs/cross-windows.md`), and it is tested on Windows before uploading.
 - **"Host - Release"** (`.github/workflows/host-release.yml`) runs by hand only, with
   `tag` and `channel` (`beta` or `stable`, which must match the tag), and builds macOS
   and Windows into the draft. **Host - macOS app** builds the Mac app on its own.

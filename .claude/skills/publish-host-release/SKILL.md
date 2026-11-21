@@ -69,6 +69,19 @@ the script --product host --tag host-v0.6.0 --promote-from host-v0.6.0-beta.1
 On a Mac, add `--target aarch64-apple-darwin --target x86_64-apple-darwin` to the dry
 run and the upload to put both architectures in the app.
 
+A Mac builds the Host's Windows build too, with `--target x86_64-pc-windows-msvc`: the
+Host, its core (with the static C runtime) and `LodestoneHostSetup.exe`. Set up and test
+it as "Windows builds from a Mac" in the launcher's skill says
+(`launcher/docs/cross-windows.md`): the Mac can't run it, so it's tested on Windows (a
+Windows 11 on Arm VM in VMware Fusion with `ui_drive.ps1`, a real x64 PC for a release)
+before it's uploaded; leave out `--open` for a Windows-only run. Never start a
+Minecraft server there either.
+
+```bash
+the script --product host --dev --dry-run --target x86_64-pc-windows-msvc
+the script --product host --dev --target x86_64-pc-windows-msvc   # once it's tested on Windows
+```
+
 ## Developer builds
 
 The Host has developer builds too, made the launcher's way (see "Developer builds" in

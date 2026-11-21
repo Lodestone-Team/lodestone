@@ -36,7 +36,9 @@ then do launchers see it.
 - **Tags are never moved.** A version names one commit for good. A different
   commit is a different version.
 - **Test before uploading.** Every build uploaded from this machine is tested
-  first (see "Testing on this machine").
+  first (see "Testing on this machine"). That section and `--open` cover only this
+  machine's own build: a Windows build made on a Mac is tested on Windows ("Windows
+  builds from a Mac").
 
 Launchers compare **build numbers**: the commit count (`git rev-list --count`) of
 the commit built. They take the published release of their channel whose file for
@@ -60,6 +62,14 @@ is about the launcher.
 - On a Mac, Xcode's command line tools. Signing and notarizing need
   `LODESTONE_MACOS_SIGN_IDENTITY`, `APPLE_ID`, `APPLE_TEAM_ID` and
   `APPLE_APP_PASSWORD`; without them the build is signed ad hoc (say so).
+- For a Windows build on a Mac ("Windows builds from a Mac" below), what
+  `launcher/scripts/setup_cross_windows.py` installs. `--check` shows whether it's
+  there; ask before running it without `--check`: it installs Homebrew's llvm, lld
+  and msitools (llvm is about 1.8 GB installed), builds cargo-xwin, and downloads
+  about 190 MB more; the setup folder ends up at about 1.5 GB. Never pass
+  `--accept-microsoft-license` unless the developer says they accept Microsoft's
+  license terms: with it, it downloads the Windows SDK tools (fxc.exe, about 100 MB)
+  and cargo-xwin's C runtime and SDK libraries (about 1.1 GB).
 - A way to test the build: `launcher/scripts/ui_drive.ps1` (Windows, nothing to
   set up) or `ui_drive.swift` (macOS, with Accessibility and Screen Recording
   allowed), or the developer at the machine.
@@ -154,7 +164,9 @@ branch first) and makes the draft.
 Give the release's URL, the platforms it has now and still lacks (`the script
 --find-draft launcher-vX.Y.Z`), and how this build was tested. CI's builds aren't
 tested the way this one was; say so, and suggest the developer who publishes tries
-them first. Finish with: a developer publishes it on GitHub once every platform is
+them first. A Windows build made on a Mac still needs its final check on a real x64
+PC before it's published; say that too, and anything its test left out (such as
+launching a game in the VM). Finish with: a developer publishes it on GitHub once every platform is
 in, writing the notes in its "What's new" section, with "Set as the latest release"
 left off (that's Host's).
 
@@ -199,6 +211,49 @@ tag goes on the beta's commit, and its draft gets the beta's files byte for byte
 checked against the beta's `latest.json`. The beta must be published. The stable
 draft is then published by hand like any other.
 
+## Windows builds from a Mac
+
+A Mac builds the Windows x64 build as well, versions and developer builds alike, with
+the installer: add `--target x86_64-pc-windows-msvc` to the dry run and to the upload.
+`launcher/docs/cross-windows.md` has how it works and how to set it up.
+
+- **Setting up:** `python3 launcher/scripts/setup_cross_windows.py --check`. If it isn't
+  ready, ask the developer before running it without `--check`. Microsoft's C runtime
+  and SDK libraries and the Windows SDK's fxc.exe are only downloaded with
+  `--accept-microsoft-license`: tell the developer what that is (Microsoft's license
+  terms for the C runtime and SDK libraries,
+  https://go.microsoft.com/fwlink/?LinkId=2086102, and the Windows SDK's,
+  https://developer.microsoft.com/windows/downloads/windows-sdk/) and let them decide.
+  The script finds everything it installed; nothing needs setting (with `--dir`, set the
+  variable the setup script prints).
+- **Building:** `the script --dev --dry-run --target x86_64-pc-windows-msvc` (a Mac can
+  add its own `--target aarch64-apple-darwin --target x86_64-apple-darwin` to the same
+  run). Drop `--open` for a Windows-only run (the script refuses it before building:
+  there's nothing to open on the Mac); with Mac targets too, `--open` opens only the Mac
+  copy. If something is missing, it stops before building with one message naming it
+  and the setup script. It refuses a program that would need VCRUNTIME140.dll; don't
+  work around that.
+- **Testing:** the Mac can't run it, and "Testing on this machine" doesn't apply to it.
+  Test it on Windows before uploading: in a Windows 11 on Arm VM (VMware Fusion, free,
+  with Direct3D 11; x64 runs through Prism), driven from the Mac with `vmrun
+  runProgramInGuest -interactive` and `ui_drive.ps1` as "Testing in the VM from the Mac"
+  in `launcher/docs/cross-windows.md` says, with the usual checklist and the installer.
+  Launching a game needs an instance and account the developer prepared in the VM;
+  without them, say in the report that it wasn't checked. Without a reachable VM, hand
+  the test files to a developer with Windows and wait for their go-ahead. Wine can't run
+  it (no `icuuc.dll`).
+- **Uploading:** `the script --dev --target x86_64-pc-windows-msvc` (or `--tag ...`),
+  with the same `--target` options as the dry run. A version's draft then has this
+  Windows build, and CI leaves it alone if it's there before CI's Windows build
+  finishes; say so in the report, and that it still needs its final check on a real
+  x64 PC before a developer publishes it.
+- **The draft already has `windows-x86_64`** (usually CI's untested build): the dry run
+  refuses. Stop and say so; replace it with `--force` only when the developer asks, as
+  in step 2. To keep CI's Windows build out of a new version, a developer runs
+  "Launcher - Release" by hand with the tag, the commit and `platforms: macos` (the
+  tag the workflow makes doesn't start another run); pushing the tag or `--start`
+  builds both.
+
 ## Developer builds
 
 "Make a dev build of my branch", "release a dev build so I can update to it": a
@@ -238,8 +293,11 @@ To make one:
 1. **From this machine,** in a clean checkout of the pushed commit:
    `the script --dev --dry-run --open` (on a Mac, with `--target
    aarch64-apple-darwin --target x86_64-apple-darwin`), test the opened copy as in
-   "Testing on this machine", then `the script --dev` to upload exactly that build.
-   It joins the same commit's release if another developer made it already.
+   "Testing on this machine", then `the script --dev` (with the same `--target`
+   options) to upload exactly that build.
+   It joins the same commit's release if another developer made it already. A Mac
+   can make the commit's Windows build too ("Windows builds from a Mac"), tested on
+   Windows before it's uploaded.
 2. **Report** the release's URL, which platforms it has, and that the others come
    from developers on those platforms running the same commands on that commit.
    Tell the developer to install it and turn on Developer builds if they haven't.
@@ -264,7 +322,10 @@ build by hand to try it.
   - `--tag VERSION`: uploads the tested build. `--force` replaces a platform the
     release already has, or uploads a build launchers wouldn't take.
   - A Mac builds both architectures with `--target aarch64-apple-darwin --target
-    x86_64-apple-darwin`.
+    x86_64-apple-darwin`, and Windows x64 with `--target x86_64-pc-windows-msvc`
+    once `setup_cross_windows.py` has set it up.
+- `launcher/scripts/setup_cross_windows.py`: sets a Mac up for Windows builds
+  (`--check` to look, `--accept-microsoft-license` for Microsoft's C runtime and SDK).
 - `.github/workflows/launcher-release.yml`, "Launcher - Release": runs on a pushed
   `launcher-v*` tag, or by hand with `tag`, optional `commit` (the pin),
   `platforms` (`all`, `macos`, `windows`, `none`) and `promote_from`. It makes the
@@ -424,5 +485,6 @@ macOS app" (`launcher-macos-app.yml`, with an optional `ref`).
 Platform keys follow Rust's names: `windows-x86_64`, `macos-aarch64`,
 `macos-x86_64`, `linux-x86_64`, and so on.
 
-The script's own tests: `python3 launcher/scripts/test_publish_release.py`. The
+The script's own tests: `python3 launcher/scripts/test_publish_release.py` (and
+`test_setup_cross_windows.py` for the setup script). The
 updater's: `cargo test -p launcher-core --lib update::` in `launcher/`.

@@ -57,6 +57,14 @@ builds macOS and Windows into the same draft.
 `--target` builds for a Rust target other than this machine's (a Mac builds both
 `aarch64-apple-darwin` and `x86_64-apple-darwin`, and the app holds both).
 
+A Mac (or Linux) builds Windows too, with `--target x86_64-pc-windows-msvc`: the
+cargo builds for it run with cargo-xwin's environment (clang-cl, lld-link and
+Microsoft's C runtime and SDK libraries), GPUI's shaders compile with Microsoft's
+fxc.exe under Wine, and the installer with Inno Setup under Wine.
+`launcher/scripts/setup_cross_windows.py` installs all of it, into a folder this
+script finds by itself; see launcher/docs/cross-windows.md. Its builds can't be
+tested on the Mac: test them on Windows before uploading them.
+
 On macOS the binaries, the app and the disk image are signed with the identity in
 LODESTONE_MACOS_SIGN_IDENTITY (a "Developer ID Application" certificate), or
 ad hoc without one. With APPLE_ID, APPLE_TEAM_ID and APPLE_APP_PASSWORD set too,
@@ -74,7 +82,8 @@ Host as its `core`. The Windows installer and "Lodestone Host.app" hold both. Se
 
 Needs Python 3.9+, the Rust toolchain, and the GitHub CLI (`gh`) signed in with
 write access to the repository; on Windows also Inno Setup 6 (`winget install
---id JRSoftware.InnoSetup -e --scope user`). Uses only the standard library.
+--id JRSoftware.InnoSetup -e --scope user`), and for Windows builds on a Mac what
+`setup_cross_windows.py` installs. Uses only the standard library.
 """
 
 from __future__ import annotations
@@ -86,6 +95,7 @@ import json
 import os
 import plistlib
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -805,20 +815,27 @@ def cargo_profile(dev: bool) -> str:
 
 
 def build_binary(target: str | None, build: int, commit: str, key: str, into: Path,
-                 dev: bool = False) -> Path:
+                 dev: bool = False, cross: CrossBuild | None = None) -> Path:
     """Builds the app for `target` (None: this machine); returns a copy named for upload.
-    A developer build (`dev`) has the dev channel compiled in, and its own profile."""
+    A developer build (`dev`) has the dev channel compiled in, and its own profile.
+    `cross` is a Windows build on another system: the same cargo command, with
+    cargo-xwin's environment and GPUI's fxc."""
     env = dict(os.environ, **{PRODUCT.build_env: str(build), PRODUCT.commit_env: commit})
     env.pop(PRODUCT.channel_env, None)
     if dev:
         env[PRODUCT.channel_env] = DEV_CHANNEL
+    if cross:
+        env.update(cross.gpui_env())
     profile = cargo_profile(dev)
     cmd = ["cargo", "build", "--profile", profile, "--locked", "-p", PRODUCT.package]
     if target:
         cmd += ["--target", target]
     run(cmd, cwd=LAUNCHER, env=env, quiet=False)
-    return copy_built(LAUNCHER, PRODUCT.package, target, key, into / asset_name(build, key),
+    copy = copy_built(LAUNCHER, PRODUCT.package, target, key, into / asset_name(build, key),
                       profile)
+    if cross:
+        check_static_crt(copy)
+    return copy
 
 
 # Links the core's C runtime statically on Windows (MSVC), as launcher/.cargo/config.toml
@@ -843,12 +860,20 @@ def core_build_command(profile: str, target: str | None) -> list[str]:
     return cmd
 
 
-def build_core(target: str | None, build: int, key: str, into: Path, dev: bool = False) -> Path:
+def build_core(target: str | None, build: int, key: str, into: Path, dev: bool = False,
+               cross: CrossBuild | None = None) -> Path:
     """Builds Lodestone Core, which the Host runs, for `target`, from the repository's
-    root workspace, with `--no-default-features`."""
+    root workspace, with `--no-default-features`. `cross` as for `build_binary`, with
+    cargo-xwin's environment for the root workspace (`CrossBuild.core_env`)."""
     profile = cargo_profile(dev)
-    run(core_build_command(profile, target), cwd=ROOT, quiet=False)
-    return copy_built(ROOT, CORE_PACKAGE, target, key, into / core_name(build, key), profile)
+    if cross and not cross.core_env:
+        raise Failure("there's no cargo-xwin environment for the core's Windows build")
+    env = dict(os.environ, **cross.core_env) if cross else None
+    run(core_build_command(profile, target), cwd=ROOT, env=env, quiet=False)
+    copy = copy_built(ROOT, CORE_PACKAGE, target, key, into / core_name(build, key), profile)
+    if cross:
+        check_static_crt(copy)
+    return copy
 
 
 def copy_built(workspace: Path, program: str, target: str | None, key: str, copy: Path,
@@ -873,17 +898,31 @@ def cargo_target_dir() -> Path:
     return Path(metadata["target_directory"])
 
 
-def find_iscc() -> Path:
-    """Inno Setup's compiler: $ISCC, on PATH, or where winget and its installer put it."""
+def iscc_candidates() -> list[str | None]:
+    """Where Inno Setup's compiler may be: $ISCC, on PATH, where winget and its installer
+    put it, and off Windows the wrapper setup_cross_windows.py writes (ISCC under Wine)."""
     candidates = [os.environ.get("ISCC"), shutil.which("iscc")]
     for variable in ("LOCALAPPDATA", "ProgramFiles(x86)", "ProgramFiles"):
         base = os.environ.get(variable)
         if base:
             programs = Path(base) / "Programs" if variable == "LOCALAPPDATA" else Path(base)
             candidates.append(str(programs / "Inno Setup 6" / "ISCC.exe"))
-    for candidate in candidates:
+    if not on_windows():
+        candidates.append(str(cross_windows_dir() / "bin" / "iscc"))
+    return candidates
+
+
+def find_iscc() -> Path:
+    """Inno Setup's compiler (`iscc_candidates`)."""
+    for candidate in iscc_candidates():
         if candidate and Path(candidate).is_file():
             return Path(candidate)
+    if not on_windows():
+        raise Failure(
+            "Inno Setup isn't set up on this machine, and Windows releases include an "
+            f"installer. Set it up with `{SETUP_CROSS_WINDOWS}` (launcher/docs/cross-windows.md), "
+            "or pass --no-installer"
+        )
     raise Failure(
         "Inno Setup isn't installed, and Windows releases include an installer. Install it with "
         "`winget install --id JRSoftware.InnoSetup -e --scope user`, or pass --no-installer"
@@ -903,6 +942,277 @@ def build_installer(exe: Path, build: int, version: str, key: str, into: Path,
         raise Failure(f"Inno Setup finished but {installer} is missing")
     return installer
 
+
+# ---------------------------------------------------------------------------
+# Windows builds from a Mac (launcher/docs/cross-windows.md)
+#
+# On a system other than Windows, a build for x86_64-pc-windows-msvc runs the same
+# cargo commands with cargo-xwin's environment (`cargo xwin env`): clang-cl and
+# lld-link with Microsoft's C runtime and Windows SDK libraries, which cargo-xwin
+# keeps in its cache. GPUI compiles its HLSL shaders with Microsoft's fxc.exe, which
+# runs under Wine (GPUI_FXC_PATH), and the installer is built by Inno Setup's
+# compiler under Wine. setup_cross_windows.py installs all of it into
+# `cross_windows_dir()`, where this script finds it; only these builds get that
+# environment, so macOS builds in the same run are unchanged.
+
+# The only Windows target this builds from another system: the one Windows users run.
+CROSS_WINDOWS_TARGET = "x86_64-pc-windows-msvc"
+# Where setup_cross_windows.py puts Wine, fxc, Inno Setup and their wrappers
+# (`bin/fxc`, `bin/iscc`): `cross_windows_dir()`, which that script uses too.
+CROSS_WINDOWS_DIR_ENV = "LODESTONE_CROSS_WINDOWS_DIR"
+SETUP_CROSS_WINDOWS = "python3 launcher/scripts/setup_cross_windows.py"
+CARGO_XWIN_VERSION = "0.23.1"
+# The cross toolchain's programs, and the Homebrew formula that has each. Homebrew's
+# llvm and lld are keg-only, so they aren't on PATH unless the developer put them there.
+CROSS_TOOLS = {"clang-cl": "llvm", "llvm-lib": "llvm", "lld-link": "lld"}
+HOMEBREW_PREFIXES = ("/opt/homebrew", "/usr/local")
+# What Microsoft's C runtime and SDK libraries are licensed under; cargo-xwin
+# downloads them without asking, so this script asks for the license first.
+MICROSOFT_LICENSE = "https://go.microsoft.com/fwlink/?LinkId=2086102"
+# `cargo xwin env` sets RUSTFLAGS to "", which replaces every rustflags setting in
+# cargo's config, among them the static C runtime (launcher/.cargo/config.toml,
+# CORE_CARGO_CONFIG): the programs would need VCRUNTIME140.dll. It's left out.
+XWIN_ENV_LEFT_OUT = ("RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS")
+
+
+@dataclass(frozen=True)
+class CrossBuild:
+    """How to build for a Windows target on another system."""
+    # cargo-xwin's environment for the launcher's workspace (the launcher's and Host's
+    # build). cargo-xwin bakes the workspace's config rustflags into it, so it's only
+    # for that workspace.
+    env: dict
+    # GPUI's shader compiler (fxc.exe under Wine), for the launcher's and Host's build.
+    fxc: str
+    # cargo-xwin's environment for the root workspace (the core's build, for the Host):
+    # with the static C runtime, and without the launcher's flags.
+    core_env: dict | None = None
+
+    def gpui_env(self) -> dict:
+        return dict(self.env, GPUI_FXC_PATH=self.fxc)
+
+
+def on_windows() -> bool:
+    return os.name == "nt"
+
+
+def is_cross_windows(target: str | None) -> bool:
+    """A Windows target built on another system."""
+    return bool(target) and "windows" in target and not on_windows()
+
+
+def cross_windows_dir() -> Path:
+    """The folder setup_cross_windows.py set up: $LODESTONE_CROSS_WINDOWS_DIR, or
+    ~/Library/Application Support/Lodestone/cross-windows (elsewhere than macOS,
+    ~/.local/share/Lodestone/cross-windows)."""
+    override = os.environ.get(CROSS_WINDOWS_DIR_ENV, "").strip()
+    if override:
+        return Path(override).expanduser()
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "Lodestone" / "cross-windows"
+    data = os.environ.get("XDG_DATA_HOME", "").strip()
+    return (Path(data) if data else Path.home() / ".local" / "share") / "Lodestone" / "cross-windows"
+
+
+def xwin_cache_dir() -> Path:
+    """cargo-xwin's cache: $XWIN_CACHE_DIR, or the system's cache folder's cargo-xwin."""
+    override = os.environ.get("XWIN_CACHE_DIR", "").strip()
+    if override:
+        return Path(override).expanduser()
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Caches" / "cargo-xwin"
+    cache = os.environ.get("XDG_CACHE_HOME", "").strip()
+    return (Path(cache) if cache else Path.home() / ".cache") / "cargo-xwin"
+
+
+def has_xwin_crt() -> bool:
+    """Whether cargo-xwin has downloaded the C runtime and SDK for x86_64: its `DONE`
+    file's first line lists the architectures it has."""
+    try:
+        first = (xwin_cache_dir() / "xwin" / "DONE").read_text(encoding="utf-8").splitlines()[0]
+    except (OSError, IndexError):
+        return False
+    return "x86_64" in first.split()
+
+
+def find_cross_tool(name: str, path: str | None = None) -> str | None:
+    """A cross toolchain program (CROSS_TOOLS): on PATH, or in its Homebrew formula."""
+    found = shutil.which(name, path=path)
+    if found:
+        return found
+    prefixes = [os.environ.get("HOMEBREW_PREFIX", "").strip(), *HOMEBREW_PREFIXES]
+    for prefix in filter(None, prefixes):
+        candidate = Path(prefix) / "opt" / CROSS_TOOLS[name] / "bin" / name
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
+    return None
+
+
+def find_cargo_xwin(path: str | None = None) -> str | None:
+    """cargo-xwin, where cargo looks for subcommands: on PATH, or in $CARGO_HOME/bin."""
+    found = shutil.which("cargo-xwin", path=path)
+    if found:
+        return found
+    home = os.environ.get("CARGO_HOME", "").strip()
+    candidate = (Path(home) if home else Path.home() / ".cargo") / "bin" / "cargo-xwin"
+    return str(candidate) if candidate.is_file() else None
+
+
+def find_fxc() -> tuple[str | None, str | None]:
+    """GPUI's shader compiler: $GPUI_FXC_PATH, or the wrapper setup_cross_windows.py
+    wrote. Returns it, or a problem."""
+    configured = os.environ.get("GPUI_FXC_PATH", "").strip()
+    if configured:
+        if Path(configured).is_file():
+            return configured, None
+        return None, f"GPUI_FXC_PATH is {configured}, which doesn't exist"
+    wrapper = cross_windows_dir() / "bin" / "fxc"
+    if wrapper.is_file():
+        return str(wrapper), None
+    return None, (f"fxc.exe, which compiles GPUI's shaders, isn't set up: there's no {wrapper}, "
+                  "and GPUI_FXC_PATH isn't set")
+
+
+def has_rust_target(target: str) -> bool:
+    """Whether the repository's Rust toolchain has `target`'s standard library."""
+    try:
+        sysroot = run(["rustc", "--print", "sysroot"], cwd=LAUNCHER)
+    except Failure:
+        return False
+    return (Path(sysroot) / "lib" / "rustlib" / target / "lib").is_dir()
+
+
+def cross_tool_path() -> str:
+    """PATH, with the folders of the cross toolchain's programs it lacks after it."""
+    path = os.environ.get("PATH", "")
+    folders = path.split(os.pathsep) if path else []
+    extra = []
+    for name in CROSS_TOOLS:
+        found = find_cross_tool(name, path)
+        if found and str(Path(found).parent) not in folders + extra:
+            extra.append(str(Path(found).parent))
+    xwin = find_cargo_xwin(path)
+    if xwin and str(Path(xwin).parent) not in folders + extra:
+        extra.append(str(Path(xwin).parent))
+    return os.pathsep.join(folders + extra)
+
+
+def cross_windows_problems(target: str, installer: bool) -> list[str]:
+    """What's missing to build `target` on this system, one line each."""
+    problems = []
+    if not find_cargo_xwin():
+        problems.append(f"cargo-xwin isn't installed (`cargo install --locked cargo-xwin "
+                        f"--version {CARGO_XWIN_VERSION}`)")
+    for name, formula in CROSS_TOOLS.items():
+        if not find_cross_tool(name):
+            problems.append(f"{name} isn't on PATH or in Homebrew's {formula} "
+                            f"(`brew install {formula}`)")
+    if not has_rust_target(target):
+        problems.append(f"the Rust toolchain has no {target} target "
+                        f"(`rustup target add {target}`, in this checkout)")
+    if not has_xwin_crt() and not os.environ.get("XWIN_ACCEPT_LICENSE"):
+        problems.append(
+            "Microsoft's C runtime and Windows SDK libraries, which the build links against, "
+            f"aren't downloaded. They're under Microsoft's license ({MICROSOFT_LICENSE}): "
+            "once the developer has read and accepted it, run the setup script with "
+            "--accept-microsoft-license"
+        )
+    _, fxc_problem = find_fxc()
+    if fxc_problem:
+        problems.append(fxc_problem)
+    if installer and not any(c and Path(c).is_file() for c in iscc_candidates()):
+        problems.append(
+            f"Inno Setup isn't set up: there's no {cross_windows_dir() / 'bin' / 'iscc'}, and "
+            "ISCC isn't set (or pass --no-installer)"
+        )
+    for name in XWIN_ENV_LEFT_OUT:
+        if os.environ.get(name):
+            problems.append(f"{name} is set: it would replace the flags that link the C runtime "
+                            "statically, so the programs would need VCRUNTIME140.dll. Unset it")
+    return problems
+
+
+def parse_xwin_env(text: str) -> dict:
+    """The variables `cargo xwin env` prints (`export NAME="value";` lines), without
+    XWIN_ENV_LEFT_OUT."""
+    env = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if not line.startswith("export "):
+            continue
+        for word in shlex.split(line.rstrip(";"))[1:]:
+            name, sep, value = word.partition("=")
+            if sep and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+                env[name] = value
+    for name in XWIN_ENV_LEFT_OUT:
+        env.pop(name, None)
+    return env
+
+
+# The core's flags for `cargo xwin env` in the root workspace, which has no rustflags
+# config of its own (CORE_CARGO_CONFIG is passed to the build, not read by cargo-xwin).
+# cargo-xwin only links the static C runtime's libucrt (-defaultlib:libucrt) when it
+# sees +crt-static in the rustflags it reads, and folds them into
+# CARGO_TARGET_<triple>_RUSTFLAGS.
+CORE_XWIN_RUSTFLAGS = "-C target-feature=+crt-static"
+
+
+def xwin_env(target: str, workspace: Path = LAUNCHER, rustflags: str | None = None) -> dict:
+    """cargo-xwin's environment for building `target` with plain cargo in `workspace`.
+    cargo-xwin reads that workspace's config rustflags (and `rustflags`, if given) into
+    CARGO_TARGET_<triple>_RUSTFLAGS, so the environment is for that workspace only."""
+    path = cross_tool_path()
+    if not has_xwin_crt():
+        step("cargo-xwin is downloading Microsoft's C runtime and Windows SDK libraries "
+             "(XWIN_ACCEPT_LICENSE is set)")
+    call_env = dict(os.environ, PATH=path)
+    for name in XWIN_ENV_LEFT_OUT:
+        call_env.pop(name, None)
+    if rustflags:
+        call_env["RUSTFLAGS"] = rustflags
+    out = run(["cargo", "xwin", "env", "--target", target], cwd=workspace, env=call_env)
+    env = parse_xwin_env(out)
+    if not any(name.startswith("CARGO_TARGET_") and name.endswith("_LINKER") for name in env):
+        raise Failure(f"`cargo xwin env --target {target}` didn't print a linker:\n{out}")
+    env.setdefault("PATH", path)
+    return env
+
+
+def cross_windows_builds(targets: list[str | None], installer: bool) -> dict[str, CrossBuild]:
+    """The environment for each target built for Windows on this other system, after
+    checking everything it needs is there; empty when there's none (on Windows, or with
+    no Windows target), without running anything."""
+    wanted = sorted({t for t in targets if t and is_cross_windows(t)})
+    if not wanted:
+        return {}
+    other = [t for t in wanted if t != CROSS_WINDOWS_TARGET]
+    if other:
+        raise Failure(f"only {CROSS_WINDOWS_TARGET} builds on a system other than Windows, "
+                      f"not {', '.join(other)}")
+    target = CROSS_WINDOWS_TARGET
+    problems = cross_windows_problems(target, installer)
+    if problems:
+        raise Failure(
+            f"this machine can't build {key_for_target(target)} yet:\n"
+            + "\n".join(f"  - {problem}" for problem in problems)
+            + f"\nSet it up with `{SETUP_CROSS_WINDOWS}` (launcher/docs/cross-windows.md); "
+            f"it installs everything into {cross_windows_dir()}, where this script finds it."
+        )
+    fxc, _ = find_fxc()
+    env = xwin_env(target)
+    core_env = xwin_env(target, ROOT, CORE_XWIN_RUSTFLAGS) if PRODUCT.core else None
+    return {target: CrossBuild(env=env, fxc=fxc, core_env=core_env)}
+
+
+def check_static_crt(path: Path) -> None:
+    """Refuses a Windows program that needs the Visual C++ Redistributable's
+    VCRUNTIME140.dll, which a fresh Windows install doesn't have."""
+    if b"vcruntime140.dll" in path.read_bytes().lower():
+        raise Failure(
+            f"{path.name} links the C runtime dynamically (it imports VCRUNTIME140.dll), so it "
+            "wouldn't start on a fresh Windows install. Something replaced the build's "
+            "rustflags (RUSTFLAGS?); unset it and build again"
+        )
 
 # ---------------------------------------------------------------------------
 # macOS: signing, the app and its disk image
@@ -1138,11 +1448,14 @@ def notarize(dmg: Path) -> bool:
 
 
 def stage(targets: list[str | None], build: int, commit: str, version: str, into: Path,
-          installer: bool = True, dev: bool = False) -> dict:
+          installer: bool = True, dev: bool = False,
+          cross: dict[str, CrossBuild] | None = None) -> dict:
     """Builds everything to publish into `into`, with STAGE_RECORD describing it.
 
     `None` in `targets` is this machine's own target. `dev` makes a developer build,
-    which only goes to a developer build's release."""
+    which only goes to a developer build's release. `cross` has the environment of
+    each target built for Windows from another system (`cross_windows_builds`); the
+    other targets build without it."""
     into.mkdir(parents=True, exist_ok=True)
     host = host_target()
     record: dict = {"product": PRODUCT.key, "build": build, "commit": commit,
@@ -1155,11 +1468,12 @@ def stage(targets: list[str | None], build: int, commit: str, version: str, into
         key = key_for_target(target or host)
         profile = cargo_profile(dev)
         step(f"Building {PRODUCT.name} for {key} ({profile})")
-        binary = build_binary(target, build, commit, key, into, dev)
+        cross_build = (cross or {}).get(target) if target else None
+        binary = build_binary(target, build, commit, key, into, dev, cross_build)
         core = None
         if PRODUCT.core:
             step(f"Building Lodestone Core for {key} ({profile})")
-            core = build_core(target, build, key, into, dev)
+            core = build_core(target, build, key, into, dev, cross_build)
         if key.startswith("macos-"):
             if not host.endswith("apple-darwin"):
                 raise Failure("macOS builds are signed and bundled on a Mac")
@@ -2406,13 +2720,22 @@ def main(argv: list[str]) -> int:
         note = tag_version_note(args.tag, version)
         if note:
             print(f"    Note: {note}")
+    if args.open and key_for_target(host_target()) not in keys:
+        raise Failure(
+            f"--open opens this machine's ({key_for_target(host_target())}) test copy, and "
+            f"this dry run only builds {', '.join(keys)}: there'd be nothing to open. "
+            "Drop --open; a Windows build made here is tested on Windows "
+            "(launcher/docs/cross-windows.md)"
+        )
     installer = not args.no_installer
+    # Windows builds on a Mac: check the tools are there before the long build.
+    cross = cross_windows_builds(targets, installer) if not publishing else {}
     if installer and any(has_installer(key) for key in keys):
         find_iscc()  # before the long build, not after it
 
     if args.stage:
         record = stage(targets, build, commit, version, args.stage.resolve(), installer,
-                       args.dev)
+                       args.dev, cross)
         step(f"Staged build {build} in {args.stage}:")
         for name in record["files"]:
             print(f"    {name}")
@@ -2420,7 +2743,8 @@ def main(argv: list[str]) -> int:
 
     if local:
         with tempfile.TemporaryDirectory() as tmp:
-            record = stage(targets, build, commit, version, Path(tmp), installer, args.dev)
+            record = stage(targets, build, commit, version, Path(tmp), installer, args.dev,
+                           cross)
             folder = Folder(args.output.resolve())
             manifest = publish(folder, [(Path(tmp), record)], args.force)
         step(f"Published build {build} into {folder.url()}")
@@ -2435,7 +2759,7 @@ def main(argv: list[str]) -> int:
     if args.dry_run:
         if stage_dir.exists():
             shutil.rmtree(stage_dir)
-        record = stage(targets, build, commit, version, stage_dir, installer, args.dev)
+        record = stage(targets, build, commit, version, stage_dir, installer, args.dev, cross)
         tag = dev_tag(build, commit) if args.dev else args.tag
         if tag:
             # Uploading checks it goes to the release it was tested for.
@@ -2454,7 +2778,12 @@ def main(argv: list[str]) -> int:
         step("Test this build on this machine before publishing it:")
         for copy in copies:
             print(f"    {copy}")
-        upload = "--dev" if args.dev else f"--tag {TAG_PREFIX}X.Y.Z"
+        if cross:
+            print("    The Windows build can't run on this machine: test it on Windows (a VM "
+                  "or a PC,")
+            print("    launcher/docs/cross-windows.md).")
+        upload = "--dev" if args.dev else f"--tag {tag or TAG_PREFIX + 'X.Y.Z'}"
+        upload += "".join(f" --target {target}" for target in args.target or [])
         print(f"    Then upload it from this checkout without changes ({upload});")
         print("    the script uploads exactly these files.")
         if args.open:
